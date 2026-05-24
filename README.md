@@ -108,6 +108,37 @@ Password: password
 
 Change the password after the first login from `Settings -> Platform Password`.
 
+## Docker Images
+
+GitHub Actions automatically builds Docker images for `main` and `v*` tags, then publishes them to Docker Hub.
+
+```text
+docker.io/<dockerhub-namespace>/smartx-hci-capacity-insight-web-api
+docker.io/<dockerhub-namespace>/smartx-hci-capacity-insight-frontend
+```
+
+Published tags include:
+
+- `latest` for the default branch.
+- `main` for the main branch.
+- `v0.1` and other `v*` release tags.
+- `sha-<commit>` for each pushed commit.
+
+Required GitHub repository secrets:
+
+```text
+DOCKERHUB_USERNAME
+DOCKERHUB_TOKEN
+```
+
+Optional GitHub repository variable:
+
+```text
+DOCKERHUB_NAMESPACE
+```
+
+If `DOCKERHUB_NAMESPACE` is not set, the workflow uses `DOCKERHUB_USERNAME` as the Docker Hub namespace.
+
 ## Documentation
 
 - [Deployment Guide](docs/deployment.md)

@@ -110,6 +110,37 @@ Prometheus: http://<server-ip>:9090
 
 首次登录后建议在 `设置 -> 平台密码` 中修改密码。
 
+## Docker 镜像
+
+GitHub Actions 会在 `main` 分支和 `v*` 标签推送后自动构建 Docker 镜像，并发布到 Docker Hub。
+
+```text
+docker.io/<dockerhub-namespace>/smartx-hci-capacity-insight-web-api
+docker.io/<dockerhub-namespace>/smartx-hci-capacity-insight-frontend
+```
+
+发布的标签包括：
+
+- `latest`：默认分支。
+- `main`：main 分支。
+- `v0.1` 以及后续 `v*` 发布标签。
+- `sha-<commit>`：每次推送对应的提交标签。
+
+需要在 GitHub 仓库中配置 Secrets：
+
+```text
+DOCKERHUB_USERNAME
+DOCKERHUB_TOKEN
+```
+
+可选配置 GitHub 仓库变量：
+
+```text
+DOCKERHUB_NAMESPACE
+```
+
+如果不配置 `DOCKERHUB_NAMESPACE`，工作流会使用 `DOCKERHUB_USERNAME` 作为 Docker Hub namespace。
+
 ## 文档
 
 - [部署说明](docs/deployment.md)
