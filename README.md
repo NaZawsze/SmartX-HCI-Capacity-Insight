@@ -4,6 +4,8 @@
 
 Version: `v0.1`
 
+> Status: This project is currently in the testing stage and is not recommended for production use without additional validation.
+
 SmartX HCI Capacity Insight is a storage capacity monitoring and forecasting platform for SmartX hyperconverged infrastructure environments. It collects read-only capacity data from CloudTower/Tower datacenters, clusters, virtual machines, and virtual volumes, then provides capacity overviews, VM storage trends, top-growing VM rankings, cluster forecast reports, and capacity risk insights.
 
 > Note: This project was written with AI assistance.
