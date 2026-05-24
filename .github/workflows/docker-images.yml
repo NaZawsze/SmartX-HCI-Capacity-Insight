@@ -7,9 +7,6 @@ on:
     tags:
       - "v*"
 
-env:
-  DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME }}
-
 jobs:
   build:
     name: Build ${{ matrix.name }}
@@ -39,7 +36,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: docker.io/${{ env.DOCKERHUB_NAMESPACE }}/${{ matrix.image }}
+          images: docker.io/${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}
           tags: |
             type=ref,event=branch
             type=ref,event=tag
