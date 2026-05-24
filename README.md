@@ -23,6 +23,24 @@ SmartX 超融合容量洞察平台面向 SmartX 超融合环境，用于采集 C
 - Cluster forecast reports based on recent historical samples.
 - Tower-level collection status and platform password management.
 
+## Screenshots
+
+### Dashboard Overview
+
+![Dashboard overview](docs/assets/dashboard-overview.png)
+
+### VM Storage Trend
+
+![VM storage trend](docs/assets/vm-storage-trend.png)
+
+### Forecast Report
+
+![Forecast report](docs/assets/forecast-report.png)
+
+### Tower Settings
+
+![Tower settings](docs/assets/tower-settings.png)
+
 ## Architecture
 
 ```text
@@ -113,7 +131,13 @@ Related CloudTower API operations:
 
 ## Password Reset
 
-If the platform password is lost, reset it on the target server:
+If the platform password is lost, reset it on the target server from the project directory:
+
+```bash
+cd /opt/smartx-storage-forecast
+```
+
+Reset interactively:
 
 ```bash
 docker compose exec web-api python -m app.cli reset-password --username admin
@@ -124,6 +148,8 @@ Or pass the new password non-interactively:
 ```bash
 docker compose exec web-api python -m app.cli reset-password --username admin --password password
 ```
+
+Then log in again with the new password.
 
 ## Data and Security Notes
 

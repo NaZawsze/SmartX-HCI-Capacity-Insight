@@ -140,17 +140,29 @@ Users can change their password in:
 Settings -> Platform Password
 ```
 
-If the password is lost, reset it on the target server:
+If the password is lost, reset it on the target server.
+
+Go to the deployment directory:
+
+```bash
+cd /opt/smartx-storage-forecast
+```
+
+Interactive reset:
 
 ```bash
 docker compose exec web-api python -m app.cli reset-password --username admin
 ```
 
-Or pass the password directly:
+The command asks for the new password and confirmation.
+
+Non-interactive reset:
 
 ```bash
 docker compose exec web-api python -m app.cli reset-password --username admin --password password
 ```
+
+Replace `admin` with the actual platform username when needed. After reset, log in again with the new password.
 
 ## 9. Upgrade
 

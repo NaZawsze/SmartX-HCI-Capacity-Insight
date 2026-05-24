@@ -138,5 +138,19 @@ You must provide:
 If the password is lost, use the CLI reset command on the server:
 
 ```bash
+cd /opt/smartx-storage-forecast
+```
+
+Interactive reset:
+
+```bash
 docker compose exec web-api python -m app.cli reset-password --username admin
 ```
+
+Non-interactive reset:
+
+```bash
+docker compose exec web-api python -m app.cli reset-password --username admin --password password
+```
+
+After reset, log out and log in again with the new password.
