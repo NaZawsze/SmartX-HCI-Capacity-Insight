@@ -1,0 +1,27 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+node_modules/
+dist/
+.DS_Store
+._*
+smartx.db
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+prometheus-data/
+smartx-data/
+data/
+tmp_*.py
+*.log
+*.bak.*
+*.pem
+id_ed25519*
+id_rsa*
+开发 SmartX*

@@ -1,0 +1,54 @@
+services:
+  web-api:
+    build:
+      context: ./backend
+    env_file:
+      - .env
+    volumes:
+      - smartx-data:/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  collector-worker:
+    build:
+      context: ./backend
+    command: ["python", "-m", "app.collector.worker"]
+    env_file:
+      - .env
+    volumes:
+      - smartx-data:/data
+    expose:
+      - "9108"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - web-api
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=400d"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+volumes:
+  smartx-data:
+  prometheus-data:
+

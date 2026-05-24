@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 60s
+  evaluation_interval: 60s
+
+scrape_configs:
+  - job_name: smartx-collector
+    static_configs:
+      - targets:
+          - collector-worker:9108
+
