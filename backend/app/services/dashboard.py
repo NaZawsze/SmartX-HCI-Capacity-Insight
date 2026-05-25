@@ -79,9 +79,7 @@ async def vm_trend(vm_id: str, metric: str = "used", days: int = 90) -> list[tup
     metric_name = VM_METRICS.get(metric, VM_METRICS["used"])
     prom = PrometheusQuery()
     result = await prom.range(f'{metric_name}{{vm_id="{vm_id}"}}', days=days)
-    points = []
-    if result:
-        points = [(int(float(ts)), float(value)) for ts, value in result[0].get("values", [])]
+    points = _merge_series_points(result)
     latest = _latest_vm_point(vm_id, metric)
     if latest:
         points = _with_latest_point(points, latest)
@@ -166,6 +164,14 @@ def _series_points(series: dict[str, Any]) -> list[tuple[int, float]]:
         except (TypeError, ValueError):
             continue
     return points
+
+
+def _merge_series_points(series_list: list[dict[str, Any]]) -> list[tuple[int, float]]:
+    merged: dict[int, float] = {}
+    for series in series_list:
+        for ts, value in _series_points(series):
+            merged[ts] = value
+    return sorted(merged.items())
 
 
 def _latest_metric_items(samples: list[dict[str, Any]], kind: str, field: str) -> list[dict[str, Any]]:
