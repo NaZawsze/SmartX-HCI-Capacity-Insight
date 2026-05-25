@@ -90,7 +90,7 @@ function finiteOrNull(value?: number | null): number | null {
 }
 
 function sumFinite(values: Array<number | null | undefined>): number | null {
-  const total = values.reduce((sum, value) => sum + (finiteOrNull(value) || 0), 0);
+  const total = values.reduce<number>((sum, value) => sum + (finiteOrNull(value) || 0), 0);
   return total > 0 ? total : null;
 }
 
