@@ -93,20 +93,39 @@ async def latest_report(tower_id: int | None = None, cluster_id: str | None = No
     latest_samples = load_latest_samples()
     configured_clusters = _configured_cluster_keys(list_towers())
     clusters = await prom.range(CLUSTER_METRICS["used"], days=30)
+    chart_clusters = await _safe_range(prom, CLUSTER_METRICS["used"], days=365)
     totals = _latest_metric_items(latest_samples, "cluster", "total") or await prom.instant(CLUSTER_METRICS["total"])
-    _append_latest_points(clusters, _latest_metric_items(latest_samples, "cluster", "used"))
+    latest_cluster_used = _latest_metric_items(latest_samples, "cluster", "used")
+    _append_latest_points(clusters, latest_cluster_used)
+    _append_latest_points(chart_clusters, latest_cluster_used)
     clusters = _filter_configured_items(clusters, configured_clusters)
+    chart_clusters = _filter_configured_items(chart_clusters, configured_clusters)
     totals = _filter_configured_items(totals, configured_clusters)
     clusters = _filter_items(clusters, tower_id, cluster_id)
+    chart_clusters = _filter_items(chart_clusters, tower_id, cluster_id)
     totals = _filter_items(totals, tower_id, cluster_id)
     cluster_growth_rate = await _cluster_growth_rate_per_day(prom, latest_samples, configured_clusters, tower_id, cluster_id)
     capacity_by_cluster = {_cluster_key(item.get("metric", {})): _value(item) for item in totals}
+    chart_points_by_cluster = {
+        _cluster_key(series.get("metric", {})): _series_points(series)
+        for series in chart_clusters
+    }
     cluster_reports = []
     for series in clusters:
         labels = series.get("metric", {})
-        points = [(int(float(ts)), float(value)) for ts, value in series.get("values", [])]
-        forecast = forecast_series(points, capacity_by_cluster.get(_cluster_key(labels)))
-        cluster_reports.append({"labels": labels, "forecast": asdict(forecast)})
+        key = _cluster_key(labels)
+        points = _series_points(series)
+        capacity = capacity_by_cluster.get(key)
+        forecast = forecast_series(points, capacity)
+        cluster_reports.append(
+            {
+                "labels": labels,
+                "forecast": asdict(forecast),
+                "points": chart_points_by_cluster.get(key, points),
+                "total": capacity,
+                "warning": capacity * 0.9 if capacity else None,
+            }
+        )
     day_vm_reports = await _top_growing_vm_reports(prom, latest_samples, configured_clusters, tower_id, cluster_id, 1, 100)
     month_vm_reports = await _top_growing_vm_reports(prom, latest_samples, configured_clusters, tower_id, cluster_id, 30, 100)
     return {
@@ -137,6 +156,16 @@ def _value(item: dict[str, Any]) -> float:
 def _top_items(items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
     mapped = [{"metric": item.get("metric", {}), "value": _value(item)} for item in items]
     return sorted(mapped, key=lambda item: item["value"], reverse=True)[:limit]
+
+
+def _series_points(series: dict[str, Any]) -> list[tuple[int, float]]:
+    points = []
+    for ts, value in series.get("values", []):
+        try:
+            points.append((int(float(ts)), float(value)))
+        except (TypeError, ValueError):
+            continue
+    return points
 
 
 def _latest_metric_items(samples: list[dict[str, Any]], kind: str, field: str) -> list[dict[str, Any]]:

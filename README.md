@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) | English
 
-Version: `v0.1`
+Version: `v0.2`
 
 > Status: This project is currently in the testing stage and is not recommended for production use without additional validation.
 
@@ -19,7 +19,7 @@ SmartX HCI Capacity Insight is a storage capacity monitoring and forecasting pla
 - Current VM volume details and all VM volume details.
 - Daily and monthly top-growing VM rankings with sorting by growth amount or growth ratio.
 - Click a top-growing VM to jump to the VM page and select the corresponding VM.
-- Cluster forecast reports based on recent historical samples.
+- Cluster forecast reports based on recent historical samples, with linked cluster capacity trend charts.
 - Tower-level collection status and platform password management.
 
 ## Screenshots
@@ -123,7 +123,7 @@ Published tags include:
 
 - `latest` for the default branch.
 - `main` for the main branch.
-- `v0.1` and other `v*` release tags.
+- `v0.2` and other `v*` release tags.
 - `sha-<commit>` for each pushed commit.
 
 Required GitHub repository secrets:

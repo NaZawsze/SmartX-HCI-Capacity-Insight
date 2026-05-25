@@ -1,6 +1,7 @@
 import { CalendarClock, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Card } from "../components/Card";
+import { ClusterCapacityChart } from "../components/ClusterCapacityChart";
 import { api, formatBytes } from "../services/api";
 import type { DashboardScope, DashboardSummary, ForecastPayload, GrowthVmReport } from "../types";
 
@@ -54,6 +55,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
   const dayTopVms = sortGrowthReports(report?.day_fastest_growing_vms || report?.fastest_growing_vms || [], dayGrowthSort).slice(0, 50);
   const monthTopVms = sortGrowthReports(report?.month_fastest_growing_vms || [], monthGrowthSort).slice(0, 50);
   const clusterGrowthRate = totalClusterGrowthRate(report);
+  const selectedClusterLabel = selectedCluster === "all" ? "全部集群" : clusterOptions.find((item) => item.value === selectedCluster)?.label || "集群";
 
   return (
     <div className="report-layout">
@@ -113,6 +115,10 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
           </div>
         </Card>
       </div>
+
+      <Card title="集群容量趋势" subtitle="实际容量、预测趋势与容量阈值" className="cluster-chart-card">
+        <ClusterCapacityChart clusters={report?.clusters || []} title={selectedClusterLabel} />
+      </Card>
 
       <div className="report-vm-row">
         <Card title="日 Top 增长 VM" action={<GrowthSortTabs value={dayGrowthSort} onChange={setDayGrowthSort} />}>

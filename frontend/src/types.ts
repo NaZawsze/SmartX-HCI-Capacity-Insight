@@ -109,6 +109,9 @@ export interface ForecastPayload {
   clusters: Array<{
     labels: Record<string, string>;
     forecast: ForecastResult;
+    points?: [number, number][];
+    total?: number | null;
+    warning?: number | null;
   }>;
   fastest_growing_vms: GrowthVmReport[];
   day_fastest_growing_vms?: GrowthVmReport[];

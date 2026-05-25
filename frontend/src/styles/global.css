@@ -1237,6 +1237,76 @@ button {
   font-size: 24px;
 }
 
+.cluster-chart-card {
+  min-height: 468px;
+}
+
+.cluster-chart-shell {
+  display: grid;
+  gap: 10px;
+}
+
+.cluster-chart-toolbar {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cluster-chart-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cluster-chart-title strong {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cluster-chart-status {
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 9px;
+  background: #eef6ff;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.cluster-chart-status.healthy {
+  background: #eafaf2;
+  color: var(--green);
+}
+
+.cluster-chart-status.warning {
+  background: #fff7e6;
+  color: #b7791f;
+}
+
+.cluster-chart-status.risk {
+  background: #fff1f1;
+  color: #d92d20;
+}
+
+.cluster-chart-status.unknown {
+  background: #f1f5f9;
+  color: var(--muted);
+}
+
+.chart-range-tabs {
+  flex-shrink: 0;
+}
+
 .settings-grid {
   grid-template-columns: 420px 1fr;
   align-items: start;
@@ -1611,6 +1681,23 @@ button {
 
   .card-head {
     flex-wrap: wrap;
+  }
+
+  .cluster-chart-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .cluster-chart-title {
+    width: 100%;
+  }
+
+  .chart-range-tabs {
+    width: 100%;
+  }
+
+  .chart-range-tabs button {
+    flex: 1;
   }
 
   .run-state {
