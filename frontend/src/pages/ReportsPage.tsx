@@ -1,4 +1,4 @@
-import { CalendarClock, TrendingUp } from "lucide-react";
+import { CalendarClock, Download, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Card } from "../components/Card";
 import { ClusterCapacityChart } from "../components/ClusterCapacityChart";
@@ -48,6 +48,10 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
   const [selectedCluster, setSelectedCluster] = useState(scopedClusterValue(scope));
   const [dayGrowthSort, setDayGrowthSort] = useState<GrowthSortMode>("amount");
   const [monthGrowthSort, setMonthGrowthSort] = useState<GrowthSortMode>("amount");
+  const [exporting, setExporting] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportPeriodDays, setExportPeriodDays] = useState(30);
+  const [exportError, setExportError] = useState("");
   const clusterOptions = useMemo(
     () =>
       (summary?.towers || []).flatMap((tower) =>
@@ -76,6 +80,24 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
     api.report(reportScope).then(setReport).catch(() => setReport(null));
   }, [refreshKey, reportScope]);
 
+  async function handleExportBundle() {
+    setExporting(true);
+    setExportError("");
+    try {
+      const [word, excel] = await Promise.all([
+        api.exportReport("word", reportScope, exportPeriodDays),
+        api.exportReport("excel", reportScope, exportPeriodDays)
+      ]);
+      saveBlob(word.blob, word.filename || fallbackExportFilename("word", selectedCluster));
+      saveBlob(excel.blob, excel.filename || fallbackExportFilename("excel", selectedCluster));
+      setExportDialogOpen(false);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "导出失败，请稍后重试。");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const dayTopVms = sortGrowthReports(report?.day_fastest_growing_vms || report?.fastest_growing_vms || [], dayGrowthSort).slice(0, 50);
   const monthTopVms = sortGrowthReports(report?.month_fastest_growing_vms || [], monthGrowthSort).slice(0, 50);
   const clusterGrowthRate = clusterGrowthRates(report);
@@ -89,19 +111,26 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
           subtitle={`基于最近 ${report?.window_days || 30} 天数据，预测 ${report?.forecast_days || 60} 天后容量`}
           className="report-forecast-card"
           action={
-            <label className="report-cluster-select">
-              <span>集群</span>
-              <select value={selectedCluster} onChange={(event) => setSelectedCluster(event.target.value)}>
-                <option value="all">全部集群</option>
-                {clusterOptions.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="report-actions">
+              <label className="report-cluster-select">
+                <span>集群</span>
+                <select value={selectedCluster} onChange={(event) => setSelectedCluster(event.target.value)}>
+                  <option value="all">全部集群</option>
+                  {clusterOptions.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="secondary-button compact export-button" type="button" onClick={() => setExportDialogOpen(true)} disabled={exporting}>
+                <Download size={14} />
+                {exporting ? "导出中" : "导出"}
+              </button>
+            </div>
           }
         >
+          {exportError && <div className="inline-error">{exportError}</div>}
           <div className="report-list">
             {report?.clusters?.length ? (
               report.clusters.map((item) => (
@@ -145,6 +174,42 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
         <ClusterCapacityChart clusters={report?.clusters || []} title={selectedClusterLabel} />
       </Card>
 
+      {exportDialogOpen && (
+        <div className="modal-backdrop" role="presentation" onClick={() => !exporting && setExportDialogOpen(false)}>
+          <div className="export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-dialog-title" onClick={(event) => event.stopPropagation()}>
+            <div className="export-dialog-head">
+              <div>
+                <strong id="export-dialog-title">导出报表</strong>
+                <span>选择增长统计时间区间，将同时导出 Word 和 Excel。</span>
+              </div>
+            </div>
+            <div className="period-options" role="radiogroup" aria-label="导出时间区间">
+              {EXPORT_PERIOD_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={exportPeriodDays === option.value ? "active" : ""}
+                  onClick={() => setExportPeriodDays(option.value)}
+                  disabled={exporting}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            {exportError && <div className="inline-error">{exportError}</div>}
+            <div className="export-dialog-actions">
+              <button className="secondary-button" type="button" onClick={() => setExportDialogOpen(false)} disabled={exporting}>
+                取消
+              </button>
+              <button className="primary-button" type="button" onClick={handleExportBundle} disabled={exporting}>
+                <Download size={15} />
+                {exporting ? "导出中" : "导出 Word 和 Excel"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="report-vm-row">
         <Card title="日 Top 增长 VM" action={<GrowthSortTabs value={dayGrowthSort} onChange={setDayGrowthSort} />}>
           <div className="list-table growth-scroll">
@@ -185,6 +250,15 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
 }
 
 type GrowthSortMode = "amount" | "ratio";
+
+const EXPORT_PERIOD_OPTIONS = [
+  { value: 7, label: "近 7 天" },
+  { value: 14, label: "近 14 天" },
+  { value: 30, label: "近 30 天" },
+  { value: 90, label: "近 90 天" },
+  { value: 180, label: "近 180 天" },
+  { value: 365, label: "近 365 天" }
+] as const;
 
 function clusterGrowthRates(report: ForecastPayload | null): { perDay: number; perMonth: number; perQuarter: number } {
   const perDay =
@@ -229,4 +303,22 @@ function formatGrowthValue(item: GrowthVmReport, mode: GrowthSortMode, unit: str
 function formatPercent(value?: number | null): string {
   if (value == null || !Number.isFinite(value)) return "-";
   return `${(value * 100).toFixed(value >= 1 ? 0 : 1)}%`;
+}
+
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function fallbackExportFilename(format: "word" | "excel", selectedCluster: string): string {
+  const date = new Date();
+  const dateSlug = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`;
+  const scopeSlug = selectedCluster === "all" ? "all" : selectedCluster.replace(/[^a-zA-Z0-9_-]+/g, "-");
+  return `storage-forecast-${scopeSlug}-${dateSlug}.${format === "word" ? "docx" : "xlsx"}`;
 }

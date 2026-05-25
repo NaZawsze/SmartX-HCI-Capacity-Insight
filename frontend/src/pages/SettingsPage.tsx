@@ -16,20 +16,12 @@ const emptyForm = {
   collection_minute: 10
 };
 
-const emptyPasswordForm = {
-  current_password: "",
-  new_password: "",
-  confirm_password: ""
-};
-
 export function SettingsPage() {
   const [towers, setTowers] = useState<Tower[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [editingTowerId, setEditingTowerId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState(emptyForm);
-  const [passwordForm, setPasswordForm] = useState(emptyPasswordForm);
   const [message, setMessage] = useState("");
-  const [passwordMessage, setPasswordMessage] = useState("");
 
   async function reload() {
     setTowers(await api.towers());
@@ -98,22 +90,6 @@ export function SettingsPage() {
     await reload();
   }
 
-  async function submitPassword(event: FormEvent) {
-    event.preventDefault();
-    setPasswordMessage("");
-    if (passwordForm.new_password !== passwordForm.confirm_password) {
-      setPasswordMessage("两次输入的新密码不一致");
-      return;
-    }
-    try {
-      await api.changePassword(passwordForm);
-      setPasswordForm(emptyPasswordForm);
-      setPasswordMessage("平台密码已更新");
-    } catch (exc) {
-      setPasswordMessage(exc instanceof Error ? exc.message : "密码更新失败");
-    }
-  }
-
   return (
     <div className="settings-grid">
       <Card title="新增 Tower">
@@ -157,28 +133,6 @@ export function SettingsPage() {
           <button className="primary-button" type="submit">
             <Plus size={16} />
             创建
-          </button>
-        </form>
-      </Card>
-
-      <Card title="平台密码">
-        <form className="settings-form" onSubmit={submitPassword}>
-          <label>
-            当前密码
-            <input type="password" value={passwordForm.current_password} onChange={(event) => setPasswordForm({ ...passwordForm, current_password: event.target.value })} required />
-          </label>
-          <label>
-            新密码
-            <input type="password" value={passwordForm.new_password} onChange={(event) => setPasswordForm({ ...passwordForm, new_password: event.target.value })} required />
-          </label>
-          <label>
-            确认新密码
-            <input type="password" value={passwordForm.confirm_password} onChange={(event) => setPasswordForm({ ...passwordForm, confirm_password: event.target.value })} required />
-          </label>
-          {passwordMessage && <div className="inline-message">{passwordMessage}</div>}
-          <button className="primary-button" type="submit">
-            <Save size={16} />
-            修改密码
           </button>
         </form>
       </Card>

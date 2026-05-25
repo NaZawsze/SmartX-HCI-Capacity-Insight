@@ -1,4 +1,5 @@
 import asyncio
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
@@ -24,6 +25,7 @@ from app.models import (
 from app.services.cloudtower import CloudTowerClient, normalize_tower
 from app.services.dashboard import dashboard_summary, latest_report, vm_list, vm_trend
 from app.services.prometheus import latest_metrics_text
+from app.services.report_export import DOCX_MEDIA_TYPE, XLSX_MEDIA_TYPE, build_report_docx, build_report_xlsx
 from app.services.towers import create_tower, delete_tower, get_tower, list_towers, update_cluster as save_cluster, update_tower, upsert_clusters
 from app.services.users import change_password
 
@@ -155,10 +157,31 @@ def all_volumes(tower_id: int | None = None, cluster_id: str | None = None, _: d
 
 
 @router.get("/api/reports/latest")
-async def report(tower_id: int | None = None, cluster_id: str | None = None, _: dict = Depends(current_user)) -> dict:
-    return await latest_report(tower_id=tower_id, cluster_id=cluster_id)
+async def report(tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, _: dict = Depends(current_user)) -> dict:
+    return await latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days)
+
+
+@router.get("/api/reports/export/word")
+async def export_report_word(tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, _: dict = Depends(current_user)) -> Response:
+    content, filename = await build_report_docx(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days)
+    return _download_response(content, filename, DOCX_MEDIA_TYPE)
+
+
+@router.get("/api/reports/export/excel")
+async def export_report_excel(tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, _: dict = Depends(current_user)) -> Response:
+    content, filename = await build_report_xlsx(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days)
+    return _download_response(content, filename, XLSX_MEDIA_TYPE)
 
 
 @router.get("/metrics")
 def metrics() -> Response:
     return Response(content=latest_metrics_text(), media_type="text/plain; version=0.0.4")
+
+
+def _download_response(content: bytes, filename: str, media_type: str) -> Response:
+    quoted = quote(filename)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename={quoted}; filename*=UTF-8''{quoted}"},
+    )

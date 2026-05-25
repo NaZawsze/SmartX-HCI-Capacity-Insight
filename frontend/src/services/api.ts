@@ -46,7 +46,25 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-function scopedParams(scope?: DashboardScope): URLSearchParams {
+async function download(path: string): Promise<{ blob: Blob; filename: string }> {
+  const token = getToken();
+  const headers = new Headers();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  const response = await fetch(`${API_BASE}${path}`, { headers });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({ detail: response.statusText }));
+    if (response.status === 401) {
+      setToken(null);
+      throw new Error(payload.detail || "登录已过期，请重新登录。");
+    }
+    throw new Error(payload.detail || response.statusText);
+  }
+  return { blob: await response.blob(), filename: filenameFromDisposition(response.headers.get("Content-Disposition")) };
+}
+
+function scopedParams(scope?: DashboardScope, periodDays?: number): URLSearchParams {
   const params = new URLSearchParams();
   if (scope?.type === "tower" || scope?.type === "cluster") {
     params.set("tower_id", String(scope.towerId));
@@ -54,7 +72,24 @@ function scopedParams(scope?: DashboardScope): URLSearchParams {
   if (scope?.type === "cluster") {
     params.set("cluster_id", scope.clusterId);
   }
+  if (periodDays) {
+    params.set("period_days", String(periodDays));
+  }
   return params;
+}
+
+function scopedQuery(scope?: DashboardScope, periodDays?: number): string {
+  const params = scopedParams(scope, periodDays);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+function filenameFromDisposition(disposition: string | null): string {
+  if (!disposition) return "";
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) return decodeURIComponent(encoded);
+  const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+  return plain ? decodeURIComponent(plain) : "";
 }
 
 export const api = {
@@ -121,9 +156,10 @@ export const api = {
     return request<{ vm_id: string; volumes: VmVolume[] }>(`/api/vms/${encodeURIComponent(vmId)}/volumes${query ? `?${query}` : ""}`);
   },
   async report(scope?: DashboardScope): Promise<ForecastPayload> {
-    const params = scopedParams(scope);
-    const query = params.toString();
-    return request<ForecastPayload>(`/api/reports/latest${query ? `?${query}` : ""}`);
+    return request<ForecastPayload>(`/api/reports/latest${scopedQuery(scope)}`);
+  },
+  async exportReport(format: "word" | "excel", scope?: DashboardScope, periodDays?: number): Promise<{ blob: Blob; filename: string }> {
+    return download(`/api/reports/export/${format}${scopedQuery(scope, periodDays)}`);
   }
 };
 

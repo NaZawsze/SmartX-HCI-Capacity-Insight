@@ -287,6 +287,50 @@ Returns cluster forecast reports, daily top-growing VM reports, monthly top-grow
 
 The report uses a 30-day historical sample window and forecasts 60 days forward. When there are not enough samples, forecast fields may indicate insufficient data.
 
+### Export Forecast Report as Word
+
+```http
+GET /api/reports/export/word
+```
+
+Optional query parameters:
+
+```text
+tower_id=<id>
+cluster_id=<cluster-id>
+period_days=30
+```
+
+The export scope follows the same rules as the report page: all enabled clusters, one Tower, or one cluster. The Word document includes the export scope, generation time, forecast window, cluster summary, and per-cluster monthly Top 100 VM tables sorted by growth amount and growth ratio. Supported `period_days` values are `7`, `14`, `30`, `90`, `180`, and `365`.
+
+Response content type:
+
+```text
+application/vnd.openxmlformats-officedocument.wordprocessingml.document
+```
+
+### Export Forecast Report as Excel
+
+```http
+GET /api/reports/export/excel
+```
+
+Optional query parameters:
+
+```text
+tower_id=<id>
+cluster_id=<cluster-id>
+period_days=30
+```
+
+The workbook includes a summary sheet, a combined monthly VM Top 100 sheet, and one sheet per cluster. The VM tables include Tower, cluster, VM, current capacity, previous capacity, monthly growth amount, and growth ratio.
+
+Response content type:
+
+```text
+application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+```
+
 ## Metrics
 
 ### Prometheus Metrics

@@ -491,6 +491,107 @@ button {
   color: #fff;
 }
 
+.account-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.account-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 138px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 24px rgba(40, 72, 112, 0.14);
+  padding: 6px;
+  display: grid;
+  gap: 4px;
+  z-index: 12;
+}
+
+.account-menu button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.account-menu button:hover {
+  background: #f1f7ff;
+  color: var(--blue);
+}
+
+.password-dialog {
+  width: min(420px, 100%);
+  border: 1px solid #dbe5f1;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 20px 50px rgba(31, 69, 116, 0.22);
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.password-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.password-dialog-head div {
+  display: grid;
+  gap: 5px;
+}
+
+.password-dialog-head strong {
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.password-dialog-head span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.password-dialog label {
+  display: grid;
+  gap: 6px;
+  color: #52647c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.password-dialog input {
+  height: 36px;
+  border: 1px solid #cfd9e8;
+  border-radius: 6px;
+  padding: 0 10px;
+  outline: none;
+  color: var(--ink);
+}
+
+.password-dialog input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.12);
+}
+
+.password-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .main {
   flex: 1 0 auto;
   min-height: 0;
@@ -936,6 +1037,7 @@ button {
   font-weight: 700;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
 }
 
@@ -1163,6 +1265,14 @@ button {
   gap: 10px;
 }
 
+.report-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .report-cluster-select {
   height: 34px;
   display: inline-flex;
@@ -1189,6 +1299,90 @@ button {
 .report-cluster-select select:focus {
   border-color: var(--blue);
   box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.12);
+}
+
+.export-button {
+  height: 34px;
+  padding: 0 10px;
+}
+
+.inline-error {
+  margin-bottom: 10px;
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(16, 42, 86, 0.28);
+}
+
+.export-dialog {
+  width: min(480px, 100%);
+  border: 1px solid #dbe5f1;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 20px 50px rgba(31, 69, 116, 0.22);
+  padding: 18px;
+  display: grid;
+  gap: 16px;
+}
+
+.export-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.export-dialog-head div {
+  display: grid;
+  gap: 5px;
+}
+
+.export-dialog-head strong {
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.export-dialog-head span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.period-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.period-options button {
+  min-height: 34px;
+  border: 1px solid #d7e1ee;
+  border-radius: 6px;
+  background: #f8fbff;
+  color: #52647c;
+  font-weight: 700;
+}
+
+.period-options button.active {
+  border-color: var(--blue);
+  background: #eaf3ff;
+  color: var(--blue);
+}
+
+.export-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .report-row {
@@ -1715,5 +1909,31 @@ button {
 
   .report-numbers {
     text-align: left;
+  }
+
+
+  .period-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .export-dialog-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .export-dialog-actions .primary-button,
+  .export-dialog-actions .secondary-button {
+    width: 100%;
+  }
+
+
+  .password-dialog-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .password-dialog-actions .primary-button,
+  .password-dialog-actions .secondary-button {
+    width: 100%;
   }
 }

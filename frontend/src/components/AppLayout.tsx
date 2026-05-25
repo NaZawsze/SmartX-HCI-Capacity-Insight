@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bell, Building2, ChevronDown, CircleCheck, ClipboardList, Database, HardDrive, LayoutDashboard, Search, Server, Settings, UserRound, View } from "lucide-react";
+import { FormEvent, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Bell, Building2, ChevronDown, CircleCheck, ClipboardList, Database, HardDrive, KeyRound, LayoutDashboard, LogOut, Save, Search, Server, Settings, UserRound, View, X } from "lucide-react";
 import { api } from "../services/api";
 import type { Cluster, DashboardScope, DashboardSummary, PageKey, Tower } from "../types";
 
@@ -32,6 +32,12 @@ const defaultSidebarWidth = 224;
 const minSidebarWidth = 190;
 const maxSidebarWidth = 320;
 
+const emptyPasswordForm = {
+  current_password: "",
+  new_password: "",
+  confirm_password: ""
+};
+
 function scopeKey(scope: DashboardScope): string {
   if (scope.type === "cluster") return `cluster:${scope.towerId}:${scope.clusterId}`;
   if (scope.type === "tower") return `tower:${scope.towerId}`;
@@ -51,6 +57,11 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
         ? "全部集群已连接"
         : `${selectedEnabledClusterCount}/${selectedClusterCount} 集群已连接`;
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [passwordForm, setPasswordForm] = useState(emptyPasswordForm);
+  const [passwordMessage, setPasswordMessage] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(defaultSidebarWidth);
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [expandedTowerIds, setExpandedTowerIds] = useState<Set<number>>(new Set());
@@ -100,6 +111,40 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   function navigate(page: PageKey) {
     onNavigate(page);
     setViewMenuOpen(false);
+    setAccountMenuOpen(false);
+  }
+
+  function openPasswordDialog() {
+    setPasswordForm(emptyPasswordForm);
+    setPasswordMessage("");
+    setPasswordDialogOpen(true);
+    setAccountMenuOpen(false);
+  }
+
+  async function submitPassword(event: FormEvent) {
+    event.preventDefault();
+    setPasswordMessage("");
+    if (passwordForm.new_password !== passwordForm.confirm_password) {
+      setPasswordMessage("两次输入的新密码不一致");
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      await api.changePassword(passwordForm);
+      setPasswordForm(emptyPasswordForm);
+      setPasswordMessage("平台密码已更新");
+    } catch (exc) {
+      setPasswordMessage(exc instanceof Error ? exc.message : "密码更新失败");
+    } finally {
+      setPasswordSaving(false);
+    }
+  }
+
+  function closePasswordDialog() {
+    if (passwordSaving) return;
+    setPasswordDialogOpen(false);
+    setPasswordForm(emptyPasswordForm);
+    setPasswordMessage("");
   }
 
   function selectTower(towerId: number) {
@@ -146,10 +191,6 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
         </div>
         <div className="topbar">
           <div className="topbar-left">
-            <button className="scope-button" type="button">
-              <span className="scope-button-label">{selectedTower?.name || "全部 Tower"}</span>
-              <ChevronDown size={15} />
-            </button>
             <label className="search-box">
               <Search size={17} />
               <input placeholder="搜索..." />
@@ -162,12 +203,64 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
             <button className="icon-button active" title="任务" type="button">
               <ClipboardList size={18} />
             </button>
-            <button className="avatar-button" type="button" onClick={onLogout} title="退出登录">
-              <UserRound size={17} />
-            </button>
+            <div className="account-menu-wrap">
+              <button className="avatar-button" type="button" onClick={() => setAccountMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={accountMenuOpen} title="账号">
+                <UserRound size={17} />
+              </button>
+              {accountMenuOpen && (
+                <div className="account-menu" role="menu">
+                  <button type="button" role="menuitem" onClick={openPasswordDialog}>
+                    <KeyRound size={15} />
+                    <span>设置密码</span>
+                  </button>
+                  <button type="button" role="menuitem" onClick={onLogout}>
+                    <LogOut size={15} />
+                    <span>登出</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </header>
+
+      {passwordDialogOpen && (
+        <div className="modal-backdrop" role="presentation" onClick={closePasswordDialog}>
+          <form className="password-dialog" role="dialog" aria-modal="true" aria-labelledby="password-dialog-title" onSubmit={submitPassword} onClick={(event) => event.stopPropagation()}>
+            <div className="password-dialog-head">
+              <div>
+                <strong id="password-dialog-title">设置平台密码</strong>
+                <span>更新当前登录账号的密码。</span>
+              </div>
+              <button className="icon-button" type="button" onClick={closePasswordDialog} disabled={passwordSaving} aria-label="关闭">
+                <X size={16} />
+              </button>
+            </div>
+            <label>
+              当前密码
+              <input type="password" value={passwordForm.current_password} onChange={(event) => setPasswordForm({ ...passwordForm, current_password: event.target.value })} required />
+            </label>
+            <label>
+              新密码
+              <input type="password" value={passwordForm.new_password} onChange={(event) => setPasswordForm({ ...passwordForm, new_password: event.target.value })} required />
+            </label>
+            <label>
+              确认新密码
+              <input type="password" value={passwordForm.confirm_password} onChange={(event) => setPasswordForm({ ...passwordForm, confirm_password: event.target.value })} required />
+            </label>
+            {passwordMessage && <div className="inline-message">{passwordMessage}</div>}
+            <div className="password-dialog-actions">
+              <button className="secondary-button" type="button" onClick={closePasswordDialog} disabled={passwordSaving}>
+                取消
+              </button>
+              <button className="primary-button" type="submit" disabled={passwordSaving}>
+                <Save size={15} />
+                {passwordSaving ? "保存中" : "修改密码"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="shell-body" ref={shellBodyRef}>
         <aside className="sidebar">

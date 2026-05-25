@@ -111,11 +111,19 @@ Daily and monthly VM rankings display up to 50 VMs and support sorting by:
 
 Click a VM in either report ranking to open the VM page and select the corresponding VM.
 
+The export action follows the current report scope:
+
+- All clusters: exports all enabled clusters.
+- Tower: exports clusters under the selected Tower.
+- Cluster: exports only the selected cluster.
+
+Click `Export`, select a historical window, then confirm. The page downloads both a Word document and an Excel workbook. The Word document contains a scope summary, cluster forecast summary, and per-cluster monthly Top 100 VM sections by growth amount and growth ratio. The Excel workbook contains a summary sheet, a combined VM Top 100 sheet, and one sheet per cluster. Export filenames include the scope name and date.
+
 ## 8. Forecast Meaning
 
 The report uses recent samples to estimate growth trend:
 
-- Sample window: recent 30 days.
+- Sample window: selected export or page window, with 30 days as the default report window.
 - Forecast horizon: 60 days.
 - Forecast data may show insufficient data when there are too few samples.
 
@@ -123,11 +131,7 @@ The forecast is an operational estimate, not a replacement for capacity planning
 
 ## 9. Password Change
 
-Open:
-
-```text
-Settings -> Platform Password
-```
+Open the admin avatar menu in the top-right corner, then choose `Set Password`.
 
 You must provide:
 

@@ -4,7 +4,7 @@
 
 **SmartX 超融合容量洞察平台**
 
-版本：`v0.1`
+版本：`v0.2`
 
 > 状态：本项目目前处于测试阶段，未经充分验证前不建议直接用于生产环境。
 
@@ -22,7 +22,9 @@ SmartX 超融合容量洞察平台面向 SmartX 超融合环境，用于采集 C
 - 支持日 Top 增长 VM、月 Top 增长 VM，并可按增长量或增长率排序。
 - Top 增长 VM 支持点击跳转到虚拟机页面并选中对应虚拟机。
 - 支持基于历史样本的集群容量预测报表，并联动展示集群容量趋势图。
-- 支持 Tower 级采集状态展示和平台密码管理。
+- 支持按全部、Tower 或单集群范围导出预测报表，自动生成 Word 和 Excel 文件。
+- 导出报表支持选择 7 天、14 天、30 天、90 天、180 天和 365 天历史窗口。
+- 支持 Tower 级采集状态展示，平台密码可在管理员头像菜单中修改。
 
 ## 界面预览
 
@@ -110,7 +112,7 @@ Prometheus: http://<server-ip>:9090
 密码：password
 ```
 
-首次登录后建议在 `设置 -> 平台密码` 中修改密码。
+首次登录后建议点击右上角管理员头像，在 `设置密码` 中修改密码。
 
 ## Docker 镜像
 
@@ -125,7 +127,7 @@ docker.io/<dockerhub-namespace>/smartx-hci-capacity-insight-frontend
 
 - `latest`：默认分支。
 - `main`：main 分支。
-- `v0.1` 以及后续 `v*` 发布标签。
+- `v0.2` 以及后续 `v*` 发布标签。
 - `sha-<commit>`：每次推送对应的提交标签。
 
 需要在 GitHub 仓库中配置 Secrets：
@@ -148,6 +150,7 @@ DOCKERHUB_NAMESPACE
 - [部署说明](docs/deployment.md)
 - [使用说明](docs/usage.md)
 - [API 参考](docs/api.md)
+- [v0.2 更新说明](docs/releases/v0.2.md)
 
 ## CloudTower 权限
 

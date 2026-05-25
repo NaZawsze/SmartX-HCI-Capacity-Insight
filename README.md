@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) | English
 
-Version: `v0.1`
+Version: `v0.2`
 
 > Status: This project is currently in the testing stage and is not recommended for production use without additional validation.
 
@@ -20,7 +20,9 @@ SmartX HCI Capacity Insight is a storage capacity monitoring and forecasting pla
 - Daily and monthly top-growing VM rankings with sorting by growth amount or growth ratio.
 - Click a top-growing VM to jump to the VM page and select the corresponding VM.
 - Cluster forecast reports based on recent historical samples, with linked cluster capacity trend charts.
-- Tower-level collection status and platform password management.
+- Forecast report export for all clusters, one Tower, or one cluster, generating Word and Excel files together.
+- Export reports with selectable 7, 14, 30, 90, 180, and 365 day historical windows.
+- Tower-level collection status, with platform password changes available from the admin avatar menu.
 
 ## Screenshots
 
@@ -108,7 +110,7 @@ Username: admin
 Password: password
 ```
 
-Change the password after the first login from `Settings -> Platform Password`.
+Change the password after the first login from the admin avatar menu: `Set Password`.
 
 ## Docker Images
 
@@ -123,7 +125,7 @@ Published tags include:
 
 - `latest` for the default branch.
 - `main` for the main branch.
-- `v0.1` and other `v*` release tags.
+- `v0.2` and other `v*` release tags.
 - `sha-<commit>` for each pushed commit.
 
 Required GitHub repository secrets:
@@ -146,6 +148,7 @@ If `DOCKERHUB_NAMESPACE` is not set, the workflow uses `DOCKERHUB_USERNAME` as t
 - [Deployment Guide](docs/deployment.md)
 - [Usage Guide](docs/usage.md)
 - [API Reference](docs/api.md)
+- [v0.2 Release Notes](docs/releases/v0.2.md)
 
 ## CloudTower Permissions
 

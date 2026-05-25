@@ -93,11 +93,12 @@ async def vm_trend(vm_id: str, metric: str = "used", days: int = 90, tower_id: i
     return points
 
 
-async def latest_report(tower_id: int | None = None, cluster_id: str | None = None) -> dict[str, Any]:
+async def latest_report(tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30) -> dict[str, Any]:
     prom = PrometheusQuery()
     latest_samples = load_latest_samples()
     configured_clusters = _configured_cluster_keys(list_towers())
-    clusters = await prom.range(CLUSTER_METRICS["used"], days=30)
+    window_days = _normalize_period_days(period_days)
+    clusters = await prom.range(CLUSTER_METRICS["used"], days=window_days)
     chart_clusters = await _safe_range(prom, CLUSTER_METRICS["used"], days=365)
     totals = _latest_metric_items(latest_samples, "cluster", "total") or await prom.instant(CLUSTER_METRICS["total"])
     latest_cluster_used = _latest_metric_items(latest_samples, "cluster", "used")
@@ -132,7 +133,7 @@ async def latest_report(tower_id: int | None = None, cluster_id: str | None = No
         )
     cluster_growth_rate = _cluster_growth_rate_from_series(clusters)
     day_vm_reports = await _top_growing_vm_reports(prom, latest_samples, configured_clusters, tower_id, cluster_id, 1, 100)
-    month_vm_reports = await _top_growing_vm_reports(prom, latest_samples, configured_clusters, tower_id, cluster_id, 30, 100)
+    month_vm_reports = await _top_growing_vm_reports(prom, latest_samples, configured_clusters, tower_id, cluster_id, window_days, 100)
     return {
         "clusters": cluster_reports,
         "fastest_growing_vms": day_vm_reports,
@@ -144,9 +145,17 @@ async def latest_report(tower_id: int | None = None, cluster_id: str | None = No
             "per_month": cluster_growth_rate * 30,
             "per_quarter": cluster_growth_rate * 90,
         },
-        "window_days": 30,
+        "window_days": window_days,
         "forecast_days": 60,
     }
+
+
+def _normalize_period_days(period_days: int | None) -> int:
+    try:
+        value = int(period_days or 30)
+    except (TypeError, ValueError):
+        return 30
+    return value if value in {7, 14, 30, 90, 180, 365} else 30
 
 
 async def _safe_instant(prom: PrometheusQuery, query: str) -> list[dict[str, Any]]:
@@ -311,7 +320,9 @@ async def _top_growing_vm_reports(
     period_days: int,
     limit: int,
 ) -> list[dict[str, Any]]:
-    baseline_series = await _safe_range(prom, VM_METRICS["used"], days=2, step="15m")
+    baseline_days = max(2, period_days)
+    baseline_step = "15m" if baseline_days <= 2 else "1h"
+    baseline_series = await _safe_range(prom, VM_METRICS["used"], days=baseline_days, step=baseline_step)
     latest_items = _latest_metric_items(latest_samples, "vm", "used") or await _safe_instant(prom, VM_METRICS["used"])
     previous_items = await _safe_instant(prom, f'{VM_METRICS["used"]} offset {period_days}d')
     baseline_series = _filter_configured_items(baseline_series, configured_clusters)
@@ -349,9 +360,9 @@ async def _top_growing_vm_reports(
         current = _value(item)
         elapsed_days = max((latest_ts - baseline_ts) / 86_400, 1)
         slope_per_day = max(0.0, (current - baseline_value) / elapsed_days)
-        if key not in previous_by_vm:
-            continue
-        previous_value = previous_by_vm[key]
+        previous_value = previous_by_vm.get(key)
+        if previous_value is None:
+            previous_value = baseline_value
         growth_amount = max(0.0, current - previous_value)
         if growth_amount <= 0:
             continue
