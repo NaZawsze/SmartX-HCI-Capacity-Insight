@@ -48,12 +48,16 @@ async def dashboard_summary(tower_id: int | None = None, cluster_id: str | None 
     }
 
 
-async def vm_list() -> list[dict[str, Any]]:
+async def vm_list(tower_id: int | None = None, cluster_id: str | None = None) -> list[dict[str, Any]]:
     prom = PrometheusQuery()
     latest_samples = load_latest_samples()
+    configured_clusters = _configured_cluster_keys(list_towers())
     used_items = _latest_metric_items(latest_samples, "vm", "used") or await _safe_instant(prom, VM_METRICS["used"])
     guest_used_items = _latest_metric_items(latest_samples, "vm", "guest_used") or await _safe_instant(prom, VM_METRICS["guest_used"])
     provisioned_items = _latest_metric_items(latest_samples, "vm", "provisioned") or await _safe_instant(prom, VM_METRICS["provisioned"])
+    used_items = _filter_items(_filter_configured_items(used_items, configured_clusters), tower_id, cluster_id)
+    guest_used_items = _filter_items(_filter_configured_items(guest_used_items, configured_clusters), tower_id, cluster_id)
+    provisioned_items = _filter_items(_filter_configured_items(provisioned_items, configured_clusters), tower_id, cluster_id)
     guest_used_by_vm = {_vm_key(item.get("metric", {})): _value(item) for item in guest_used_items}
     provisioned_by_vm = {_vm_key(item.get("metric", {})): _value(item) for item in provisioned_items}
     mapped = []
@@ -75,12 +79,15 @@ async def vm_list() -> list[dict[str, Any]]:
     return sorted(mapped, key=lambda item: item["value"], reverse=True)[:500]
 
 
-async def vm_trend(vm_id: str, metric: str = "used", days: int = 90) -> list[tuple[int, float]]:
+async def vm_trend(vm_id: str, metric: str = "used", days: int = 90, tower_id: int | None = None, cluster_id: str | None = None) -> list[tuple[int, float]]:
     metric_name = VM_METRICS.get(metric, VM_METRICS["used"])
     prom = PrometheusQuery()
-    result = await prom.range(f'{metric_name}{{vm_id="{vm_id}"}}', days=days)
+    label_filters = [f'vm_id="{vm_id}"']
+    if cluster_id:
+        label_filters.append(f'cluster_id="{cluster_id}"')
+    result = await prom.range(f"{metric_name}{{{','.join(label_filters)}}}", days=days)
     points = _merge_series_points(result)
-    latest = _latest_vm_point(vm_id, metric)
+    latest = _latest_vm_point(vm_id, metric, None, cluster_id)
     if latest:
         points = _with_latest_point(points, latest)
     return points
@@ -199,9 +206,13 @@ def _latest_metric_items(samples: list[dict[str, Any]], kind: str, field: str) -
     return items
 
 
-def _latest_vm_point(vm_id: str, field: str) -> tuple[int, float] | None:
+def _latest_vm_point(vm_id: str, field: str, tower_id: int | None = None, cluster_id: str | None = None) -> tuple[int, float] | None:
     for sample in load_latest_samples():
         if sample.get("kind") != "vm" or str(sample.get("vm_id") or "") != vm_id:
+            continue
+        if tower_id is not None and str(sample.get("tower_id") or "") != str(tower_id):
+            continue
+        if cluster_id and str(sample.get("cluster_id") or "") != cluster_id:
             continue
         value = sample.get(field)
         collected_at = sample.get("collected_at")

@@ -118,12 +118,20 @@ def running_run() -> dict[str, Any] | None:
         )
 
 
-def latest_vm_volumes(vm_id: str) -> list[dict[str, Any]]:
+def latest_vm_volumes(vm_id: str, tower_id: int | None = None, cluster_id: str | None = None) -> list[dict[str, Any]]:
+    filters = ["vm_id = ?"]
+    params: list[Any] = [vm_id]
+    if tower_id is not None:
+        filters.append("tower_id = ?")
+        params.append(tower_id)
+    if cluster_id:
+        filters.append("cluster_id = ?")
+        params.append(cluster_id)
     with get_conn() as conn:
         row = row_to_dict(
             conn.execute(
-                "SELECT payload_json FROM latest_vm_volumes WHERE vm_id = ? ORDER BY collected_at DESC LIMIT 1",
-                (vm_id,),
+                f"SELECT payload_json FROM latest_vm_volumes WHERE {' AND '.join(filters)} ORDER BY collected_at DESC LIMIT 1",
+                params,
             ).fetchone()
         )
     if row is None:
@@ -135,24 +143,37 @@ def latest_vm_volumes(vm_id: str) -> list[dict[str, Any]]:
     return payload if isinstance(payload, list) else []
 
 
-def latest_all_vm_volumes() -> list[dict[str, Any]]:
+def latest_all_vm_volumes(tower_id: int | None = None, cluster_id: str | None = None) -> list[dict[str, Any]]:
+    filters = [
+        """
+        EXISTS (
+            SELECT 1
+            FROM towers
+            JOIN clusters ON clusters.tower_id = towers.id
+            WHERE towers.id = latest_vm_volumes.tower_id
+              AND towers.enabled = 1
+              AND clusters.cluster_id = latest_vm_volumes.cluster_id
+              AND clusters.enabled = 1
+        )
+        """
+    ]
+    params: list[Any] = []
+    if tower_id is not None:
+        filters.append("tower_id = ?")
+        params.append(tower_id)
+    if cluster_id:
+        filters.append("cluster_id = ?")
+        params.append(cluster_id)
     with get_conn() as conn:
         rows = rows_to_dicts(
             conn.execute(
-                """
+                f"""
                 SELECT tower_id, cluster_id, vm_id, payload_json, collected_at
                 FROM latest_vm_volumes
-                WHERE EXISTS (
-                    SELECT 1
-                    FROM towers
-                    JOIN clusters ON clusters.tower_id = towers.id
-                    WHERE towers.id = latest_vm_volumes.tower_id
-                      AND towers.enabled = 1
-                      AND clusters.cluster_id = latest_vm_volumes.cluster_id
-                      AND clusters.enabled = 1
-                )
+                WHERE {' AND '.join(filters)}
                 ORDER BY collected_at DESC
-                """
+                """,
+                params,
             ).fetchall()
         )
     volumes: list[dict[str, Any]] = []

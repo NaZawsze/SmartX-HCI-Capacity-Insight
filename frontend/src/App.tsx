@@ -76,6 +76,7 @@ export default function App() {
       {activePage === "vms" && (
         <VmsPage
           refreshKey={dataRefreshKey}
+          scope={scope}
           selectedVmId={selectedVmId}
           selectedVmName={selectedVmName}
           onSelectedVmChange={(vmId) => {

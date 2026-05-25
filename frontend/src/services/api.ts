@@ -46,6 +46,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function scopedParams(scope?: DashboardScope): URLSearchParams {
+  const params = new URLSearchParams();
+  if (scope?.type === "tower" || scope?.type === "cluster") {
+    params.set("tower_id", String(scope.towerId));
+  }
+  if (scope?.type === "cluster") {
+    params.set("cluster_id", scope.clusterId);
+  }
+  return params;
+}
+
 export const api = {
   async login(username: string, password: string): Promise<LoginResponse> {
     return request<LoginResponse>("/api/auth/login", {
@@ -60,13 +71,7 @@ export const api = {
     });
   },
   async summary(scope?: DashboardScope): Promise<DashboardSummary> {
-    const params = new URLSearchParams();
-    if (scope?.type === "tower" || scope?.type === "cluster") {
-      params.set("tower_id", String(scope.towerId));
-    }
-    if (scope?.type === "cluster") {
-      params.set("cluster_id", scope.clusterId);
-    }
+    const params = scopedParams(scope);
     const query = params.toString();
     return request<DashboardSummary>(`/api/dashboard/summary${query ? `?${query}` : ""}`);
   },
@@ -94,26 +99,29 @@ export const api = {
   async runCollection(): Promise<{ run_id: number; status: string; message: string }> {
     return request<{ run_id: number; status: string; message: string }>("/api/collection/run", { method: "POST" });
   },
-  async vms(): Promise<MetricItem[]> {
-    return request<MetricItem[]>("/api/vms");
+  async vms(scope?: DashboardScope): Promise<MetricItem[]> {
+    const params = scopedParams(scope);
+    const query = params.toString();
+    return request<MetricItem[]>(`/api/vms${query ? `?${query}` : ""}`);
   },
-  async vmVolumesAll(): Promise<VmVolumeSet[]> {
-    return request<VmVolumeSet[]>("/api/vm-volumes");
+  async vmVolumesAll(scope?: DashboardScope): Promise<VmVolumeSet[]> {
+    const params = scopedParams(scope);
+    const query = params.toString();
+    return request<VmVolumeSet[]>(`/api/vm-volumes${query ? `?${query}` : ""}`);
   },
-  async vmTrend(vmId: string, metric = "used", days = 30): Promise<VmTrend> {
-    return request<VmTrend>(`/api/vms/${encodeURIComponent(vmId)}/trend?metric=${metric}&days=${days}`);
+  async vmTrend(vmId: string, metric = "used", days = 30, scope?: DashboardScope): Promise<VmTrend> {
+    const params = scopedParams(scope);
+    params.set("metric", metric);
+    params.set("days", String(days));
+    return request<VmTrend>(`/api/vms/${encodeURIComponent(vmId)}/trend?${params.toString()}`);
   },
-  async vmVolumes(vmId: string): Promise<{ vm_id: string; volumes: VmVolume[] }> {
-    return request<{ vm_id: string; volumes: VmVolume[] }>(`/api/vms/${encodeURIComponent(vmId)}/volumes`);
+  async vmVolumes(vmId: string, scope?: DashboardScope): Promise<{ vm_id: string; volumes: VmVolume[] }> {
+    const params = scopedParams(scope);
+    const query = params.toString();
+    return request<{ vm_id: string; volumes: VmVolume[] }>(`/api/vms/${encodeURIComponent(vmId)}/volumes${query ? `?${query}` : ""}`);
   },
   async report(scope?: DashboardScope): Promise<ForecastPayload> {
-    const params = new URLSearchParams();
-    if (scope?.type === "tower" || scope?.type === "cluster") {
-      params.set("tower_id", String(scope.towerId));
-    }
-    if (scope?.type === "cluster") {
-      params.set("cluster_id", scope.clusterId);
-    }
+    const params = scopedParams(scope);
     const query = params.toString();
     return request<ForecastPayload>(`/api/reports/latest${query ? `?${query}` : ""}`);
   }

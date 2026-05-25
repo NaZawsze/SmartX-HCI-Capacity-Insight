@@ -14,7 +14,21 @@ interface ReportsPageProps {
 
 function scopedClusterValue(scope: DashboardScope): string {
   if (scope.type === "cluster") return `${scope.towerId}:${scope.clusterId}`;
+  if (scope.type === "tower") return `tower:${scope.towerId}`;
   return "all";
+}
+
+function scopeFromClusterValue(value: string): DashboardScope | undefined {
+  if (value === "all") return undefined;
+  if (value.startsWith("tower:")) {
+    const towerId = Number(value.slice("tower:".length));
+    return Number.isFinite(towerId) ? { type: "tower", towerId } : undefined;
+  }
+  const separator = value.indexOf(":");
+  if (separator <= 0) return undefined;
+  const towerId = Number(value.slice(0, separator));
+  const clusterId = value.slice(separator + 1);
+  return Number.isFinite(towerId) && clusterId ? { type: "cluster", towerId, clusterId } : undefined;
 }
 
 function formatForecast(value?: number | null): string {
@@ -33,16 +47,22 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
   const clusterOptions = useMemo(
     () =>
       (summary?.towers || []).flatMap((tower) =>
-        tower.clusters.map((cluster) => ({
-          value: `${tower.id}:${cluster.cluster_id}`,
-          label: `${tower.name} / ${cluster.name || cluster.cluster_id}`,
-          scope: { type: "cluster", towerId: tower.id, clusterId: cluster.cluster_id } as DashboardScope
-        }))
+        [
+          {
+            value: `tower:${tower.id}`,
+            label: tower.name,
+            scope: { type: "tower", towerId: tower.id } as DashboardScope
+          },
+          ...tower.clusters.map((cluster) => ({
+            value: `${tower.id}:${cluster.cluster_id}`,
+            label: `${tower.name} / ${cluster.name || cluster.cluster_id}`,
+            scope: { type: "cluster", towerId: tower.id, clusterId: cluster.cluster_id } as DashboardScope
+          }))
+        ]
       ),
     [summary?.towers]
   );
-  const selectedScope = clusterOptions.find((item) => item.value === selectedCluster)?.scope;
-  const reportScope = selectedScope || undefined;
+  const reportScope = useMemo(() => scopeFromClusterValue(selectedCluster), [selectedCluster]);
 
   useEffect(() => {
     setSelectedCluster(scopedClusterValue(scope));

@@ -126,25 +126,32 @@ async def summary(tower_id: int | None = None, cluster_id: str | None = None, _:
 
 
 @router.get("/api/vms")
-async def vms(_: dict = Depends(current_user)) -> list[dict]:
-    return await vm_list()
+async def vms(tower_id: int | None = None, cluster_id: str | None = None, _: dict = Depends(current_user)) -> list[dict]:
+    return await vm_list(tower_id=tower_id, cluster_id=cluster_id)
 
 
 @router.get("/api/vms/{vm_id}/trend", response_model=VmTrendResponse)
-async def trend(vm_id: str, metric: str = "used", days: int = 30, _: dict = Depends(current_user)) -> VmTrendResponse:
+async def trend(
+    vm_id: str,
+    metric: str = "used",
+    days: int = 30,
+    tower_id: int | None = None,
+    cluster_id: str | None = None,
+    _: dict = Depends(current_user),
+) -> VmTrendResponse:
     if days not in {7, 14, 30, 90, 180, 365}:
         raise HTTPException(status_code=400, detail="Unsupported trend range.")
-    return VmTrendResponse(vm_id=vm_id, metric=metric, points=await vm_trend(vm_id, metric, days))
+    return VmTrendResponse(vm_id=vm_id, metric=metric, points=await vm_trend(vm_id, metric, days, tower_id=tower_id, cluster_id=cluster_id))
 
 
 @router.get("/api/vms/{vm_id}/volumes", response_model=VmVolumeResponse)
-def volumes(vm_id: str, _: dict = Depends(current_user)) -> VmVolumeResponse:
-    return VmVolumeResponse(vm_id=vm_id, volumes=latest_vm_volumes(vm_id))
+def volumes(vm_id: str, tower_id: int | None = None, cluster_id: str | None = None, _: dict = Depends(current_user)) -> VmVolumeResponse:
+    return VmVolumeResponse(vm_id=vm_id, volumes=latest_vm_volumes(vm_id, tower_id=tower_id, cluster_id=cluster_id))
 
 
 @router.get("/api/vm-volumes", response_model=list[VmVolumeSetResponse])
-def all_volumes(_: dict = Depends(current_user)) -> list[VmVolumeSetResponse]:
-    return [VmVolumeSetResponse(**item) for item in latest_all_vm_volumes()]
+def all_volumes(tower_id: int | None = None, cluster_id: str | None = None, _: dict = Depends(current_user)) -> list[VmVolumeSetResponse]:
+    return [VmVolumeSetResponse(**item) for item in latest_all_vm_volumes(tower_id=tower_id, cluster_id=cluster_id)]
 
 
 @router.get("/api/reports/latest")

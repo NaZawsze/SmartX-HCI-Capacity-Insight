@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "../components/Card";
 import { TrendChart } from "../components/TrendChart";
 import { api, formatBytes } from "../services/api";
-import type { MetricItem, VmTrend, VmVolume, VmVolumeSet } from "../types";
+import type { DashboardScope, MetricItem, VmTrend, VmVolume, VmVolumeSet } from "../types";
 
 const trendRanges = [7, 14, 30, 90, 180] as const;
 type TrendRange = (typeof trendRanges)[number];
@@ -12,12 +12,13 @@ type SortMode = "size" | "usage";
 
 interface VmsPageProps {
   refreshKey?: number;
+  scope: DashboardScope;
   selectedVmId?: string;
   selectedVmName?: string;
   onSelectedVmChange?: (vmId: string) => void;
 }
 
-export function VmsPage({ refreshKey = 0, selectedVmId = "", selectedVmName = "", onSelectedVmChange }: VmsPageProps) {
+export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmName = "", onSelectedVmChange }: VmsPageProps) {
   const [items, setItems] = useState<MetricItem[]>([]);
   const [selectedVm, setSelectedVm] = useState("");
   const [query, setQuery] = useState("");
@@ -30,7 +31,7 @@ export function VmsPage({ refreshKey = 0, selectedVmId = "", selectedVmName = ""
   const lastOpenedVmNameRef = useRef("");
 
   useEffect(() => {
-    api.vms().then((result) => {
+    api.vms(scope).then((result) => {
       setItems(result);
       setSelectedVm((current) => {
         if (selectedVmId && result.some((item) => item.metric.vm_id === selectedVmId)) return selectedVmId;
@@ -38,19 +39,19 @@ export function VmsPage({ refreshKey = 0, selectedVmId = "", selectedVmName = ""
         return result[0]?.metric.vm_id || "";
       });
     });
-  }, [refreshKey, selectedVmId]);
+  }, [refreshKey, scope, selectedVmId]);
 
   useEffect(() => {
-    api.vmVolumesAll().then(setAllVolumes).catch(() => setAllVolumes([]));
-  }, [refreshKey]);
+    api.vmVolumesAll(scope).then(setAllVolumes).catch(() => setAllVolumes([]));
+  }, [refreshKey, scope]);
 
   useEffect(() => {
     if (!selectedVm) {
       setTrend(null);
       return;
     }
-    api.vmTrend(selectedVm, "used", trendDays).then(setTrend).catch(() => setTrend(null));
-  }, [refreshKey, selectedVm, trendDays]);
+    api.vmTrend(selectedVm, "used", trendDays, scope).then(setTrend).catch(() => setTrend(null));
+  }, [refreshKey, scope, selectedVm, trendDays]);
 
   useEffect(() => {
     if (selectedVmName) {
