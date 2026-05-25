@@ -109,7 +109,6 @@ async def latest_report(tower_id: int | None = None, cluster_id: str | None = No
     clusters = _filter_items(clusters, tower_id, cluster_id)
     chart_clusters = _filter_items(chart_clusters, tower_id, cluster_id)
     totals = _filter_items(totals, tower_id, cluster_id)
-    cluster_growth_rate = await _cluster_growth_rate_per_day(prom, latest_samples, configured_clusters, tower_id, cluster_id)
     capacity_by_cluster = {_cluster_key(item.get("metric", {})): _value(item) for item in totals}
     chart_points_by_cluster = {
         _cluster_key(series.get("metric", {})): _series_points(series)
@@ -131,6 +130,7 @@ async def latest_report(tower_id: int | None = None, cluster_id: str | None = No
                 "warning": capacity * 0.9 if capacity else None,
             }
         )
+    cluster_growth_rate = _cluster_growth_rate_from_series(clusters)
     day_vm_reports = await _top_growing_vm_reports(prom, latest_samples, configured_clusters, tower_id, cluster_id, 1, 100)
     month_vm_reports = await _top_growing_vm_reports(prom, latest_samples, configured_clusters, tower_id, cluster_id, 30, 100)
     return {
@@ -139,6 +139,11 @@ async def latest_report(tower_id: int | None = None, cluster_id: str | None = No
         "day_fastest_growing_vms": day_vm_reports,
         "month_fastest_growing_vms": month_vm_reports,
         "cluster_growth_rate_per_day": cluster_growth_rate,
+        "cluster_growth_rate": {
+            "per_day": cluster_growth_rate,
+            "per_month": cluster_growth_rate * 30,
+            "per_quarter": cluster_growth_rate * 90,
+        },
         "window_days": 30,
         "forecast_days": 60,
     }
@@ -402,6 +407,25 @@ async def _cluster_growth_rate_per_day(
         fallback = await _cluster_growth_rate_from_baseline(prom, latest_items, missing_keys, tower_id, cluster_id)
         total += fallback
     return total
+
+
+def _cluster_growth_rate_from_series(series_list: list[dict[str, Any]]) -> float:
+    total = 0.0
+    for series in series_list:
+        total += _growth_rate_from_points(_series_points(series))
+    return total
+
+
+def _growth_rate_from_points(points: list[tuple[int, float]]) -> float:
+    cleaned = [(int(ts), float(value)) for ts, value in points if value is not None]
+    if len(cleaned) < 2:
+        return 0.0
+    first_ts, first_value = cleaned[0]
+    last_ts, last_value = cleaned[-1]
+    elapsed_days = (last_ts - first_ts) / 86_400
+    if elapsed_days <= 0:
+        return 0.0
+    return max(0.0, (last_value - first_value) / elapsed_days)
 
 
 async def _cluster_growth_rate_from_baseline(

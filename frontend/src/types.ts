@@ -117,6 +117,11 @@ export interface ForecastPayload {
   day_fastest_growing_vms?: GrowthVmReport[];
   month_fastest_growing_vms?: GrowthVmReport[];
   cluster_growth_rate_per_day?: number | null;
+  cluster_growth_rate?: {
+    per_day?: number | null;
+    per_month?: number | null;
+    per_quarter?: number | null;
+  };
   window_days: number;
   forecast_days?: number;
 }

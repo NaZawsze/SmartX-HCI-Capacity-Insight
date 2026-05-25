@@ -39,6 +39,10 @@ function monthlyGrowth(value?: number | null): number {
   return (value || 0) * 30;
 }
 
+function quarterlyGrowth(value?: number | null): number {
+  return (value || 0) * 90;
+}
+
 export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: ReportsPageProps) {
   const [report, setReport] = useState<ForecastPayload | null>(null);
   const [selectedCluster, setSelectedCluster] = useState(scopedClusterValue(scope));
@@ -74,7 +78,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
 
   const dayTopVms = sortGrowthReports(report?.day_fastest_growing_vms || report?.fastest_growing_vms || [], dayGrowthSort).slice(0, 50);
   const monthTopVms = sortGrowthReports(report?.month_fastest_growing_vms || [], monthGrowthSort).slice(0, 50);
-  const clusterGrowthRate = totalClusterGrowthRate(report);
+  const clusterGrowthRate = clusterGrowthRates(report);
   const selectedClusterLabel = selectedCluster === "all" ? "全部集群" : clusterOptions.find((item) => item.value === selectedCluster)?.label || "集群";
 
   return (
@@ -130,8 +134,9 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
         <Card title="容量增长速率">
           <div className="forecast-window growth-window">
             <TrendingUp size={44} />
-            <strong>{formatBytes(clusterGrowthRate)}/天</strong>
-            <span>{formatBytes(monthlyGrowth(clusterGrowthRate))}/月</span>
+            <strong>{formatBytes(clusterGrowthRate.perDay)}/天</strong>
+            <span>{formatBytes(clusterGrowthRate.perMonth)}/月</span>
+            <span>{formatBytes(clusterGrowthRate.perQuarter)}/季度</span>
           </div>
         </Card>
       </div>
@@ -181,10 +186,17 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
 
 type GrowthSortMode = "amount" | "ratio";
 
-function totalClusterGrowthRate(report: ForecastPayload | null): number {
-  if (report?.cluster_growth_rate_per_day != null) return report.cluster_growth_rate_per_day;
-  if (!report?.clusters?.length) return 0;
-  return report.clusters.reduce((total, item) => total + Math.max(0, item.forecast.slope_per_day || 0), 0);
+function clusterGrowthRates(report: ForecastPayload | null): { perDay: number; perMonth: number; perQuarter: number } {
+  const perDay =
+    report?.cluster_growth_rate?.per_day ??
+    report?.cluster_growth_rate_per_day ??
+    report?.clusters?.reduce((total, item) => total + Math.max(0, item.forecast.slope_per_day || 0), 0) ??
+    0;
+  return {
+    perDay,
+    perMonth: report?.cluster_growth_rate?.per_month ?? monthlyGrowth(perDay),
+    perQuarter: report?.cluster_growth_rate?.per_quarter ?? quarterlyGrowth(perDay)
+  };
 }
 
 function GrowthSortTabs({ value, onChange }: { value: GrowthSortMode; onChange: (value: GrowthSortMode) => void }) {
