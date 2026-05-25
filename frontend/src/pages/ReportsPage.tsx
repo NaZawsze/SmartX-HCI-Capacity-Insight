@@ -152,11 +152,11 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
           </div>
         </Card>
 
-        <Card title="预测窗口">
+        <Card title="历史样本窗口">
           <div className="forecast-window">
             <CalendarClock size={44} />
             <strong>{report?.window_days || 30} 天</strong>
-            <span>趋势样本窗口</span>
+            <span>用于计算增长速率</span>
           </div>
         </Card>
 

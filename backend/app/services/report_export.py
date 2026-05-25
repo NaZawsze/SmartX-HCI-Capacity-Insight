@@ -7,47 +7,61 @@ from secrets import token_hex
 from typing import Any
 
 from docx import Document
-from docx.enum.section import WD_ORIENT
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Inches, Pt, RGBColor
 from openpyxl import Workbook
+from openpyxl.chart import BarChart, Reference
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from app.services.dashboard import latest_report
 
 
+DOCX_FONT_ASCII = "Noto Serif"
+DOCX_FONT_EAST_ASIA = "Noto Serif CJK SC"
+CHART_FONT_FAMILY = "Noto Serif CJK JP"
+
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+ACCENT = "1F4E79"
+ACCENT_DARK = "17365D"
+ACCENT_LIGHT = "D9EAF7"
+ACCENT_SOFT = "F2F6FB"
+BORDER = "C7D6E8"
+SUCCESS = "EAF4EC"
+WARNING = "FFF2CC"
+DANGER = "FCE4D6"
+PERIODS = [("month", "较上月", 30), ("quarter", "较上季度", 90), ("year", "较上一年", 365)]
 
 
 async def build_report_docx(tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30) -> tuple[bytes, str]:
     report = await latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days)
     context = _export_context(report, tower_id, cluster_id)
+    clusters = context["clusters"]
     document = Document()
-    _set_landscape(document)
+    _setup_document(document, context)
 
-    title = document.add_heading("存储容量预测报表", level=0)
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    document.add_paragraph(f"导出范围：{context['scope_label']}")
-    document.add_paragraph(f"生成时间：{context['generated_at']}")
-    document.add_paragraph(f"预测窗口：最近 {report.get('window_days') or 30} 天，预测 {report.get('forecast_days') or 60} 天后容量")
-    document.add_paragraph(f"集群数量：{len(context['clusters'])}")
-
-    document.add_heading("集群预测汇总", level=1)
-    _add_cluster_summary_table(document, context["clusters"])
+    _add_cover(document, context)
+    _add_report_overview(document, context)
+    document.add_heading("1. 集群容量增长概览", level=1)
+    _add_cluster_growth_chart(document, clusters)
+    _add_cluster_summary_table(document, clusters)
 
     vms_by_cluster = _vms_by_cluster(report.get("month_fastest_growing_vms") or [])
-    for cluster in context["clusters"]:
+    for index, cluster in enumerate(clusters, start=1):
         labels = cluster.get("labels", {})
         key = _cluster_key(labels)
         vms = vms_by_cluster.get(key, [])
         document.add_page_break()
-        document.add_heading(_cluster_title(labels), level=1)
-        _add_cluster_paragraph(document, cluster, len(vms))
-        document.add_heading("月增长量 TOP100 VM", level=2)
+        document.add_heading(f"2.{index} {_cluster_title(labels)}", level=1)
+        _add_cluster_customer_summary(document, cluster, len(vms))
+        _add_single_cluster_charts(document, cluster, vms)
+        document.add_heading("增长量 TOP100 虚拟机", level=2)
         _add_vm_table(document, _top_vms(vms, "amount"))
-        document.add_heading("月增长率 TOP100 VM", level=2)
+        document.add_heading("增长率 TOP100 虚拟机", level=2)
         _add_vm_table(document, _top_vms(vms, "ratio"))
 
     return _docx_bytes(document), _export_filename(context, "docx")
@@ -104,99 +118,439 @@ def _export_filename(context: dict[str, Any], extension: str) -> str:
     return f"storage-forecast-{context['scope_slug']}-{context['date_slug']}.{extension}"
 
 
-def _set_landscape(document: Document) -> None:
+def _setup_document(document: Document, context: dict[str, Any]) -> None:
     section = document.sections[0]
-    section.orientation = WD_ORIENT.LANDSCAPE
-    section.page_width, section.page_height = section.page_height, section.page_width
-    section.left_margin = Inches(0.5)
-    section.right_margin = Inches(0.5)
+    section.left_margin = Inches(0.62)
+    section.right_margin = Inches(0.62)
+    section.top_margin = Inches(0.66)
+    section.bottom_margin = Inches(0.64)
+    for style_name in ["Normal", "Heading 1", "Heading 2", "Heading 3"]:
+        style = document.styles[style_name]
+        _apply_style_font(style)
+    document.styles["Normal"].font.size = Pt(9)
+    document.styles["Heading 1"].font.size = Pt(15)
+    document.styles["Heading 1"].font.bold = True
+    document.styles["Heading 1"].font.color.rgb = RGBColor(23, 54, 93)
+    document.styles["Heading 2"].font.size = Pt(11)
+    document.styles["Heading 2"].font.bold = True
+    document.styles["Heading 2"].font.color.rgb = RGBColor(31, 78, 121)
+    _setup_header_footer(section, context)
+
+
+def _apply_style_font(style: Any) -> None:
+    style.font.name = DOCX_FONT_ASCII
+    style._element.rPr.rFonts.set(qn("w:ascii"), DOCX_FONT_ASCII)
+    style._element.rPr.rFonts.set(qn("w:hAnsi"), DOCX_FONT_ASCII)
+    style._element.rPr.rFonts.set(qn("w:eastAsia"), DOCX_FONT_EAST_ASIA)
+
+
+def _apply_run_font(run: Any) -> None:
+    run.font.name = DOCX_FONT_ASCII
+    run._element.rPr.rFonts.set(qn("w:ascii"), DOCX_FONT_ASCII)
+    run._element.rPr.rFonts.set(qn("w:hAnsi"), DOCX_FONT_ASCII)
+    run._element.rPr.rFonts.set(qn("w:eastAsia"), DOCX_FONT_EAST_ASIA)
+
+
+def _setup_header_footer(section: Any, context: dict[str, Any]) -> None:
+    header = section.header.paragraphs[0]
+    header.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    run = header.add_run("SmartX Storage Forecast | 容量预测报告")
+    _apply_run_font(run)
+    run.font.size = Pt(8)
+    run.font.color.rgb = RGBColor(122, 138, 160)
+
+    footer = section.footer.paragraphs[0]
+    footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = footer.add_run(f"{context['scope_label']} · {context['generated_at']}")
+    _apply_run_font(run)
+    run.font.size = Pt(8)
+    run.font.color.rgb = RGBColor(122, 138, 160)
+
+
+def _add_cover_brand(document: Document) -> None:
+    table = document.add_table(rows=1, cols=2)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    _set_table_width(table, [900, 7200])
+    _set_table_borders(table, "FFFFFF")
+    _set_cell(table.rows[0].cells[0], "", fill=ACCENT)
+    cell = table.rows[0].cells[1]
+    _set_cell(cell, "SmartX HCI Capacity Insight", fill="F7FAFC", color=ACCENT_DARK, bold=True)
+    for paragraph in cell.paragraphs:
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+
+def _add_cover_rule(document: Document) -> None:
+    table = document.add_table(rows=1, cols=1)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    _set_table_width(table, [7800])
+    _set_table_borders(table, "FFFFFF")
+    _set_cell(table.rows[0].cells[0], "", fill=ACCENT)
+
+
+def _add_callout(document: Document, title: str, body: str) -> None:
+    table = document.add_table(rows=1, cols=1)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.style = "Table Grid"
+    _set_table_width(table, [7900])
+    _set_table_borders(table, BORDER)
+    cell = table.rows[0].cells[0]
+    _shade_cell(cell, "F7FAFC")
+    paragraph = cell.paragraphs[0]
+    title_run = paragraph.add_run(f"{title}：")
+    _apply_run_font(title_run)
+    title_run.bold = True
+    title_run.font.size = Pt(9)
+    title_run.font.color.rgb = RGBColor(23, 54, 93)
+    body_run = paragraph.add_run(body)
+    _apply_run_font(body_run)
+    body_run.font.size = Pt(9)
+    body_run.font.color.rgb = RGBColor(38, 54, 79)
+    document.add_paragraph()
+
+
+def _add_figure(document: Document, image: BytesIO, caption: str, width: float) -> None:
+    paragraph = document.add_paragraph()
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = paragraph.add_run(caption)
+    _apply_run_font(run)
+    run.bold = True
+    run.font.size = Pt(9)
+    run.font.color.rgb = RGBColor(61, 78, 99)
+    paragraph.paragraph_format.space_after = Pt(2)
+    picture = document.add_picture(image, width=Inches(width))
+    picture.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    document.add_paragraph()
+
+
+def _add_cover(document: Document, context: dict[str, Any]) -> None:
+    _add_cover_brand(document)
+    document.add_paragraph()
+    title = document.add_paragraph()
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = title.add_run("存储容量预测分析报告")
+    _apply_run_font(run)
+    run.bold = True
+    run.font.size = Pt(28)
+    run.font.color.rgb = RGBColor(23, 54, 93)
+
+    subtitle = document.add_paragraph()
+    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = subtitle.add_run("Storage Capacity Forecast Report")
+    _apply_run_font(run)
+    run.font.size = Pt(12)
+    run.font.color.rgb = RGBColor(91, 115, 139)
+
+    _add_cover_rule(document)
+    document.add_paragraph()
+
+    table = document.add_table(rows=4, cols=2)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.style = "Table Grid"
+    _set_table_width(table, [2300, 5400])
+    _set_table_borders(table, BORDER)
+    rows = [
+        ("导出范围", context["scope_label"]),
+        ("生成时间", context["generated_at"]),
+        ("预测窗口", f"最近 {context['report'].get('window_days') or 30} 天，预测 {context['report'].get('forecast_days') or 60} 天"),
+        ("集群数量", f"{len(context['clusters'])} 个"),
+    ]
+    for row, (key, value) in zip(table.rows, rows):
+        _set_cell(row.cells[0], key, fill=ACCENT, color="FFFFFF", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
+        _set_cell(row.cells[1], value, fill="F7FAFC")
+
+    document.add_paragraph()
+    _add_callout(
+        document,
+        "报告说明",
+        "本报告基于平台采集容量样本自动生成，用于客户容量趋势复盘、风险沟通与扩容规划参考。预测结果应结合业务上线计划和实际资源治理策略共同判断。",
+    )
+    document.add_page_break()
+
+
+def _add_report_overview(document: Document, context: dict[str, Any]) -> None:
+    clusters = context["clusters"]
+    total_current = sum(float((cluster.get("forecast") or {}).get("current") or 0) for cluster in clusters)
+    total_month = sum(_cluster_period_growth(cluster, "month") for cluster in clusters)
+    total_quarter = sum(_cluster_period_growth(cluster, "quarter") for cluster in clusters)
+    total_year = sum(_cluster_period_growth(cluster, "year") for cluster in clusters)
+    risk_count = sum(1 for cluster in clusters if _risk_level(cluster)[0] != "正常")
+    document.add_heading("报告摘要", level=1)
+    table = document.add_table(rows=1, cols=5)
+    table.style = "Table Grid"
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    _set_table_width(table, [1650, 1650, 1650, 1650, 1650])
+    _set_table_borders(table, BORDER)
+    values = [
+        ("当前已用", _format_bytes(total_current)),
+        ("较上月增加", _format_bytes(total_month)),
+        ("较上季度增加", _format_bytes(total_quarter)),
+        ("较上一年增加", _format_bytes(total_year)),
+        ("容量关注集群", f"{risk_count} 个"),
+    ]
+    for cell, (label, value) in zip(table.rows[0].cells, values):
+        cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+        _shade_cell(cell, ACCENT_SOFT)
+        paragraph = cell.paragraphs[0]
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = paragraph.add_run(label + "\n")
+        _apply_run_font(run)
+        run.bold = True
+        run.font.size = Pt(8)
+        run.font.color.rgb = RGBColor(91, 115, 139)
+        run = paragraph.add_run(value)
+        _apply_run_font(run)
+        run.bold = True
+        run.font.size = Pt(13)
+        run.font.color.rgb = RGBColor(23, 54, 93)
+    _add_callout(document, "结论摘要", _overview_sentence(clusters))
+
+
+def _overview_sentence(clusters: list[dict[str, Any]]) -> str:
+    if not clusters:
+        return "当前范围内暂无可用于分析的集群容量数据。"
+    fastest = max(clusters, key=lambda item: _cluster_period_growth(item, "month"))
+    risk_items = [cluster for cluster in clusters if _risk_level(cluster)[0] != "正常"]
+    labels = fastest.get("labels", {})
+    text = f"当前范围共 {len(clusters)} 个集群，月增长最高的是 {_cluster_title(labels)}，较上月增加 {_format_bytes(_cluster_period_growth(fastest, 'month'))}。"
+    if risk_items:
+        text += f" 有 {len(risk_items)} 个集群在 60 天预测窗口内达到或接近容量阈值，建议优先复核容量规划。"
+    else:
+        text += " 当前 60 天预测窗口内未发现明显容量阈值风险。"
+    return text
+
+
+def _add_cluster_growth_chart(document: Document, clusters: list[dict[str, Any]]) -> None:
+    trend_chart = _scope_trend_line_chart(clusters, "容量使用率趋势")
+    if trend_chart is not None:
+        _add_figure(document, trend_chart, "图 1：容量使用趋势", width=6.6)
+    else:
+        document.add_paragraph("暂无足够历史数据生成容量趋势图。")
+
+    top_chart = _cluster_top_growth_bar_chart(clusters, "Top 5 集群月增长量", period="month")
+    if top_chart is not None:
+        _add_figure(document, top_chart, "图 2：Top 5 集群月增长量", width=6.8)
 
 
 def _add_cluster_summary_table(document: Document, clusters: list[dict[str, Any]]) -> None:
-    headers = ["Tower", "集群", "当前容量", "60天预测", "月增长速率", "容量阈值", "耗尽天数"]
+    headers = ["Tower", "集群", "当前容量", "较上月", "较上季度", "较上一年", "60天预测", "风险"]
     table = document.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    _set_table_width(table, [1050, 1700, 1200, 1200, 1200, 1200, 1200, 850])
     _set_docx_headers(table.rows[0].cells, headers)
+    _set_table_borders(table, BORDER)
     for cluster in clusters:
         labels = cluster.get("labels", {})
         forecast = cluster.get("forecast", {})
+        risk, fill = _risk_level(cluster)
+        row = table.add_row().cells
         values = [
             labels.get("tower") or labels.get("tower_id") or "-",
             labels.get("cluster") or labels.get("cluster_id") or "-",
             _format_bytes(forecast.get("current")),
+            _format_bytes(_cluster_period_growth(cluster, "month")),
+            _format_bytes(_cluster_period_growth(cluster, "quarter")),
+            _format_bytes(_cluster_period_growth(cluster, "year")),
             _format_bytes(forecast.get("forecast_60d")),
-            _format_bytes(_monthly_growth(cluster)),
-            _format_bytes(cluster.get("warning")),
-            _format_days(forecast.get("exhaustion_days")),
+            risk,
         ]
-        _set_docx_row(table.add_row().cells, values)
+        _set_docx_row(row, values)
+        if len(table.rows) % 2 == 1:
+            _shade_row(row, "FAFCFF")
+        _shade_cell(row[-1], fill)
 
 
-def _add_cluster_paragraph(document: Document, cluster: dict[str, Any], vm_count: int) -> None:
+def _add_cluster_customer_summary(document: Document, cluster: dict[str, Any], vm_count: int) -> None:
     forecast = cluster.get("forecast", {})
-    document.add_paragraph(
-        "；".join(
-            [
-                f"当前容量 {_format_bytes(forecast.get('current'))}",
-                f"60 天预测 {_format_bytes(forecast.get('forecast_60d'))}",
-                f"月增长速率 {_format_bytes(_monthly_growth(cluster))}",
-                f"容量阈值 {_format_bytes(cluster.get('warning'))}",
-                f"月增长 VM 样本 {vm_count} 台",
-            ]
-        )
-    )
+    risk, fill = _risk_level(cluster)
+    table = document.add_table(rows=2, cols=4)
+    table.style = "Table Grid"
+    _set_table_width(table, [2100, 2100, 2100, 2100])
+    items = [
+        ("当前已用", _format_bytes(forecast.get("current"))),
+        ("较上月增加", _format_bytes(_cluster_period_growth(cluster, "month"))),
+        ("较上季度增加", _format_bytes(_cluster_period_growth(cluster, "quarter"))),
+        ("较上一年增加", _format_bytes(_cluster_period_growth(cluster, "year"))),
+        ("60天预测", _format_bytes(forecast.get("forecast_60d"))),
+        ("容量阈值", _format_bytes(cluster.get("warning"))),
+        ("风险状态", risk),
+        ("增长VM样本", f"{vm_count} 台"),
+    ]
+    for cell, (label, value) in zip([cell for row in table.rows for cell in row.cells], items):
+        _shade_cell(cell, fill if label == "风险状态" else "F7FAFC")
+        paragraph = cell.paragraphs[0]
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = paragraph.add_run(label + "\n")
+        _apply_run_font(run)
+        run.bold = True
+        run.font.size = Pt(8)
+        run.font.color.rgb = RGBColor(91, 115, 139)
+        run = paragraph.add_run(value)
+        _apply_run_font(run)
+        run.bold = True
+        run.font.size = Pt(11)
+        run.font.color.rgb = RGBColor(23, 54, 93)
+    document.add_paragraph(_cluster_advice(cluster))
+
+
+def _cluster_advice(cluster: dict[str, Any]) -> str:
+    risk, _ = _risk_level(cluster)
+    month = _cluster_period_growth(cluster, "month")
+    quarter = _cluster_period_growth(cluster, "quarter")
+    if risk == "高风险":
+        return "建议：当前容量已达到关注阈值，建议尽快确认可用容量、扩容周期和重点增长虚拟机。"
+    if risk == "需关注":
+        return "建议：60 天预测接近容量阈值，建议跟踪增长趋势并提前准备扩容或清理方案。"
+    if quarter > month * 2.5 and quarter > 0:
+        return "建议：季度增长明显高于月增长节奏，建议复核近期业务上线或批量数据写入情况。"
+    return "建议：当前容量趋势相对平稳，建议持续观察 Top 增长虚拟机并保持月度复盘。"
+
+
+def _add_single_cluster_charts(document: Document, cluster: dict[str, Any], vms: list[dict[str, Any]]) -> None:
+    trend_chart = _cluster_trend_line_chart(cluster, "集群容量使用趋势")
+    if trend_chart is not None:
+        _add_figure(document, trend_chart, "容量使用趋势", width=5.9)
+
+    top_chart = _vm_top_growth_bar_chart(vms, "Top 5 VM 增长量", mode="amount")
+    if top_chart is not None:
+        _add_figure(document, top_chart, "Top 5 VM 增长量", width=6.4)
 
 
 def _add_vm_table(document: Document, vms: list[dict[str, Any]]) -> None:
-    headers = ["VM", "当前容量", "上期容量", "月增长量", "增长率"]
+    headers = ["VM", "当前容量", "上期容量", "增长量", "增长率"]
     table = document.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
+    _set_table_width(table, [3100, 1350, 1350, 1350, 900])
     _set_docx_headers(table.rows[0].cells, headers)
+    _set_table_borders(table, BORDER)
     if not vms:
         _set_docx_row(table.add_row().cells, ["暂无增长数据", "-", "-", "-", "-"])
         return
-    for vm in vms:
-        _set_docx_row(table.add_row().cells, _vm_row(vm, include_cluster=False))
+    for index, vm in enumerate(vms, start=1):
+        row = table.add_row().cells
+        _set_docx_row(row, _vm_row(vm, include_cluster=False))
+        if index % 2 == 0:
+            _shade_row(row, "FAFCFF")
 
 
 def _set_docx_headers(cells: Any, headers: list[str]) -> None:
     for cell, header in zip(cells, headers):
-        cell.text = header
-        for paragraph in cell.paragraphs:
-            paragraph.runs[0].bold = True
+        _set_cell(cell, header, fill=ACCENT, color="FFFFFF", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
 
 
 def _set_docx_row(cells: Any, values: list[str]) -> None:
     for cell, value in zip(cells, values):
-        cell.text = value
+        _set_cell(cell, value)
+
+
+def _set_table_borders(table: Any, color: str) -> None:
+    tbl_pr = table._tbl.tblPr
+    borders = tbl_pr.first_child_found_in("w:tblBorders")
+    if borders is None:
+        borders = OxmlElement("w:tblBorders")
+        tbl_pr.append(borders)
+    for edge in ["top", "left", "bottom", "right", "insideH", "insideV"]:
+        tag = f"w:{edge}"
+        element = borders.find(qn(tag))
+        if element is None:
+            element = OxmlElement(tag)
+            borders.append(element)
+        element.set(qn("w:val"), "single")
+        element.set(qn("w:sz"), "6")
+        element.set(qn("w:space"), "0")
+        element.set(qn("w:color"), color)
+
+
+def _shade_row(cells: Any, fill: str) -> None:
+    for cell in cells:
+        _shade_cell(cell, fill)
+
+
+def _set_cell(cell: Any, value: Any, fill: str | None = None, color: str = "1F1F1F", bold: bool = False, align: int | None = None) -> None:
+    cell.text = ""
+    cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    if fill:
+        _shade_cell(cell, fill)
+    paragraph = cell.paragraphs[0]
+    paragraph.alignment = align if align is not None else WD_ALIGN_PARAGRAPH.LEFT
+    run = paragraph.add_run(str(value))
+    _apply_run_font(run)
+    run.bold = bold
+    run.font.size = Pt(8)
+    run.font.color.rgb = RGBColor.from_string(color)
+    for margin in ["top", "start", "bottom", "end"]:
+        _set_cell_margin(cell, margin, 90)
+
+
+def _shade_cell(cell: Any, fill: str) -> None:
+    tc_pr = cell._tc.get_or_add_tcPr()
+    shd = tc_pr.find(qn("w:shd"))
+    if shd is None:
+        shd = OxmlElement("w:shd")
+        tc_pr.append(shd)
+    shd.set(qn("w:fill"), fill)
+
+
+def _set_cell_margin(cell: Any, margin: str, size: int) -> None:
+    tc_pr = cell._tc.get_or_add_tcPr()
+    tc_mar = tc_pr.first_child_found_in("w:tcMar")
+    if tc_mar is None:
+        tc_mar = OxmlElement("w:tcMar")
+        tc_pr.append(tc_mar)
+    node = tc_mar.find(qn(f"w:{margin}"))
+    if node is None:
+        node = OxmlElement(f"w:{margin}")
+        tc_mar.append(node)
+    node.set(qn("w:w"), str(size))
+    node.set(qn("w:type"), "dxa")
+
+
+def _set_table_width(table: Any, widths: list[int]) -> None:
+    table.autofit = False
+    for row in table.rows:
+        for cell, width in zip(row.cells, widths):
+            cell.width = Pt(width / 20)
+            tc_pr = cell._tc.get_or_add_tcPr()
+            tc_w = tc_pr.first_child_found_in("w:tcW")
+            if tc_w is None:
+                tc_w = OxmlElement("w:tcW")
+                tc_pr.append(tc_w)
+            tc_w.set(qn("w:w"), str(width))
+            tc_w.set(qn("w:type"), "dxa")
 
 
 def _write_cluster_summary_sheet(sheet: Any, context: dict[str, Any]) -> None:
-    sheet.append(["存储容量预测报表"])
+    sheet.append(["存储容量预测分析报告"])
     sheet.append(["导出范围", context["scope_label"]])
     sheet.append(["生成时间", context["generated_at"]])
+    sheet.append(["预测窗口", f"最近 {context['report'].get('window_days') or 30} 天，预测 {context['report'].get('forecast_days') or 60} 天"])
     sheet.append([])
-    headers = ["Tower", "集群", "当前容量", "60天预测", "月增长速率", "容量阈值", "耗尽天数"]
+    headers = ["Tower", "集群", "当前容量", "较上月增加", "较上季度增加", "较上一年增加", "60天预测", "容量阈值", "耗尽天数", "风险"]
     sheet.append(headers)
     for cluster in context["clusters"]:
         labels = cluster.get("labels", {})
         forecast = cluster.get("forecast", {})
+        risk, _ = _risk_level(cluster)
         sheet.append(
             [
                 labels.get("tower") or labels.get("tower_id") or "-",
                 labels.get("cluster") or labels.get("cluster_id") or "-",
                 forecast.get("current") or 0,
+                _cluster_period_growth(cluster, "month"),
+                _cluster_period_growth(cluster, "quarter"),
+                _cluster_period_growth(cluster, "year"),
                 forecast.get("forecast_60d") or 0,
-                _monthly_growth(cluster),
                 cluster.get("warning") or 0,
                 forecast.get("exhaustion_days") or "",
+                risk,
             ]
         )
-    _style_sheet(sheet, header_rows={1, 5}, bytes_cols={3, 4, 5, 6})
+    _style_sheet(sheet, header_rows={1, 6}, bytes_cols={3, 4, 5, 6, 7, 8})
+    _add_xlsx_growth_chart(sheet, start_row=6, end_row=sheet.max_row)
 
 
 def _write_vm_summary_sheet(sheet: Any, vms: list[dict[str, Any]]) -> None:
-    headers = ["Tower", "集群", "VM", "当前容量", "上期容量", "月增长量", "增长率"]
+    headers = ["Tower", "集群", "VM", "当前容量", "上期容量", "增长量", "增长率"]
     sheet.append(headers)
     for vm in _top_vms(vms, "amount"):
         sheet.append(_vm_row(vm, include_cluster=True, raw=True))
@@ -205,32 +559,40 @@ def _write_vm_summary_sheet(sheet: Any, vms: list[dict[str, Any]]) -> None:
 
 def _write_cluster_vm_sheet(sheet: Any, cluster: dict[str, Any], vms: list[dict[str, Any]]) -> None:
     labels = cluster.get("labels", {})
+    forecast = cluster.get("forecast", {})
+    risk, _ = _risk_level(cluster)
     sheet.append([_cluster_title(labels)])
-    sheet.append(["月增长量 TOP100"])
-    amount_headers = ["VM", "当前容量", "上期容量", "月增长量", "增长率"]
+    sheet.append(["当前容量", forecast.get("current") or 0, "较上月增加", _cluster_period_growth(cluster, "month"), "较上季度增加", _cluster_period_growth(cluster, "quarter"), "较上一年增加", _cluster_period_growth(cluster, "year"), "风险", risk])
+    sheet.append([])
+    sheet.append(["增长量 TOP100"])
+    amount_headers = ["VM", "当前容量", "上期容量", "增长量", "增长率"]
     sheet.append(amount_headers)
     for vm in _top_vms(vms, "amount"):
         sheet.append(_vm_row(vm, include_cluster=False, raw=True))
     start = sheet.max_row + 2
-    sheet.cell(row=start, column=1, value="月增长率 TOP100")
+    sheet.cell(row=start, column=1, value="增长率 TOP100")
     sheet.cell(row=start + 1, column=1, value="VM")
     for col, header in enumerate(amount_headers[1:], start=2):
         sheet.cell(row=start + 1, column=col, value=header)
     for row_index, vm in enumerate(_top_vms(vms, "ratio"), start=start + 2):
         for col, value in enumerate(_vm_row(vm, include_cluster=False, raw=True), start=1):
             sheet.cell(row=row_index, column=col, value=value)
-    _style_sheet(sheet, header_rows={1, 2, 3, start, start + 1}, bytes_cols={2, 3, 4}, percent_cols={5})
+    _style_sheet(sheet, header_rows={1, 2, 4, 5, start, start + 1}, bytes_cols={2, 3, 4, 6, 8}, percent_cols={5})
 
 
 def _style_sheet(sheet: Any, header_rows: set[int], bytes_cols: set[int] | None = None, percent_cols: set[int] | None = None) -> None:
     bytes_cols = bytes_cols or set()
     percent_cols = percent_cols or set()
-    fill = PatternFill(fill_type="solid", fgColor="D9EAF7")
+    fill = PatternFill(fill_type="solid", fgColor=ACCENT_LIGHT)
+    title_fill = PatternFill(fill_type="solid", fgColor=ACCENT)
     for row in sheet.iter_rows():
         for cell in row:
-            cell.alignment = Alignment(vertical="center")
-            if cell.row in header_rows:
-                cell.font = Font(bold=True)
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            if cell.row == 1:
+                cell.font = Font(bold=True, color="FFFFFF", size=13)
+                cell.fill = title_fill
+            elif cell.row in header_rows:
+                cell.font = Font(bold=True, color=ACCENT_DARK)
                 cell.fill = fill
             if cell.column in bytes_cols and isinstance(cell.value, (int, float)):
                 cell.number_format = '#,##0'
@@ -240,8 +602,195 @@ def _style_sheet(sheet: Any, header_rows: set[int], bytes_cols: set[int] | None 
         max_len = 10
         for cell in sheet[get_column_letter(column)]:
             max_len = max(max_len, len(str(cell.value or "")))
-        sheet.column_dimensions[get_column_letter(column)].width = min(max_len + 2, 36)
+        sheet.column_dimensions[get_column_letter(column)].width = min(max_len + 2, 32)
     sheet.freeze_panes = "A2"
+
+
+def _add_xlsx_growth_chart(sheet: Any, start_row: int, end_row: int) -> None:
+    if end_row <= start_row:
+        return
+    chart = BarChart()
+    chart.type = "bar"
+    chart.style = 10
+    chart.title = "集群容量增长对比"
+    chart.y_axis.title = "容量增长"
+    chart.x_axis.title = "集群"
+    data = Reference(sheet, min_col=4, max_col=6, min_row=start_row, max_row=end_row)
+    cats = Reference(sheet, min_col=2, min_row=start_row + 1, max_row=end_row)
+    chart.add_data(data, titles_from_data=True)
+    chart.set_categories(cats)
+    chart.height = 8
+    chart.width = 18
+    sheet.add_chart(chart, "L2")
+
+
+def _scope_trend_line_chart(clusters: list[dict[str, Any]], title: str) -> BytesIO | None:
+    points = _merged_cluster_points(clusters)
+    return _line_chart_image(points, title=title, ylabel="容量 (TiB)")
+
+
+def _cluster_trend_line_chart(cluster: dict[str, Any], title: str) -> BytesIO | None:
+    return _line_chart_image(_cluster_points(cluster), title=title, ylabel="容量 (TiB)")
+
+
+def _line_chart_image(points: list[tuple[int, float]], title: str, ylabel: str) -> BytesIO | None:
+    if len(points) < 2:
+        return None
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.dates as mdates
+        import matplotlib.pyplot as plt
+        matplotlib.rcParams["font.family"] = [CHART_FONT_FAMILY, "Noto Serif", "DejaVu Serif"]
+        matplotlib.rcParams["axes.unicode_minus"] = False
+    except Exception:
+        return None
+    dates = [datetime.fromtimestamp(ts) for ts, _ in points]
+    values = [_bytes_to_tib(value) for _, value in points]
+    fig, ax = plt.subplots(figsize=(6.6, 4.0), dpi=180)
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
+    ax.plot(dates, values, color="#003BFF", linewidth=1.4)
+    ax.set_title(title, fontsize=12, pad=8)
+    ax.set_xlabel("时间", fontsize=10)
+    ax.set_ylabel(ylabel, fontsize=10)
+    ax.set_ylim(bottom=0)
+    ax.grid(axis="y", color="#E6EDF5", linewidth=0.6)
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=6))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    for label in ax.get_xticklabels():
+        label.set_rotation(0)
+        label.set_ha("center")
+    for spine in ax.spines.values():
+        spine.set_color("#9E9E9E")
+        spine.set_linewidth(0.9)
+    ax.tick_params(axis="both", labelsize=9, colors="#333333")
+    fig.tight_layout()
+    return _figure_bytes(fig, plt)
+
+
+def _cluster_top_growth_bar_chart(clusters: list[dict[str, Any]], title: str, period: str) -> BytesIO | None:
+    items = []
+    for cluster in clusters:
+        labels = cluster.get("labels", {})
+        name = labels.get("cluster") or labels.get("cluster_id") or "集群"
+        value = _cluster_period_growth(cluster, period)
+        if value > 0:
+            items.append((str(name), value))
+    return _horizontal_bar_chart_image(items, title=title, unit="TiB", limit=5)
+
+
+def _vm_top_growth_bar_chart(vms: list[dict[str, Any]], title: str, mode: str) -> BytesIO | None:
+    ranked = _top_vms(vms, "ratio" if mode == "ratio" else "amount")[:5]
+    items = []
+    for vm in ranked:
+        labels = vm.get("labels", {})
+        name = labels.get("vm") or labels.get("vm_id") or "VM"
+        value = (vm.get("growth_ratio") or 0) if mode == "ratio" else (vm.get("growth_amount") or 0)
+        if value:
+            items.append((str(name), float(value)))
+    return _horizontal_bar_chart_image(items, title=title, unit="%" if mode == "ratio" else "TiB", limit=5, percent=mode == "ratio")
+
+
+def _horizontal_bar_chart_image(items: list[tuple[str, float]], title: str, unit: str, limit: int = 5, percent: bool = False) -> BytesIO | None:
+    if not items:
+        return None
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        matplotlib.rcParams["font.family"] = [CHART_FONT_FAMILY, "Noto Serif", "DejaVu Serif"]
+        matplotlib.rcParams["axes.unicode_minus"] = False
+    except Exception:
+        return None
+    ranked = sorted(items, key=lambda item: item[1], reverse=True)[:limit]
+    names = [_truncate_label(name) for name, _ in ranked][::-1]
+    raw_values = [value for _, value in ranked][::-1]
+    values = [value * 100 if percent else _bytes_to_tib(value) for value in raw_values]
+    max_value = max(values) if values else 0
+    fig_height = max(2.2, 0.45 * len(values) + 1.1)
+    fig, ax = plt.subplots(figsize=(6.8, fig_height), dpi=180)
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
+    bars = ax.barh(names, values, color="#1155CC", height=0.32)
+    ax.set_title(title, fontsize=12, pad=8)
+    ax.set_xlim(0, max(max_value * 1.18, 1))
+    ax.grid(axis="x", color="#E6EDF5", linewidth=0.6)
+    for spine in ax.spines.values():
+        spine.set_color("#9E9E9E")
+        spine.set_linewidth(0.9)
+    ax.tick_params(axis="both", labelsize=9, colors="#333333")
+    for bar, value in zip(bars, values):
+        label = f"{value:.1f} %" if percent else f"{value:.2f} {unit}"
+        ax.text(bar.get_width(), bar.get_y() + bar.get_height() / 2, label, va="center", ha="left", fontsize=9, color="#333333")
+    fig.tight_layout()
+    return _figure_bytes(fig, plt)
+
+
+def _figure_bytes(fig: Any, plt: Any) -> BytesIO:
+    output = BytesIO()
+    fig.savefig(output, format="png", bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    output.seek(0)
+    return output
+
+
+def _merged_cluster_points(clusters: list[dict[str, Any]]) -> list[tuple[int, float]]:
+    by_ts: dict[int, float] = defaultdict(float)
+    for cluster in clusters:
+        for ts, value in _cluster_points(cluster):
+            by_ts[ts] += value
+    return sorted(by_ts.items())
+
+
+def _truncate_label(value: str, limit: int = 22) -> str:
+    text = str(value)
+    if len(text) <= limit:
+        return text
+    return f"{text[:8]}...{text[-8:]}"
+
+
+def _cluster_period_growth(cluster: dict[str, Any], period: str) -> float:
+    days_by_period = {key: days for key, _, days in PERIODS}
+    days = days_by_period.get(period, 30)
+    points = _cluster_points(cluster)
+    forecast = cluster.get("forecast", {})
+    current = float(forecast.get("current") or (points[-1][1] if points else 0) or 0)
+    if len(points) >= 2:
+        return max(0.0, current - _value_days_ago(points, days))
+    return max(0.0, float(forecast.get("slope_per_day") or 0) * days)
+
+
+def _cluster_points(cluster: dict[str, Any]) -> list[tuple[int, float]]:
+    points = []
+    for point in cluster.get("points") or []:
+        try:
+            points.append((int(float(point[0])), float(point[1])))
+        except (TypeError, ValueError, IndexError):
+            continue
+    return sorted(points)
+
+
+def _value_days_ago(points: list[tuple[int, float]], days: int) -> float:
+    if not points:
+        return 0.0
+    target = points[-1][0] - days * 86_400
+    candidates = [point for point in points if point[0] <= target]
+    if candidates:
+        return candidates[-1][1]
+    return points[0][1]
+
+
+def _risk_level(cluster: dict[str, Any]) -> tuple[str, str]:
+    forecast = cluster.get("forecast", {})
+    current = float(forecast.get("current") or 0)
+    future = float(forecast.get("forecast_60d") or current)
+    warning = float(cluster.get("warning") or 0)
+    if warning and current >= warning:
+        return "高风险", DANGER
+    if warning and future >= warning:
+        return "需关注", WARNING
+    return "正常", SUCCESS
 
 
 def _vms_by_cluster(vms: list[dict[str, Any]]) -> dict[tuple[str, str], list[dict[str, Any]]]:
@@ -291,8 +840,14 @@ def _cluster_key(labels: dict[str, Any]) -> tuple[str, str]:
 
 
 def _monthly_growth(cluster: dict[str, Any]) -> float:
-    forecast = cluster.get("forecast", {})
-    return max(0.0, float(forecast.get("slope_per_day") or 0) * 30)
+    return _cluster_period_growth(cluster, "month")
+
+
+def _bytes_to_tib(value: Any) -> float:
+    try:
+        return float(value or 0) / 1024**4
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _format_bytes(value: Any) -> str:

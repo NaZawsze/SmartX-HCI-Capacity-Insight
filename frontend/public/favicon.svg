@@ -1,0 +1,14 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="brandGradient" x1="8" y1="8" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0.1" stop-color="#7BC2FF"/>
+      <stop offset="0.55" stop-color="#1677FF"/>
+      <stop offset="1" stop-color="#7FE0FF"/>
+    </linearGradient>
+    <filter id="softShadow" x="-12" y="-12" width="88" height="88" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#1677FF" flood-opacity="0.24"/>
+    </filter>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#F6FAFF"/>
+  <polygon points="9.6,28.8 58.9,3.2 41,60.2" fill="url(#brandGradient)" filter="url(#softShadow)"/>
+</svg>
