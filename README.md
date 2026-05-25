@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) | English
 
-Version: `v0.2`
+Version: `v0.1`
 
 > Status: This project is currently in the testing stage and is not recommended for production use without additional validation.
 
@@ -123,7 +123,7 @@ Published tags include:
 
 - `latest` for the default branch.
 - `main` for the main branch.
-- `v0.2` and other `v*` release tags.
+- `v0.1` and other `v*` release tags.
 - `sha-<commit>` for each pushed commit.
 
 Required GitHub repository secrets:

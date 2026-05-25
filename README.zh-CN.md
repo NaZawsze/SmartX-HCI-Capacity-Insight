@@ -4,7 +4,7 @@
 
 **SmartX 超融合容量洞察平台**
 
-版本：`v0.2`
+版本：`v0.1`
 
 > 状态：本项目目前处于测试阶段，未经充分验证前不建议直接用于生产环境。
 
@@ -125,7 +125,7 @@ docker.io/<dockerhub-namespace>/smartx-hci-capacity-insight-frontend
 
 - `latest`：默认分支。
 - `main`：main 分支。
-- `v0.2` 以及后续 `v*` 发布标签。
+- `v0.1` 以及后续 `v*` 发布标签。
 - `sha-<commit>`：每次推送对应的提交标签。
 
 需要在 GitHub 仓库中配置 Secrets：
