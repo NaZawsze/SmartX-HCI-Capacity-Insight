@@ -71,7 +71,7 @@ export function TrendChart({ points, referenceValue, height = 280, actualTheme =
       textStyle: { color: actualTheme === "dark" ? "#e2e8f0" : "#26364f" },
       formatter(params: Array<{ axisValue: string; value: number }>) {
         const item = params[0];
-        return `${item.axisValue}<br/><strong style="color:${actualTheme === \'dark\' ? \'#00e5ff\' : \'#1677ff\'}">${formatBytes(item.value)}</strong>`;
+        return `${item.axisValue}<br/><strong style="color:${actualTheme === 'dark' ? '#00e5ff' : '#1677ff'}">${formatBytes(item.value)}</strong>`;
       }
     },
     xAxis: {
