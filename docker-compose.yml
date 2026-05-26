@@ -6,6 +6,8 @@ services:
       - .env
     volumes:
       - smartx-data:/data
+      - prometheus-data:/prometheus-data
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8000:8000"
     depends_on:

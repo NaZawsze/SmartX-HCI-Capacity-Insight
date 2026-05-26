@@ -1566,6 +1566,82 @@ button {
   height: 16px;
 }
 
+
+.migration-panel,
+.service-control-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.migration-actions,
+.migration-import {
+  display: grid;
+  gap: 10px;
+}
+
+.migration-import label:not(.checkbox-line) {
+  display: grid;
+  gap: 6px;
+  color: #52647c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.migration-import input[type="file"] {
+  min-height: 36px;
+  border: 1px solid #cfd9e8;
+  border-radius: 6px;
+  padding: 7px 10px;
+  color: var(--ink);
+  background: #fff;
+}
+
+.migration-mode-group {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #d7e1ee;
+  border-radius: 6px;
+  background: #f6f9fd;
+}
+
+.migration-mode-group button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #52647c;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.migration-mode-group button.active {
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 1px 4px rgba(34, 62, 92, 0.12);
+}
+
+.migration-mode-group button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.migration-confirm {
+  align-items: flex-start;
+  color: #a33d3d !important;
+}
+
+.danger-button {
+  border-color: #f0b7b7;
+  color: #a33d3d;
+}
+
+.danger-button:hover:not(:disabled) {
+  border-color: #d9534f;
+  color: #d9534f;
+}
+
 .tower-table {
   display: grid;
   gap: 10px;

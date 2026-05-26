@@ -1,7 +1,7 @@
 import asyncio
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 
 from app.api.deps import current_user
 from app.collector.collector import Collector, latest_all_vm_volumes, latest_vm_volumes, running_run
@@ -23,9 +23,11 @@ from app.models import (
     VmVolumeSetResponse,
 )
 from app.services.cloudtower import CloudTowerClient, normalize_tower
+from app.services.data_migration import ARCHIVE_MEDIA_TYPE, build_migration_archive, restore_migration_archive
 from app.services.dashboard import dashboard_summary, latest_report, vm_list, vm_trend
 from app.services.prometheus import latest_metrics_text
 from app.services.report_export import DOCX_MEDIA_TYPE, XLSX_MEDIA_TYPE, build_report_docx, build_report_xlsx
+from app.services.system_control import schedule_service_restart
 from app.services.towers import create_tower, delete_tower, get_tower, list_towers, update_cluster as save_cluster, update_tower, upsert_clusters
 from app.services.users import change_password
 
@@ -171,6 +173,27 @@ async def export_report_word(tower_id: int | None = None, cluster_id: str | None
 async def export_report_excel(tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, _: dict = Depends(current_user)) -> Response:
     content, filename = await build_report_xlsx(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days)
     return _download_response(content, filename, XLSX_MEDIA_TYPE)
+
+
+@router.get("/api/admin/migration/export")
+def export_migration(_: dict = Depends(current_user)) -> Response:
+    content, filename = build_migration_archive()
+    return _download_response(content, filename, ARCHIVE_MEDIA_TYPE)
+
+
+@router.post("/api/admin/migration/import")
+async def import_migration(
+    mode: str = Form("merge"),
+    confirmed: bool = Form(False),
+    file: UploadFile = File(...),
+    _: dict = Depends(current_user),
+) -> dict:
+    return await restore_migration_archive(file, confirmed=confirmed, mode=mode)
+
+
+@router.post("/api/admin/system/restart")
+def restart_system_services(_: dict = Depends(current_user)) -> dict:
+    return schedule_service_restart()
 
 
 @router.get("/metrics")

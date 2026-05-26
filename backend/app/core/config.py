@@ -8,7 +8,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "SmartX Storage Forecast"
     environment: str = "production"
+    data_path: Path = Field(default=Path("/data"), alias="SMARTX_DATA_PATH")
     db_path: Path = Field(default=Path("/data/smartx.db"), alias="SMARTX_DB_PATH")
+    prometheus_data_path: Path = Field(default=Path("/prometheus-data"), alias="SMARTX_PROMETHEUS_DATA_PATH")
     secret_key: str = Field(default="change-me-in-production", alias="SMARTX_SECRET_KEY")
     credential_key: str | None = Field(default=None, alias="SMARTX_CREDENTIAL_KEY")
     admin_user: str = Field(default="admin", alias="SMARTX_ADMIN_USER")

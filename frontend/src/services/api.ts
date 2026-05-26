@@ -64,6 +64,24 @@ async function download(path: string): Promise<{ blob: Blob; filename: string }>
   return { blob: await response.blob(), filename: filenameFromDisposition(response.headers.get("Content-Disposition")) };
 }
 
+async function upload<T>(path: string, formData: FormData): Promise<T> {
+  const token = getToken();
+  const headers = new Headers();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  const response = await fetch(`${API_BASE}${path}`, { method: "POST", headers, body: formData });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({ detail: response.statusText }));
+    if (response.status === 401) {
+      setToken(null);
+      throw new Error(payload.detail || "登录已过期，请重新登录。");
+    }
+    throw new Error(payload.detail || response.statusText);
+  }
+  return response.json() as Promise<T>;
+}
+
 function scopedParams(scope?: DashboardScope, periodDays?: number): URLSearchParams {
   const params = new URLSearchParams();
   if (scope?.type === "tower" || scope?.type === "cluster") {
@@ -160,6 +178,19 @@ export const api = {
   },
   async exportReport(format: "word" | "excel", scope?: DashboardScope, periodDays?: number): Promise<{ blob: Blob; filename: string }> {
     return download(`/api/reports/export/${format}${scopedQuery(scope, periodDays)}`);
+  },
+  async exportMigration(): Promise<{ blob: Blob; filename: string }> {
+    return download("/api/admin/migration/export");
+  },
+  async importMigration(file: File, mode: "merge" | "overwrite", confirmed: boolean): Promise<{ ok: boolean; restored: string[]; message: string }> {
+    const formData = new FormData();
+    formData.set("file", file);
+    formData.set("mode", mode);
+    formData.set("confirmed", String(confirmed));
+    return upload<{ ok: boolean; restored: string[]; message: string }>("/api/admin/migration/import", formData);
+  },
+  async restartSystemServices(): Promise<{ ok: boolean; services: string[]; message: string }> {
+    return request<{ ok: boolean; services: string[]; message: string }>("/api/admin/system/restart", { method: "POST" });
   }
 };
 
