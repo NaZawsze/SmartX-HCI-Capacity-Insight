@@ -11,6 +11,7 @@ type TrendRange = (typeof trendRanges)[number];
 type SortMode = "size" | "usage";
 
 interface VmsPageProps {
+  actualTheme?: "light" | "dark";
   refreshKey?: number;
   scope: DashboardScope;
   selectedVmId?: string;
@@ -18,7 +19,7 @@ interface VmsPageProps {
   onSelectedVmChange?: (vmId: string) => void;
 }
 
-export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmName = "", onSelectedVmChange }: VmsPageProps) {
+export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmName = "", onSelectedVmChange }: VmsPageProps, actualTheme = "light" ) {
   const [items, setItems] = useState<MetricItem[]>([]);
   const [selectedVm, setSelectedVm] = useState("");
   const [query, setQuery] = useState("");

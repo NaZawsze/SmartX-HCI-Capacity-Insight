@@ -8,13 +8,14 @@ import { api, formatBytes } from "../services/api";
 import type { DashboardScope, DashboardSummary, MetricItem } from "../types";
 
 interface DashboardPageProps {
+  actualTheme?: "light" | "dark";
   summary: DashboardSummary | null;
   scope: DashboardScope;
   onSummary: (summary: DashboardSummary) => void;
   onSelectVm: (vmId: string, vmName?: string) => void;
 }
 
-export function DashboardPage({ summary, scope, onSummary, onSelectVm }: DashboardPageProps) {
+export function DashboardPage({ summary, scope, onSummary, onSelectVm }: DashboardPageProps, actualTheme = "light" ) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [growthSort, setGrowthSort] = useState<GrowthSortMode>("amount");

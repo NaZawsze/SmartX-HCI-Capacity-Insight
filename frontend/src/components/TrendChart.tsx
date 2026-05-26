@@ -59,16 +59,16 @@ function formatYAxisBytes(value: number): string {
   return `${Math.round(value / gib)} GiB`;
 }
 
-export function TrendChart({ points, referenceValue, height = 280 }: TrendChartProps) {
+export function TrendChart({ points, referenceValue, height = 280, actualTheme = "light" }: TrendChartProps & { actualTheme?: "light" | "dark" }) {
   const data = dailyPoints(points);
   const scale = yAxisScale(data.map(([, value]) => value), referenceValue);
     const option = {
     grid: { left: 78, right: 24, top: 36, bottom: 42, containLabel: false },
     tooltip: {
       trigger: "axis",
-      backgroundColor: "rgba(15, 23, 42, 0.8)",
-      borderColor: "rgba(0, 229, 255, 0.3)",
-      textStyle: { color: "#e2e8f0" },
+      backgroundColor: actualTheme === "dark" ? "rgba(15, 23, 42, 0.8)" : "rgba(255, 255, 255, 0.9)",
+      borderColor: actualTheme === "dark" ? "rgba(0, 229, 255, 0.3)" : "rgba(22, 119, 255, 0.2)",
+      textStyle: { color: actualTheme === "dark" ? "#e2e8f0" : "#26364f" },
       formatter(params: Array<{ axisValue: string; value: number }>) {
         const item = params[0];
         return `${item.axisValue}<br/><strong style="color:#00e5ff">${formatBytes(item.value)}</strong>`;
@@ -78,7 +78,7 @@ export function TrendChart({ points, referenceValue, height = 280 }: TrendChartP
       type: "category",
       boundaryGap: false,
       data: data.map(([label]) => label.slice(5)),
-      axisLine: { lineStyle: { color: "rgba(255, 255, 255, 0.1)" } },
+      axisLine: { lineStyle: { color: actualTheme === "dark" ? "rgba(255, 255, 255, 0.1)" : "rgba(22, 119, 255, 0.1)" } },
       axisLabel: { color: "#a0aec0", hideOverlap: true }
     },
     yAxis: {
@@ -94,7 +94,7 @@ export function TrendChart({ points, referenceValue, height = 280 }: TrendChartP
         overflow: "truncate",
         formatter: (value: number) => formatYAxisBytes(value)
       },
-      splitLine: { lineStyle: { color: "rgba(255, 255, 255, 0.05)" } }
+      splitLine: { lineStyle: { color: actualTheme === "dark" ? "rgba(255, 255, 255, 0.05)" : "rgba(22, 119, 255, 0.05)" } }
     },
     series: [
       {
@@ -103,7 +103,7 @@ export function TrendChart({ points, referenceValue, height = 280 }: TrendChartP
         showSymbol: data.length <= 14,
         symbol: "circle",
         symbolSize: 6,
-        itemStyle: { color: "#00e5ff", borderColor: "#fff", borderWidth: 2 },
+        itemStyle: { color: actualTheme === "dark" ? "#00e5ff" : "#1677ff", borderColor: "#fff", borderWidth: 2 },
         data: data.map(([, value]) => value),
         areaStyle: {
           color: {
@@ -113,15 +113,15 @@ export function TrendChart({ points, referenceValue, height = 280 }: TrendChartP
             x2: 0,
             y2: 1,
             colorStops: [
-              { offset: 0, color: "rgba(0, 229, 255, 0.4)" },
-              { offset: 1, color: "rgba(0, 229, 255, 0.01)" }
+              { offset: 0, color: actualTheme === "dark" ? "rgba(0, 229, 255, 0.4)" : "rgba(22, 119, 255, 0.2)" },
+              { offset: 1, color: actualTheme === "dark" ? "rgba(0, 229, 255, 0.01)" : "rgba(22, 119, 255, 0.02)" }
             ]
           }
         },
         lineStyle: {
-          color: "#00e5ff",
+          color: actualTheme === "dark" ? "#00e5ff" : "#1677ff",
           width: 3,
-          shadowColor: "rgba(0, 229, 255, 0.5)",
+          shadowColor: actualTheme === "dark" ? "rgba(0, 229, 255, 0.5)" : "rgba(22, 119, 255, 0.3)",
           shadowBlur: 10
         }
       }

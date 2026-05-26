@@ -157,7 +157,7 @@ function statusLabel(status: ChartModel["status"]): string {
   return "未知";
 }
 
-export function ClusterCapacityChart({ clusters, title, height = 360 }: ClusterCapacityChartProps) {
+export function ClusterCapacityChart({ clusters, title, height = 360, actualTheme = "light" }: ClusterCapacityChartProps & { actualTheme?: "light" | "dark" }) {
   const [range, setRange] = useState<RangeMode>("year");
   const model = useMemo(() => aggregateClusters(clusters, title), [clusters, title]);
   const actualPoints = filterRange(model.points, range);
@@ -177,20 +177,20 @@ export function ClusterCapacityChart({ clusters, title, height = 360 }: ClusterC
 
 
   const option = {
-    color: ["#00e5ff", "#a0aec0", "#e2e8f0", "#ff9100", "#ff1744"],
+    color: actualTheme === "dark" ? ["#00e5ff", "#a0aec0", "#e2e8f0", "#ff9100", "#ff1744"] : ["#1677ff", "#7a8aa0", "#26364f", "#ff9f1c", "#ff5a5f"],
     grid: { left: 76, right: 30, top: 52, bottom: 46 },
     legend: {
       top: 4,
       right: 0,
       itemWidth: 18,
       itemHeight: 8,
-      textStyle: { color: "#a0aec0", fontSize: 12 }
+      textStyle: { color: actualTheme === "dark" ? "#a0aec0" : "#7a8aa0", fontSize: 12 }
     },
     tooltip: {
       trigger: "axis",
-      backgroundColor: "rgba(15, 23, 42, 0.8)",
-      borderColor: "rgba(0, 229, 255, 0.3)",
-      textStyle: { color: "#e2e8f0" },
+      backgroundColor: actualTheme === "dark" ? "rgba(15, 23, 42, 0.8)" : "rgba(255, 255, 255, 0.9)",
+      borderColor: actualTheme === "dark" ? "rgba(0, 229, 255, 0.3)" : "rgba(22, 119, 255, 0.2)",
+      textStyle: { color: actualTheme === "dark" ? "#e2e8f0" : "#26364f" },
       formatter(params: Array<{ axisValue: string; seriesName: string; value: number | null }>) {
         const rows = params
           .filter((item) => typeof item.value === "number")
@@ -203,7 +203,7 @@ export function ClusterCapacityChart({ clusters, title, height = 360 }: ClusterC
       type: "category",
       boundaryGap: false,
       data: labels,
-      axisLine: { lineStyle: { color: "rgba(255, 255, 255, 0.1)" } },
+      axisLine: { lineStyle: { color: actualTheme === "dark" ? "rgba(255, 255, 255, 0.1)" : "rgba(22, 119, 255, 0.1)" } },
       axisLabel: { color: "#a0aec0", hideOverlap: true, formatter: (value: string) => value.slice(5) }
     },
     yAxis: {
@@ -211,7 +211,7 @@ export function ClusterCapacityChart({ clusters, title, height = 360 }: ClusterC
       min: 0,
       max,
       axisLabel: { color: "#a0aec0", formatter: (value: number) => formatBytes(value) },
-      splitLine: { lineStyle: { color: "rgba(255, 255, 255, 0.05)" } }
+      splitLine: { lineStyle: { color: actualTheme === "dark" ? "rgba(255, 255, 255, 0.05)" : "rgba(22, 119, 255, 0.05)" } }
     },
     series: [
       {
@@ -220,14 +220,14 @@ export function ClusterCapacityChart({ clusters, title, height = 360 }: ClusterC
         smooth: true,
         showSymbol: actualPoints.length <= 14,
         data: labels.map((label) => actualByLabel.get(label) ?? null),
-        lineStyle: { width: 3, shadowColor: "rgba(0, 229, 255, 0.5)", shadowBlur: 10 },
+        lineStyle: { width: 3, shadowColor: actualTheme === "dark" ? "rgba(0, 229, 255, 0.5)" : "rgba(22, 119, 255, 0.3)", shadowBlur: actualTheme === "dark" ? 10 : 6 },
         areaStyle: {
           color: {
             type: "linear",
             x: 0, y: 0, x2: 0, y2: 1,
             colorStops: [
-              { offset: 0, color: "rgba(0, 229, 255, 0.4)" },
-              { offset: 1, color: "rgba(0, 229, 255, 0.01)" }
+              { offset: 0, color: actualTheme === "dark" ? "rgba(0, 229, 255, 0.4)" : "rgba(22, 119, 255, 0.2)" },
+              { offset: 1, color: actualTheme === "dark" ? "rgba(0, 229, 255, 0.01)" : "rgba(22, 119, 255, 0.02)" }
             ]
           }
         }

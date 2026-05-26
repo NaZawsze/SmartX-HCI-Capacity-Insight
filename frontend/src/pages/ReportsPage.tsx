@@ -6,6 +6,7 @@ import { api, formatBytes } from "../services/api";
 import type { DashboardScope, DashboardSummary, ForecastPayload, GrowthVmReport } from "../types";
 
 interface ReportsPageProps {
+  actualTheme?: "light" | "dark";
   summary?: DashboardSummary | null;
   scope: DashboardScope;
   refreshKey?: number;
@@ -43,7 +44,7 @@ function quarterlyGrowth(value?: number | null): number {
   return (value || 0) * 90;
 }
 
-export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: ReportsPageProps) {
+export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: ReportsPageProps, actualTheme = "light" ) {
   const [report, setReport] = useState<ForecastPayload | null>(null);
   const [selectedCluster, setSelectedCluster] = useState(scopedClusterValue(scope));
   const [dayGrowthSort, setDayGrowthSort] = useState<GrowthSortMode>("amount");

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppLayout } from "./components/AppLayout";
+import { useTheme } from "./hooks/useTheme";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ReportsPage } from "./pages/ReportsPage";
@@ -11,6 +12,7 @@ import type { DashboardScope, DashboardSummary, PageKey } from "./types";
 export default function App() {
   const [authenticated, setAuthenticated] = useState(Boolean(getToken()));
   const [activePage, setActivePage] = useState<PageKey>("dashboard");
+  const { theme, setTheme, actualTheme } = useTheme();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [scope, setScope] = useState<DashboardScope>({ type: "all" });
   const [selectedVmId, setSelectedVmId] = useState("");
@@ -71,8 +73,8 @@ export default function App() {
   }
 
   return (
-    <AppLayout activePage={activePage} onNavigate={setActivePage} onLogout={logout} summary={summary} scope={scope} onScopeChange={setScope} onSummary={handleSummary}>
-      {activePage === "dashboard" && <DashboardPage summary={summary} scope={scope} onSummary={handleSummary} onSelectVm={openVm} />}
+    <AppLayout activePage={activePage} theme={theme} onThemeChange={setTheme} onNavigate={setActivePage} onLogout={logout} summary={summary} scope={scope} onScopeChange={setScope} onSummary={handleSummary}>
+      {activePage === "dashboard" && <DashboardPage actualTheme={actualTheme} summary={summary} scope={scope} onSummary={handleSummary} onSelectVm={openVm} />}
       {activePage === "vms" && (
         <VmsPage
           refreshKey={dataRefreshKey}
@@ -85,7 +87,7 @@ export default function App() {
           }}
         />
       )}
-      {activePage === "reports" && <ReportsPage summary={summary} scope={scope} refreshKey={dataRefreshKey} onSelectVm={openVm} />}
+      {activePage === "reports" && <ReportsPage actualTheme={actualTheme} summary={summary} scope={scope} refreshKey={dataRefreshKey} onSelectVm={openVm} />}
       {activePage === "settings" && <SettingsPage />}
     </AppLayout>
   );

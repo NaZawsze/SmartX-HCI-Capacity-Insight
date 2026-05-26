@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bell, Building2, ChevronDown, CircleCheck, ClipboardList, Database, HardDrive, KeyRound, LayoutDashboard, LogOut, Save, Search, Server, Settings, UserRound, View, X } from "lucide-react";
+import { Bell, Building2, ChevronDown, CircleCheck, ClipboardList, Database, HardDrive, KeyRound, LayoutDashboard, LogOut, Save, Search, Server, Settings, UserRound, View, X, Moon, Sun, Monitor } from "lucide-react";
+import type { ThemeType } from "../hooks/useTheme";
 import { api } from "../services/api";
 import type { Cluster, DashboardScope, DashboardSummary, PageKey, Tower } from "../types";
 
@@ -12,6 +13,8 @@ interface AppLayoutProps {
   onSummary: (summary: DashboardSummary) => void;
   summary?: DashboardSummary | null;
   children: ReactNode;
+  theme?: ThemeType;
+  onThemeChange?: (theme: ThemeType) => void;
 }
 
 const pageTitle: Record<PageKey, string> = {
@@ -44,7 +47,7 @@ function scopeKey(scope: DashboardScope): string {
   return "all";
 }
 
-export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChange, onSummary, summary, children }: AppLayoutProps) {
+export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChange, onSummary, summary, children, theme = "system", onThemeChange }: AppLayoutProps) {
   const towers = summary?.towers ?? emptyTowers;
   const selectedTower = scope.type === "tower" || scope.type === "cluster" ? towers.find((tower) => tower.id === scope.towerId) || towers[0] : towers[0];
   const totalClusterCount = towers.reduce((total, tower) => total + tower.clusters.length, 0);
@@ -58,6 +61,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
         : `${selectedEnabledClusterCount}/${selectedClusterCount} 集群已连接`;
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [passwordForm, setPasswordForm] = useState(emptyPasswordForm);
   const [passwordMessage, setPasswordMessage] = useState("");
@@ -203,6 +207,28 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
             <button className="icon-button active" title="任务" type="button">
               <ClipboardList size={18} />
             </button>
+            
+            <div className="account-menu-wrap">
+              <button className="icon-button" type="button" onClick={() => setThemeMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={themeMenuOpen} title="主题设置">
+                {theme === "light" ? <Sun size={17} /> : theme === "dark" ? <Moon size={17} /> : <Monitor size={17} />}
+              </button>
+              {themeMenuOpen && (
+                <div className="account-menu" role="menu" style={{ right: "40px" }}>
+                  <button type="button" role="menuitem" onClick={() => { onThemeChange?.("light"); setThemeMenuOpen(false); }}>
+                    <Sun size={15} />
+                    <span>浅色模式</span>
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => { onThemeChange?.("dark"); setThemeMenuOpen(false); }}>
+                    <Moon size={15} />
+                    <span>深色模式</span>
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => { onThemeChange?.("system"); setThemeMenuOpen(false); }}>
+                    <Monitor size={15} />
+                    <span>跟随系统</span>
+                  </button>
+                </div>
+              )}
+            </div>
             <div className="account-menu-wrap">
               <button className="avatar-button" type="button" onClick={() => setAccountMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={accountMenuOpen} title="账号">
                 <UserRound size={17} />
