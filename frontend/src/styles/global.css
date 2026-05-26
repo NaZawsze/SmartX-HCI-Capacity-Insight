@@ -1619,6 +1619,264 @@ button {
   height: 16px;
 }
 
+<<<<<<< Updated upstream
+=======
+
+.migration-panel,
+.service-control-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.migration-actions,
+.migration-import {
+  display: grid;
+  gap: 10px;
+}
+
+.migration-import label:not(.checkbox-line) {
+  display: grid;
+  gap: 6px;
+  color: #52647c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.migration-import input[type="file"] {
+  min-height: 36px;
+  border: 1px solid #cfd9e8;
+  border-radius: 6px;
+  padding: 7px 10px;
+  color: var(--ink);
+  background: #fff;
+}
+
+.migration-mode-group {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #d7e1ee;
+  border-radius: 6px;
+  background: #f6f9fd;
+}
+
+.migration-mode-group button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #52647c;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.migration-mode-group button.active {
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 1px 4px rgba(34, 62, 92, 0.12);
+}
+
+.migration-mode-group button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.migration-confirm {
+  align-items: flex-start;
+  color: #a33d3d !important;
+}
+
+.danger-button {
+  border-color: #f0b7b7;
+  color: #a33d3d;
+}
+
+.danger-button:hover:not(:disabled) {
+  border-color: #d9534f;
+  color: #d9534f;
+}
+
+
+
+.upgrade-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.upgrade-summary,
+.upgrade-task-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.upgrade-summary span,
+.upgrade-task-header span,
+.upgrade-history > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.upgrade-summary strong,
+.upgrade-task-header strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.upgrade-upload-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.upgrade-upload-row label {
+  display: grid;
+  gap: 6px;
+  color: #52647c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.upgrade-upload-row input[type="file"] {
+  min-height: 36px;
+  border: 1px solid #cfd9e8;
+  border-radius: 6px;
+  padding: 7px 10px;
+  color: var(--ink);
+  background: #fff;
+}
+
+.upgrade-task {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  padding: 12px;
+  background: #fbfdff;
+}
+
+.upgrade-status {
+  border: 1px solid #d7e1ee;
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: #fff;
+  color: #52647c !important;
+  font-size: 12px !important;
+}
+
+.status-success,
+.status-ready,
+.step-success {
+  color: #147a43 !important;
+  border-color: #b8dfc8 !important;
+  background: #f0fbf4 !important;
+}
+
+.status-failed,
+.status-precheck_failed,
+.status-rollback_failed,
+.step-failed {
+  color: #a33d3d !important;
+  border-color: #f0b7b7 !important;
+  background: #fff5f5 !important;
+}
+
+.status-running,
+.status-pending,
+.step-running {
+  color: #0c5bb5 !important;
+  border-color: #b8d7ff !important;
+  background: #f2f7ff !important;
+}
+
+.upgrade-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  color: #52647c;
+  font-size: 12px;
+}
+
+.upgrade-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.upgrade-checks,
+.upgrade-steps {
+  display: grid;
+  gap: 8px;
+}
+
+.upgrade-checks div,
+.upgrade-step {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  align-items: center;
+  border: 1px solid #d7e1ee;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.upgrade-checks small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+
+.upgrade-checks .ok strong {
+  color: #147a43;
+}
+
+.upgrade-checks .failed strong {
+  color: #a33d3d;
+}
+
+.upgrade-log {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid #d7e1ee;
+  border-radius: 6px;
+  padding: 10px;
+  background: #0f172a;
+  color: #dbeafe;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.upgrade-history {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.upgrade-history button {
+  min-height: 30px;
+  border: 1px solid #d7e1ee;
+  border-radius: 6px;
+  background: #fff;
+  color: #52647c;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .upgrade-upload-row,
+  .upgrade-meta-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+>>>>>>> Stashed changes
 .tower-table {
   display: grid;
   gap: 10px;

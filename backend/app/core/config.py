@@ -9,6 +9,14 @@ class Settings(BaseSettings):
     app_name: str = "SmartX Storage Forecast"
     environment: str = "production"
     db_path: Path = Field(default=Path("/data/smartx.db"), alias="SMARTX_DB_PATH")
+<<<<<<< Updated upstream
+=======
+    prometheus_data_path: Path = Field(default=Path("/prometheus-data"), alias="SMARTX_PROMETHEUS_DATA_PATH")
+    upgrade_path: Path = Field(default=Path("/data/upgrades"), alias="SMARTX_UPGRADE_PATH")
+    backup_path: Path = Field(default=Path("/data/backups"), alias="SMARTX_BACKUP_PATH")
+    project_path: Path = Field(default=Path("/workspace"), alias="SMARTX_PROJECT_PATH")
+    app_version: str = Field(default="0.2.0", alias="SMARTX_APP_VERSION")
+>>>>>>> Stashed changes
     secret_key: str = Field(default="change-me-in-production", alias="SMARTX_SECRET_KEY")
     credential_key: str | None = Field(default=None, alias="SMARTX_CREDENTIAL_KEY")
     admin_user: str = Field(default="admin", alias="SMARTX_ADMIN_USER")

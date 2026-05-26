@@ -1,8 +1,12 @@
+<<<<<<< Updated upstream
 import { CheckCircle, Pencil, Plus, RefreshCw, Save, ShieldCheck, Trash2, X } from "lucide-react";
+=======
+import { CheckCircle, Download, FileUp, ListChecks, Pencil, Play, Plus, Power, RefreshCw, RotateCcw, Save, ShieldCheck, Trash2, Upload, X } from "lucide-react";
+>>>>>>> Stashed changes
 import { FormEvent, useEffect, useState } from "react";
 import { Card } from "../components/Card";
 import { api } from "../services/api";
-import type { Tower } from "../types";
+import type { Tower, UpgradeTask } from "../types";
 
 const emptyForm = {
   name: "",
@@ -22,6 +26,22 @@ export function SettingsPage() {
   const [editingTowerId, setEditingTowerId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState(emptyForm);
   const [message, setMessage] = useState("");
+<<<<<<< Updated upstream
+=======
+  const [migrationMessage, setMigrationMessage] = useState("");
+  const [migrationBusy, setMigrationBusy] = useState(false);
+  const [migrationFile, setMigrationFile] = useState<File | null>(null);
+  const [migrationMode, setMigrationMode] = useState<"merge" | "overwrite">("merge");
+  const [migrationConfirmed, setMigrationConfirmed] = useState(false);
+  const [restartBusy, setRestartBusy] = useState(false);
+  const [restartMessage, setRestartMessage] = useState("");
+  const [upgradeVersion, setUpgradeVersion] = useState("");
+  const [upgradeBusy, setUpgradeBusy] = useState(false);
+  const [upgradeFile, setUpgradeFile] = useState<File | null>(null);
+  const [upgradeTask, setUpgradeTask] = useState<UpgradeTask | null>(null);
+  const [upgradeHistory, setUpgradeHistory] = useState<UpgradeTask[]>([]);
+  const [upgradeMessage, setUpgradeMessage] = useState("");
+>>>>>>> Stashed changes
 
   async function reload() {
     setTowers(await api.towers());
@@ -29,7 +49,18 @@ export function SettingsPage() {
 
   useEffect(() => {
     reload().catch(() => undefined);
+    loadUpgradeMeta().catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!upgradeTask || !["pending", "running"].includes(upgradeTask.status)) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      api.upgradeStatus(upgradeTask.id).then(setUpgradeTask).catch(() => undefined);
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [upgradeTask?.id, upgradeTask?.status]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -90,6 +121,156 @@ export function SettingsPage() {
     await reload();
   }
 
+<<<<<<< Updated upstream
+=======
+  function saveBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename || "smartx-storage-migration.tar.gz";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function exportMigration() {
+    setMigrationMessage("");
+    setMigrationBusy(true);
+    try {
+      const { blob, filename } = await api.exportMigration();
+      saveBlob(blob, filename);
+      setMigrationMessage("迁移包已生成");
+    } catch (exc) {
+      setMigrationMessage(exc instanceof Error ? exc.message : "导出失败");
+    } finally {
+      setMigrationBusy(false);
+    }
+  }
+
+  async function importMigration() {
+    setMigrationMessage("");
+    if (!migrationFile) {
+      setMigrationMessage("请选择迁移包文件");
+      return;
+    }
+    if (migrationMode === "overwrite" && !migrationConfirmed) {
+      setMigrationMessage("覆盖导入会清空当前数据，请先勾选确认");
+      return;
+    }
+    setMigrationBusy(true);
+    try {
+      const result = await api.importMigration(migrationFile, migrationMode, migrationConfirmed);
+      setMigrationMessage(result.message);
+      setMigrationFile(null);
+      setMigrationMode("merge");
+      setMigrationConfirmed(false);
+      await reload();
+    } catch (exc) {
+      setMigrationMessage(exc instanceof Error ? exc.message : "导入失败");
+    } finally {
+      setMigrationBusy(false);
+    }
+  }
+
+  async function restartServices() {
+    setRestartMessage("");
+    setRestartBusy(true);
+    try {
+      const result = await api.restartSystemServices();
+      setRestartMessage(result.message);
+    } catch (exc) {
+      setRestartMessage(exc instanceof Error ? exc.message : "重启失败");
+    } finally {
+      setRestartBusy(false);
+    }
+  }
+
+
+  async function loadUpgradeMeta() {
+    const [version, history] = await Promise.all([api.upgradeVersion(), api.upgradeHistory()]);
+    setUpgradeVersion(version.version);
+    setUpgradeHistory(history);
+  }
+
+  async function uploadUpgrade() {
+    setUpgradeMessage("");
+    if (!upgradeFile) {
+      setUpgradeMessage("请选择升级包文件");
+      return;
+    }
+    setUpgradeBusy(true);
+    try {
+      const task = await api.uploadUpgradePackage(upgradeFile);
+      setUpgradeTask(task);
+      setUpgradeMessage("升级包已上传，请先执行预检查。");
+      setUpgradeFile(null);
+      await loadUpgradeMeta();
+    } catch (exc) {
+      setUpgradeMessage(exc instanceof Error ? exc.message : "上传失败");
+    } finally {
+      setUpgradeBusy(false);
+    }
+  }
+
+  async function precheckUpgrade() {
+    if (!upgradeTask) return;
+    setUpgradeMessage("");
+    setUpgradeBusy(true);
+    try {
+      const task = await api.precheckUpgrade(upgradeTask.id);
+      setUpgradeTask(task);
+      setUpgradeMessage(task.status === "ready" ? "预检查通过，可以开始升级。" : "预检查未通过，请查看检查项。");
+      await loadUpgradeMeta();
+    } catch (exc) {
+      setUpgradeMessage(exc instanceof Error ? exc.message : "预检查失败");
+    } finally {
+      setUpgradeBusy(false);
+    }
+  }
+
+  async function startUpgrade() {
+    if (!upgradeTask) return;
+    setUpgradeMessage("");
+    setUpgradeBusy(true);
+    try {
+      const task = await api.startUpgrade(upgradeTask.id);
+      setUpgradeTask(task);
+      setUpgradeMessage("升级任务已提交，正在等待执行。");
+      await loadUpgradeMeta();
+    } catch (exc) {
+      setUpgradeMessage(exc instanceof Error ? exc.message : "启动升级失败");
+    } finally {
+      setUpgradeBusy(false);
+    }
+  }
+
+  async function rollbackUpgrade() {
+    if (!upgradeTask) return;
+    setUpgradeMessage("");
+    setUpgradeBusy(true);
+    try {
+      const task = await api.rollbackUpgrade(upgradeTask.id);
+      setUpgradeTask(task);
+      setUpgradeMessage("回滚任务已提交。");
+      await loadUpgradeMeta();
+    } catch (exc) {
+      setUpgradeMessage(exc instanceof Error ? exc.message : "回滚失败");
+    } finally {
+      setUpgradeBusy(false);
+    }
+  }
+
+  async function selectHistoryTask(taskId: string) {
+    setUpgradeMessage("");
+    try {
+      setUpgradeTask(await api.upgradeStatus(taskId));
+    } catch (exc) {
+      setUpgradeMessage(exc instanceof Error ? exc.message : "读取升级任务失败");
+    }
+  }
+
+>>>>>>> Stashed changes
   return (
     <div className="settings-grid">
       <Card title="新增 Tower">
@@ -137,6 +318,150 @@ export function SettingsPage() {
         </form>
       </Card>
 
+<<<<<<< Updated upstream
+=======
+
+
+      <Card title="数据迁移">
+        <div className="migration-panel">
+          <div className="migration-actions">
+            <button className="primary-button" type="button" onClick={exportMigration} disabled={migrationBusy}>
+              <Download size={16} />
+              导出迁移包
+            </button>
+          </div>
+          <div className="migration-import">
+            <label>
+              迁移包文件
+              <input type="file" accept=".gz,.tgz,.tar.gz,application/gzip" onChange={(event) => setMigrationFile(event.target.files?.[0] ?? null)} disabled={migrationBusy} />
+            </label>
+            <div className="migration-mode-group" role="radiogroup" aria-label="导入方式">
+              <button className={migrationMode === "merge" ? "active" : ""} type="button" onClick={() => setMigrationMode("merge")} disabled={migrationBusy}>
+                补全缺失数据
+              </button>
+              <button className={migrationMode === "overwrite" ? "active" : ""} type="button" onClick={() => setMigrationMode("overwrite")} disabled={migrationBusy}>
+                覆盖导入
+              </button>
+            </div>
+            {migrationMode === "overwrite" && (
+              <label className="checkbox-line migration-confirm">
+                <input type="checkbox" checked={migrationConfirmed} onChange={(event) => setMigrationConfirmed(event.target.checked)} disabled={migrationBusy} />
+                我确认覆盖当前系统数据
+              </label>
+            )}
+            <button className={migrationMode === "overwrite" ? "secondary-button danger-button" : "secondary-button"} type="button" onClick={importMigration} disabled={migrationBusy || !migrationFile || (migrationMode === "overwrite" && !migrationConfirmed)}>
+              <Upload size={15} />
+              导入迁移包
+            </button>
+          </div>
+          <div className="form-hint">默认补全缺失数据：业务库按唯一键保留已有记录，Prometheus 只补不存在的历史 block；覆盖导入会替换当前数据。导入后请重启服务使数据完全生效。</div>
+          {migrationMessage && <div className="inline-message">{migrationMessage}</div>}
+        </div>
+      </Card>
+
+
+      <Card title="服务管理">
+        <div className="service-control-panel">
+          <button className="secondary-button" type="button" onClick={restartServices} disabled={restartBusy}>
+            <Power size={16} />
+            {restartBusy ? "正在提交重启" : "重启数据服务"}
+          </button>
+          <div className="form-hint">用于导入数据后手动重启 web-api、collector-worker 和 Prometheus，使补全的数据完全生效。</div>
+          {restartMessage && <div className="inline-message">{restartMessage}</div>}
+        </div>
+      </Card>
+
+      <Card title="系统升级" className="wide-card">
+        <div className="upgrade-panel">
+          <div className="upgrade-summary">
+            <span>当前版本</span>
+            <strong>{upgradeVersion || "-"}</strong>
+          </div>
+          <div className="upgrade-upload-row">
+            <label>
+              升级包
+              <input type="file" accept=".gz,.tgz,.tar.gz,application/gzip" onChange={(event) => setUpgradeFile(event.target.files?.[0] ?? null)} disabled={upgradeBusy} />
+            </label>
+            <button className="primary-button" type="button" onClick={uploadUpgrade} disabled={upgradeBusy || !upgradeFile}>
+              <FileUp size={16} />
+              上传升级包
+            </button>
+          </div>
+
+          {upgradeTask && (
+            <div className="upgrade-task">
+              <div className="upgrade-task-header">
+                <div>
+                  <span>目标版本</span>
+                  <strong>{upgradeTask.manifest?.version || "-"}</strong>
+                </div>
+                <span className={`upgrade-status status-${upgradeTask.status}`}>{upgradeTask.status}</span>
+              </div>
+              <div className="upgrade-meta-grid">
+                <span>最低兼容版本：{upgradeTask.manifest?.min_version || "未限制"}</span>
+                <span>数据库迁移：{upgradeTask.manifest?.database_migration ? "需要" : "不需要"}</span>
+                <span>影响服务：{upgradeTask.manifest?.images?.map((item) => item.service).join("、") || "-"}</span>
+              </div>
+              {upgradeTask.manifest?.release_notes && <div className="form-hint">{upgradeTask.manifest.release_notes}</div>}
+
+              <div className="upgrade-actions">
+                <button className="secondary-button" type="button" onClick={precheckUpgrade} disabled={upgradeBusy || ["pending", "running"].includes(upgradeTask.status)}>
+                  <ListChecks size={15} />
+                  预检查
+                </button>
+                <button className="primary-button compact" type="button" onClick={startUpgrade} disabled={upgradeBusy || upgradeTask.status !== "ready"}>
+                  <Play size={15} />
+                  开始升级
+                </button>
+                <button className="secondary-button danger-button" type="button" onClick={rollbackUpgrade} disabled={upgradeBusy || !["failed", "rollback_ready", "success"].includes(upgradeTask.status)}>
+                  <RotateCcw size={15} />
+                  手动回滚
+                </button>
+              </div>
+
+              {!!upgradeTask.precheck?.length && (
+                <div className="upgrade-checks">
+                  {upgradeTask.precheck.map((item) => (
+                    <div className={item.ok ? "ok" : "failed"} key={item.name}>
+                      <span>{item.name}</span>
+                      <strong>{item.ok ? "通过" : "失败"}</strong>
+                      <small>{item.message}</small>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!!upgradeTask.steps?.length && (
+                <div className="upgrade-steps">
+                  {upgradeTask.steps.map((step) => (
+                    <div className={`upgrade-step step-${step.status}`} key={step.key}>
+                      <span>{step.label}</span>
+                      <strong>{step.status}</strong>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!!upgradeTask.logs?.length && <pre className="upgrade-log">{upgradeTask.logs.join("\n")}</pre>}
+            </div>
+          )}
+
+          {!!upgradeHistory.length && (
+            <div className="upgrade-history">
+              <span>升级历史</span>
+              {upgradeHistory.slice(0, 5).map((task) => (
+                <button type="button" key={task.id} onClick={() => selectHistoryTask(task.id)}>
+                  {task.manifest?.version || task.package_filename || task.id} · {task.status}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="form-hint">升级只替换镜像，不覆盖 .env，不修改核心 volumes。升级前会自动生成数据备份。</div>
+          {upgradeMessage && <div className="inline-message">{upgradeMessage}</div>}
+        </div>
+      </Card>
+
+>>>>>>> Stashed changes
       <Card title="Tower 列表" className="wide-card">
         <div className="tower-table">
           {towers.map((tower) => (

@@ -27,6 +27,7 @@ from app.services.dashboard import dashboard_summary, latest_report, vm_list, vm
 from app.services.prometheus import latest_metrics_text
 from app.services.report_export import DOCX_MEDIA_TYPE, XLSX_MEDIA_TYPE, build_report_docx, build_report_xlsx
 from app.services.towers import create_tower, delete_tower, get_tower, list_towers, update_cluster as save_cluster, update_tower, upsert_clusters
+from app.services.upgrade import current_version, precheck_upgrade, request_rollback, start_upgrade, upgrade_history, upgrade_status, upload_upgrade_package
 from app.services.users import change_password
 
 
@@ -173,6 +174,66 @@ async def export_report_excel(tower_id: int | None = None, cluster_id: str | Non
     return _download_response(content, filename, XLSX_MEDIA_TYPE)
 
 
+<<<<<<< Updated upstream
+=======
+@router.get("/api/admin/migration/export")
+def export_migration(_: dict = Depends(current_user)) -> Response:
+    content, filename = build_migration_archive()
+    return _download_response(content, filename, ARCHIVE_MEDIA_TYPE)
+
+
+@router.post("/api/admin/migration/import")
+async def import_migration(
+    mode: str = Form("merge"),
+    confirmed: bool = Form(False),
+    file: UploadFile = File(...),
+    _: dict = Depends(current_user),
+) -> dict:
+    return await restore_migration_archive(file, confirmed=confirmed, mode=mode)
+
+
+@router.post("/api/admin/system/restart")
+def restart_system_services(_: dict = Depends(current_user)) -> dict:
+    return schedule_service_restart()
+
+
+
+@router.get("/api/admin/upgrade/version")
+def upgrade_version(_: dict = Depends(current_user)) -> dict:
+    return current_version()
+
+
+@router.post("/api/admin/upgrade/upload")
+async def upload_upgrade(file: UploadFile = File(...), _: dict = Depends(current_user)) -> dict:
+    return await upload_upgrade_package(file)
+
+
+@router.post("/api/admin/upgrade/precheck/{task_id}")
+def precheck_upgrade_package(task_id: str, _: dict = Depends(current_user)) -> dict:
+    return precheck_upgrade(task_id)
+
+
+@router.post("/api/admin/upgrade/start/{task_id}")
+def start_upgrade_package(task_id: str, _: dict = Depends(current_user)) -> dict:
+    return start_upgrade(task_id)
+
+
+@router.get("/api/admin/upgrade/status/{task_id}")
+def get_upgrade_status(task_id: str, _: dict = Depends(current_user)) -> dict:
+    return upgrade_status(task_id)
+
+
+@router.post("/api/admin/upgrade/rollback/{task_id}")
+def rollback_upgrade(task_id: str, _: dict = Depends(current_user)) -> dict:
+    return request_rollback(task_id)
+
+
+@router.get("/api/admin/upgrade/history")
+def get_upgrade_history(_: dict = Depends(current_user)) -> list[dict]:
+    return upgrade_history()
+
+
+>>>>>>> Stashed changes
 @router.get("/metrics")
 def metrics() -> Response:
     return Response(content=latest_metrics_text(), media_type="text/plain; version=0.0.4")

@@ -5,6 +5,7 @@ import type {
   LoginResponse,
   MetricItem,
   Tower,
+  UpgradeTask,
   VmTrend,
   VmVolume,
   VmVolumeSet
@@ -160,6 +161,45 @@ export const api = {
   },
   async exportReport(format: "word" | "excel", scope?: DashboardScope, periodDays?: number): Promise<{ blob: Blob; filename: string }> {
     return download(`/api/reports/export/${format}${scopedQuery(scope, periodDays)}`);
+<<<<<<< Updated upstream
+=======
+  },
+  async exportMigration(): Promise<{ blob: Blob; filename: string }> {
+    return download("/api/admin/migration/export");
+  },
+  async importMigration(file: File, mode: "merge" | "overwrite", confirmed: boolean): Promise<{ ok: boolean; restored: string[]; message: string }> {
+    const formData = new FormData();
+    formData.set("file", file);
+    formData.set("mode", mode);
+    formData.set("confirmed", String(confirmed));
+    return upload<{ ok: boolean; restored: string[]; message: string }>("/api/admin/migration/import", formData);
+  },
+  async restartSystemServices(): Promise<{ ok: boolean; services: string[]; message: string }> {
+    return request<{ ok: boolean; services: string[]; message: string }>("/api/admin/system/restart", { method: "POST" });
+  },
+  async upgradeVersion(): Promise<{ version: string; upgrade_path: string }> {
+    return request<{ version: string; upgrade_path: string }>("/api/admin/upgrade/version");
+  },
+  async uploadUpgradePackage(file: File): Promise<UpgradeTask> {
+    const formData = new FormData();
+    formData.set("file", file);
+    return upload<UpgradeTask>("/api/admin/upgrade/upload", formData);
+  },
+  async precheckUpgrade(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/upgrade/precheck/${encodeURIComponent(taskId)}`, { method: "POST" });
+  },
+  async startUpgrade(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/upgrade/start/${encodeURIComponent(taskId)}`, { method: "POST" });
+  },
+  async rollbackUpgrade(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/upgrade/rollback/${encodeURIComponent(taskId)}`, { method: "POST" });
+  },
+  async upgradeStatus(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/upgrade/status/${encodeURIComponent(taskId)}`);
+  },
+  async upgradeHistory(): Promise<UpgradeTask[]> {
+    return request<UpgradeTask[]>("/api/admin/upgrade/history");
+>>>>>>> Stashed changes
   }
 };
 

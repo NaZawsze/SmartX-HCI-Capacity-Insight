@@ -145,3 +145,25 @@ export interface ForecastResult {
   forecast_180d?: number | null;
   exhaustion_days?: number | null;
 }
+
+
+export interface UpgradeTask {
+  id: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  package_filename?: string;
+  manifest?: {
+    version?: string;
+    min_version?: string;
+    release_notes?: string;
+    database_migration?: boolean;
+    restart_services?: string[];
+    images?: Array<{ service: string; image: string; file: string; sha256: string }>;
+  };
+  precheck?: Array<{ name: string; ok: boolean; message: string }>;
+  steps?: Array<{ key: string; label: string; status: string }>;
+  logs?: string[];
+  rollback?: { backup_file?: string; compose_override?: string };
+  message?: string;
+}
