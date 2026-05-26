@@ -62,21 +62,24 @@ function formatYAxisBytes(value: number): string {
 export function TrendChart({ points, referenceValue, height = 280 }: TrendChartProps) {
   const data = dailyPoints(points);
   const scale = yAxisScale(data.map(([, value]) => value), referenceValue);
-  const option = {
+    const option = {
     grid: { left: 78, right: 24, top: 36, bottom: 42, containLabel: false },
     tooltip: {
       trigger: "axis",
+      backgroundColor: "rgba(15, 23, 42, 0.8)",
+      borderColor: "rgba(0, 229, 255, 0.3)",
+      textStyle: { color: "#e2e8f0" },
       formatter(params: Array<{ axisValue: string; value: number }>) {
         const item = params[0];
-        return `${item.axisValue}<br/>${formatBytes(item.value)}`;
+        return `${item.axisValue}<br/><strong style="color:#00e5ff">${formatBytes(item.value)}</strong>`;
       }
     },
     xAxis: {
       type: "category",
       boundaryGap: false,
       data: data.map(([label]) => label.slice(5)),
-      axisLine: { lineStyle: { color: "#d6dee9" } },
-      axisLabel: { color: "#718096", hideOverlap: true }
+      axisLine: { lineStyle: { color: "rgba(255, 255, 255, 0.1)" } },
+      axisLabel: { color: "#a0aec0", hideOverlap: true }
     },
     yAxis: {
       type: "value",
@@ -84,23 +87,43 @@ export function TrendChart({ points, referenceValue, height = 280 }: TrendChartP
       max: scale.max,
       interval: scale.interval,
       axisLabel: {
-        color: "#718096",
+        color: "#a0aec0",
         width: 64,
         align: "right",
         margin: 10,
         overflow: "truncate",
         formatter: (value: number) => formatYAxisBytes(value)
       },
-      splitLine: { lineStyle: { color: "#edf2f7" } }
+      splitLine: { lineStyle: { color: "rgba(255, 255, 255, 0.05)" } }
     },
     series: [
       {
         type: "line",
         smooth: true,
         showSymbol: data.length <= 14,
+        symbol: "circle",
+        symbolSize: 6,
+        itemStyle: { color: "#00e5ff", borderColor: "#fff", borderWidth: 2 },
         data: data.map(([, value]) => value),
-        areaStyle: { color: "rgba(22, 119, 255, 0.12)" },
-        lineStyle: { color: "#1677ff", width: 2.5 }
+        areaStyle: {
+          color: {
+            type: "linear",
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: "rgba(0, 229, 255, 0.4)" },
+              { offset: 1, color: "rgba(0, 229, 255, 0.01)" }
+            ]
+          }
+        },
+        lineStyle: {
+          color: "#00e5ff",
+          width: 3,
+          shadowColor: "rgba(0, 229, 255, 0.5)",
+          shadowBlur: 10
+        }
       }
     ]
   };

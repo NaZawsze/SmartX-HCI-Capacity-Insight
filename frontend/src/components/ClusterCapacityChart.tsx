@@ -175,18 +175,22 @@ export function ClusterCapacityChart({ clusters, title, height = 360 }: ClusterC
     model.warning
   ]);
 
+
   const option = {
-    color: ["#0f9fbf", "#8792a2", "#29354d", "#f59e0b", "#ef4444"],
+    color: ["#00e5ff", "#a0aec0", "#e2e8f0", "#ff9100", "#ff1744"],
     grid: { left: 76, right: 30, top: 52, bottom: 46 },
     legend: {
       top: 4,
       right: 0,
       itemWidth: 18,
       itemHeight: 8,
-      textStyle: { color: "#5b6472", fontSize: 12 }
+      textStyle: { color: "#a0aec0", fontSize: 12 }
     },
     tooltip: {
       trigger: "axis",
+      backgroundColor: "rgba(15, 23, 42, 0.8)",
+      borderColor: "rgba(0, 229, 255, 0.3)",
+      textStyle: { color: "#e2e8f0" },
       formatter(params: Array<{ axisValue: string; seriesName: string; value: number | null }>) {
         const rows = params
           .filter((item) => typeof item.value === "number")
@@ -199,15 +203,15 @@ export function ClusterCapacityChart({ clusters, title, height = 360 }: ClusterC
       type: "category",
       boundaryGap: false,
       data: labels,
-      axisLine: { lineStyle: { color: "#d6dee9" } },
-      axisLabel: { color: "#718096", hideOverlap: true, formatter: (value: string) => value.slice(5) }
+      axisLine: { lineStyle: { color: "rgba(255, 255, 255, 0.1)" } },
+      axisLabel: { color: "#a0aec0", hideOverlap: true, formatter: (value: string) => value.slice(5) }
     },
     yAxis: {
       type: "value",
       min: 0,
       max,
-      axisLabel: { color: "#718096", formatter: (value: number) => formatBytes(value) },
-      splitLine: { lineStyle: { color: "#edf2f7" } }
+      axisLabel: { color: "#a0aec0", formatter: (value: number) => formatBytes(value) },
+      splitLine: { lineStyle: { color: "rgba(255, 255, 255, 0.05)" } }
     },
     series: [
       {
@@ -216,8 +220,17 @@ export function ClusterCapacityChart({ clusters, title, height = 360 }: ClusterC
         smooth: true,
         showSymbol: actualPoints.length <= 14,
         data: labels.map((label) => actualByLabel.get(label) ?? null),
-        lineStyle: { width: 2.6 },
-        areaStyle: { color: "rgba(15, 159, 191, 0.12)" }
+        lineStyle: { width: 3, shadowColor: "rgba(0, 229, 255, 0.5)", shadowBlur: 10 },
+        areaStyle: {
+          color: {
+            type: "linear",
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: "rgba(0, 229, 255, 0.4)" },
+              { offset: 1, color: "rgba(0, 229, 255, 0.01)" }
+            ]
+          }
+        }
       },
       {
         name: "历史预测",
@@ -225,7 +238,7 @@ export function ClusterCapacityChart({ clusters, title, height = 360 }: ClusterC
         smooth: true,
         showSymbol: false,
         data: labels.map((label) => historyByLabel.get(label) ?? null),
-        lineStyle: { width: 2, type: "dashed" }
+        lineStyle: { width: 2, type: "dashed", opacity: 0.7 }
       },
       {
         name: "未来预测",
@@ -233,21 +246,21 @@ export function ClusterCapacityChart({ clusters, title, height = 360 }: ClusterC
         smooth: true,
         showSymbol: false,
         data: labels.map((label) => futureByLabel.get(label) ?? null),
-        lineStyle: { width: 2, type: "dashed" }
+        lineStyle: { width: 2, type: "dashed", shadowColor: "rgba(226, 232, 240, 0.5)", shadowBlur: 5 }
       },
       {
         name: "告警阈值",
         type: "line",
         showSymbol: false,
         data: horizontalLine(labels, model.warning),
-        lineStyle: { width: 1.8, type: "dashed" }
+        lineStyle: { width: 1.8, type: "dashed", shadowColor: "rgba(255, 145, 0, 0.5)", shadowBlur: 5 }
       },
       {
         name: "存储卷有效容量",
         type: "line",
         showSymbol: false,
         data: horizontalLine(labels, model.total),
-        lineStyle: { width: 1.8, type: "dashed" }
+        lineStyle: { width: 1.8, type: "dashed", shadowColor: "rgba(255, 23, 68, 0.5)", shadowBlur: 5 }
       }
     ]
   };
