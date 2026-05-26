@@ -156,7 +156,7 @@ button {
 .brand-mark {
   width: 24px;
   height: 24px;
-  background: linear-gradient(135deg, #7bc2ff 10%, #1677ff 55%, #7fe0ff 100%);
+  background: linear-gradient(135deg, #00e5ff 0%, #18ffff 100%); box-shadow: 0 0 15px rgba(0, 229, 255, 0.6);
   clip-path: polygon(15% 45%, 92% 5%, 64% 94%);
 }
 
@@ -1117,7 +1117,7 @@ button {
 
 .vm-item {
   border: 1px solid var(--line);
-  background: var(--input-bg);
+  background: #fbfdff;
   border-radius: 6px;
   min-height: 76px;
   padding: 10px 12px;
@@ -1126,12 +1126,6 @@ button {
   grid-template-rows: auto auto;
   gap: 3px 14px;
   text-align: left;
-  transition: all 0.2s ease;
-}
-
-.vm-item:hover {
-  border-color: var(--blue);
-  background: var(--active-bg);
 }
 
 .vm-item span,
@@ -1166,12 +1160,12 @@ button {
 
 .vm-usage.over-limit,
 .over-limit {
-  color: var(--red);
+  color: #d92d20;
 }
 
 .vm-item.active {
   border-color: var(--blue);
-  background: var(--active-bg);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .trend-meta {
@@ -1585,7 +1579,6 @@ button {
   padding: 0 10px;
   outline: none;
   color: var(--ink);
-  background: var(--input-bg);
 }
 
 .settings-form input:focus,
@@ -1713,7 +1706,6 @@ button {
   padding: 0 10px;
   outline: none;
   color: var(--ink);
-  background: var(--input-bg);
 }
 
 .tower-edit-form input:focus {
