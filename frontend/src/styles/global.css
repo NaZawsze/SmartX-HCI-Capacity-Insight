@@ -1117,7 +1117,7 @@ button {
 
 .vm-item {
   border: 1px solid var(--line);
-  background: #fbfdff;
+  background: var(--input-bg);
   border-radius: 6px;
   min-height: 76px;
   padding: 10px 12px;
@@ -1126,6 +1126,12 @@ button {
   grid-template-rows: auto auto;
   gap: 3px 14px;
   text-align: left;
+  transition: all 0.2s ease;
+}
+
+.vm-item:hover {
+  border-color: var(--blue);
+  background: var(--active-bg);
 }
 
 .vm-item span,
@@ -1160,12 +1166,12 @@ button {
 
 .vm-usage.over-limit,
 .over-limit {
-  color: #d92d20;
+  color: var(--red);
 }
 
 .vm-item.active {
   border-color: var(--blue);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--active-bg);
 }
 
 .trend-meta {
