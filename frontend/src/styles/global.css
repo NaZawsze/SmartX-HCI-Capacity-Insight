@@ -156,7 +156,7 @@ button {
 .brand-mark {
   width: 24px;
   height: 24px;
-  background: linear-gradient(135deg, #00e5ff 0%, #18ffff 100%); box-shadow: 0 0 15px rgba(0, 229, 255, 0.6);
+  background: linear-gradient(135deg, #7bc2ff 10%, #1677ff 55%, #7fe0ff 100%);
   clip-path: polygon(15% 45%, 92% 5%, 64% 94%);
 }
 
