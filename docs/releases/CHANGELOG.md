@@ -2,6 +2,29 @@
 
 本文档记录 SmartX HCI Capacity Insight 各版本的主要变化。项目介绍、部署方式和基础使用说明仍以根目录 README 和 docs 文档为准。
 
+## v0.3.2
+
+发布日期：2026-05-27
+
+### 更新摘要
+
+v0.3.2 聚焦离线部署、/data 持久化目录和数据迁移可靠性，修复迁移到新系统后历史指标可能没有随业务库完整恢复的问题。
+
+### 新增与优化
+
+- 新增 `docker-compose.release.yml`，用于直接运行 GitHub Actions 构建好的远端镜像。
+- 新增 `docker-compose.offline.yml`，默认使用本地 `latest` 镜像并设置 `pull_policy: never`，适合无外网或不允许拉取镜像的环境。
+- 持久化数据统一迁移到宿主机 `/data/smartx-capacity-insight-data`：业务库位于 `app`，Prometheus 指标位于 `prometheus`。
+- 系统升级预检查改为校验新的 `/data/smartx-capacity-insight-data` 绑定挂载，并按当前 `SMARTX_COMPOSE_FILE` 读取实际 compose 文件。
+- 数据迁移补全导入优化：当目标 Prometheus 目录没有历史 block 时，会完整导入迁移包中的历史指标数据；已有历史 block 时只补充缺失 block，不覆盖现有指标。
+- 更新平台版本号到 `0.3.2`，确保系统升级页显示和预检查版本判断准确。
+
+### 兼容说明
+
+- 默认补全导入仍不覆盖当前业务库已有 Tower、集群和采集记录。
+- 覆盖导入仍会整体替换当前业务库和 Prometheus 指标目录，执行前需要确认。
+- 从旧 named volume 部署切换到 `/data/smartx-capacity-insight-data` 前，需要先迁移旧 volume 数据。
+
 ## v0.3.0
 
 发布日期：2026-05-27

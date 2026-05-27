@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     project_path: Path = Field(default=Path("/opt/smartx-storage-forecast"), alias="SMARTX_PROJECT_PATH")
     compose_file: str = Field(default="docker-compose.yml", alias="SMARTX_COMPOSE_FILE")
     compose_project_name: str = Field(default="smartx-storage-forecast", alias="SMARTX_COMPOSE_PROJECT_NAME")
-    app_version: str = Field(default="0.2.0", alias="SMARTX_APP_VERSION")
+    app_version: str = Field(default="0.3.2", alias="SMARTX_APP_VERSION")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

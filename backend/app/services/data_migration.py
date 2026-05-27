@@ -346,6 +346,19 @@ def _same_tower(target_row: sqlite3.Row, source_row: sqlite3.Row) -> bool:
 
 def _merge_prometheus_data(source: Path, target: Path) -> dict[str, Any]:
     target.mkdir(parents=True, exist_ok=True)
+    source_blocks = _prometheus_blocks(source)
+    target_blocks = _prometheus_blocks(target)
+
+    if source_blocks and not target_blocks:
+        _replace_directory(source, target)
+        return {
+            "mode": "full_copy_empty_target",
+            "copied_blocks": len(source_blocks),
+            "copied_runtime_entries": _count_existing_entries(source, PROMETHEUS_RUNTIME_ENTRIES),
+            "skipped_existing_blocks": 0,
+            "skipped_runtime_entries": 0,
+        }
+
     copied_blocks = 0
     skipped_blocks = 0
     copied_files = 0
@@ -368,11 +381,22 @@ def _merge_prometheus_data(source: Path, target: Path) -> dict[str, Any]:
             shutil.copy2(child, destination)
             copied_files += 1
     return {
+        "mode": "merge_blocks",
         "copied_blocks": copied_blocks,
         "skipped_existing_blocks": skipped_blocks,
         "copied_files": copied_files,
         "skipped_runtime_entries": skipped_runtime,
     }
+
+
+def _prometheus_blocks(path: Path) -> list[Path]:
+    if not path.exists():
+        return []
+    return [child for child in path.iterdir() if child.is_dir() and _looks_like_prometheus_block(child)]
+
+
+def _count_existing_entries(path: Path, names: set[str]) -> int:
+    return sum(1 for name in names if (path / name).exists())
 
 
 def _looks_like_prometheus_block(path: Path) -> bool:
