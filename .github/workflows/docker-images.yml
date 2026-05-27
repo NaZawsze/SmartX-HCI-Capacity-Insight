@@ -21,9 +21,15 @@ jobs:
           - name: web-api
             context: ./backend
             image: smartx-hci-capacity-insight-web-api
+          - name: collector-worker
+            context: ./backend
+            image: smartx-hci-capacity-insight-collector-worker
           - name: frontend
             context: ./frontend
             image: smartx-hci-capacity-insight-frontend
+          - name: upgrade-runner
+            context: ./backend
+            image: smartx-hci-capacity-insight-upgrade-runner
 
     steps:
       - name: Checkout

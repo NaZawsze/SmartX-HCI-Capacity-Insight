@@ -18,6 +18,8 @@ services:
       - "8000:8000"
     depends_on:
       - prometheus
+    networks:
+      - smartx-net
     restart: unless-stopped
 
   collector-worker:
@@ -35,6 +37,8 @@ services:
       - "9108"
     depends_on:
       - prometheus
+    networks:
+      - smartx-net
     restart: unless-stopped
 
   frontend:
@@ -45,6 +49,8 @@ services:
       - "8080:80"
     depends_on:
       - web-api
+    networks:
+      - smartx-net
     restart: unless-stopped
 
   upgrade-runner:
@@ -65,6 +71,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - prometheus
+    networks:
+      - smartx-net
     restart: unless-stopped
 
   prometheus:
@@ -78,8 +86,17 @@ services:
       - prometheus-data:/prometheus
     ports:
       - "9090:9090"
+    networks:
+      - smartx-net
     restart: unless-stopped
 
 volumes:
   smartx-data:
   prometheus-data:
+
+networks:
+  smartx-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.249.249.0/24
