@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bell, Building2, ChevronDown, CircleCheck, ClipboardList, Database, HardDrive, KeyRound, LayoutDashboard, LogOut, Save, Search, Server, Settings, UserRound, View, X } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Bell, Building2, ChevronDown, CircleCheck, ClipboardList, Database, HardDrive, KeyRound, LayoutDashboard, LogOut, Save, Search, Server, Settings, SlidersHorizontal, UserRound, View, X } from "lucide-react";
 import { api } from "../services/api";
 import type { Cluster, DashboardScope, DashboardSummary, PageKey, Tower } from "../types";
 
@@ -18,14 +18,16 @@ const pageTitle: Record<PageKey, string> = {
   dashboard: "存储预测概览",
   vms: "虚拟机存储趋势",
   reports: "预测报表",
-  settings: "Tower 设置"
+  settings: "Tower 设置",
+  service: "服务管理"
 };
 
 const navItems: Array<{ key: PageKey; label: string; icon: ReactNode }> = [
   { key: "dashboard", label: "概览", icon: <LayoutDashboard size={16} /> },
   { key: "vms", label: "虚拟机", icon: <Server size={16} /> },
   { key: "reports", label: "报表", icon: <ClipboardList size={16} /> },
-  { key: "settings", label: "设置", icon: <Settings size={16} /> }
+  { key: "settings", label: "设置", icon: <Settings size={16} /> },
+  { key: "service", label: "服务管理", icon: <SlidersHorizontal size={16} /> }
 ];
 const emptyTowers: Tower[] = [];
 const defaultSidebarWidth = 224;
@@ -68,7 +70,19 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   const [editingCluster, setEditingCluster] = useState<{ towerId: number; clusterId: string; name: string } | null>(null);
   const shellBodyRef = useRef<HTMLDivElement | null>(null);
   const selectedScopeKey = scopeKey(scope);
+  const serviceFocus = activePage === "service";
   const shellStyle = { "--sidebar-width": `${sidebarWidth}px` } as CSSProperties;
+
+  const resetWorkspaceScroll = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0 });
+      document.querySelector<HTMLElement>(".workspace")?.scrollTo({ top: 0 });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (serviceFocus) resetWorkspaceScroll();
+  }, [resetWorkspaceScroll, serviceFocus]);
 
   useEffect(() => {
     setExpandedTowerIds((current) => {
@@ -112,6 +126,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
     onNavigate(page);
     setViewMenuOpen(false);
     setAccountMenuOpen(false);
+    if (page === "service") resetWorkspaceScroll();
   }
 
   function openPasswordDialog() {
@@ -183,7 +198,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   }
 
   return (
-    <div className={resizingSidebar ? "shell resizing-sidebar" : "shell"} style={shellStyle}>
+    <div className={["shell", resizingSidebar ? "resizing-sidebar" : "", serviceFocus ? "service-focus" : ""].filter(Boolean).join(" ")} style={shellStyle}>
       <header className="shell-header">
         <div className="brand">
           <div className="brand-mark" />
@@ -263,7 +278,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
       )}
 
       <div className="shell-body" ref={shellBodyRef}>
-        <aside className="sidebar">
+        <aside className="sidebar" aria-hidden={serviceFocus}>
           <div className="cluster-select">
             <span>集群</span>
             <ChevronDown size={16} />
@@ -380,6 +395,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
           aria-orientation="vertical"
           aria-label="调整左侧栏宽度"
           onPointerDown={(event) => {
+            if (serviceFocus) return;
             event.preventDefault();
             setResizingSidebar(true);
           }}
@@ -395,7 +411,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
                     key={item.key}
                     className={item.key === activePage ? "tab active" : "tab"}
                     type="button"
-                    onClick={() => onNavigate(item.key)}
+                    onClick={() => navigate(item.key)}
                   >
                     {item.icon}
                     {item.label}

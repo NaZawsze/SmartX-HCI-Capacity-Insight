@@ -2,11 +2,17 @@ services:
   web-api:
     build:
       context: ./backend
+    image: smartx-storage-forecast-web-api:local
     env_file:
       - .env
+    environment:
+      SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
+      SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast
+      SMARTX_APP_VERSION: "0.2.0"
     volumes:
       - smartx-data:/data
       - prometheus-data:/prometheus-data
+      - .:/opt/smartx-storage-forecast:ro
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8000:8000"
@@ -17,9 +23,12 @@ services:
   collector-worker:
     build:
       context: ./backend
+    image: smartx-storage-forecast-collector-worker:local
     command: ["python", "-m", "app.collector.worker"]
     env_file:
       - .env
+    environment:
+      SMARTX_APP_VERSION: "0.2.0"
     volumes:
       - smartx-data:/data
     expose:
@@ -31,10 +40,31 @@ services:
   frontend:
     build:
       context: ./frontend
+    image: smartx-storage-forecast-frontend:local
     ports:
       - "8080:80"
     depends_on:
       - web-api
+    restart: unless-stopped
+
+  upgrade-runner:
+    build:
+      context: ./backend
+    image: smartx-storage-forecast-upgrade-runner:local
+    command: ["python", "-m", "app.upgrade.runner"]
+    env_file:
+      - .env
+    environment:
+      SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
+      SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast
+      SMARTX_APP_VERSION: "0.2.0"
+    volumes:
+      - .:/opt/smartx-storage-forecast
+      - smartx-data:/data
+      - prometheus-data:/prometheus-data
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - prometheus
     restart: unless-stopped
 
   prometheus:
@@ -53,4 +83,3 @@ services:
 volumes:
   smartx-data:
   prometheus-data:
-

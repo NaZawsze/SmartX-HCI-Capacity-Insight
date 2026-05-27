@@ -1,4 +1,4 @@
-export type PageKey = "dashboard" | "vms" | "reports" | "settings";
+export type PageKey = "dashboard" | "vms" | "reports" | "settings" | "service";
 
 export interface LoginResponse {
   access_token: string;
@@ -144,4 +144,27 @@ export interface ForecastResult {
   forecast_90d?: number | null;
   forecast_180d?: number | null;
   exhaustion_days?: number | null;
+}
+
+
+export interface UpgradeTask {
+  task_id: string;
+  status: string;
+  uploaded_at?: string;
+  started_at?: string;
+  finished_at?: string;
+  updated_at?: string;
+  rollback_started_at?: string;
+  rollback_finished_at?: string;
+  package_filename?: string;
+  backup_path?: string;
+  target_version?: string;
+  release_notes?: string;
+  database_migration?: boolean;
+  restart_services?: string[];
+  precheck_ok?: boolean;
+  manifest?: Record<string, unknown>;
+  checks: Array<{ name: string; ok: boolean; message: string; detail?: unknown }>;
+  steps: Array<{ key: string; title: string; status: string; started_at?: string; finished_at?: string; message?: string }>;
+  logs: string[];
 }

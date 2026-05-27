@@ -29,6 +29,7 @@ from app.services.prometheus import latest_metrics_text
 from app.services.report_export import DOCX_MEDIA_TYPE, XLSX_MEDIA_TYPE, build_report_docx, build_report_xlsx
 from app.services.system_control import schedule_service_restart
 from app.services.towers import create_tower, delete_tower, get_tower, list_towers, update_cluster as save_cluster, update_tower, upsert_clusters
+from app.services.upgrade import delete_upgrade_package, precheck_upgrade, rollback_upgrade, start_upgrade, upgrade_history, upgrade_status, upload_upgrade_package
 from app.services.users import change_password
 
 
@@ -194,6 +195,48 @@ async def import_migration(
 @router.post("/api/admin/system/restart")
 def restart_system_services(_: dict = Depends(current_user)) -> dict:
     return schedule_service_restart()
+
+
+@router.get("/api/admin/upgrade/version")
+def get_upgrade_version(_: dict = Depends(current_user)) -> dict[str, str]:
+    from app.core.config import get_settings
+
+    return {"version": get_settings().app_version}
+
+
+@router.post("/api/admin/upgrade/upload")
+async def upload_upgrade(file: UploadFile = File(...), _: dict = Depends(current_user)) -> dict:
+    return await upload_upgrade_package(file)
+
+
+@router.post("/api/admin/upgrade/precheck/{task_id}")
+def precheck_upgrade_task(task_id: str, _: dict = Depends(current_user)) -> dict:
+    return precheck_upgrade(task_id)
+
+
+@router.post("/api/admin/upgrade/start/{task_id}")
+def start_upgrade_task(task_id: str, _: dict = Depends(current_user)) -> dict:
+    return start_upgrade(task_id)
+
+
+@router.get("/api/admin/upgrade/status/{task_id}")
+def get_upgrade_status(task_id: str, _: dict = Depends(current_user)) -> dict:
+    return upgrade_status(task_id)
+
+
+@router.post("/api/admin/upgrade/rollback/{task_id}")
+def rollback_upgrade_task(task_id: str, _: dict = Depends(current_user)) -> dict:
+    return rollback_upgrade(task_id)
+
+
+@router.delete("/api/admin/upgrade/package/{task_id}")
+def delete_upgrade_task(task_id: str, _: dict = Depends(current_user)) -> dict:
+    return delete_upgrade_package(task_id)
+
+
+@router.get("/api/admin/upgrade/history")
+def get_upgrade_history(_: dict = Depends(current_user)) -> list[dict]:
+    return upgrade_history()
 
 
 @router.get("/metrics")

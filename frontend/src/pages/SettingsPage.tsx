@@ -1,4 +1,4 @@
-import { CheckCircle, Download, Pencil, Plus, Power, RefreshCw, Save, ShieldCheck, Trash2, Upload, X } from "lucide-react";
+import { CheckCircle, Pencil, Plus, RefreshCw, Save, ShieldCheck, Trash2, X } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { Card } from "../components/Card";
 import { api } from "../services/api";
@@ -22,13 +22,6 @@ export function SettingsPage() {
   const [editingTowerId, setEditingTowerId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState(emptyForm);
   const [message, setMessage] = useState("");
-  const [migrationMessage, setMigrationMessage] = useState("");
-  const [migrationBusy, setMigrationBusy] = useState(false);
-  const [migrationFile, setMigrationFile] = useState<File | null>(null);
-  const [migrationMode, setMigrationMode] = useState<"merge" | "overwrite">("merge");
-  const [migrationConfirmed, setMigrationConfirmed] = useState(false);
-  const [restartBusy, setRestartBusy] = useState(false);
-  const [restartMessage, setRestartMessage] = useState("");
 
   async function reload() {
     setTowers(await api.towers());
@@ -97,68 +90,7 @@ export function SettingsPage() {
     await reload();
   }
 
-  function saveBlob(blob: Blob, filename: string) {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename || "smartx-storage-migration.tar.gz";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  }
 
-  async function exportMigration() {
-    setMigrationMessage("");
-    setMigrationBusy(true);
-    try {
-      const { blob, filename } = await api.exportMigration();
-      saveBlob(blob, filename);
-      setMigrationMessage("迁移包已生成");
-    } catch (exc) {
-      setMigrationMessage(exc instanceof Error ? exc.message : "导出失败");
-    } finally {
-      setMigrationBusy(false);
-    }
-  }
-
-  async function importMigration() {
-    setMigrationMessage("");
-    if (!migrationFile) {
-      setMigrationMessage("请选择迁移包文件");
-      return;
-    }
-    if (migrationMode === "overwrite" && !migrationConfirmed) {
-      setMigrationMessage("覆盖导入会清空当前数据，请先勾选确认");
-      return;
-    }
-    setMigrationBusy(true);
-    try {
-      const result = await api.importMigration(migrationFile, migrationMode, migrationConfirmed);
-      setMigrationMessage(result.message);
-      setMigrationFile(null);
-      setMigrationMode("merge");
-      setMigrationConfirmed(false);
-      await reload();
-    } catch (exc) {
-      setMigrationMessage(exc instanceof Error ? exc.message : "导入失败");
-    } finally {
-      setMigrationBusy(false);
-    }
-  }
-
-  async function restartServices() {
-    setRestartMessage("");
-    setRestartBusy(true);
-    try {
-      const result = await api.restartSystemServices();
-      setRestartMessage(result.message);
-    } catch (exc) {
-      setRestartMessage(exc instanceof Error ? exc.message : "重启失败");
-    } finally {
-      setRestartBusy(false);
-    }
-  }
 
   return (
     <div className="settings-grid">
@@ -205,57 +137,6 @@ export function SettingsPage() {
             创建
           </button>
         </form>
-      </Card>
-
-
-
-      <Card title="数据迁移">
-        <div className="migration-panel">
-          <div className="migration-actions">
-            <button className="primary-button" type="button" onClick={exportMigration} disabled={migrationBusy}>
-              <Download size={16} />
-              导出迁移包
-            </button>
-          </div>
-          <div className="migration-import">
-            <label>
-              迁移包文件
-              <input type="file" accept=".gz,.tgz,.tar.gz,application/gzip" onChange={(event) => setMigrationFile(event.target.files?.[0] ?? null)} disabled={migrationBusy} />
-            </label>
-            <div className="migration-mode-group" role="radiogroup" aria-label="导入方式">
-              <button className={migrationMode === "merge" ? "active" : ""} type="button" onClick={() => setMigrationMode("merge")} disabled={migrationBusy}>
-                补全缺失数据
-              </button>
-              <button className={migrationMode === "overwrite" ? "active" : ""} type="button" onClick={() => setMigrationMode("overwrite")} disabled={migrationBusy}>
-                覆盖导入
-              </button>
-            </div>
-            {migrationMode === "overwrite" && (
-              <label className="checkbox-line migration-confirm">
-                <input type="checkbox" checked={migrationConfirmed} onChange={(event) => setMigrationConfirmed(event.target.checked)} disabled={migrationBusy} />
-                我确认覆盖当前系统数据
-              </label>
-            )}
-            <button className={migrationMode === "overwrite" ? "secondary-button danger-button" : "secondary-button"} type="button" onClick={importMigration} disabled={migrationBusy || !migrationFile || (migrationMode === "overwrite" && !migrationConfirmed)}>
-              <Upload size={15} />
-              导入迁移包
-            </button>
-          </div>
-          <div className="form-hint">默认补全缺失数据：业务库按唯一键保留已有记录，Prometheus 只补不存在的历史 block；覆盖导入会替换当前数据。导入后请重启服务使数据完全生效。</div>
-          {migrationMessage && <div className="inline-message">{migrationMessage}</div>}
-        </div>
-      </Card>
-
-
-      <Card title="服务管理">
-        <div className="service-control-panel">
-          <button className="secondary-button" type="button" onClick={restartServices} disabled={restartBusy}>
-            <Power size={16} />
-            {restartBusy ? "正在提交重启" : "重启数据服务"}
-          </button>
-          <div className="form-hint">用于导入数据后手动重启 web-api、collector-worker 和 Prometheus，使补全的数据完全生效。</div>
-          {restartMessage && <div className="inline-message">{restartMessage}</div>}
-        </div>
       </Card>
 
       <Card title="Tower 列表" className="wide-card">

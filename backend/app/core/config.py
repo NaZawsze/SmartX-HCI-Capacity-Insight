@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     collection_minute: int = Field(default=10, alias="SMARTX_COLLECTION_MINUTE")
     cors_origins: str = Field(default="*", alias="SMARTX_CORS_ORIGINS")
     token_ttl_minutes: int = Field(default=720, alias="SMARTX_TOKEN_TTL_MINUTES")
+    upgrade_path: Path = Field(default=Path("/data/upgrades"), alias="SMARTX_UPGRADE_PATH")
+    backup_path: Path = Field(default=Path("/data/backups"), alias="SMARTX_BACKUP_PATH")
+    project_path: Path = Field(default=Path("/opt/smartx-storage-forecast"), alias="SMARTX_PROJECT_PATH")
+    compose_project_name: str = Field(default="smartx-storage-forecast", alias="SMARTX_COMPOSE_PROJECT_NAME")
+    app_version: str = Field(default="0.2.0", alias="SMARTX_APP_VERSION")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

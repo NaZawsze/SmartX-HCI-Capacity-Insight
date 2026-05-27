@@ -4,6 +4,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { ServicePage } from "./pages/ServicePage";
 import { VmsPage } from "./pages/VmsPage";
 import { AUTH_CHANGED_EVENT, api, getToken, setToken } from "./services/api";
 import type { DashboardScope, DashboardSummary, PageKey } from "./types";
@@ -87,6 +88,7 @@ export default function App() {
       )}
       {activePage === "reports" && <ReportsPage summary={summary} scope={scope} refreshKey={dataRefreshKey} onSelectVm={openVm} />}
       {activePage === "settings" && <SettingsPage />}
+      {activePage === "service" && <ServicePage />}
     </AppLayout>
   );
 }

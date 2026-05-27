@@ -5,6 +5,7 @@ import type {
   LoginResponse,
   MetricItem,
   Tower,
+  UpgradeTask,
   VmTrend,
   VmVolume,
   VmVolumeSet
@@ -191,6 +192,32 @@ export const api = {
   },
   async restartSystemServices(): Promise<{ ok: boolean; services: string[]; message: string }> {
     return request<{ ok: boolean; services: string[]; message: string }>("/api/admin/system/restart", { method: "POST" });
+  },
+  async upgradeVersion(): Promise<{ version: string }> {
+    return request<{ version: string }>("/api/admin/upgrade/version");
+  },
+  async uploadUpgradePackage(file: File): Promise<UpgradeTask> {
+    const formData = new FormData();
+    formData.set("file", file);
+    return upload<UpgradeTask>("/api/admin/upgrade/upload", formData);
+  },
+  async precheckUpgrade(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/upgrade/precheck/${taskId}`, { method: "POST" });
+  },
+  async startUpgrade(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/upgrade/start/${taskId}`, { method: "POST" });
+  },
+  async rollbackUpgrade(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/upgrade/rollback/${taskId}`, { method: "POST" });
+  },
+  async deleteUpgradePackage(taskId: string): Promise<{ ok: boolean; task_id: string }> {
+    return request<{ ok: boolean; task_id: string }>(`/api/admin/upgrade/package/${taskId}`, { method: "DELETE" });
+  },
+  async upgradeStatus(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/upgrade/status/${taskId}`);
+  },
+  async upgradeHistory(): Promise<UpgradeTask[]> {
+    return request<UpgradeTask[]>("/api/admin/upgrade/history");
   }
 };
 
