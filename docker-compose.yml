@@ -25,6 +25,7 @@ services:
   collector-worker:
     build:
       context: ./backend
+      dockerfile: Dockerfile.worker
     image: smartx-storage-forecast-collector-worker:local
     command: ["python", "-m", "app.collector.worker"]
     env_file:
@@ -56,6 +57,7 @@ services:
   upgrade-runner:
     build:
       context: ./backend
+      dockerfile: Dockerfile.upgrade
     image: smartx-storage-forecast-upgrade-runner:local
     command: ["python", "-m", "app.upgrade.runner"]
     env_file:

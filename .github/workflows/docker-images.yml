@@ -20,15 +20,19 @@ jobs:
         include:
           - name: web-api
             context: ./backend
+            dockerfile: ./backend/Dockerfile
             image: smartx-hci-capacity-insight-web-api
           - name: collector-worker
             context: ./backend
+            dockerfile: ./backend/Dockerfile.worker
             image: smartx-hci-capacity-insight-collector-worker
           - name: frontend
             context: ./frontend
+            dockerfile: ./frontend/Dockerfile
             image: smartx-hci-capacity-insight-frontend
           - name: upgrade-runner
             context: ./backend
+            dockerfile: ./backend/Dockerfile.upgrade
             image: smartx-hci-capacity-insight-upgrade-runner
 
     steps:
@@ -59,6 +63,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

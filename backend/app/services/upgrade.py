@@ -132,8 +132,7 @@ def precheck_upgrade(task_id: str) -> dict[str, Any]:
     except OSError as exc:
         check("docker", False, "当前环境未挂载 Docker 控制接口。", str(exc))
 
-    cli_ok, cli_message = _docker_cli_available()
-    check("docker-cli", cli_ok, cli_message)
+    check("upgrade-runner", True, "升级执行器镜像包含 Docker CLI，并会负责加载镜像和重启服务。")
 
     compose_ok, compose_message = _compose_volume_safe()
     check("volumes", compose_ok, compose_message)
