@@ -23,7 +23,10 @@ PRODUCT_NAME = "smartx-storage-forecast"
 TASK_FILE = "task.json"
 MANIFEST_NAME = "manifest.json"
 ALLOWED_SERVICES = {"web-api", "frontend", "collector-worker", "prometheus"}
-CORE_VOLUME_MARKERS = ("smartx-data:/data", "prometheus-data:/prometheus")
+CORE_VOLUME_MARKERS = (
+    "/data/smartx-capacity-insight-data/app:/data",
+    "/data/smartx-capacity-insight-data/prometheus:/prometheus",
+)
 RUNNING_STATUSES = {"pending", "running", "rollback_pending", "rollback_running"}
 
 
@@ -411,16 +414,17 @@ def _run_command(command: list[str], cwd: Path, env: dict[str, str] | None = Non
 
 
 def _compose_volume_safe() -> tuple[bool, str]:
-    compose_path = get_settings().project_path / "docker-compose.yml"
+    settings = get_settings()
+    compose_path = settings.project_path / settings.compose_file
     if not compose_path.exists():
         return False, f"找不到 compose 文件：{compose_path}。"
     text = compose_path.read_text(encoding="utf-8")
     missing = [marker for marker in CORE_VOLUME_MARKERS if marker not in text]
     if missing:
-        return False, "核心数据卷挂载缺失：" + ", ".join(missing)
+        return False, "核心数据目录挂载缺失：" + ", ".join(missing)
     if "down -v" in text:
         return False, "compose 配置中包含禁止的 down -v。"
-    return True, "核心数据卷挂载保持安全：smartx-data 和 prometheus-data 不会被替换。"
+    return True, "核心数据目录挂载保持安全：/data/smartx-capacity-insight-data/app 和 /data/smartx-capacity-insight-data/prometheus 不会被替换。"
 
 
 def _disk_space_ok(package_dir: Path, manifest: dict[str, Any]) -> tuple[bool, str]:
