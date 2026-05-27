@@ -158,6 +158,8 @@ export interface UpgradeTask {
   rollback_finished_at?: string;
   package_filename?: string;
   backup_path?: string;
+  kind?: string;
+  component?: string;
   target_version?: string;
   release_notes?: string;
   database_migration?: boolean;
@@ -167,4 +169,19 @@ export interface UpgradeTask {
   checks: Array<{ name: string; ok: boolean; message: string; detail?: unknown }>;
   steps: Array<{ key: string; title: string; status: string; started_at?: string; finished_at?: string; message?: string }>;
   logs: string[];
+}
+
+
+export type AppTaskStatus = "running" | "succeeded" | "failed";
+export type AppTaskKind = "upload" | "download" | "import" | "export" | "upgrade";
+
+export interface AppTask {
+  id: string;
+  kind: AppTaskKind;
+  title: string;
+  detail?: string;
+  status: AppTaskStatus;
+  progress: number;
+  createdAt: number;
+  updatedAt: number;
 }

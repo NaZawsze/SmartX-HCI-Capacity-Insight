@@ -47,7 +47,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function download(path: string): Promise<{ blob: Blob; filename: string }> {
+type ProgressCallback = (progress: number) => void;
+
+async function download(path: string, onProgress?: ProgressCallback): Promise<{ blob: Blob; filename: string }> {
   const token = getToken();
   const headers = new Headers();
   if (token) {
@@ -62,25 +64,76 @@ async function download(path: string): Promise<{ blob: Blob; filename: string }>
     }
     throw new Error(payload.detail || response.statusText);
   }
-  return { blob: await response.blob(), filename: filenameFromDisposition(response.headers.get("Content-Disposition")) };
+  const filename = filenameFromDisposition(response.headers.get("Content-Disposition"));
+  const total = Number(response.headers.get("Content-Length") || 0);
+  if (!response.body || !total) {
+    onProgress?.(90);
+    return { blob: await response.blob(), filename };
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      chunks.push(value);
+      received += value.length;
+      onProgress?.(Math.min(95, Math.round((received / total) * 100)));
+    }
+  }
+  return { blob: new Blob(chunks.map((chunk) => chunk.slice()) as BlobPart[]), filename };
 }
 
-async function upload<T>(path: string, formData: FormData): Promise<T> {
-  const token = getToken();
-  const headers = new Headers();
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-  const response = await fetch(`${API_BASE}${path}`, { method: "POST", headers, body: formData });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({ detail: response.statusText }));
-    if (response.status === 401) {
-      setToken(null);
-      throw new Error(payload.detail || "登录已过期，请重新登录。");
+async function upload<T>(path: string, formData: FormData, onProgress?: ProgressCallback): Promise<T> {
+  if (!onProgress) {
+    const token = getToken();
+    const headers = new Headers();
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
     }
-    throw new Error(payload.detail || response.statusText);
+    const response = await fetch(`${API_BASE}${path}`, { method: "POST", headers, body: formData });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({ detail: response.statusText }));
+      if (response.status === 401) {
+        setToken(null);
+        throw new Error(payload.detail || "登录已过期，请重新登录。");
+      }
+      throw new Error(payload.detail || response.statusText);
+    }
+    return response.json() as Promise<T>;
   }
-  return response.json() as Promise<T>;
+
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_BASE}${path}`);
+    const token = getToken();
+    if (token) {
+      xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    }
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        onProgress(Math.min(95, Math.round((event.loaded / event.total) * 100)));
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress(100);
+        resolve(JSON.parse(xhr.responseText) as T);
+        return;
+      }
+      let detail = xhr.statusText;
+      try {
+        detail = JSON.parse(xhr.responseText).detail || detail;
+      } catch {
+        // ignore invalid JSON error responses
+      }
+      if (xhr.status === 401) setToken(null);
+      reject(new Error(detail || "请求失败"));
+    };
+    xhr.onerror = () => reject(new Error("网络请求失败"));
+    xhr.send(formData);
+  });
 }
 
 function scopedParams(scope?: DashboardScope, periodDays?: number): URLSearchParams {
@@ -177,18 +230,18 @@ export const api = {
   async report(scope?: DashboardScope): Promise<ForecastPayload> {
     return request<ForecastPayload>(`/api/reports/latest${scopedQuery(scope)}`);
   },
-  async exportReport(format: "word" | "excel", scope?: DashboardScope, periodDays?: number): Promise<{ blob: Blob; filename: string }> {
-    return download(`/api/reports/export/${format}${scopedQuery(scope, periodDays)}`);
+  async exportReport(format: "word" | "excel", scope?: DashboardScope, periodDays?: number, onProgress?: ProgressCallback): Promise<{ blob: Blob; filename: string }> {
+    return download(`/api/reports/export/${format}${scopedQuery(scope, periodDays)}`, onProgress);
   },
-  async exportMigration(): Promise<{ blob: Blob; filename: string }> {
-    return download("/api/admin/migration/export");
+  async exportMigration(onProgress?: ProgressCallback): Promise<{ blob: Blob; filename: string }> {
+    return download("/api/admin/migration/export", onProgress);
   },
-  async importMigration(file: File, mode: "merge" | "overwrite", confirmed: boolean): Promise<{ ok: boolean; restored: string[]; message: string }> {
+  async importMigration(file: File, mode: "merge" | "overwrite", confirmed: boolean, onProgress?: ProgressCallback): Promise<{ ok: boolean; restored: string[]; message: string }> {
     const formData = new FormData();
     formData.set("file", file);
     formData.set("mode", mode);
     formData.set("confirmed", String(confirmed));
-    return upload<{ ok: boolean; restored: string[]; message: string }>("/api/admin/migration/import", formData);
+    return upload<{ ok: boolean; restored: string[]; message: string }>("/api/admin/migration/import", formData, onProgress);
   },
   async restartSystemServices(): Promise<{ ok: boolean; services: string[]; message: string }> {
     return request<{ ok: boolean; services: string[]; message: string }>("/api/admin/system/restart", { method: "POST" });
@@ -196,10 +249,13 @@ export const api = {
   async upgradeVersion(): Promise<{ version: string }> {
     return request<{ version: string }>("/api/admin/upgrade/version");
   },
-  async uploadUpgradePackage(file: File): Promise<UpgradeTask> {
+  async componentUpgradeVersion(): Promise<{ component: string; version: string }> {
+    return request<{ component: string; version: string }>("/api/admin/component-upgrade/version");
+  },
+  async uploadUpgradePackage(file: File, onProgress?: ProgressCallback): Promise<UpgradeTask> {
     const formData = new FormData();
     formData.set("file", file);
-    return upload<UpgradeTask>("/api/admin/upgrade/upload", formData);
+    return upload<UpgradeTask>("/api/admin/upgrade/upload", formData, onProgress);
   },
   async precheckUpgrade(taskId: string): Promise<UpgradeTask> {
     return request<UpgradeTask>(`/api/admin/upgrade/precheck/${taskId}`, { method: "POST" });
@@ -218,6 +274,26 @@ export const api = {
   },
   async upgradeHistory(): Promise<UpgradeTask[]> {
     return request<UpgradeTask[]>("/api/admin/upgrade/history");
+  },
+  async uploadComponentUpgradePackage(file: File, onProgress?: ProgressCallback): Promise<UpgradeTask> {
+    const formData = new FormData();
+    formData.set("file", file);
+    return upload<UpgradeTask>("/api/admin/component-upgrade/upload", formData, onProgress);
+  },
+  async precheckComponentUpgrade(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/component-upgrade/precheck/${taskId}`, { method: "POST" });
+  },
+  async startComponentUpgrade(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/component-upgrade/start/${taskId}`, { method: "POST" });
+  },
+  async deleteComponentUpgradePackage(taskId: string): Promise<{ ok: boolean; task_id: string }> {
+    return request<{ ok: boolean; task_id: string }>(`/api/admin/component-upgrade/package/${taskId}`, { method: "DELETE" });
+  },
+  async componentUpgradeStatus(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/component-upgrade/status/${taskId}`);
+  },
+  async componentUpgradeHistory(): Promise<UpgradeTask[]> {
+    return request<UpgradeTask[]>("/api/admin/component-upgrade/history");
   }
 };
 

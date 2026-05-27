@@ -20,14 +20,35 @@ from app.services.data_migration import build_migration_archive
 from app.services.system_control import _docker_request
 
 PRODUCT_NAME = "smartx-storage-forecast"
+COMPONENT_PRODUCT_NAME = "smartx-upgrade-runner"
+RUNNER_SERVICE = "upgrade-runner"
 TASK_FILE = "task.json"
 MANIFEST_NAME = "manifest.json"
-ALLOWED_SERVICES = {"web-api", "frontend", "collector-worker", "prometheus"}
+ALLOWED_SERVICES = {"web-api", "frontend", "collector-worker", "prometheus", "upgrade-runner"}
 CORE_VOLUME_MARKERS = (
     "/data/smartx-capacity-insight-data/app:/data",
     "/data/smartx-capacity-insight-data/prometheus:/prometheus",
 )
 RUNNING_STATUSES = {"pending", "running", "rollback_pending", "rollback_running"}
+UPGRADE_STEPS = (
+    ("backup", "生成升级前数据备份"),
+    ("load_images", "加载升级镜像"),
+    ("write_override", "写入服务镜像覆盖配置"),
+    ("migration", "执行数据库迁移脚本"),
+    ("restart", "重启升级服务"),
+    ("healthcheck", "执行服务健康检查"),
+)
+ROLLBACK_STEPS = (
+    ("rollback_config", "恢复升级前镜像配置"),
+    ("rollback_restart", "重启回滚服务"),
+    ("rollback_healthcheck", "执行回滚健康检查"),
+)
+COMPONENT_STEPS = (
+    ("load_images", "加载组件镜像"),
+    ("write_override", "写入组件镜像覆盖配置"),
+    ("restart", "重启升级中心组件"),
+    ("healthcheck", "检查组件运行状态"),
+)
 
 
 def now_iso() -> str:
@@ -80,6 +101,56 @@ async def upload_upgrade_package(upload: UploadFile) -> dict[str, Any]:
     }
     _save_task(task)
     return _public_task(task)
+
+
+async def upload_component_package(upload: UploadFile) -> dict[str, Any]:
+    filename = upload.filename or "component-upgrade.tar.gz"
+    if not (filename.endswith(".tar.gz") or filename.endswith(".tgz")):
+        raise HTTPException(status_code=400, detail="请上传 .tar.gz 组件升级包。")
+
+    task_id = uuid.uuid4().hex
+    task_dir = _component_task_dir(task_id)
+    package_dir = task_dir / "package"
+    package_path = task_dir / "upload.tar.gz"
+    task_dir.mkdir(parents=True, exist_ok=False)
+    package_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with package_path.open("wb") as target:
+            while True:
+                chunk = await upload.read(1024 * 1024)
+                if not chunk:
+                    break
+                target.write(chunk)
+        if package_path.stat().st_size == 0:
+            raise HTTPException(status_code=400, detail="组件升级包为空。")
+        _extract_safe(package_path, package_dir)
+        manifest = _read_manifest(package_dir / MANIFEST_NAME)
+        _validate_component_manifest_shape(manifest)
+    except HTTPException:
+        shutil.rmtree(task_dir, ignore_errors=True)
+        raise
+    except Exception as exc:
+        shutil.rmtree(task_dir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail=f"无法解析组件升级包：{exc}") from exc
+
+    task = {
+        "task_id": task_id,
+        "kind": "component",
+        "component": RUNNER_SERVICE,
+        "status": "uploaded",
+        "uploaded_at": now_iso(),
+        "updated_at": now_iso(),
+        "package_filename": filename,
+        "package_path": str(package_path),
+        "package_dir": str(package_dir),
+        "manifest": manifest,
+        "checks": [],
+        "steps": [],
+        "logs": [f"组件升级包已上传：{filename}"],
+    }
+    _save_component_task(task)
+    return _public_component_task(task)
 
 
 def precheck_upgrade(task_id: str) -> dict[str, Any]:
@@ -157,6 +228,75 @@ def precheck_upgrade(task_id: str) -> dict[str, Any]:
     return _public_task(task)
 
 
+def precheck_component_upgrade(task_id: str) -> dict[str, Any]:
+    task = _load_component_task_or_404(task_id)
+    if task.get("status") in RUNNING_STATUSES:
+        raise HTTPException(status_code=409, detail="组件升级任务正在执行，不能重复预检查。")
+    manifest = task.get("manifest") or {}
+    package_dir = Path(task["package_dir"])
+    checks: list[dict[str, Any]] = []
+
+    def check(name: str, ok: bool, message: str, detail: Any | None = None) -> None:
+        item: dict[str, Any] = {"name": name, "ok": ok, "message": message}
+        if detail is not None:
+            item["detail"] = detail
+        checks.append(item)
+
+    try:
+        _validate_component_manifest_shape(manifest)
+        check("manifest", True, "组件 manifest.json 格式正确。")
+    except HTTPException as exc:
+        check("manifest", False, str(exc.detail))
+
+    current_version = runner_version()
+    target_version = str(manifest.get("version") or "")
+    min_version = str(manifest.get("min_version") or "0.0.0")
+    check("version", bool(target_version) and _version_gte(current_version, min_version), f"当前版本 {current_version}，目标版本 {target_version or '-'}，最低兼容版本 {min_version}。")
+
+    platform_running = _has_running_platform_upgrade()
+    check("platform-upgrade", not platform_running, "当前没有正在执行的平台升级任务。" if not platform_running else "平台升级任务正在执行，请完成后再升级组件。")
+
+    hash_ok = True
+    hash_details: list[str] = []
+    for image in manifest.get("images") or []:
+        rel_file = str(image.get("file") or "")
+        expected = str(image.get("sha256") or "").lower()
+        image_path = _safe_child(package_dir, rel_file)
+        if not image_path.exists() or not image_path.is_file():
+            hash_ok = False
+            hash_details.append(f"缺少镜像文件 {rel_file}")
+            continue
+        actual = _sha256_file(image_path)
+        if expected and actual != expected:
+            hash_ok = False
+            hash_details.append(f"{rel_file} sha256 不匹配")
+        else:
+            hash_details.append(f"{rel_file} 校验通过")
+    check("sha256", hash_ok, "组件镜像文件 sha256 校验完成。" if hash_ok else "组件镜像文件 sha256 校验失败。", hash_details)
+
+    try:
+        status, body = _docker_request("GET", "/_ping")
+        docker_ok = status < 300 and body.strip() == b"OK"
+        check("docker", docker_ok, "Docker 控制接口可用。" if docker_ok else "Docker 控制接口不可用。")
+    except OSError as exc:
+        check("docker", False, "当前环境未挂载 Docker 控制接口。", str(exc))
+
+    cli_ok, cli_message = _docker_cli_available()
+    check("docker-cli", cli_ok, cli_message)
+
+    free_ok, free_message = _disk_space_ok(package_dir, manifest)
+    check("disk", free_ok, free_message)
+
+    ok = all(item["ok"] for item in checks)
+    task["checks"] = checks
+    task["precheck_ok"] = ok
+    task["status"] = "prechecked" if ok else "uploaded"
+    task["updated_at"] = now_iso()
+    _append_log(task, "组件预检查通过。" if ok else "组件预检查未通过，请查看失败项。")
+    _save_component_task(task)
+    return _public_component_task(task)
+
+
 def start_upgrade(task_id: str) -> dict[str, Any]:
     task = _load_task_or_404(task_id)
     if not task.get("precheck_ok"):
@@ -169,6 +309,24 @@ def start_upgrade(task_id: str) -> dict[str, Any]:
     _append_log(task, "升级任务已提交，等待 upgrade-runner 执行。")
     _save_task(task)
     return _public_task(task)
+
+
+def start_component_upgrade(task_id: str) -> dict[str, Any]:
+    task = _load_component_task_or_404(task_id)
+    if not task.get("precheck_ok"):
+        raise HTTPException(status_code=400, detail="请先完成并通过组件预检查。")
+    if task.get("status") in RUNNING_STATUSES:
+        raise HTTPException(status_code=409, detail="组件升级任务已经在执行。")
+    if _has_running_platform_upgrade():
+        raise HTTPException(status_code=409, detail="平台升级任务正在执行，请完成后再升级组件。")
+    task["status"] = "running"
+    task["started_at"] = now_iso()
+    _ensure_steps(task, COMPONENT_STEPS)
+    task["updated_at"] = now_iso()
+    _append_log(task, "组件升级开始，由 web-api 执行。")
+    _save_component_task(task)
+    _execute_component_upgrade(task)
+    return _public_component_task(_load_component_task_or_404(task_id))
 
 
 def rollback_upgrade(task_id: str) -> dict[str, Any]:
@@ -195,6 +353,16 @@ def delete_upgrade_package(task_id: str) -> dict[str, Any]:
     return {"ok": True, "task_id": task_id}
 
 
+def delete_component_package(task_id: str) -> dict[str, Any]:
+    task = _load_component_task_or_404(task_id)
+    if task.get("status") in RUNNING_STATUSES:
+        raise HTTPException(status_code=409, detail="组件升级任务正在执行，不能删除。")
+    if task.get("started_at"):
+        raise HTTPException(status_code=400, detail="组件升级已开始，不能删除该升级包记录。")
+    shutil.rmtree(_component_task_dir(task_id), ignore_errors=True)
+    return {"ok": True, "task_id": task_id}
+
+
 def upgrade_status(task_id: str) -> dict[str, Any]:
     return _public_task(_load_task_or_404(task_id))
 
@@ -204,6 +372,20 @@ def upgrade_history() -> list[dict[str, Any]]:
     for task_file in sorted(_upgrade_root().glob("*/" + TASK_FILE), key=lambda item: item.stat().st_mtime, reverse=True):
         try:
             tasks.append(_public_task(json.loads(task_file.read_text(encoding="utf-8"))))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return tasks[:30]
+
+
+def component_upgrade_status(task_id: str) -> dict[str, Any]:
+    return _public_component_task(_load_component_task_or_404(task_id))
+
+
+def component_upgrade_history() -> list[dict[str, Any]]:
+    tasks = []
+    for task_file in sorted(_component_upgrade_root().glob("*/" + TASK_FILE), key=lambda item: item.stat().st_mtime, reverse=True):
+        try:
+            tasks.append(_public_component_task(json.loads(task_file.read_text(encoding="utf-8"))))
         except (OSError, json.JSONDecodeError):
             continue
     return tasks[:30]
@@ -231,6 +413,7 @@ def runner_once() -> dict[str, Any] | None:
 
 def _execute_upgrade(task: dict[str, Any]) -> None:
     task["status"] = "running"
+    _ensure_steps(task, UPGRADE_STEPS)
     task["updated_at"] = now_iso()
     _save_task(task)
     try:
@@ -254,6 +437,7 @@ def _execute_upgrade(task: dict[str, Any]) -> None:
 
 def _execute_rollback(task: dict[str, Any]) -> None:
     task["status"] = "rollback_running"
+    _ensure_steps(task, ROLLBACK_STEPS)
     task["updated_at"] = now_iso()
     _save_task(task)
     try:
@@ -270,6 +454,42 @@ def _execute_rollback(task: dict[str, Any]) -> None:
     finally:
         task["updated_at"] = now_iso()
         _save_task(task)
+
+
+def _execute_component_upgrade(task: dict[str, Any]) -> None:
+    try:
+        _run_component_step(task, "load_images", "加载组件镜像", lambda: _load_images(task))
+        _run_component_step(task, "write_override", "写入组件镜像覆盖配置", lambda: _write_runner_override(task))
+        _run_component_step(task, "restart", "重启升级中心组件", lambda: _compose_up_runner(task))
+        _run_component_step(task, "healthcheck", "检查组件运行状态", lambda: _runner_healthcheck())
+        task["status"] = "succeeded"
+        task["finished_at"] = now_iso()
+        _write_runner_version(str(task.get("manifest", {}).get("version") or ""))
+        _append_log(task, "组件升级完成。")
+    except Exception as exc:
+        task["status"] = "failed"
+        task["finished_at"] = now_iso()
+        _append_log(task, f"组件升级失败：{exc}")
+    finally:
+        task["updated_at"] = now_iso()
+        _save_component_task(task)
+
+
+def _ensure_steps(task: dict[str, Any], definitions: tuple[tuple[str, str], ...]) -> None:
+    steps = task.setdefault("steps", [])
+    existing_by_key = {item.get("key"): item for item in steps}
+    expected_keys = {key for key, _ in definitions}
+    ordered: list[dict[str, Any]] = []
+    for key, title in definitions:
+        item = existing_by_key.get(key)
+        if item is None:
+            item = {"key": key, "title": title, "status": "pending"}
+        else:
+            item.setdefault("title", title)
+            item.setdefault("status", "pending")
+        ordered.append(item)
+    ordered.extend(item for item in steps if item.get("key") not in expected_keys)
+    task["steps"] = ordered
 
 
 def _run_step(task: dict[str, Any], key: str, title: str, action) -> None:
@@ -291,6 +511,28 @@ def _run_step(task: dict[str, Any], key: str, title: str, action) -> None:
         existing.update({"status": "failed", "finished_at": now_iso(), "message": str(exc)})
         _append_log(task, f"失败：{title}。{exc}")
         _save_task(task)
+        raise
+
+
+def _run_component_step(task: dict[str, Any], key: str, title: str, action) -> None:
+    steps = task.setdefault("steps", [])
+    existing = next((item for item in steps if item.get("key") == key), None)
+    if existing is None:
+        existing = {"key": key, "title": title, "status": "running", "started_at": now_iso()}
+        steps.append(existing)
+    else:
+        existing.update({"status": "running", "started_at": now_iso(), "message": ""})
+    _append_log(task, f"开始：{title}")
+    _save_component_task(task)
+    try:
+        message = action() or "完成"
+        existing.update({"status": "succeeded", "finished_at": now_iso(), "message": str(message)})
+        _append_log(task, f"完成：{title}。{message}")
+        _save_component_task(task)
+    except Exception as exc:
+        existing.update({"status": "failed", "finished_at": now_iso(), "message": str(exc)})
+        _append_log(task, f"失败：{title}。{exc}")
+        _save_component_task(task)
         raise
 
 
@@ -328,6 +570,15 @@ def _write_compose_override(task: dict[str, Any]) -> str:
     return f"已写入 {override_path}"
 
 
+def _write_runner_override(task: dict[str, Any]) -> str:
+    override_path = get_settings().project_path / "docker-compose.runner-upgrade.yml"
+    if "previous_runner_override" not in task:
+        task["previous_runner_override"] = override_path.read_text(encoding="utf-8") if override_path.exists() else None
+    image = _runner_image_from_manifest(task.get("manifest") or {})
+    override_path.write_text(f"services:\n  {RUNNER_SERVICE}:\n    image: {image}\n", encoding="utf-8")
+    return f"已写入 {override_path}"
+
+
 def _run_migration_script(task: dict[str, Any]) -> str:
     if not task.get("manifest", {}).get("database_migration"):
         return "manifest 标记无需数据库迁移。"
@@ -352,6 +603,10 @@ def _compose_up(task: dict[str, Any]) -> str:
     return _run_command(_compose_command() + ["up", "-d", "--no-build", *services], cwd=get_settings().project_path)
 
 
+def _compose_up_runner(task: dict[str, Any]) -> str:
+    return _run_command(_compose_command(runner_override=True) + ["up", "-d", "--no-build", RUNNER_SERVICE], cwd=get_settings().project_path)
+
+
 def _healthcheck(task: dict[str, Any]) -> str:
     checks = [("web-api", "http://web-api:8000/metrics"), ("frontend", "http://frontend/")]
     messages = []
@@ -370,6 +625,33 @@ def _healthcheck(task: dict[str, Any]) -> str:
     return "；".join(messages)
 
 
+def _runner_healthcheck() -> str:
+    container = f"{get_settings().compose_project_name}-{RUNNER_SERVICE}-1"
+    for attempt in range(1, 31):
+        completed = subprocess.run(["docker", "inspect", "-f", "{{.State.Running}}", container], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+        if completed.returncode == 0 and completed.stdout.strip().lower() == "true":
+            return f"{RUNNER_SERVICE} 容器运行中"
+        if attempt == 30:
+            raise RuntimeError(f"{RUNNER_SERVICE} 容器未运行：{completed.stdout[-1000:]}")
+        time.sleep(2)
+
+
+def runner_version() -> str:
+    version_file = get_settings().data_path / "upgrade-runner.version"
+    if version_file.exists():
+        version = version_file.read_text(encoding="utf-8").strip()
+        if version:
+            return version
+    return get_settings().runner_version
+
+
+def _write_runner_version(version: str) -> None:
+    if not version:
+        return
+    version_file = get_settings().data_path / "upgrade-runner.version"
+    version_file.write_text(version, encoding="utf-8")
+
+
 def _restore_previous_override(task: dict[str, Any]) -> str:
     override_path = get_settings().project_path / "docker-compose.upgrade.yml"
     previous = task.get("previous_override")
@@ -381,13 +663,16 @@ def _restore_previous_override(task: dict[str, Any]) -> str:
     return "已移除升级镜像覆盖配置。"
 
 
-def _compose_command() -> list[str]:
+def _compose_command(runner_override: bool = False) -> list[str]:
     settings = get_settings()
     base = ["docker", "compose"] if _has_docker_compose_plugin() else ["docker-compose"]
     command = [*base, "-p", settings.compose_project_name, "-f", str(settings.project_path / settings.compose_file)]
     override_path = settings.project_path / "docker-compose.upgrade.yml"
     if override_path.exists():
         command.extend(["-f", str(override_path)])
+    runner_override_path = settings.project_path / "docker-compose.runner-upgrade.yml"
+    if runner_override and runner_override_path.exists():
+        command.extend(["-f", str(runner_override_path)])
     return command
 
 
@@ -485,6 +770,40 @@ def _validate_manifest_shape(manifest: dict[str, Any]) -> None:
         raise HTTPException(status_code=400, detail="manifest restart_services 包含不支持的服务。")
 
 
+def _validate_component_manifest_shape(manifest: dict[str, Any]) -> None:
+    if manifest.get("product") != COMPONENT_PRODUCT_NAME:
+        raise HTTPException(status_code=400, detail="组件 manifest product 不匹配。")
+    if manifest.get("component") != RUNNER_SERVICE:
+        raise HTTPException(status_code=400, detail="组件升级包只支持 upgrade-runner。")
+    if not manifest.get("version"):
+        raise HTTPException(status_code=400, detail="组件 manifest 缺少 version。")
+    images = manifest.get("images")
+    if not isinstance(images, list) or len(images) != 1:
+        raise HTTPException(status_code=400, detail="组件 manifest 必须且只能包含一个镜像。")
+    image = images[0]
+    if not isinstance(image, dict):
+        raise HTTPException(status_code=400, detail="组件 manifest images 格式不正确。")
+    if image.get("service") != RUNNER_SERVICE:
+        raise HTTPException(status_code=400, detail="组件升级包只允许升级 upgrade-runner。")
+    if not image.get("file") or not image.get("image"):
+        raise HTTPException(status_code=400, detail="组件 manifest image 缺少 file 或 image。")
+    if ".." in str(image.get("file")):
+        raise HTTPException(status_code=400, detail="组件 manifest image file 路径不安全。")
+    restart_services = manifest.get("restart_services") or [RUNNER_SERVICE]
+    if restart_services != [RUNNER_SERVICE]:
+        raise HTTPException(status_code=400, detail="组件 manifest restart_services 只能包含 upgrade-runner。")
+
+
+def _runner_image_from_manifest(manifest: dict[str, Any]) -> str:
+    images = manifest.get("images") or []
+    if not images:
+        raise RuntimeError("组件 manifest 缺少镜像。")
+    image = images[0].get("image")
+    if not image:
+        raise RuntimeError("组件 manifest image 缺少 image。")
+    return str(image)
+
+
 def _manifest_services(manifest: dict[str, Any]) -> set[str]:
     services = {str(item.get("service")) for item in manifest.get("images") or [] if item.get("service")}
     services.update(str(service) for service in manifest.get("restart_services") or [] if service)
@@ -533,10 +852,22 @@ def _upgrade_root() -> Path:
     return root
 
 
+def _component_upgrade_root() -> Path:
+    root = get_settings().upgrade_path / "components"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
 def _task_dir(task_id: str) -> Path:
     if not task_id or any(ch not in "0123456789abcdef" for ch in task_id):
         raise HTTPException(status_code=404, detail="升级任务不存在。")
     return _upgrade_root() / task_id
+
+
+def _component_task_dir(task_id: str) -> Path:
+    if not task_id or any(ch not in "0123456789abcdef" for ch in task_id):
+        raise HTTPException(status_code=404, detail="组件升级任务不存在。")
+    return _component_upgrade_root() / task_id
 
 
 def _load_task_or_404(task_id: str) -> dict[str, Any]:
@@ -546,8 +877,23 @@ def _load_task_or_404(task_id: str) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _load_component_task_or_404(task_id: str) -> dict[str, Any]:
+    path = _component_task_dir(task_id) / TASK_FILE
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="组件升级任务不存在。")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def _save_task(task: dict[str, Any]) -> None:
     path = _task_dir(task["task_id"]) / TASK_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(task, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.replace(path)
+
+
+def _save_component_task(task: dict[str, Any]) -> None:
+    path = _component_task_dir(task["task_id"]) / TASK_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(".tmp")
     temp.write_text(json.dumps(task, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -569,8 +915,19 @@ def _iter_tasks_oldest_first() -> list[dict[str, Any]]:
     return sorted(tasks, key=lambda item: item.get("updated_at") or item.get("uploaded_at") or "")
 
 
+def _has_running_platform_upgrade() -> bool:
+    return any(task.get("status") in RUNNING_STATUSES for task in _iter_tasks_oldest_first())
+
+
 def _public_task(task: dict[str, Any]) -> dict[str, Any]:
     manifest = task.get("manifest") or {}
+    steps = task.get("steps") or []
+    if task.get("status") in {"pending", "running", "succeeded", "failed"}:
+        _ensure_steps(task, UPGRADE_STEPS)
+        steps = task.get("steps") or []
+    elif task.get("status") in {"rollback_pending", "rollback_running", "rolled_back", "rollback_failed"}:
+        _ensure_steps(task, ROLLBACK_STEPS)
+        steps = task.get("steps") or []
     return {
         "task_id": task.get("task_id"),
         "status": task.get("status"),
@@ -588,7 +945,36 @@ def _public_task(task: dict[str, Any]) -> dict[str, Any]:
         "database_migration": bool(manifest.get("database_migration")),
         "restart_services": manifest.get("restart_services") or sorted(_manifest_services(manifest)),
         "checks": task.get("checks") or [],
-        "steps": task.get("steps") or [],
+        "steps": steps,
+        "logs": task.get("logs") or [],
+        "precheck_ok": bool(task.get("precheck_ok")),
+    }
+
+
+def _public_component_task(task: dict[str, Any]) -> dict[str, Any]:
+    manifest = task.get("manifest") or {}
+    steps = task.get("steps") or []
+    if task.get("status") in {"running", "succeeded", "failed"}:
+        _ensure_steps(task, COMPONENT_STEPS)
+        steps = task.get("steps") or []
+    return {
+        "task_id": task.get("task_id"),
+        "kind": "component",
+        "component": task.get("component") or manifest.get("component") or RUNNER_SERVICE,
+        "status": task.get("status"),
+        "uploaded_at": task.get("uploaded_at"),
+        "started_at": task.get("started_at"),
+        "finished_at": task.get("finished_at"),
+        "updated_at": task.get("updated_at"),
+        "package_filename": task.get("package_filename"),
+        "backup_path": task.get("backup_path"),
+        "manifest": manifest,
+        "target_version": manifest.get("version"),
+        "release_notes": manifest.get("release_notes"),
+        "database_migration": False,
+        "restart_services": [RUNNER_SERVICE],
+        "checks": task.get("checks") or [],
+        "steps": steps,
         "logs": task.get("logs") or [],
         "precheck_ok": bool(task.get("precheck_ok")),
     }

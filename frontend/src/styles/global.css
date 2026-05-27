@@ -2099,7 +2099,7 @@ button {
 .upgrade-section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
 
 .upgrade-section h3 {
@@ -2111,7 +2111,7 @@ button {
 .upgrade-steps,
 .upgrade-history {
   display: grid;
-  gap: 8px;
+  gap: 0;
 }
 
 .upgrade-check {
@@ -2125,7 +2125,6 @@ button {
   text-align: left;
 }
 
-.upgrade-step,
 .upgrade-history-item {
   display: grid;
   grid-template-columns: minmax(110px, 0.5fr) minmax(0, 1.5fr);
@@ -2136,14 +2135,6 @@ button {
   border-radius: 8px;
   background: var(--panel);
   text-align: left;
-}
-
-.upgrade-step.succeeded {
-  border-color: rgba(33, 200, 117, 0.45);
-}
-
-.upgrade-step.failed {
-  border-color: rgba(255, 90, 95, 0.55);
 }
 
 .upgrade-check-icon {
@@ -2172,14 +2163,69 @@ button {
   color: var(--text);
 }
 
+.upgrade-step {
+  display: grid;
+  grid-template-columns: 22px minmax(160px, 0.65fr) minmax(88px, 0.2fr) minmax(0, 1fr);
+  gap: 8px 10px;
+  align-items: center;
+  min-height: 38px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+  text-align: left;
+}
+
+.upgrade-step-icon {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #9aa8b8;
+}
+
+.upgrade-step.pending .upgrade-step-icon {
+  color: #aab6c5;
+}
+
 .upgrade-step.running {
-  border-color: rgba(22, 119, 255, 0.45);
+  background: rgba(43, 127, 255, 0.04);
+}
+
+.upgrade-step.running .upgrade-step-icon {
+  color: var(--blue);
+  animation: upgrade-step-spin 0.9s linear infinite;
+}
+
+.upgrade-step.succeeded .upgrade-step-icon {
+  background: #e7f8ef;
+  color: var(--green);
+}
+
+.upgrade-step.failed .upgrade-step-icon {
+  background: #fff0f0;
+  color: var(--red);
+}
+
+.upgrade-step strong {
+  color: var(--ink);
+}
+
+.upgrade-step > span:nth-child(3) {
+  color: var(--text);
+  font-weight: 800;
 }
 
 .upgrade-step small {
-  grid-column: 1 / -1;
+  grid-column: 4;
   color: var(--muted);
   word-break: break-word;
+}
+
+@keyframes upgrade-step-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .upgrade-history-item {
@@ -2197,6 +2243,10 @@ button {
   .upgrade-step,
   .upgrade-history-item {
     grid-template-columns: 1fr;
+  }
+
+  .upgrade-step small {
+    grid-column: 1;
   }
 }
 
@@ -2797,4 +2847,178 @@ button {
 
 .service-migration-import {
   max-width: 720px;
+}
+
+.task-menu-wrap {
+  position: relative;
+}
+
+.task-badge {
+  position: absolute;
+  top: -4px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.task-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(620px, calc(100vh - 96px));
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 22px 56px rgba(15, 35, 68, 0.18);
+  z-index: 80;
+}
+
+.task-menu-head {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.task-menu-head strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.task-menu-head button {
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font-weight: 700;
+}
+
+.task-menu-head button:disabled {
+  color: var(--muted);
+}
+
+.task-menu-list {
+  overflow: auto;
+  padding: 8px 0;
+}
+
+.task-menu-item {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 44px;
+  align-items: start;
+  gap: 10px;
+  padding: 12px 18px;
+  color: var(--text);
+}
+
+.task-menu-item + .task-menu-item {
+  border-top: 1px solid var(--line-soft);
+}
+
+.task-state-icon {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: #e8f1ff;
+  color: var(--blue);
+}
+
+.task-menu-item.succeeded .task-state-icon {
+  background: #e8f8ee;
+  color: #16a34a;
+}
+
+.task-menu-item.failed .task-state-icon {
+  background: #feecec;
+  color: #dc2626;
+}
+
+.task-menu-item > div {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.task-menu-item strong,
+.task-menu-item small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-menu-item strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.task-menu-item small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.task-menu-item em {
+  color: #7f8fa4;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+  text-align: right;
+}
+
+.task-progress {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e8edf4;
+}
+
+.task-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--blue);
+  transition: width 0.2s ease;
+}
+
+.task-menu-item.succeeded .task-progress span {
+  background: #22c55e;
+}
+
+.task-menu-item.failed .task-progress span {
+  background: #ef4444;
+}
+
+.task-menu-empty {
+  padding: 44px 18px;
+  color: var(--muted);
+  text-align: center;
+  font-weight: 700;
+}
+
+.service-upload-panel.passive {
+  cursor: default;
+}
+
+.service-upload-panel.passive:hover {
+  border-color: #c7d7ea;
+  background: linear-gradient(180deg, #f8fbff 0%, #f2f6fc 100%);
 }

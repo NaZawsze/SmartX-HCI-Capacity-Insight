@@ -7,7 +7,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { ServicePage } from "./pages/ServicePage";
 import { VmsPage } from "./pages/VmsPage";
 import { AUTH_CHANGED_EVENT, api, getToken, setToken } from "./services/api";
-import type { DashboardScope, DashboardSummary, PageKey } from "./types";
+import type { AppTask, DashboardScope, DashboardSummary, PageKey } from "./types";
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(Boolean(getToken()));
@@ -17,6 +17,7 @@ export default function App() {
   const [selectedVmId, setSelectedVmId] = useState("");
   const [selectedVmName, setSelectedVmName] = useState("");
   const [dataRefreshKey, setDataRefreshKey] = useState(0);
+  const [tasks, setTasks] = useState<AppTask[]>([]);
   const completedRunKeyRef = useRef("");
 
   const handleSummary = useCallback((result: DashboardSummary) => {
@@ -33,6 +34,19 @@ export default function App() {
     const result = await api.summary(scope);
     handleSummary(result);
   }, [handleSummary, scope]);
+  const addTask = useCallback((task: Omit<AppTask, "createdAt" | "updatedAt">) => {
+    const now = Date.now();
+    setTasks((current) => [{ ...task, createdAt: now, updatedAt: now }, ...current].slice(0, 30));
+  }, []);
+
+  const updateTask = useCallback((id: string, patch: Partial<Omit<AppTask, "id" | "createdAt">>) => {
+    setTasks((current) => current.map((task) => (task.id === id ? { ...task, ...patch, updatedAt: Date.now() } : task)));
+  }, []);
+
+  const clearTasks = useCallback(() => {
+    setTasks((current) => current.filter((task) => task.status === "running"));
+  }, []);
+
 
   useEffect(() => {
     if (authenticated) {
@@ -72,7 +86,7 @@ export default function App() {
   }
 
   return (
-    <AppLayout activePage={activePage} onNavigate={setActivePage} onLogout={logout} summary={summary} scope={scope} onScopeChange={setScope} onSummary={handleSummary}>
+    <AppLayout activePage={activePage} onNavigate={setActivePage} onLogout={logout} summary={summary} scope={scope} onScopeChange={setScope} onSummary={handleSummary} tasks={tasks} onClearTasks={clearTasks}>
       {activePage === "dashboard" && <DashboardPage summary={summary} scope={scope} onSummary={handleSummary} onSelectVm={openVm} />}
       {activePage === "vms" && (
         <VmsPage
@@ -88,7 +102,7 @@ export default function App() {
       )}
       {activePage === "reports" && <ReportsPage summary={summary} scope={scope} refreshKey={dataRefreshKey} onSelectVm={openVm} />}
       {activePage === "settings" && <SettingsPage />}
-      {activePage === "service" && <ServicePage />}
+      {activePage === "service" && <ServicePage addTask={addTask} updateTask={updateTask} />}
     </AppLayout>
   );
 }

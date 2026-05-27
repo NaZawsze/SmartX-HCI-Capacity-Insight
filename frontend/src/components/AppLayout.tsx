@@ -1,7 +1,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bell, Building2, ChevronDown, CircleCheck, ClipboardList, Database, HardDrive, KeyRound, LayoutDashboard, LogOut, Save, Search, Server, Settings, SlidersHorizontal, UserRound, View, X } from "lucide-react";
+import { Bell, Building2, Check, ChevronDown, CircleCheck, ClipboardList, Database, HardDrive, KeyRound, LayoutDashboard, LogOut, Save, Search, Server, Settings, SlidersHorizontal, UserRound, View, X } from "lucide-react";
 import { api } from "../services/api";
-import type { Cluster, DashboardScope, DashboardSummary, PageKey, Tower } from "../types";
+import type { AppTask, Cluster, DashboardScope, DashboardSummary, PageKey, Tower } from "../types";
 
 interface AppLayoutProps {
   activePage: PageKey;
@@ -11,6 +11,8 @@ interface AppLayoutProps {
   onScopeChange: (scope: DashboardScope) => void;
   onSummary: (summary: DashboardSummary) => void;
   summary?: DashboardSummary | null;
+  tasks?: AppTask[];
+  onClearTasks?: () => void;
   children: ReactNode;
 }
 
@@ -46,7 +48,7 @@ function scopeKey(scope: DashboardScope): string {
   return "all";
 }
 
-export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChange, onSummary, summary, children }: AppLayoutProps) {
+export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChange, onSummary, summary, tasks = [], onClearTasks, children }: AppLayoutProps) {
   const towers = summary?.towers ?? emptyTowers;
   const selectedTower = scope.type === "tower" || scope.type === "cluster" ? towers.find((tower) => tower.id === scope.towerId) || towers[0] : towers[0];
   const totalClusterCount = towers.reduce((total, tower) => total + tower.clusters.length, 0);
@@ -60,6 +62,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
         : `${selectedEnabledClusterCount}/${selectedClusterCount} 集群已连接`;
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [taskMenuOpen, setTaskMenuOpen] = useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [passwordForm, setPasswordForm] = useState(emptyPasswordForm);
   const [passwordMessage, setPasswordMessage] = useState("");
@@ -72,6 +75,8 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   const selectedScopeKey = scopeKey(scope);
   const serviceFocus = activePage === "service";
   const shellStyle = { "--sidebar-width": `${sidebarWidth}px` } as CSSProperties;
+  const runningTaskCount = tasks.filter((task) => task.status === "running").length;
+  const visibleTasks = [...tasks].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, 8);
 
   const resetWorkspaceScroll = useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -126,6 +131,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
     onNavigate(page);
     setViewMenuOpen(false);
     setAccountMenuOpen(false);
+    setTaskMenuOpen(false);
     if (page === "service") resetWorkspaceScroll();
   }
 
@@ -215,9 +221,39 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
             <button className="icon-button" title="通知" type="button">
               <Bell size={18} />
             </button>
-            <button className="icon-button active" title="任务" type="button">
-              <ClipboardList size={18} />
-            </button>
+            <div className="task-menu-wrap">
+              <button className={taskMenuOpen ? "icon-button active" : "icon-button"} title="任务" type="button" onClick={() => setTaskMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={taskMenuOpen}>
+                <ClipboardList size={18} />
+                {runningTaskCount > 0 && <span className="task-badge">{runningTaskCount}</span>}
+              </button>
+              {taskMenuOpen && (
+                <div className="task-menu" role="menu">
+                  <div className="task-menu-head">
+                    <strong>任务</strong>
+                    <button type="button" onClick={onClearTasks} disabled={!tasks.length}>清空</button>
+                  </div>
+                  {visibleTasks.length ? (
+                    <div className="task-menu-list">
+                      {visibleTasks.map((task) => (
+                        <div className={`task-menu-item ${task.status}`} key={task.id}>
+                          <span className="task-state-icon">{task.status === "succeeded" ? <Check size={14} /> : task.status === "failed" ? <X size={14} /> : <ClipboardList size={14} />}</span>
+                          <div>
+                            <strong>{task.title}</strong>
+                            <small>{task.detail || taskStatusText(task.status)}</small>
+                            <span className="task-progress" aria-label={`${task.progress}%`}>
+                              <span style={{ width: `${task.progress}%` }} />
+                            </span>
+                          </div>
+                          <em>{Math.round(task.progress)}%</em>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="task-menu-empty">暂无后台任务</div>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="account-menu-wrap">
               <button className="avatar-button" type="button" onClick={() => setAccountMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={accountMenuOpen} title="账号">
                 <UserRound size={17} />
@@ -425,4 +461,14 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
       </div>
     </div>
   );
+}
+
+
+function taskStatusText(status: AppTask["status"]): string {
+  const labels: Record<AppTask["status"], string> = {
+    running: "执行中",
+    succeeded: "已完成",
+    failed: "失败"
+  };
+  return labels[status];
 }
