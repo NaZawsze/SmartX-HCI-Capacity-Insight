@@ -1,14 +1,14 @@
 services:
   web-api:
-    build:
-      context: ./backend
-    image: smartx-storage-forecast-web-api:local
+    image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-web-api:${SMARTX_IMAGE_TAG:-latest}
+    pull_policy: never
     env_file:
       - .env
     environment:
       SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
-      SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast
-      SMARTX_APP_VERSION: "0.2.0"
+      SMARTX_COMPOSE_FILE: docker-compose.offline.yml
+      SMARTX_COMPOSE_PROJECT_NAME: smartx-capacity-insight
+      SMARTX_APP_VERSION: "0.3.1"
     volumes:
       - /data/smartx-capacity-insight-data/app:/data
       - /data/smartx-capacity-insight-data/prometheus:/prometheus-data
@@ -23,15 +23,13 @@ services:
     restart: unless-stopped
 
   collector-worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
-    image: smartx-storage-forecast-collector-worker:local
+    image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-collector-worker:${SMARTX_IMAGE_TAG:-latest}
+    pull_policy: never
     command: ["python", "-m", "app.collector.worker"]
     env_file:
       - .env
     environment:
-      SMARTX_APP_VERSION: "0.2.0"
+      SMARTX_APP_VERSION: "0.3.1"
     volumes:
       - /data/smartx-capacity-insight-data/app:/data
     expose:
@@ -43,9 +41,8 @@ services:
     restart: unless-stopped
 
   frontend:
-    build:
-      context: ./frontend
-    image: smartx-storage-forecast-frontend:local
+    image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-frontend:${SMARTX_IMAGE_TAG:-latest}
+    pull_policy: never
     ports:
       - "8080:80"
     depends_on:
@@ -55,17 +52,16 @@ services:
     restart: unless-stopped
 
   upgrade-runner:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.upgrade
-    image: smartx-storage-forecast-upgrade-runner:local
+    image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-upgrade-runner:${SMARTX_IMAGE_TAG:-latest}
+    pull_policy: never
     command: ["python", "-m", "app.upgrade.runner"]
     env_file:
       - .env
     environment:
       SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
-      SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast
-      SMARTX_APP_VERSION: "0.2.0"
+      SMARTX_COMPOSE_FILE: docker-compose.offline.yml
+      SMARTX_COMPOSE_PROJECT_NAME: smartx-capacity-insight
+      SMARTX_APP_VERSION: "0.3.1"
     volumes:
       - .:/opt/smartx-storage-forecast
       - /data/smartx-capacity-insight-data/app:/data
@@ -79,6 +75,7 @@ services:
 
   prometheus:
     image: prom/prometheus:v2.55.1
+    pull_policy: never
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"

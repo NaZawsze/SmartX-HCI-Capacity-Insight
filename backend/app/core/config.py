@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     upgrade_path: Path = Field(default=Path("/data/upgrades"), alias="SMARTX_UPGRADE_PATH")
     backup_path: Path = Field(default=Path("/data/backups"), alias="SMARTX_BACKUP_PATH")
     project_path: Path = Field(default=Path("/opt/smartx-storage-forecast"), alias="SMARTX_PROJECT_PATH")
+    compose_file: str = Field(default="docker-compose.yml", alias="SMARTX_COMPOSE_FILE")
     compose_project_name: str = Field(default="smartx-storage-forecast", alias="SMARTX_COMPOSE_PROJECT_NAME")
     app_version: str = Field(default="0.2.0", alias="SMARTX_APP_VERSION")
 

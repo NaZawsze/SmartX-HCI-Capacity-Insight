@@ -381,7 +381,7 @@ def _restore_previous_override(task: dict[str, Any]) -> str:
 def _compose_command() -> list[str]:
     settings = get_settings()
     base = ["docker", "compose"] if _has_docker_compose_plugin() else ["docker-compose"]
-    command = [*base, "-p", settings.compose_project_name, "-f", str(settings.project_path / "docker-compose.yml")]
+    command = [*base, "-p", settings.compose_project_name, "-f", str(settings.project_path / settings.compose_file)]
     override_path = settings.project_path / "docker-compose.upgrade.yml"
     if override_path.exists():
         command.extend(["-f", str(override_path)])

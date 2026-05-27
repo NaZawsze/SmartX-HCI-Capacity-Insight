@@ -46,8 +46,50 @@ Production recommendations:
 
 ## 3. Start Services
 
+Source build mode:
+
 ```bash
 docker compose up -d --build
+```
+
+Release image mode, for servers that can pull images from the registry:
+
+```bash
+docker compose -f docker-compose.release.yml --project-name smartx-capacity-insight up -d
+```
+
+`docker-compose.release.yml` uses the Docker images built by GitHub Actions and does not contain `build:` sections. Use it when the target server should not build images locally, but can access the image registry.
+
+Offline image mode, for servers that already have the images loaded locally and should not pull from the registry:
+
+```bash
+docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insight up -d
+```
+
+`docker-compose.offline.yml` sets `pull_policy: never` and uses local `latest` image tags by default. Before starting, make sure these images exist on the target server:
+
+```text
+nazawsze/smartx-hci-capacity-insight-web-api:latest
+nazawsze/smartx-hci-capacity-insight-collector-worker:latest
+nazawsze/smartx-hci-capacity-insight-frontend:latest
+nazawsze/smartx-hci-capacity-insight-upgrade-runner:latest
+prom/prometheus:v2.55.1
+```
+
+If you export GitHub Actions images as tar files, load them first:
+
+```bash
+docker load -i smartx-hci-capacity-insight-web-api.tar
+docker load -i smartx-hci-capacity-insight-collector-worker.tar
+docker load -i smartx-hci-capacity-insight-frontend.tar
+docker load -i smartx-hci-capacity-insight-upgrade-runner.tar
+```
+
+Optional image variables for release or offline mode:
+
+```text
+SMARTX_IMAGE_PREFIX=docker.io/nazawsze
+SMARTX_IMAGE_TAG=v0.3.1
 ```
 
 Service ports:
@@ -84,24 +126,28 @@ frontend
 
 prometheus
   Stores capacity time series and provides query data for trends and reports.
+
+upgrade-runner
+  Runs platform upgrade tasks outside web-api, including image loading, service restart, health checks, and rollback commands.
 ```
 
 ## 5. Persistent Data
 
-Docker Compose defines two named volumes:
+Docker Compose stores persistent data under the project data directory on the host:
 
 ```text
-smartx-data
-  Mounted to /data in web-api and collector-worker.
-  Contains SQLite data, including platform users, Tower configuration, encrypted credentials,
-  cluster metadata, collection runs, latest metric samples, and latest VM volume details.
+/data/smartx-capacity-insight-data/app
+  Mounted to /data in web-api, collector-worker, and upgrade-runner.
+  Contains SQLite data, backups, upgrade packages, platform users, Tower configuration,
+  encrypted credentials, cluster metadata, collection runs, latest metric samples,
+  and latest VM volume details.
 
-prometheus-data
-  Mounted to /prometheus in the Prometheus container.
+/data/smartx-capacity-insight-data/prometheus
+  Mounted to /prometheus in the Prometheus container and /prometheus-data in backend services.
   Contains Prometheus time series data. Retention is configured as 400 days.
 ```
 
-These volumes are runtime data and must not be pushed to Git.
+This directory is runtime data and must not be pushed to Git. Back it up before changing storage paths.
 
 ## 6. Configure Tower
 
