@@ -142,7 +142,8 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
                   <div className="report-numbers">
                     <span>当前 {formatBytes(item.forecast.current)}</span>
                     <span>60 天后 {formatForecast(item.forecast.forecast_60d)}</span>
-                    <strong>{item.forecast.exhaustion_days ? `${Math.round(item.forecast.exhaustion_days)} 天` : "未触发"}</strong>
+                    <span>预计存储耗尽</span>
+                    <strong>{formatExhaustionDays(item.forecast.exhaustion_days)}</strong>
                   </div>
                 </div>
               ))
@@ -211,7 +212,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
       )}
 
       <div className="report-vm-row">
-        <Card title="日 Top 增长 VM" action={<GrowthSortTabs value={dayGrowthSort} onChange={setDayGrowthSort} />}>
+        <Card title={`日 Top ${dayTopVms.length || 0} 增长最快 VM`} action={<GrowthSortTabs value={dayGrowthSort} onChange={setDayGrowthSort} />}>
           <div className="list-table growth-scroll">
             {dayTopVms.map((item) => (
               <button
@@ -228,7 +229,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
           </div>
         </Card>
 
-        <Card title="月 Top 增长 VM" action={<GrowthSortTabs value={monthGrowthSort} onChange={setMonthGrowthSort} />}>
+        <Card title={`月 Top ${monthTopVms.length || 0} 增长最快 VM`} action={<GrowthSortTabs value={monthGrowthSort} onChange={setMonthGrowthSort} />}>
           <div className="list-table growth-scroll">
             {monthTopVms.map((item) => (
               <button
@@ -298,6 +299,11 @@ function growthSortValue(item: GrowthVmReport, mode: GrowthSortMode): number {
 function formatGrowthValue(item: GrowthVmReport, mode: GrowthSortMode, unit: string): string {
   if (mode === "ratio") return formatPercent(item.growth_ratio);
   return `${formatBytes(item.growth_amount ?? (unit === "月" ? monthlyGrowth(item.forecast.slope_per_day) : item.forecast.slope_per_day))}/${unit}`;
+}
+
+function formatExhaustionDays(value?: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "未触发";
+  return `${Math.round(value)} 天`;
 }
 
 function formatPercent(value?: number | null): string {

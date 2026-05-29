@@ -101,7 +101,7 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm }: Dashboa
       </Card>
 
       <Card
-        title="日增长最快 VM"
+        title={`日 Top ${topVms.length || 0} 增长最快 VM`}
         action={<GrowthSortTabs value={growthSort} onChange={setGrowthSort} />}
       >
         <div className="list-table growth-scroll">

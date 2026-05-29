@@ -44,7 +44,17 @@ Production recommendations:
 
 `SMARTX_CREDENTIAL_KEY` is used to encrypt Tower credentials before storing them in SQLite.
 
-## 3. Start Services
+## 3. Prepare Data Directories
+
+Before starting services, initialize the persistent data directories and Prometheus ownership:
+
+```bash
+./pre_install.sh
+```
+
+The script creates `/data/smartx-capacity-insight-data/app` and `/data/smartx-capacity-insight-data/prometheus`, then sets the Prometheus directory owner to `65534:65534` so the Prometheus container can write time series data. It is safe to run multiple times.
+
+## 4. Start Services
 
 Source build mode:
 
@@ -112,7 +122,7 @@ Default platform account:
 admin / password
 ```
 
-## 4. Docker Compose Services
+## 5. Docker Compose Services
 
 ```text
 web-api
@@ -131,7 +141,7 @@ upgrade-runner
   Runs platform upgrade tasks outside web-api, including image loading, service restart, health checks, and rollback commands.
 ```
 
-## 5. Persistent Data
+## 6. Persistent Data
 
 Docker Compose stores persistent data under the project data directory on the host:
 
@@ -149,7 +159,7 @@ Docker Compose stores persistent data under the project data directory on the ho
 
 This directory is runtime data and must not be pushed to Git. Back it up before changing storage paths.
 
-## 6. Configure Tower
+## 7. Configure Tower
 
 In the web UI, open `Settings` and add a Tower:
 
@@ -164,7 +174,7 @@ After saving, test the connection. The platform reads cluster metadata and store
 
 Use a read-only CloudTower account or read-only API token whenever possible.
 
-## 7. Collection
+## 8. Collection
 
 Collection can happen in two ways:
 
