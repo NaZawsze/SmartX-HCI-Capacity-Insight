@@ -2,6 +2,54 @@
 
 本文档记录 SmartX HCI Capacity Insight 各版本的主要变化。项目介绍、部署方式和基础使用说明仍以根目录 README 和 docs 文档为准。
 
+## v0.3.3u2
+
+发布日期：2026-06-01
+
+### 更新摘要
+
+v0.3.3u2 聚焦客户报表可读性、导出文档细节和升级可靠性，优化 Word/Excel 报表的目录、排序、高风险 VM 标识、时区显示和趋势图纵坐标，并修复升级前备份包含升级包自身导致备份阶段过慢的问题。
+
+### 新增与优化
+
+- Word 报表新增集群目录，支持按集群章节快速定位。
+- Word/Excel 的 VM TOP100 表格新增排名列，并在表头标明增长量或增长率降序。
+- Excel TOP100 区域改为表格结构，支持表头筛选和排序。
+- 增长率超过 20% 且增长量大于 100 GiB 的 VM 在 Word/Excel 中使用红色底纹标识。
+- 报表生成时间显式使用 `SMARTX_COLLECTION_TIMEZONE`，默认按 `Asia/Shanghai` 显示，避免容器 UTC 导致时间慢 8 小时。
+- Word 报表容量趋势图纵坐标改为按数据范围自动留白，避免趋势线贴边。
+- Word 集群章节页脚显示 `Tower-集群名称集群 · 生成时间`。
+- 报表容量增长速率改为 7 天平均，并支持 7/30/90/365/720 天图表窗口切换。
+- 数据迁移和升级前备份排除 `upgrades`、`backups` 运行目录，避免备份包含升级包自身。
+
+### 升级包目录结构
+
+```text
+manifest.json
+release-notes.md
+images/
+  web-api.tar
+  collector-worker.tar
+  frontend.tar
+```
+
+`manifest.json` 关键字段：
+
+```text
+product: smartx-storage-forecast
+version: 0.3.3u2
+min_version: 0.3.2
+database_migration: false
+images: web-api、collector-worker、frontend 镜像 tar 的 service、image、file、sha256
+restart_services: web-api、collector-worker、frontend
+```
+
+### 验证说明
+
+- 已在 `10.20.11.3` 使用本地升级包完成一次平台升级验证。
+- 升级任务完成后 `web-api`、`collector-worker`、`frontend` 均正常 recreate/start。
+- `web-api`、`frontend`、`prometheus` HTTP 健康检查均返回 200。
+
 ## v0.3.3
 
 发布日期：2026-05-27

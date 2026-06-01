@@ -51,6 +51,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
   const [exporting, setExporting] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportPeriodDays, setExportPeriodDays] = useState(30);
+  const [chartDays, setChartDays] = useState<ChartRangeDays>(365);
   const [exportError, setExportError] = useState("");
   const clusterOptions = useMemo(
     () =>
@@ -77,8 +78,8 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
   }, [scope]);
 
   useEffect(() => {
-    api.report(reportScope).then(setReport).catch(() => setReport(null));
-  }, [refreshKey, reportScope]);
+    api.report(reportScope, undefined, chartDays).then(setReport).catch(() => setReport(null));
+  }, [chartDays, refreshKey, reportScope]);
 
   async function handleExportBundle() {
     setExporting(true);
@@ -157,11 +158,11 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
           <div className="forecast-window">
             <CalendarClock size={44} />
             <strong>{report?.window_days || 30} 天</strong>
-            <span>用于计算增长速率</span>
+            <span>用于预测报表计算</span>
           </div>
         </Card>
 
-        <Card title="容量增长速率">
+        <Card title="容量增长速率" subtitle={`${report?.growth_rate_window_days || 7} 天平均`}>
           <div className="forecast-window growth-window">
             <TrendingUp size={44} />
             <strong>{formatBytes(clusterGrowthRate.perDay)}/天</strong>
@@ -172,7 +173,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
       </div>
 
       <Card title="集群容量趋势" subtitle="实际容量、预测趋势与容量阈值" className="cluster-chart-card">
-        <ClusterCapacityChart clusters={report?.clusters || []} title={selectedClusterLabel} />
+        <ClusterCapacityChart clusters={report?.clusters || []} title={selectedClusterLabel} rangeDays={chartDays} onRangeDaysChange={setChartDays} />
       </Card>
 
       {exportDialogOpen && (
@@ -251,6 +252,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
 }
 
 type GrowthSortMode = "amount" | "ratio";
+type ChartRangeDays = 7 | 30 | 90 | 365 | 720;
 
 const EXPORT_PERIOD_OPTIONS = [
   { value: 7, label: "近 7 天" },

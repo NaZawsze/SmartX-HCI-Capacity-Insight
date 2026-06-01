@@ -175,8 +175,8 @@ def all_volumes(tower_id: int | None = None, cluster_id: str | None = None, _: d
 
 
 @router.get("/api/reports/latest")
-async def report(tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, _: dict = Depends(current_user)) -> dict:
-    return await latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days)
+async def report(tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, chart_days: int = 365, _: dict = Depends(current_user)) -> dict:
+    return await latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days, chart_days=chart_days)
 
 
 @router.get("/api/reports/export/word")

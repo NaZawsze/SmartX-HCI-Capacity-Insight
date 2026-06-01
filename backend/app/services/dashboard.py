@@ -93,22 +93,27 @@ async def vm_trend(vm_id: str, metric: str = "used", days: int = 90, tower_id: i
     return points
 
 
-async def latest_report(tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30) -> dict[str, Any]:
+async def latest_report(tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, chart_days: int = 365) -> dict[str, Any]:
     prom = PrometheusQuery()
     latest_samples = load_latest_samples()
     configured_clusters = _configured_cluster_keys(list_towers())
     window_days = _normalize_period_days(period_days)
+    chart_window_days = _normalize_chart_days(chart_days)
     clusters = await prom.range(CLUSTER_METRICS["used"], days=window_days)
-    chart_clusters = await _safe_range(prom, CLUSTER_METRICS["used"], days=365)
+    chart_clusters = await _safe_range(prom, CLUSTER_METRICS["used"], days=chart_window_days)
+    growth_clusters = await _safe_range(prom, CLUSTER_METRICS["used"], days=7)
     totals = _latest_metric_items(latest_samples, "cluster", "total") or await prom.instant(CLUSTER_METRICS["total"])
     latest_cluster_used = _latest_metric_items(latest_samples, "cluster", "used")
     _append_latest_points(clusters, latest_cluster_used)
     _append_latest_points(chart_clusters, latest_cluster_used)
+    _append_latest_points(growth_clusters, latest_cluster_used)
     clusters = _filter_configured_items(clusters, configured_clusters)
     chart_clusters = _filter_configured_items(chart_clusters, configured_clusters)
+    growth_clusters = _filter_configured_items(growth_clusters, configured_clusters)
     totals = _filter_configured_items(totals, configured_clusters)
     clusters = _filter_items(clusters, tower_id, cluster_id)
     chart_clusters = _filter_items(chart_clusters, tower_id, cluster_id)
+    growth_clusters = _filter_items(growth_clusters, tower_id, cluster_id)
     totals = _filter_items(totals, tower_id, cluster_id)
     capacity_by_cluster = {_cluster_key(item.get("metric", {})): _value(item) for item in totals}
     chart_points_by_cluster = {
@@ -131,7 +136,7 @@ async def latest_report(tower_id: int | None = None, cluster_id: str | None = No
                 "warning": capacity * 0.9 if capacity else None,
             }
         )
-    cluster_growth_rate = _cluster_growth_rate_from_series(clusters)
+    cluster_growth_rate = _cluster_growth_rate_from_series(growth_clusters)
     day_vm_reports = await _top_growing_vm_reports(prom, latest_samples, configured_clusters, tower_id, cluster_id, 1, 100)
     month_vm_reports = await _top_growing_vm_reports(prom, latest_samples, configured_clusters, tower_id, cluster_id, window_days, 100)
     return {
@@ -146,6 +151,8 @@ async def latest_report(tower_id: int | None = None, cluster_id: str | None = No
             "per_quarter": cluster_growth_rate * 90,
         },
         "window_days": window_days,
+        "chart_days": chart_window_days,
+        "growth_rate_window_days": 7,
         "forecast_days": 60,
     }
 
@@ -156,6 +163,14 @@ def _normalize_period_days(period_days: int | None) -> int:
     except (TypeError, ValueError):
         return 30
     return value if value in {7, 14, 30, 90, 180, 365} else 30
+
+
+def _normalize_chart_days(chart_days: int | None) -> int:
+    try:
+        value = int(chart_days or 365)
+    except (TypeError, ValueError):
+        return 365
+    return value if value in {7, 30, 90, 365, 720} else 365
 
 
 async def _safe_instant(prom: PrometheusQuery, query: str) -> list[dict[str, Any]]:

@@ -1,15 +1,17 @@
 import ReactECharts from "echarts-for-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { formatBytes } from "../services/api";
 import type { ForecastPayload } from "../types";
 
 type ClusterReport = ForecastPayload["clusters"][number];
-type RangeMode = "year" | "all";
+type RangeDays = 7 | 30 | 90 | 365 | 720;
 
 interface ClusterCapacityChartProps {
   clusters: ClusterReport[];
   title: string;
   height?: number;
+  rangeDays: RangeDays;
+  onRangeDaysChange: (days: RangeDays) => void;
 }
 
 interface ChartModel {
@@ -22,6 +24,14 @@ interface ChartModel {
 }
 
 const dayMs = 86_400_000;
+
+const CHART_RANGE_OPTIONS: Array<{ value: RangeDays; label: string }> = [
+  { value: 7, label: "7天" },
+  { value: 30, label: "30天" },
+  { value: 90, label: "90天" },
+  { value: 365, label: "365天" },
+  { value: 720, label: "720天" }
+];
 
 function dayLabel(timestampSeconds: number): string {
   return dateLabel(timestampSeconds * 1000);
@@ -102,11 +112,18 @@ function capacityStatus(current: number, total: number | null): ChartModel["stat
   return "healthy";
 }
 
-function filterRange(points: Array<[string, number]>, range: RangeMode): Array<[string, number]> {
-  if (range === "all" || points.length <= 1) return points;
-  const latest = dateValue(points[points.length - 1][0]);
-  const start = latest - 365 * dayMs;
-  return points.filter(([label]) => dateValue(label) >= start);
+function axisInterval(rangeDays: RangeDays): number {
+  if (rangeDays <= 7) return 0;
+  if (rangeDays <= 30) return 4;
+  if (rangeDays <= 90) return 14;
+  if (rangeDays <= 365) return 29;
+  return 59;
+}
+
+function formatAxisLabel(value: string, rangeDays: RangeDays): string {
+  if (rangeDays <= 90) return value.slice(5);
+  const date = new Date(`${value}T00:00:00Z`);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 function predictedHistory(points: Array<[string, number]>, slopePerDay: number): Array<[string, number | null]> {
@@ -157,10 +174,9 @@ function statusLabel(status: ChartModel["status"]): string {
   return "未知";
 }
 
-export function ClusterCapacityChart({ clusters, title, height = 360 }: ClusterCapacityChartProps) {
-  const [range, setRange] = useState<RangeMode>("year");
+export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays, onRangeDaysChange }: ClusterCapacityChartProps) {
   const model = useMemo(() => aggregateClusters(clusters, title), [clusters, title]);
-  const actualPoints = filterRange(model.points, range);
+  const actualPoints = model.points;
   const historyPoints = predictedHistory(actualPoints, model.slopePerDay);
   const projectedPoints = futurePoints(actualPoints, model.slopePerDay);
   const labels = [...actualPoints.map(([label]) => label), ...projectedPoints.slice(1).map(([label]) => label)];
@@ -200,7 +216,7 @@ export function ClusterCapacityChart({ clusters, title, height = 360 }: ClusterC
       boundaryGap: false,
       data: labels,
       axisLine: { lineStyle: { color: "#d6dee9" } },
-      axisLabel: { color: "#718096", hideOverlap: true, formatter: (value: string) => value.slice(5) }
+      axisLabel: { color: "#718096", hideOverlap: true, interval: axisInterval(rangeDays), formatter: (value: string) => formatAxisLabel(value, rangeDays) }
     },
     yAxis: {
       type: "value",
@@ -255,7 +271,7 @@ export function ClusterCapacityChart({ clusters, title, height = 360 }: ClusterC
   if (!actualPoints.length) {
     return (
       <div className="cluster-chart-shell">
-        <ClusterChartToolbar title={model.title} status={model.status} range={range} onRangeChange={setRange} />
+        <ClusterChartToolbar title={model.title} status={model.status} rangeDays={rangeDays} onRangeDaysChange={onRangeDaysChange} />
         <div className="empty-chart">暂无集群趋势数据</div>
       </div>
     );
@@ -263,7 +279,7 @@ export function ClusterCapacityChart({ clusters, title, height = 360 }: ClusterC
 
   return (
     <div className="cluster-chart-shell">
-      <ClusterChartToolbar title={model.title} status={model.status} range={range} onRangeChange={setRange} />
+      <ClusterChartToolbar title={model.title} status={model.status} rangeDays={rangeDays} onRangeDaysChange={onRangeDaysChange} />
       <ReactECharts option={option} style={{ height }} notMerge />
     </div>
   );
@@ -272,13 +288,13 @@ export function ClusterCapacityChart({ clusters, title, height = 360 }: ClusterC
 function ClusterChartToolbar({
   title,
   status,
-  range,
-  onRangeChange
+  rangeDays,
+  onRangeDaysChange
 }: {
   title: string;
   status: ChartModel["status"];
-  range: RangeMode;
-  onRangeChange: (range: RangeMode) => void;
+  rangeDays: RangeDays;
+  onRangeDaysChange: (days: RangeDays) => void;
 }) {
   return (
     <div className="cluster-chart-toolbar">
@@ -287,12 +303,11 @@ function ClusterChartToolbar({
         <span className={`cluster-chart-status ${status}`}>{statusLabel(status)}</span>
       </div>
       <div className="sort-tabs compact-tabs chart-range-tabs" aria-label="集群趋势范围">
-        <button type="button" className={range === "year" ? "active" : ""} onClick={() => onRangeChange("year")}>
-          最近1年
-        </button>
-        <button type="button" className={range === "all" ? "active" : ""} onClick={() => onRangeChange("all")}>
-          全部
-        </button>
+        {CHART_RANGE_OPTIONS.map((option) => (
+          <button key={option.value} type="button" className={rangeDays === option.value ? "active" : ""} onClick={() => onRangeDaysChange(option.value)}>
+            {option.label}
+          </button>
+        ))}
       </div>
     </div>
   );

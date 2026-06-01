@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 from collections import defaultdict
 from datetime import datetime
 from io import BytesIO
 from secrets import token_hex
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from docx import Document
+from docx.enum.section import WD_SECTION
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
@@ -16,7 +19,9 @@ from openpyxl import Workbook
 from openpyxl.chart import BarChart, Reference
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
+from app.core.config import get_settings
 from app.services.dashboard import latest_report
 
 
@@ -34,6 +39,9 @@ BORDER = "C7D6E8"
 SUCCESS = "EAF4EC"
 WARNING = "FFF2CC"
 DANGER = "FCE4D6"
+VM_ALERT_FILL = "F4CCCC"
+VM_ALERT_RATIO = 0.2
+VM_ALERT_BYTES = 100 * 1024**3
 PERIODS = [("month", "较上月", 30), ("quarter", "较上季度", 90), ("year", "较上一年", 365)]
 
 
@@ -45,6 +53,7 @@ async def build_report_docx(tower_id: int | None = None, cluster_id: str | None 
     _setup_document(document, context)
 
     _add_cover(document, context)
+    _add_cluster_directory(document, clusters)
     _add_report_overview(document, context)
     document.add_heading("1. 集群容量增长概览", level=1)
     _add_cluster_growth_chart(document, clusters)
@@ -55,14 +64,14 @@ async def build_report_docx(tower_id: int | None = None, cluster_id: str | None 
         labels = cluster.get("labels", {})
         key = _cluster_key(labels)
         vms = vms_by_cluster.get(key, [])
-        document.add_page_break()
-        document.add_heading(f"2.{index} {_cluster_title(labels)}", level=1)
+        _start_section(document, context, _cluster_footer_label(labels))
+        _add_bookmarked_heading(document, f"2.{index} {_cluster_title(labels)}", _cluster_bookmark(index), level=1, bookmark_id=index)
         _add_cluster_customer_summary(document, cluster, len(vms))
         _add_single_cluster_charts(document, cluster, vms)
-        document.add_heading("增长量 TOP100 虚拟机", level=2)
-        _add_vm_table(document, _top_vms(vms, "amount"))
-        document.add_heading("增长率 TOP100 虚拟机", level=2)
-        _add_vm_table(document, _top_vms(vms, "ratio"))
+        document.add_heading("增长量 TOP100 虚拟机（按增长量降序）", level=2)
+        _add_vm_table(document, _top_vms(vms, "amount"), "amount")
+        document.add_heading("增长率 TOP100 虚拟机（按增长率降序）", level=2)
+        _add_vm_table(document, _top_vms(vms, "ratio"), "ratio")
 
     return _docx_bytes(document), _export_filename(context, "docx")
 
@@ -79,11 +88,15 @@ async def build_report_xlsx(tower_id: int | None = None, cluster_id: str | None 
     _write_vm_summary_sheet(workbook.create_sheet("VM_TOP100_汇总"), vms)
 
     vms_by_cluster = _vms_by_cluster(vms)
+    cluster_sheets: list[tuple[dict[str, Any], str]] = []
     for cluster in context["clusters"]:
         labels = cluster.get("labels", {})
         sheet = workbook.create_sheet(_safe_sheet_name(labels.get("cluster") or labels.get("cluster_id") or "集群"))
+        cluster_sheets.append((cluster, sheet.title))
         cluster_vms = vms_by_cluster.get(_cluster_key(labels), [])
         _write_cluster_vm_sheet(sheet, cluster, cluster_vms)
+
+    _write_directory_sheet(workbook.create_sheet("目录", 1), cluster_sheets)
 
     output = BytesIO()
     workbook.save(output)
@@ -91,7 +104,7 @@ async def build_report_xlsx(tower_id: int | None = None, cluster_id: str | None 
 
 
 def _export_context(report: dict[str, Any], tower_id: int | None, cluster_id: str | None) -> dict[str, Any]:
-    now = datetime.now()
+    now = _local_now()
     clusters = report.get("clusters") or []
     if cluster_id:
         cluster_name = _first_label(clusters, "cluster") or cluster_id
@@ -108,10 +121,23 @@ def _export_context(report: dict[str, Any], tower_id: int | None, cluster_id: st
         "clusters": clusters,
         "date_slug": now.strftime("%Y%m%d"),
         "generated_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "timezone": _report_timezone_name(),
         "scope_label": scope_label,
         "scope_slug": scope_slug,
         "report": report,
     }
+
+
+def _report_timezone_name() -> str:
+    return get_settings().collection_timezone or "Asia/Shanghai"
+
+
+def _local_now() -> datetime:
+    timezone_name = _report_timezone_name()
+    try:
+        return datetime.now(ZoneInfo(timezone_name))
+    except ZoneInfoNotFoundError:
+        return datetime.now(ZoneInfo("Asia/Shanghai"))
 
 
 def _export_filename(context: dict[str, Any], extension: str) -> str:
@@ -151,7 +177,7 @@ def _apply_run_font(run: Any) -> None:
     run._element.rPr.rFonts.set(qn("w:eastAsia"), DOCX_FONT_EAST_ASIA)
 
 
-def _setup_header_footer(section: Any, context: dict[str, Any]) -> None:
+def _setup_header_footer(section: Any, context: dict[str, Any], footer_label: str | None = None) -> None:
     header = section.header.paragraphs[0]
     header.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     run = header.add_run("SmartX Storage Forecast | 容量预测报告")
@@ -161,10 +187,28 @@ def _setup_header_footer(section: Any, context: dict[str, Any]) -> None:
 
     footer = section.footer.paragraphs[0]
     footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = footer.add_run(f"{context['scope_label']} · {context['generated_at']}")
+    run = footer.add_run(f"{footer_label or context['scope_label']} · {context['generated_at']}")
     _apply_run_font(run)
     run.font.size = Pt(8)
     run.font.color.rgb = RGBColor(122, 138, 160)
+
+
+def _start_section(document: Document, context: dict[str, Any], footer_label: str) -> None:
+    section = document.add_section(WD_SECTION.NEW_PAGE)
+    section.left_margin = Inches(0.62)
+    section.right_margin = Inches(0.62)
+    section.top_margin = Inches(0.66)
+    section.bottom_margin = Inches(0.64)
+    section.header.is_linked_to_previous = False
+    section.footer.is_linked_to_previous = False
+    _clear_paragraph(section.header.paragraphs[0])
+    _clear_paragraph(section.footer.paragraphs[0])
+    _setup_header_footer(section, context, footer_label=footer_label)
+
+
+def _clear_paragraph(paragraph: Any) -> None:
+    for run in paragraph.runs:
+        run._element.getparent().remove(run._element)
 
 
 def _add_cover_brand(document: Document) -> None:
@@ -250,7 +294,7 @@ def _add_cover(document: Document, context: dict[str, Any]) -> None:
     _set_table_borders(table, BORDER)
     rows = [
         ("导出范围", context["scope_label"]),
-        ("生成时间", context["generated_at"]),
+        ("生成时间", f"{context['generated_at']} {context['timezone']}"),
         ("预测窗口", f"最近 {context['report'].get('window_days') or 30} 天，预测 {context['report'].get('forecast_days') or 60} 天"),
         ("集群数量", f"{len(context['clusters'])} 个"),
     ]
@@ -303,6 +347,30 @@ def _add_report_overview(document: Document, context: dict[str, Any]) -> None:
         run.font.size = Pt(13)
         run.font.color.rgb = RGBColor(23, 54, 93)
     _add_callout(document, "结论摘要", _overview_sentence(clusters))
+
+
+def _add_cluster_directory(document: Document, clusters: list[dict[str, Any]]) -> None:
+    document.add_heading("目录", level=1)
+    if not clusters:
+        document.add_paragraph("当前导出范围内暂无集群。")
+        document.add_page_break()
+        return
+
+    table = document.add_table(rows=1, cols=3)
+    table.style = "Table Grid"
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    _set_table_width(table, [900, 4300, 2500])
+    _set_docx_headers(table.rows[0].cells, ["序号", "集群", "章节"])
+    _set_table_borders(table, BORDER)
+    for index, cluster in enumerate(clusters, start=1):
+        labels = cluster.get("labels", {})
+        row = table.add_row().cells
+        _set_docx_row(row, [str(index), "", f"2.{index}"])
+        _add_internal_link(row[1].paragraphs[0], _cluster_bookmark(index), _cluster_title(labels))
+        if index % 2 == 0:
+            _shade_row(row, "FAFCFF")
+    _add_callout(document, "定位说明", "可通过本目录快速确认集群章节编号；Word 打开后也可使用导航窗格按标题跳转。")
+    document.add_page_break()
 
 
 def _overview_sentence(clusters: list[dict[str, Any]]) -> str:
@@ -416,20 +484,22 @@ def _add_single_cluster_charts(document: Document, cluster: dict[str, Any], vms:
         _add_figure(document, top_chart, "Top 5 VM 增长量", width=6.4)
 
 
-def _add_vm_table(document: Document, vms: list[dict[str, Any]]) -> None:
-    headers = ["VM", "当前容量", "上期容量", "增长量", "增长率"]
+def _add_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode: str) -> None:
+    headers = _vm_headers(include_cluster=False, sort_mode=sort_mode)
     table = document.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
-    _set_table_width(table, [3100, 1350, 1350, 1350, 900])
+    _set_table_width(table, [650, 2850, 1200, 1200, 1200, 850])
     _set_docx_headers(table.rows[0].cells, headers)
     _set_table_borders(table, BORDER)
     if not vms:
-        _set_docx_row(table.add_row().cells, ["暂无增长数据", "-", "-", "-", "-"])
+        _set_docx_row(table.add_row().cells, ["-", "暂无增长数据", "-", "-", "-", "-"])
         return
     for index, vm in enumerate(vms, start=1):
         row = table.add_row().cells
-        _set_docx_row(row, _vm_row(vm, include_cluster=False))
-        if index % 2 == 0:
+        _set_docx_row(row, _vm_row(vm, include_cluster=False, rank=index))
+        if _is_vm_alert(vm):
+            _shade_row(row, VM_ALERT_FILL)
+        elif index % 2 == 0:
             _shade_row(row, "FAFCFF")
 
 
@@ -482,6 +552,44 @@ def _set_cell(cell: Any, value: Any, fill: str | None = None, color: str = "1F1F
         _set_cell_margin(cell, margin, 90)
 
 
+def _add_bookmarked_heading(document: Document, text: str, bookmark_name: str, level: int, bookmark_id: int) -> None:
+    paragraph = document.add_heading(level=level)
+    start = OxmlElement("w:bookmarkStart")
+    start.set(qn("w:id"), str(bookmark_id))
+    start.set(qn("w:name"), bookmark_name)
+    paragraph._p.append(start)
+    run = paragraph.add_run(text)
+    _apply_run_font(run)
+    if level == 1:
+        run.bold = True
+        run.font.size = Pt(15)
+        run.font.color.rgb = RGBColor(23, 54, 93)
+    end = OxmlElement("w:bookmarkEnd")
+    end.set(qn("w:id"), str(bookmark_id))
+    paragraph._p.append(end)
+
+
+def _add_internal_link(paragraph: Any, bookmark_name: str, text: str) -> None:
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("w:anchor"), bookmark_name)
+    run_element = OxmlElement("w:r")
+    properties = OxmlElement("w:rPr")
+    color = OxmlElement("w:color")
+    color.set(qn("w:val"), ACCENT)
+    underline = OxmlElement("w:u")
+    underline.set(qn("w:val"), "single")
+    properties.append(color)
+    properties.append(underline)
+    run_element.append(properties)
+    text_element = OxmlElement("w:t")
+    text_element.text = text
+    run_element.append(text_element)
+    hyperlink.append(run_element)
+    paragraph._p.append(hyperlink)
+    for run in paragraph.runs:
+        _apply_run_font(run)
+
+
 def _shade_cell(cell: Any, fill: str) -> None:
     tc_pr = cell._tc.get_or_add_tcPr()
     shd = tc_pr.find(qn("w:shd"))
@@ -522,7 +630,7 @@ def _set_table_width(table: Any, widths: list[int]) -> None:
 def _write_cluster_summary_sheet(sheet: Any, context: dict[str, Any]) -> None:
     sheet.append(["存储容量预测分析报告"])
     sheet.append(["导出范围", context["scope_label"]])
-    sheet.append(["生成时间", context["generated_at"]])
+    sheet.append(["生成时间", f"{context['generated_at']} {context['timezone']}"])
     sheet.append(["预测窗口", f"最近 {context['report'].get('window_days') or 30} 天，预测 {context['report'].get('forecast_days') or 60} 天"])
     sheet.append([])
     headers = ["Tower", "集群", "当前容量", "较上月增加", "较上季度增加", "较上一年增加", "60天预测", "容量阈值", "耗尽天数", "风险"]
@@ -549,12 +657,43 @@ def _write_cluster_summary_sheet(sheet: Any, context: dict[str, Any]) -> None:
     _add_xlsx_growth_chart(sheet, start_row=6, end_row=sheet.max_row)
 
 
+def _write_directory_sheet(sheet: Any, clusters: list[tuple[dict[str, Any], str]]) -> None:
+    sheet.append(["集群目录"])
+    sheet.append(["序号", "集群", "Sheet"])
+    for index, (cluster, sheet_name) in enumerate(clusters, start=1):
+        labels = cluster.get("labels", {})
+        sheet.append([index, _cluster_title(labels), sheet_name])
+        sheet.cell(row=sheet.max_row, column=3).hyperlink = f"#'{sheet_name}'!A1"
+        sheet.cell(row=sheet.max_row, column=3).style = "Hyperlink"
+    _style_sheet(sheet, header_rows={1, 2})
+
+
 def _write_vm_summary_sheet(sheet: Any, vms: list[dict[str, Any]]) -> None:
-    headers = ["Tower", "集群", "VM", "当前容量", "上期容量", "增长量", "增长率"]
+    headers = _vm_headers(include_cluster=True, sort_mode="amount")
+    _append_section_title(sheet, "增长量 TOP100（按增长量降序）", len(headers))
+    amount_header_row = sheet.max_row + 1
     sheet.append(headers)
-    for vm in _top_vms(vms, "amount"):
-        sheet.append(_vm_row(vm, include_cluster=True, raw=True))
-    _style_sheet(sheet, header_rows={1}, bytes_cols={4, 5, 6}, percent_cols={7})
+    amount_start = sheet.max_row + 1
+    for index, vm in enumerate(_top_vms(vms, "amount"), start=1):
+        sheet.append(_vm_row(vm, include_cluster=True, raw=True, rank=index))
+    amount_end = sheet.max_row
+
+    sheet.append([])
+    ratio_title_row = sheet.max_row + 1
+    _append_section_title(sheet, "增长率 TOP100（按增长率降序）", len(headers))
+    ratio_header_row = sheet.max_row + 1
+    sheet.append(_vm_headers(include_cluster=True, sort_mode="ratio"))
+    ratio_start = sheet.max_row + 1
+    for index, vm in enumerate(_top_vms(vms, "ratio"), start=1):
+        sheet.append(_vm_row(vm, include_cluster=True, raw=True, rank=index))
+    ratio_end = sheet.max_row
+
+    header_rows = {1, amount_header_row, ratio_title_row, ratio_header_row}
+    _style_sheet(sheet, header_rows=header_rows, bytes_cols={5, 6, 7}, percent_cols={8})
+    _style_vm_rows(sheet, amount_start, amount_end, include_cluster=True, column_count=len(headers))
+    _style_vm_rows(sheet, ratio_start, ratio_end, include_cluster=True, column_count=len(headers))
+    _add_excel_table(sheet, "VmAmountSummary", amount_header_row, amount_end, len(headers))
+    _add_excel_table(sheet, "VmRatioSummary", ratio_header_row, ratio_end, len(headers))
 
 
 def _write_cluster_vm_sheet(sheet: Any, cluster: dict[str, Any], vms: list[dict[str, Any]]) -> None:
@@ -564,20 +703,29 @@ def _write_cluster_vm_sheet(sheet: Any, cluster: dict[str, Any], vms: list[dict[
     sheet.append([_cluster_title(labels)])
     sheet.append(["当前容量", forecast.get("current") or 0, "较上月增加", _cluster_period_growth(cluster, "month"), "较上季度增加", _cluster_period_growth(cluster, "quarter"), "较上一年增加", _cluster_period_growth(cluster, "year"), "风险", risk])
     sheet.append([])
-    sheet.append(["增长量 TOP100"])
-    amount_headers = ["VM", "当前容量", "上期容量", "增长量", "增长率"]
+    sheet.append(["增长量 TOP100（按增长量降序）"])
+    amount_headers = _vm_headers(include_cluster=False, sort_mode="amount")
     sheet.append(amount_headers)
-    for vm in _top_vms(vms, "amount"):
-        sheet.append(_vm_row(vm, include_cluster=False, raw=True))
+    amount_header_row = sheet.max_row
+    amount_start = sheet.max_row + 1
+    for index, vm in enumerate(_top_vms(vms, "amount"), start=1):
+        sheet.append(_vm_row(vm, include_cluster=False, raw=True, rank=index))
+    amount_end = sheet.max_row
     start = sheet.max_row + 2
-    sheet.cell(row=start, column=1, value="增长率 TOP100")
-    sheet.cell(row=start + 1, column=1, value="VM")
-    for col, header in enumerate(amount_headers[1:], start=2):
+    sheet.cell(row=start, column=1, value="增长率 TOP100（按增长率降序）")
+    ratio_headers = _vm_headers(include_cluster=False, sort_mode="ratio")
+    for col, header in enumerate(ratio_headers, start=1):
         sheet.cell(row=start + 1, column=col, value=header)
-    for row_index, vm in enumerate(_top_vms(vms, "ratio"), start=start + 2):
-        for col, value in enumerate(_vm_row(vm, include_cluster=False, raw=True), start=1):
+    ratio_start = start + 2
+    for rank, (row_index, vm) in enumerate(zip(range(start + 2, start + 2 + len(_top_vms(vms, "ratio"))), _top_vms(vms, "ratio")), start=1):
+        for col, value in enumerate(_vm_row(vm, include_cluster=False, raw=True, rank=rank), start=1):
             sheet.cell(row=row_index, column=col, value=value)
-    _style_sheet(sheet, header_rows={1, 2, 4, 5, start, start + 1}, bytes_cols={2, 3, 4, 6, 8}, percent_cols={5})
+    ratio_end = sheet.max_row
+    _style_sheet(sheet, header_rows={1, 2, 4, 5, start, start + 1}, bytes_cols={3, 4, 5, 7, 9}, percent_cols={6})
+    _style_vm_rows(sheet, amount_start, amount_end, include_cluster=False, column_count=len(amount_headers))
+    _style_vm_rows(sheet, ratio_start, ratio_end, include_cluster=False, column_count=len(ratio_headers))
+    _add_excel_table(sheet, _table_safe_name(sheet.title, "Amount"), amount_header_row, amount_end, len(amount_headers))
+    _add_excel_table(sheet, _table_safe_name(sheet.title, "Ratio"), start + 1, ratio_end, len(ratio_headers))
 
 
 def _style_sheet(sheet: Any, header_rows: set[int], bytes_cols: set[int] | None = None, percent_cols: set[int] | None = None) -> None:
@@ -604,6 +752,35 @@ def _style_sheet(sheet: Any, header_rows: set[int], bytes_cols: set[int] | None 
             max_len = max(max_len, len(str(cell.value or "")))
         sheet.column_dimensions[get_column_letter(column)].width = min(max_len + 2, 32)
     sheet.freeze_panes = "A2"
+
+
+def _append_section_title(sheet: Any, title: str, columns: int) -> None:
+    sheet.append([title])
+    if columns > 1:
+        sheet.merge_cells(start_row=sheet.max_row, start_column=1, end_row=sheet.max_row, end_column=columns)
+
+
+def _style_vm_rows(sheet: Any, start_row: int, end_row: int, include_cluster: bool, column_count: int) -> None:
+    if end_row < start_row:
+        return
+    fill = PatternFill(fill_type="solid", fgColor=VM_ALERT_FILL)
+    for row_index in range(start_row, end_row + 1):
+        amount_col = 7 if include_cluster else 5
+        ratio_col = 8 if include_cluster else 6
+        amount = sheet.cell(row=row_index, column=amount_col).value
+        ratio = sheet.cell(row=row_index, column=ratio_col).value
+        if _is_vm_alert_values(amount, ratio):
+            for column in range(1, column_count + 1):
+                sheet.cell(row=row_index, column=column).fill = fill
+
+
+def _add_excel_table(sheet: Any, name: str, header_row: int, end_row: int, column_count: int) -> None:
+    if end_row <= header_row:
+        return
+    ref = f"A{header_row}:{get_column_letter(column_count)}{end_row}"
+    table = Table(displayName=name[:255], ref=ref)
+    table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True, showColumnStripes=False)
+    sheet.add_table(table)
 
 
 def _add_xlsx_growth_chart(sheet: Any, start_row: int, end_row: int) -> None:
@@ -654,7 +831,8 @@ def _line_chart_image(points: list[tuple[int, float]], title: str, ylabel: str) 
     ax.set_title(title, fontsize=12, pad=8)
     ax.set_xlabel("时间", fontsize=10)
     ax.set_ylabel(ylabel, fontsize=10)
-    ax.set_ylim(bottom=0)
+    y_min, y_max = _chart_y_limits(values)
+    ax.set_ylim(y_min, y_max)
     ax.grid(axis="y", color="#E6EDF5", linewidth=0.6)
     ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=6))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
@@ -667,6 +845,22 @@ def _line_chart_image(points: list[tuple[int, float]], title: str, ylabel: str) 
     ax.tick_params(axis="both", labelsize=9, colors="#333333")
     fig.tight_layout()
     return _figure_bytes(fig, plt)
+
+
+def _chart_y_limits(values: list[float]) -> tuple[float, float]:
+    if not values:
+        return 0.0, 1.0
+    y_min = min(values)
+    y_max = max(values)
+    if y_min == y_max:
+        padding = max(abs(y_max) * 0.05, 0.1)
+    else:
+        padding = max((y_max - y_min) * 0.18, y_max * 0.01, 0.1)
+    lower = max(0.0, y_min - padding)
+    upper = y_max + padding
+    if upper <= lower:
+        upper = lower + 1.0
+    return lower, upper
 
 
 def _cluster_top_growth_bar_chart(clusters: list[dict[str, Any]], title: str, period: str) -> BytesIO | None:
@@ -805,7 +999,18 @@ def _top_vms(vms: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
     return sorted(vms, key=key, reverse=True)[:100]
 
 
-def _vm_row(vm: dict[str, Any], include_cluster: bool, raw: bool = False) -> list[Any]:
+def _vm_headers(include_cluster: bool, sort_mode: str) -> list[str]:
+    headers = ["排名", "VM", "当前容量", "上期容量", "增长量", "增长率"]
+    if sort_mode == "amount":
+        headers[4] = "增长量 ↓"
+    elif sort_mode == "ratio":
+        headers[5] = "增长率 ↓"
+    if include_cluster:
+        return ["Tower", "集群", *headers]
+    return headers
+
+
+def _vm_row(vm: dict[str, Any], include_cluster: bool, raw: bool = False, rank: int | None = None) -> list[Any]:
     labels = vm.get("labels", {})
     forecast = vm.get("forecast", {})
     ratio = vm.get("growth_ratio")
@@ -814,6 +1019,7 @@ def _vm_row(vm: dict[str, Any], include_cluster: bool, raw: bool = False) -> lis
         values.extend([labels.get("tower") or labels.get("tower_id") or "-", labels.get("cluster") or labels.get("cluster_id") or "-"])
     values.extend(
         [
+            rank or "",
             labels.get("vm") or labels.get("vm_id") or "-",
             forecast.get("current") or 0,
             vm.get("previous_value") or 0,
@@ -823,10 +1029,26 @@ def _vm_row(vm: dict[str, Any], include_cluster: bool, raw: bool = False) -> lis
     )
     if raw:
         return values
-    formatted = [str(values[0])]
-    formatted.extend(_format_bytes(value) for value in values[1:4])
+    formatted = [str(values[0]), str(values[1])]
+    formatted.extend(_format_bytes(value) for value in values[2:5])
     formatted.append(_format_percent(ratio))
     return formatted
+
+
+def _is_vm_alert(vm: dict[str, Any]) -> bool:
+    return _is_vm_alert_values(vm.get("growth_amount"), vm.get("growth_ratio"))
+
+
+def _is_vm_alert_values(amount: Any, ratio: Any) -> bool:
+    try:
+        amount_value = float(amount or 0)
+    except (TypeError, ValueError):
+        amount_value = 0.0
+    try:
+        ratio_value = float(ratio or 0)
+    except (TypeError, ValueError):
+        ratio_value = 0.0
+    return amount_value > VM_ALERT_BYTES and ratio_value > VM_ALERT_RATIO
 
 
 def _cluster_title(labels: dict[str, Any]) -> str:
@@ -835,8 +1057,18 @@ def _cluster_title(labels: dict[str, Any]) -> str:
     return f"{tower} / {cluster}"
 
 
+def _cluster_footer_label(labels: dict[str, Any]) -> str:
+    tower = str(labels.get("tower") or labels.get("tower_id") or "Tower")
+    cluster = str(labels.get("cluster") or labels.get("cluster_id") or "集群")
+    return f"{tower}-{cluster}集群"
+
+
 def _cluster_key(labels: dict[str, Any]) -> tuple[str, str]:
     return (str(labels.get("tower_id") or ""), str(labels.get("cluster_id") or ""))
+
+
+def _cluster_bookmark(index: int) -> str:
+    return f"cluster_{index}"
 
 
 def _monthly_growth(cluster: dict[str, Any]) -> float:
@@ -896,6 +1128,11 @@ def _safe_sheet_name(value: str) -> str:
     invalid = set('[]:*?/\\')
     cleaned = "".join("_" if char in invalid else char for char in str(value))
     return (cleaned or "集群")[:31]
+
+
+def _table_safe_name(value: str, suffix: str = "") -> str:
+    digest = hashlib.sha1(f"{value}:{suffix}".encode("utf-8")).hexdigest()[:8]
+    return f"T_{digest}{suffix}"[:60]
 
 
 def _slug(value: str) -> str:

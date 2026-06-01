@@ -227,8 +227,13 @@ export const api = {
     const query = params.toString();
     return request<{ vm_id: string; volumes: VmVolume[] }>(`/api/vms/${encodeURIComponent(vmId)}/volumes${query ? `?${query}` : ""}`);
   },
-  async report(scope?: DashboardScope): Promise<ForecastPayload> {
-    return request<ForecastPayload>(`/api/reports/latest${scopedQuery(scope)}`);
+  async report(scope?: DashboardScope, periodDays?: number, chartDays?: number): Promise<ForecastPayload> {
+    const params = scopedParams(scope, periodDays);
+    if (chartDays) {
+      params.set("chart_days", String(chartDays));
+    }
+    const query = params.toString();
+    return request<ForecastPayload>(`/api/reports/latest${query ? `?${query}` : ""}`);
   },
   async exportReport(format: "word" | "excel", scope?: DashboardScope, periodDays?: number, onProgress?: ProgressCallback): Promise<{ blob: Blob; filename: string }> {
     return download(`/api/reports/export/${format}${scopedQuery(scope, periodDays)}`, onProgress);

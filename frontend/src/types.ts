@@ -123,6 +123,8 @@ export interface ForecastPayload {
     per_quarter?: number | null;
   };
   window_days: number;
+  chart_days?: number;
+  growth_rate_window_days?: number;
   forecast_days?: number;
 }
 

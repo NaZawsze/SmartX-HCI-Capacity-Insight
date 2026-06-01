@@ -26,6 +26,7 @@ OVERWRITE_MODE = "overwrite"
 
 
 PROMETHEUS_RUNTIME_ENTRIES = {"chunks_head", "lock", "queries.active", "wal"}
+APP_RUNTIME_ENTRIES = {"backups", "upgrades"}
 
 
 def build_migration_archive() -> tuple[bytes, str]:
@@ -50,7 +51,7 @@ def build_migration_archive() -> tuple[bytes, str]:
         manifest_info.size = len(manifest_bytes)
         manifest_info.mtime = int(generated_at.timestamp())
         archive.addfile(manifest_info, io.BytesIO(manifest_bytes))
-        _add_directory(archive, app_data_path, APP_DATA_DIR)
+        _add_directory(archive, app_data_path, APP_DATA_DIR, skip_names=APP_RUNTIME_ENTRIES)
         _add_directory(archive, prometheus_data_path, PROMETHEUS_DATA_DIR)
 
     filename = f"smartx-storage-migration-{generated_at.strftime('%Y%m%d%H%M%S')}.tar.gz"
@@ -420,15 +421,16 @@ def _copy_missing_files(source: Path, target: Path, skip_names: set[str] | None 
     return copied
 
 
-def _add_directory(archive: tarfile.TarFile, source: Path, arcname: str) -> None:
+def _add_directory(archive: tarfile.TarFile, source: Path, arcname: str, skip_names: set[str] | None = None) -> None:
     if not source.exists():
         return
-    archive.add(source, arcname=arcname, recursive=True, filter=_tar_filter)
+    skip = skip_names or set()
+    archive.add(source, arcname=arcname, recursive=True, filter=lambda info: _tar_filter(info, skip))
 
 
-def _tar_filter(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
+def _tar_filter(info: tarfile.TarInfo, skip_names: set[str] | None = None) -> tarfile.TarInfo | None:
     name = Path(info.name).name
-    if name in {".DS_Store"} or name.startswith("._"):
+    if name in {".DS_Store"} or name.startswith("._") or name in (skip_names or set()):
         return None
     return info
 

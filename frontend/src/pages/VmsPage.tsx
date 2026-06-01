@@ -131,7 +131,7 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
                 <span>{item.metric.vm || item.metric.vm_id}</span>
                 <small className="vm-cluster">{item.metric.cluster}</small>
                 <strong>{formatBytes(item.value)}</strong>
-                <small className={usage > 0.9 ? "vm-usage over-limit" : "vm-usage"}>{formatRatio(item, allVolumes)}</small>
+                <small className={usage > 0.9 ? "vm-usage over-limit" : "vm-usage"}>{formatUsageLabel(item, allVolumes)}</small>
               </button>
             );
           })}
@@ -280,6 +280,11 @@ function formatRatio(item: MetricItem, allVolumes: VmVolumeSet[]): string {
   if (!item.provisioned || item.provisioned <= 0) return "";
   const ratio = item.used_ratio ?? item.value / item.provisioned;
   return `${(ratio * 100).toFixed(1)}%`;
+}
+
+function formatUsageLabel(item: MetricItem, allVolumes: VmVolumeSet[]): string {
+  const ratio = formatRatio(item, allVolumes);
+  return ratio ? `已使用 ${ratio}` : "";
 }
 
 function readVolumeName(volume: VmVolume): string {
