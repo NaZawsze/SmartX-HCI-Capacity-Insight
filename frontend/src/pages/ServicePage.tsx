@@ -5,6 +5,7 @@ import type { TransferProgress } from "../services/api";
 import type { AppTask, UpgradeTask } from "../types";
 
 type ServiceSection = "migration" | "restart" | "platform-upgrade" | "component-upgrade" | "history";
+type CleanupScanImage = { id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string };
 
 const runningUpgradeStatuses = new Set(["pending", "running", "rollback_pending", "rollback_running"]);
 const serviceItems = [
@@ -47,10 +48,13 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [upgradeMessage, setUpgradeMessage] = useState("");
   const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [cleanupScanBusy, setCleanupScanBusy] = useState(false);
   const [cleanupMessage, setCleanupMessage] = useState("");
   const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
   const [cleanupProgress, setCleanupProgress] = useState(0);
   const [cleanupLogs, setCleanupLogs] = useState<string[]>([]);
+  const [cleanupImagesList, setCleanupImagesList] = useState<CleanupScanImage[]>([]);
+  const [cleanupReclaimable, setCleanupReclaimable] = useState("0 B");
   const [componentFile, setComponentFile] = useState<File | null>(null);
   const [componentTask, setComponentTask] = useState<UpgradeTask | null>(null);
   const [componentHistory, setComponentHistory] = useState<UpgradeTask[]>([]);
@@ -219,20 +223,46 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     }
   }
 
+  async function scanCleanupImages() {
+    setCleanupMessage("");
+    setCleanupLogs(["开始扫描未使用 Docker 镜像..."]);
+    setCleanupProgress(20);
+    setCleanupScanBusy(true);
+    try {
+      const result = await api.scanUnusedImages();
+      setCleanupImagesList(result.images);
+      setCleanupReclaimable(result.space_reclaimable_label);
+      setCleanupProgress(45);
+      setCleanupLogs((current) => [...current, result.message]);
+      setCleanupMessage(result.message);
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "扫描未使用镜像失败";
+      setCleanupLogs((current) => [...current, message]);
+      setCleanupMessage(message);
+    } finally {
+      setCleanupScanBusy(false);
+    }
+  }
+
   async function cleanupImages() {
     setCleanupMessage("");
-    setCleanupLogs(["开始清理旧版本未使用 Docker 镜像。", "正在请求 Docker 扫描未使用镜像..."]);
-    setCleanupProgress(25);
+    setCleanupLogs((current) => [
+      ...current,
+      `准备清理 ${cleanupImagesList.length} 个未使用镜像，预计释放 ${cleanupReclaimable}。`,
+      "正在执行镜像清理..."
+    ]);
+    setCleanupProgress(70);
     setCleanupBusy(true);
     const id = taskId("cleanup-images");
-    addTask({ id, kind: "upgrade", title: "清理旧版本镜像", detail: "正在清理未使用 Docker 镜像", status: "running", progress: 20 });
+    addTask({ id, kind: "upgrade", title: "清理旧版本镜像", detail: "正在清理未使用 Docker 镜像", status: "running", progress: 60 });
     try {
-      setCleanupProgress(70);
       const result = await api.cleanupUnusedImages();
       setCleanupProgress(100);
       updateTask(id, { status: "succeeded", progress: 100, detail: result.message });
       setCleanupLogs((current) => [...current, result.message, "清理完成。"]);
       setCleanupMessage(result.message);
+      setCleanupImagesList([]);
+      setCleanupReclaimable("0 B");
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "清理旧版本镜像失败";
       updateTask(id, { status: "failed", progress: 100, detail: message });
@@ -684,6 +714,8 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                 setCleanupDialogOpen(true);
                 setCleanupProgress(0);
                 setCleanupLogs([]);
+                setCleanupImagesList([]);
+                setCleanupReclaimable("0 B");
               }} disabled={cleanupBusy || isRunning}>
                 <RefreshCw size={16} />
                 {cleanupBusy ? "清理中" : "清理旧版本"}
@@ -775,16 +807,39 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             <span style={{ width: `${cleanupProgress}%` }} />
           </div>
           <div className="cleanup-steps">
-            <CleanupStep active={cleanupBusy && cleanupProgress < 70} done={cleanupProgress >= 70} label="扫描未使用镜像" />
+            <CleanupStep active={cleanupScanBusy} done={cleanupProgress >= 45} label="扫描未使用镜像" />
             <CleanupStep active={cleanupBusy && cleanupProgress >= 70 && cleanupProgress < 100} done={cleanupProgress >= 100} label="执行镜像清理" />
             <CleanupStep active={false} done={cleanupProgress >= 100 && !cleanupBusy} label="输出清理结果" />
           </div>
+          <div className="cleanup-summary">
+            <strong>{cleanupImagesList.length} 个未使用镜像</strong>
+            <span>预计可释放 {cleanupReclaimable}</span>
+          </div>
+          <div className="cleanup-image-list auto-scrollbar">
+            {cleanupImagesList.length ? (
+              cleanupImagesList.map((image) => (
+                <div className="cleanup-image-row" key={image.id}>
+                  <div>
+                    <strong>{image.display_name}</strong>
+                    <small>{image.short_id}</small>
+                  </div>
+                  <span>{image.size_label}</span>
+                </div>
+              ))
+            ) : (
+              <div className="cleanup-image-empty">{cleanupProgress >= 45 ? "没有可清理的未使用镜像。" : "请先扫描未使用镜像。"}</div>
+            )}
+          </div>
           <pre className="cleanup-log auto-scrollbar">{cleanupLogs.length ? cleanupLogs.join("\n") : "等待开始清理..."}</pre>
           <div className="export-dialog-actions">
-            <button className="secondary-button" type="button" onClick={() => setCleanupDialogOpen(false)} disabled={cleanupBusy}>
+            <button className="secondary-button cleanup-action-button" type="button" onClick={() => setCleanupDialogOpen(false)} disabled={cleanupBusy || cleanupScanBusy}>
               关闭
             </button>
-            <button className="primary-button" type="button" onClick={cleanupImages} disabled={cleanupBusy || cleanupProgress > 0}>
+            <button className="primary-button cleanup-action-button" type="button" onClick={scanCleanupImages} disabled={cleanupBusy || cleanupScanBusy}>
+              <RefreshCw size={15} />
+              {cleanupScanBusy ? "扫描中" : "扫描"}
+            </button>
+            <button className="secondary-button cleanup-action-button cleanup-danger-button" type="button" onClick={cleanupImages} disabled={cleanupBusy || cleanupScanBusy || cleanupImagesList.length === 0}>
               <RefreshCw size={15} />
               {cleanupBusy ? "清理中" : "开始清理"}
             </button>

@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowUpRight, Database, HardDrive, RefreshCw, Server, TrendingUp } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Check, CircleCheck, HardDrive, MonitorCog, RefreshCw, Server, TrendingUp } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Card } from "../components/Card";
 import { MetricCard } from "../components/MetricCard";
@@ -62,8 +62,14 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm }: Dashboa
 
   return (
     <div className="dashboard-grid">
-      <div className="metrics-row">
-        <MetricCard label="Tower" value={`${kpis?.tower_count ?? 0}`} hint="已纳管" icon={Database} />
+      <div className="metrics-row dashboard-metrics-row">
+        <div className={`metric-card capacity-risk-mini ${risk.tone}`}>
+          <div className="capacity-risk-mini-icon">
+            {risk.tone === "normal" ? <Check size={28} strokeWidth={3} /> : <AlertTriangle size={28} strokeWidth={2.6} />}
+          </div>
+          <strong>{risk.title}</strong>
+        </div>
+        <MetricCard label="Tower" value={`${kpis?.tower_count ?? 0}`} hint="已纳管" icon={MonitorCog} />
         <MetricCard label="集群" value={`${kpis?.cluster_count ?? 0}`} hint="启用采集" icon={HardDrive} tone="green" />
         <MetricCard label="虚拟机" value={`${kpis?.vm_count ?? 0}`} hint="最近样本" icon={Server} />
         <MetricCard label="容量使用率" value={`${((kpis?.used_ratio ?? 0) * 100).toFixed(2)}%`} hint={formatBytes(kpis?.used_bytes)} icon={TrendingUp} tone="orange" />
@@ -145,7 +151,7 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm }: Dashboa
 
       <Card title="风险提示">
         <div className={`risk-summary ${risk.tone}`}>
-          <AlertCircle size={38} />
+          {risk.tone === "normal" ? <CircleCheck size={38} /> : <AlertTriangle size={38} />}
           <strong>{risk.title}</strong>
           <span>{risk.description}</span>
         </div>

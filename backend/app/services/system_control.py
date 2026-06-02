@@ -51,6 +51,47 @@ def cleanup_unused_images() -> dict[str, Any]:
     }
 
 
+def scan_unused_images() -> dict[str, Any]:
+    try:
+        _docker_request("GET", "/_ping")
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail="当前环境未挂载 Docker 控制接口，无法扫描镜像。") from exc
+
+    status, body = _docker_request("GET", "/images/json?all=true")
+    if status >= 300:
+        detail = body.decode("utf-8", errors="ignore") or "扫描 Docker 镜像失败。"
+        raise HTTPException(status_code=500, detail=detail)
+    images = json.loads(body.decode("utf-8") or "[]")
+    used_image_ids = _used_image_ids()
+    unused = []
+    for image in images:
+        image_id = str(image.get("Id") or "")
+        if image_id in used_image_ids:
+            continue
+        size = int(image.get("Size") or 0)
+        repo_tags = [tag for tag in image.get("RepoTags") or [] if tag and tag != "<none>:<none>"]
+        unused.append(
+            {
+                "id": image_id,
+                "short_id": image_id.replace("sha256:", "")[:12],
+                "repo_tags": repo_tags,
+                "display_name": repo_tags[0] if repo_tags else image_id.replace("sha256:", "")[:12],
+                "size": size,
+                "size_label": _format_bytes(size),
+            }
+        )
+    unused.sort(key=lambda item: item["size"], reverse=True)
+    total = sum(item["size"] for item in unused)
+    return {
+        "ok": True,
+        "images": unused,
+        "image_count": len(unused),
+        "space_reclaimable": total,
+        "space_reclaimable_label": _format_bytes(total),
+        "message": f"发现 {len(unused)} 个未使用镜像，预计可释放 {_format_bytes(total)}。",
+    }
+
+
 def _restart_services_later() -> None:
     time.sleep(1.0)
     for service in RESTART_SERVICES:
@@ -73,6 +114,14 @@ def _container_id_for_service(service: str) -> str | None:
     if not containers:
         return None
     return str(containers[0].get("Id") or "") or None
+
+
+def _used_image_ids() -> set[str]:
+    status, body = _docker_request("GET", "/containers/json?all=true")
+    if status >= 300:
+        return set()
+    containers = json.loads(body.decode("utf-8") or "[]")
+    return {str(container.get("ImageID") or "") for container in containers if container.get("ImageID")}
 
 
 def _format_bytes(value: int) -> str:

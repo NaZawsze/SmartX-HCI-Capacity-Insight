@@ -275,6 +275,9 @@ export const api = {
   async restartSystemServices(): Promise<{ ok: boolean; services: string[]; message: string }> {
     return request<{ ok: boolean; services: string[]; message: string }>("/api/admin/system/restart", { method: "POST" });
   },
+  async scanUnusedImages(): Promise<{ ok: boolean; images: Array<{ id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string }>; image_count: number; space_reclaimable: number; space_reclaimable_label: string; message: string }> {
+    return request<{ ok: boolean; images: Array<{ id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string }>; image_count: number; space_reclaimable: number; space_reclaimable_label: string; message: string }>("/api/admin/system/cleanup-images/scan");
+  },
   async cleanupUnusedImages(): Promise<{ ok: boolean; deleted_count: number; space_reclaimed: number; message: string }> {
     return request<{ ok: boolean; deleted_count: number; space_reclaimed: number; message: string }>("/api/admin/system/cleanup-images", { method: "POST" });
   },
