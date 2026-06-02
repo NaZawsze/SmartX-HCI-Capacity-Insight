@@ -8,7 +8,7 @@ services:
       SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
       SMARTX_COMPOSE_FILE: docker-compose.offline.yml
       SMARTX_COMPOSE_PROJECT_NAME: smartx-capacity-insight
-      SMARTX_APP_VERSION: "0.3.3u2"
+      SMARTX_APP_VERSION: "0.4.0"
     volumes:
       - /data/smartx-capacity-insight-data/app:/data
       - /data/smartx-capacity-insight-data/prometheus:/prometheus-data
@@ -29,7 +29,7 @@ services:
     env_file:
       - .env
     environment:
-      SMARTX_APP_VERSION: "0.3.3u2"
+      SMARTX_APP_VERSION: "0.4.0"
     volumes:
       - /data/smartx-capacity-insight-data/app:/data
     expose:
@@ -61,7 +61,7 @@ services:
       SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
       SMARTX_COMPOSE_FILE: docker-compose.offline.yml
       SMARTX_COMPOSE_PROJECT_NAME: smartx-capacity-insight
-      SMARTX_APP_VERSION: "0.3.3u2"
+      SMARTX_APP_VERSION: "0.4.0"
     volumes:
       - .:/opt/smartx-storage-forecast
       - /data/smartx-capacity-insight-data/app:/data

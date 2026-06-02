@@ -563,9 +563,12 @@ def _write_compose_override(task: dict[str, Any]) -> str:
     override_path = get_settings().project_path / "docker-compose.upgrade.yml"
     if "previous_override" not in task:
         task["previous_override"] = override_path.read_text(encoding="utf-8") if override_path.exists() else None
+    target_version = str(task.get("manifest", {}).get("version") or "")
     lines = ["services:"]
     for item in task.get("manifest", {}).get("images") or []:
         lines.extend([f"  {item['service']}:", f"    image: {item['image']}"])
+        if target_version and item["service"] in {"web-api", "collector-worker"}:
+            lines.extend(["    environment:", f"      SMARTX_APP_VERSION: \"{target_version}\""])
     override_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return f"已写入 {override_path}"
 
