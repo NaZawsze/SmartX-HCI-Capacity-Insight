@@ -160,6 +160,7 @@ For normal platform upgrades, do not restart `upgrade-runner` in the same packag
 - [Deployment Guide](docs/deployment.md)
 - [Usage Guide](docs/usage.md)
 - [API Reference](docs/api.md)
+- [upgrade-runner Lifecycle and Component Upgrade Policy](docs/upgrade-runner-lifecycle.md)
 - [v0.2 Release Notes](docs/releases/v0.2.md)
 
 ## CloudTower Permissions

@@ -2,6 +2,28 @@
 
 本文档记录 SmartX HCI Capacity Insight 各版本的主要变化。项目介绍、部署方式和基础使用说明仍以根目录 README 和 docs 文档为准。
 
+## v0.4.0
+
+发布日期：2026-06-02
+
+### 更新摘要
+
+v0.4.0 聚焦首页容量风险展示、升级包生成规范和升级后核验能力，明确平台升级与 `upgrade-runner` 组件升级的边界。
+
+### 新增与优化
+
+- 首页顶部新增独立容量风险卡片，Tower 与集群卡片保持独立并对齐展示。
+- 新增根目录 `VERSION`，作为版本号单一来源。
+- 新增 `scripts/build_upgrade_package.py`，用于统一生成平台升级包、manifest、release-notes、镜像 tar 和 sha256 文件。
+- 升级中心新增“升级后核验”，展示当前软件版本、升级中心版本、运行服务镜像、服务状态、最近成功升级包版本和 SHA256。
+- 新增 `docs/upgrade-runner-lifecycle.md`，说明 `upgrade-runner` 生命周期、组件升级策略和何时需要升级 runner。
+- `docker-compose.release.yml` 默认镜像标签更新为 `v0.4.0`。
+
+### 升级策略
+
+- 平台升级包默认只升级 `web-api`、`collector-worker` 和 `frontend`。
+- `upgrade-runner` 不随每个业务版本强制升级；只有升级流程、manifest 格式、compose/volume/network 模型或组件拓扑变化时，才通过组件升级单独更新。
+
 ## v0.3.3u2
 
 发布日期：2026-06-01

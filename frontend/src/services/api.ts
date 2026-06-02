@@ -6,6 +6,7 @@ import type {
   MetricItem,
   Tower,
   UpgradeTask,
+  UpgradeVerification,
   VmTrend,
   VmVolume,
   VmVolumeSet
@@ -309,6 +310,9 @@ export const api = {
   },
   async upgradeHistory(): Promise<UpgradeTask[]> {
     return request<UpgradeTask[]>("/api/admin/upgrade/history");
+  },
+  async upgradeVerification(): Promise<UpgradeVerification> {
+    return request<UpgradeVerification>("/api/admin/upgrade/verification");
   },
   async uploadComponentUpgradePackage(file: File, onProgress?: ProgressCallback): Promise<UpgradeTask> {
     const formData = new FormData();

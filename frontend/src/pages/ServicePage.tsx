@@ -2,7 +2,7 @@ import { Check, Circle, Download, FileArchive, History, Info, ListChecks, Loader
 import { useEffect, useRef, useState } from "react";
 import { api } from "../services/api";
 import type { TransferProgress } from "../services/api";
-import type { AppTask, UpgradeTask } from "../types";
+import type { AppTask, UpgradeTask, UpgradeVerification } from "../types";
 
 type ServiceSection = "migration" | "restart" | "platform-upgrade" | "component-upgrade" | "history";
 type CleanupScanImage = { id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string };
@@ -45,6 +45,8 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
   const [upgradeFile, setUpgradeFile] = useState<File | null>(null);
   const [upgradeTask, setUpgradeTask] = useState<UpgradeTask | null>(null);
   const [upgradeHistory, setUpgradeHistory] = useState<UpgradeTask[]>([]);
+  const [upgradeVerification, setUpgradeVerification] = useState<UpgradeVerification | null>(null);
+  const [verificationBusy, setVerificationBusy] = useState(false);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [upgradeMessage, setUpgradeMessage] = useState("");
   const [cleanupBusy, setCleanupBusy] = useState(false);
@@ -83,6 +85,18 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     setUpgradeHistory(await api.upgradeHistory());
   }
 
+  async function reloadUpgradeVerification() {
+    setVerificationBusy(true);
+    try {
+      const result = await api.upgradeVerification();
+      setUpgradeVerification(result);
+      setAppVersion(result.app_version || "-");
+      setRunnerVersion(result.runner_version || "v0.1.0");
+    } finally {
+      setVerificationBusy(false);
+    }
+  }
+
   async function reloadComponentHistory() {
     setComponentHistory(await api.componentUpgradeHistory());
   }
@@ -91,6 +105,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     api.upgradeVersion().then((result) => setAppVersion(result.version)).catch(() => undefined);
     api.componentUpgradeVersion().then((result) => setRunnerVersion(result.version)).catch(() => undefined);
     reloadUpgradeHistory().catch(() => undefined);
+    reloadUpgradeVerification().catch(() => undefined);
     reloadComponentHistory().catch(() => undefined);
     resetServiceScroll();
   }, []);
@@ -113,6 +128,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           }
           if (!runningUpgradeStatuses.has(next.status)) {
             reloadUpgradeHistory().catch(() => undefined);
+            reloadUpgradeVerification().catch(() => undefined);
           }
         })
         .catch((exc) => setUpgradeMessage(exc instanceof Error ? exc.message : "刷新升级状态失败"));
@@ -728,6 +744,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           <InfoRow label="目标版本" value={upgradeTask?.target_version ?? "-"} />
           <InfoRow label="已选升级包" value={upgradeTask?.package_filename ?? "未选择"} />
         </div>
+        {renderUpgradeVerification()}
         <div className="service-notice">
           <Info size={16} />
           升级包会保存到系统升级目录；选中一个升级包后可执行预检查、升级、取消选择或删除。
@@ -786,6 +803,51 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           </>
         )}
       </>
+    );
+  }
+
+  function renderUpgradeVerification() {
+    const packageInfo = upgradeVerification?.package;
+    return (
+      <section className="upgrade-verification-card">
+        <div className="service-operation-head">
+          <div>
+            <strong>升级后核验</strong>
+            <span>用于确认当前运行版本、服务镜像和最近成功升级包，不需要再手动 docker inspect。</span>
+          </div>
+          <button className="secondary-button service-header-button" type="button" onClick={() => reloadUpgradeVerification().catch((exc) => setUpgradeMessage(exc instanceof Error ? exc.message : "刷新核验失败"))} disabled={verificationBusy}>
+            <RefreshCw size={16} />
+            {verificationBusy ? "刷新中" : "刷新核验"}
+          </button>
+        </div>
+        <div className="upgrade-verification-summary">
+          <InfoRow label="当前软件版本" value={upgradeVerification?.app_version ?? appVersion} />
+          <InfoRow label="升级中心版本" value={upgradeVerification?.runner_version ?? runnerVersion} />
+          <InfoRow label="Compose 项目" value={upgradeVerification?.compose_project ?? "-"} />
+          <InfoRow label="最近成功包" value={packageInfo ? `${packageInfo.version || "-"} · ${packageInfo.filename || "-"}` : "暂无成功升级记录"} />
+          <InfoRow label="升级包 SHA256" value={packageInfo?.sha256 ? shortSha(packageInfo.sha256) : "-"} />
+        </div>
+        <div className="upgrade-runtime-table">
+          <div className="upgrade-runtime-head">
+            <span>服务</span>
+            <span>状态</span>
+            <span>运行镜像</span>
+            <span>版本</span>
+            <span>启动时间</span>
+          </div>
+          {(upgradeVerification?.services ?? []).map((item) => (
+            <div className="upgrade-runtime-row" key={item.service}>
+              <span>{item.service}</span>
+              <span className={item.running ? "runtime-ok" : "runtime-bad"}>{item.running ? "运行中" : item.status || "未运行"}</span>
+              <span title={item.image}>{item.image}</span>
+              <span>{item.app_version || "-"}</span>
+              <span>{formatTime(item.started_at || undefined)}</span>
+            </div>
+          ))}
+          {upgradeVerification && !upgradeVerification.services.length && <div className="empty-state">未读取到服务状态</div>}
+          {!upgradeVerification && <div className="empty-state">点击“刷新核验”读取当前服务状态</div>}
+        </div>
+      </section>
     );
   }
 
@@ -1149,6 +1211,10 @@ function formatTime(value?: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function shortSha(value: string): string {
+  return value.length > 16 ? `${value.slice(0, 12)}...${value.slice(-8)}` : value;
 }
 
 function uploadProgressTaskPatch(progress: number | TransferProgress): { progress: number; detail: string } {

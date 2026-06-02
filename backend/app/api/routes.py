@@ -44,6 +44,7 @@ from app.services.upgrade import (
     upload_component_package,
     upload_upgrade_package,
     runner_version,
+    verification_summary,
 )
 from app.services.users import change_password
 
@@ -267,6 +268,11 @@ def delete_upgrade_task(task_id: str, _: dict = Depends(current_user)) -> dict:
 @router.get("/api/admin/upgrade/history")
 def get_upgrade_history(_: dict = Depends(current_user)) -> list[dict]:
     return upgrade_history()
+
+
+@router.get("/api/admin/upgrade/verification")
+def get_upgrade_verification(_: dict = Depends(current_user)) -> dict:
+    return verification_summary()
 
 
 @router.post("/api/admin/component-upgrade/upload")

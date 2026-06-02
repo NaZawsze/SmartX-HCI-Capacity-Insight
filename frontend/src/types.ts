@@ -173,6 +173,33 @@ export interface UpgradeTask {
   logs: string[];
 }
 
+export interface UpgradeVerification {
+  app_version: string;
+  runner_version: string;
+  compose_project: string;
+  compose_file: string;
+  package?: {
+    task_id?: string;
+    version?: string;
+    filename?: string;
+    sha256?: string;
+    image_sha256?: Record<string, string>;
+    uploaded_at?: string;
+    finished_at?: string;
+  } | null;
+  services: Array<{
+    service: string;
+    container: string;
+    status: string;
+    running: boolean;
+    image: string;
+    image_id?: string;
+    app_version?: string | null;
+    started_at?: string | null;
+    error?: string | null;
+  }>;
+}
+
 
 export type AppTaskStatus = "running" | "succeeded" | "failed";
 export type AppTaskKind = "upload" | "download" | "import" | "export" | "upgrade";

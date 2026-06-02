@@ -2687,11 +2687,13 @@ button {
 .service-operation-card,
 .service-upgrade-detail,
 .service-history-table,
-.upgrade-package-section {
+.upgrade-package-section,
+.upgrade-verification-card {
   max-width: 980px;
 }
 
-.service-operation-card {
+.service-operation-card,
+.upgrade-verification-card {
   display: grid;
   gap: 20px;
 }
@@ -2812,6 +2814,80 @@ button {
   display: grid;
   gap: 14px;
   margin: 14px 0 0;
+}
+
+.upgrade-verification-card {
+  margin-bottom: 18px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.upgrade-verification-summary {
+  max-width: 760px;
+  display: grid;
+}
+
+.upgrade-runtime-table {
+  display: grid;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.upgrade-runtime-head,
+.upgrade-runtime-row {
+  display: grid;
+  grid-template-columns: 140px 96px minmax(220px, 1fr) 110px 180px;
+  gap: 12px;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 14px;
+}
+
+.upgrade-runtime-head {
+  background: #f3f7fc;
+  color: #72829a;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.upgrade-runtime-row {
+  border-top: 1px solid var(--line-soft);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.upgrade-runtime-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-ok,
+.runtime-bad {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-width: 64px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.runtime-ok {
+  background: #e9f8ef;
+  color: #17914f;
+}
+
+.runtime-bad {
+  background: #fff0f0;
+  color: #c93636;
 }
 
 .upgrade-package-list {
@@ -3136,6 +3212,18 @@ button {
     padding-top: 18px;
     padding-left: 16px;
     padding-right: 16px;
+  }
+
+  .upgrade-runtime-head,
+  .upgrade-runtime-row {
+    grid-template-columns: 92px 76px minmax(0, 1fr);
+  }
+
+  .upgrade-runtime-head span:nth-child(4),
+  .upgrade-runtime-head span:nth-child(5),
+  .upgrade-runtime-row span:nth-child(4),
+  .upgrade-runtime-row span:nth-child(5) {
+    display: none;
   }
 }
 

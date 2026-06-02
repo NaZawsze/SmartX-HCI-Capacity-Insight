@@ -162,6 +162,7 @@ smartx-capacity-insight-v0.4.0-upgrade.tar.gz
 - [部署说明](docs/deployment.md)
 - [使用说明](docs/usage.md)
 - [API 参考](docs/api.md)
+- [upgrade-runner 生命周期与组件升级策略](docs/upgrade-runner-lifecycle.md)
 - [v0.2 更新说明](docs/releases/v0.2.md)
 
 ## CloudTower 权限

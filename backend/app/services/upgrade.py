@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from fastapi import HTTPException, UploadFile
@@ -389,6 +390,21 @@ def component_upgrade_history() -> list[dict[str, Any]]:
         except (OSError, json.JSONDecodeError):
             continue
     return tasks[:30]
+
+
+def verification_summary() -> dict[str, Any]:
+    settings = get_settings()
+    latest_task = _latest_successful_platform_task()
+    package = _verification_package(latest_task)
+    services = _platform_runtime_services()
+    return {
+        "app_version": settings.app_version,
+        "runner_version": runner_version(),
+        "compose_project": settings.compose_project_name,
+        "compose_file": settings.compose_file,
+        "package": package,
+        "services": services,
+    }
 
 
 def runner_loop() -> None:
@@ -920,6 +936,119 @@ def _iter_tasks_oldest_first() -> list[dict[str, Any]]:
 
 def _has_running_platform_upgrade() -> bool:
     return any(task.get("status") in RUNNING_STATUSES for task in _iter_tasks_oldest_first())
+
+
+def _latest_successful_platform_task() -> dict[str, Any] | None:
+    tasks = [task for task in _iter_tasks_oldest_first() if task.get("status") == "succeeded"]
+    if not tasks:
+        return None
+    return sorted(tasks, key=lambda item: item.get("finished_at") or item.get("updated_at") or item.get("uploaded_at") or "", reverse=True)[0]
+
+
+def _verification_package(task: dict[str, Any] | None) -> dict[str, Any] | None:
+    if task is None:
+        return None
+    manifest = task.get("manifest") or {}
+    image_sha256 = {
+        str(image.get("service")): str(image.get("sha256") or "")
+        for image in manifest.get("images") or []
+        if image.get("service")
+    }
+    package_sha256 = _task_package_sha256(task)
+    return {
+        "task_id": task.get("task_id"),
+        "version": manifest.get("version"),
+        "filename": task.get("package_filename"),
+        "sha256": package_sha256,
+        "image_sha256": image_sha256,
+        "uploaded_at": task.get("uploaded_at"),
+        "finished_at": task.get("finished_at"),
+    }
+
+
+def _task_package_sha256(task: dict[str, Any]) -> str:
+    package_path = task.get("package_path")
+    if package_path:
+        path = Path(str(package_path))
+        if path.is_file():
+            return _sha256_file(path)
+    return ""
+
+
+def _platform_runtime_services() -> list[dict[str, Any]]:
+    services = ("web-api", "collector-worker", "frontend", "prometheus", RUNNER_SERVICE)
+    return [_runtime_service_summary(service) for service in services]
+
+
+def _runtime_service_summary(service: str) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "service": service,
+        "container": f"{get_settings().compose_project_name}-{service}-1",
+        "status": "unknown",
+        "running": False,
+        "image": "-",
+        "image_id": "",
+        "app_version": None,
+        "started_at": None,
+        "error": None,
+    }
+    try:
+        container_id = _container_id_for_service(service)
+        if not container_id:
+            summary["status"] = "missing"
+            summary["error"] = "未找到容器"
+            return summary
+        status, body = _docker_request("GET", f"/containers/{container_id}/json")
+        if status >= 300:
+            summary["error"] = body.decode("utf-8", errors="ignore") or "读取容器状态失败"
+            return summary
+        payload = json.loads(body.decode("utf-8") or "{}")
+    except Exception as exc:
+        summary["error"] = str(exc)
+        return summary
+
+    config = payload.get("Config") or {}
+    state = payload.get("State") or {}
+    summary.update({
+        "container": (payload.get("Name") or summary["container"]).lstrip("/"),
+        "status": str(state.get("Status") or "unknown"),
+        "running": bool(state.get("Running")),
+        "image": str(config.get("Image") or payload.get("Image") or "-"),
+        "image_id": str(payload.get("Image") or ""),
+        "started_at": state.get("StartedAt"),
+        "error": state.get("Error") or None,
+    })
+    app_version = _env_value(config.get("Env") or [], "SMARTX_APP_VERSION")
+    if app_version:
+        summary["app_version"] = app_version
+    if service == RUNNER_SERVICE:
+        summary["app_version"] = runner_version()
+    return summary
+
+
+def _container_id_for_service(service: str) -> str | None:
+    label_filter = {
+        "label": [
+            f"com.docker.compose.project={get_settings().compose_project_name}",
+            f"com.docker.compose.service={service}",
+        ]
+    }
+    filters = quote(json.dumps(label_filter, separators=(",", ":")), safe="")
+    status, body = _docker_request("GET", f"/containers/json?all=true&filters={filters}")
+    if status >= 300:
+        return None
+    containers = json.loads(body.decode("utf-8") or "[]")
+    if not containers:
+        return None
+    return str(containers[0].get("Id") or "") or None
+
+
+def _env_value(env: list[str], key: str) -> str | None:
+    prefix = f"{key}="
+    for item in env:
+        if item.startswith(prefix):
+            return item[len(prefix):]
+    return None
 
 
 def _public_task(task: dict[str, Any]) -> dict[str, Any]:
