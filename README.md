@@ -112,36 +112,48 @@ Password: password
 
 Change the password after the first login from the admin avatar menu: `Set Password`.
 
-## Docker Images
+## Offline Upgrade Package
 
-GitHub Actions automatically builds Docker images for `main` and `v*` tags, then publishes them to Docker Hub.
+The platform supports offline `.tar.gz` upgrade packages uploaded from the service management page. An upgrade package replaces service images and can optionally run a migration script. It must not include runtime data, `.env`, SQLite databases, Prometheus data, Tower credentials, or other secrets.
 
-```text
-docker.io/<dockerhub-namespace>/smartx-hci-capacity-insight-web-api
-docker.io/<dockerhub-namespace>/smartx-hci-capacity-insight-frontend
-```
-
-Published tags include:
-
-- `latest` for the default branch.
-- `main` for the main branch.
-- `v0.2` and other `v*` release tags.
-- `sha-<commit>` for each pushed commit.
-
-Required GitHub repository secrets:
+Recommended package structure:
 
 ```text
-DOCKERHUB_USERNAME
-DOCKERHUB_TOKEN
+smartx-capacity-insight-v0.4.0-upgrade.tar.gz
+├── manifest.json
+├── release-notes.md                 # optional
+├── images/
+│   ├── web-api.tar
+│   ├── frontend.tar
+│   ├── collector-worker.tar
+│   └── upgrade-runner.tar           # optional, for component upgrade packages
+└── scripts/
+    └── migrate.sh                   # optional, only when database_migration=true
 ```
 
-Optional GitHub repository variable:
+`manifest.json` should describe the target version, minimum compatible version, image list, image SHA256 checksums, whether a database migration is required, services to restart, and package type.
 
-```text
-DOCKERHUB_NAMESPACE
+Example fields:
+
+```json
+{
+  "version": "0.4.0",
+  "min_compatible_version": "0.3.0",
+  "package_type": "platform",
+  "database_migration": false,
+  "restart_services": ["web-api", "collector-worker", "frontend"],
+  "images": [
+    {
+      "service": "web-api",
+      "file": "images/web-api.tar",
+      "tag": "nazawsze/smartx-hci-capacity-insight-web-api:v0.4.0",
+      "sha256": "<sha256>"
+    }
+  ]
+}
 ```
 
-If `DOCKERHUB_NAMESPACE` is not set, the workflow uses `DOCKERHUB_USERNAME` as the Docker Hub namespace.
+For normal platform upgrades, do not restart `upgrade-runner` in the same package that is executing the upgrade. Use a component upgrade package when `upgrade-runner` itself needs to be replaced.
 
 ## Documentation
 

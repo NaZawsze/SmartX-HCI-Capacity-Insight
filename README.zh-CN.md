@@ -114,36 +114,48 @@ Prometheus: http://<server-ip>:9090
 
 首次登录后建议点击右上角管理员头像，在 `设置密码` 中修改密码。
 
-## Docker 镜像
+## 离线升级包结构
 
-GitHub Actions 会在 `main` 分支和 `v*` 标签推送后自动构建 Docker 镜像，并发布到 Docker Hub。
+平台支持在服务管理页面上传离线 `.tar.gz` 升级包。升级包用于替换服务镜像，也可以按需执行迁移脚本。升级包不应包含运行数据、`.env`、SQLite 数据库、Prometheus 数据、Tower 账号密码或其他敏感信息。
 
-```text
-docker.io/<dockerhub-namespace>/smartx-hci-capacity-insight-web-api
-docker.io/<dockerhub-namespace>/smartx-hci-capacity-insight-frontend
-```
-
-发布的标签包括：
-
-- `latest`：默认分支。
-- `main`：main 分支。
-- `v0.2` 以及后续 `v*` 发布标签。
-- `sha-<commit>`：每次推送对应的提交标签。
-
-需要在 GitHub 仓库中配置 Secrets：
+推荐目录结构：
 
 ```text
-DOCKERHUB_USERNAME
-DOCKERHUB_TOKEN
+smartx-capacity-insight-v0.4.0-upgrade.tar.gz
+├── manifest.json
+├── release-notes.md                 # 可选
+├── images/
+│   ├── web-api.tar
+│   ├── frontend.tar
+│   ├── collector-worker.tar
+│   └── upgrade-runner.tar           # 可选，用于组件升级包
+└── scripts/
+    └── migrate.sh                   # 可选，仅 database_migration=true 时需要
 ```
 
-可选配置 GitHub 仓库变量：
+`manifest.json` 用于描述目标版本、最低兼容版本、镜像列表、镜像 SHA256 校验、是否需要数据库迁移、需要重启的服务和升级包类型。
 
-```text
-DOCKERHUB_NAMESPACE
+字段示例：
+
+```json
+{
+  "version": "0.4.0",
+  "min_compatible_version": "0.3.0",
+  "package_type": "platform",
+  "database_migration": false,
+  "restart_services": ["web-api", "collector-worker", "frontend"],
+  "images": [
+    {
+      "service": "web-api",
+      "file": "images/web-api.tar",
+      "tag": "nazawsze/smartx-hci-capacity-insight-web-api:v0.4.0",
+      "sha256": "<sha256>"
+    }
+  ]
+}
 ```
 
-如果不配置 `DOCKERHUB_NAMESPACE`，工作流会使用 `DOCKERHUB_USERNAME` 作为 Docker Hub namespace。
+普通平台升级包不建议在同一次升级任务中重启 `upgrade-runner`，避免中断正在执行升级的服务。如需替换 `upgrade-runner`，请使用组件升级包。
 
 ## 文档
 
