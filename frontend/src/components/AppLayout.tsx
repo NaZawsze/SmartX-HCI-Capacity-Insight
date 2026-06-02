@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bell, Building2, Check, ChevronDown, CircleCheck, ClipboardList, Database, HardDrive, KeyRound, LayoutDashboard, LogOut, Save, Search, Server, Settings, SlidersHorizontal, UserRound, View, X } from "lucide-react";
+import { Bell, Building2, Check, ChevronDown, CircleCheck, ClipboardList, Database, HardDrive, KeyRound, LayoutDashboard, LogOut, Save, Server, Settings, SlidersHorizontal, UserRound, View, X } from "lucide-react";
 import { api } from "../services/api";
 import type { AppTask, Cluster, DashboardScope, DashboardSummary, PageKey, Tower } from "../types";
 
@@ -72,6 +72,8 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   const [expandedTowerIds, setExpandedTowerIds] = useState<Set<number>>(new Set());
   const [editingCluster, setEditingCluster] = useState<{ towerId: number; clusterId: string; name: string } | null>(null);
   const shellBodyRef = useRef<HTMLDivElement | null>(null);
+  const taskMenuRef = useRef<HTMLDivElement | null>(null);
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const selectedScopeKey = scopeKey(scope);
   const serviceFocus = activePage === "service";
   const shellStyle = { "--sidebar-width": `${sidebarWidth}px` } as CSSProperties;
@@ -88,6 +90,36 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   useEffect(() => {
     if (serviceFocus) resetWorkspaceScroll();
   }, [resetWorkspaceScroll, serviceFocus]);
+
+  useEffect(() => {
+    const timers = new WeakMap<HTMLElement, number>();
+    function handleScroll(event: Event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !target.classList.contains("auto-scrollbar")) return;
+      target.classList.add("is-scrolling");
+      const previousTimer = timers.get(target);
+      if (previousTimer) window.clearTimeout(previousTimer);
+      timers.set(target, window.setTimeout(() => target.classList.remove("is-scrolling"), 900));
+    }
+    document.addEventListener("scroll", handleScroll, true);
+    return () => document.removeEventListener("scroll", handleScroll, true);
+  }, []);
+
+  useEffect(() => {
+    if (!taskMenuOpen && !accountMenuOpen) return undefined;
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (taskMenuOpen && !taskMenuRef.current?.contains(target)) {
+        setTaskMenuOpen(false);
+      }
+      if (accountMenuOpen && !accountMenuRef.current?.contains(target)) {
+        setAccountMenuOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [accountMenuOpen, taskMenuOpen]);
 
   useEffect(() => {
     setExpandedTowerIds((current) => {
@@ -211,17 +243,11 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
           <span>SmartX</span>
         </div>
         <div className="topbar">
-          <div className="topbar-left">
-            <label className="search-box">
-              <Search size={17} />
-              <input placeholder="搜索..." />
-            </label>
-          </div>
           <div className="topbar-actions">
             <button className="icon-button" title="通知" type="button">
               <Bell size={18} />
             </button>
-            <div className="task-menu-wrap">
+            <div className="task-menu-wrap" ref={taskMenuRef}>
               <button className={taskMenuOpen ? "icon-button active" : "icon-button"} title="任务" type="button" onClick={() => setTaskMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={taskMenuOpen}>
                 <ClipboardList size={18} />
                 {runningTaskCount > 0 && <span className="task-badge">{runningTaskCount}</span>}
@@ -233,7 +259,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
                     <button type="button" onClick={onClearTasks} disabled={!tasks.length}>清空</button>
                   </div>
                   {visibleTasks.length ? (
-                    <div className="task-menu-list">
+                    <div className="task-menu-list auto-scrollbar">
                       {visibleTasks.map((task) => (
                         <div className={`task-menu-item ${task.status}`} key={task.id}>
                           <span className="task-state-icon">{task.status === "succeeded" ? <Check size={14} /> : task.status === "failed" ? <X size={14} /> : <ClipboardList size={14} />}</span>
@@ -254,7 +280,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
                 </div>
               )}
             </div>
-            <div className="account-menu-wrap">
+            <div className="account-menu-wrap" ref={accountMenuRef}>
               <button className="avatar-button" type="button" onClick={() => setAccountMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={accountMenuOpen} title="账号">
                 <UserRound size={17} />
               </button>
@@ -319,7 +345,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
             <span>集群</span>
             <ChevronDown size={16} />
           </div>
-          <div className="resource-tree">
+          <div className="resource-tree auto-scrollbar">
             {selectedTower && (
               <div className="sidebar-active-card">
                 <div className="sidebar-active-title">
@@ -437,7 +463,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
           }}
         />
 
-        <section className="workspace">
+        <section className="workspace auto-scrollbar">
           <main className="main">
             <div className="page-heading">
               <h1>{pageTitle[activePage]}</h1>

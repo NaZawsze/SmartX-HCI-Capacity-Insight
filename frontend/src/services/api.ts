@@ -47,7 +47,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-type ProgressCallback = (progress: number) => void;
+export type TransferPhase = "uploading" | "processing" | "done";
+
+export interface TransferProgress {
+  progress: number;
+  loaded?: number;
+  total?: number;
+  speedBytesPerSecond?: number;
+  phase?: TransferPhase;
+}
+
+type ProgressCallback = (progress: number | TransferProgress) => void;
 
 async function download(path: string, onProgress?: ProgressCallback): Promise<{ blob: Blob; filename: string }> {
   const token = getToken();
@@ -111,14 +121,28 @@ async function upload<T>(path: string, formData: FormData, onProgress?: Progress
     if (token) {
       xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     }
+    const startedAt = Date.now();
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
-        onProgress(Math.min(95, Math.round((event.loaded / event.total) * 100)));
+        const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 0.1);
+        onProgress({
+          progress: Math.min(95, Math.round((event.loaded / event.total) * 100)),
+          loaded: event.loaded,
+          total: event.total,
+          speedBytesPerSecond: event.loaded / elapsedSeconds,
+          phase: "uploading"
+        });
       }
+    };
+    xhr.upload.onload = () => {
+      onProgress({
+        progress: 96,
+        phase: "processing"
+      });
     };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        onProgress(100);
+        onProgress({ progress: 100, phase: "done" });
         resolve(JSON.parse(xhr.responseText) as T);
         return;
       }
@@ -250,6 +274,9 @@ export const api = {
   },
   async restartSystemServices(): Promise<{ ok: boolean; services: string[]; message: string }> {
     return request<{ ok: boolean; services: string[]; message: string }>("/api/admin/system/restart", { method: "POST" });
+  },
+  async cleanupUnusedImages(): Promise<{ ok: boolean; deleted_count: number; space_reclaimed: number; message: string }> {
+    return request<{ ok: boolean; deleted_count: number; space_reclaimed: number; message: string }>("/api/admin/system/cleanup-images", { method: "POST" });
   },
   async upgradeVersion(): Promise<{ version: string }> {
     return request<{ version: string }>("/api/admin/upgrade/version");

@@ -395,18 +395,50 @@ button {
   overflow: auto;
 }
 
+.auto-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s ease;
+}
+
+.auto-scrollbar.is-scrolling {
+  scrollbar-color: rgba(100, 116, 139, 0.42) transparent;
+}
+
+.auto-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.auto-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.auto-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+
+.auto-scrollbar.is-scrolling::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.42);
+}
+
+.auto-scrollbar.is-scrolling::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.56);
+}
+
 .topbar {
   height: 100%;
   background: #fff;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding: 0 16px;
   gap: 12px;
   min-width: 0;
+  width: 100%;
 }
 
-.topbar-left,
 .topbar-actions {
   display: flex;
   align-items: center;
@@ -418,12 +450,7 @@ button {
   justify-content: flex-end;
 }
 
-.topbar-left {
-  --control-width: 200px;
-}
-
 .scope-button,
-.search-box,
 .mini-search {
   border: 1px solid #cfd9e8;
   background: #f8fbff;
@@ -437,12 +464,6 @@ button {
   min-width: 0;
 }
 
-.search-box {
-  flex: 1 1 var(--control-width);
-  max-width: var(--control-width);
-}
-
-.search-box input,
 .mini-search input {
   border: 0;
   outline: 0;
@@ -709,10 +730,11 @@ button {
 
 .card-title span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.2;
 }
 
 .metric-card {
@@ -960,6 +982,39 @@ button {
 .forecast-window {
   align-content: center;
   gap: 8px;
+}
+
+.risk-summary {
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  text-align: center;
+  color: #64748b;
+}
+
+.risk-summary strong {
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.risk-summary span {
+  max-width: 260px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.risk-summary.normal svg {
+  color: #22a45d;
+}
+
+.risk-summary.warning svg {
+  color: #f59e0b;
+}
+
+.risk-summary.danger svg {
+  color: #ef4444;
 }
 
 .forecast-window strong {
@@ -1816,10 +1871,6 @@ button {
     min-width: 0;
   }
 
-  .search-box {
-    --control-width: 200px;
-  }
-
   .dashboard-grid,
   .report-top-row,
   .report-vm-row {
@@ -1878,22 +1929,13 @@ button {
     padding: 10px 16px;
   }
 
-  .topbar-left {
-    flex-wrap: wrap;
-  }
-
   .scope-button {
     flex: 1 1 180px;
     max-width: none;
   }
 
-  .search-box {
-    flex: 2 1 240px;
-    max-width: none;
-  }
-
   .topbar-actions {
-    justify-content: flex-start;
+    justify-content: flex-end;
   }
 
   .main {
@@ -1939,13 +1981,7 @@ button {
 }
 
 @media (max-width: 560px) {
-  .topbar-left {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  .scope-button,
-  .search-box {
+  .scope-button {
     width: 100%;
   }
 

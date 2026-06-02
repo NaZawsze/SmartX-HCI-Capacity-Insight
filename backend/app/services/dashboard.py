@@ -153,7 +153,7 @@ async def latest_report(tower_id: int | None = None, cluster_id: str | None = No
         "window_days": window_days,
         "chart_days": chart_window_days,
         "growth_rate_window_days": 7,
-        "forecast_days": 60,
+        "forecast_days": 90,
     }
 
 

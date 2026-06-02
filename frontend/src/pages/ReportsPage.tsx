@@ -89,8 +89,8 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
         api.exportReport("word", reportScope, exportPeriodDays),
         api.exportReport("excel", reportScope, exportPeriodDays)
       ]);
-      saveBlob(word.blob, word.filename || fallbackExportFilename("word", selectedCluster));
-      saveBlob(excel.blob, excel.filename || fallbackExportFilename("excel", selectedCluster));
+      saveBlob(word.blob, word.filename || fallbackExportFilename("word", selectedCluster, exportPeriodDays));
+      saveBlob(excel.blob, excel.filename || fallbackExportFilename("excel", selectedCluster, exportPeriodDays));
       setExportDialogOpen(false);
     } catch (error) {
       setExportError(error instanceof Error ? error.message : "导出失败，请稍后重试。");
@@ -109,7 +109,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
       <div className="report-top-row">
         <Card
           title="集群预测报表"
-          subtitle={`基于最近 ${report?.window_days || 30} 天数据，预测 ${report?.forecast_days || 60} 天后容量`}
+          subtitle={`基于最近 ${report?.window_days || 30} 天数据，预测 ${report?.forecast_days || 90} 天后容量`}
           className="report-forecast-card"
           action={
             <div className="report-actions">
@@ -142,7 +142,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
                   </div>
                   <div className="report-numbers">
                     <span>当前 {formatBytes(item.forecast.current)}</span>
-                    <span>60 天后 {formatForecast(item.forecast.forecast_60d)}</span>
+                    <span>90 天后 {formatForecast(item.forecast.forecast_90d)}</span>
                     <span>预计存储耗尽</span>
                     <strong>{formatExhaustionDays(item.forecast.exhaustion_days)}</strong>
                   </div>
@@ -213,8 +213,12 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
       )}
 
       <div className="report-vm-row">
-        <Card title={`日 Top ${dayTopVms.length || 0} 增长最快 VM`} action={<GrowthSortTabs value={dayGrowthSort} onChange={setDayGrowthSort} />}>
-          <div className="list-table growth-scroll">
+        <Card
+          title="日增长最快 VM"
+          subtitle={`${summary?.kpis.vm_count ?? 0} 台中 ${dayTopVms.length || 0} 台增长`}
+          action={<GrowthSortTabs value={dayGrowthSort} onChange={setDayGrowthSort} />}
+        >
+          <div className="list-table growth-scroll auto-scrollbar">
             {dayTopVms.map((item) => (
               <button
                 className="table-row clickable"
@@ -230,8 +234,12 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
           </div>
         </Card>
 
-        <Card title={`月 Top ${monthTopVms.length || 0} 增长最快 VM`} action={<GrowthSortTabs value={monthGrowthSort} onChange={setMonthGrowthSort} />}>
-          <div className="list-table growth-scroll">
+        <Card
+          title="月增长最快 VM"
+          subtitle={`${summary?.kpis.vm_count ?? 0} 台中 ${monthTopVms.length || 0} 台增长`}
+          action={<GrowthSortTabs value={monthGrowthSort} onChange={setMonthGrowthSort} />}
+        >
+          <div className="list-table growth-scroll auto-scrollbar">
             {monthTopVms.map((item) => (
               <button
                 className="table-row clickable"
@@ -324,9 +332,10 @@ function saveBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-function fallbackExportFilename(format: "word" | "excel", selectedCluster: string): string {
+function fallbackExportFilename(format: "word" | "excel", selectedCluster: string, periodDays: number): string {
   const date = new Date();
   const dateSlug = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`;
+  const timeSlug = `${String(date.getHours()).padStart(2, "0")}${String(date.getMinutes()).padStart(2, "0")}${String(date.getSeconds()).padStart(2, "0")}`;
   const scopeSlug = selectedCluster === "all" ? "all" : selectedCluster.replace(/[^a-zA-Z0-9_-]+/g, "-");
-  return `storage-forecast-${scopeSlug}-${dateSlug}.${format === "word" ? "docx" : "xlsx"}`;
+  return `storage-forecast-${scopeSlug}-${dateSlug}-${timeSlug}-${periodDays}d.${format === "word" ? "docx" : "xlsx"}`;
 }

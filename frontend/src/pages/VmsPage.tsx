@@ -193,7 +193,7 @@ function VolumeTable({ children }: { children: ReactNode }) {
         <span>副本机制</span>
         <span>实际占用集群空间</span>
       </div>
-      <div className="volume-table-body">{children}</div>
+      <div className="volume-table-body auto-scrollbar">{children}</div>
     </div>
   );
 }

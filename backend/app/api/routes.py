@@ -27,7 +27,7 @@ from app.services.data_migration import ARCHIVE_MEDIA_TYPE, build_migration_arch
 from app.services.dashboard import dashboard_summary, latest_report, vm_list, vm_trend
 from app.services.prometheus import latest_metrics_text
 from app.services.report_export import DOCX_MEDIA_TYPE, XLSX_MEDIA_TYPE, build_report_docx, build_report_xlsx
-from app.services.system_control import schedule_service_restart
+from app.services.system_control import cleanup_unused_images, schedule_service_restart
 from app.services.towers import create_tower, delete_tower, get_tower, list_towers, update_cluster as save_cluster, update_tower, upsert_clusters
 from app.services.upgrade import (
     component_upgrade_history,
@@ -210,6 +210,11 @@ async def import_migration(
 @router.post("/api/admin/system/restart")
 def restart_system_services(_: dict = Depends(current_user)) -> dict:
     return schedule_service_restart()
+
+
+@router.post("/api/admin/system/cleanup-images")
+def cleanup_system_images(_: dict = Depends(current_user)) -> dict:
+    return cleanup_unused_images()
 
 
 @router.get("/api/admin/upgrade/version")

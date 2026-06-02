@@ -58,6 +58,7 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm }: Dashboa
         ? summary?.towers.find((tower) => tower.id === scope.towerId)?.name || summary?.scope?.label || "当前 Tower"
         : summary?.towers.find((tower) => tower.id === scope.towerId)?.name || summary?.scope?.label || "当前 Tower";
   const topVms = sortMetricGrowthItems(summary?.top_vms || [], growthSort);
+  const risk = capacityRisk(kpis?.used_ratio);
 
   return (
     <div className="dashboard-grid">
@@ -101,10 +102,11 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm }: Dashboa
       </Card>
 
       <Card
-        title={`日 Top ${topVms.length || 0} 增长最快 VM`}
+        title="日增长最快 VM"
+        subtitle={`${kpis?.vm_count ?? 0} 台中 ${topVms.length || 0} 台增长`}
         action={<GrowthSortTabs value={growthSort} onChange={setGrowthSort} />}
       >
-        <div className="list-table growth-scroll">
+        <div className="list-table growth-scroll auto-scrollbar">
           {topVms.length ? (
             topVms.map((item) => (
               <button
@@ -142,9 +144,10 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm }: Dashboa
       </Card>
 
       <Card title="风险提示">
-        <div className="risk-empty">
+        <div className={`risk-summary ${risk.tone}`}>
           <AlertCircle size={38} />
-          <span>报表生成后显示容量风险</span>
+          <strong>{risk.title}</strong>
+          <span>{risk.description}</span>
         </div>
       </Card>
     </div>
@@ -183,4 +186,18 @@ function formatGrowthValue(item: MetricItem, mode: GrowthSortMode, unit: string)
 function formatPercent(value?: number | null): string {
   if (value == null || !Number.isFinite(value)) return "-";
   return `${(value * 100).toFixed(value >= 1 ? 0 : 1)}%`;
+}
+
+function capacityRisk(usedRatio?: number | null): { tone: "normal" | "warning" | "danger"; title: string; description: string } {
+  if (usedRatio == null || !Number.isFinite(usedRatio)) {
+    return { tone: "normal", title: "暂无容量风险", description: "等待采集完成后显示容量风险。" };
+  }
+  const percent = `${(usedRatio * 100).toFixed(2)}%`;
+  if (usedRatio >= 0.9) {
+    return { tone: "danger", title: "容量高风险", description: `当前已使用 ${percent}，建议尽快确认扩容或清理计划。` };
+  }
+  if (usedRatio >= 0.75) {
+    return { tone: "warning", title: "容量需关注", description: `当前已使用 ${percent}，建议关注增长趋势和重点 VM。` };
+  }
+  return { tone: "normal", title: "容量风险正常", description: `当前已使用 ${percent}，暂无明显容量风险。` };
 }

@@ -1,6 +1,7 @@
 import { Check, Circle, Download, FileArchive, History, Info, ListChecks, LoaderCircle, Power, RefreshCw, RotateCcw, Server, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../services/api";
+import type { TransferProgress } from "../services/api";
 import type { AppTask, UpgradeTask } from "../types";
 
 type ServiceSection = "migration" | "restart" | "platform-upgrade" | "component-upgrade" | "history";
@@ -45,6 +46,8 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
   const [upgradeHistory, setUpgradeHistory] = useState<UpgradeTask[]>([]);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [upgradeMessage, setUpgradeMessage] = useState("");
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [cleanupMessage, setCleanupMessage] = useState("");
   const [componentFile, setComponentFile] = useState<File | null>(null);
   const [componentTask, setComponentTask] = useState<UpgradeTask | null>(null);
   const [componentHistory, setComponentHistory] = useState<UpgradeTask[]>([]);
@@ -157,7 +160,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     const id = taskId("migration-export");
     addTask({ id, kind: "export", title: "导出迁移包", detail: "正在生成迁移包", status: "running", progress: 8 });
     try {
-      const { blob, filename } = await api.exportMigration((progress) => updateTask(id, { progress, detail: "正在下载迁移包" }));
+      const { blob, filename } = await api.exportMigration((progress) => updateTask(id, { progress: transferProgressValue(progress), detail: "正在下载迁移包" }));
       saveBlob(blob, filename);
       updateTask(id, { status: "succeeded", progress: 100, detail: filename || "迁移包已生成" });
       setMigrationMessage("迁移包已生成");
@@ -184,7 +187,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     const id = taskId("migration-import");
     addTask({ id, kind: "import", title: "导入迁移包", detail: migrationFile.name, status: "running", progress: 0 });
     try {
-      const result = await api.importMigration(migrationFile, migrationMode, migrationConfirmed, (progress) => updateTask(id, { progress, detail: `上传中 ${progress}%` }));
+      const result = await api.importMigration(migrationFile, migrationMode, migrationConfirmed, (progress) => updateTask(id, uploadProgressTaskPatch(progress)));
       updateTask(id, { status: "succeeded", progress: 100, detail: result.message });
       setMigrationMessage(result.message);
       setMigrationFile(null);
@@ -213,6 +216,27 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     }
   }
 
+  async function cleanupImages() {
+    setCleanupMessage("");
+    if (!window.confirm("确认清理旧版本未使用 Docker 镜像吗？该操作不会删除正在被容器使用的镜像，但可能影响旧版本镜像回滚。")) {
+      return;
+    }
+    setCleanupBusy(true);
+    const id = taskId("cleanup-images");
+    addTask({ id, kind: "upgrade", title: "清理旧版本镜像", detail: "正在清理未使用 Docker 镜像", status: "running", progress: 20 });
+    try {
+      const result = await api.cleanupUnusedImages();
+      updateTask(id, { status: "succeeded", progress: 100, detail: result.message });
+      setCleanupMessage(result.message);
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "清理旧版本镜像失败";
+      updateTask(id, { status: "failed", progress: 100, detail: message });
+      setCleanupMessage(message);
+    } finally {
+      setCleanupBusy(false);
+    }
+  }
+
   async function uploadUpgrade(file?: File | null) {
     const selectedFile = file ?? upgradeFile;
     setUpgradeMessage("");
@@ -224,7 +248,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     const id = taskId("upgrade-upload");
     addTask({ id, kind: "upload", title: "上传升级包", detail: selectedFile.name, status: "running", progress: 0 });
     try {
-      const task = await api.uploadUpgradePackage(selectedFile, (progress) => updateTask(id, { progress, detail: `上传中 ${progress}%` }));
+      const task = await api.uploadUpgradePackage(selectedFile, (progress) => updateTask(id, uploadProgressTaskPatch(progress)));
       setUpgradeTask(task);
       setUpgradeFile(selectedFile);
       setPrecheckExpanded(false);
@@ -321,7 +345,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     const id = taskId("component-upload");
     addTask({ id, kind: "upload", title: "上传组件升级包", detail: selectedFile.name, status: "running", progress: 0 });
     try {
-      const task = await api.uploadComponentUpgradePackage(selectedFile, (progress) => updateTask(id, { progress, detail: `上传中 ${progress}%` }));
+      const task = await api.uploadComponentUpgradePackage(selectedFile, (progress) => updateTask(id, uploadProgressTaskPatch(progress)));
       setComponentTask(task);
       setComponentFile(selectedFile);
       setComponentPrecheckExpanded(false);
@@ -519,7 +543,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
         </div>
       </aside>
 
-      <main ref={contentPanelRef} className="service-content-panel">
+      <main ref={contentPanelRef} className="service-content-panel auto-scrollbar">
         {section === "migration" && renderMigration()}
         {section === "restart" && renderRestart()}
         {section === "platform-upgrade" && renderUpgrade()}
@@ -649,6 +673,10 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                 <FileArchive size={16} />
                 上传升级包
               </button>
+              <button className="secondary-button" type="button" onClick={cleanupImages} disabled={cleanupBusy || isRunning}>
+                <RefreshCw size={16} />
+                {cleanupBusy ? "清理中" : "清理旧版本"}
+              </button>
             </>
           )}
         />
@@ -661,6 +689,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           <Info size={16} />
           升级包会保存到系统升级目录；选中一个升级包后可执行预检查、升级、取消选择或删除。
         </div>
+        {cleanupMessage && <div className="inline-message">{cleanupMessage}</div>}
         {upgradeMessage && <div className="inline-message">{upgradeMessage}</div>}
         <section className="upgrade-package-section">
           <div className="service-operation-head">
@@ -828,7 +857,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           <InfoRow label="数据库迁移" value={isComponent ? "不涉及" : task.database_migration ? "需要" : "不需要"} />
           {!isComponent && <InfoRow label="备份文件" value={task.backup_path || "升级开始后生成"} />}
         </div>
-        {task.release_notes && <pre className="upgrade-release-notes">{task.release_notes}</pre>}
+        {task.release_notes && <pre className="upgrade-release-notes auto-scrollbar">{task.release_notes}</pre>}
         {!!task.checks.length && (
           <CollapsibleSection title="预检查" expanded={options?.precheckExpanded ?? precheckExpanded} onToggle={options?.onPrecheckToggle ?? (() => setPrecheckExpanded((expanded) => !expanded))}>
             <div className="upgrade-checks">
@@ -860,7 +889,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
         )}
         {!!task.logs.length && (
           <CollapsibleSection title="升级日志" expanded={options?.logsExpanded ?? logsExpanded} onToggle={options?.onLogsToggle ?? (() => setLogsExpanded((expanded) => !expanded))}>
-            <pre className="upgrade-log">{task.logs.join("\n")}</pre>
+            <pre className="upgrade-log auto-scrollbar">{task.logs.join("\n")}</pre>
           </CollapsibleSection>
         )}
       </div>
@@ -1009,6 +1038,41 @@ function formatTime(value?: string): string {
   return date.toLocaleString("zh-CN", { hour12: false });
 }
 
+function uploadProgressTaskPatch(progress: number | TransferProgress): { progress: number; detail: string } {
+  if (typeof progress === "number") {
+    return { progress, detail: `上传中 ${progress}%` };
+  }
+  if (progress.phase === "processing") {
+    return {
+      progress: Math.max(96, progress.progress),
+      detail: "上传完成，正在保存、解压并校验升级包..."
+    };
+  }
+  if (progress.phase === "done") {
+    return { progress: 100, detail: "升级包处理完成" };
+  }
+  const speed = formatTransferSpeed(progress.speedBytesPerSecond);
+  return {
+    progress: progress.progress,
+    detail: speed ? `上传中 ${progress.progress}% · ${speed}` : `上传中 ${progress.progress}%`
+  };
+}
+
+function transferProgressValue(progress: number | TransferProgress): number {
+  return typeof progress === "number" ? progress : progress.progress;
+}
+
+function formatTransferSpeed(value?: number): string {
+  if (!value || !Number.isFinite(value)) return "";
+  const units = ["B/s", "KB/s", "MB/s", "GB/s"];
+  let size = value;
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index += 1;
+  }
+  return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
 
 function upgradeProgress(task: UpgradeTask): number {
   if (task.status === "succeeded" || task.status === "rolled_back") return 100;
