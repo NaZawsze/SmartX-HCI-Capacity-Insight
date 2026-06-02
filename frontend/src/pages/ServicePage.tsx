@@ -48,6 +48,9 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
   const [upgradeMessage, setUpgradeMessage] = useState("");
   const [cleanupBusy, setCleanupBusy] = useState(false);
   const [cleanupMessage, setCleanupMessage] = useState("");
+  const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
+  const [cleanupProgress, setCleanupProgress] = useState(0);
+  const [cleanupLogs, setCleanupLogs] = useState<string[]>([]);
   const [componentFile, setComponentFile] = useState<File | null>(null);
   const [componentTask, setComponentTask] = useState<UpgradeTask | null>(null);
   const [componentHistory, setComponentHistory] = useState<UpgradeTask[]>([]);
@@ -218,19 +221,23 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
 
   async function cleanupImages() {
     setCleanupMessage("");
-    if (!window.confirm("确认清理旧版本未使用 Docker 镜像吗？该操作不会删除正在被容器使用的镜像，但可能影响旧版本镜像回滚。")) {
-      return;
-    }
+    setCleanupLogs(["开始清理旧版本未使用 Docker 镜像。", "正在请求 Docker 扫描未使用镜像..."]);
+    setCleanupProgress(25);
     setCleanupBusy(true);
     const id = taskId("cleanup-images");
     addTask({ id, kind: "upgrade", title: "清理旧版本镜像", detail: "正在清理未使用 Docker 镜像", status: "running", progress: 20 });
     try {
+      setCleanupProgress(70);
       const result = await api.cleanupUnusedImages();
+      setCleanupProgress(100);
       updateTask(id, { status: "succeeded", progress: 100, detail: result.message });
+      setCleanupLogs((current) => [...current, result.message, "清理完成。"]);
       setCleanupMessage(result.message);
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "清理旧版本镜像失败";
       updateTask(id, { status: "failed", progress: 100, detail: message });
+      setCleanupProgress(100);
+      setCleanupLogs((current) => [...current, message]);
       setCleanupMessage(message);
     } finally {
       setCleanupBusy(false);
@@ -669,11 +676,15 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                 }}
                 disabled={upgradeBusy || isRunning}
               />
-              <button className="primary-button" type="button" onClick={() => fileInputRef.current?.click()} disabled={upgradeBusy || isRunning}>
+              <button className="primary-button service-header-button" type="button" onClick={() => fileInputRef.current?.click()} disabled={upgradeBusy || isRunning}>
                 <FileArchive size={16} />
                 上传升级包
               </button>
-              <button className="secondary-button" type="button" onClick={cleanupImages} disabled={cleanupBusy || isRunning}>
+              <button className="secondary-button service-header-button" type="button" onClick={() => {
+                setCleanupDialogOpen(true);
+                setCleanupProgress(0);
+                setCleanupLogs([]);
+              }} disabled={cleanupBusy || isRunning}>
                 <RefreshCw size={16} />
                 {cleanupBusy ? "清理中" : "清理旧版本"}
               </button>
@@ -691,6 +702,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
         </div>
         {cleanupMessage && <div className="inline-message">{cleanupMessage}</div>}
         {upgradeMessage && <div className="inline-message">{upgradeMessage}</div>}
+        {cleanupDialogOpen && renderCleanupDialog()}
         <section className="upgrade-package-section">
           <div className="service-operation-head">
             <div>
@@ -742,6 +754,43 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           </>
         )}
       </>
+    );
+  }
+
+  function renderCleanupDialog() {
+    return (
+      <div className="modal-backdrop" role="presentation" onClick={() => !cleanupBusy && setCleanupDialogOpen(false)}>
+        <div className="cleanup-dialog" role="dialog" aria-modal="true" aria-labelledby="cleanup-dialog-title" onClick={(event) => event.stopPropagation()}>
+          <div className="export-dialog-head">
+            <div>
+              <strong id="cleanup-dialog-title">清理旧版本镜像</strong>
+              <span>清理未被任何容器使用的 Docker 镜像，当前运行中的镜像不会被删除。</span>
+            </div>
+          </div>
+          <div className="cleanup-warning">
+            <Info size={16} />
+            该操作可能移除旧版本镜像，清理后如果需要回滚到旧镜像，可能需要重新上传或重新加载对应升级包。
+          </div>
+          <div className="cleanup-progress" aria-label={`${cleanupProgress}%`}>
+            <span style={{ width: `${cleanupProgress}%` }} />
+          </div>
+          <div className="cleanup-steps">
+            <CleanupStep active={cleanupBusy && cleanupProgress < 70} done={cleanupProgress >= 70} label="扫描未使用镜像" />
+            <CleanupStep active={cleanupBusy && cleanupProgress >= 70 && cleanupProgress < 100} done={cleanupProgress >= 100} label="执行镜像清理" />
+            <CleanupStep active={false} done={cleanupProgress >= 100 && !cleanupBusy} label="输出清理结果" />
+          </div>
+          <pre className="cleanup-log auto-scrollbar">{cleanupLogs.length ? cleanupLogs.join("\n") : "等待开始清理..."}</pre>
+          <div className="export-dialog-actions">
+            <button className="secondary-button" type="button" onClick={() => setCleanupDialogOpen(false)} disabled={cleanupBusy}>
+              关闭
+            </button>
+            <button className="primary-button" type="button" onClick={cleanupImages} disabled={cleanupBusy || cleanupProgress > 0}>
+              <RefreshCw size={15} />
+              {cleanupBusy ? "清理中" : "开始清理"}
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -955,6 +1004,15 @@ function CollapsibleSection({ title, expanded, onToggle, children }: { title: st
       </button>
       {expanded && children}
     </section>
+  );
+}
+
+function CleanupStep({ active, done, label }: { active: boolean; done: boolean; label: string }) {
+  return (
+    <div className={done ? "cleanup-step done" : active ? "cleanup-step active" : "cleanup-step"}>
+      <span>{done ? <Check size={14} /> : active ? <LoaderCircle size={14} /> : <Circle size={14} />}</span>
+      <strong>{label}</strong>
+    </div>
   );
 }
 
