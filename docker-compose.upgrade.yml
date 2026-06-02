@@ -1,0 +1,7 @@
+services:
+  web-api:
+    image: smartx-storage-forecast-web-api:0.3.3u2
+  collector-worker:
+    image: smartx-storage-forecast-collector-worker:0.3.3u2
+  frontend:
+    image: smartx-storage-forecast-frontend:0.3.3u2
