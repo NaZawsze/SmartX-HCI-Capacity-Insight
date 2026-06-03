@@ -10,7 +10,7 @@ def test_verification_summary_uses_latest_successful_platform_task(monkeypatch):
         "uploaded_at": "2026-06-02T01:00:00+00:00",
         "finished_at": "2026-06-02T01:05:00+00:00",
         "manifest": {
-            "version": "0.4.0",
+            "version": "v0.4.0",
             "images": [
                 {"service": "web-api", "file": "images/web-api.tar", "sha256": "a" * 64},
                 {"service": "frontend", "file": "images/frontend.tar", "sha256": "b" * 64},
@@ -20,6 +20,6 @@ def test_verification_summary_uses_latest_successful_platform_task(monkeypatch):
 
     summary = upgrade.verification_summary()
 
-    assert summary["package"]["version"] == "0.4.0"
+    assert summary["package"]["version"] == "v0.4.0"
     assert summary["package"]["sha256"] == "c" * 64
     assert summary["package"]["image_sha256"] == {"web-api": "a" * 64, "frontend": "b" * 64}

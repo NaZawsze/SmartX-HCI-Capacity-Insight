@@ -139,8 +139,8 @@ smartx-capacity-insight-v0.4.0-upgrade.tar.gz
 
 ```json
 {
-  "version": "0.4.0",
-  "min_compatible_version": "0.3.0",
+  "version": "v0.4.0",
+  "min_compatible_version": "v0.3.0",
   "package_type": "platform",
   "database_migration": false,
   "restart_services": ["web-api", "collector-worker", "frontend"],

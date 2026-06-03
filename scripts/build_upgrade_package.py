@@ -31,7 +31,7 @@ SENSITIVE_PATTERNS = (
 
 def read_version() -> str:
     version = VERSION_FILE.read_text(encoding="utf-8").strip()
-    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[A-Za-z0-9._-]+)?", version):
+    if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:[A-Za-z0-9._-]+)?", version):
         raise SystemExit(f"Invalid VERSION value: {version!r}")
     return version
 
@@ -51,13 +51,13 @@ def assert_contains(path: Path, expected: str) -> None:
 
 def check_versions(version: str) -> None:
     checks = [
-        (ROOT / "README.md", f"Version: `v{version}`"),
-        (ROOT / "README.zh-CN.md", f"版本：`v{version}`"),
+        (ROOT / "README.md", f"Version: `{version}`"),
+        (ROOT / "README.zh-CN.md", f"版本：`{version}`"),
         (ROOT / "backend/app/core/config.py", f'default="{version}"'),
         (ROOT / "docker-compose.yml", f'SMARTX_APP_VERSION: "{version}"'),
         (ROOT / "docker-compose.offline.yml", f'SMARTX_APP_VERSION: "{version}"'),
         (ROOT / "docker-compose.release.yml", f'SMARTX_APP_VERSION: "{version}"'),
-        (ROOT / "docker-compose.release.yml", f"SMARTX_IMAGE_TAG:-v{version}"),
+        (ROOT / "docker-compose.release.yml", f"SMARTX_IMAGE_TAG:-{version}"),
     ]
     for path, expected in checks:
         assert_contains(path, expected)
@@ -109,7 +109,7 @@ for service, image in services.items():
 path.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
 PY
 
-echo "已写入 v{version} 版本环境变量到 ${{OVERRIDE}}"
+echo "已写入 {version} 版本环境变量到 ${{OVERRIDE}}"
 '''
     path.write_text(script, encoding="utf-8")
     path.chmod(0o755)
@@ -126,8 +126,8 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
     if build_images:
         docker_build(version, include_frontend=include_frontend_build)
 
-    work = output_dir / f"smartx-capacity-insight-upgrade-v{version}"
-    package = output_dir / f"smartx-capacity-insight-upgrade-v{version}.tar.gz"
+    work = output_dir / f"smartx-capacity-insight-upgrade-{version}"
+    package = output_dir / f"smartx-capacity-insight-upgrade-{version}.tar.gz"
     if work.exists():
         shutil.rmtree(work)
     work.mkdir(parents=True, exist_ok=True)
@@ -154,12 +154,12 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
         "package_type": "platform",
         "database_migration": True,
         "restart_services": ["web-api", "collector-worker", "frontend"],
-        "release_notes": f"v{version} platform upgrade package.",
+        "release_notes": f"{version} platform upgrade package.",
         "images": manifest_images,
     }
     (work / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (work / "release-notes.md").write_text(
-        f"# v{version}\n\n"
+        f"# {version}\n\n"
         "- Platform upgrade package for web-api, collector-worker, and frontend.\n"
         "- Writes SMARTX_APP_VERSION into docker-compose.upgrade.yml before service restart.\n\n"
         "This package does not include .env, databases, Prometheus data, Tower credentials, or runtime data.\n",

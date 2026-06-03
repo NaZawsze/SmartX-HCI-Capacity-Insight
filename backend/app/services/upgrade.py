@@ -957,7 +957,7 @@ def _verification_package(task: dict[str, Any] | None) -> dict[str, Any] | None:
     package_sha256 = _task_package_sha256(task)
     return {
         "task_id": task.get("task_id"),
-        "version": manifest.get("version"),
+        "version": _display_version(manifest.get("version")),
         "filename": task.get("package_filename"),
         "sha256": package_sha256,
         "image_sha256": image_sha256,
@@ -1051,6 +1051,13 @@ def _env_value(env: list[str], key: str) -> str | None:
     return None
 
 
+def _display_version(value: Any) -> str | None:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    return normalized if normalized.lower().startswith("v") else f"v{normalized}"
+
+
 def _public_task(task: dict[str, Any]) -> dict[str, Any]:
     manifest = task.get("manifest") or {}
     steps = task.get("steps") or []
@@ -1072,7 +1079,7 @@ def _public_task(task: dict[str, Any]) -> dict[str, Any]:
         "package_filename": task.get("package_filename"),
         "backup_path": task.get("backup_path"),
         "manifest": manifest,
-        "target_version": manifest.get("version"),
+        "target_version": _display_version(manifest.get("version")),
         "release_notes": manifest.get("release_notes"),
         "database_migration": bool(manifest.get("database_migration")),
         "restart_services": manifest.get("restart_services") or sorted(_manifest_services(manifest)),
@@ -1101,7 +1108,7 @@ def _public_component_task(task: dict[str, Any]) -> dict[str, Any]:
         "package_filename": task.get("package_filename"),
         "backup_path": task.get("backup_path"),
         "manifest": manifest,
-        "target_version": manifest.get("version"),
+        "target_version": _display_version(manifest.get("version")),
         "release_notes": manifest.get("release_notes"),
         "database_migration": False,
         "restart_services": [RUNNER_SERVICE],
