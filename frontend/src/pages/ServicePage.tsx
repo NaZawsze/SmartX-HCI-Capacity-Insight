@@ -740,8 +740,8 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           )}
         />
         <div className="service-upgrade-status-grid">
-          <InfoRow label="当前版本" value={appVersion} />
-          <InfoRow label="目标版本" value={upgradeTask?.target_version ?? "-"} />
+          <InfoRow label="当前版本" value={formatVersionForDisplay(appVersion)} />
+          <InfoRow label="目标版本" value={formatVersionForDisplay(upgradeTask?.target_version)} />
           <InfoRow label="已选升级包" value={upgradeTask?.package_filename ?? "未选择"} />
         </div>
         {renderUpgradeVerification()}
@@ -765,7 +765,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                 <button className={upgradeTask?.task_id === task.task_id ? "upgrade-package-item active" : "upgrade-package-item"} type="button" key={task.task_id} onClick={() => selectUpgradePackage(task)}>
                   <FileArchive size={18} />
                   <span>
-                    <strong>{task.target_version || "未知版本"}</strong>
+                    <strong>{formatVersionForDisplay(task.target_version, "未知版本")}</strong>
                     <small>{task.package_filename || "-"} · {formatTime(task.uploaded_at)} · {upgradeStatusText(task.status)}</small>
                   </span>
                 </button>
@@ -821,10 +821,10 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           </button>
         </div>
         <div className="upgrade-verification-summary">
-          <InfoRow label="当前软件版本" value={upgradeVerification?.app_version ?? appVersion} />
-          <InfoRow label="升级中心版本" value={upgradeVerification?.runner_version ?? runnerVersion} />
+          <InfoRow label="当前软件版本" value={formatVersionForDisplay(upgradeVerification?.app_version ?? appVersion)} />
+          <InfoRow label="升级中心版本" value={formatVersionForDisplay(upgradeVerification?.runner_version ?? runnerVersion)} />
           <InfoRow label="Compose 项目" value={upgradeVerification?.compose_project ?? "-"} />
-          <InfoRow label="最近成功包" value={packageInfo ? `${packageInfo.version || "-"} · ${packageInfo.filename || "-"}` : "暂无成功升级记录"} />
+          <InfoRow label="最近成功包" value={packageInfo ? `${formatVersionForDisplay(packageInfo.version)} · ${packageInfo.filename || "-"}` : "暂无成功升级记录"} />
           <InfoRow label="升级包 SHA256" value={packageInfo?.sha256 ? shortSha(packageInfo.sha256) : "-"} />
         </div>
         <div className="upgrade-runtime-table">
@@ -840,7 +840,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
               <span>{item.service}</span>
               <span className={item.running ? "runtime-ok" : "runtime-bad"}>{item.running ? "运行中" : item.status || "未运行"}</span>
               <span title={item.image}>{item.image}</span>
-              <span>{item.app_version || "-"}</span>
+              <span>{formatVersionForDisplay(item.app_version)}</span>
               <span>{formatTime(item.started_at || undefined)}</span>
             </div>
           ))}
@@ -943,8 +943,8 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
         />
         <div className="service-upgrade-status-grid">
           <InfoRow label="组件名称" value="upgrade-runner" />
-          <InfoRow label="当前版本" value={runnerVersion} />
-          <InfoRow label="目标版本" value={componentTask?.target_version ?? "-"} />
+          <InfoRow label="当前版本" value={formatVersionForDisplay(runnerVersion)} />
+          <InfoRow label="目标版本" value={formatVersionForDisplay(componentTask?.target_version)} />
           <InfoRow label="已选升级包" value={componentTask?.package_filename ?? "未选择"} />
         </div>
         <div className="service-notice">
@@ -965,7 +965,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                 <button className={componentTask?.task_id === task.task_id ? "upgrade-package-item active" : "upgrade-package-item"} type="button" key={task.task_id} onClick={() => selectComponentPackage(task)}>
                   <FileArchive size={18} />
                   <span>
-                    <strong>{task.target_version || "未知版本"}</strong>
+                    <strong>{formatVersionForDisplay(task.target_version, "未知版本")}</strong>
                     <small>{task.package_filename || "-"} · {formatTime(task.uploaded_at)} · {upgradeStatusText(task.status)}</small>
                   </span>
                 </button>
@@ -1077,7 +1077,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           </div>
           {allHistory.map((item) => (
             <button className="service-history-row" type="button" key={item.task_id} onClick={() => loadHistoryItem(item)}>
-              <span>{item.kind === "component" ? "组件升级" : "平台升级"} · {item.target_version || "-"}</span>
+              <span>{item.kind === "component" ? "组件升级" : "平台升级"} · {formatVersionForDisplay(item.target_version)}</span>
               <span>{upgradeStatusText(item.status)}</span>
               <span>{formatTime(item.uploaded_at)}</span>
               <span>{formatTime(item.finished_at || item.rollback_finished_at)}</span>
@@ -1211,6 +1211,12 @@ function formatTime(value?: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("zh-CN", { hour12: false });
+}
+
+export function formatVersionForDisplay(value?: string | null, fallback = "-"): string {
+  const normalized = String(value || "").trim();
+  if (!normalized || normalized === "-") return fallback;
+  return normalized.toLowerCase().startsWith("v") ? normalized : `v${normalized}`;
 }
 
 function shortSha(value: string): string {
