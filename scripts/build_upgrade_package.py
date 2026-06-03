@@ -53,10 +53,7 @@ def check_versions(version: str) -> None:
     checks = [
         (ROOT / "README.md", f"Version: `{version}`"),
         (ROOT / "README.zh-CN.md", f"版本：`{version}`"),
-        (ROOT / "backend/app/core/config.py", f'default="{version}"'),
-        (ROOT / "docker-compose.yml", f'SMARTX_APP_VERSION: "{version}"'),
-        (ROOT / "docker-compose.offline.yml", f'SMARTX_APP_VERSION: "{version}"'),
-        (ROOT / "docker-compose.release.yml", f'SMARTX_APP_VERSION: "{version}"'),
+        (ROOT / "backend/app/core/config.py", f'DEFAULT_APP_VERSION = "{version}"'),
         (ROOT / "docker-compose.release.yml", f"SMARTX_IMAGE_TAG:-{version}"),
     ]
     for path, expected in checks:
@@ -102,14 +99,11 @@ lines = ["services:"]
 for service, image in services.items():
     lines.append(f"  {{service}}:")
     lines.append(f"    image: {{image}}")
-    if service in {{"web-api", "collector-worker"}}:
-        lines.append("    environment:")
-        lines.append(f'      SMARTX_APP_VERSION: "{{version}}"')
 
 path.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
 PY
 
-echo "已写入 {version} 版本环境变量到 ${{OVERRIDE}}"
+echo "已写入 {version} 镜像覆盖配置到 ${{OVERRIDE}}"
 '''
     path.write_text(script, encoding="utf-8")
     path.chmod(0o755)
@@ -161,7 +155,7 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
     (work / "release-notes.md").write_text(
         f"# {version}\n\n"
         "- Platform upgrade package for web-api, collector-worker, and frontend.\n"
-        "- Writes SMARTX_APP_VERSION into docker-compose.upgrade.yml before service restart.\n\n"
+        "- Writes image overrides into docker-compose.upgrade.yml before service restart.\n\n"
         "This package does not include .env, databases, Prometheus data, Tower credentials, or runtime data.\n",
         encoding="utf-8",
     )

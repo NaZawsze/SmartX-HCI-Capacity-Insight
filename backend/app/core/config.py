@@ -1,8 +1,20 @@
 from functools import lru_cache
 from pathlib import Path
+import os
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+IMAGE_VERSION_FILE = Path("/app/VERSION")
+DEFAULT_APP_VERSION = "v0.4.0"
+
+
+def read_app_version(version_file: Path = IMAGE_VERSION_FILE) -> str:
+    if version_file.exists():
+        version = version_file.read_text(encoding="utf-8").strip()
+        if version:
+            return version
+    return os.environ.get("SMARTX_APP_VERSION", DEFAULT_APP_VERSION).strip() or DEFAULT_APP_VERSION
 
 
 class Settings(BaseSettings):
@@ -26,7 +38,7 @@ class Settings(BaseSettings):
     project_path: Path = Field(default=Path("/opt/smartx-storage-forecast"), alias="SMARTX_PROJECT_PATH")
     compose_file: str = Field(default="docker-compose.yml", alias="SMARTX_COMPOSE_FILE")
     compose_project_name: str = Field(default="smartx-storage-forecast", alias="SMARTX_COMPOSE_PROJECT_NAME")
-    app_version: str = Field(default="v0.4.0", alias="SMARTX_APP_VERSION")
+    app_version: str = Field(default_factory=read_app_version)
     runner_version: str = Field(default="v0.1.0", alias="SMARTX_RUNNER_VERSION")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

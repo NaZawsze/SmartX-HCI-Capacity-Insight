@@ -9,10 +9,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends docker-cli docker-compose fonts-noto-cjk fonts-noto-core \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements*.txt .
+COPY VERSION ./VERSION
+COPY backend/requirements*.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app ./app
+COPY backend/app ./app
 
 EXPOSE 8000
 

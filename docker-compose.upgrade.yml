@@ -1,11 +1,7 @@
 services:
   web-api:
     image: smartx-storage-forecast-web-api:v0.4.0
-    environment:
-      SMARTX_APP_VERSION: "v0.4.0"
   collector-worker:
     image: smartx-storage-forecast-collector-worker:v0.4.0
-    environment:
-      SMARTX_APP_VERSION: "v0.4.0"
   frontend:
     image: smartx-storage-forecast-frontend:v0.4.0

@@ -1,14 +1,14 @@
 services:
   web-api:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     image: smartx-storage-forecast-web-api:local
     env_file:
       - .env
     environment:
       SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
       SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast
-      SMARTX_APP_VERSION: "v0.4.0"
     volumes:
       - /data/smartx-capacity-insight-data/app:/data
       - /data/smartx-capacity-insight-data/prometheus:/prometheus-data
@@ -24,14 +24,12 @@ services:
 
   collector-worker:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
+      context: .
+      dockerfile: backend/Dockerfile.worker
     image: smartx-storage-forecast-collector-worker:local
     command: ["python", "-m", "app.collector.worker"]
     env_file:
       - .env
-    environment:
-      SMARTX_APP_VERSION: "v0.4.0"
     volumes:
       - /data/smartx-capacity-insight-data/app:/data
     expose:
@@ -56,8 +54,8 @@ services:
 
   upgrade-runner:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.upgrade
+      context: .
+      dockerfile: backend/Dockerfile.upgrade
     image: smartx-storage-forecast-upgrade-runner:local
     command: ["python", "-m", "app.upgrade.runner"]
     env_file:
@@ -65,7 +63,6 @@ services:
     environment:
       SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
       SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast
-      SMARTX_APP_VERSION: "v0.4.0"
     volumes:
       - .:/opt/smartx-storage-forecast
       - /data/smartx-capacity-insight-data/app:/data

@@ -5,10 +5,11 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-COPY requirements*.txt .
+COPY VERSION ./VERSION
+COPY backend/requirements*.txt .
 RUN pip install --no-cache-dir -r requirements-worker.txt
 
-COPY app ./app
+COPY backend/app ./app
 
 EXPOSE 9108
 

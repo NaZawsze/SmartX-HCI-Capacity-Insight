@@ -1,3 +1,4 @@
+from app.core.config import read_app_version
 from app.services import upgrade
 
 
@@ -23,3 +24,17 @@ def test_verification_summary_uses_latest_successful_platform_task(monkeypatch):
     assert summary["package"]["version"] == "v0.4.0"
     assert summary["package"]["sha256"] == "c" * 64
     assert summary["package"]["image_sha256"] == {"web-api": "a" * 64, "frontend": "b" * 64}
+
+
+def test_read_app_version_prefers_image_version_file(tmp_path, monkeypatch) -> None:
+    version_file = tmp_path / "VERSION"
+    version_file.write_text("v9.9.9\n", encoding="utf-8")
+    monkeypatch.setenv("SMARTX_APP_VERSION", "v1.0.0")
+
+    assert read_app_version(version_file) == "v9.9.9"
+
+
+def test_read_app_version_falls_back_to_environment(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("SMARTX_APP_VERSION", "v1.0.0")
+
+    assert read_app_version(tmp_path / "missing") == "v1.0.0"
