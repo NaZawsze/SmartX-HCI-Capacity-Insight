@@ -4,6 +4,7 @@ services:
     env_file:
       - .env
     environment:
+      TZ: Asia/Shanghai
       SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
       SMARTX_COMPOSE_FILE: docker-compose.release.yml
       SMARTX_COMPOSE_PROJECT_NAME: smartx-capacity-insight
@@ -25,6 +26,8 @@ services:
     command: ["python", "-m", "app.collector.worker"]
     env_file:
       - .env
+    environment:
+      TZ: Asia/Shanghai
     volumes:
       - /data/smartx-capacity-insight-data/app:/data
     expose:
@@ -37,6 +40,8 @@ services:
 
   frontend:
     image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-frontend:${SMARTX_IMAGE_TAG:-v0.4.0}
+    environment:
+      TZ: Asia/Shanghai
     ports:
       - "8080:80"
     depends_on:
@@ -51,6 +56,7 @@ services:
     env_file:
       - .env
     environment:
+      TZ: Asia/Shanghai
       SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
       SMARTX_COMPOSE_FILE: docker-compose.release.yml
       SMARTX_COMPOSE_PROJECT_NAME: smartx-capacity-insight
@@ -71,7 +77,10 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
       - "--storage.tsdb.retention.time=400d"
+    environment:
+      TZ: CST-8
     volumes:
+      - /etc/localtime:/etc/localtime:ro
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - /data/smartx-capacity-insight-data/prometheus:/prometheus
     ports:

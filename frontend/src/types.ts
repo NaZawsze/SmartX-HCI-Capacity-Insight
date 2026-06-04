@@ -54,6 +54,23 @@ export interface DashboardSummary {
     total_bytes: number;
     used_ratio: number;
   };
+  capacity_risk?: {
+    level: "normal" | "warning" | "danger";
+    title: string;
+    description: string;
+    cluster_count: number;
+    warning_count: number;
+    danger_count: number;
+    top_clusters: Array<{
+      tower_id?: string | null;
+      tower?: string | null;
+      cluster_id?: string | null;
+      cluster?: string | null;
+      used_bytes?: number | null;
+      total_bytes?: number | null;
+      used_ratio?: number | null;
+    }>;
+  };
   latest_run?: {
     id: number;
     started_at: string;
@@ -201,8 +218,59 @@ export interface UpgradeVerification {
 }
 
 
+export interface SpaceCleanupScanItem {
+  key: string;
+  label: string;
+  description: string;
+  path: string;
+  count: number;
+  size: number;
+  size_label: string;
+}
+
+export interface SpaceCleanupScanResult {
+  ok: boolean;
+  items: SpaceCleanupScanItem[];
+  total_count: number;
+  total_size: number;
+  total_size_label: string;
+  message: string;
+}
+
+export interface SpaceCleanupResult {
+  ok: boolean;
+  deleted_count: number;
+  space_reclaimed: number;
+  space_reclaimed_label: string;
+  logs: string[];
+  message: string;
+}
+
+export interface MigrationExportTask {
+  task_id: string;
+  status: "pending" | "running" | "succeeded" | "failed";
+  progress: number;
+  processed_bytes: number;
+  total_bytes: number;
+  detail?: string;
+  logs?: string[];
+  filename?: string;
+  saved_path?: string;
+  download_url?: string;
+  created_at?: string;
+  updated_at?: string;
+  finished_at?: string;
+}
+
 export type AppTaskStatus = "running" | "succeeded" | "failed";
 export type AppTaskKind = "upload" | "download" | "import" | "export" | "upgrade";
+
+export interface AppTaskLink {
+  label: string;
+  filename?: string;
+  url: string;
+  path?: string;
+}
 
 export interface AppTask {
   id: string;
@@ -211,6 +279,8 @@ export interface AppTask {
   detail?: string;
   status: AppTaskStatus;
   progress: number;
+  links?: AppTaskLink[];
+  logs?: string[];
   createdAt: number;
   updatedAt: number;
 }

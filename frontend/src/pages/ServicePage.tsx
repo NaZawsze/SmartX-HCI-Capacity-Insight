@@ -1,11 +1,12 @@
-import { Check, Circle, Download, FileArchive, History, Info, ListChecks, LoaderCircle, Power, RefreshCw, RotateCcw, Server, Upload, X } from "lucide-react";
+import { Check, Circle, Download, FileArchive, History, Info, ListChecks, LoaderCircle, Power, RefreshCw, RotateCcw, Server, Trash2, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../services/api";
 import type { TransferProgress } from "../services/api";
-import type { AppTask, UpgradeTask, UpgradeVerification } from "../types";
+import type { AppTask, MigrationExportTask, SpaceCleanupScanItem, UpgradeTask, UpgradeVerification } from "../types";
 
-type ServiceSection = "migration" | "restart" | "platform-upgrade" | "component-upgrade" | "history";
+type ServiceSection = "migration" | "restart" | "space-cleanup" | "platform-upgrade" | "component-upgrade" | "history";
 type CleanupScanImage = { id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string };
+type DisplayStep = { key: string; title: string; status: string; message?: string };
 
 const runningUpgradeStatuses = new Set(["pending", "running", "rollback_pending", "rollback_running"]);
 const serviceItems = [
@@ -31,6 +32,20 @@ const componentStepDefaults = [
   { key: "write_override", title: "写入组件镜像覆盖配置" },
   { key: "restart", title: "重启升级中心组件" },
   { key: "healthcheck", title: "检查组件运行状态" }
+];
+const platformPrecheckStepDefaults = [
+  { key: "package", title: "校验升级包结构" },
+  { key: "version", title: "校验版本兼容性" },
+  { key: "images", title: "校验镜像文件与 SHA256" },
+  { key: "environment", title: "检查 Docker、磁盘与数据卷" },
+  { key: "summary", title: "生成预检查结果" }
+];
+const componentPrecheckStepDefaults = [
+  { key: "package", title: "校验组件包结构" },
+  { key: "version", title: "校验组件版本兼容性" },
+  { key: "images", title: "校验组件镜像文件" },
+  { key: "environment", title: "检查 Docker 与升级中心状态" },
+  { key: "summary", title: "生成组件预检查结果" }
 ];
 
 interface ServicePageProps {
@@ -63,13 +78,23 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
   const [componentBusy, setComponentBusy] = useState(false);
   const [componentMessage, setComponentMessage] = useState("");
   const [precheckExpanded, setPrecheckExpanded] = useState(true);
+  const [precheckRunning, setPrecheckRunning] = useState(false);
+  const [precheckProgressIndex, setPrecheckProgressIndex] = useState(-1);
   const [stepsExpanded, setStepsExpanded] = useState(true);
   const [logsExpanded, setLogsExpanded] = useState(false);
   const [componentPrecheckExpanded, setComponentPrecheckExpanded] = useState(true);
+  const [componentPrecheckRunning, setComponentPrecheckRunning] = useState(false);
+  const [componentPrecheckProgressIndex, setComponentPrecheckProgressIndex] = useState(-1);
   const [componentStepsExpanded, setComponentStepsExpanded] = useState(true);
   const [componentLogsExpanded, setComponentLogsExpanded] = useState(false);
   const [restartBusy, setRestartBusy] = useState(false);
   const [restartMessage, setRestartMessage] = useState("");
+  const [spaceCleanupBusy, setSpaceCleanupBusy] = useState(false);
+  const [spaceCleanupScanBusy, setSpaceCleanupScanBusy] = useState(false);
+  const [spaceCleanupMessage, setSpaceCleanupMessage] = useState("");
+  const [spaceCleanupItems, setSpaceCleanupItems] = useState<SpaceCleanupScanItem[]>([]);
+  const [spaceCleanupTotal, setSpaceCleanupTotal] = useState("0 B");
+  const [spaceCleanupLogs, setSpaceCleanupLogs] = useState<string[]>([]);
   const [migrationMessage, setMigrationMessage] = useState("");
   const [migrationBusy, setMigrationBusy] = useState(false);
   const [migrationFile, setMigrationFile] = useState<File | null>(null);
@@ -181,15 +206,37 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     setMigrationMessage("");
     setMigrationBusy(true);
     const id = taskId("migration-export");
-    addTask({ id, kind: "export", title: "导出迁移包", detail: "正在生成迁移包", status: "running", progress: 8 });
+    addTask({ id, kind: "export", title: "导出迁移包", detail: "正在创建导出任务", status: "running", progress: 1, logs: ["正在创建后台导出任务"] });
     try {
-      const { blob, filename } = await api.exportMigration((progress) => updateTask(id, { progress: transferProgressValue(progress), detail: "正在下载迁移包" }));
-      saveBlob(blob, filename);
-      updateTask(id, { status: "succeeded", progress: 100, detail: filename || "迁移包已生成" });
+      let task = await api.startMigrationExport();
+      updateTask(id, migrationExportTaskPatch(task));
+      while (task.status === "pending" || task.status === "running") {
+        await sleep(1000);
+        task = await api.migrationExportStatus(task.task_id);
+        updateTask(id, migrationExportTaskPatch(task));
+      }
+      if (task.status !== "succeeded" || !task.download_url) {
+        const message = task.detail || "导出失败";
+        updateTask(id, { status: "failed", progress: 100, detail: message, logs: task.logs || [message] });
+        setMigrationMessage(message);
+        return;
+      }
+      const result = await api.downloadSavedExport(task.download_url, (progress) => {
+        const value = transferProgressValue(progress);
+        updateTask(id, { progress: Math.max(98, value), detail: "迁移包已生成，正在下载", logs: ["迁移包已生成", "正在下载到浏览器"] });
+      });
+      saveBlob(result.blob, result.filename || task.filename || "smartx-storage-migration.tar.gz");
+      updateTask(id, {
+        status: "succeeded",
+        progress: 100,
+        detail: task.filename || "迁移包已生成",
+        logs: ["迁移包已生成", task.saved_path ? `服务器留档：${task.saved_path}` : "已完成浏览器下载"],
+        links: [{ label: "下载", filename: task.filename, url: task.download_url, path: task.saved_path }]
+      });
       setMigrationMessage("迁移包已生成");
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "导出失败";
-      updateTask(id, { status: "failed", progress: 100, detail: message });
+      updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["导出失败", message] });
       setMigrationMessage(message);
     } finally {
       setMigrationBusy(false);
@@ -219,10 +266,50 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
       setMigrationConfirmed(false);
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "导入失败";
-      updateTask(id, { status: "failed", progress: 100, detail: message });
+      updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["导入失败", message] });
       setMigrationMessage(message);
     } finally {
       setMigrationBusy(false);
+    }
+  }
+
+  async function scanSpaceCleanup() {
+    setSpaceCleanupMessage("");
+    setSpaceCleanupScanBusy(true);
+    setSpaceCleanupLogs(["开始扫描升级包、数据迁移导出和报表导出..."]);
+    try {
+      const result = await api.scanSpaceCleanup();
+      setSpaceCleanupItems(result.items);
+      setSpaceCleanupTotal(result.total_size_label);
+      setSpaceCleanupLogs((current) => [...current, result.message]);
+      setSpaceCleanupMessage(result.message);
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "空间扫描失败";
+      setSpaceCleanupLogs((current) => [...current, message]);
+      setSpaceCleanupMessage(message);
+    } finally {
+      setSpaceCleanupScanBusy(false);
+    }
+  }
+
+  async function cleanupSpaceArtifacts() {
+    setSpaceCleanupMessage("");
+    setSpaceCleanupBusy(true);
+    const id = taskId("space-cleanup");
+    addTask({ id, kind: "upgrade", title: "空间清理", detail: "正在清理升级包和导出留档", status: "running", progress: 30, logs: ["开始清理服务器留档文件"] });
+    try {
+      const result = await api.cleanupSpaceArtifacts();
+      setSpaceCleanupLogs((current) => [...current, ...(result.logs || []), result.message]);
+      setSpaceCleanupMessage(result.message);
+      updateTask(id, { status: "succeeded", progress: 100, detail: result.message, logs: result.logs });
+      await scanSpaceCleanup();
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "空间清理失败";
+      setSpaceCleanupLogs((current) => [...current, message]);
+      setSpaceCleanupMessage(message);
+      updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["空间清理失败", message] });
+    } finally {
+      setSpaceCleanupBusy(false);
     }
   }
 
@@ -322,10 +409,18 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     if (!upgradeTask) return;
     setUpgradeMessage("");
     setUpgradeBusy(true);
+    setPrecheckRunning(true);
+    setPrecheckExpanded(true);
+    setPrecheckProgressIndex(0);
+    let progressTimer: number | undefined;
     const id = taskId("upgrade-precheck");
-    addTask({ id, kind: "upgrade", title: "升级预检查", detail: upgradeTask.package_filename || upgradeTask.target_version || "升级包", status: "running", progress: 20 });
+    addTask({ id, kind: "upgrade", title: "升级预检查", detail: upgradeTask.package_filename || upgradeTask.target_version || "升级包", status: "running", progress: 10 });
     try {
+      progressTimer = window.setInterval(() => {
+        setPrecheckProgressIndex((current) => Math.min(platformPrecheckStepDefaults.length - 1, current + 1));
+      }, 450);
       const task = await api.precheckUpgrade(upgradeTask.task_id);
+      setPrecheckProgressIndex(platformPrecheckStepDefaults.length);
       setUpgradeTask(task);
       setPrecheckExpanded(true);
       const message = task.precheck_ok ? "预检查通过，可以开始升级。" : "预检查未通过，请查看检查项。";
@@ -334,9 +429,12 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
       await reloadUpgradeHistory();
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "预检查失败";
+      setPrecheckProgressIndex(platformPrecheckStepDefaults.length);
       updateTask(id, { status: "failed", progress: 100, detail: message });
       setUpgradeMessage(message);
     } finally {
+      if (progressTimer) window.clearInterval(progressTimer);
+      setPrecheckRunning(false);
       setUpgradeBusy(false);
     }
   }
@@ -419,10 +517,18 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     if (!componentTask) return;
     setComponentMessage("");
     setComponentBusy(true);
+    setComponentPrecheckRunning(true);
+    setComponentPrecheckExpanded(true);
+    setComponentPrecheckProgressIndex(0);
+    let progressTimer: number | undefined;
     const id = taskId("component-precheck");
-    addTask({ id, kind: "upgrade", title: "组件升级预检查", detail: componentTask.package_filename || componentTask.target_version || "组件升级包", status: "running", progress: 20 });
+    addTask({ id, kind: "upgrade", title: "组件升级预检查", detail: componentTask.package_filename || componentTask.target_version || "组件升级包", status: "running", progress: 10 });
     try {
+      progressTimer = window.setInterval(() => {
+        setComponentPrecheckProgressIndex((current) => Math.min(componentPrecheckStepDefaults.length - 1, current + 1));
+      }, 450);
       const task = await api.precheckComponentUpgrade(componentTask.task_id);
+      setComponentPrecheckProgressIndex(componentPrecheckStepDefaults.length);
       setComponentTask(task);
       setComponentPrecheckExpanded(true);
       const message = task.precheck_ok ? "组件预检查通过，可以开始升级。" : "组件预检查未通过，请查看检查项。";
@@ -431,9 +537,12 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
       await reloadComponentHistory();
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "组件预检查失败";
+      setComponentPrecheckProgressIndex(componentPrecheckStepDefaults.length);
       updateTask(id, { status: "failed", progress: 100, detail: message });
       setComponentMessage(message);
     } finally {
+      if (progressTimer) window.clearInterval(progressTimer);
+      setComponentPrecheckRunning(false);
       setComponentBusy(false);
     }
   }
@@ -578,6 +687,10 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             <Power size={17} />
             服务重启
           </button>
+          <button className={section === "space-cleanup" ? "active" : ""} type="button" onClick={() => selectSection("space-cleanup")}>
+            <Trash2 size={17} />
+            空间清理
+          </button>
         </div>
         <div className="service-subnav-group">
           <span>升级中心</span>
@@ -599,6 +712,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
       <main ref={contentPanelRef} className="service-content-panel auto-scrollbar">
         {section === "migration" && renderMigration()}
         {section === "restart" && renderRestart()}
+        {section === "space-cleanup" && renderSpaceCleanup()}
         {section === "platform-upgrade" && renderUpgrade()}
         {section === "component-upgrade" && renderComponentUpgrade()}
         {section === "history" && renderHistory()}
@@ -699,9 +813,67 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     );
   }
 
+  function renderSpaceCleanup() {
+    const totalCount = spaceCleanupItems.reduce((total, item) => total + item.count, 0);
+    return (
+      <>
+        <PageHeader
+          eyebrow="系统运维"
+          title="空间清理"
+          action={(
+            <div className="service-header-actions">
+              <button className="secondary-button service-header-button" type="button" onClick={scanSpaceCleanup} disabled={spaceCleanupBusy || spaceCleanupScanBusy}>
+                <RefreshCw size={16} />
+                {spaceCleanupScanBusy ? "扫描中" : "扫描"}
+              </button>
+              <button className="secondary-button danger-button service-header-button" type="button" onClick={cleanupSpaceArtifacts} disabled={spaceCleanupBusy || spaceCleanupScanBusy || totalCount === 0}>
+                <Trash2 size={16} />
+                {spaceCleanupBusy ? "清理中" : "一键清理"}
+              </button>
+            </div>
+          )}
+        />
+        <div className="service-operation-card">
+          <div className="service-operation-head">
+            <div>
+              <strong>可清理空间</strong>
+              <span>扫描升级包、数据迁移导出和报表导出留档；不会删除业务库、Prometheus 历史指标或升级前自动备份。</span>
+            </div>
+            <div className="cleanup-summary compact">
+              <strong>{totalCount} 项</strong>
+              <span>预计可释放 {spaceCleanupTotal}</span>
+            </div>
+          </div>
+          <div className="cleanup-warning">
+            <Info size={16} />
+            一键清理会删除已上传升级包、数据迁移导出包和报表导出文件；需要保留的文件请先下载到本地。
+          </div>
+          <div className="cleanup-image-list space-cleanup-list auto-scrollbar">
+            {spaceCleanupItems.length ? (
+              spaceCleanupItems.map((item) => (
+                <div className="cleanup-image-row" key={item.key}>
+                  <div>
+                    <strong>{item.label}</strong>
+                    <small>{item.description} · {item.path}</small>
+                  </div>
+                  <span>{item.count} 项 · {item.size_label}</span>
+                </div>
+              ))
+            ) : (
+              <div className="cleanup-image-empty">点击“扫描”查看可清理文件。</div>
+            )}
+          </div>
+          <pre className="cleanup-log auto-scrollbar">{spaceCleanupLogs.length ? spaceCleanupLogs.join("\n") : "等待扫描..."}</pre>
+          {spaceCleanupMessage && <div className="inline-message">{spaceCleanupMessage}</div>}
+        </div>
+      </>
+    );
+  }
+
   function renderUpgrade() {
     const isRunning = Boolean(upgradeTask && runningUpgradeStatuses.has(upgradeTask.status));
     const availablePackages = upgradeHistory.filter((task) => !task.started_at);
+    const packageInfo = upgradeVerification?.package;
     return (
       <>
         <PageHeader
@@ -739,12 +911,16 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             </>
           )}
         />
-        <div className="service-upgrade-status-grid">
-          <InfoRow label="当前版本" value={formatVersionForDisplay(appVersion)} />
+        <div className="service-upgrade-status-grid service-upgrade-status-grid-wide">
+          <InfoRow label="当前版本" value={formatVersionForDisplay(upgradeVerification?.app_version ?? appVersion)} />
           <InfoRow label="目标版本" value={formatVersionForDisplay(upgradeTask?.target_version)} />
           <InfoRow label="已选升级包" value={upgradeTask?.package_filename ?? "未选择"} />
+          <InfoRow label="升级中心版本" value={formatVersionForDisplay(upgradeVerification?.runner_version ?? runnerVersion)} />
+          <InfoRow label="Compose 项目" value={upgradeVerification?.compose_project ?? "-"} />
+          <InfoRow label="最近成功包" value={packageInfo ? `${formatVersionForDisplay(packageInfo.version)} · ${packageInfo.filename || "-"}` : "暂无成功升级记录"} />
+          <InfoRow label="升级包 SHA256" value={packageInfo?.sha256 ? shortSha(packageInfo.sha256) : "-"} />
         </div>
-        {renderUpgradeVerification()}
+        {renderUpgradeRuntimeVerification()}
         <div className="service-notice">
           <Info size={16} />
           升级包会保存到系统升级目录；选中一个升级包后可执行预检查、升级、取消选择或删除。
@@ -799,35 +975,27 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                 手动回滚
               </button>
             </div>
-            {renderUpgradeTask(upgradeTask)}
+            {renderUpgradeTask(upgradeTask, { precheckRunning, precheckProgressIndex })}
           </>
         )}
       </>
     );
   }
 
-  function renderUpgradeVerification() {
-    const packageInfo = upgradeVerification?.package;
+  function renderUpgradeRuntimeVerification() {
     return (
-      <section className="upgrade-verification-card">
-        <div className="service-operation-head">
+      <section className="upgrade-verification-inline">
+        <div className="upgrade-runtime-toolbar">
           <div>
-            <strong>升级后核验</strong>
-            <span>用于确认当前运行版本、服务镜像和最近成功升级包，不需要再手动 docker inspect。</span>
+            <strong>服务运行核验</strong>
+            <span>确认当前运行镜像、服务状态和启动时间。</span>
           </div>
           <button className="secondary-button service-header-button" type="button" onClick={() => reloadUpgradeVerification().catch((exc) => setUpgradeMessage(exc instanceof Error ? exc.message : "刷新核验失败"))} disabled={verificationBusy}>
             <RefreshCw size={16} />
             {verificationBusy ? "刷新中" : "刷新核验"}
           </button>
         </div>
-        <div className="upgrade-verification-summary">
-          <InfoRow label="当前软件版本" value={formatVersionForDisplay(upgradeVerification?.app_version ?? appVersion)} />
-          <InfoRow label="升级中心版本" value={formatVersionForDisplay(upgradeVerification?.runner_version ?? runnerVersion)} />
-          <InfoRow label="Compose 项目" value={upgradeVerification?.compose_project ?? "-"} />
-          <InfoRow label="最近成功包" value={packageInfo ? `${formatVersionForDisplay(packageInfo.version)} · ${packageInfo.filename || "-"}` : "暂无成功升级记录"} />
-          <InfoRow label="升级包 SHA256" value={packageInfo?.sha256 ? shortSha(packageInfo.sha256) : "-"} />
-        </div>
-        <div className="upgrade-runtime-table">
+        <div className="upgrade-runtime-table upgrade-runtime-table-flat">
           <div className="upgrade-runtime-head">
             <span>服务</span>
             <span>状态</span>
@@ -999,6 +1167,8 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
               file: componentFile,
               componentMode: true,
               precheckExpanded: componentPrecheckExpanded,
+              precheckRunning: componentPrecheckRunning,
+              precheckProgressIndex: componentPrecheckProgressIndex,
               stepsExpanded: componentStepsExpanded,
               logsExpanded: componentLogsExpanded,
               onPrecheckToggle: () => setComponentPrecheckExpanded((expanded) => !expanded),
@@ -1011,7 +1181,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     );
   }
 
-  function renderUpgradeTask(task: UpgradeTask, options?: { file?: File | null; precheckExpanded?: boolean; stepsExpanded?: boolean; logsExpanded?: boolean; onPrecheckToggle?: () => void; onStepsToggle?: () => void; onLogsToggle?: () => void; componentMode?: boolean }) {
+  function renderUpgradeTask(task: UpgradeTask, options?: { file?: File | null; precheckExpanded?: boolean; precheckRunning?: boolean; precheckProgressIndex?: number; stepsExpanded?: boolean; logsExpanded?: boolean; onPrecheckToggle?: () => void; onStepsToggle?: () => void; onLogsToggle?: () => void; componentMode?: boolean }) {
     const currentFile = options?.file ?? upgradeFile;
     const isComponent = Boolean(options?.componentMode);
     return (
@@ -1024,19 +1194,31 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           {!isComponent && <InfoRow label="备份文件" value={task.backup_path || "升级开始后生成"} />}
         </div>
         {task.release_notes && <pre className="upgrade-release-notes auto-scrollbar">{task.release_notes}</pre>}
-        {!!task.checks.length && (
+        {(options?.precheckRunning || task.checks.length > 0 || task.precheck_ok !== undefined) && (
           <CollapsibleSection title="预检查" expanded={options?.precheckExpanded ?? precheckExpanded} onToggle={options?.onPrecheckToggle ?? (() => setPrecheckExpanded((expanded) => !expanded))}>
-            <div className="upgrade-checks">
-              {task.checks.map((check) => (
-                <div className={check.ok ? "upgrade-check ok" : "upgrade-check failed"} key={check.name}>
-                  <span className="upgrade-check-icon" aria-hidden="true">
-                    {check.ok ? <Check size={14} /> : <X size={14} />}
-                  </span>
-                  <strong>{check.name}</strong>
-                  <span>{check.message}</span>
+            <div className="upgrade-steps upgrade-precheck-steps">
+              {displayPrecheckSteps(task, isComponent, Boolean(options?.precheckRunning), options?.precheckProgressIndex ?? -1).map((step) => (
+                <div className={`upgrade-step ${step.status}`} key={step.key}>
+                  <span className="upgrade-step-icon" aria-hidden="true">{stepIcon(step.status)}</span>
+                  <strong>{step.title}</strong>
+                  <span>{stepStatusText(step.status)}</span>
+                  {step.message && <small>{step.message}</small>}
                 </div>
               ))}
             </div>
+            {!!task.checks.length && (
+              <div className="upgrade-checks upgrade-checks-after-steps">
+                {task.checks.map((check) => (
+                  <div className={check.ok ? "upgrade-check ok" : "upgrade-check failed"} key={check.name}>
+                    <span className="upgrade-check-icon" aria-hidden="true">
+                      {check.ok ? <Check size={14} /> : <X size={14} />}
+                    </span>
+                    <strong>{check.name}</strong>
+                    <span>{check.message}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </CollapsibleSection>
         )}
         {!!displayUpgradeSteps(task).length && (
@@ -1204,6 +1386,52 @@ function displayUpgradeSteps(task: UpgradeTask) {
   const merged = defaults.map((item) => ({ ...item, status: "pending", ...existing.get(item.key) }));
   const known = new Set(defaults.map((item) => item.key));
   return [...merged, ...task.steps.filter((step) => !known.has(step.key))];
+}
+
+function displayPrecheckSteps(task: UpgradeTask, isComponent: boolean, running: boolean, progressIndex: number): DisplayStep[] {
+  const defaults = isComponent ? componentPrecheckStepDefaults : platformPrecheckStepDefaults;
+  if (running) {
+    return defaults.map((item, index) => ({
+      ...item,
+      status: index < progressIndex ? "succeeded" : index === progressIndex ? "running" : "pending"
+    }));
+  }
+  if (task.checks.length) {
+    const failed = task.checks.some((check) => !check.ok);
+    return defaults.map((item, index) => {
+      const isLast = index === defaults.length - 1;
+      return {
+        ...item,
+        status: failed && isLast ? "failed" : "succeeded",
+        message: isLast ? (failed ? "预检查未通过" : "预检查通过") : undefined
+      };
+    });
+  }
+  return defaults.map((item) => ({ ...item, status: "pending" }));
+}
+
+function migrationExportTaskPatch(task: MigrationExportTask): Partial<Omit<AppTask, "id" | "createdAt">> {
+  return {
+    status: task.status === "failed" ? "failed" : task.status === "succeeded" ? "succeeded" : "running",
+    progress: Math.max(0, Math.min(100, task.progress || 0)),
+    detail: task.detail || migrationExportStatusText(task.status),
+    logs: task.logs,
+    links: task.status === "succeeded" && task.download_url ? [{ label: "下载", filename: task.filename, url: task.download_url, path: task.saved_path }] : undefined
+  };
+}
+
+function migrationExportStatusText(status: MigrationExportTask["status"]): string {
+  const labels: Record<MigrationExportTask["status"], string> = {
+    pending: "等待开始导出",
+    running: "正在生成迁移包",
+    succeeded: "迁移包已生成",
+    failed: "导出失败"
+  };
+  return labels[status];
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function formatTime(value?: string): string {

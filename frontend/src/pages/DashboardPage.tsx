@@ -58,7 +58,7 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm }: Dashboa
         ? summary?.towers.find((tower) => tower.id === scope.towerId)?.name || summary?.scope?.label || "当前 Tower"
         : summary?.towers.find((tower) => tower.id === scope.towerId)?.name || summary?.scope?.label || "当前 Tower";
   const topVms = sortMetricGrowthItems(summary?.top_vms || [], growthSort);
-  const risk = capacityRisk(kpis?.used_ratio);
+  const risk = capacityRisk(summary?.capacity_risk, kpis?.used_ratio);
 
   return (
     <div className="dashboard-grid">
@@ -194,12 +194,22 @@ function formatPercent(value?: number | null): string {
   return `${(value * 100).toFixed(value >= 1 ? 0 : 1)}%`;
 }
 
-function capacityRisk(usedRatio?: number | null): { tone: "normal" | "warning" | "danger"; title: string; description: string } {
+function capacityRisk(
+  clusterRisk?: DashboardSummary["capacity_risk"],
+  usedRatio?: number | null
+): { tone: "normal" | "warning" | "danger"; title: string; description: string } {
+  if (clusterRisk) {
+    return {
+      tone: clusterRisk.level,
+      title: clusterRisk.title,
+      description: clusterRisk.description
+    };
+  }
   if (usedRatio == null || !Number.isFinite(usedRatio)) {
     return { tone: "normal", title: "暂无容量风险", description: "等待采集完成后显示容量风险。" };
   }
   const percent = `${(usedRatio * 100).toFixed(2)}%`;
-  if (usedRatio >= 0.9) {
+  if (usedRatio >= 0.8) {
     return { tone: "danger", title: "容量高风险", description: `当前已使用 ${percent}，建议尽快确认扩容或清理计划。` };
   }
   if (usedRatio >= 0.75) {

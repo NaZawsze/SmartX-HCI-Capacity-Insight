@@ -193,6 +193,15 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
     }
   }
 
+  async function downloadTaskLink(url: string, filename: string) {
+    try {
+      const result = await api.downloadSavedExport(url);
+      saveTaskBlob(result.blob, result.filename || filename);
+    } catch {
+      // Keep the task menu open; the original task result still shows the server path in the tooltip.
+    }
+  }
+
   function closePasswordDialog() {
     if (passwordSaving) return;
     setPasswordDialogOpen(false);
@@ -266,6 +275,22 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
                           <div>
                             <strong>{task.title}</strong>
                             <small>{task.detail || taskStatusText(task.status)}</small>
+                            {task.logs?.length ? (
+                              <div className="task-log-list">
+                                {task.logs.slice(-4).map((line, index) => (
+                                  <span key={`${task.id}-log-${index}`}>{line}</span>
+                                ))}
+                              </div>
+                            ) : null}
+                            {task.links?.length ? (
+                              <div className="task-link-row">
+                                {task.links.map((link) => (
+                                  <button key={`${task.id}-${link.url}-${link.label}`} type="button" title={link.path || link.filename || link.label} onClick={() => downloadTaskLink(link.url, link.filename || link.label)}>
+                                    {link.label}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
                             <span className="task-progress" aria-label={`${task.progress}%`}>
                               <span style={{ width: `${task.progress}%` }} />
                             </span>
@@ -489,6 +514,17 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   );
 }
 
+
+function saveTaskBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 
 function taskStatusText(status: AppTask["status"]): string {
   const labels: Record<AppTask["status"], string> = {

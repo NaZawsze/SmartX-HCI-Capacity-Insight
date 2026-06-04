@@ -100,7 +100,7 @@ export default function App() {
           }}
         />
       )}
-      {activePage === "reports" && <ReportsPage summary={summary} scope={scope} refreshKey={dataRefreshKey} onSelectVm={openVm} />}
+      {activePage === "reports" && <ReportsPage summary={summary} scope={scope} refreshKey={dataRefreshKey} onSelectVm={openVm} addTask={addTask} updateTask={updateTask} />}
       {activePage === "settings" && <SettingsPage />}
       {activePage === "service" && <ServicePage addTask={addTask} updateTask={updateTask} />}
     </AppLayout>

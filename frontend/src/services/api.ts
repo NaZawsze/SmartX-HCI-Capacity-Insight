@@ -4,6 +4,9 @@ import type {
   ForecastPayload,
   LoginResponse,
   MetricItem,
+  MigrationExportTask,
+  SpaceCleanupResult,
+  SpaceCleanupScanResult,
   Tower,
   UpgradeTask,
   UpgradeVerification,
@@ -60,7 +63,14 @@ export interface TransferProgress {
 
 type ProgressCallback = (progress: number | TransferProgress) => void;
 
-async function download(path: string, onProgress?: ProgressCallback): Promise<{ blob: Blob; filename: string }> {
+export interface DownloadResult {
+  blob: Blob;
+  filename: string;
+  savedPath?: string;
+  downloadUrl?: string;
+}
+
+async function download(path: string, onProgress?: ProgressCallback): Promise<DownloadResult> {
   const token = getToken();
   const headers = new Headers();
   if (token) {
@@ -76,10 +86,12 @@ async function download(path: string, onProgress?: ProgressCallback): Promise<{ 
     throw new Error(payload.detail || response.statusText);
   }
   const filename = filenameFromDisposition(response.headers.get("Content-Disposition"));
+  const savedPath = response.headers.get("X-SmartX-Export-Path") || undefined;
+  const downloadUrl = response.headers.get("X-SmartX-Export-Url") || undefined;
   const total = Number(response.headers.get("Content-Length") || 0);
   if (!response.body || !total) {
     onProgress?.(90);
-    return { blob: await response.blob(), filename };
+    return { blob: await response.blob(), filename, savedPath, downloadUrl };
   }
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -93,7 +105,7 @@ async function download(path: string, onProgress?: ProgressCallback): Promise<{ 
       onProgress?.(Math.min(95, Math.round((received / total) * 100)));
     }
   }
-  return { blob: new Blob(chunks.map((chunk) => chunk.slice()) as BlobPart[]), filename };
+  return { blob: new Blob(chunks.map((chunk) => chunk.slice()) as BlobPart[]), filename, savedPath, downloadUrl };
 }
 
 async function upload<T>(path: string, formData: FormData, onProgress?: ProgressCallback): Promise<T> {
@@ -260,11 +272,20 @@ export const api = {
     const query = params.toString();
     return request<ForecastPayload>(`/api/reports/latest${query ? `?${query}` : ""}`);
   },
-  async exportReport(format: "word" | "excel", scope?: DashboardScope, periodDays?: number, onProgress?: ProgressCallback): Promise<{ blob: Blob; filename: string }> {
+  async exportReport(format: "word" | "excel", scope?: DashboardScope, periodDays?: number, onProgress?: ProgressCallback): Promise<DownloadResult> {
     return download(`/api/reports/export/${format}${scopedQuery(scope, periodDays)}`, onProgress);
   },
-  async exportMigration(onProgress?: ProgressCallback): Promise<{ blob: Blob; filename: string }> {
+  async exportMigration(onProgress?: ProgressCallback): Promise<DownloadResult> {
     return download("/api/admin/migration/export", onProgress);
+  },
+  async startMigrationExport(): Promise<MigrationExportTask> {
+    return request<MigrationExportTask>("/api/admin/migration/export/start", { method: "POST" });
+  },
+  async migrationExportStatus(taskId: string): Promise<MigrationExportTask> {
+    return request<MigrationExportTask>(`/api/admin/migration/export/status/${taskId}`);
+  },
+  async downloadSavedExport(url: string, onProgress?: ProgressCallback): Promise<DownloadResult> {
+    return download(url, onProgress);
   },
   async importMigration(file: File, mode: "merge" | "overwrite", confirmed: boolean, onProgress?: ProgressCallback): Promise<{ ok: boolean; restored: string[]; message: string }> {
     const formData = new FormData();
@@ -281,6 +302,12 @@ export const api = {
   },
   async cleanupUnusedImages(): Promise<{ ok: boolean; deleted_count: number; space_reclaimed: number; message: string }> {
     return request<{ ok: boolean; deleted_count: number; space_reclaimed: number; message: string }>("/api/admin/system/cleanup-images", { method: "POST" });
+  },
+  async scanSpaceCleanup(): Promise<SpaceCleanupScanResult> {
+    return request<SpaceCleanupScanResult>("/api/admin/system/cleanup-artifacts/scan");
+  },
+  async cleanupSpaceArtifacts(): Promise<SpaceCleanupResult> {
+    return request<SpaceCleanupResult>("/api/admin/system/cleanup-artifacts", { method: "POST" });
   },
   async upgradeVersion(): Promise<{ version: string }> {
     return request<{ version: string }>("/api/admin/upgrade/version");

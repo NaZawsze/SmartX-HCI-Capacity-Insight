@@ -16,15 +16,28 @@ VERSION_FILE = ROOT / "VERSION"
 PACKAGE_DIR = Path("/data/upgrade-packages")
 PRODUCT = "smartx-storage-forecast"
 DEFAULT_MIN_VERSION = "0.3.0"
+RELEASE_NAMESPACE = "nazawsze"
 PLATFORM_IMAGES = [
-    ("web-api", "smartx-storage-forecast-web-api", "images/web-api.tar"),
-    ("collector-worker", "smartx-storage-forecast-collector-worker", "images/collector-worker.tar"),
-    ("frontend", "smartx-storage-forecast-frontend", "images/frontend.tar"),
+    ("web-api", "smartx-storage-forecast-web-api", "smartx-hci-capacity-insight-web-api", "images/web-api.tar", True),
+    ("collector-worker", "smartx-storage-forecast-collector-worker", "smartx-hci-capacity-insight-collector-worker", "images/collector-worker.tar", True),
+    ("frontend", "smartx-storage-forecast-frontend", "smartx-hci-capacity-insight-frontend", "images/frontend.tar", True),
+    ("upgrade-runner", "smartx-storage-forecast-upgrade-runner", "smartx-hci-capacity-insight-upgrade-runner", "images/upgrade-runner.tar", False),
 ]
+PROJECT_FILES = [
+    "docker-compose.offline.yml",
+    "docker-compose.release.yml",
+    "docker-compose.yml",
+    "prometheus/prometheus.yml",
+    "pre_install.sh",
+    "README.md",
+    "README.zh-CN.md",
+]
+PROJECT_DIRS = ["docs", "scripts"]
 SENSITIVE_PATTERNS = (
     re.compile(r"(^|/)\.env($|[./])", re.I),
     re.compile(r"smartx\.db", re.I),
-    re.compile(r"(^|/)(data|prometheus|backups|upgrades)($|/)", re.I),
+    re.compile(r"(^|/)(data|backups|upgrades)($|/)", re.I),
+    re.compile(r"(^|/)prometheus(/(data|wal|chunks_head|queries\.active|.*\.tmp)|$)", re.I),
     re.compile(r"credential|secret|password|tower_password|access_key|token", re.I),
 )
 
@@ -54,20 +67,28 @@ def check_versions(version: str) -> None:
         (ROOT / "README.md", f"Version: `{version}`"),
         (ROOT / "README.zh-CN.md", f"版本：`{version}`"),
         (ROOT / "backend/app/core/config.py", f'DEFAULT_APP_VERSION = "{version}"'),
+        (ROOT / "docker-compose.offline.yml", f"SMARTX_IMAGE_TAG:-{version}"),
         (ROOT / "docker-compose.release.yml", f"SMARTX_IMAGE_TAG:-{version}"),
     ]
     for path, expected in checks:
         assert_contains(path, expected)
+    offline_text = (ROOT / "docker-compose.offline.yml").read_text(encoding="utf-8")
+    if "SMARTX_IMAGE_TAG:-latest" in offline_text:
+        raise SystemExit("docker-compose.offline.yml must not default to latest.")
     print(f"Version metadata OK: {version}")
 
 
+def release_image(repository: str, version: str) -> str:
+    return f"{RELEASE_NAMESPACE}/{repository}:{version}"
+
+
 def docker_build(version: str, *, include_frontend: bool) -> None:
-    services = ["web-api", "collector-worker"] + (["frontend"] if include_frontend else [])
+    services = ["web-api", "collector-worker", "upgrade-runner"] + (["frontend"] if include_frontend else [])
     run(["docker", "compose", "-f", "docker-compose.yml", "build", *services])
-    for service, repository, _ in PLATFORM_IMAGES:
+    for service, local_repository, release_repository, _, _ in PLATFORM_IMAGES:
         if service == "frontend" and not include_frontend:
             continue
-        run(["docker", "tag", f"{repository}:local", f"{repository}:{version}"])
+        run(["docker", "tag", f"{local_repository}:local", release_image(release_repository, version)])
 
 
 def sha256_file(path: Path) -> str:
@@ -82,28 +103,80 @@ def write_migrate_script(path: Path, version: str) -> None:
     script = f'''#!/bin/sh
 set -eu
 
-OVERRIDE="${{SMARTX_PROJECT_PATH:-/opt/smartx-storage-forecast}}/docker-compose.upgrade.yml"
-python3 - "$OVERRIDE" <<'PY'
+PROJECT_ROOT="${{SMARTX_PROJECT_PATH:-/opt/smartx-storage-forecast}}"
+PACKAGE_DIR="$(pwd)"
+VERSION="{version}"
+BACKUP_ROOT="${{SMARTX_DATA_PATH:-/data}}/backups/project-files-before-${{VERSION}}-$(date +%Y%m%d%H%M%S)"
+OVERRIDE="$PROJECT_ROOT/docker-compose.upgrade.yml"
+
+python3 - "$PACKAGE_DIR" "$PROJECT_ROOT" "$BACKUP_ROOT" "$OVERRIDE" "$VERSION" <<'PY'
 from pathlib import Path
+import json
+import shutil
 import sys
 
-version = "{version}"
-path = Path(sys.argv[1])
+package_dir = Path(sys.argv[1])
+project_root = Path(sys.argv[2])
+backup_root = Path(sys.argv[3])
+override_path = Path(sys.argv[4])
+version = sys.argv[5]
+manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+
+blocked_parts = {{"data", "backups", "upgrades", "__pycache__"}}
+blocked_words = ("credential", "secret", "password", "tower_password", "access_key", "token")
+
+def safe_rel(value):
+    rel = Path(str(value))
+    if rel.is_absolute() or ".." in rel.parts or not rel.parts:
+        raise RuntimeError(f"项目文件路径不安全：{{value}}")
+    lowered = rel.as_posix().lower()
+    if rel.name == ".env" or any(part.lower() in blocked_parts for part in rel.parts):
+        raise RuntimeError(f"项目文件路径禁止同步：{{value}}")
+    if lowered.endswith("smartx.db") or any(word in lowered for word in blocked_words):
+        raise RuntimeError(f"项目文件路径疑似包含敏感信息：{{value}}")
+    return rel
+
+project_files = manifest.get("project_files") or []
+if not project_files:
+    raise RuntimeError("升级包缺少 project_files。")
+
+copied = []
+missing_before = []
+for item in project_files:
+    rel = safe_rel(item)
+    source = package_dir / "project" / rel
+    if not source.is_file():
+        raise RuntimeError(f"升级包缺少项目文件：{{rel}}")
+    target = project_root / rel
+    if target.exists():
+        backup = backup_root / rel
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(target, backup)
+    else:
+        missing_before.append(str(rel))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    copied.append(str(rel))
+
 services = {{
-    "web-api": f"smartx-storage-forecast-web-api:{{version}}",
-    "collector-worker": f"smartx-storage-forecast-collector-worker:{{version}}",
-    "frontend": f"smartx-storage-forecast-frontend:{{version}}",
+    item["service"]: item["image"]
+    for item in manifest.get("images", [])
+    if item.get("service") in {{"web-api", "collector-worker", "frontend"}}
 }}
-
 lines = ["services:"]
-for service, image in services.items():
-    lines.append(f"  {{service}}:")
-    lines.append(f"    image: {{image}}")
+for service in ("web-api", "collector-worker", "frontend"):
+    image = services.get(service)
+    if image:
+        lines.append(f"  {{service}}:")
+        lines.append(f"    image: {{image}}")
+override_path.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
 
-path.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
+print(f"已同步项目文件 {{len(copied)}} 个。")
+print(f"项目文件备份目录：{{backup_root}}")
+if missing_before:
+    print("升级前不存在的项目文件：" + ", ".join(missing_before))
+print(f"已写入 {{version}} 镜像覆盖配置到 {{override_path}}")
 PY
-
-echo "已写入 {version} 镜像覆盖配置到 ${{OVERRIDE}}"
 '''
     path.write_text(script, encoding="utf-8")
     path.chmod(0o755)
@@ -113,6 +186,37 @@ def assert_safe_members(members: Iterable[str]) -> None:
     bad = [member for member in members if any(pattern.search(member) for pattern in SENSITIVE_PATTERNS)]
     if bad:
         raise SystemExit("Sensitive paths refused in package: " + ", ".join(bad))
+
+
+def collect_project_files(version: str) -> list[str]:
+    files: set[str] = set(PROJECT_FILES)
+    for directory in PROJECT_DIRS:
+        root = ROOT / directory
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(ROOT)
+            if "__pycache__" in relative.parts:
+                continue
+            if path.name.startswith("._") or path.name == ".DS_Store":
+                continue
+            files.add(relative.as_posix())
+    result = sorted(files)
+    assert_safe_members([f"project/{item}" for item in result])
+    for rel in result:
+        source = ROOT / rel
+        if not source.is_file():
+            raise SystemExit(f"Project file missing: {rel}")
+        if rel.endswith((".pyc", ".pyo")) or "__pycache__" in Path(rel).parts:
+            raise SystemExit(f"Compiled cache refused in project package: {rel}")
+    offline_text = (ROOT / "docker-compose.offline.yml").read_text(encoding="utf-8")
+    if f"SMARTX_IMAGE_TAG:-{version}" not in offline_text:
+        raise SystemExit("docker-compose.offline.yml default tag does not match VERSION.")
+    if "SMARTX_IMAGE_TAG:-latest" in offline_text:
+        raise SystemExit("docker-compose.offline.yml must not default to latest.")
+    return result
 
 
 def build_package(version: str, *, min_version: str, output_dir: Path, build_images: bool, include_frontend_build: bool) -> Path:
@@ -129,16 +233,25 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
     (work / "scripts").mkdir()
 
     manifest_images = []
-    for service, repository, rel_path in PLATFORM_IMAGES:
-        image = f"{repository}:{version}"
+    for service, _, release_repository, rel_path, restart in PLATFORM_IMAGES:
+        image = release_image(release_repository, version)
         target = work / rel_path
         run(["docker", "save", "-o", str(target), image])
-        manifest_images.append({
+        item = {
             "service": service,
             "image": image,
             "file": rel_path,
             "sha256": sha256_file(target),
-        })
+        }
+        if not restart:
+            item["restart"] = False
+        manifest_images.append(item)
+
+    project_files = collect_project_files(version)
+    for rel in project_files:
+        target = work / "project" / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / rel, target)
 
     write_migrate_script(work / "scripts/migrate.sh", version)
     manifest = {
@@ -149,22 +262,33 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
         "database_migration": True,
         "restart_services": ["web-api", "collector-worker", "frontend"],
         "release_notes": f"{version} platform upgrade package.",
+        "project_files": project_files,
         "images": manifest_images,
     }
     (work / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (work / "release-notes.md").write_text(
         f"# {version}\n\n"
-        "- Platform upgrade package for web-api, collector-worker, and frontend.\n"
+        "- Platform upgrade package for web-api, collector-worker, frontend, and the offline upgrade-runner image.\n"
+        "- Syncs whitelisted project files such as compose, docs, and scripts.\n"
         "- Writes image overrides into docker-compose.upgrade.yml before service restart.\n\n"
         "This package does not include .env, databases, Prometheus data, Tower credentials, or runtime data.\n",
         encoding="utf-8",
     )
 
-    members = ["manifest.json", "release-notes.md", "images/web-api.tar", "images/collector-worker.tar", "images/frontend.tar", "scripts/migrate.sh"]
+    members = [
+        "manifest.json",
+        "release-notes.md",
+        "images/web-api.tar",
+        "images/collector-worker.tar",
+        "images/frontend.tar",
+        "images/upgrade-runner.tar",
+        "scripts/migrate.sh",
+        *[f"project/{rel}" for rel in project_files],
+    ]
     assert_safe_members(members)
     if package.exists():
         package.unlink()
-    with tarfile.open(package, "w:gz") as archive:
+    with tarfile.open(package, "w:gz", compresslevel=1) as archive:
         for member in members:
             archive.add(work / member, arcname=member)
 

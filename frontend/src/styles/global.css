@@ -2406,6 +2406,15 @@ button {
   gap: 0;
 }
 
+.upgrade-precheck-steps {
+  margin-bottom: 10px;
+}
+
+.upgrade-checks-after-steps {
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
 .upgrade-check {
   display: grid;
   grid-template-columns: 22px minmax(110px, 0.45fr) minmax(0, 1.55fr);
@@ -2688,12 +2697,11 @@ button {
 .service-upgrade-detail,
 .service-history-table,
 .upgrade-package-section,
-.upgrade-verification-card {
+.upgrade-verification-inline {
   max-width: 980px;
 }
 
-.service-operation-card,
-.upgrade-verification-card {
+.service-operation-card {
   display: grid;
   gap: 20px;
 }
@@ -2750,6 +2758,10 @@ button {
   max-width: 760px;
   display: grid;
   margin-bottom: 18px;
+}
+
+.service-upgrade-status-grid-wide {
+  max-width: 980px;
 }
 
 .service-info-row {
@@ -2816,17 +2828,32 @@ button {
   margin: 14px 0 0;
 }
 
-.upgrade-verification-card {
-  margin-bottom: 18px;
-  padding: 18px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
+.upgrade-verification-inline {
+  display: grid;
+  gap: 12px;
+  margin: 4px 0 18px;
 }
 
-.upgrade-verification-summary {
-  max-width: 760px;
+.upgrade-runtime-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 4px;
+}
+
+.upgrade-runtime-toolbar div {
   display: grid;
+  gap: 4px;
+}
+
+.upgrade-runtime-toolbar strong {
+  color: var(--ink);
+}
+
+.upgrade-runtime-toolbar span {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .upgrade-runtime-table {
@@ -2834,6 +2861,12 @@ button {
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   overflow: hidden;
+}
+
+.upgrade-runtime-table-flat {
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
 }
 
 .upgrade-runtime-head,
@@ -3408,4 +3441,62 @@ button {
 .service-upload-panel.passive:hover {
   border-color: #c7d7ea;
   background: linear-gradient(180deg, #f8fbff 0%, #f2f6fc 100%);
+}
+
+.task-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.task-link-row button {
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid #b9d4f4;
+  border-radius: 6px;
+  background: #f3f8ff;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.task-link-row button:hover {
+  background: #e4f0ff;
+}
+
+.task-log-list {
+  display: grid;
+  gap: 3px;
+  padding: 2px 0;
+}
+
+.task-log-list span {
+  min-width: 0;
+  overflow: hidden;
+  color: #66758a;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.cleanup-summary.compact {
+  min-width: 150px;
+  padding: 10px 12px;
+}
+
+.space-cleanup-list {
+  max-height: 260px;
+}
+
+.space-cleanup-list .cleanup-image-row span {
+  min-width: 120px;
 }

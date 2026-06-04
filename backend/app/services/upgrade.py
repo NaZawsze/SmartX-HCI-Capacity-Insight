@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import tarfile
+import tempfile
 import time
 import uuid
 from datetime import datetime, timezone
@@ -17,7 +18,7 @@ from urllib.request import Request, urlopen
 from fastapi import HTTPException, UploadFile
 
 from app.core.config import get_settings
-from app.services.data_migration import build_migration_archive
+from app.services.data_migration import APP_DATA_DIR, MANIFEST_NAME as MIGRATION_MANIFEST_NAME, PROMETHEUS_DATA_DIR
 from app.services.system_control import _docker_request
 
 PRODUCT_NAME = "smartx-storage-forecast"
@@ -31,15 +32,20 @@ CORE_VOLUME_MARKERS = (
     "/data/smartx-capacity-insight-data/prometheus:/prometheus",
 )
 RUNNING_STATUSES = {"pending", "running", "rollback_pending", "rollback_running"}
+APP_BACKUP_SKIP_NAMES = {"backups", "upgrades", "exports", "migration-tasks", "__pycache__"}
+PROMETHEUS_BACKUP_SKIP_NAMES = {"chunks_head", "lock", "queries.active", "wal"}
+PLATFORM_RESTART_SERVICES = {"web-api", "collector-worker", "frontend"}
 UPGRADE_STEPS = (
     ("backup", "生成升级前数据备份"),
     ("load_images", "加载升级镜像"),
+    ("project_files", "同步项目文件"),
     ("write_override", "写入服务镜像覆盖配置"),
     ("migration", "执行数据库迁移脚本"),
     ("restart", "重启升级服务"),
     ("healthcheck", "执行服务健康检查"),
 )
 ROLLBACK_STEPS = (
+    ("rollback_project_files", "恢复升级前项目文件"),
     ("rollback_config", "恢复升级前镜像配置"),
     ("rollback_restart", "重启回滚服务"),
     ("rollback_healthcheck", "执行回滚健康检查"),
@@ -211,6 +217,15 @@ def precheck_upgrade(task_id: str) -> dict[str, Any]:
 
     compose_ok, compose_message = _compose_volume_safe()
     check("volumes", compose_ok, compose_message)
+
+    image_names_ok, image_names_message, image_names_detail = _image_names_check(manifest)
+    check("image-names", image_names_ok, image_names_message, image_names_detail)
+
+    project_ok, project_message, project_detail = _project_files_check(package_dir, manifest)
+    check("project-files", project_ok, project_message, project_detail)
+
+    tag_ok, tag_message, tag_detail = _project_compose_tag_check(package_dir, manifest)
+    check("compose-tag", tag_ok, tag_message, tag_detail)
 
     free_ok, free_message = _disk_space_ok(package_dir, manifest)
     check("disk", free_ok, free_message)
@@ -435,6 +450,7 @@ def _execute_upgrade(task: dict[str, Any]) -> None:
     try:
         _run_step(task, "backup", "生成升级前数据备份", lambda: _create_backup(task))
         _run_step(task, "load_images", "加载升级镜像", lambda: _load_images(task))
+        _run_step(task, "project_files", "同步项目文件", lambda: _sync_project_files(task))
         _run_step(task, "write_override", "写入服务镜像覆盖配置", lambda: _write_compose_override(task))
         _run_step(task, "migration", "执行数据库迁移脚本", lambda: _run_migration_script(task))
         _run_step(task, "restart", "重启升级服务", lambda: _compose_up(task))
@@ -457,6 +473,7 @@ def _execute_rollback(task: dict[str, Any]) -> None:
     task["updated_at"] = now_iso()
     _save_task(task)
     try:
+        _run_step(task, "rollback_project_files", "恢复升级前项目文件", lambda: _restore_project_files_backup(task))
         _run_step(task, "rollback_config", "恢复升级前镜像配置", lambda: _restore_previous_override(task))
         _run_step(task, "rollback_restart", "重启回滚服务", lambda: _compose_up(task))
         _run_step(task, "rollback_healthcheck", "执行回滚健康检查", lambda: _healthcheck(task))
@@ -558,10 +575,84 @@ def _create_backup(task: dict[str, Any]) -> str:
     version = _safe_name(str(task.get("manifest", {}).get("version") or "unknown"))
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     backup_path = settings.backup_path / f"upgrade-{version}-before-{timestamp}.tar.gz"
-    content, _ = build_migration_archive()
-    backup_path.write_bytes(content)
+    manifest = {
+        "format": "smartx-storage-forecast-migration",
+        "version": 1,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "purpose": "upgrade-before-backup",
+        "excluded": {
+            APP_DATA_DIR: sorted(APP_BACKUP_SKIP_NAMES),
+            PROMETHEUS_DATA_DIR: sorted(PROMETHEUS_BACKUP_SKIP_NAMES),
+        },
+        "contains": {
+            APP_DATA_DIR: settings.data_path.exists(),
+            PROMETHEUS_DATA_DIR: settings.prometheus_data_path.exists(),
+        },
+    }
+    _write_upgrade_backup_archive(backup_path, settings.data_path, settings.prometheus_data_path, manifest)
     task["backup_path"] = str(backup_path)
-    return f"备份文件：{backup_path}"
+    task["backup_size_bytes"] = backup_path.stat().st_size
+    return f"备份文件：{backup_path}，大小：{_format_bytes(backup_path.stat().st_size)}，已排除 upgrades/backups/exports。"
+
+
+def _write_upgrade_backup_archive(backup_path: Path, app_data_path: Path, prometheus_data_path: Path, manifest: dict[str, Any]) -> None:
+    manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
+    temp_path = backup_path.with_suffix(backup_path.suffix + ".tmp")
+    temp_path.unlink(missing_ok=True)
+    try:
+        with tarfile.open(temp_path, mode="w:gz", compresslevel=1) as archive:
+            manifest_info = tarfile.TarInfo(MIGRATION_MANIFEST_NAME)
+            manifest_info.size = len(manifest_bytes)
+            manifest_info.mtime = int(time.time())
+            archive.addfile(manifest_info, _BytesReader(manifest_bytes))
+            _add_directory_to_backup(archive, app_data_path, APP_DATA_DIR, APP_BACKUP_SKIP_NAMES)
+            _add_directory_to_backup(archive, prometheus_data_path, PROMETHEUS_DATA_DIR, PROMETHEUS_BACKUP_SKIP_NAMES)
+        temp_path.replace(backup_path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
+def _add_directory_to_backup(archive: tarfile.TarFile, source: Path, arcname: str, skip_names: set[str]) -> None:
+    if not source.exists():
+        return
+    for child in source.rglob("*"):
+        try:
+            relative = child.relative_to(source)
+        except ValueError:
+            continue
+        if _skip_backup_path(relative, skip_names):
+            continue
+        if not child.is_file() or child.is_symlink():
+            continue
+        archive.add(child, arcname=str(Path(arcname) / relative), recursive=False)
+
+
+def _skip_backup_path(relative: Path, skip_names: set[str]) -> bool:
+    return any(part in skip_names or part == ".DS_Store" or part.startswith("._") for part in relative.parts)
+
+
+class _BytesReader:
+    def __init__(self, content: bytes) -> None:
+        self._content = content
+        self._offset = 0
+
+    def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            size = len(self._content) - self._offset
+        chunk = self._content[self._offset:self._offset + size]
+        self._offset += len(chunk)
+        return chunk
+
+
+def _format_bytes(value: int) -> str:
+    units = ["B", "KiB", "MiB", "GiB", "TiB"]
+    amount = float(value)
+    for unit in units:
+        if amount < 1024 or unit == units[-1]:
+            return f"{amount:.1f} {unit}" if unit != "B" else f"{int(amount)} B"
+        amount /= 1024
+    return f"{value} B"
 
 
 def _load_images(task: dict[str, Any]) -> str:
@@ -575,22 +666,95 @@ def _load_images(task: dict[str, Any]) -> str:
     return "已加载镜像：" + ", ".join(loaded)
 
 
+def _validate_project_file_path(relative: str) -> Path:
+    rel = Path(str(relative))
+    if rel.is_absolute() or ".." in rel.parts or not rel.parts:
+        raise HTTPException(status_code=400, detail=f"项目文件路径不安全：{relative}")
+    lowered = rel.as_posix().lower()
+    blocked_parts = {"data", "backups", "upgrades", "__pycache__"}
+    if rel.name == ".env" or any(part.lower() in blocked_parts for part in rel.parts):
+        raise HTTPException(status_code=400, detail=f"项目文件路径禁止同步：{relative}")
+    if lowered.endswith("smartx.db") or any(word in lowered for word in ("credential", "secret", "password", "tower_password", "access_key", "token")):
+        raise HTTPException(status_code=400, detail=f"项目文件路径疑似包含敏感信息：{relative}")
+    return rel
+
+
+def _sync_project_files(task: dict[str, Any]) -> str:
+    manifest = task.get("manifest") or {}
+    project_files = manifest.get("project_files") or []
+    if not project_files:
+        raise RuntimeError("升级包缺少 project_files，不能同步项目文件。")
+    package_dir = Path(task["package_dir"])
+    project_root = get_settings().project_path
+    version = _safe_name(str(manifest.get("version") or "unknown"))
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    backup_root = get_settings().backup_path / f"project-files-before-{version}-{timestamp}"
+    copied: list[str] = []
+    missing_before: list[str] = []
+    for item in project_files:
+        rel = _validate_project_file_path(str(item))
+        source = _safe_child(package_dir / "project", rel.as_posix())
+        if not source.is_file():
+            raise RuntimeError(f"升级包缺少项目文件：{rel.as_posix()}")
+        target = project_root / rel
+        if target.exists():
+            backup = backup_root / rel
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(target, backup)
+        else:
+            missing_before.append(rel.as_posix())
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        copied.append(rel.as_posix())
+    task["project_files_backup_path"] = str(backup_root)
+    task["project_files_synced"] = copied
+    task["project_files_missing_before"] = missing_before
+    return f"已同步项目文件 {len(copied)} 个，备份目录：{backup_root}"
+
+
+def _restore_project_files_backup(task: dict[str, Any]) -> str:
+    backup_value = task.get("project_files_backup_path")
+    synced = [str(item) for item in task.get("project_files_synced") or []]
+    missing_before = set(str(item) for item in task.get("project_files_missing_before") or [])
+    if not backup_value or not synced:
+        return "没有需要恢复的项目文件。"
+    backup_root = Path(str(backup_value))
+    project_root = get_settings().project_path
+    restored = 0
+    removed = 0
+    for item in synced:
+        rel = _validate_project_file_path(item)
+        target = project_root / rel
+        backup = backup_root / rel
+        if backup.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(backup, target)
+            restored += 1
+        elif item in missing_before and target.exists():
+            target.unlink()
+            removed += 1
+    return f"已恢复项目文件 {restored} 个，移除升级新增文件 {removed} 个。"
+
+
 def _write_compose_override(task: dict[str, Any]) -> str:
     override_path = get_settings().project_path / "docker-compose.upgrade.yml"
     if "previous_override" not in task:
         task["previous_override"] = override_path.read_text(encoding="utf-8") if override_path.exists() else None
     lines = ["services:"]
     for item in task.get("manifest", {}).get("images") or []:
+        if item.get("service") not in PLATFORM_RESTART_SERVICES:
+            continue
         lines.extend([f"  {item['service']}:", f"    image: {item['image']}"])
     override_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return f"已写入 {override_path}"
 
 
 def _write_runner_override(task: dict[str, Any]) -> str:
-    override_path = get_settings().project_path / "docker-compose.runner-upgrade.yml"
+    override_path = _runner_override_path()
     if "previous_runner_override" not in task:
         task["previous_runner_override"] = override_path.read_text(encoding="utf-8") if override_path.exists() else None
     image = _runner_image_from_manifest(task.get("manifest") or {})
+    override_path.parent.mkdir(parents=True, exist_ok=True)
     override_path.write_text(f"services:\n  {RUNNER_SERVICE}:\n    image: {image}\n", encoding="utf-8")
     return f"已写入 {override_path}"
 
@@ -613,14 +777,14 @@ def _run_migration_script(task: dict[str, Any]) -> str:
 
 
 def _compose_up(task: dict[str, Any]) -> str:
-    services = [service for service in task.get("manifest", {}).get("restart_services") or [] if service in ALLOWED_SERVICES]
+    services = [service for service in task.get("manifest", {}).get("restart_services") or [] if service in PLATFORM_RESTART_SERVICES]
     if not services:
-        services = sorted(_manifest_services(task.get("manifest") or {})) or ["web-api", "collector-worker", "frontend"]
-    return _run_command(_compose_command() + ["up", "-d", "--no-build", *services], cwd=get_settings().project_path)
+        services = sorted(_manifest_services(task.get("manifest") or {}).intersection(PLATFORM_RESTART_SERVICES)) or ["web-api", "collector-worker", "frontend"]
+    return _run_command(_compose_command() + ["up", "-d", "--no-build", "--no-deps", *services], cwd=_compose_cwd())
 
 
 def _compose_up_runner(task: dict[str, Any]) -> str:
-    return _run_command(_compose_command(runner_override=True) + ["up", "-d", "--no-build", RUNNER_SERVICE], cwd=get_settings().project_path)
+    return _run_command(_compose_command(runner_override=True) + ["up", "-d", "--no-build", "--no-deps", RUNNER_SERVICE], cwd=_compose_cwd())
 
 
 def _healthcheck(task: dict[str, Any]) -> str:
@@ -682,14 +846,87 @@ def _restore_previous_override(task: dict[str, Any]) -> str:
 def _compose_command(runner_override: bool = False) -> list[str]:
     settings = get_settings()
     base = ["docker", "compose"] if _has_docker_compose_plugin() else ["docker-compose"]
-    command = [*base, "-p", settings.compose_project_name, "-f", str(settings.project_path / settings.compose_file)]
-    override_path = settings.project_path / "docker-compose.upgrade.yml"
+    compose_path = _docker_safe_compose_file(settings.project_path / settings.compose_file)
+    command = [*base, "-p", settings.compose_project_name, "-f", str(compose_path)]
+    override_path = _docker_safe_compose_file(settings.project_path / "docker-compose.upgrade.yml")
     if override_path.exists():
         command.extend(["-f", str(override_path)])
-    runner_override_path = settings.project_path / "docker-compose.runner-upgrade.yml"
+    runner_override_path = _runner_override_path()
     if runner_override and runner_override_path.exists():
         command.extend(["-f", str(runner_override_path)])
     return command
+
+
+def _runner_override_path() -> Path:
+    return get_settings().data_path / "compose-runtime" / "docker-compose.runner-upgrade.yml"
+
+
+def _compose_cwd() -> Path:
+    settings = get_settings()
+    if settings.project_path.exists():
+        return settings.project_path
+    if settings.data_path.exists():
+        return settings.data_path
+    return Path("/")
+
+
+def _docker_safe_compose_file(path: Path) -> Path:
+    project_path = get_settings().project_path
+    safe_project = _docker_safe_project_path()
+    try:
+        relative = path.relative_to(project_path)
+    except ValueError:
+        return path
+    safe_path = safe_project / relative
+    if safe_path == path:
+        return path
+    if safe_path.exists():
+        return safe_path
+    if path.exists():
+        return _rewrite_compose_for_docker_socket(path, safe_project)
+    return safe_path
+
+
+def _docker_safe_project_path() -> Path:
+    settings = get_settings()
+    configured = Path(os.environ.get("SMARTX_HOST_PROJECT_PATH") or "") if os.environ.get("SMARTX_HOST_PROJECT_PATH") else None
+    if configured and configured.exists():
+        return configured
+    mount_source = _container_mount_source(str(settings.project_path))
+    if mount_source:
+        return Path(mount_source)
+    return settings.project_path
+
+
+def _container_mount_source(destination: str) -> str | None:
+    try:
+        container_id = Path("/etc/hostname").read_text(encoding="utf-8").strip()
+        if not container_id:
+            return None
+        status, body = _docker_request("GET", f"/containers/{container_id}/json")
+        if status >= 300:
+            return None
+        payload = json.loads(body.decode("utf-8") or "{}")
+    except Exception:
+        return None
+    for mount in payload.get("Mounts") or []:
+        if mount.get("Destination") == destination and mount.get("Source"):
+            return str(mount["Source"])
+    return None
+
+
+def _rewrite_compose_for_docker_socket(path: Path, host_project_path: Path) -> Path:
+    target_dir = get_settings().data_path / "compose-runtime"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / path.name
+    text = path.read_text(encoding="utf-8")
+    container_project = get_settings().project_path.as_posix()
+    host_project = host_project_path.as_posix()
+    text = text.replace(f"- .:", f"- {host_project}:")
+    text = text.replace(f"- ./", f"- {host_project}/")
+    text = text.replace(f"  - .env", f"  - {container_project}/.env")
+    target.write_text(text, encoding="utf-8")
+    return target
 
 
 def _has_docker_compose_plugin() -> bool:
@@ -726,6 +963,96 @@ def _compose_volume_safe() -> tuple[bool, str]:
     if "down -v" in text:
         return False, "compose 配置中包含禁止的 down -v。"
     return True, "核心数据目录挂载保持安全：/data/smartx-capacity-insight-data/app 和 /data/smartx-capacity-insight-data/prometheus 不会被替换。"
+
+
+def _image_names_check(manifest: dict[str, Any]) -> tuple[bool, str, list[str]]:
+    version = str(manifest.get("version") or "")
+    details: list[str] = []
+    expected = {
+        "web-api": f"nazawsze/smartx-hci-capacity-insight-web-api:{version}",
+        "collector-worker": f"nazawsze/smartx-hci-capacity-insight-collector-worker:{version}",
+        "frontend": f"nazawsze/smartx-hci-capacity-insight-frontend:{version}",
+        "upgrade-runner": f"nazawsze/smartx-hci-capacity-insight-upgrade-runner:{version}",
+    }
+    ok = True
+    for service, image in expected.items():
+        actual = next((str(item.get("image") or "") for item in manifest.get("images") or [] if item.get("service") == service), "")
+        if not actual:
+            if service == RUNNER_SERVICE:
+                details.append(f"{service} 未包含，当前包不能支撑后续完整离线部署")
+            else:
+                details.append(f"{service} 缺少镜像")
+                ok = False
+            continue
+        if actual != image:
+            details.append(f"{service} 镜像应为 {image}，实际为 {actual}")
+            ok = False
+        else:
+            details.append(f"{service} 镜像匹配 {version}")
+    return ok, "镜像名和目标版本一致。" if ok else "镜像名与目标版本不一致。", details
+
+
+def _project_files_check(package_dir: Path, manifest: dict[str, Any]) -> tuple[bool, str, list[str]]:
+    project_files = manifest.get("project_files")
+    details: list[str] = []
+    if not isinstance(project_files, list) or not project_files:
+        return False, "升级包缺少 project_files，不能同步 compose 和项目文件。", []
+    ok = True
+    seen: set[str] = set()
+    for item in project_files:
+        try:
+            rel = _validate_project_file_path(str(item))
+        except HTTPException as exc:
+            details.append(str(exc.detail))
+            ok = False
+            continue
+        if rel.as_posix() in seen:
+            details.append(f"重复项目文件：{rel.as_posix()}")
+            ok = False
+        seen.add(rel.as_posix())
+        if not _safe_child(package_dir / "project", rel.as_posix()).is_file():
+            details.append(f"缺少 project/{rel.as_posix()}")
+            ok = False
+    for required in ("docker-compose.offline.yml", "docker-compose.release.yml"):
+        if required not in seen:
+            details.append(f"缺少 project/{required}")
+            ok = False
+    if ok:
+        details.append(f"包含项目文件同步：{len(seen)} 个白名单文件")
+    return ok, "包含项目文件同步。" if ok else "项目文件同步内容不完整或不安全。", details
+
+
+def _project_compose_tag_check(package_dir: Path, manifest: dict[str, Any]) -> tuple[bool, str, list[str]]:
+    version = str(manifest.get("version") or "")
+    offline = package_dir / "project" / "docker-compose.offline.yml"
+    if not offline.is_file():
+        return False, "升级包缺少 offline compose。", []
+    text = offline.read_text(encoding="utf-8")
+    current_compose = get_settings().project_path / get_settings().compose_file
+    current_text = current_compose.read_text(encoding="utf-8") if current_compose.exists() else ""
+    details = [
+        f"当前 compose 文件：{get_settings().compose_file}",
+        f"当前镜像 tag：{_extract_compose_default_tag(current_text) or '-'}",
+        f"目标镜像 tag：{version}",
+        "包含项目文件同步：是",
+        "会更新 offline compose：是",
+    ]
+    if "SMARTX_IMAGE_TAG:-latest" in text:
+        details.append("offline compose 仍默认 latest")
+        return False, "offline compose 默认 tag 不能是 latest。", details
+    if f"SMARTX_IMAGE_TAG:-{version}" not in text:
+        details.append(f"未找到 SMARTX_IMAGE_TAG:-{version}")
+        return False, "offline compose 默认 tag 与 manifest version 不一致。", details
+    return True, "offline compose 默认 tag 与目标版本一致。", details
+
+
+def _extract_compose_default_tag(text: str) -> str | None:
+    marker = "SMARTX_IMAGE_TAG:-"
+    index = text.find(marker)
+    if index < 0:
+        return None
+    rest = text[index + len(marker):]
+    return rest.split("}", 1)[0].strip() or None
 
 
 def _disk_space_ok(package_dir: Path, manifest: dict[str, Any]) -> tuple[bool, str]:
@@ -781,9 +1108,14 @@ def _validate_manifest_shape(manifest: dict[str, Any]) -> None:
             raise HTTPException(status_code=400, detail="manifest image 缺少 file 或 image。")
         if ".." in str(image.get("file")):
             raise HTTPException(status_code=400, detail="manifest image file 路径不安全。")
-    restart_services = manifest.get("restart_services") or [item["service"] for item in images]
+    restart_services = manifest.get("restart_services") or [item["service"] for item in images if item.get("service") != RUNNER_SERVICE]
     if not isinstance(restart_services, list) or any(service not in ALLOWED_SERVICES for service in restart_services):
         raise HTTPException(status_code=400, detail="manifest restart_services 包含不支持的服务。")
+    project_files = manifest.get("project_files")
+    if not isinstance(project_files, list) or not project_files:
+        raise HTTPException(status_code=400, detail="manifest 缺少 project_files。")
+    for item in project_files:
+        _validate_project_file_path(str(item))
 
 
 def _validate_component_manifest_shape(manifest: dict[str, Any]) -> None:

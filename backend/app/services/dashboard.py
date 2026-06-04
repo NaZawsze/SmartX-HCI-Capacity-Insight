@@ -30,6 +30,7 @@ async def dashboard_summary(tower_id: int | None = None, cluster_id: str | None 
     run = latest_run()
     tower_runs = _tower_runs(towers, run, tower_id, cluster_id)
     top_vms = await _top_growing_vms(prom, latest_samples, configured_clusters, tower_id, cluster_id, 1, 100)
+    cluster_items = _cluster_capacity_items(scoped_cluster_used, scoped_cluster_total)
     return {
         "scope": scope,
         "kpis": {
@@ -40,6 +41,7 @@ async def dashboard_summary(tower_id: int | None = None, cluster_id: str | None 
             "total_bytes": total_capacity,
             "used_ratio": total_used / total_capacity if total_capacity else 0,
         },
+        "capacity_risk": _capacity_risk_summary(cluster_items),
         "latest_run": run,
         "tower_runs": tower_runs,
         "top_vms": top_vms,
@@ -83,11 +85,13 @@ async def vm_trend(vm_id: str, metric: str = "used", days: int = 90, tower_id: i
     metric_name = VM_METRICS.get(metric, VM_METRICS["used"])
     prom = PrometheusQuery()
     label_filters = [f'vm_id="{vm_id}"']
+    if tower_id is not None:
+        label_filters.append(f'tower_id="{tower_id}"')
     if cluster_id:
         label_filters.append(f'cluster_id="{cluster_id}"')
     result = await prom.range(f"{metric_name}{{{','.join(label_filters)}}}", days=days)
     points = _merge_series_points(result)
-    latest = _latest_vm_point(vm_id, metric, None, cluster_id)
+    latest = _latest_vm_point(vm_id, metric, tower_id, cluster_id)
     if latest:
         points = _with_latest_point(points, latest)
     return points
@@ -186,6 +190,99 @@ def _value(item: dict[str, Any]) -> float:
     except (TypeError, ValueError, IndexError):
         return 0.0
 
+
+def _cluster_capacity_items(used_items: list[dict[str, Any]], total_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    total_by_cluster = {_cluster_key(item.get("metric", {})): _value(item) for item in total_items}
+    items: list[dict[str, Any]] = []
+    for used_item in used_items:
+        labels = used_item.get("metric", {})
+        used = _value(used_item)
+        total = total_by_cluster.get(_cluster_key(labels), 0.0)
+        ratio = used / total if total else None
+        items.append({
+            "metric": labels,
+            "used_bytes": used,
+            "total_bytes": total,
+            "used_ratio": ratio,
+        })
+    return items
+
+
+def _capacity_risk_summary(cluster_items: list[dict[str, Any]]) -> dict[str, Any]:
+    ranked = sorted(
+        [item for item in cluster_items if isinstance(item.get("used_ratio"), (int, float))],
+        key=lambda item: float(item.get("used_ratio") or 0),
+        reverse=True,
+    )
+    if not ranked:
+        return {
+            "level": "normal",
+            "title": "暂无容量风险",
+            "description": "等待采集完成后显示容量风险。",
+            "cluster_count": 0,
+            "warning_count": 0,
+            "danger_count": 0,
+            "top_clusters": [],
+        }
+
+    danger = [item for item in ranked if float(item.get("used_ratio") or 0) >= 0.8]
+    warning = [item for item in ranked if 0.75 <= float(item.get("used_ratio") or 0) < 0.8]
+    top = danger or warning
+    if danger:
+        level = "danger"
+        title = "容量高风险"
+        description = _risk_description("已有集群容量达到高风险阈值", danger)
+    elif warning:
+        level = "warning"
+        title = "容量需关注"
+        description = _risk_description("已有集群容量达到关注阈值", warning)
+    else:
+        level = "normal"
+        title = "容量风险正常"
+        highest = ranked[0]
+        percent = _format_ratio(float(highest.get("used_ratio") or 0))
+        name = _cluster_display_name(highest.get("metric", {}))
+        description = f"最高集群 {name} 当前已使用 {percent}，暂无明显容量风险。"
+
+    return {
+        "level": level,
+        "title": title,
+        "description": description,
+        "cluster_count": len(ranked),
+        "warning_count": len(warning),
+        "danger_count": len(danger),
+        "top_clusters": [_risk_cluster_payload(item) for item in top[:5]],
+    }
+
+
+def _risk_description(prefix: str, items: list[dict[str, Any]]) -> str:
+    first = items[0]
+    name = _cluster_display_name(first.get("metric", {}))
+    percent = _format_ratio(float(first.get("used_ratio") or 0))
+    if len(items) == 1:
+        return f"{prefix}：{name} 当前已使用 {percent}。"
+    return f"{prefix}：{name} 当前已使用 {percent}，另有 {len(items) - 1} 个集群需处理。"
+
+
+def _risk_cluster_payload(item: dict[str, Any]) -> dict[str, Any]:
+    labels = item.get("metric", {})
+    return {
+        "tower_id": labels.get("tower_id"),
+        "tower": labels.get("tower"),
+        "cluster_id": labels.get("cluster_id"),
+        "cluster": labels.get("cluster"),
+        "used_bytes": item.get("used_bytes"),
+        "total_bytes": item.get("total_bytes"),
+        "used_ratio": item.get("used_ratio"),
+    }
+
+
+def _cluster_display_name(labels: dict[str, Any]) -> str:
+    return str(labels.get("cluster") or labels.get("cluster_id") or "未知集群")
+
+
+def _format_ratio(value: float) -> str:
+    return f"{value * 100:.2f}%"
 
 def _top_items(items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
     mapped = [{"metric": item.get("metric", {}), "value": _value(item)} for item in items]

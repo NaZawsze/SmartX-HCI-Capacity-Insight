@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+import shutil
 import socket
 import threading
 import time
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 from fastapi import HTTPException
+
+from app.core.config import get_settings
 
 
 DOCKER_SOCKET = "/var/run/docker.sock"
@@ -90,6 +94,99 @@ def scan_unused_images() -> dict[str, Any]:
         "space_reclaimable_label": _format_bytes(total),
         "message": f"发现 {len(unused)} 个未使用镜像，预计可释放 {_format_bytes(total)}。",
     }
+
+
+def scan_export_artifacts() -> dict[str, Any]:
+    categories = _artifact_categories()
+    items = [_scan_artifact_category(item) for item in categories]
+    total_size = sum(item["size"] for item in items)
+    total_count = sum(item["count"] for item in items)
+    return {
+        "ok": True,
+        "items": items,
+        "total_count": total_count,
+        "total_size": total_size,
+        "total_size_label": _format_bytes(total_size),
+        "message": f"发现 {total_count} 项可清理文件，预计可释放 {_format_bytes(total_size)}。",
+    }
+
+
+def cleanup_export_artifacts() -> dict[str, Any]:
+    before = scan_export_artifacts()
+    deleted_count = 0
+    deleted_size = 0
+    logs: list[str] = []
+    for category in before["items"]:
+        path = Path(category["path"])
+        if not path.exists():
+            logs.append(f"跳过 {category['label']}：目录不存在。")
+            continue
+        for child in list(path.iterdir()):
+            if not _can_delete_artifact_child(path, child):
+                continue
+            size = _path_size(child)
+            try:
+                if child.is_dir() and not child.is_symlink():
+                    shutil.rmtree(child)
+                else:
+                    child.unlink()
+                deleted_count += 1
+                deleted_size += size
+            except OSError as exc:
+                logs.append(f"删除失败 {child.name}：{exc}")
+        logs.append(f"已清理 {category['label']}。")
+    return {
+        "ok": True,
+        "deleted_count": deleted_count,
+        "space_reclaimed": deleted_size,
+        "space_reclaimed_label": _format_bytes(deleted_size),
+        "logs": logs,
+        "message": f"已清理 {deleted_count} 项文件，释放 {_format_bytes(deleted_size)}。",
+    }
+
+
+def _artifact_categories() -> list[dict[str, Any]]:
+    settings = get_settings()
+    return [
+        {"key": "upgrade_packages", "label": "升级包", "path": settings.upgrade_path, "description": "已上传的平台/组件升级包与解析目录"},
+        {"key": "migration_exports", "label": "数据迁移导出", "path": settings.export_path / "migrations", "description": "数据迁移导出留档包"},
+        {"key": "report_exports", "label": "报表导出", "path": settings.export_path / "reports", "description": "Word/Excel 报表留档文件"},
+        {"key": "migration_tasks", "label": "迁移导出任务记录", "path": settings.export_path / "migration-tasks", "description": "迁移导出后台任务状态文件"},
+    ]
+
+
+def _scan_artifact_category(category: dict[str, Any]) -> dict[str, Any]:
+    path = Path(category["path"])
+    children = [child for child in path.iterdir() if _can_delete_artifact_child(path, child)] if path.exists() else []
+    size = sum(_path_size(child) for child in children)
+    return {
+        "key": category["key"],
+        "label": category["label"],
+        "description": category["description"],
+        "path": str(path),
+        "count": len(children),
+        "size": size,
+        "size_label": _format_bytes(size),
+    }
+
+
+def _can_delete_artifact_child(parent: Path, child: Path) -> bool:
+    try:
+        child.relative_to(parent)
+    except ValueError:
+        return False
+    if child.name in {".", "..", ".DS_Store"} or child.name.startswith("._"):
+        return False
+    return child.exists() or child.is_symlink()
+
+
+def _path_size(path: Path) -> int:
+    try:
+        if path.is_file() or path.is_symlink():
+            return path.stat().st_size
+        return sum(child.stat().st_size for child in path.rglob("*") if child.is_file() or child.is_symlink())
+    except OSError:
+        return 0
 
 
 def _restart_services_later() -> None:

@@ -3,13 +3,15 @@ import { useEffect, useMemo, useState } from "react";
 import { Card } from "../components/Card";
 import { ClusterCapacityChart } from "../components/ClusterCapacityChart";
 import { api, formatBytes } from "../services/api";
-import type { DashboardScope, DashboardSummary, ForecastPayload, GrowthVmReport } from "../types";
+import type { AppTask, DashboardScope, DashboardSummary, ForecastPayload, GrowthVmReport } from "../types";
 
 interface ReportsPageProps {
   summary?: DashboardSummary | null;
   scope: DashboardScope;
   refreshKey?: number;
   onSelectVm: (vmId: string, vmName?: string) => void;
+  addTask: (task: Omit<AppTask, "createdAt" | "updatedAt">) => void;
+  updateTask: (id: string, patch: Partial<Omit<AppTask, "id" | "createdAt">>) => void;
 }
 
 function scopedClusterValue(scope: DashboardScope): string {
@@ -43,7 +45,7 @@ function quarterlyGrowth(value?: number | null): number {
   return (value || 0) * 90;
 }
 
-export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: ReportsPageProps) {
+export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTask, updateTask }: ReportsPageProps) {
   const [report, setReport] = useState<ForecastPayload | null>(null);
   const [selectedCluster, setSelectedCluster] = useState(scopedClusterValue(scope));
   const [dayGrowthSort, setDayGrowthSort] = useState<GrowthSortMode>("amount");
@@ -84,16 +86,28 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm }: Repo
   async function handleExportBundle() {
     setExporting(true);
     setExportError("");
+    const id = `report-export-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    addTask({ id, kind: "export", title: "导出预测报表", detail: "正在生成 Word 和 Excel", status: "running", progress: 10 });
     try {
       const [word, excel] = await Promise.all([
-        api.exportReport("word", reportScope, exportPeriodDays),
-        api.exportReport("excel", reportScope, exportPeriodDays)
+        api.exportReport("word", reportScope, exportPeriodDays, (progress) => updateTask(id, { progress: Math.max(10, Math.min(88, numericProgress(progress))), detail: "正在生成 Word/Excel" })),
+        api.exportReport("excel", reportScope, exportPeriodDays, (progress) => updateTask(id, { progress: Math.max(10, Math.min(88, numericProgress(progress))), detail: "正在生成 Word/Excel" }))
       ]);
-      saveBlob(word.blob, word.filename || fallbackExportFilename("word", selectedCluster, exportPeriodDays));
-      saveBlob(excel.blob, excel.filename || fallbackExportFilename("excel", selectedCluster, exportPeriodDays));
+      const wordFilename = word.filename || fallbackExportFilename("word", selectedCluster, exportPeriodDays);
+      const excelFilename = excel.filename || fallbackExportFilename("excel", selectedCluster, exportPeriodDays);
+      saveBlob(word.blob, wordFilename);
+      saveBlob(excel.blob, excelFilename);
+      updateTask(id, {
+        status: "succeeded",
+        progress: 100,
+        detail: "报表已生成，可从任务下载",
+        links: [taskLink("Word", wordFilename, word.downloadUrl, word.savedPath), taskLink("Excel", excelFilename, excel.downloadUrl, excel.savedPath)].filter(Boolean) as AppTask["links"]
+      });
       setExportDialogOpen(false);
     } catch (error) {
-      setExportError(error instanceof Error ? error.message : "导出失败，请稍后重试。");
+      const message = error instanceof Error ? error.message : "导出失败，请稍后重试。";
+      updateTask(id, { status: "failed", progress: 100, detail: message });
+      setExportError(message);
     } finally {
       setExporting(false);
     }
@@ -319,6 +333,15 @@ function formatExhaustionDays(value?: number | null): string {
 function formatPercent(value?: number | null): string {
   if (value == null || !Number.isFinite(value)) return "-";
   return `${(value * 100).toFixed(value >= 1 ? 0 : 1)}%`;
+}
+
+function numericProgress(progress: number | { progress: number }): number {
+  return typeof progress === "number" ? progress : progress.progress;
+}
+
+function taskLink(label: string, filename: string, url?: string, path?: string): AppTask["links"] extends Array<infer Link> | undefined ? Link | null : never {
+  if (!url) return null as never;
+  return { label, filename, url, path } as never;
 }
 
 function saveBlob(blob: Blob, filename: string) {

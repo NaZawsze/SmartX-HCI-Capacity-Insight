@@ -4,6 +4,7 @@ import hashlib
 from collections import defaultdict
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
 from secrets import token_hex
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -73,7 +74,9 @@ async def build_report_docx(tower_id: int | None = None, cluster_id: str | None 
         document.add_heading("增长率 TOP100 虚拟机（按增长率降序）", level=2)
         _add_vm_table(document, _top_vms(vms, "ratio"), "ratio")
 
-    return _docx_bytes(document), _export_filename(context, "docx")
+    filename = _export_filename(context, "docx")
+    content = _docx_bytes(document)
+    return _save_report_export(content, filename), filename
 
 
 async def build_report_xlsx(tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30) -> tuple[bytes, str]:
@@ -100,7 +103,17 @@ async def build_report_xlsx(tower_id: int | None = None, cluster_id: str | None 
 
     output = BytesIO()
     workbook.save(output)
-    return output.getvalue(), _export_filename(context, "xlsx")
+    filename = _export_filename(context, "xlsx")
+    return _save_report_export(output.getvalue(), filename), filename
+
+
+def _save_report_export(content: bytes, filename: str) -> bytes:
+    settings = get_settings()
+    export_dir = settings.export_path / "reports"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    target = export_dir / Path(filename).name
+    target.write_bytes(content)
+    return content
 
 
 def _export_context(report: dict[str, Any], tower_id: int | None, cluster_id: str | None) -> dict[str, Any]:

@@ -1,10 +1,13 @@
 import asyncio
+from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi.responses import FileResponse
 
 from app.api.deps import current_user
 from app.collector.collector import Collector, latest_all_vm_volumes, latest_vm_volumes, running_run
+from app.core.config import get_settings
 from app.core.security import create_token, verify_password
 from app.db import get_conn, row_to_dict
 from app.models import (
@@ -23,11 +26,11 @@ from app.models import (
     VmVolumeSetResponse,
 )
 from app.services.cloudtower import CloudTowerClient, normalize_tower
-from app.services.data_migration import ARCHIVE_MEDIA_TYPE, build_migration_archive, restore_migration_archive
+from app.services.data_migration import ARCHIVE_MEDIA_TYPE, build_migration_archive, create_migration_export_task, get_migration_export_task, restore_migration_archive, run_migration_export_task
 from app.services.dashboard import dashboard_summary, latest_report, vm_list, vm_trend
 from app.services.prometheus import latest_metrics_text
 from app.services.report_export import DOCX_MEDIA_TYPE, XLSX_MEDIA_TYPE, build_report_docx, build_report_xlsx
-from app.services.system_control import cleanup_unused_images, scan_unused_images, schedule_service_restart
+from app.services.system_control import cleanup_export_artifacts, cleanup_unused_images, scan_export_artifacts, scan_unused_images, schedule_service_restart
 from app.services.towers import create_tower, delete_tower, get_tower, list_towers, update_cluster as save_cluster, update_tower, upsert_clusters
 from app.services.upgrade import (
     component_upgrade_history,
@@ -183,19 +186,44 @@ async def report(tower_id: int | None = None, cluster_id: str | None = None, per
 @router.get("/api/reports/export/word")
 async def export_report_word(tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, _: dict = Depends(current_user)) -> Response:
     content, filename = await build_report_docx(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days)
-    return _download_response(content, filename, DOCX_MEDIA_TYPE)
+    path = _export_file_path("reports", filename)
+    return _download_response(content, filename, DOCX_MEDIA_TYPE, path=path, download_url=_export_download_url("reports", filename))
 
 
 @router.get("/api/reports/export/excel")
 async def export_report_excel(tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, _: dict = Depends(current_user)) -> Response:
     content, filename = await build_report_xlsx(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days)
-    return _download_response(content, filename, XLSX_MEDIA_TYPE)
+    path = _export_file_path("reports", filename)
+    return _download_response(content, filename, XLSX_MEDIA_TYPE, path=path, download_url=_export_download_url("reports", filename))
 
 
 @router.get("/api/admin/migration/export")
 def export_migration(_: dict = Depends(current_user)) -> Response:
     content, filename = build_migration_archive()
-    return _download_response(content, filename, ARCHIVE_MEDIA_TYPE)
+    path = _export_file_path("migrations", filename)
+    return _download_response(content, filename, ARCHIVE_MEDIA_TYPE, path=path, download_url=_export_download_url("migrations", filename))
+
+
+@router.post("/api/admin/migration/export/start")
+async def start_migration_export(_: dict = Depends(current_user)) -> dict:
+    task = create_migration_export_task()
+    asyncio.create_task(asyncio.to_thread(run_migration_export_task, str(task["task_id"])))
+    return task
+
+
+@router.get("/api/admin/migration/export/status/{task_id}")
+def migration_export_status(task_id: str, _: dict = Depends(current_user)) -> dict:
+    return get_migration_export_task(task_id)
+
+
+@router.get("/api/admin/exports/{category}/{filename}")
+def download_saved_export(category: str, filename: str, _: dict = Depends(current_user)) -> FileResponse:
+    if category not in {"reports", "migrations"}:
+        raise HTTPException(status_code=404, detail="导出文件不存在。")
+    path = _export_file_path(category, filename)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="导出文件不存在。")
+    return FileResponse(path, filename=filename)
 
 
 @router.post("/api/admin/migration/import")
@@ -221,6 +249,16 @@ def cleanup_system_images(_: dict = Depends(current_user)) -> dict:
 @router.get("/api/admin/system/cleanup-images/scan")
 def scan_system_images(_: dict = Depends(current_user)) -> dict:
     return scan_unused_images()
+
+
+@router.get("/api/admin/system/cleanup-artifacts/scan")
+def scan_system_artifacts(_: dict = Depends(current_user)) -> dict:
+    return scan_export_artifacts()
+
+
+@router.post("/api/admin/system/cleanup-artifacts")
+def cleanup_system_artifacts(_: dict = Depends(current_user)) -> dict:
+    return cleanup_export_artifacts()
 
 
 @router.get("/api/admin/upgrade/version")
@@ -310,10 +348,20 @@ def metrics() -> Response:
     return Response(content=latest_metrics_text(), media_type="text/plain; version=0.0.4")
 
 
-def _download_response(content: bytes, filename: str, media_type: str) -> Response:
+def _download_response(content: bytes, filename: str, media_type: str, path: Path | None = None, download_url: str | None = None) -> Response:
     quoted = quote(filename)
-    return Response(
-        content=content,
-        media_type=media_type,
-        headers={"Content-Disposition": f"attachment; filename={quoted}; filename*=UTF-8''{quoted}"},
-    )
+    headers = {"Content-Disposition": f"attachment; filename={quoted}; filename*=UTF-8''{quoted}"}
+    if path is not None:
+        headers["X-SmartX-Export-Path"] = str(path)
+    if download_url:
+        headers["X-SmartX-Export-Url"] = download_url
+    return Response(content=content, media_type=media_type, headers=headers)
+
+
+def _export_file_path(category: str, filename: str) -> Path:
+    safe_filename = Path(filename).name
+    return get_settings().export_path / category / safe_filename
+
+
+def _export_download_url(category: str, filename: str) -> str:
+    return f"/api/admin/exports/{quote(category)}/{quote(Path(filename).name)}"

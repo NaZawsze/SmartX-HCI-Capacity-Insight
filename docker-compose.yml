@@ -7,6 +7,7 @@ services:
     env_file:
       - .env
     environment:
+      TZ: Asia/Shanghai
       SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
       SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast
     volumes:
@@ -30,6 +31,8 @@ services:
     command: ["python", "-m", "app.collector.worker"]
     env_file:
       - .env
+    environment:
+      TZ: Asia/Shanghai
     volumes:
       - /data/smartx-capacity-insight-data/app:/data
     expose:
@@ -44,6 +47,8 @@ services:
     build:
       context: ./frontend
     image: smartx-storage-forecast-frontend:local
+    environment:
+      TZ: Asia/Shanghai
     ports:
       - "8080:80"
     depends_on:
@@ -61,6 +66,7 @@ services:
     env_file:
       - .env
     environment:
+      TZ: Asia/Shanghai
       SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
       SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast
     volumes:
@@ -80,7 +86,10 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
       - "--storage.tsdb.retention.time=400d"
+    environment:
+      TZ: CST-8
     volumes:
+      - /etc/localtime:/etc/localtime:ro
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - /data/smartx-capacity-insight-data/prometheus:/prometheus
     ports:

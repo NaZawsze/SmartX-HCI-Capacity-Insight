@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import tarfile
 import tempfile
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,10 +27,12 @@ OVERWRITE_MODE = "overwrite"
 
 
 PROMETHEUS_RUNTIME_ENTRIES = {"chunks_head", "lock", "queries.active", "wal"}
-APP_RUNTIME_ENTRIES = {"backups", "upgrades"}
+APP_RUNTIME_ENTRIES = {"backups", "upgrades", "exports"}
+EXPORT_TASK_DIR = "migration-tasks"
+TASK_FILE = "task.json"
 
 
-def build_migration_archive() -> tuple[bytes, str]:
+def build_migration_archive(save_export: bool = True) -> tuple[bytes, str]:
     settings = get_settings()
     app_data_path = settings.data_path
     prometheus_data_path = settings.prometheus_data_path
@@ -55,7 +58,19 @@ def build_migration_archive() -> tuple[bytes, str]:
         _add_directory(archive, prometheus_data_path, PROMETHEUS_DATA_DIR)
 
     filename = f"smartx-storage-migration-{generated_at.strftime('%Y%m%d%H%M%S')}.tar.gz"
-    return buffer.getvalue(), filename
+    content = buffer.getvalue()
+    if save_export:
+        _save_migration_export(content, filename)
+    return content, filename
+
+
+def _save_migration_export(content: bytes, filename: str) -> Path:
+    settings = get_settings()
+    export_dir = settings.export_path / "migrations"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    target = export_dir / Path(filename).name
+    target.write_bytes(content)
+    return target
 
 
 async def restore_migration_archive(upload: UploadFile, confirmed: bool, mode: str = MERGE_MODE) -> dict[str, Any]:
@@ -477,3 +492,217 @@ def _count_result(table: str, rowcount: int, inserted: dict[str, int], skipped: 
 
 def _inc(mapping: dict[str, int], key: str) -> None:
     mapping[key] = mapping.get(key, 0) + 1
+
+
+
+def create_migration_export_task() -> dict[str, Any]:
+    task_id = uuid.uuid4().hex
+    task_dir = _migration_export_task_dir(task_id)
+    task_dir.mkdir(parents=True, exist_ok=False)
+    task = {
+        "task_id": task_id,
+        "status": "pending",
+        "progress": 0,
+        "processed_bytes": 0,
+        "total_bytes": 0,
+        "detail": "等待开始导出",
+        "logs": ["导出任务已创建"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _save_migration_export_task(task)
+    return _public_migration_export_task(task)
+
+
+def run_migration_export_task(task_id: str) -> None:
+    task = _load_migration_export_task(task_id)
+    target: Path | None = None
+    try:
+        settings = get_settings()
+        _update_migration_export_task(task, status="running", progress=1, detail="正在扫描导出数据", logs=["正在统计业务库和历史指标大小"])
+        generated_at = datetime.now(timezone.utc)
+        manifest = {
+            "format": "smartx-storage-forecast-migration",
+            "version": 1,
+            "generated_at": generated_at.isoformat(),
+            "contains": {
+                APP_DATA_DIR: settings.data_path.exists(),
+                PROMETHEUS_DATA_DIR: settings.prometheus_data_path.exists(),
+            },
+        }
+        manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
+        entries = _collect_migration_export_entries(settings.data_path, APP_DATA_DIR, APP_RUNTIME_ENTRIES)
+        entries += _collect_migration_export_entries(settings.prometheus_data_path, PROMETHEUS_DATA_DIR, PROMETHEUS_RUNTIME_ENTRIES)
+        total_bytes = len(manifest_bytes) + sum(size for _, _, size in entries)
+        if total_bytes <= 0:
+            total_bytes = 1
+        filename = f"smartx-storage-migration-{generated_at.strftime('%Y%m%d%H%M%S')}.tar.gz"
+        export_dir = settings.export_path / "migrations"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        target = export_dir / filename
+        task.update({
+            "filename": filename,
+            "saved_path": str(target),
+            "download_url": f"/api/admin/exports/migrations/{filename}",
+            "total_bytes": total_bytes,
+        })
+        _update_migration_export_task(task, progress=3, detail="正在创建迁移包", logs=[f"待处理文件 {len(entries)} 个", _format_bytes(total_bytes)])
+
+        processed = 0
+        last_saved_percent = -1
+
+        def advance(amount: int, message: str | None = None) -> None:
+            nonlocal processed, last_saved_percent
+            processed += max(0, amount)
+            percent = min(98, max(3, int(processed / total_bytes * 98)))
+            if percent != last_saved_percent or message:
+                last_saved_percent = percent
+                logs = [message] if message else None
+                _update_migration_export_task(task, progress=percent, processed_bytes=processed, detail="正在打包迁移数据", logs=logs)
+
+        with tarfile.open(target, mode="w:gz") as archive:
+            manifest_info = tarfile.TarInfo(MANIFEST_NAME)
+            manifest_info.size = len(manifest_bytes)
+            manifest_info.mtime = int(generated_at.timestamp())
+            archive.addfile(manifest_info, io.BytesIO(manifest_bytes))
+            advance(len(manifest_bytes), "manifest 已写入")
+            for source, arcname, size in entries:
+                _add_file_with_progress(archive, source, arcname, lambda count, name=arcname: advance(count, f"正在打包 {name}" if count else None))
+                if size == 0:
+                    advance(0, f"已处理空文件 {arcname}")
+        _update_migration_export_task(
+            task,
+            status="succeeded",
+            progress=100,
+            processed_bytes=total_bytes,
+            detail="迁移包已生成",
+            logs=["迁移包已生成", f"服务器留档：{target}"],
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+    except Exception as exc:
+        if target and target.exists():
+            target.unlink(missing_ok=True)
+        _update_migration_export_task(
+            task,
+            status="failed",
+            progress=100,
+            detail=str(exc),
+            logs=["导出失败", str(exc)],
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+
+def get_migration_export_task(task_id: str) -> dict[str, Any]:
+    return _public_migration_export_task(_load_migration_export_task(task_id))
+
+
+def _collect_migration_export_entries(source: Path, arcname: str, skip_names: set[str]) -> list[tuple[Path, str, int]]:
+    if not source.exists():
+        return []
+    entries: list[tuple[Path, str, int]] = []
+    for child in source.rglob("*"):
+        try:
+            relative = child.relative_to(source)
+        except ValueError:
+            continue
+        if _skip_export_path(relative, skip_names):
+            continue
+        if not child.is_file() or child.is_symlink():
+            continue
+        entries.append((child, str(Path(arcname) / relative), child.stat().st_size))
+    return entries
+
+
+def _skip_export_path(relative: Path, skip_names: set[str]) -> bool:
+    for part in relative.parts:
+        if part in {".DS_Store"} or part.startswith("._") or part in skip_names:
+            return True
+    return False
+
+
+def _add_file_with_progress(archive: tarfile.TarFile, source: Path, arcname: str, on_progress: Any) -> None:
+    info = archive.gettarinfo(str(source), arcname=arcname)
+    with source.open("rb") as file_obj:
+        archive.addfile(info, _ProgressReader(file_obj, on_progress))
+
+
+class _ProgressReader:
+    def __init__(self, file_obj: Any, on_progress: Any) -> None:
+        self._file_obj = file_obj
+        self._on_progress = on_progress
+
+    def read(self, size: int = -1) -> bytes:
+        data = self._file_obj.read(size)
+        if data:
+            self._on_progress(len(data))
+        return data
+
+
+def _migration_export_root() -> Path:
+    root = get_settings().export_path / EXPORT_TASK_DIR
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _migration_export_task_dir(task_id: str) -> Path:
+    if not task_id or any(ch not in "0123456789abcdef" for ch in task_id):
+        raise HTTPException(status_code=404, detail="迁移导出任务不存在。")
+    return _migration_export_root() / task_id
+
+
+def _migration_export_task_path(task_id: str) -> Path:
+    return _migration_export_task_dir(task_id) / TASK_FILE
+
+
+def _load_migration_export_task(task_id: str) -> dict[str, Any]:
+    path = _migration_export_task_path(task_id)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="迁移导出任务不存在。")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _save_migration_export_task(task: dict[str, Any]) -> None:
+    task["updated_at"] = datetime.now(timezone.utc).isoformat()
+    path = _migration_export_task_path(str(task["task_id"]))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(".tmp")
+    temp_path.write_text(json.dumps(task, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_path.replace(path)
+
+
+def _update_migration_export_task(task: dict[str, Any], **patch: Any) -> None:
+    logs = patch.pop("logs", None)
+    task.update({key: value for key, value in patch.items() if value is not None})
+    if logs:
+        current_logs = list(task.get("logs") or [])
+        current_logs.extend(str(item) for item in logs if item)
+        task["logs"] = current_logs[-20:]
+    _save_migration_export_task(task)
+
+
+def _public_migration_export_task(task: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "task_id": task.get("task_id"),
+        "status": task.get("status"),
+        "progress": int(task.get("progress") or 0),
+        "processed_bytes": int(task.get("processed_bytes") or 0),
+        "total_bytes": int(task.get("total_bytes") or 0),
+        "detail": task.get("detail") or "",
+        "logs": list(task.get("logs") or []),
+        "filename": task.get("filename"),
+        "saved_path": task.get("saved_path"),
+        "download_url": task.get("download_url"),
+        "created_at": task.get("created_at"),
+        "updated_at": task.get("updated_at"),
+        "finished_at": task.get("finished_at"),
+    }
+
+
+def _format_bytes(value: int) -> str:
+    units = ["B", "KiB", "MiB", "GiB", "TiB"]
+    size = float(value)
+    index = 0
+    while size >= 1024 and index < len(units) - 1:
+        size /= 1024
+        index += 1
+    return f"总数据量 {size:.1f} {units[index]}"

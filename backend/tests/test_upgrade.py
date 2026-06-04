@@ -38,3 +38,73 @@ def test_read_app_version_falls_back_to_environment(tmp_path, monkeypatch) -> No
     monkeypatch.setenv("SMARTX_APP_VERSION", "v1.0.0")
 
     assert read_app_version(tmp_path / "missing") == "v1.0.0"
+
+class _UpgradeTestSettings:
+    def __init__(self, root):
+        self.data_path = root / "data"
+        self.project_path = root / "readonly-project"
+        self.compose_file = "docker-compose.offline.yml"
+        self.compose_project_name = "smartx-capacity-insight"
+        self.upgrade_path = self.data_path / "upgrades"
+        self.backup_path = self.data_path / "backups"
+        self.prometheus_data_path = root / "prometheus"
+        self.app_version = "v-test"
+        self.runner_version = "v0.1.0"
+
+
+def test_runner_override_is_written_to_data_compose_runtime(tmp_path, monkeypatch):
+    settings = _UpgradeTestSettings(tmp_path)
+    settings.data_path.mkdir(parents=True)
+    settings.project_path.mkdir(parents=True)
+    monkeypatch.setattr(upgrade, "get_settings", lambda: settings)
+
+    task = {"manifest": {"images": [{"service": "upgrade-runner", "image": "runner:v0.2.1"}]}}
+
+    message = upgrade._write_runner_override(task)
+
+    runtime_path = settings.data_path / "compose-runtime" / "docker-compose.runner-upgrade.yml"
+    project_path = settings.project_path / "docker-compose.runner-upgrade.yml"
+    assert message == f"已写入 {runtime_path}"
+    assert runtime_path.read_text(encoding="utf-8") == "services:\n  upgrade-runner:\n    image: runner:v0.2.1\n"
+    assert not project_path.exists()
+
+
+def test_compose_command_uses_data_runner_override(tmp_path, monkeypatch):
+    settings = _UpgradeTestSettings(tmp_path)
+    settings.data_path.mkdir(parents=True)
+    settings.project_path.mkdir(parents=True)
+    compose_path = settings.project_path / settings.compose_file
+    compose_path.write_text("services: {}\n", encoding="utf-8")
+    runtime_path = settings.data_path / "compose-runtime" / "docker-compose.runner-upgrade.yml"
+    runtime_path.parent.mkdir(parents=True)
+    runtime_path.write_text("services:\n  upgrade-runner:\n    image: runner:v0.2.1\n", encoding="utf-8")
+    monkeypatch.setattr(upgrade, "get_settings", lambda: settings)
+    monkeypatch.setattr(upgrade, "_has_docker_compose_plugin", lambda: True)
+    monkeypatch.setattr(upgrade, "_docker_safe_compose_file", lambda path: path)
+
+    command = upgrade._compose_command(runner_override=True)
+
+    assert str(runtime_path) in command
+    assert str(settings.project_path / "docker-compose.runner-upgrade.yml") not in command
+
+
+def test_compose_cwd_uses_container_project_path(tmp_path, monkeypatch):
+    settings = _UpgradeTestSettings(tmp_path)
+    settings.data_path.mkdir(parents=True)
+    settings.project_path.mkdir(parents=True)
+    host_path = tmp_path / "host-project-not-mounted-in-container"
+    host_path.mkdir()
+    monkeypatch.setattr(upgrade, "get_settings", lambda: settings)
+    monkeypatch.setenv("SMARTX_HOST_PROJECT_PATH", str(host_path))
+
+    assert upgrade._docker_safe_project_path() == host_path
+    assert upgrade._compose_cwd() == settings.project_path
+
+
+def test_compose_cwd_falls_back_to_data_path(tmp_path, monkeypatch):
+    settings = _UpgradeTestSettings(tmp_path)
+    settings.data_path.mkdir(parents=True)
+    monkeypatch.setattr(upgrade, "get_settings", lambda: settings)
+
+    assert upgrade._compose_cwd() == settings.data_path
+
