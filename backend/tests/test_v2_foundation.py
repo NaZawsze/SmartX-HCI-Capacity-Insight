@@ -17,6 +17,17 @@ class V2FoundationTest(unittest.TestCase):
             finally:
                 os.environ.pop("SMARTX_APP_VERSION", None)
 
+    def test_version_uses_environment_when_version_file_is_missing(self) -> None:
+        from app.v2.config import read_version
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing_version_file = Path(tmpdir) / "VERSION"
+            os.environ["SMARTX_APP_VERSION"] = "v9.9.9-test"
+            try:
+                self.assertEqual(read_version(missing_version_file, "SMARTX_APP_VERSION", "v0-default"), "v9.9.9-test")
+            finally:
+                os.environ.pop("SMARTX_APP_VERSION", None)
+
     def test_settings_define_required_runtime_directories(self) -> None:
         from app.v2.config import V2Settings
 
@@ -38,7 +49,6 @@ class V2FoundationTest(unittest.TestCase):
                 settings = settings_from_environment()
                 self.assertEqual(settings.data_root, Path(tmpdir))
                 self.assertEqual(settings.secret_key, "current-secret")
-                self.assertEqual(settings.app_version, "v9.9.9-test")
             finally:
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)

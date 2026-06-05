@@ -632,3 +632,9 @@ TDD 记录：
 - 在 `10.20.11.3` 的 `/opt/smartx-storage-forecast-v2` 拉取 `feature/upgrade-v2` 后运行 v2 unittest，确认 FastAPI 集成测试实际通过。
 - 在远端执行 `docker compose build web-api frontend`，确认后端和前端构建均通过。
 - 如后续决定将 Docker 入口切到 `app.v2.main:app`，需要另起阶段处理，因为 Phase V2-2 当前只提供独立 v2 应用壳，不覆盖 v1 主入口。
+
+远端验证中发现：
+
+- `docker compose build web-api frontend` 已通过，frontend `tsc -b && vite build` 通过，仅保留原有 Vite 大 chunk 提示。
+- 第一次在 Docker 中运行 v2 unittest 时只挂载了 `backend`，导致 `test_frontend_v2_skeleton_directories_exist` 看不到 `frontend/src/v2/*`，这是测试运行方式问题，后续改为挂载仓库根目录。
+- Docker 镜像内存在 `/app/VERSION`，因此 `settings_from_environment()` 返回镜像自带版本是正确行为；测试已改为单独验证 `read_version()` 在版本文件缺失时才使用 `SMARTX_APP_VERSION` 兜底。
