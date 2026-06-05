@@ -329,6 +329,26 @@
 - Prometheus `query_range` 最近 7 天返回 175 条 series，前 10 条 series 共 260 个历史点。
 - 报表接口返回 `clusters=1`、`day_fastest_growing_vms=100`、集群趋势点数 13；月增长为空符合 30 天样本口径。
 
+### 2026-06-05 Phase 5 版本治理执行
+
+状态：已完成
+
+实现：
+
+- `backend/app/core/config.py` 增加 `read_runner_version()`，runner 组件版本优先读取镜像内 `/app/RUNNER_VERSION`，环境变量 `SMARTX_RUNNER_VERSION` 仅作为兜底覆盖。
+- `backend/Dockerfile`、`backend/Dockerfile.worker`、`backend/Dockerfile.upgrade` 均复制根目录 `VERSION` 和 `RUNNER_VERSION`，避免平台版本和 runner 版本依赖 compose 默认值。
+- `docs/deployment.md` 修正离线部署说明：平台三件套默认 `v0.4.1`，`upgrade-runner` 默认 `v0.2.2`，不再描述为 `latest`。
+- `docs/deployment.md` 补充 `/data/upgrades`、`/data/backups`、`/data/exports`、`/data/compose-runtime` 运行产物目录说明，并修正密码修改入口为 admin 头像菜单。
+- `docs/version-governance.md` 和 `docs/releases/CHANGELOG.md` 补充镜像内置版本文件规则。
+- 增加测试断言，防止后续 Dockerfile 漏复制 `RUNNER_VERSION`、部署文档回退到 `latest/v0.3.1`、runner 版本不读镜像文件。
+
+验证：
+
+- `python3 scripts/build_upgrade_package.py --check-version --no-build` 通过，输出 `Version metadata OK: v0.4.1`。
+- `python3 -m py_compile backend/app/core/config.py backend/tests/test_upgrade.py backend/tests/test_deployment_config.py scripts/build_upgrade_package.py scripts/build_runner_component_package.py` 通过。
+- 自定义静态断言通过，确认 compose 拆分 `SMARTX_IMAGE_TAG:-v0.4.1` 与 `SMARTX_RUNNER_IMAGE_TAG:-v0.2.2`，Dockerfile 均复制 `VERSION/RUNNER_VERSION`，部署文档不再包含 `latest` 默认 tag 或 `SMARTX_IMAGE_TAG=v0.3.1`。
+- `python3 -m pytest backend/tests/test_upgrade.py backend/tests/test_deployment_config.py` 未执行成功，原因是本机 Python 环境缺少 `pytest` 模块。
+
 ### 全新平台升级与组件升级模式设计
 
 状态：待处理

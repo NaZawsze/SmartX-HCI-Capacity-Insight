@@ -52,6 +52,28 @@ def test_compose_splits_platform_and_runner_versions() -> None:
         assert "SMARTX_IMAGE_TAG:-v0.4.0" not in text
 
 
+def test_backend_images_carry_platform_and_runner_version_files() -> None:
+    root = Path(__file__).resolve().parents[2]
+    for name in ("backend/Dockerfile", "backend/Dockerfile.worker", "backend/Dockerfile.upgrade"):
+        text = (root / name).read_text(encoding="utf-8")
+        assert "COPY VERSION ./VERSION" in text
+        assert "COPY RUNNER_VERSION ./RUNNER_VERSION" in text
+
+
+def test_deployment_docs_use_explicit_platform_and_runner_tags() -> None:
+    root = Path(__file__).resolve().parents[2]
+    text = (root / "docs/deployment.md").read_text(encoding="utf-8")
+
+    assert "uses local `latest` image tags by default" not in text
+    assert "SMARTX_IMAGE_TAG=v0.3.1" not in text
+    assert "nazawsze/smartx-hci-capacity-insight-web-api:latest" not in text
+    assert "nazawsze/smartx-hci-capacity-insight-upgrade-runner:latest" not in text
+    assert "SMARTX_IMAGE_TAG=v0.4.1" in text
+    assert "SMARTX_RUNNER_IMAGE_TAG=v0.2.2" in text
+    assert "nazawsze/smartx-hci-capacity-insight-web-api:v0.4.1" in text
+    assert "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.2.2" in text
+
+
 def test_platform_upgrade_package_excludes_runner() -> None:
     root = Path(__file__).resolve().parents[2]
     text = (root / "scripts/build_upgrade_package.py").read_text(encoding="utf-8")

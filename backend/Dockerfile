@@ -10,6 +10,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY VERSION ./VERSION
+COPY RUNNER_VERSION ./RUNNER_VERSION
 COPY backend/requirements*.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

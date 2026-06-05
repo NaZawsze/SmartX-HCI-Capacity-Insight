@@ -16,6 +16,8 @@ v0.4.1 聚焦版本治理和升级边界收敛，将平台版本与 `upgrade-run
 - 新增根目录 `RUNNER_VERSION`，当前 runner 组件版本为 `v0.2.2`。
 - `docker-compose.offline.yml` 和 `docker-compose.release.yml` 拆分 `SMARTX_IMAGE_TAG` 与 `SMARTX_RUNNER_IMAGE_TAG`。
 - 平台升级包只包含 `web-api`、`collector-worker`、`frontend`，不再包含 `upgrade-runner.tar`。
+- 后端镜像统一内置 `VERSION` 和 `RUNNER_VERSION`，平台版本与 runner 组件版本都优先读取镜像内文件。
+- 修正部署文档，离线部署不再描述为 `latest` 默认 tag，并明确平台 tag 与 runner tag 分开配置。
 - `scripts/build_runner_component_package.py` 默认读取 `RUNNER_VERSION`。
 - GitHub Actions 拆分 runner 构建：平台 workflow 不再构建 runner，runner 仅通过 `runner-v*` tag 或手动 workflow 构建。
 - 新增 `docs/version-governance.md`，记录版本模型、发版检查清单和 DockerHub 错误 tag 清理方法。

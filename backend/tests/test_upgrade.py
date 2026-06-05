@@ -1,4 +1,4 @@
-from app.core.config import read_app_version
+from app.core.config import read_app_version, read_runner_version
 from app.services import upgrade
 from fastapi import HTTPException
 
@@ -39,6 +39,20 @@ def test_read_app_version_falls_back_to_environment(tmp_path, monkeypatch) -> No
     monkeypatch.setenv("SMARTX_APP_VERSION", "v1.0.0")
 
     assert read_app_version(tmp_path / "missing") == "v1.0.0"
+
+
+def test_read_runner_version_prefers_image_runner_version_file(tmp_path, monkeypatch) -> None:
+    version_file = tmp_path / "RUNNER_VERSION"
+    version_file.write_text("v0.9.9\n", encoding="utf-8")
+    monkeypatch.setenv("SMARTX_RUNNER_VERSION", "v0.1.0")
+
+    assert read_runner_version(version_file) == "v0.9.9"
+
+
+def test_read_runner_version_falls_back_to_environment(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("SMARTX_RUNNER_VERSION", "v0.1.0")
+
+    assert read_runner_version(tmp_path / "missing") == "v0.1.0"
 
 class _UpgradeTestSettings:
     def __init__(self, root):

@@ -7,6 +7,7 @@
 - 平台版本由根目录 `VERSION` 定义，当前为 `v0.4.1`。
 - 平台服务包括 `web-api`、`collector-worker`、`frontend`。
 - `upgrade-runner` 是独立升级执行组件，版本由根目录 `RUNNER_VERSION` 定义，当前为 `v0.2.2`。
+- 后端镜像会同时内置 `/app/VERSION` 和 `/app/RUNNER_VERSION`，运行时优先读取镜像内版本文件，环境变量只作为兜底覆盖。
 - 平台升级包不包含 `upgrade-runner`，也不重启 `upgrade-runner`。
 - `upgrade-runner` 只能通过组件升级包更新。
 
@@ -69,6 +70,7 @@ images/upgrade-runner.tar
 - `VERSION`
 - `RUNNER_VERSION`，仅 runner 组件变化时更新
 - `backend/app/core/config.py` 中平台默认版本
+- `backend/Dockerfile`、`backend/Dockerfile.worker`、`backend/Dockerfile.upgrade` 是否复制 `VERSION` 和 `RUNNER_VERSION`
 - `docker-compose.offline.yml`
 - `docker-compose.release.yml`
 - `docker-compose.upgrade.yml`
@@ -111,4 +113,3 @@ curl -fsSL "https://hub.docker.com/v2/repositories/${NAMESPACE}/${REPO}/tags?pag
 ```
 
 不要删除平台三件套仓库中的平台版本 tag。
-

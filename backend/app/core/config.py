@@ -6,7 +6,9 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 IMAGE_VERSION_FILE = Path("/app/VERSION")
+RUNNER_VERSION_FILE = Path("/app/RUNNER_VERSION")
 DEFAULT_APP_VERSION = "v0.4.1"
+DEFAULT_RUNNER_VERSION = "v0.2.2"
 
 
 def read_app_version(version_file: Path = IMAGE_VERSION_FILE) -> str:
@@ -15,6 +17,14 @@ def read_app_version(version_file: Path = IMAGE_VERSION_FILE) -> str:
         if version:
             return version
     return os.environ.get("SMARTX_APP_VERSION", DEFAULT_APP_VERSION).strip() or DEFAULT_APP_VERSION
+
+
+def read_runner_version(version_file: Path = RUNNER_VERSION_FILE) -> str:
+    if version_file.exists():
+        version = version_file.read_text(encoding="utf-8").strip()
+        if version:
+            return version
+    return os.environ.get("SMARTX_RUNNER_VERSION", DEFAULT_RUNNER_VERSION).strip() or DEFAULT_RUNNER_VERSION
 
 
 class Settings(BaseSettings):
@@ -41,7 +51,7 @@ class Settings(BaseSettings):
     compose_file: str = Field(default="docker-compose.yml", alias="SMARTX_COMPOSE_FILE")
     compose_project_name: str = Field(default="smartx-storage-forecast", alias="SMARTX_COMPOSE_PROJECT_NAME")
     app_version: str = Field(default_factory=read_app_version)
-    runner_version: str = Field(default="v0.2.2", alias="SMARTX_RUNNER_VERSION")
+    runner_version: str = Field(default_factory=read_runner_version, alias="SMARTX_RUNNER_VERSION")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

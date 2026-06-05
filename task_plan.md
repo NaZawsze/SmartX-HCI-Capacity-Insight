@@ -94,7 +94,7 @@ curl -s -o /dev/null -w "api_metrics:%{http_code}\n" http://127.0.0.1:8000/metri
 
 ### Phase 5 - 版本治理
 
-状态：进行中
+状态：完成
 
 目标：
 
@@ -107,13 +107,15 @@ curl -s -o /dev/null -w "api_metrics:%{http_code}\n" http://127.0.0.1:8000/metri
 
 待办：
 
-- 拆分 `SMARTX_IMAGE_TAG` 和 `SMARTX_RUNNER_IMAGE_TAG`。
+- [已完成] 拆分 `SMARTX_IMAGE_TAG` 和 `SMARTX_RUNNER_IMAGE_TAG`。
 - [已完成] 更新平台版本元数据到 `v0.4.1`。
 - [已完成] 移除平台升级包中的 runner 镜像。
 - [已完成] runner 组件包默认读取 `RUNNER_VERSION`。
 - [已完成] GitHub Actions 拆分平台和 runner 构建。
 - [已完成] 文档增加 DockerHub 错误 tag 清理方法。
-- 本地验证后提交并推送到 `dev`。
+- [已完成] 后端镜像内置 `VERSION` 和 `RUNNER_VERSION`，运行时优先读取镜像内版本文件。
+- [已完成] 部署文档修正离线部署默认 tag，不再描述为 `latest`。
+- [已完成] 本地验证后提交并推送到 `dev`。
 
 ### Phase 6 - 清理空间显示 0B 修复
 
