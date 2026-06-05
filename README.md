@@ -116,6 +116,8 @@ Change the password after the first login from the admin avatar menu: `Set Passw
 
 The platform supports offline `.tar.gz` upgrade packages uploaded from the service management page. An upgrade package replaces service images and can optionally run a migration script. It must not include runtime data, `.env`, SQLite databases, Prometheus data, Tower credentials, or other secrets.
 
+Compatibility: the `v0.4.1` upgrade package only supports upgrades from versions between `v0.3.0` and `v0.4.0`. For versions earlier than `v0.3.0`, install the latest version fresh, then export a migration package from the old system with the README command and import it into the new system.
+
 Recommended package structure:
 
 ```text
