@@ -545,3 +545,26 @@ TDD 验证：
 - 本机缺少 `pytest`，暂不能跑 pytest 全量测试。
 - 本机缺少 `npm`，暂不能跑前端构建。
 - 完整 pytest、frontend build 和远端容器验证需要后续在 `10.20.11.3` 的 `feature/upgrade-v2` 分支执行。
+
+### 2026-06-06 Phase V2-1 统一任务模型
+
+状态：已完成本地最小验证
+
+实施内容：
+
+- 新增 `backend/app/v2/tasks/models.py`。
+- 定义 `TaskStatus`：`pending`、`running`、`success`、`failed`、`cancelled`。
+- 定义 `TaskType`：`report`、`migration_export`、`migration_import`、`upgrade`、`cleanup`、`collection`。
+- 定义 `TaskSnapshot`，用于统一任务列表和任务详情的基础状态。
+- 定义 `ErrorSnapshot`，用于返回安全的公开错误码和错误消息。
+
+TDD 验证：
+
+- RED：`PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_task_models -v` 先失败，原因是 `app.v2.tasks.models` 不存在。
+- GREEN：新增最小模型后，同一命令通过，3 个测试全部 OK。
+
+本地验证：
+
+- `PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_task_models -v` 通过。
+- `PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_skeleton -v` 通过。
+- `python3 -m py_compile backend/app/v2/tasks/models.py backend/tests/test_v2_task_models.py` 通过。
