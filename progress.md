@@ -642,3 +642,26 @@ TDD 记录：
 - 继续在 `10.20.11.3` 拉取最新并补跑 Docker 内 API 集成测试时，SSH 连接超时断开；随后本机到 `10.20.11.3` 的 ping 和 22/tcp 均显示 network unreachable。该远端验证项暂未完成，待网络恢复后继续。
 - 本机创建临时 venv `/tmp/smartx-v2-venv` 安装后端依赖后，FastAPI API 集成测试真实执行通过：未登录 `/api/me` 返回 401、默认 admin 登录成功、`/api/me` 返回当前用户、密码不一致返回 400、改密成功、旧密码失效、新密码可登录。
 - API 集成测试曾在 Python 3.9 venv 下暴露 `HTTPAuthorizationCredentials | None` 注解兼容问题，已改为 `Optional[HTTPAuthorizationCredentials]`，兼容 Python 3.9/3.12。
+
+### 2026-06-06 Phase V2-2 远端验证收口
+
+状态：完成
+
+远端验证位置：
+
+- 主机：`10.20.11.3`
+- v2 worktree：`/opt/smartx-storage-forecast-v2`
+- 分支：`feature/upgrade-v2`
+- 提交：`bb2f156`
+
+验证记录：
+
+- `git pull --ff-only origin feature/upgrade-v2` 成功拉到 `bb2f156`。
+- `docker compose build web-api frontend` 通过。
+- `docker run --rm -v /opt/smartx-storage-forecast-v2:/src -e PYTHONPATH=/src/backend -w /src smartx-storage-forecast-web-api:local python -m unittest backend.tests.test_v2_skeleton backend.tests.test_v2_task_models backend.tests.test_v2_foundation backend.tests.test_v2_auth_api -v` 通过：12 个测试 OK。
+- FastAPI 集成测试在 Python 3.12 容器内真实执行，覆盖未登录 401、登录、`/api/me`、密码不一致、改密、旧密码失效、新密码登录。
+
+结论：
+
+- Phase V2-2 基础平台与认证满足阶段验收。
+- `docs/v2-rebuild-task-plan.md` 已将 Phase V2-2 标记为完成。
