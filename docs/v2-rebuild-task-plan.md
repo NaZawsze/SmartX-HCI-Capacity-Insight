@@ -14,6 +14,8 @@
 - 升级兼容：不兼容旧升级路径，v2 升级中心重新规划。
 - 容器数量：默认保持 5 个容器：`frontend`、`web-api`、`collector-worker`、`prometheus`、`upgrade-runner`。
 - 分支边界：只在 `feature/upgrade-v2` 上重建，不影响 `dev/main`。
+- 测试边界：v2 构建、部署和现场验证可以使用 `10.20.11.3`，远端仓库必须切换到 `feature/upgrade-v2` 分支。
+- 前端边界：前端风格必须和 v1 保持一致，保留现有蓝白业务风格、导航结构、主要操作位置和客户交付感。
 - 安全边界：不提交 `.env`、SQLite、Prometheus 数据、Tower 凭据、升级包、迁移包、备份包。
 
 ## 2. 总目标
@@ -581,13 +583,16 @@ v2 不兼容 v1 旧升级路径，但必须兼容 v1 数据迁入。
 
 ### Phase V2-0 - 需求冻结与文档
 
-状态：待处理
+状态：完成
 
-- [ ] 输出 `docs/architecture-v2.md`。
-- [ ] 输出 `docs/v1-data-compatibility.md`。
-- [ ] 输出 `docs/v2-upgrade-center-design.md`。
-- [ ] 更新 `docs/functional-modules.md`，标注 v2 模块边界。
-- [ ] 更新 `docs/upgrade-issues.md`，把旧升级问题映射到 v2 设计规避点。
+- [x] 输出 `docs/architecture-v2.md`。
+- [x] 输出 `docs/v1-data-compatibility.md`。
+- [x] 输出 `docs/v2-upgrade-center-design.md`。
+- [x] 输出 `docs/v2-api-contracts.md`。
+- [x] 输出 `docs/v2-frontend-design.md`。
+- [x] 输出 `docs/v2-implementation-sequence.md`。
+- [x] 更新 `docs/functional-modules.md`，标注 v2 模块边界。
+- [x] 更新 `docs/upgrade-issues.md`，把旧升级问题映射到 v2 设计规避点。
 
 ### Phase V2-1 - 项目骨架
 
@@ -671,7 +676,7 @@ v2 不兼容 v1 旧升级路径，但必须兼容 v1 数据迁入。
 - [ ] GitHub Actions。
 - [ ] pre_install。
 - [ ] 升级包和组件包打包。
-- [ ] 在 `10.20.11.3` 完整验证。
+- [ ] 在 `10.20.11.3` 切换到 `feature/upgrade-v2` 后完整验证。
 
 ## 8. 测试计划
 
@@ -712,7 +717,7 @@ v2 不兼容 v1 旧升级路径，但必须兼容 v1 数据迁入。
 
 现场验证：
 
-- [ ] 在 `10.20.11.3` 部署 v2。
+- [ ] 在 `10.20.11.3` 部署 v2，并确认远端分支为 `feature/upgrade-v2`。
 - [ ] 执行 `pre_install.sh`。
 - [ ] 启动 offline compose。
 - [ ] 添加 Tower 并采集。
@@ -735,7 +740,105 @@ v2 不兼容 v1 旧升级路径，但必须兼容 v1 数据迁入。
 ## 10. 当前下一步
 
 - [ ] 确认本任务文档内容。
-- [ ] 创建 v2 架构文档。
-- [ ] 创建 v1 数据兼容文档。
-- [ ] 创建 v2 升级中心设计文档。
+- [x] 创建 v2 架构文档。
+- [x] 创建 v1 数据兼容文档。
+- [x] 创建 v2 升级中心设计文档。
+- [x] 创建 v2 API 契约文档。
+- [x] 创建 v2 前端设计文档。
+- [x] 创建 v2 实施顺序文档。
 - [ ] 再开始代码层面的受控重建。
+
+## 11. v2 细化设计文档清单
+
+Phase V2-0 先细写设计文档，再进入代码重建。该阶段目标是把模块职责、数据结构、API、迁移兼容、升级状态机、前端页面和验收标准提前锁定，避免后续实现时边写边猜。
+
+### 11.1 `docs/architecture-v2.md`
+
+定位：v2 总体架构文档。
+
+需要写清：
+
+- 系统目标：现场可交付、可迁移、可升级、可排障。
+- 容器职责：`frontend`、`web-api`、`collector-worker`、`prometheus`、`upgrade-runner`。
+- 后端模块边界：`auth`、`inventory`、`collection`、`metrics`、`forecast`、`reports`、`migration`、`upgrade`、`tasks`、`system`。
+- 前端信息架构：Dashboard、VM、Reports、Settings、Service Management。
+- 数据职责：SQLite、Prometheus、`/data` 文件系统分别保存什么。
+- 关键规则：VM 身份、VM 最新名称、Tower 原始 payload 处理、不新增微服务容器。
+
+### 11.2 `docs/v1-data-compatibility.md`
+
+定位：v1 现场数据迁入 v2 的兼容方案。
+
+需要写清：
+
+- v2 不兼容旧升级路径，但必须兼容 v1 数据迁入。
+- v1 数据来源：SQLite、Prometheus 历史 block、v1 迁移包 manifest、旧 `latest_vm_volumes.payload_json`。
+- 导入前强制备份，备份失败阻止导入。
+- 默认 merge，不覆盖现有 Tower/集群/VM；overwrite 必须显式选择。
+- 旧 VM 卷 payload 只抽取页面、报表、导出所需字段，其他 Tower 原始字段丢弃。
+- Prometheus 历史 block 必须导入，不导入 `wal` 运行时目录。
+- 导入后健康验证：SQLite 记录、Prometheus series、`query_range`、VM 趋势、日增长、月增长、集群预测报表。
+
+### 11.3 `docs/v2-upgrade-center-design.md`
+
+定位：v2 升级中心设计文档。
+
+需要写清：
+
+- 统一升级入口：上传一个 `.tar.gz` 包，由 `manifest.json` 自动识别升级内容。
+- 支持组件：platform、runner、observability。
+- 升级包结构：`manifest.json`、`images/*.tar`、`project/**`、`scripts/migrate.sh`、`release-notes.md`。
+- manifest 字段：包类型、目标组件、版本、镜像、sha256、重启服务、项目文件、迁移要求、兼容版本。
+- 状态机：uploaded、parsed、prechecked、backup_running、images_loaded、project_synced、migration_running、services_restarting、health_checking、success、failed、rollback_ready。
+- 预检查：镜像名/tag/sha256、Docker、compose、网络、volume、项目文件敏感路径、磁盘空间、Prometheus 权限。
+- 回滚：恢复 compose override、项目文件备份、运行配置；数据备份保留给人工恢复。
+- runner 自升级：不写只读 `/opt`，使用 `/data/compose-runtime`，任务状态跨重启恢复。
+- Prometheus 升级：强制备份数据目录，检查 `65534:65534` 权限，升级后检查 `/-/ready`、`query`、`query_range`。
+
+### 11.4 `docs/v2-api-contracts.md`
+
+定位：v2 API 和前后端数据契约。
+
+需要写清：
+
+- 认证 API：login、me、change password。
+- Tower/cluster API：Tower CRUD、连接测试、同步集群、启用集群。
+- collection API：手动采集、采集状态。
+- dashboard API：summary、risk status、day growth、day new VMs。
+- VM API：list、trend、volumes。
+- report API：latest report、export report task、export download。
+- migration API：export task、import upload、import start、import status、health check。
+- upgrade API：upload package、package list、precheck、start、status、rollback、history。
+- task API：list tasks、task detail、task logs、download artifact。
+- 每个 API 都需要标注参数、响应关键字段、错误状态、鉴权要求和对应前端页面。
+
+### 11.5 `docs/v2-frontend-design.md`
+
+定位：v2 前端页面和组件文档。
+
+需要写清：
+
+- 保留 v1 主导航。
+- 页面职责：Dashboard、VM、Reports、Settings、Service Management。
+- 通用组件：Scope selector、Task center、Upload panel、Step progress、Data table、Risk card、Trend chart。
+- 交互规则：下拉点击空白处收起，上传显示速度和服务器处理阶段，预检查和升级步骤使用统一状态图标。
+- 本日/本月新建 VM 是独立卡片，不嵌入增长榜。
+- 响应式规则：移动端不遮挡，卡片不挤压，表格可横向滚动。
+
+### 11.6 `docs/v2-implementation-sequence.md`
+
+定位：v2 代码重建阶段执行顺序。
+
+需要写清：
+
+- Phase V2-0：文档冻结。
+- Phase V2-1：项目骨架。
+- Phase V2-2：基础平台和认证。
+- Phase V2-3：Tower、采集、Prometheus。
+- Phase V2-4：Dashboard 和 VM。
+- Phase V2-5：报表。
+- Phase V2-6：数据迁移。
+- Phase V2-7：升级中心。
+- Phase V2-8：服务管理。
+- Phase V2-9：部署和现场验证。
+- 每个阶段都需要写明目标、交付物、验收命令、不允许混入的工作、是否可以提交。

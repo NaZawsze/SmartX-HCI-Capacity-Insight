@@ -315,13 +315,29 @@ curl -s -o /dev/null -w "api_metrics:%{http_code}\n" http://127.0.0.1:8000/metri
 - v2 不兼容旧升级路径；升级中心、组件升级和 Prometheus 升级重新设计。
 - v2 必须兼容 v1 现场数据迁入，尤其是 SQLite 业务数据、Prometheus 历史指标和旧 VM 卷 payload。
 - 控制部署复杂度，默认保持 5 个容器：`frontend`、`web-api`、`collector-worker`、`prometheus`、`upgrade-runner`。
+- v2 后续构建、部署和现场验证可以使用 `10.20.11.3`，远端仓库必须切换到 `feature/upgrade-v2` 分支。
+- v2 前端风格必须和 v1 保持一致，保留现有蓝白业务风格、导航结构、主要操作位置和客户交付感。
 
 已产出：
 
 - `docs/v2-rebuild-task-plan.md`：v2 受控重建任务文档，覆盖基础平台、认证、Tower/集群、采集、Prometheus、SQLite、Dashboard、VM、报表、数据迁移、任务中心、升级中心、服务管理、前端 UI、部署构建和现场验证。
+- 已在 `docs/v2-rebuild-task-plan.md` 追加 Phase V2-0 细化设计文档清单。
+- 已创建 Phase V2-0 的 6 个细化设计文档。
+
+Phase V2-0 细化文档：
+
+- [已创建] `docs/architecture-v2.md`：v2 总体架构、容器职责、模块边界和数据职责。
+- [已创建] `docs/v1-data-compatibility.md`：v1 现场数据迁入 v2 的兼容规则。
+- [已创建] `docs/v2-upgrade-center-design.md`：统一升级入口、manifest、状态机、runner/Prometheus 升级和回滚。
+- [已创建] `docs/v2-api-contracts.md`：v2 前后端 API 和数据契约。
+- [已创建] `docs/v2-frontend-design.md`：v2 前端页面、组件、交互规则和 v1 风格继承要求。
+- [已创建] `docs/v2-implementation-sequence.md`：v2 代码重建阶段顺序、交付物和验收命令。
+- [已更新] `docs/functional-modules.md`：标注 v2 模块边界映射。
+- [已更新] `docs/upgrade-issues.md`：标注 v2 升级中心对历史问题的规避策略。
 
 执行原则：
 
 - 先补齐 v2 架构、v1 数据兼容和 v2 升级中心设计文档，再开始代码层面重建。
 - 只在 `feature/upgrade-v2` 上推进，不影响 `dev/main`。
+- 在 `10.20.11.3` 执行 v2 验证前，先确认远端仓库位于 `feature/upgrade-v2`。
 - 不提交 `.env`、SQLite、Prometheus 数据、Tower 凭据、升级包、迁移包、备份包。

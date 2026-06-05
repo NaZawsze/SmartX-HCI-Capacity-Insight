@@ -422,3 +422,98 @@
 边界说明：
 
 - 本次只写入任务文档和计划进度，不修改业务代码。
+
+### 2026-06-06 v2 细化设计文档清单
+
+状态：已记录
+
+更新内容：
+
+- 在 `docs/v2-rebuild-task-plan.md` 增加 `## 11. v2 细化设计文档清单`。
+- 在 `task_plan.md` 的 Phase 17 补充 Phase V2-0 细化文档交付物。
+
+Phase V2-0 计划产出：
+
+- `docs/architecture-v2.md`
+- `docs/v1-data-compatibility.md`
+- `docs/v2-upgrade-center-design.md`
+- `docs/v2-api-contracts.md`
+- `docs/v2-frontend-design.md`
+- `docs/v2-implementation-sequence.md`
+
+边界说明：
+
+- 本次只记录细化文档计划，还没有创建上述设计文档。
+- 未修改业务代码。
+
+### 2026-06-06 Phase V2-0 细化设计文档创建
+
+状态：已完成第一批
+
+新增文档：
+
+- `docs/architecture-v2.md`
+- `docs/v1-data-compatibility.md`
+- `docs/v2-upgrade-center-design.md`
+- `docs/v2-api-contracts.md`
+- `docs/v2-frontend-design.md`
+- `docs/v2-implementation-sequence.md`
+
+同步更新：
+
+- `docs/v2-rebuild-task-plan.md` 中 Phase V2-0 状态改为进行中，并勾选上述 6 个文档。
+- `task_plan.md` 的 Phase 17 标记上述 6 个文档已创建。
+
+边界说明：
+
+- 本次只创建和更新文档。
+- 未修改业务代码。
+- Phase V2-0 仍需后续更新 `docs/functional-modules.md` 和 `docs/upgrade-issues.md`，把 v2 模块边界和旧升级问题规避策略映射进去。
+
+### 2026-06-06 v2 远端测试约定
+
+状态：已记录
+
+约定：
+
+- v2 后续构建、部署和现场验证可以使用 `10.20.11.3`。
+- 远端执行 v2 验证前，必须确认仓库分支为 `feature/upgrade-v2`。
+
+同步更新：
+
+- `docs/v2-rebuild-task-plan.md`
+- `docs/v2-implementation-sequence.md`
+- `task_plan.md`
+
+### 2026-06-06 Phase V2-0 文档收口与前端风格约束
+
+状态：已完成
+
+用户要求：
+
+- 严格按照开发文档实施。
+- 前端风格和 v1 保持一致。
+
+更新内容：
+
+- `docs/v2-frontend-design.md` 增加 v1 风格继承硬约束。
+- `docs/functional-modules.md` 增加 v2 模块边界映射。
+- `docs/upgrade-issues.md` 增加 v2 升级中心规避历史问题策略。
+- `docs/v2-rebuild-task-plan.md` 标记 Phase V2-0 文档项完成，并记录前端风格边界。
+- `task_plan.md` 同步前端风格要求和文档收口状态。
+
+边界说明：
+
+- 本次仍只更新文档。
+- 后续代码实施必须按 v2 文档执行。
+- 前端允许重构组件，但不能改变 v1 的整体视觉语言、导航结构、主要操作位置和业务术语。
+
+验证记录：
+
+- 文档敏感词检查未发现真实密码或 token。
+- 固定字符串检查确认 `docs/functional-modules.md` 和 `docs/upgrade-issues.md` 的 Phase V2-0 待办没有遗留未勾选项。
+- 固定字符串检查确认“前端风格必须和 v1 保持一致”已写入 `docs/v2-rebuild-task-plan.md`、`docs/functional-modules.md` 和 `task_plan.md`。
+
+错误记录：
+
+- 曾使用包含反引号的 `rg` 命令检查 markdown checkbox，zsh 将反引号解释为命令替换导致报错；已改用 `rg -F` 固定字符串重新检查。

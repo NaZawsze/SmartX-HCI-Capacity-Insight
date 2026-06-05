@@ -472,3 +472,36 @@ scripts/migrate.sh
 - 项目目录存在若干 macOS `._*` 文件和历史 `.bak.*` 文件，后续应单独清理和确认 `.gitignore`。
 - 升级任务如果执行中重建 `upgrade-runner`，可能停留在 running 状态，需要补充任务恢复或超时失败机制。
 - 后续若需要升级 Prometheus，需要明确是平台升级包支持 Prometheus 镜像，还是单独作为组件/基础服务升级。
+
+## v2 模块边界映射
+
+v2 在 `feature/upgrade-v2` 上全新重写，但功能边界仍继承本文件的模块归类。实现时按下面映射拆分，不再把所有逻辑堆到少数大文件里。
+
+| v1 功能模块 | v2 模块 | v2 设计文档 |
+| --- | --- | --- |
+| 基础平台与部署 | `system`、`tasks`、部署资产 | `docs/architecture-v2.md`、`docs/v2-implementation-sequence.md` |
+| 用户、认证与权限 | `auth` | `docs/v2-api-contracts.md` |
+| Tower 与集群配置 | `inventory` | `docs/architecture-v2.md`、`docs/v2-api-contracts.md` |
+| 数据采集与历史指标 | `collection`、`metrics` | `docs/architecture-v2.md` |
+| 总览仪表盘 | `forecast`、`metrics`、前端 Dashboard | `docs/v2-frontend-design.md`、`docs/v2-api-contracts.md` |
+| 虚拟机容量页面 | `inventory`、`metrics`、前端 VM | `docs/v2-frontend-design.md`、`docs/v2-api-contracts.md` |
+| 报表与存储预测 | `forecast`、`reports` | `docs/v2-api-contracts.md`、`docs/v2-frontend-design.md` |
+| 数据迁移、导出与导入 | `migration`、`tasks` | `docs/v1-data-compatibility.md`、`docs/v2-api-contracts.md` |
+| 服务管理 | `system`、`tasks`、前端 Service Management | `docs/v2-frontend-design.md` |
+| 在线升级与升级包 | `upgrade`、`tasks`、`upgrade-runner` | `docs/v2-upgrade-center-design.md` |
+| 组件升级与 runner 生命周期 | `upgrade`、`upgrade-runner` | `docs/v2-upgrade-center-design.md` |
+| 版本、发布与升级包生成 | 版本治理、打包脚本、CI | `docs/architecture-v2.md`、`docs/v2-implementation-sequence.md` |
+| 前端 UI 与交互规范 | 前端通用组件和页面 | `docs/v2-frontend-design.md` |
+| API 与数据模型 | API 契约、SQLite、Prometheus | `docs/v2-api-contracts.md`、`docs/architecture-v2.md` |
+
+v2 前端要求：
+
+- 前端风格必须和 v1 保持一致。
+- 保留 v1 主导航、页面结构、蓝白业务风格和客户交付感。
+- 可以重构组件和状态管理，但不能改变用户熟悉的主要入口和业务术语。
+
+v2 实施顺序：
+
+- Phase V2-0 先冻结文档。
+- Phase V2-1 起再进入代码重建。
+- 后续 v2 构建、部署和验证可使用 `10.20.11.3`，远端仓库必须切到 `feature/upgrade-v2`。

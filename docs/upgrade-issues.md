@@ -391,3 +391,40 @@ compose_command docker compose -p smartx-capacity-insight -f /data/compose-runti
 ```
 
 取舍：已取消“数据迁移导出跳过 Prometheus 历史指标”的优化方向。历史指标是日增长、月增长和趋势图的数据来源，不能为了导出速度跳过；真正优化方向是目录职责拆开，并给导出/导入/备份增加精确进度和可清理留档。
+
+## v2 升级中心规避策略
+
+v2 不继续兼容旧升级路径，而是在 `feature/upgrade-v2` 上重新设计升级中心。历史问题在 v2 中按下面方式规避。
+
+| 历史问题 | v2 规避策略 | 设计文档 |
+| --- | --- | --- |
+| UPG-001 写只读 `/opt` | runner 和 web-api 的运行时 compose override 统一写 `/data/compose-runtime` | `docs/v2-upgrade-center-design.md` |
+| UPG-002 runner 函数缺失 | runner 独立组件包、独立版本、独立验证，不跟随平台包混发 | `docs/v2-upgrade-center-design.md` |
+| UPG-003 重启平台服务带起依赖 | 平台升级只重启 manifest 声明服务，未声明组件一律不动 | `docs/v2-upgrade-center-design.md` |
+| UPG-004 Docker socket 路径不一致 | runner 区分宿主机 Docker 视角路径和容器内 cwd | `docs/v2-upgrade-center-design.md` |
+| UPG-005 镜像名不闭环 | manifest 校验镜像名、tag、archive、sha256 与 compose 目标一致 | `docs/v2-upgrade-center-design.md` |
+| UPG-006 offline compose 使用 latest | v2 离线 compose 默认明确版本，不使用 `latest` 作为部署默认 tag | `docs/architecture-v2.md` |
+| UPG-007 项目文件不同步 | 升级包支持 `project/` 白名单同步，同步前备份项目文件 | `docs/v2-upgrade-center-design.md` |
+| UPG-008 备份卡住不透明 | 备份任务记录扫描总量、当前文件、字节进度和小日志 | `docs/v2-upgrade-center-design.md` |
+| UPG-009 上传 95% 卡住 | 前端上传显示速度，上传结束后切换为服务器处理中 | `docs/v2-frontend-design.md` |
+| UPG-010 UI 内容重复 | v2 升级中心合并平台状态、包信息和运行核验 | `docs/v2-frontend-design.md` |
+| UPG-011 预检查无步骤 | 预检查统一使用步骤状态机和页面内状态图标 | `docs/v2-upgrade-center-design.md` |
+| UPG-012 runner 版本显示不准 | runner 版本、镜像 tag、容器创建时间一起展示 | `docs/v2-upgrade-center-design.md` |
+| UPG-013 清理 0B | 空间清理先扫描候选，再按候选删除并保留本次释放结果 | `docs/v2-frontend-design.md` |
+| UPG-014 网络冲突 | 预检查校验 compose 网络，继续规避 172.16/172.17 常见冲突段 | `docs/v2-upgrade-center-design.md` |
+| UPG-015 Prometheus 升级未定义 | Prometheus 作为 `observability` 组件独立升级，强制备份和健康检查 | `docs/v2-upgrade-center-design.md` |
+| UPG-016 迁移后趋势为空 | v2 数据迁移必须包含 Prometheus 历史 block，并有导入后健康验证 | `docs/v1-data-compatibility.md` |
+| UPG-019 运行产物污染 app 目录 | v2 明确 `/data/upgrades`、`/data/backups`、`/data/exports`、`/data/compose-runtime` 独立职责 | `docs/architecture-v2.md` |
+
+v2 升级中心实施前必须先完成：
+
+- `docs/v2-upgrade-center-design.md`
+- `docs/v2-api-contracts.md`
+- `docs/v2-frontend-design.md`
+- `docs/v2-implementation-sequence.md`
+
+前端要求：
+
+- 升级中心页面风格和 v1 服务管理页保持一致。
+- 保留 CloudTower 风格大面板、左侧二级菜单、右侧内容区。
+- 上传、预检查、升级、回滚、空间清理都使用页面内弹窗和步骤进度，不使用浏览器原生提示。
