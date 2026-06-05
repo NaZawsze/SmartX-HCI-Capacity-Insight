@@ -211,3 +211,13 @@
 - 新增统一“平台状态”区域，集中展示版本、升级包、compose 和运行服务。
 - `renderUpgradeRuntimeVerification()` 只返回运行服务表，刷新按钮移到平台状态标题行。
 - `docs/upgrade-issues.md` 将 UPG-010 标记为已解决。
+
+### runner 生命周期文档版本来源
+
+状态：完成
+
+修复：
+
+- `docs/upgrade-runner-lifecycle.md` 将“升级后核验”文案更新为“平台状态”。
+- `docs/upgrade-issues.md` 将 UPG-017 标记为已解决。
+- `docs/releases/CHANGELOG.md` 同步服务管理页命名，避免维护人员继续引用旧区域名。

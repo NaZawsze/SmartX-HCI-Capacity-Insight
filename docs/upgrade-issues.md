@@ -296,15 +296,16 @@ sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
 
 ## UPG-017 文档中 runner 版本来源描述陈旧
 
-状态：待修复
+状态：[已解决] runner 生命周期文档已按镜像内置平台版本和独立 runner 版本更新
 
 现象：`docs/upgrade-runner-lifecycle.md` 仍描述平台版本来自 `SMARTX_APP_VERSION`，但当前目标设计是平台版本优先来自镜像内置 `VERSION`。
 
 影响：维护人员会误以为 compose 里还必须写 `SMARTX_APP_VERSION`。
 
-根修方向：
+修复：
 - 更新 runner 生命周期文档：平台版本来自镜像内 `/app/VERSION`，`SMARTX_APP_VERSION` 只作为兜底覆盖。
 - runner 组件版本仍独立来自 `/data/upgrade-runner.version` 或 runner 自身默认版本。
+- 服务管理页文案统一为“平台状态”，不再沿用“升级后核验”作为独立区域。
 
 ## UPG-018 runner 使用宿主机路径作为容器内 cwd
 
