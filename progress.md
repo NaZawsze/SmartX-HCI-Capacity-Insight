@@ -517,3 +517,31 @@ Phase V2-0 计划产出：
 错误记录：
 
 - 曾使用包含反引号的 `rg` 命令检查 markdown checkbox，zsh 将反引号解释为命令替换导致报错；已改用 `rg -F` 固定字符串重新检查。
+
+### 2026-06-06 Phase V2-1 项目骨架启动
+
+状态：进行中
+
+实施内容：
+
+- 新增 `backend/app/v2/` 命名空间。
+- 新增 v2 后端模块占位：`auth`、`inventory`、`collection`、`metrics`、`forecast`、`reports`、`migration`、`upgrade`、`tasks`、`system`。
+- 新增 `backend/app/v2/registry.py`，声明 v2 后端模块清单。
+- 新增前端 v2 目录骨架：`frontend/src/v2/components`、`frontend/src/v2/pages`、`frontend/src/v2/services`、`frontend/src/v2/types`。
+- 新增 `backend/tests/test_v2_skeleton.py`，用 Python 标准库 `unittest` 验证 v2 后端模块可导入和前端 v2 目录存在。
+
+TDD 验证：
+
+- RED：`PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_skeleton -v` 先失败，原因是 `app.v2` 和 `frontend/src/v2/*` 不存在。
+- GREEN：新增最小骨架后，同一命令通过，2 个测试全部 OK。
+
+本地验证：
+
+- `PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_skeleton -v` 通过。
+- `python3 -m py_compile` 检查新增 v2 模块和测试文件通过。
+
+限制：
+
+- 本机缺少 `pytest`，暂不能跑 pytest 全量测试。
+- 本机缺少 `npm`，暂不能跑前端构建。
+- 完整 pytest、frontend build 和远端容器验证需要后续在 `10.20.11.3` 的 `feature/upgrade-v2` 分支执行。
