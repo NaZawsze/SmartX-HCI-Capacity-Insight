@@ -99,3 +99,23 @@ def test_upgrade_backup_skips_legacy_runtime_artifacts() -> None:
     assert '"upgrades"' in text
     assert '"backups"' in text
     assert '"exports"' in text
+
+
+def test_image_cleanup_deletes_scanned_candidates() -> None:
+    root = Path(__file__).resolve().parents[2]
+    text = (root / "backend/app/services/system_control.py").read_text(encoding="utf-8")
+
+    assert 'before = scan_unused_images()' in text
+    assert '"/images/prune' not in text
+    assert 'DELETE", f"/images/{quote(image_id' in text
+    assert '"space_reclaimable_before_label"' in text
+    assert '"errors": errors' in text
+
+
+def test_space_cleanup_keeps_cleanup_result_visible() -> None:
+    root = Path(__file__).resolve().parents[2]
+    text = (root / "frontend/src/pages/ServicePage.tsx").read_text(encoding="utf-8")
+
+    assert 'setSpaceCleanupTotal(result.space_reclaimed_label)' in text
+    assert 'setSpaceCleanupItems([])' in text
+    assert 'await scanSpaceCleanup();' not in text

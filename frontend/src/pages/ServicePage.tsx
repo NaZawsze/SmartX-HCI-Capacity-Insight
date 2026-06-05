@@ -5,7 +5,7 @@ import type { TransferProgress } from "../services/api";
 import type { AppTask, MigrationExportTask, SpaceCleanupScanItem, UpgradeTask, UpgradeVerification } from "../types";
 
 type ServiceSection = "migration" | "restart" | "space-cleanup" | "platform-upgrade" | "component-upgrade" | "history";
-type CleanupScanImage = { id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string };
+type CleanupScanImage = { id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string; reclaimable_size?: number; reclaimable_size_label?: string; created_at?: number };
 type DisplayStep = { key: string; title: string; status: string; message?: string };
 
 const runningUpgradeStatuses = new Set(["pending", "running", "rollback_pending", "rollback_running"]);
@@ -72,6 +72,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
   const [cleanupLogs, setCleanupLogs] = useState<string[]>([]);
   const [cleanupImagesList, setCleanupImagesList] = useState<CleanupScanImage[]>([]);
   const [cleanupReclaimable, setCleanupReclaimable] = useState("0 B");
+  const [cleanupActualReclaimed, setCleanupActualReclaimed] = useState("");
   const [componentFile, setComponentFile] = useState<File | null>(null);
   const [componentTask, setComponentTask] = useState<UpgradeTask | null>(null);
   const [componentHistory, setComponentHistory] = useState<UpgradeTask[]>([]);
@@ -301,8 +302,9 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
       const result = await api.cleanupSpaceArtifacts();
       setSpaceCleanupLogs((current) => [...current, ...(result.logs || []), result.message]);
       setSpaceCleanupMessage(result.message);
+      setSpaceCleanupTotal(result.space_reclaimed_label);
+      setSpaceCleanupItems([]);
       updateTask(id, { status: "succeeded", progress: 100, detail: result.message, logs: result.logs });
-      await scanSpaceCleanup();
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "空间清理失败";
       setSpaceCleanupLogs((current) => [...current, message]);
@@ -335,6 +337,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
       const result = await api.scanUnusedImages();
       setCleanupImagesList(result.images);
       setCleanupReclaimable(result.space_reclaimable_label);
+      setCleanupActualReclaimed("");
       setCleanupProgress(45);
       setCleanupLogs((current) => [...current, result.message]);
       setCleanupMessage(result.message);
@@ -362,10 +365,11 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
       const result = await api.cleanupUnusedImages();
       setCleanupProgress(100);
       updateTask(id, { status: "succeeded", progress: 100, detail: result.message });
-      setCleanupLogs((current) => [...current, result.message, "清理完成。"]);
+      setCleanupLogs((current) => [...current, result.message, ...(result.errors || []), "清理完成。"]);
       setCleanupMessage(result.message);
+      setCleanupActualReclaimed(result.space_reclaimed_label ?? formatBytes(result.space_reclaimed));
+      setCleanupReclaimable(result.space_reclaimable_before_label ?? cleanupReclaimable);
       setCleanupImagesList([]);
-      setCleanupReclaimable("0 B");
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "清理旧版本镜像失败";
       updateTask(id, { status: "failed", progress: 100, detail: message });
@@ -904,6 +908,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                 setCleanupLogs([]);
                 setCleanupImagesList([]);
                 setCleanupReclaimable("0 B");
+                setCleanupActualReclaimed("");
               }} disabled={cleanupBusy || isRunning}>
                 <RefreshCw size={16} />
                 {cleanupBusy ? "清理中" : "清理旧版本"}
@@ -1043,7 +1048,8 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           </div>
           <div className="cleanup-summary">
             <strong>{cleanupImagesList.length} 个未使用镜像</strong>
-            <span>预计可释放 {cleanupReclaimable}</span>
+            <span>候选逻辑大小 {cleanupReclaimable}</span>
+            {cleanupActualReclaimed && <span>实际释放 {cleanupActualReclaimed}</span>}
           </div>
           <div className="cleanup-image-list auto-scrollbar">
             {cleanupImagesList.length ? (
@@ -1051,9 +1057,9 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                 <div className="cleanup-image-row" key={image.id}>
                   <div>
                     <strong>{image.display_name}</strong>
-                    <small>{image.short_id}</small>
+                    <small>{image.short_id}{image.created_at ? ` · ${formatUnixTime(image.created_at)}` : ""}</small>
                   </div>
-                  <span>{image.size_label}</span>
+                  <span>{image.reclaimable_size_label ?? image.size_label}</span>
                 </div>
               ))
             ) : (
@@ -1439,6 +1445,22 @@ function formatTime(value?: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function formatUnixTime(value?: number): string {
+  if (!value) return "-";
+  return formatTime(new Date(value * 1000).toISOString());
+}
+
+function formatBytes(value?: number): string {
+  let size = Number(value || 0);
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index += 1;
+  }
+  return index < 2 ? `${size.toFixed(0)} ${units[index]}` : `${size.toFixed(2)} ${units[index]}`;
 }
 
 export function formatVersionForDisplay(value?: string | null, fallback = "-"): string {

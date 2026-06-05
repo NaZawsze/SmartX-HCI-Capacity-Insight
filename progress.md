@@ -146,3 +146,19 @@
 - `python3 -m py_compile backend/app/services/upgrade.py backend/app/core/config.py scripts/build_upgrade_package.py scripts/build_runner_component_package.py backend/tests/test_deployment_config.py backend/tests/test_upgrade.py` 通过。
 - `python3 scripts/build_upgrade_package.py --check-version` 通过，输出 `Version metadata OK: v0.4.1`。
 - 直接导入 `backend/tests/test_upgrade.py` 时本地缺少 `pydantic`，需要在远端环境或容器内跑完整导入测试。
+
+### 修复清理空间显示 0B
+
+状态：进行中
+
+发现：
+
+- 镜像扫描显示的是未被容器使用的镜像，但清理接口原来调用 Docker `/images/prune`，带 tag 的旧版本镜像经常不会被 prune 删除，所以 Docker 返回 `SpaceReclaimed=0`。
+- 服务管理的空间清理成功后立即调用 `scanSpaceCleanup()`，清理后自然扫描为 `0B`，覆盖了本次清理释放结果。
+
+修复：
+
+- `backend/app/services/system_control.py` 镜像清理改为逐个删除扫描出的未使用镜像。
+- 镜像清理结果返回候选逻辑大小、预计释放大小和删除失败列表。
+- `frontend/src/pages/ServicePage.tsx` 保留本次清理结果，不再用清理后重扫覆盖为 `0B`。
+- `docs/upgrade-issues.md` 将 UPG-013 标记为已解决。

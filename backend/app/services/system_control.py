@@ -39,19 +39,35 @@ def cleanup_unused_images() -> dict[str, Any]:
     except OSError as exc:
         raise HTTPException(status_code=503, detail="当前环境未挂载 Docker 控制接口，无法清理镜像。") from exc
 
-    status, body = _docker_request("POST", "/images/prune?filters=%7B%7D")
-    if status >= 300:
-        detail = body.decode("utf-8", errors="ignore") or "清理旧版本镜像失败。"
-        raise HTTPException(status_code=500, detail=detail)
-    payload = json.loads(body.decode("utf-8") or "{}")
-    deleted = payload.get("ImagesDeleted") or []
-    reclaimed = int(payload.get("SpaceReclaimed") or 0)
-    deleted_count = len(deleted)
+    before = scan_unused_images()
+    deleted_count = 0
+    errors: list[str] = []
+    for image in before.get("images") or []:
+        image_id = str(image.get("id") or "")
+        if not image_id:
+            continue
+        status, body = _docker_request("DELETE", f"/images/{quote(image_id, safe='')}?force=false&noprune=false")
+        if status < 300:
+            deleted_count += 1
+            continue
+        detail = body.decode("utf-8", errors="ignore") or "删除失败"
+        errors.append(f"{image.get('display_name') or image.get('short_id') or image_id}: {detail[:200]}")
+    candidate_size = int(before.get("space_reclaimable") or 0)
+    after = scan_unused_images()
+    remaining_size = int(after.get("space_reclaimable") or 0)
+    reclaimed = max(candidate_size - remaining_size, 0)
+    message = f"已清理 {deleted_count} 个未使用镜像，候选镜像逻辑大小 {_format_bytes(candidate_size)}，预计释放 {_format_bytes(reclaimed)}。"
+    if errors:
+        message += f" {len(errors)} 个镜像未能删除。"
     return {
         "ok": True,
         "deleted_count": deleted_count,
         "space_reclaimed": reclaimed,
-        "message": f"已清理 {deleted_count} 个未使用镜像，释放 {_format_bytes(reclaimed)}。",
+        "space_reclaimed_label": _format_bytes(reclaimed),
+        "space_reclaimable_before": candidate_size,
+        "space_reclaimable_before_label": _format_bytes(candidate_size),
+        "errors": errors,
+        "message": message,
     }
 
 
@@ -82,6 +98,9 @@ def scan_unused_images() -> dict[str, Any]:
                 "display_name": repo_tags[0] if repo_tags else image_id.replace("sha256:", "")[:12],
                 "size": size,
                 "size_label": _format_bytes(size),
+                "reclaimable_size": size,
+                "reclaimable_size_label": _format_bytes(size),
+                "created_at": int(image.get("Created") or 0),
             }
         )
     unused.sort(key=lambda item: item["size"], reverse=True)
@@ -92,7 +111,7 @@ def scan_unused_images() -> dict[str, Any]:
         "image_count": len(unused),
         "space_reclaimable": total,
         "space_reclaimable_label": _format_bytes(total),
-        "message": f"发现 {len(unused)} 个未使用镜像，预计可释放 {_format_bytes(total)}。",
+        "message": f"发现 {len(unused)} 个未使用镜像，候选镜像逻辑大小 {_format_bytes(total)}。",
     }
 
 

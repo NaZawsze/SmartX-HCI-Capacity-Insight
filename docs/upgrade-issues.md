@@ -235,21 +235,22 @@ sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
 
 ## UPG-013 清理旧镜像显示可释放 0B
 
-状态：待修复
+状态：[已解决] 清理逻辑改为删除扫描出的未使用镜像，空间清理不再用清理后重扫结果覆盖本次释放量
 
 现象：清理旧版本镜像时，页面显示可清理空间为 `0B`。
 
-可能原因：
+根因：
 - Docker image size 和 shared layer reclaimable size 没有区分。
-- 扫描只统计了 dangling/unused 镜像，但实际候选镜像仍被 tag 或容器引用。
-- UI 使用了错误字段或后端没有返回每个镜像的可释放估算。
+- 后端扫描列出了未被容器使用的带 tag 旧镜像，但执行清理时调用的是 Docker `/images/prune`；prune 对带 tag 镜像常常不会删除，返回 `SpaceReclaimed=0`。
+- 服务管理的“空间清理”成功后立刻重新扫描，清理后的扫描结果自然是 `0B`，覆盖了本次“已释放 X”的结果。
 
 影响：用户无法判断清理价值，也不敢执行清理。
 
-根修方向：
-- 清理前必须先扫描。
-- 显示候选镜像列表、镜像 tag、ID、创建时间、逻辑大小、是否被容器使用、预计可释放空间。
-- 清理按钮使用红色危险操作，扫描按钮使用蓝色主操作。
+修复：
+- 镜像清理先复用扫描候选列表，再逐个调用 Docker `DELETE /images/{id}` 删除未被容器使用的镜像。
+- 返回 `space_reclaimable_before`、`space_reclaimable_before_label`、`space_reclaimed_label` 和删除失败 `errors`。
+- 前端弹窗区分显示“候选逻辑大小”和“实际/预计释放”，并保留清理结果。
+- 服务管理“空间清理”清理完成后显示 `space_reclaimed_label`，不再立刻重扫覆盖为 `0B`。
 
 ## UPG-014 Docker 网络名称或网段冲突
 
