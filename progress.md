@@ -568,3 +568,67 @@ TDD 验证：
 - `PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_task_models -v` 通过。
 - `PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_skeleton -v` 通过。
 - `python3 -m py_compile backend/app/v2/tasks/models.py backend/tests/test_v2_task_models.py` 通过。
+
+### 2026-06-06 Phase V2-1 远端构建验证收口
+
+状态：完成
+
+远端验证位置：
+
+- 主机：`10.20.11.3`
+- v2 独立 worktree：`/opt/smartx-storage-forecast-v2`
+- 分支来源：`origin/feature/upgrade-v2`
+- 提交：`2894378`
+
+注意：
+
+- 原 `/opt/smartx-storage-forecast` 仍在 `dev` 且存在未提交变更，没有直接切换。
+- v2 验证使用独立 worktree，避免影响现有 dev 环境。
+- 远端构建前临时从 `.env.example` 复制 `.env`，仅用于 Docker compose build，不纳入提交。
+
+远端验证：
+
+- `PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_skeleton backend.tests.test_v2_task_models -v` 通过，5 个测试 OK。
+- `python3 -m py_compile backend/app/v2/__init__.py backend/app/v2/registry.py backend/app/v2/tasks/models.py backend/tests/test_v2_skeleton.py backend/tests/test_v2_task_models.py` 通过。
+- `docker compose build web-api frontend` 通过。
+- Docker 内 frontend 执行 `npm run build` 通过，仅保留 Vite 大 chunk 提示。
+
+结论：
+
+- Phase V2-1 项目骨架满足“后端语法检查通过、前端构建通过、空壳应用可构建”的阶段验收。
+- `docs/v2-rebuild-task-plan.md` 已将 Phase V2-1 标记为完成。
+
+### 2026-06-06 Phase V2-2 基础平台与认证
+
+状态：进行中，本地核心验证完成
+
+实施内容：
+
+- 新增 `backend/app/v2/config.py`，定义 v2 版本读取、运行目录和环境配置。
+- 新增 `backend/app/v2/security.py`，使用标准库实现密码哈希、密码校验、token 签发和 token 校验。
+- 新增 `backend/app/v2/database.py`，实现 v2 SQLite 初始化、默认管理员创建和基础任务表。
+- 新增 `backend/app/v2/auth/service.py`，实现登录、当前用户和修改密码核心服务。
+- 新增 `backend/app/v2/system/health.py`，实现数据库和运行目录健康检查。
+- 新增 `backend/app/v2/api.py` 和 `backend/app/v2/main.py`，提供独立 v2 FastAPI 应用壳：`/api/auth/login`、`/api/me`、`/api/me/password`、`/api/system/health`。
+- 新增 `frontend/src/v2/services/auth.ts`，定义 v2 登录、当前用户、改密 API 客户端。
+- 新增 `frontend/src/v2/components/AccountMenu.tsx`，保留 v1 风格的 admin 头像菜单：设置密码、登出。
+- 新增 `frontend/src/v2/types/tasks.ts`，同步 v2 后台任务基础类型。
+
+TDD 记录：
+
+- RED：`PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_foundation -v` 先失败，原因是 `app.v2.config`、`app.v2.auth.service` 等模块不存在。
+- GREEN：新增 v2 配置、数据库、认证、安全和健康检查模块后，`backend.tests.test_v2_foundation` 通过。
+- RED：新增 `test_settings_from_environment_reads_current_environment` 后先失败，原因是 `V2Settings` 默认值在模块导入时读取环境变量。
+- GREEN：将环境变量默认值改为 `default_factory` 后，该测试通过。
+- 新增 `backend/tests/test_v2_auth_api.py`；本机缺少 FastAPI 依赖时跳过，远端/Docker 环境用于实际验证 API 链路。
+
+本地验证：
+
+- `PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_skeleton backend.tests.test_v2_task_models backend.tests.test_v2_foundation backend.tests.test_v2_auth_api -v` 通过：10 个测试 OK，1 个 FastAPI 集成测试因本机缺依赖跳过。
+- `python3 -m py_compile backend/app/v2/api.py backend/app/v2/main.py backend/app/v2/config.py backend/app/v2/security.py backend/app/v2/database.py backend/app/v2/auth/service.py backend/app/v2/system/health.py backend/tests/test_v2_foundation.py backend/tests/test_v2_auth_api.py` 通过。
+
+待验证：
+
+- 在 `10.20.11.3` 的 `/opt/smartx-storage-forecast-v2` 拉取 `feature/upgrade-v2` 后运行 v2 unittest，确认 FastAPI 集成测试实际通过。
+- 在远端执行 `docker compose build web-api frontend`，确认后端和前端构建均通过。
+- 如后续决定将 Docker 入口切到 `app.v2.main:app`，需要另起阶段处理，因为 Phase V2-2 当前只提供独立 v2 应用壳，不覆盖 v1 主入口。
