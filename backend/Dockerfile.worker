@@ -14,4 +14,4 @@ COPY backend/app ./app
 
 EXPOSE 9108
 
-CMD ["python", "-m", "app.collector.worker"]
+CMD ["python", "-m", "app.v2.worker"]

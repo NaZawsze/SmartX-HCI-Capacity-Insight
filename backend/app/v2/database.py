@@ -100,6 +100,12 @@ class V2Database:
                     finished_at TEXT
                 );
 
+                CREATE TABLE IF NOT EXISTS metric_snapshots (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    metrics_text TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
                 CREATE TABLE IF NOT EXISTS schema_migrations (
                     name TEXT PRIMARY KEY,
                     applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP

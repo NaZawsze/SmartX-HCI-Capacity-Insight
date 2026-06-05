@@ -37,6 +37,19 @@ class V2SkeletonTest(unittest.TestCase):
 
         self.assertEqual(missing, [])
 
+    def test_v2_runtime_entrypoints_are_selected(self) -> None:
+        repo_root = Path(__file__).resolve().parents[2]
+        web_dockerfile = (repo_root / "backend/Dockerfile").read_text(encoding="utf-8")
+        worker_dockerfile = (repo_root / "backend/Dockerfile.worker").read_text(encoding="utf-8")
+        self.assertIn("app.v2.main:app", web_dockerfile)
+        self.assertIn("app.v2.worker", worker_dockerfile)
+        self.assertNotIn("app.main:app", web_dockerfile)
+        self.assertNotIn("app.collector.worker", worker_dockerfile)
+        for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+            text = (repo_root / name).read_text(encoding="utf-8")
+            self.assertIn('command: ["python", "-m", "app.v2.worker"]', text)
+            self.assertNotIn('command: ["python", "-m", "app.collector.worker"]', text)
+
 
 if __name__ == "__main__":
     unittest.main()

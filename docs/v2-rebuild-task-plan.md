@@ -619,9 +619,10 @@ v2 不兼容 v1 旧升级路径，但必须兼容 v1 数据迁入。
 - [x] Tower 管理。
 - [x] 集群同步和启用。
 - [x] 手动采集基础链路。
-- [ ] collector-worker 定时采集。
+- [x] collector-worker 定时采集基础。
 - [x] Prometheus 指标文本基础格式。
-- [ ] Prometheus 写入和查询。
+- [x] Prometheus 查询和健康检查基础。
+- [x] Prometheus scrape 基础闭环。
 
 ### Phase V2-4 - Dashboard 与 VM 页面
 

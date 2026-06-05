@@ -32,7 +32,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile.worker
     image: smartx-storage-forecast-collector-worker:local
-    command: ["python", "-m", "app.collector.worker"]
+    command: ["python", "-m", "app.v2.worker"]
     env_file:
       - .env
     environment:

@@ -746,3 +746,73 @@ TDD 记录：
 
 - V2-3 已完成 Tower/Cluster 存储与 API、指标文本格式、fake client 手动采集基础链路的远端容器验证。
 - 后续继续实现真实 CloudTower HTTP 客户端、连接测试接口、Prometheus 查询/健康服务和 collector-worker 定时采集。
+
+### 2026-06-06 Phase V2-3 CloudTower 客户端与 Prometheus 查询基础
+
+状态：进行中，真实客户端与查询基础完成本地验证
+
+实施内容：
+
+- 新增 `backend/app/v2/cloudtower/client.py` 和 `backend/app/v2/cloudtower/service.py`。
+- v2 CloudTower 客户端支持用户名密码登录、API token、分页请求、集群列表归一化、集群容量和 VM 容量归一化。
+- `POST /api/towers/{tower_id}/test` 接入 v2 API，连接成功后同步集群，连接失败返回脱敏后的错误摘要。
+- `POST /api/collection/run` 接入 v2 API，复用 `CollectionService` 和真实 CloudTower service 执行手动采集。
+- 新增 `backend/app/v2/metrics/prometheus.py`，提供 Prometheus `/-/ready` 健康检查、instant query 和 query_range 解析。
+- v2 系统健康检查增加 Prometheus 检查项。
+
+TDD 记录：
+
+- RED：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_cloudtower_client backend.tests.test_v2_inventory_api -v` 先失败，原因是 `app.v2.cloudtower` 和 `get_cloudtower_service` 不存在。
+- GREEN：新增 CloudTower client/service 和 API 连接测试入口后，目标测试通过。
+- RED：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_prometheus_service -v` 先失败，原因是 `app.v2.metrics.prometheus` 不存在。
+- GREEN：新增 PrometheusService 后，Prometheus 目标测试通过。
+- RED：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_foundation -v` 先失败，原因是健康检查不支持 Prometheus 注入。
+- GREEN：健康检查接入 Prometheus 后，基础测试通过。
+
+本地验证：
+
+- `PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_skeleton backend.tests.test_v2_task_models backend.tests.test_v2_foundation backend.tests.test_v2_inventory_metrics backend.tests.test_v2_cloudtower_client backend.tests.test_v2_prometheus_service backend.tests.test_v2_collection backend.tests.test_v2_auth_api backend.tests.test_v2_inventory_api -v` 通过：25 个测试 OK。
+- `python3 -m py_compile backend/app/v2/api.py backend/app/v2/cloudtower/client.py backend/app/v2/cloudtower/service.py backend/app/v2/collection/service.py backend/app/v2/inventory/service.py backend/app/v2/metrics/prometheus.py backend/app/v2/system/health.py backend/tests/test_v2_cloudtower_client.py backend/tests/test_v2_prometheus_service.py backend/tests/test_v2_inventory_api.py backend/tests/test_v2_foundation.py` 通过。
+
+限制：
+
+- 当前 Prometheus 已有查询/健康服务，但采集数据仍只返回 exposition 文本，尚未完成 collector-worker 暴露 `/metrics` 或写入式闭环。
+- collector-worker 定时采集仍未实现。
+
+### 2026-06-06 Phase V2-3 collector-worker 与 Prometheus scrape 基础
+
+状态：完成本地验证，待远端 Docker 验证
+
+实施内容：
+
+- v2 schema 增加 `metric_snapshots`，采集成功后保存最近一次 Prometheus exposition 文本。
+- `CollectionService.latest_metrics_text()` 可读取最近指标文本，供 worker 暴露 `/metrics`。
+- 新增 `backend/app/v2/worker.py`：
+  - 提供 `/metrics` HTTP handler。
+  - 使用 `BackgroundScheduler` 按 `SMARTX_COLLECTION_HOUR` 和 `SMARTX_COLLECTION_MINUTE` 定时执行采集。
+  - 定时采集复用 v2 `CloudTowerService` 和 `CollectionService`。
+- v2 运行入口切换：
+  - `backend/Dockerfile` 从 `app.main:app` 切到 `app.v2.main:app`。
+  - `backend/Dockerfile.worker` 从 `app.collector.worker` 切到 `app.v2.worker`。
+  - `docker-compose.yml`、`docker-compose.offline.yml`、`docker-compose.release.yml` 的 collector-worker 命令切到 `app.v2.worker`。
+- `docs/v2-rebuild-task-plan.md` 将 V2-3 的 collector-worker、Prometheus 查询/健康、Prometheus scrape 基础标记为完成。
+
+TDD 记录：
+
+- RED：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_collection -v` 先失败，原因是 `CollectionService.latest_metrics_text()` 不存在。
+- GREEN：新增 `metric_snapshots` 和读取/保存逻辑后测试通过。
+- RED：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_worker -v` 先失败，原因是 `app.v2.worker` 不存在。
+- GREEN：新增 v2 worker 后测试通过。
+- RED：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_skeleton -v` 先失败，原因是 Dockerfile/compose 仍指向 v1 入口。
+- GREEN：切换 v2 运行入口后 skeleton 测试通过。
+
+本地验证：
+
+- `PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_skeleton backend.tests.test_v2_task_models backend.tests.test_v2_foundation backend.tests.test_v2_inventory_metrics backend.tests.test_v2_cloudtower_client backend.tests.test_v2_prometheus_service backend.tests.test_v2_collection backend.tests.test_v2_worker backend.tests.test_v2_auth_api backend.tests.test_v2_inventory_api -v` 通过：28 个测试 OK。
+- `python3 -m py_compile backend/app/v2/api.py backend/app/v2/cloudtower/client.py backend/app/v2/cloudtower/service.py backend/app/v2/collection/service.py backend/app/v2/database.py backend/app/v2/inventory/service.py backend/app/v2/metrics/prometheus.py backend/app/v2/system/health.py backend/app/v2/worker.py backend/tests/test_v2_skeleton.py backend/tests/test_v2_cloudtower_client.py backend/tests/test_v2_prometheus_service.py backend/tests/test_v2_collection.py backend/tests/test_v2_worker.py backend/tests/test_v2_inventory_api.py backend/tests/test_v2_foundation.py` 通过。
+
+限制：
+
+- 本机没有 Docker CLI，`docker compose build web-api collector-worker frontend` 无法本地执行，错误为 `zsh:1: command not found: docker`。
+- 需要在 `10.20.11.3` 上拉取 `feature/upgrade-v2` 后执行 Docker 构建和容器内测试。
+- Phase V2-3 的采集和指标基础链路已具备，但 Dashboard/VM/报表展示仍属于后续 V2-4/V2-5。

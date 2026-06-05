@@ -148,6 +148,17 @@ class InventoryService:
             "api_token": decrypt_secret(row["api_token_encrypted"], self.settings.secret_key),
         }
 
+    def mask_secret_material(self, tower_id: int, message: str) -> str:
+        masked = message
+        try:
+            secrets = self.get_tower_secret_material(tower_id)
+        except KeyError:
+            return masked
+        for secret in secrets.values():
+            if secret:
+                masked = masked.replace(secret, "******")
+        return masked
+
     def _tower_from_row(self, row, clusters: list[ClusterRecord]) -> TowerRecord:
         return TowerRecord(
             id=int(row["id"]),

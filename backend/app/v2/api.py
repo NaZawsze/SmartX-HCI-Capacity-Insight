@@ -7,6 +7,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from app.v2.auth.service import AuthService, CurrentUser
+from app.v2.cloudtower.service import CloudTowerService
+from app.v2.collection.service import CollectionService
 from app.v2.config import V2Settings, settings_from_environment
 from app.v2.database import V2Database
 from app.v2.inventory.models import ClusterInput, TowerInput
@@ -77,6 +79,18 @@ class TowerResponse(BaseModel):
     clusters: list[ClusterResponse]
 
 
+class TowerTestResponse(BaseModel):
+    ok: bool
+    message: str
+    clusters: list[ClusterResponse]
+
+
+class CollectionRunResponse(BaseModel):
+    run_id: int
+    status: str
+    message: str
+
+
 def get_v2_settings() -> V2Settings:
     return settings_from_environment()
 
@@ -97,6 +111,13 @@ def get_inventory_service(
     settings: Annotated[V2Settings, Depends(get_v2_settings)],
 ) -> InventoryService:
     return InventoryService(database, settings)
+
+
+def get_cloudtower_service(
+    database: Annotated[V2Database, Depends(get_v2_database)],
+    settings: Annotated[V2Settings, Depends(get_v2_settings)],
+) -> CloudTowerService:
+    return CloudTowerService(database, settings)
 
 
 def require_user(
@@ -121,6 +142,22 @@ def tower_response(tower) -> TowerResponse:
         enabled=tower.enabled,
         clusters=[ClusterResponse(cluster_id=cluster.cluster_id, name=cluster.name, enabled=cluster.enabled) for cluster in tower.clusters],
     )
+
+
+def cluster_response(cluster) -> ClusterResponse:
+    return ClusterResponse(cluster_id=cluster.cluster_id, name=cluster.name, enabled=cluster.enabled)
+
+
+def cluster_input_from_any(cluster) -> ClusterInput:
+    if isinstance(cluster, ClusterInput):
+        return cluster
+    if isinstance(cluster, dict):
+        return ClusterInput(
+            cluster_id=str(cluster.get("cluster_id") or cluster.get("id") or ""),
+            name=str(cluster.get("name") or cluster.get("cluster_name") or cluster.get("cluster_id") or cluster.get("id") or ""),
+            enabled=bool(cluster.get("enabled", True)),
+        )
+    return ClusterInput(cluster_id=str(cluster.cluster_id), name=str(cluster.name), enabled=bool(getattr(cluster, "enabled", True)))
 
 
 @router.post("/api/auth/login", response_model=TokenResponse)
@@ -226,9 +263,27 @@ def sync_clusters(
             tower_id,
             [ClusterInput(cluster_id=cluster.cluster_id, name=cluster.name, enabled=cluster.enabled) for cluster in payload],
         )
-        return [ClusterResponse(cluster_id=cluster.cluster_id, name=cluster.name, enabled=cluster.enabled) for cluster in clusters]
+        return [cluster_response(cluster) for cluster in clusters]
     except KeyError:
         raise HTTPException(status_code=404, detail="Tower not found.") from None
+
+
+@router.post("/api/towers/{tower_id}/test", response_model=TowerTestResponse)
+def test_tower(
+    tower_id: int,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    inventory: Annotated[InventoryService, Depends(get_inventory_service)],
+    cloudtower: Annotated[CloudTowerService, Depends(get_cloudtower_service)],
+) -> TowerTestResponse:
+    try:
+        cluster_inputs = [cluster_input_from_any(cluster) for cluster in cloudtower.test_connection(tower_id)]
+        clusters = inventory.sync_clusters(tower_id, cluster_inputs)
+        return TowerTestResponse(ok=True, message=f"连接成功，发现 {len(clusters)} 个集群。", clusters=[cluster_response(cluster) for cluster in clusters])
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Tower not found.") from None
+    except Exception as exc:  # noqa: BLE001 - UI needs a concise connection summary.
+        message = inventory.mask_secret_material(tower_id, str(exc))
+        return TowerTestResponse(ok=False, message=message, clusters=[])
 
 
 @router.put("/api/towers/{tower_id}/clusters/{cluster_id}", response_model=ClusterResponse)
@@ -241,9 +296,20 @@ def update_cluster(
 ) -> ClusterResponse:
     try:
         cluster = inventory.update_cluster(tower_id, cluster_id, enabled=payload.enabled, name=payload.name)
-        return ClusterResponse(cluster_id=cluster.cluster_id, name=cluster.name, enabled=cluster.enabled)
+        return cluster_response(cluster)
     except KeyError:
         raise HTTPException(status_code=404, detail="Cluster not found.") from None
+
+
+@router.post("/api/collection/run", response_model=CollectionRunResponse)
+def run_collection(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    database: Annotated[V2Database, Depends(get_v2_database)],
+    settings: Annotated[V2Settings, Depends(get_v2_settings)],
+    cloudtower: Annotated[CloudTowerService, Depends(get_cloudtower_service)],
+) -> CollectionRunResponse:
+    result = CollectionService(database, settings, cloudtower_client=cloudtower).run_manual_collection()
+    return CollectionRunResponse(run_id=result.run_id, status=result.status, message=result.message)
 
 
 @router.get("/api/system/health")

@@ -27,7 +27,7 @@ services:
 
   collector-worker:
     image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-collector-worker:${SMARTX_IMAGE_TAG:-v0.4.1}
-    command: ["python", "-m", "app.collector.worker"]
+    command: ["python", "-m", "app.v2.worker"]
     env_file:
       - .env
     environment:

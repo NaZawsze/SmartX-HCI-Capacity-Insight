@@ -79,17 +79,23 @@ class V2FoundationTest(unittest.TestCase):
     def test_health_check_reports_database_and_directories(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
+        from app.v2.metrics.prometheus import PrometheusHealth
         from app.v2.system.health import check_health
+
+        class ReadyPrometheus:
+            def health(self):
+                return PrometheusHealth(ok=True, message="ready")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = V2Settings(data_root=Path(tmpdir), secret_key="unit-secret")
             db = V2Database(settings)
             db.initialize()
-            result = check_health(settings, db)
+            result = check_health(settings, db, prometheus=ReadyPrometheus())
 
             self.assertTrue(result.ok)
             self.assertTrue(result.checks["database"])
             self.assertTrue(result.checks["directories"])
+            self.assertTrue(result.checks["prometheus"])
             self.assertEqual(result.version, settings.app_version)
 
 

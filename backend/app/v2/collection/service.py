@@ -62,6 +62,7 @@ class CollectionService:
                         vm_samples.append(sample)
                         self._upsert_latest_vm(sample)
             metrics_text = render_capacity_metrics(clusters=cluster_samples, vms=vm_samples)
+            self._save_metrics_text(metrics_text)
             message = f"采集完成：{len(cluster_samples)} 个集群，{len(vm_samples)} 台虚拟机。"
             self._finish_run(run_id, "success", message)
             return CollectionResult(run_id=run_id, status="success", message=message, metrics_text=metrics_text)
@@ -78,6 +79,11 @@ class CollectionService:
                     (tower_id, cluster_id, vm_id),
                 ).fetchone()
             )
+
+    def latest_metrics_text(self) -> str:
+        with self.database.connection() as conn:
+            row = conn.execute("SELECT metrics_text FROM metric_snapshots WHERE id = 1").fetchone()
+        return str(row["metrics_text"]) if row else ""
 
     def _start_run(self) -> int:
         with self.database.connection() as conn:
@@ -105,11 +111,21 @@ class CollectionService:
                 (sample.tower_id, sample.cluster_id, sample.vm_id, sample.vm_name, sample.used_bytes),
             )
 
+    def _save_metrics_text(self, metrics_text: str) -> None:
+        with self.database.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO metric_snapshots (id, metrics_text)
+                VALUES (1, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    metrics_text = excluded.metrics_text,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (metrics_text,),
+            )
+
     def _mask_secret_material(self, message: str) -> str:
         masked = message
         for tower in self.inventory.list_towers():
-            secrets = self.inventory.get_tower_secret_material(tower.id)
-            for secret in secrets.values():
-                if secret:
-                    masked = masked.replace(secret, "******")
+            masked = self.inventory.mask_secret_material(tower.id, masked)
         return masked

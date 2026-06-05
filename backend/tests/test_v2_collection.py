@@ -61,6 +61,7 @@ class V2CollectionTest(unittest.TestCase):
             latest_vm = CollectionService(db, settings, cloudtower_client=fake_client).latest_vm(1, "enabled-cluster", "vm-1")
             self.assertEqual(latest_vm["name"], "VM One Renamed")
             self.assertEqual(latest_vm["used_bytes"], 42)
+            self.assertIn("VM One Renamed", CollectionService(db, settings, cloudtower_client=fake_client).latest_metrics_text())
 
     def test_collection_failure_masks_secret_material(self) -> None:
         from app.v2.collection.service import CollectionService
