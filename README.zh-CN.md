@@ -157,6 +157,53 @@ smartx-capacity-insight-v0.4.0-upgrade.tar.gz
 
 普通平台升级包不建议在同一次升级任务中重启 `upgrade-runner`，避免中断正在执行升级的服务。如需替换 `upgrade-runner`，请使用组件升级包。
 
+### Runner 优先升级办法
+
+如果旧 `upgrade-runner` 或旧 runner override 导致平台升级卡在备份、重启或 compose 路径阶段，建议先升级 runner，再从 Web 页面执行平台升级。
+
+```bash
+cd /opt/smartx-storage-forecast
+bash docs/upgrade/runner-first-upgrade.sh
+```
+
+脚本会完成前三步准备：手动备份数据、清理旧 runner override、安装新 runner override。脚本结束后，再打开服务管理页面上传平台升级包，例如 `/data/upgrade-packages/smartx-capacity-insight-upgrade-v0.4.0.tar.gz`，执行预检查和开始升级。
+
+详细说明：[Runner 优先升级现场步骤](docs/upgrade/runner-first-upgrade.md)。
+
+### 推荐迁移方式：新装后从旧系统命令导出数据
+
+如果旧版本升级链路不稳定，建议直接在目标机器重新安装最新版本的存储预测平台，然后在旧系统服务器 CLI 执行下面命令提取迁出数据包，再到新系统的 `服务管理 -> 数据迁移` 页面导入。
+
+在旧系统服务器上执行：
+
+```bash
+WEB_API_CONTAINER="${WEB_API_CONTAINER:-$(docker ps --format '{{.Names}}' | grep -E 'web-api' | head -n 1)}"
+if [ -z "$WEB_API_CONTAINER" ]; then
+  echo "未找到 web-api 容器，请手动设置 WEB_API_CONTAINER=容器名" >&2
+  exit 1
+fi
+
+filename="$(
+  docker exec "$WEB_API_CONTAINER" python - <<'PY'
+from app.services.data_migration import build_migration_archive
+_, filename = build_migration_archive(save_export=True)
+print(filename)
+PY
+)"
+
+export_root="$(docker inspect "$WEB_API_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/data/exports"}}{{.Source}}{{end}}{{end}}')"
+if [ -z "$export_root" ]; then
+  data_root="$(docker inspect "$WEB_API_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}')"
+  export_root="${data_root}/exports"
+fi
+
+host_path="${export_root}/migrations/${filename}"
+ls -lh "$host_path"
+sha256sum "$host_path"
+```
+
+命令输出的 `host_path` 就是迁移包所在位置。迁移包包含业务库和 Prometheus 历史指标；导入新系统后，请到服务管理页重启数据服务。
+
 ## 文档
 
 - [部署说明](docs/deployment.md)

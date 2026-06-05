@@ -12,6 +12,7 @@
 - Docker Compose 编排：`web-api`、`frontend`、`collector-worker`、`prometheus`、`upgrade-runner`
 - 镜像构建：开发镜像、本地离线镜像、Release 镜像、升级包镜像
 - 数据目录：`/data/smartx-capacity-insight-data/app`、`/data/smartx-capacity-insight-data/prometheus`
+- 运行产物目录：`/data/upgrades`、`/data/backups`、`/data/exports`、`/data/compose-runtime`；其中报表、数据迁出、数据迁入留档分别在 `/data/exports/reports`、`/data/exports/migrations`、`/data/exports/imports`。
 - 网络规划：Docker 网络段、端口暴露、Prometheus 内部访问
 - 时区配置：宿主机 CST、容器内 CST、报表和升级日志时间
 - 安装前置脚本：目录创建、权限、SELinux/防火墙/Prometheus 权限
@@ -35,6 +36,7 @@
 - [已解决] compose 文件写死旧版本：版本来源改为镜像内置 `VERSION`，compose 默认 tag 固定到明确版本
 - [已解决] 容器时间和页面日志差 8 小时：按 CST/Asia/Shanghai 统一展示
 - [已解决] Docker 默认网段和客户环境冲突：项目网络改为 `10.249.249.0/24`，Docker daemon 可配置 `10.249.0.0/16`
+- [已解决] 升级包、备份、报表导出、数据迁出、数据迁入留档等运行产物不再落在 `app/` 目录下：独立到 `/data/upgrades`、`/data/backups`、`/data/exports`、`/data/compose-runtime`
 
 ## 2. 用户、认证与权限
 
@@ -223,11 +225,13 @@
 - `frontend/src/services/api.ts`
 
 常见问题：
-- 只导出了业务库，没有历史指标
-- 导入后趋势、日增长、月增长为空
-- 重复导入时集群/Tower 是否覆盖不明确
-- 大文件上传触发 Request Entity Too Large
-- 导入后不重启服务导致页面仍显示旧数据
+- [已解决] 只导出了业务库，没有历史指标：迁移包包含 Prometheus 历史指标目录
+- [已解决] 导入后趋势、日增长、月增长为空：Prometheus 历史 block 支持补全导入，导入后重启数据服务生效
+- [已解决] 重复导入时集群/Tower 是否覆盖不明确：默认 merge 模式按缺失数据补全，不覆盖当前已有 Tower/集群记录
+- [已解决] 大文件上传触发 Request Entity Too Large：前端和服务端支持后台任务与上传进度展示
+- [已解决] 导入后不重启服务导致页面仍显示旧数据：服务管理提供数据服务重启入口
+- [已解决] 已取消“跳过历史指标换取迁移导出速度”的方向：Prometheus 历史指标必须保留，真正优化点是把运行产物搬离 `app/` 并增加精确进度
+- [已解决] 数据迁移导入没有服务器留档目录：上传包、解压目录和 `task.json` 统一写入 `/data/exports/imports/<task_id>/`，并纳入空间清理扫描。
 
 ## 9. 服务管理
 
@@ -281,6 +285,8 @@
 - `scripts/build_upgrade_package.py`
 - `docker-compose.upgrade.yml`
 - `docs/upgrade-runner-lifecycle.md`
+- `docs/upgrade/runner-first-upgrade.md`
+- `docs/upgrade/runner-first-upgrade.sh`
 - `frontend/src/pages/ServicePage.tsx`
 
 升级包结构：
@@ -318,6 +324,8 @@ scripts/migrate.sh
 - `backend/app/upgrade/runner.py`
 - `backend/Dockerfile.upgrade`
 - `docs/upgrade-runner-lifecycle.md`
+- `docs/upgrade/runner-first-upgrade.md`
+- `docs/upgrade/runner-first-upgrade.sh`
 - `frontend/src/pages/ServicePage.tsx`
 
 常见问题：

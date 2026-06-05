@@ -155,6 +155,53 @@ Example fields:
 
 For normal platform upgrades, do not restart `upgrade-runner` in the same package that is executing the upgrade. Use a component upgrade package when `upgrade-runner` itself needs to be replaced.
 
+### Runner-First Upgrade Procedure
+
+If an old `upgrade-runner` or stale runner override blocks platform upgrades, upgrade the runner first, then perform the platform upgrade from the Web UI.
+
+```bash
+cd /opt/smartx-storage-forecast
+bash docs/upgrade/runner-first-upgrade.sh
+```
+
+The script performs three preparation steps: manual data backup, stale runner override cleanup, and new runner override installation. After it finishes, open the service management page and upload the platform upgrade package, for example `/data/upgrade-packages/smartx-capacity-insight-upgrade-v0.4.0.tar.gz`.
+
+Detailed runbook: [Runner-first upgrade steps](docs/upgrade/runner-first-upgrade.md).
+
+### Recommended Migration Path: Fresh Install + CLI Data Export
+
+If the old upgrade flow is unreliable, install the latest storage forecast platform on the target server first. Then run the following command on the old system CLI to export a migration package, and import that package from the new system page: `Service Management -> Data Migration`.
+
+Run on the old system server:
+
+```bash
+WEB_API_CONTAINER="${WEB_API_CONTAINER:-$(docker ps --format '{{.Names}}' | grep -E 'web-api' | head -n 1)}"
+if [ -z "$WEB_API_CONTAINER" ]; then
+  echo "web-api container not found. Set WEB_API_CONTAINER manually." >&2
+  exit 1
+fi
+
+filename="$(
+  docker exec "$WEB_API_CONTAINER" python - <<'PY'
+from app.services.data_migration import build_migration_archive
+_, filename = build_migration_archive(save_export=True)
+print(filename)
+PY
+)"
+
+export_root="$(docker inspect "$WEB_API_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/data/exports"}}{{.Source}}{{end}}{{end}}')"
+if [ -z "$export_root" ]; then
+  data_root="$(docker inspect "$WEB_API_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}')"
+  export_root="${data_root}/exports"
+fi
+
+host_path="${export_root}/migrations/${filename}"
+ls -lh "$host_path"
+sha256sum "$host_path"
+```
+
+The printed `host_path` is the migration package path. The package includes the business database and Prometheus historical metrics. After importing it into the new system, restart data services from the service management page.
+
 ## Documentation
 
 - [Deployment Guide](docs/deployment.md)

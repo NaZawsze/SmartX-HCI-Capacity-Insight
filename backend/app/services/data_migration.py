@@ -5,7 +5,6 @@ import json
 import shutil
 import sqlite3
 import tarfile
-import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,9 +26,12 @@ OVERWRITE_MODE = "overwrite"
 
 
 PROMETHEUS_RUNTIME_ENTRIES = {"chunks_head", "lock", "queries.active", "wal"}
-APP_RUNTIME_ENTRIES = {"backups", "upgrades", "exports"}
+APP_RUNTIME_ENTRIES = {"backups", "upgrades", "exports", "compose-runtime"}
 EXPORT_TASK_DIR = "migration-tasks"
+IMPORT_TASK_DIR = "imports"
 TASK_FILE = "task.json"
+IMPORT_UPLOAD_FILENAME = "upload.tar.gz"
+IMPORT_PACKAGE_DIR = "package"
 
 
 def build_migration_archive(save_export: bool = True) -> tuple[bytes, str]:
@@ -77,38 +79,169 @@ async def restore_migration_archive(upload: UploadFile, confirmed: bool, mode: s
     normalized_mode = mode if mode in {MERGE_MODE, OVERWRITE_MODE} else MERGE_MODE
     if normalized_mode == OVERWRITE_MODE and not confirmed:
         raise HTTPException(status_code=400, detail="覆盖导入会清空当前系统数据，请先勾选确认。")
-    content = await upload.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="导入文件为空。")
 
     settings = get_settings()
-    with tempfile.TemporaryDirectory(prefix="smartx-migration-") as temp_dir_name:
-        temp_dir = Path(temp_dir_name)
+    task = _create_migration_import_task(upload.filename, normalized_mode)
+    task_dir = _migration_import_task_dir(str(task["task_id"]))
+    upload_path = task_dir / IMPORT_UPLOAD_FILENAME
+    package_dir = task_dir / IMPORT_PACKAGE_DIR
+    try:
+        saved_bytes = await _save_import_upload(upload, upload_path)
+        if saved_bytes <= 0:
+            _update_migration_import_task(
+                task,
+                status="failed",
+                progress=100,
+                detail="导入文件为空。",
+                logs=["导入文件为空"],
+                finished_at=datetime.now(timezone.utc).isoformat(),
+            )
+            raise HTTPException(status_code=400, detail="导入文件为空。")
+
+        package_dir.mkdir(parents=True, exist_ok=True)
+        _update_migration_import_task(
+            task,
+            status="running",
+            progress=20,
+            detail="正在解压并校验导入包",
+            logs=[f"上传文件已保存：{upload_path}", f"文件大小：{saved_bytes} bytes"],
+        )
         try:
-            with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
+            with tarfile.open(upload_path, mode="r:gz") as archive:
                 _validate_archive_members(archive)
-                archive.extractall(temp_dir)
+                archive.extractall(package_dir)
         except (tarfile.TarError, OSError) as exc:
+            _update_migration_import_task(
+                task,
+                status="failed",
+                progress=100,
+                detail=str(exc),
+                logs=["无法读取导入包", str(exc)],
+                finished_at=datetime.now(timezone.utc).isoformat(),
+            )
             raise HTTPException(status_code=400, detail=f"无法读取导入包：{exc}") from exc
 
-        manifest = _read_manifest(temp_dir / MANIFEST_NAME)
+        manifest = _read_manifest(package_dir / MANIFEST_NAME)
         if manifest.get("format") != "smartx-storage-forecast-migration":
+            _update_migration_import_task(
+                task,
+                status="failed",
+                progress=100,
+                detail="导入包格式不正确。",
+                logs=["导入包格式不正确"],
+                finished_at=datetime.now(timezone.utc).isoformat(),
+            )
             raise HTTPException(status_code=400, detail="导入包格式不正确。")
 
+        _update_migration_import_task(task, progress=55, detail="正在导入业务库和历史指标", logs=[f"导入模式：{normalized_mode}"])
         if normalized_mode == OVERWRITE_MODE:
-            result = _restore_overwrite(temp_dir, settings.data_path, settings.prometheus_data_path)
+            result = _restore_overwrite(package_dir, settings.data_path, settings.prometheus_data_path)
             message = "数据覆盖导入完成，请重启 web-api、collector-worker 和 prometheus 使数据完全生效。"
         else:
-            result = _restore_merge(temp_dir, settings.data_path, settings.prometheus_data_path)
+            result = _restore_merge(package_dir, settings.data_path, settings.prometheus_data_path)
             message = "数据补全导入完成，已保留当前系统已有数据；请重启 web-api、collector-worker 和 prometheus 使数据完全生效。"
 
-    return {
-        "ok": True,
-        "mode": normalized_mode,
-        "restored": result["restored"],
-        "summary": result["summary"],
-        "message": message,
+        _update_migration_import_task(
+            task,
+            status="succeeded",
+            progress=100,
+            detail="数据迁移导入完成",
+            logs=[message],
+            restored=result["restored"],
+            summary=result["summary"],
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+        return {
+            "ok": True,
+            "mode": normalized_mode,
+            "restored": result["restored"],
+            "summary": result["summary"],
+            "message": message,
+            "task_id": task["task_id"],
+            "saved_path": str(upload_path),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _update_migration_import_task(
+            task,
+            status="failed",
+            progress=100,
+            detail=str(exc),
+            logs=["导入失败", str(exc)],
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+        raise
+
+
+async def _save_import_upload(upload: UploadFile, target: Path) -> int:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    total = 0
+    with target.open("wb") as output:
+        while True:
+            chunk = await upload.read(1024 * 1024)
+            if not chunk:
+                break
+            output.write(chunk)
+            total += len(chunk)
+    return total
+
+
+def _migration_import_root() -> Path:
+    settings = get_settings()
+    root = settings.export_path / IMPORT_TASK_DIR
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _migration_import_task_dir(task_id: str) -> Path:
+    if not task_id or any(ch not in "0123456789abcdef" for ch in task_id):
+        raise HTTPException(status_code=404, detail="迁移导入任务不存在。")
+    return _migration_import_root() / task_id
+
+
+def _migration_import_task_path(task_id: str) -> Path:
+    return _migration_import_task_dir(task_id) / TASK_FILE
+
+
+def _create_migration_import_task(filename: str | None, mode: str) -> dict[str, Any]:
+    task_id = uuid.uuid4().hex
+    task_dir = _migration_import_task_dir(task_id)
+    task_dir.mkdir(parents=True, exist_ok=False)
+    task = {
+        "task_id": task_id,
+        "status": "pending",
+        "progress": 0,
+        "mode": mode,
+        "filename": Path(filename or IMPORT_UPLOAD_FILENAME).name,
+        "saved_path": str(task_dir / IMPORT_UPLOAD_FILENAME),
+        "package_path": str(task_dir / IMPORT_PACKAGE_DIR),
+        "detail": "等待开始导入",
+        "logs": ["导入任务已创建"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    _save_migration_import_task(task)
+    return task
+
+
+def _save_migration_import_task(task: dict[str, Any]) -> None:
+    task["updated_at"] = datetime.now(timezone.utc).isoformat()
+    path = _migration_import_task_path(str(task["task_id"]))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(".tmp")
+    temp_path.write_text(json.dumps(task, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_path.replace(path)
+
+
+def _update_migration_import_task(task: dict[str, Any], **patch: Any) -> None:
+    logs = patch.pop("logs", None)
+    task.update({key: value for key, value in patch.items() if value is not None})
+    if logs:
+        current_logs = list(task.get("logs") or [])
+        current_logs.extend(str(item) for item in logs if item)
+        task["logs"] = current_logs[-20:]
+    _save_migration_import_task(task)
 
 
 def _restore_overwrite(temp_dir: Path, app_target: Path, prometheus_target: Path) -> dict[str, Any]:

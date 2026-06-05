@@ -48,6 +48,7 @@ class _UpgradeTestSettings:
         self.upgrade_path = self.data_path / "upgrades"
         self.backup_path = self.data_path / "backups"
         self.prometheus_data_path = root / "prometheus"
+        self.runtime_path = root / "compose-runtime"
         self.app_version = "v-test"
         self.runner_version = "v0.1.0"
 
@@ -62,7 +63,7 @@ def test_runner_override_is_written_to_data_compose_runtime(tmp_path, monkeypatc
 
     message = upgrade._write_runner_override(task)
 
-    runtime_path = settings.data_path / "compose-runtime" / "docker-compose.runner-upgrade.yml"
+    runtime_path = settings.runtime_path / "docker-compose.runner-upgrade.yml"
     project_path = settings.project_path / "docker-compose.runner-upgrade.yml"
     assert message == f"已写入 {runtime_path}"
     assert runtime_path.read_text(encoding="utf-8") == "services:\n  upgrade-runner:\n    image: runner:v0.2.1\n"
@@ -75,7 +76,7 @@ def test_compose_command_uses_data_runner_override(tmp_path, monkeypatch):
     settings.project_path.mkdir(parents=True)
     compose_path = settings.project_path / settings.compose_file
     compose_path.write_text("services: {}\n", encoding="utf-8")
-    runtime_path = settings.data_path / "compose-runtime" / "docker-compose.runner-upgrade.yml"
+    runtime_path = settings.runtime_path / "docker-compose.runner-upgrade.yml"
     runtime_path.parent.mkdir(parents=True)
     runtime_path.write_text("services:\n  upgrade-runner:\n    image: runner:v0.2.1\n", encoding="utf-8")
     monkeypatch.setattr(upgrade, "get_settings", lambda: settings)
@@ -108,3 +109,54 @@ def test_compose_cwd_falls_back_to_data_path(tmp_path, monkeypatch):
 
     assert upgrade._compose_cwd() == settings.data_path
 
+
+
+def test_runner_override_uses_runtime_path_not_data_subdirectory(tmp_path, monkeypatch):
+    settings = _UpgradeTestSettings(tmp_path)
+    settings.data_path.mkdir(parents=True)
+    settings.runtime_path.mkdir(parents=True)
+    monkeypatch.setattr(upgrade, "get_settings", lambda: settings)
+
+    task = {"manifest": {"images": [{"service": "upgrade-runner", "image": "runner:v0.2.2"}]}}
+    upgrade._write_runner_override(task)
+
+    assert (settings.runtime_path / "docker-compose.runner-upgrade.yml").exists()
+    assert not (settings.data_path / "compose-runtime" / "docker-compose.runner-upgrade.yml").exists()
+
+
+def test_ensure_runner_runtime_mounts_recreates_runner_when_mounts_missing(tmp_path, monkeypatch):
+    settings = _UpgradeTestSettings(tmp_path)
+    settings.project_path.mkdir(parents=True)
+    settings.runtime_path.mkdir(parents=True)
+    (settings.project_path / settings.compose_file).write_text("services:\n  upgrade-runner: {}\n", encoding="utf-8")
+    previous_override = settings.runtime_path / "docker-compose.runner-upgrade.yml"
+    previous_override.write_text("services:\n  upgrade-runner:\n    image: runner:v0.2.1\n", encoding="utf-8")
+
+    calls = []
+    monkeypatch.setattr(upgrade, "get_settings", lambda: settings)
+    monkeypatch.setattr(upgrade, "_runner_missing_runtime_mounts", lambda: ["/data/upgrades"])
+    monkeypatch.setattr(upgrade, "_refresh_runtime_compose_file", lambda: calls.append(("refresh",)))
+    monkeypatch.setattr(upgrade, "_running_runner_image", lambda: "runner:v0.2.2")
+    monkeypatch.setattr(upgrade, "_compose_command", lambda runner_override=False: ["docker", "compose", "up"] if runner_override else ["docker", "compose"])
+    monkeypatch.setattr(upgrade, "_compose_cwd", lambda: settings.project_path)
+    monkeypatch.setattr(upgrade, "_run_command", lambda command, cwd, env=None: calls.append(("run", command, cwd)) or "ok")
+    monkeypatch.setattr(upgrade, "_wait_runner_mounts", lambda: calls.append(("wait",)))
+
+    message = upgrade._ensure_runner_runtime_mounts()
+
+    assert "已刷新 upgrade-runner" in message
+    assert ("refresh",) in calls
+    assert any(item[0] == "run" and "upgrade-runner" in item[1] for item in calls)
+    assert ("wait",) in calls
+    assert not previous_override.exists()
+    assert previous_override.with_name("docker-compose.runner-upgrade.yml.before-runtime-mount-fix").exists()
+
+
+def test_ensure_runner_runtime_mounts_noops_when_mounts_present(tmp_path, monkeypatch):
+    settings = _UpgradeTestSettings(tmp_path)
+    monkeypatch.setattr(upgrade, "get_settings", lambda: settings)
+    monkeypatch.setattr(upgrade, "_runner_missing_runtime_mounts", lambda: [])
+
+    message = upgrade._ensure_runner_runtime_mounts()
+
+    assert message == ""

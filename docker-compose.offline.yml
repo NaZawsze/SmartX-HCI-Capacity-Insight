@@ -11,6 +11,10 @@ services:
       SMARTX_COMPOSE_PROJECT_NAME: smartx-capacity-insight
     volumes:
       - /data/smartx-capacity-insight-data/app:/data
+      - /data/upgrades:/data/upgrades
+      - /data/backups:/data/backups
+      - /data/exports:/data/exports
+      - /data/compose-runtime:/data/compose-runtime
       - /data/smartx-capacity-insight-data/prometheus:/prometheus-data
       - .:/opt/smartx-storage-forecast:ro
       - /var/run/docker.sock:/var/run/docker.sock
@@ -32,6 +36,10 @@ services:
       TZ: Asia/Shanghai
     volumes:
       - /data/smartx-capacity-insight-data/app:/data
+      - /data/upgrades:/data/upgrades
+      - /data/backups:/data/backups
+      - /data/exports:/data/exports
+      - /data/compose-runtime:/data/compose-runtime
     expose:
       - "9108"
     depends_on:
@@ -67,6 +75,10 @@ services:
     volumes:
       - .:/opt/smartx-storage-forecast
       - /data/smartx-capacity-insight-data/app:/data
+      - /data/upgrades:/data/upgrades
+      - /data/backups:/data/backups
+      - /data/exports:/data/exports
+      - /data/compose-runtime:/data/compose-runtime
       - /data/smartx-capacity-insight-data/prometheus:/prometheus-data
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:

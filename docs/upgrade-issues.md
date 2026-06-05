@@ -337,3 +337,44 @@ compose_command docker compose -p smartx-capacity-insight -f /data/compose-runti
 6. [待修复] 清理升级 UI：合并平台升级与升级后核验，预检查步骤化。
 7. [设计待定] 定义 Prometheus 组件升级策略。
 8. [需验证] 回归验证数据迁移后的 Prometheus 历史指标、日/月增长和趋势图。
+
+## UPG-019 运行产物落在 app 数据目录导致备份和迁移膨胀
+
+状态：[已解决] 目录结构和 compose 挂载已调整，待随升级包现场回归
+
+现象：升级包上传目录、升级历史任务、自动备份、报表导出、数据迁出、数据迁入留档等运行产物历史上都可能落在容器 `/data` 下。由于 `/data` 映射到宿主机 `/data/smartx-capacity-insight-data/app`，这些运行产物实际会进入业务库目录旁边，例如 `app/upgrades`、`app/backups`、`app/exports`。
+
+根因：配置默认使用 `/data/upgrades`、`/data/backups`、`/data/exports`、`/data/compose-runtime`，但 compose 只挂载了 `/data/smartx-capacity-insight-data/app:/data`，没有为运行产物目录提供独立 bind mount。
+
+影响：
+- 升级前备份可能把旧升级包、报表、迁移包一起打进去，体积变大甚至看起来卡住。
+- 数据迁移导出如果扫描整个 `/data`，也会被运行产物拖慢。
+- 业务库目录职责不清，排查时容易误把缓存和核心数据混在一起。
+
+修复：
+- 保留核心业务数据在 `/data/smartx-capacity-insight-data/app`，例如 `smartx.db` 和 `upgrade-runner.version`。
+- 新增独立宿主机目录：`/data/upgrades`、`/data/backups`、`/data/exports`、`/data/compose-runtime`。
+- `docker-compose.yml`、`docker-compose.offline.yml`、`docker-compose.release.yml` 对 web-api、collector-worker、upgrade-runner 增加独立挂载。
+- `pre_install.sh` 创建并授权上述目录。
+- runner override 写入路径改为 `SMARTX_RUNTIME_PATH`，默认 `/data/compose-runtime`。
+- 升级包 `scripts/migrate.sh` 兼容旧部署：通过 Docker socket 以宿主机视角整理旧 `app/upgrades/backups/exports/compose-runtime` 到新的 `/data/*` 目录。
+- 升级包 `scripts/migrate.sh` 同步 `/data/compose-runtime/docker-compose.offline.yml`，并备份后清理旧的 `docker-compose.runner-upgrade.yml`，避免 runner 被旧 override 拉回旧版本。
+- 迁移旧升级任务时按 `updated_at` 只复制更新的 `task.json`，避免 active task 的 running 快照覆盖后续 succeeded 状态。
+
+目录归属：
+
+```text
+/data/smartx-capacity-insight-data/app/smartx.db                 # 业务库
+/data/smartx-capacity-insight-data/app/upgrade-runner.version    # runner 版本记录
+/data/smartx-capacity-insight-data/prometheus                    # Prometheus 历史指标
+/data/upgrades                                                   # 上传升级包、解包目录、升级任务记录
+/data/backups                                                    # 升级前备份、项目文件备份
+/data/exports                                                    # 导出/导入留档总目录
+/data/exports/reports                                            # Word/Excel 报表导出文件
+/data/exports/migrations                                         # 数据迁移导出包
+/data/exports/imports                                            # 数据迁移导入上传包、解压目录、task.json
+/data/exports/migration-tasks                                    # 数据迁移导出后台任务状态
+/data/compose-runtime                                            # 运行时 compose override
+```
+
+取舍：已取消“数据迁移导出跳过 Prometheus 历史指标”的优化方向。历史指标是日增长、月增长和趋势图的数据来源，不能为了导出速度跳过；真正优化方向是目录职责拆开，并给导出/导入/备份增加精确进度和可清理留档。

@@ -152,6 +152,7 @@ def _artifact_categories() -> list[dict[str, Any]]:
         {"key": "migration_exports", "label": "数据迁移导出", "path": settings.export_path / "migrations", "description": "数据迁移导出留档包"},
         {"key": "report_exports", "label": "报表导出", "path": settings.export_path / "reports", "description": "Word/Excel 报表留档文件"},
         {"key": "migration_tasks", "label": "迁移导出任务记录", "path": settings.export_path / "migration-tasks", "description": "迁移导出后台任务状态文件"},
+        {"key": "migration_imports", "label": "数据迁移导入", "path": settings.export_path / "imports", "description": "数据迁移导入上传包、解压目录和任务记录"},
     ]
 
 
