@@ -665,3 +665,35 @@ TDD 记录：
 
 - Phase V2-2 基础平台与认证满足阶段验收。
 - `docs/v2-rebuild-task-plan.md` 已将 Phase V2-2 标记为完成。
+
+### 2026-06-06 Phase V2-3 Tower/Cluster 与指标格式基础
+
+状态：进行中，第一薄片完成本地验证
+
+实施内容：
+
+- `backend/app/v2/database.py` 增加 v2 `towers`、`clusters`、`vm_latest` 表。
+- 新增 `backend/app/v2/inventory/models.py`，定义 Tower/Cluster 输入和安全响应记录。
+- 新增 `backend/app/v2/inventory/service.py`，实现 Tower 创建、列表、更新、删除、集群同步、集群启用/改名。
+- 新增 `backend/app/v2/inventory/scope.py`，统一 all/Tower/cluster scope 解析，并禁止只传 cluster_id 不传 tower_id。
+- 新增 `backend/app/v2/metrics/formatter.py`，生成 `smartx_cluster_storage_used_bytes`、`smartx_cluster_storage_total_bytes`、`smartx_vm_storage_used_bytes` 指标文本，VM 指标使用 `tower_id + cluster_id + vm_id` 稳定身份，`vm_name` 仅展示。
+- `backend/app/v2/api.py` 增加 v2 Tower CRUD、集群同步和集群更新接口，所有接口复用 `require_user` 鉴权，不返回 password/api_token。
+
+TDD 记录：
+
+- RED：`PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_inventory_metrics -v` 先失败，原因是 `inventory.models`、`inventory.scope`、`metrics.formatter` 不存在。
+- GREEN：新增 inventory service/scope 和 metrics formatter 后，该测试通过。
+- RED：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_inventory_api -v` 先返回 `/api/towers` 404，说明 v2 API 未接 Tower。
+- GREEN：新增 v2 Tower/Cluster API 后，inventory API 测试通过。
+- 修复：Python 3.9 + Pydantic 对 `bool | None` 注解不兼容，API 层 Pydantic 模型改为 `Optional[...]`。
+
+本地验证：
+
+- `PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_skeleton backend.tests.test_v2_task_models backend.tests.test_v2_foundation backend.tests.test_v2_inventory_metrics backend.tests.test_v2_auth_api backend.tests.test_v2_inventory_api -v` 通过：14 个测试 OK，2 个 FastAPI 集成测试因本机基础 Python 缺依赖跳过。
+- `PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_skeleton backend.tests.test_v2_task_models backend.tests.test_v2_foundation backend.tests.test_v2_inventory_metrics backend.tests.test_v2_auth_api backend.tests.test_v2_inventory_api -v` 通过：16 个测试 OK。
+- `python3 -m py_compile backend/app/v2/api.py backend/app/v2/database.py backend/app/v2/security.py backend/app/v2/inventory/models.py backend/app/v2/inventory/service.py backend/app/v2/inventory/scope.py backend/app/v2/metrics/formatter.py backend/tests/test_v2_inventory_metrics.py backend/tests/test_v2_inventory_api.py` 通过。
+
+待处理：
+
+- Phase V2-3 后续还需要 CloudTower 客户端、连接测试、手动采集、collector-worker 定时采集、Prometheus 写入和查询服务。
+- 当前只完成 Tower/Cluster 存储与 API、指标文本格式基础，尚未打通真实采集链路。

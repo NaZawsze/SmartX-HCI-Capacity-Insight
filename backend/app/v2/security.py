@@ -6,6 +6,7 @@ import hmac
 import json
 import os
 import time
+from itertools import cycle
 from typing import Any
 
 
@@ -56,3 +57,22 @@ def decode_token(token: str, secret_key: str) -> dict[str, Any] | None:
     if int(payload.get("exp", 0)) < int(time.time()):
         return None
     return payload
+
+
+def encrypt_secret(value: str | None, secret_key: str) -> str | None:
+    if not value:
+        return None
+    key = hashlib.sha256(secret_key.encode("utf-8")).digest()
+    encrypted = bytes(byte ^ key_byte for byte, key_byte in zip(value.encode("utf-8"), cycle(key)))
+    return _b64url(encrypted)
+
+
+def decrypt_secret(value: str | None, secret_key: str) -> str | None:
+    if not value:
+        return None
+    try:
+        encrypted = _unb64url(value)
+        key = hashlib.sha256(secret_key.encode("utf-8")).digest()
+        return bytes(byte ^ key_byte for byte, key_byte in zip(encrypted, cycle(key))).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return None

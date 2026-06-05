@@ -59,6 +59,39 @@ class V2Database:
                     finished_at TEXT
                 );
 
+                CREATE TABLE IF NOT EXISTS towers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    base_url TEXT NOT NULL,
+                    username TEXT,
+                    password_encrypted TEXT,
+                    api_token_encrypted TEXT,
+                    verify_tls INTEGER NOT NULL DEFAULT 1,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS clusters (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tower_id INTEGER NOT NULL REFERENCES towers(id) ON DELETE CASCADE,
+                    cluster_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(tower_id, cluster_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS vm_latest (
+                    tower_id INTEGER NOT NULL,
+                    cluster_id TEXT NOT NULL,
+                    vm_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    used_bytes INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (tower_id, cluster_id, vm_id)
+                );
+
                 CREATE TABLE IF NOT EXISTS schema_migrations (
                     name TEXT PRIMARY KEY,
                     applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
