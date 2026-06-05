@@ -101,6 +101,18 @@ def test_upgrade_backup_skips_legacy_runtime_artifacts() -> None:
     assert '"exports"' in text
 
 
+def test_upgrade_precheck_checks_network_and_project_closure() -> None:
+    root = Path(__file__).resolve().parents[2]
+    backend = (root / "backend/app/services/upgrade.py").read_text(encoding="utf-8")
+    frontend = (root / "frontend/src/pages/ServicePage.tsx").read_text(encoding="utf-8")
+
+    assert 'EXPECTED_NETWORK_SUBNET = "10.249.249.0/24"' in backend
+    assert 'check("network", network_ok, network_message, network_detail)' in backend
+    assert '"volumes", "network", "compose-tag"' in frontend
+    assert '"project-files"' in frontend
+    assert "formatCheckMessages(relatedFailed)" in frontend
+
+
 def test_image_cleanup_deletes_scanned_candidates() -> None:
     root = Path(__file__).resolve().parents[2]
     text = (root / "backend/app/services/system_control.py").read_text(encoding="utf-8")

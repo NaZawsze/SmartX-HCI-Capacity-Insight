@@ -162,3 +162,20 @@
 - 镜像清理结果返回候选逻辑大小、预计释放大小和删除失败列表。
 - `frontend/src/pages/ServicePage.tsx` 保留本次清理结果，不再用清理后重扫覆盖为 `0B`。
 - `docs/upgrade-issues.md` 将 UPG-013 标记为已解决。
+
+### 升级预检查步骤化与网络检查
+
+状态：进行中
+
+发现：
+
+- 后端平台预检查已有 manifest、version、services、sha256、docker、upgrade-runner、volumes、image-names、project-files、compose-tag、disk、migration 等检查。
+- 前端预检查步骤原来只有 5 个泛化步骤，结果返回后只在最后一步显示失败，无法看出是镜像名、compose、项目文件还是磁盘问题。
+- 升级预检查还缺少 compose 网络检查，不能在上传阶段发现 172.16/172.17 或非 `10.249.249.0/24` 的配置。
+
+修复：
+
+- `backend/app/services/upgrade.py` 新增 `network` 检查，校验当前 compose 与升级包 `project/docker-compose.offline.yml`。
+- `frontend/src/pages/ServicePage.tsx` 将平台和组件预检查步骤改为按后端检查项分组，并在步骤内展示聚合后的检查消息。
+- `backend/tests/test_deployment_config.py` 增加文本断言覆盖网络检查和前端步骤映射。
+- `docs/upgrade-issues.md` 将 UPG-011 标记为已解决，UPG-014 补充“已纳入升级预检查”。

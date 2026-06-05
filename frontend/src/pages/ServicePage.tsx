@@ -6,6 +6,8 @@ import type { AppTask, MigrationExportTask, SpaceCleanupScanItem, UpgradeTask, U
 
 type ServiceSection = "migration" | "restart" | "space-cleanup" | "platform-upgrade" | "component-upgrade" | "history";
 type CleanupScanImage = { id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string; reclaimable_size?: number; reclaimable_size_label?: string; created_at?: number };
+type UpgradeCheck = UpgradeTask["checks"][number];
+type PrecheckStepDefinition = { key: string; title: string; checks: string[] };
 type DisplayStep = { key: string; title: string; status: string; message?: string };
 
 const runningUpgradeStatuses = new Set(["pending", "running", "rollback_pending", "rollback_running"]);
@@ -34,19 +36,22 @@ const componentStepDefaults = [
   { key: "healthcheck", title: "检查组件运行状态" }
 ];
 const platformPrecheckStepDefaults = [
-  { key: "package", title: "校验升级包结构" },
-  { key: "version", title: "校验版本兼容性" },
-  { key: "images", title: "校验镜像文件与 SHA256" },
-  { key: "environment", title: "检查 Docker、磁盘与数据卷" },
-  { key: "summary", title: "生成预检查结果" }
-];
+  { key: "manifest", title: "校验升级包结构", checks: ["manifest"] },
+  { key: "version", title: "校验版本兼容性", checks: ["version", "services"] },
+  { key: "images", title: "校验镜像名、Tag 与 SHA256", checks: ["sha256", "image-names"] },
+  { key: "docker", title: "检查 Docker 与升级执行器", checks: ["docker", "upgrade-runner"] },
+  { key: "compose", title: "检查 compose、数据卷与网络", checks: ["volumes", "network", "compose-tag"] },
+  { key: "project", title: "检查项目文件与敏感路径", checks: ["project-files"] },
+  { key: "resources", title: "检查磁盘空间与迁移脚本", checks: ["disk", "migration"] },
+  { key: "summary", title: "生成预检查结果", checks: [] }
+] satisfies PrecheckStepDefinition[];
 const componentPrecheckStepDefaults = [
-  { key: "package", title: "校验组件包结构" },
-  { key: "version", title: "校验组件版本兼容性" },
-  { key: "images", title: "校验组件镜像文件" },
-  { key: "environment", title: "检查 Docker 与升级中心状态" },
-  { key: "summary", title: "生成组件预检查结果" }
-];
+  { key: "manifest", title: "校验组件包结构", checks: ["manifest"] },
+  { key: "version", title: "校验组件版本兼容性", checks: ["version", "platform-upgrade"] },
+  { key: "images", title: "校验组件镜像与 SHA256", checks: ["sha256"] },
+  { key: "environment", title: "检查 Docker、CLI 与磁盘空间", checks: ["docker", "docker-cli", "disk"] },
+  { key: "summary", title: "生成组件预检查结果", checks: [] }
+] satisfies PrecheckStepDefinition[];
 
 interface ServicePageProps {
   addTask: (task: Omit<AppTask, "createdAt" | "updatedAt">) => void;
@@ -1403,17 +1408,48 @@ function displayPrecheckSteps(task: UpgradeTask, isComponent: boolean, running: 
     }));
   }
   if (task.checks.length) {
+    const checksByName = new Map(task.checks.map((check) => [check.name, check]));
     const failed = task.checks.some((check) => !check.ok);
     return defaults.map((item, index) => {
       const isLast = index === defaults.length - 1;
+      if (!isLast) {
+        const relatedChecks = item.checks.map((name) => checksByName.get(name)).filter((check): check is UpgradeCheck => Boolean(check));
+        const relatedFailed = relatedChecks.filter((check) => !check.ok);
+        return {
+          key: item.key,
+          title: item.title,
+          status: relatedFailed.length ? "failed" : relatedChecks.length === item.checks.length ? "succeeded" : "pending",
+          message: relatedFailed.length ? formatCheckMessages(relatedFailed) : formatCheckMessages(relatedChecks)
+        };
+      }
       return {
-        ...item,
+        key: item.key,
+        title: item.title,
         status: failed && isLast ? "failed" : "succeeded",
         message: isLast ? (failed ? "预检查未通过" : "预检查通过") : undefined
       };
     });
   }
   return defaults.map((item) => ({ ...item, status: "pending" }));
+}
+
+function formatCheckMessages(checks: UpgradeCheck[]): string | undefined {
+  if (!checks.length) return undefined;
+  return checks.map((check) => {
+    const detail = formatCheckDetail(check.detail);
+    return detail ? `${check.message} ${detail}` : check.message;
+  }).join(" ");
+}
+
+function formatCheckDetail(detail: unknown): string {
+  if (!detail) return "";
+  if (Array.isArray(detail)) {
+    return detail.map((item) => String(item)).filter(Boolean).join("；");
+  }
+  if (typeof detail === "object") {
+    return Object.entries(detail as Record<string, unknown>).map(([key, value]) => `${key}: ${String(value)}`).join("；");
+  }
+  return String(detail);
 }
 
 function migrationExportTaskPatch(task: MigrationExportTask): Partial<Omit<AppTask, "id" | "createdAt">> {

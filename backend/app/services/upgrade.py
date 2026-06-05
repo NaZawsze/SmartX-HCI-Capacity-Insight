@@ -32,6 +32,7 @@ CORE_VOLUME_MARKERS = (
     "/data/smartx-capacity-insight-data/app:/data",
     "/data/smartx-capacity-insight-data/prometheus:/prometheus",
 )
+EXPECTED_NETWORK_SUBNET = "10.249.249.0/24"
 RUNNING_STATUSES = {"pending", "running", "rollback_pending", "rollback_running"}
 APP_BACKUP_SKIP_NAMES = {"backups", "upgrades", "exports", "compose-runtime", "migration-tasks", "__pycache__"}
 PROMETHEUS_BACKUP_SKIP_NAMES = {"chunks_head", "lock", "queries.active", "wal"}
@@ -218,6 +219,9 @@ def precheck_upgrade(task_id: str) -> dict[str, Any]:
 
     compose_ok, compose_message = _compose_volume_safe()
     check("volumes", compose_ok, compose_message)
+
+    network_ok, network_message, network_detail = _compose_network_safe(package_dir)
+    check("network", network_ok, network_message, network_detail)
 
     image_names_ok, image_names_message, image_names_detail = _image_names_check(manifest)
     check("image-names", image_names_ok, image_names_message, image_names_detail)
@@ -964,6 +968,32 @@ def _compose_volume_safe() -> tuple[bool, str]:
     if "down -v" in text:
         return False, "compose 配置中包含禁止的 down -v。"
     return True, "核心数据目录挂载保持安全：/data/smartx-capacity-insight-data/app 和 /data/smartx-capacity-insight-data/prometheus 不会被替换。"
+
+
+def _compose_network_safe(package_dir: Path) -> tuple[bool, str, list[str]]:
+    settings = get_settings()
+    current_compose = settings.project_path / settings.compose_file
+    target_compose = package_dir / "project" / "docker-compose.offline.yml"
+    details = [
+        f"当前 compose 文件：{settings.compose_file}",
+        f"目标网络网段：{EXPECTED_NETWORK_SUBNET}",
+    ]
+    ok = True
+    for label, path in (("当前 compose", current_compose), ("升级包 offline compose", target_compose)):
+        if not path.exists():
+            details.append(f"{label} 不存在：{path}")
+            ok = False
+            continue
+        text = path.read_text(encoding="utf-8")
+        if EXPECTED_NETWORK_SUBNET not in text:
+            details.append(f"{label} 未配置 {EXPECTED_NETWORK_SUBNET}")
+            ok = False
+        if "172.16." in text or "172.17." in text:
+            details.append(f"{label} 包含不允许的 172.16/172.17 网段")
+            ok = False
+    if ok:
+        details.append("compose 网络使用 smartx-net，未发现 172.16/172.17 网段。")
+    return ok, "compose 网络网段符合 10.249.249.0/24 规划。" if ok else "compose 网络配置不符合规划。", details
 
 
 def _image_names_check(manifest: dict[str, Any]) -> tuple[bool, str, list[str]]:
