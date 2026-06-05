@@ -1,7 +1,7 @@
 services:
   web-api:
-    image: smartx-storage-forecast-web-api:v0.4.0
+    image: nazawsze/smartx-hci-capacity-insight-web-api:v0.4.1
   collector-worker:
-    image: smartx-storage-forecast-collector-worker:v0.4.0
+    image: nazawsze/smartx-hci-capacity-insight-collector-worker:v0.4.1
   frontend:
-    image: smartx-storage-forecast-frontend:v0.4.0
+    image: nazawsze/smartx-hci-capacity-insight-frontend:v0.4.1
