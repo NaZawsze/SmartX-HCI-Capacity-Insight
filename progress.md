@@ -196,3 +196,18 @@
 - 新增 `_BackupProgress` 和进度 reader，备份写入时按字节统计，并按 5 秒或 10% 进度节流更新 `backup_processed_*`、step message 和日志。
 - 任务中心 detail 改为使用当前 running step 的 message，能直接显示 `备份中 xx%`。
 - `docs/upgrade-issues.md` 将 UPG-008 标记为已解决。
+
+### 平台升级 UI 去重
+
+状态：进行中
+
+发现：
+
+- 平台升级顶部已经展示当前版本、目标版本、最近成功包等信息。
+- 下方“服务运行核验”又作为独立区块展示刷新按钮和服务运行表，视觉上像二级框，用户需要在多个区域判断升级状态。
+
+修复：
+
+- 新增统一“平台状态”区域，集中展示版本、升级包、compose 和运行服务。
+- `renderUpgradeRuntimeVerification()` 只返回运行服务表，刷新按钮移到平台状态标题行。
+- `docs/upgrade-issues.md` 将 UPG-010 标记为已解决。

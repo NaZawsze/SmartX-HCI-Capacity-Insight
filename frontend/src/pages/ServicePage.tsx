@@ -921,16 +921,28 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             </>
           )}
         />
-        <div className="service-upgrade-status-grid service-upgrade-status-grid-wide">
-          <InfoRow label="当前版本" value={formatVersionForDisplay(upgradeVerification?.app_version ?? appVersion)} />
-          <InfoRow label="目标版本" value={formatVersionForDisplay(upgradeTask?.target_version)} />
-          <InfoRow label="已选升级包" value={upgradeTask?.package_filename ?? "未选择"} />
-          <InfoRow label="升级中心版本" value={formatVersionForDisplay(upgradeVerification?.runner_version ?? runnerVersion)} />
-          <InfoRow label="Compose 项目" value={upgradeVerification?.compose_project ?? "-"} />
-          <InfoRow label="最近成功包" value={packageInfo ? `${formatVersionForDisplay(packageInfo.version)} · ${packageInfo.filename || "-"}` : "暂无成功升级记录"} />
-          <InfoRow label="升级包 SHA256" value={packageInfo?.sha256 ? shortSha(packageInfo.sha256) : "-"} />
-        </div>
-        {renderUpgradeRuntimeVerification()}
+        <section className="upgrade-platform-status">
+          <div className="upgrade-platform-status-head">
+            <div>
+              <strong>平台状态</strong>
+              <span>版本、升级包和当前运行服务集中展示。</span>
+            </div>
+            <button className="secondary-button service-header-button" type="button" onClick={() => reloadUpgradeVerification().catch((exc) => setUpgradeMessage(exc instanceof Error ? exc.message : "刷新核验失败"))} disabled={verificationBusy}>
+              <RefreshCw size={16} />
+              {verificationBusy ? "刷新中" : "刷新状态"}
+            </button>
+          </div>
+          <div className="service-upgrade-status-grid service-upgrade-status-grid-wide">
+            <InfoRow label="当前版本" value={formatVersionForDisplay(upgradeVerification?.app_version ?? appVersion)} />
+            <InfoRow label="目标版本" value={formatVersionForDisplay(upgradeTask?.target_version)} />
+            <InfoRow label="已选升级包" value={upgradeTask?.package_filename ?? "未选择"} />
+            <InfoRow label="升级中心版本" value={formatVersionForDisplay(upgradeVerification?.runner_version ?? runnerVersion)} />
+            <InfoRow label="Compose 项目" value={upgradeVerification?.compose_project ?? "-"} />
+            <InfoRow label="最近成功包" value={packageInfo ? `${formatVersionForDisplay(packageInfo.version)} · ${packageInfo.filename || "-"}` : "暂无成功升级记录"} />
+            <InfoRow label="升级包 SHA256" value={packageInfo?.sha256 ? shortSha(packageInfo.sha256) : "-"} />
+          </div>
+          {renderUpgradeRuntimeVerification()}
+        </section>
         <div className="service-notice">
           <Info size={16} />
           升级包会保存到系统升级目录；选中一个升级包后可执行预检查、升级、取消选择或删除。
@@ -994,17 +1006,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
 
   function renderUpgradeRuntimeVerification() {
     return (
-      <section className="upgrade-verification-inline">
-        <div className="upgrade-runtime-toolbar">
-          <div>
-            <strong>服务运行核验</strong>
-            <span>确认当前运行镜像、服务状态和启动时间。</span>
-          </div>
-          <button className="secondary-button service-header-button" type="button" onClick={() => reloadUpgradeVerification().catch((exc) => setUpgradeMessage(exc instanceof Error ? exc.message : "刷新核验失败"))} disabled={verificationBusy}>
-            <RefreshCw size={16} />
-            {verificationBusy ? "刷新中" : "刷新核验"}
-          </button>
-        </div>
+      <div className="upgrade-verification-inline">
         <div className="upgrade-runtime-table upgrade-runtime-table-flat">
           <div className="upgrade-runtime-head">
             <span>服务</span>
@@ -1025,7 +1027,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           {upgradeVerification && !upgradeVerification.services.length && <div className="empty-state">未读取到服务状态</div>}
           {!upgradeVerification && <div className="empty-state">点击“刷新核验”读取当前服务状态</div>}
         </div>
-      </section>
+      </div>
     );
   }
 

@@ -150,7 +150,7 @@ curl -s -o /dev/null -w "api_metrics:%{http_code}\n" http://127.0.0.1:8000/metri
 
 ### Phase 8 - 升级前备份进度
 
-状态：进行中
+状态：完成
 
 目标：
 
@@ -163,3 +163,19 @@ curl -s -o /dev/null -w "api_metrics:%{http_code}\n" http://127.0.0.1:8000/metri
 - 备份写入过程中按进度或时间节流更新 task.json。
 - 前端任务中心使用当前运行步骤 message 作为 detail。
 - `docs/upgrade-issues.md` 将 UPG-008 标记为已解决。
+
+### Phase 9 - 平台升级 UI 去重
+
+状态：进行中
+
+目标：
+
+- 合并平台升级和升级后核验内容，避免同一页面重复展示版本和运行状态。
+- 平台升级区域减少二级框层级，保留清晰状态、升级包列表、操作按钮和日志。
+
+已完成：
+
+- 平台升级顶部新增统一“平台状态”区域。
+- 当前版本、目标版本、升级中心版本、compose 项目、最近成功包、运行镜像表合并展示。
+- 刷新核验改为“刷新状态”，放到平台状态标题行。
+- `docs/upgrade-issues.md` 将 UPG-010 标记为已解决。

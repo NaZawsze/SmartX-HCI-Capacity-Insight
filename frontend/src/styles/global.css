@@ -2697,6 +2697,7 @@ button {
 .service-upgrade-detail,
 .service-history-table,
 .upgrade-package-section,
+.upgrade-platform-status,
 .upgrade-verification-inline {
   max-width: 980px;
 }
@@ -2757,7 +2758,7 @@ button {
 .service-info-table {
   max-width: 760px;
   display: grid;
-  margin-bottom: 18px;
+  margin-bottom: 0;
 }
 
 .service-upgrade-status-grid-wide {
@@ -2828,10 +2829,39 @@ button {
   margin: 14px 0 0;
 }
 
+.upgrade-platform-status {
+  display: grid;
+  gap: 14px;
+  margin: 4px 0 18px;
+}
+
+.upgrade-platform-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.upgrade-platform-status-head div {
+  display: grid;
+  gap: 4px;
+}
+
+.upgrade-platform-status-head strong {
+  color: var(--ink);
+}
+
+.upgrade-platform-status-head span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .upgrade-verification-inline {
   display: grid;
-  gap: 12px;
-  margin: 4px 0 18px;
+  gap: 10px;
+  margin: 0;
 }
 
 .upgrade-runtime-toolbar {
