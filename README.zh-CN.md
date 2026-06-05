@@ -159,19 +159,6 @@ smartx-capacity-insight-v0.4.0-upgrade.tar.gz
 
 普通平台升级包不建议在同一次升级任务中重启 `upgrade-runner`，避免中断正在执行升级的服务。如需替换 `upgrade-runner`，请使用组件升级包。
 
-### Runner 优先升级办法
-
-如果旧 `upgrade-runner` 或旧 runner override 导致平台升级卡在备份、重启或 compose 路径阶段，建议先升级 runner，再从 Web 页面执行平台升级。
-
-```bash
-cd /opt/smartx-storage-forecast
-bash docs/upgrade/runner-first-upgrade.sh
-```
-
-脚本会完成前三步准备：手动备份数据、清理旧 runner override、安装新 runner override。脚本结束后，再打开服务管理页面上传平台升级包，例如 `/data/upgrade-packages/smartx-capacity-insight-upgrade-v0.4.0.tar.gz`，执行预检查和开始升级。
-
-详细说明：[Runner 优先升级现场步骤](docs/upgrade/runner-first-upgrade.md)。
-
 ### 推荐迁移方式：新装后从旧系统命令导出数据
 
 如果旧版本升级链路不稳定，建议直接在目标机器重新安装最新版本的存储预测平台，然后在旧系统服务器 CLI 执行下面命令提取迁出数据包，再到新系统的 `服务管理 -> 数据迁移` 页面导入。

@@ -157,19 +157,6 @@ Example fields:
 
 For normal platform upgrades, do not restart `upgrade-runner` in the same package that is executing the upgrade. Use a component upgrade package when `upgrade-runner` itself needs to be replaced.
 
-### Runner-First Upgrade Procedure
-
-If an old `upgrade-runner` or stale runner override blocks platform upgrades, upgrade the runner first, then perform the platform upgrade from the Web UI.
-
-```bash
-cd /opt/smartx-storage-forecast
-bash docs/upgrade/runner-first-upgrade.sh
-```
-
-The script performs three preparation steps: manual data backup, stale runner override cleanup, and new runner override installation. After it finishes, open the service management page and upload the platform upgrade package, for example `/data/upgrade-packages/smartx-capacity-insight-upgrade-v0.4.0.tar.gz`.
-
-Detailed runbook: [Runner-first upgrade steps](docs/upgrade/runner-first-upgrade.md).
-
 ### Recommended Migration Path: Fresh Install + CLI Data Export
 
 If the old upgrade flow is unreliable, install the latest storage forecast platform on the target server first. Then run the following command on the old system CLI to export a migration package, and import that package from the new system page: `Service Management -> Data Migration`.

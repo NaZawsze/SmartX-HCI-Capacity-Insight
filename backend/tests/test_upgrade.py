@@ -124,39 +124,22 @@ def test_runner_override_uses_runtime_path_not_data_subdirectory(tmp_path, monke
     assert not (settings.data_path / "compose-runtime" / "docker-compose.runner-upgrade.yml").exists()
 
 
-def test_ensure_runner_runtime_mounts_recreates_runner_when_mounts_missing(tmp_path, monkeypatch):
+def test_start_upgrade_assumes_runner_v022_runtime_is_ready(tmp_path, monkeypatch):
     settings = _UpgradeTestSettings(tmp_path)
-    settings.project_path.mkdir(parents=True)
-    settings.runtime_path.mkdir(parents=True)
-    (settings.project_path / settings.compose_file).write_text("services:\n  upgrade-runner: {}\n", encoding="utf-8")
-    previous_override = settings.runtime_path / "docker-compose.runner-upgrade.yml"
-    previous_override.write_text("services:\n  upgrade-runner:\n    image: runner:v0.2.1\n", encoding="utf-8")
-
-    calls = []
+    task = {
+        "task_id": "abc123",
+        "status": "prechecked",
+        "precheck_ok": True,
+        "logs": [],
+        "manifest": {"version": "v0.4.1"},
+    }
+    saved = {}
     monkeypatch.setattr(upgrade, "get_settings", lambda: settings)
-    monkeypatch.setattr(upgrade, "_runner_missing_runtime_mounts", lambda: ["/data/upgrades"])
-    monkeypatch.setattr(upgrade, "_refresh_runtime_compose_file", lambda: calls.append(("refresh",)))
-    monkeypatch.setattr(upgrade, "_running_runner_image", lambda: "runner:v0.2.2")
-    monkeypatch.setattr(upgrade, "_compose_command", lambda runner_override=False: ["docker", "compose", "up"] if runner_override else ["docker", "compose"])
-    monkeypatch.setattr(upgrade, "_compose_cwd", lambda: settings.project_path)
-    monkeypatch.setattr(upgrade, "_run_command", lambda command, cwd, env=None: calls.append(("run", command, cwd)) or "ok")
-    monkeypatch.setattr(upgrade, "_wait_runner_mounts", lambda: calls.append(("wait",)))
+    monkeypatch.setattr(upgrade, "_load_task_or_404", lambda task_id: task)
+    monkeypatch.setattr(upgrade, "_save_task", lambda value: saved.update(value))
 
-    message = upgrade._ensure_runner_runtime_mounts()
+    result = upgrade.start_upgrade("abc123")
 
-    assert "已刷新 upgrade-runner" in message
-    assert ("refresh",) in calls
-    assert any(item[0] == "run" and "upgrade-runner" in item[1] for item in calls)
-    assert ("wait",) in calls
-    assert not previous_override.exists()
-    assert previous_override.with_name("docker-compose.runner-upgrade.yml.before-runtime-mount-fix").exists()
-
-
-def test_ensure_runner_runtime_mounts_noops_when_mounts_present(tmp_path, monkeypatch):
-    settings = _UpgradeTestSettings(tmp_path)
-    monkeypatch.setattr(upgrade, "get_settings", lambda: settings)
-    monkeypatch.setattr(upgrade, "_runner_missing_runtime_mounts", lambda: [])
-
-    message = upgrade._ensure_runner_runtime_mounts()
-
-    assert message == ""
+    assert result["status"] == "pending"
+    assert saved["status"] == "pending"
+    assert "upgrade-runner 运行时挂载" not in "\n".join(saved["logs"])

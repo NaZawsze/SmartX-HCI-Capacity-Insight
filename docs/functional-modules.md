@@ -285,8 +285,6 @@
 - `scripts/build_upgrade_package.py`
 - `docker-compose.upgrade.yml`
 - `docs/upgrade-runner-lifecycle.md`
-- `docs/upgrade/runner-first-upgrade.md`
-- `docs/upgrade/runner-first-upgrade.sh`
 - `frontend/src/pages/ServicePage.tsx`
 
 升级包结构：
@@ -324,8 +322,6 @@ scripts/migrate.sh
 - `backend/app/upgrade/runner.py`
 - `backend/Dockerfile.upgrade`
 - `docs/upgrade-runner-lifecycle.md`
-- `docs/upgrade/runner-first-upgrade.md`
-- `docs/upgrade/runner-first-upgrade.sh`
 - `frontend/src/pages/ServicePage.tsx`
 
 常见问题：

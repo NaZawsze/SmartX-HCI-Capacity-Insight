@@ -20,7 +20,7 @@ def test_pre_install_creates_runtime_artifact_directories() -> None:
         assert value in text
 
 
-def test_upgrade_package_migrate_script_refreshes_runtime_compose(tmp_path) -> None:
+def test_upgrade_package_migrate_script_only_syncs_project_files(tmp_path) -> None:
     root = Path(__file__).resolve().parents[2]
     module_path = root / "scripts/build_upgrade_package.py"
     spec = importlib.util.spec_from_file_location("build_upgrade_package", module_path)
@@ -32,15 +32,14 @@ def test_upgrade_package_migrate_script_refreshes_runtime_compose(tmp_path) -> N
     module.write_migrate_script(script_path, "v0.4.0")
     text = script_path.read_text(encoding="utf-8")
 
-    assert "/data:/host-data" in text
-    assert "/package-project:ro" in text
-    assert "sync_runtime_compose" in text
-    assert "docker-compose.offline.yml" in text
-    assert "docker-compose.runner-upgrade.yml.before-" in text
-    assert "runner_override.unlink()" in text
-    assert "copy_task_file_if_newer" in text
-    assert "task_updated_at(dst) >= task_updated_at(src)" in text
-    assert "child.name.startswith('docker-compose.runner-upgrade.yml')" in text
+    assert "project_files = manifest.get(\"project_files\") or []" in text
+    assert "override_path.write_text" in text
+    assert "migrate_legacy_artifacts" not in text
+    assert "/host-data" not in text
+    assert "/package-project" not in text
+    assert "docker-compose.runner-upgrade.yml.before-" not in text
+    assert "runner_override.unlink()" not in text
+    assert "copy_task_file_if_newer" not in text
 
 def test_migration_and_report_artifacts_live_under_exports() -> None:
     root = Path(__file__).resolve().parents[2]

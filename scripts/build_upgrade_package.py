@@ -113,7 +113,6 @@ python3 - "$PACKAGE_DIR" "$PROJECT_ROOT" "$BACKUP_ROOT" "$OVERRIDE" "$VERSION" <
 from pathlib import Path
 import json
 import shutil
-import subprocess
 import sys
 
 package_dir = Path(sys.argv[1])
@@ -122,8 +121,6 @@ backup_root = Path(sys.argv[3])
 override_path = Path(sys.argv[4])
 version = sys.argv[5]
 manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
-active_upgrade_task = package_dir.parent.name
-
 blocked_parts = {{"data", "backups", "upgrades", "__pycache__"}}
 blocked_words = ("credential", "secret", "password", "tower_password", "access_key", "token")
 
@@ -173,149 +170,11 @@ for service in ("web-api", "collector-worker", "frontend"):
         lines.append(f"    image: {{image}}")
 override_path.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
 
-def migrate_legacy_artifacts():
-    image = next((item.get("image") for item in manifest.get("images", []) if item.get("service") == "upgrade-runner"), None)
-    image = image or next((item.get("image") for item in manifest.get("images", []) if item.get("service") == "web-api"), None)
-    if not image:
-        return "未找到可执行镜像，跳过旧运行产物整理"
-    host_script = "\\n".join([
-        "from pathlib import Path",
-        "import json",
-        "import shutil",
-        "import sys",
-        "",
-        "root = Path('/host-data')",
-        "app = root / 'smartx-capacity-insight-data' / 'app'",
-        "active_task = sys.argv[1]",
-        "version = sys.argv[2]",
-        "targets = [",
-        "    ('backups', root / 'backups'),",
-        "    ('exports', root / 'exports'),",
-        "    ('compose-runtime', root / 'compose-runtime'),",
-        "]",
-        "for _, target in [('upgrades', root / 'upgrades'), *targets]:",
-        "    target.mkdir(parents=True, exist_ok=True)",
-        "",
-        "def copy_tree_contents(source, target):",
-        "    if not source.exists() or not source.is_dir():",
-        "        return 0",
-        "    copied = 0",
-        "    for child in source.iterdir():",
-        "        dest = target / child.name",
-        "        if child.is_dir():",
-        "            if dest.exists():",
-        "                copied += copy_tree_contents(child, dest)",
-        "            else:",
-        "                shutil.copytree(child, dest)",
-        "                copied += 1",
-        "        elif not dest.exists():",
-        "            if child.name.startswith('docker-compose.runner-upgrade.yml'):",
-        "                continue",
-        "            dest.parent.mkdir(parents=True, exist_ok=True)",
-        "            shutil.copy2(child, dest)",
-        "            copied += 1",
-        "    return copied",
-        "",
-        "def sync_runtime_compose():",
-        "    runtime = root / 'compose-runtime'",
-        "    project = root / 'SmartX-HCI-Capacity-Insight-main'",
-        "    packaged_project = Path('/package-project')",
-        "    candidates = [",
-        "        packaged_project / 'docker-compose.offline.yml',",
-        "        project / 'docker-compose.offline.yml',",
-        "    ]",
-        "    for source in candidates:",
-        "        if source.is_file():",
-        "            target = runtime / 'docker-compose.offline.yml'",
-        "            target.parent.mkdir(parents=True, exist_ok=True)",
-        "            shutil.copy2(source, target)",
-        "            break",
-        "    runner_override = runtime / 'docker-compose.runner-upgrade.yml'",
-        "    if runner_override.exists():",
-        "        backup = runtime / ('docker-compose.runner-upgrade.yml.before-' + version)",
-        "        if not backup.exists():",
-        "            shutil.copy2(runner_override, backup)",
-        "        runner_override.unlink()",
-        "        return 'runtime-compose:已刷新 offline compose，并清理旧 runner override'",
-        "    return 'runtime-compose:已刷新 offline compose'",
-        "",
-        "def task_updated_at(path):",
-        "    try:",
-        "        return json.loads(path.read_text(encoding='utf-8')).get('updated_at') or ''",
-        "    except Exception:",
-        "        return ''",
-        "",
-        "def copy_task_file_if_newer(src, dst):",
-        "    if not src.is_file():",
-        "        return False",
-        "    if dst.exists() and task_updated_at(dst) >= task_updated_at(src):",
-        "        return False",
-        "    dst.parent.mkdir(parents=True, exist_ok=True)",
-        "    shutil.copy2(src, dst)",
-        "    return True",
-        "",
-        "def migrate_upgrade_records(source, target):",
-        "    if not source.exists() or not source.is_dir():",
-        "        return 'upgrades:无旧目录'",
-        "    copied = 0",
-        "    cleaned = 0",
-        "    for task_dir in source.iterdir():",
-        "        if not task_dir.is_dir():",
-        "            continue",
-        "        dest_task = target / task_dir.name",
-        "        dest_task.mkdir(parents=True, exist_ok=True)",
-        "        for rel in ('task.json', 'manifest.json', 'package/manifest.json', 'package/release-notes.md'):",
-        "            src = task_dir / rel",
-        "            if src.is_file():",
-        "                dst = dest_task / rel",
-        "                if rel == 'task.json':",
-        "                    if copy_task_file_if_newer(src, dst):",
-        "                        copied += 1",
-        "                elif not dst.exists():",
-        "                    dst.parent.mkdir(parents=True, exist_ok=True)",
-        "                    shutil.copy2(src, dst)",
-        "                    copied += 1",
-        "        if task_dir.name == active_task:",
-        "            continue",
-        "        for rel in ('upload.tar.gz', 'package/images'):",
-        "            src = task_dir / rel",
-        "            if src.is_dir():",
-        "                shutil.rmtree(src, ignore_errors=True)",
-        "                cleaned += 1",
-        "            elif src.exists():",
-        "                src.unlink(missing_ok=True)",
-        "                cleaned += 1",
-        "    return 'upgrades:复制记录 %s 个，清理旧缓存 %s 项' % (copied, cleaned)",
-        "",
-        "messages = [sync_runtime_compose(), migrate_upgrade_records(app / 'upgrades', root / 'upgrades')]",
-        "for name, target in targets:",
-        "    messages.append('%s:复制 %s 项' % (name, copy_tree_contents(app / name, target)))",
-        "print('；'.join(messages))",
-    ])
-    completed = subprocess.run(
-        [
-            "docker", "run", "--rm",
-            "-v", "/data:/host-data",
-            "-v", str(package_dir / "project") + ":/package-project:ro",
-            image,
-            "python", "-c", host_script, active_upgrade_task, version,
-        ],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-    )
-    if completed.returncode != 0:
-        return "旧运行产物整理未完成：" + completed.stdout[-1000:]
-    return completed.stdout.strip() or "旧运行产物整理完成"
-
-artifact_message = migrate_legacy_artifacts()
 
 print(f"已同步项目文件 {{len(copied)}} 个。")
 print(f"项目文件备份目录：{{backup_root}}")
 if missing_before:
     print("升级前不存在的项目文件：" + ", ".join(missing_before))
-print("运行产物目录整理：" + artifact_message)
 print(f"已写入 {{version}} 镜像覆盖配置到 {{override_path}}")
 PY
 '''

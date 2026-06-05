@@ -319,12 +319,9 @@ def start_upgrade(task_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="请先完成并通过预检查。")
     if task.get("status") in RUNNING_STATUSES:
         raise HTTPException(status_code=409, detail="升级任务已经在执行。")
-    bridge_message = _ensure_runner_runtime_mounts()
     task["status"] = "pending"
     task["started_at"] = now_iso()
     task["updated_at"] = now_iso()
-    if bridge_message:
-        _append_log(task, bridge_message)
     _append_log(task, "升级任务已提交，等待 upgrade-runner 执行。")
     _save_task(task)
     return _public_task(task)
@@ -817,72 +814,6 @@ def _runner_healthcheck() -> str:
         if attempt == 30:
             raise RuntimeError(f"{RUNNER_SERVICE} 容器未运行：{completed.stdout[-1000:]}")
         time.sleep(2)
-
-
-def _ensure_runner_runtime_mounts() -> str:
-    missing = _runner_missing_runtime_mounts()
-    if not missing:
-        return ""
-    _refresh_runtime_compose_file()
-    image = _running_runner_image() or _runner_image_from_manifest({"images": [{"service": RUNNER_SERVICE, "image": f"nazawsze/smartx-hci-capacity-insight-upgrade-runner:{runner_version()}"}]})
-    override_path = _runner_override_path()
-    previous = override_path.read_text(encoding="utf-8") if override_path.exists() else None
-    override_path.parent.mkdir(parents=True, exist_ok=True)
-    override_path.write_text(f"services:\n  {RUNNER_SERVICE}:\n    image: {image}\n", encoding="utf-8")
-    try:
-        _run_command(_compose_command(runner_override=True) + ["up", "-d", "--no-build", "--no-deps", RUNNER_SERVICE], cwd=_compose_cwd())
-        _wait_runner_mounts()
-    finally:
-        if previous:
-            backup = override_path.with_name(f"{override_path.name}.before-runtime-mount-fix")
-            if not backup.exists():
-                backup.write_text(previous, encoding="utf-8")
-        override_path.unlink(missing_ok=True)
-    return "已刷新 upgrade-runner 运行时挂载，确保升级任务目录可见：" + ", ".join(missing)
-
-
-def _refresh_runtime_compose_file() -> None:
-    settings = get_settings()
-    source = settings.project_path / settings.compose_file
-    if not source.exists():
-        return
-    _rewrite_compose_for_docker_socket(source, _docker_safe_project_path())
-
-
-def _runner_missing_runtime_mounts() -> list[str]:
-    destinations = _runner_mount_destinations()
-    required = {"/data/upgrades", "/data/backups", "/data/exports", "/data/compose-runtime"}
-    return sorted(required - destinations)
-
-
-def _runner_mount_destinations() -> set[str]:
-    try:
-        container_id = _container_id_for_service(RUNNER_SERVICE)
-        if not container_id:
-            return set()
-        status, body = _docker_request("GET", f"/containers/{container_id}/json")
-        if status >= 300:
-            return set()
-        payload = json.loads(body.decode("utf-8") or "{}")
-    except Exception:
-        return set()
-    return {str(mount.get("Destination")) for mount in payload.get("Mounts") or [] if mount.get("Destination")}
-
-
-def _running_runner_image() -> str:
-    summary = _runtime_service_summary(RUNNER_SERVICE)
-    image = str(summary.get("image") or "")
-    return image if image and image != "-" else ""
-
-
-def _wait_runner_mounts() -> None:
-    for attempt in range(1, 31):
-        missing = _runner_missing_runtime_mounts()
-        if not missing:
-            return
-        if attempt == 30:
-            raise RuntimeError("upgrade-runner 重建后仍缺少运行时挂载：" + ", ".join(missing))
-        time.sleep(1)
 
 
 def runner_version() -> str:

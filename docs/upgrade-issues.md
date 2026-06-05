@@ -130,7 +130,7 @@ sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
 根修方向：
 - 升级包包含 `project/` 白名单项目文件。
 - 升级流程增加“同步项目文件”步骤。
-- 首个兼容旧 runner 的修复包需要在 `scripts/migrate.sh` 中做白名单项目文件同步。
+- 后续平台升级以 `upgrade-runner v0.2.2` 为执行基线，`scripts/migrate.sh` 只负责白名单项目文件同步。
 - 打包脚本生成包时自动把 compose 默认 tag 替换为目标 `VERSION`。
 
 ## UPG-007 平台升级不会自动更新项目文件
@@ -331,7 +331,7 @@ compose_command docker compose -p smartx-capacity-insight -f /data/compose-runti
 
 1. [已解决] 修复旧 web-api 组件升级写 `/opt` 的问题，改为 `/data/compose-runtime`。
 2. [已解决] runner 升级到 `v0.2.2`，解决备份函数缺失、备份排除目录、`--no-deps` 和容器内 `cwd` 问题。
-3. [已解决] 修复平台升级闭环：镜像名、compose tag、project 文件同步、migrate 兼容旧 runner。
+3. [已解决] 修复平台升级闭环：镜像名、compose tag、project 文件同步；后续升级以 runner v0.2.2 为基线。
 4. [待修复] 增强预检查：镜像名/tag、compose 文件、项目文件、敏感路径、volume、网络、磁盘空间的步骤化进度。
 5. [待修复] 增强升级前备份精确进度和小日志。
 6. [待修复] 清理升级 UI：合并平台升级与升级后核验，预检查步骤化。
@@ -357,9 +357,8 @@ compose_command docker compose -p smartx-capacity-insight -f /data/compose-runti
 - `docker-compose.yml`、`docker-compose.offline.yml`、`docker-compose.release.yml` 对 web-api、collector-worker、upgrade-runner 增加独立挂载。
 - `pre_install.sh` 创建并授权上述目录。
 - runner override 写入路径改为 `SMARTX_RUNTIME_PATH`，默认 `/data/compose-runtime`。
-- 升级包 `scripts/migrate.sh` 兼容旧部署：通过 Docker socket 以宿主机视角整理旧 `app/upgrades/backups/exports/compose-runtime` 到新的 `/data/*` 目录。
-- 升级包 `scripts/migrate.sh` 同步 `/data/compose-runtime/docker-compose.offline.yml`，并备份后清理旧的 `docker-compose.runner-upgrade.yml`，避免 runner 被旧 override 拉回旧版本。
-- 迁移旧升级任务时按 `updated_at` 只复制更新的 `task.json`，避免 active task 的 running 快照覆盖后续 succeeded 状态。
+- 后续平台升级以 `upgrade-runner v0.2.2` 为基线，不再在平台升级包里自动整理旧 `app/upgrades/backups/exports/compose-runtime` 目录。
+- `scripts/migrate.sh` 只负责白名单项目文件同步和平台服务镜像 override 写入。
 
 目录归属：
 
