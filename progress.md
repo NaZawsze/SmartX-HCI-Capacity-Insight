@@ -724,3 +724,25 @@ TDD 记录：
 
 - 当前采集测试使用 fake CloudTower collector，尚未实现真实 CloudTower HTTP 客户端。
 - 当前仅生成 Prometheus exposition 文本，尚未接入 Prometheus 写入/查询服务。
+
+### 2026-06-06 Phase V2-3 远端 Docker 验证
+
+状态：完成
+
+远端验证位置：
+
+- 主机：`10.20.11.3`
+- v2 worktree：`/opt/smartx-storage-forecast-v2`
+- 分支：`feature/upgrade-v2`
+- 提交：`d38ae2b`
+
+验证记录：
+
+- `git pull --ff-only origin feature/upgrade-v2` 成功拉到 `d38ae2b`。
+- `docker compose build web-api frontend` 通过。
+- `docker run --rm -v /opt/smartx-storage-forecast-v2:/src -e PYTHONPATH=/src/backend -w /src smartx-storage-forecast-web-api:local python -m unittest backend.tests.test_v2_skeleton backend.tests.test_v2_task_models backend.tests.test_v2_foundation backend.tests.test_v2_inventory_metrics backend.tests.test_v2_collection backend.tests.test_v2_auth_api backend.tests.test_v2_inventory_api -v` 通过：18 个测试 OK。
+
+结论：
+
+- V2-3 已完成 Tower/Cluster 存储与 API、指标文本格式、fake client 手动采集基础链路的远端容器验证。
+- 后续继续实现真实 CloudTower HTTP 客户端、连接测试接口、Prometheus 查询/健康服务和 collector-worker 定时采集。
