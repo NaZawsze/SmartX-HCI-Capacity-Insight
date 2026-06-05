@@ -91,3 +91,26 @@ curl -s -o /dev/null -w "api_metrics:%{http_code}\n" http://127.0.0.1:8000/metri
 - 不要回滚用户或其他会话留下的未提交改动。
 - 修改文档时不要写入密码、私钥、token。
 - 数据相关功能需要同时关注 SQLite 业务库和 Prometheus 历史指标。
+
+### Phase 5 - 版本治理
+
+状态：进行中
+
+目标：
+
+- 平台版本统一为 `v0.4.1`。
+- 平台三件套为 `web-api`、`collector-worker`、`frontend`。
+- `upgrade-runner` 作为独立组件，版本为 `v0.2.2`。
+- 平台升级包不包含 `upgrade-runner`。
+- runner 只通过组件升级包和 runner 专用 GitHub Actions 构建。
+- 每次版本提交必须更新 `docs/releases/CHANGELOG.md` 和相关版本治理文档。
+
+待办：
+
+- 拆分 `SMARTX_IMAGE_TAG` 和 `SMARTX_RUNNER_IMAGE_TAG`。
+- [已完成] 更新平台版本元数据到 `v0.4.1`。
+- [已完成] 移除平台升级包中的 runner 镜像。
+- [已完成] runner 组件包默认读取 `RUNNER_VERSION`。
+- [已完成] GitHub Actions 拆分平台和 runner 构建。
+- [已完成] 文档增加 DockerHub 错误 tag 清理方法。
+- 本地验证后提交并推送到 `dev`。

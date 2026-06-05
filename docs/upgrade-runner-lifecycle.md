@@ -74,8 +74,8 @@ restart_services: upgrade-runner
 
 ## 版本显示
 
-- 平台版本来自 `SMARTX_APP_VERSION`，由 `web-api` 和 `collector-worker` 环境变量体现。
-- 升级中心组件版本来自 `/data/upgrade-runner.version`；没有该文件时使用默认 runner 版本。
+- 平台版本优先来自镜像内 `/app/VERSION`，由根目录 `VERSION` 在镜像构建时写入；`SMARTX_APP_VERSION` 只作为版本文件缺失时的兜底。
+- 升级中心组件版本来自 `/data/upgrade-runner.version`；没有该文件时使用默认 runner 版本，默认值由根目录 `RUNNER_VERSION` 维护。
 - 升级中心的“升级后核验”会显示当前运行镜像、平台版本、runner 版本和最近一次成功升级包信息。
 
 ## 发布建议

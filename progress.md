@@ -117,3 +117,32 @@
 - Word 检查到生成时间为 `2026-06-01 13:33:27 Asia/Shanghai`。
 - Excel 检查到生成时间为 `2026-06-01 13:33:37 Asia/Shanghai`。
 - `/metrics` 返回 `200`。
+
+### 版本治理
+
+状态：进行中
+
+已完成：
+
+- 盘点仓库和 DockerHub 版本混乱问题。
+- 临时隔离修复 `main` 的三份 compose 文件，并将 `v0.4.1` tag 指向该修复提交。
+- 在 dev 中新增 `RUNNER_VERSION`。
+- 将平台版本元数据改为 `v0.4.1`。
+- 将 runner compose tag 拆为 `SMARTX_RUNNER_IMAGE_TAG:-v0.2.2`。
+- 平台升级包脚本不再包含 `upgrade-runner.tar`。
+- runner 组件包脚本默认读取 `RUNNER_VERSION`。
+- GitHub Actions 拆分平台三件套和 runner 专用 workflow。
+- 新增 `docs/version-governance.md` 记录版本规则和 DockerHub tag 清理方法。
+
+待验证：
+
+- Python 语法检查。
+- `scripts/build_upgrade_package.py --check-version`。
+- 关键测试断言。
+- 敏感信息扫描。
+
+验证记录：
+
+- `python3 -m py_compile backend/app/services/upgrade.py backend/app/core/config.py scripts/build_upgrade_package.py scripts/build_runner_component_package.py backend/tests/test_deployment_config.py backend/tests/test_upgrade.py` 通过。
+- `python3 scripts/build_upgrade_package.py --check-version` 通过，输出 `Version metadata OK: v0.4.1`。
+- 直接导入 `backend/tests/test_upgrade.py` 时本地缺少 `pydantic`，需要在远端环境或容器内跑完整导入测试。

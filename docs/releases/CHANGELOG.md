@@ -2,6 +2,30 @@
 
 本文档记录 SmartX HCI Capacity Insight 各版本的主要变化。项目介绍、部署方式和基础使用说明仍以根目录 README 和 docs 文档为准。
 
+## v0.4.1
+
+发布日期：2026-06-05
+
+### 更新摘要
+
+v0.4.1 聚焦版本治理和升级边界收敛，将平台版本与 `upgrade-runner` 组件版本彻底拆分，避免 runner 被错误打上平台版本 tag。
+
+### 新增与优化
+
+- 平台版本统一为 `v0.4.1`，平台三件套使用 `v0.4.1` 镜像 tag。
+- 新增根目录 `RUNNER_VERSION`，当前 runner 组件版本为 `v0.2.2`。
+- `docker-compose.offline.yml` 和 `docker-compose.release.yml` 拆分 `SMARTX_IMAGE_TAG` 与 `SMARTX_RUNNER_IMAGE_TAG`。
+- 平台升级包只包含 `web-api`、`collector-worker`、`frontend`，不再包含 `upgrade-runner.tar`。
+- `scripts/build_runner_component_package.py` 默认读取 `RUNNER_VERSION`。
+- GitHub Actions 拆分 runner 构建：平台 workflow 不再构建 runner，runner 仅通过 `runner-v*` tag 或手动 workflow 构建。
+- 新增 `docs/version-governance.md`，记录版本模型、发版检查清单和 DockerHub 错误 tag 清理方法。
+
+### 升级策略
+
+- 平台升级继续由 `upgrade-runner v0.2.2` 执行。
+- 如果仅更新业务平台，不需要更新 runner。
+- 如果升级流程、manifest、compose、volume、网络或 runner 自身能力变化，先发布 runner 组件包，再发布平台升级包。
+
 ## v0.4.0
 
 发布日期：2026-06-02

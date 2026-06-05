@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) | English
 
-Version: `v0.4.0`
+Version: `v0.4.1`
 
 > Status: This project is currently in the testing stage and is not recommended for production use without additional validation.
 
@@ -121,14 +121,13 @@ Compatibility: the `v0.4.1` upgrade package only supports upgrades from versions
 Recommended package structure:
 
 ```text
-smartx-capacity-insight-v0.4.0-upgrade.tar.gz
+smartx-capacity-insight-v0.4.1-upgrade.tar.gz
 ├── manifest.json
 ├── release-notes.md                 # optional
 ├── images/
 │   ├── web-api.tar
 │   ├── frontend.tar
-│   ├── collector-worker.tar
-│   └── upgrade-runner.tar           # optional, for component upgrade packages
+│   └── collector-worker.tar
 └── scripts/
     └── migrate.sh                   # optional, only when database_migration=true
 ```
@@ -139,8 +138,8 @@ Example fields:
 
 ```json
 {
-  "version": "v0.4.0",
-  "min_compatible_version": "v0.3.0",
+  "version": "v0.4.1",
+  "min_version": "v0.3.0",
   "package_type": "platform",
   "database_migration": false,
   "restart_services": ["web-api", "collector-worker", "frontend"],
@@ -148,7 +147,7 @@ Example fields:
     {
       "service": "web-api",
       "file": "images/web-api.tar",
-      "tag": "nazawsze/smartx-hci-capacity-insight-web-api:v0.4.0",
+      "image": "nazawsze/smartx-hci-capacity-insight-web-api:v0.4.1",
       "sha256": "<sha256>"
     }
   ]
@@ -156,6 +155,8 @@ Example fields:
 ```
 
 For normal platform upgrades, do not restart `upgrade-runner` in the same package that is executing the upgrade. Use a component upgrade package when `upgrade-runner` itself needs to be replaced.
+
+Component upgrade packages for `upgrade-runner` are separate and use the runner component version, for example `v0.2.2`, not the platform version.
 
 ### Recommended Migration Path: Fresh Install + CLI Data Export
 
@@ -197,6 +198,7 @@ The printed `host_path` is the migration package path. The package includes the 
 - [Usage Guide](docs/usage.md)
 - [API Reference](docs/api.md)
 - [upgrade-runner Lifecycle and Component Upgrade Policy](docs/upgrade-runner-lifecycle.md)
+- [Version Governance](docs/version-governance.md)
 - [v0.2 Release Notes](docs/releases/v0.2.md)
 
 ## CloudTower Permissions

@@ -27,6 +27,7 @@ RUNNER_SERVICE = "upgrade-runner"
 TASK_FILE = "task.json"
 MANIFEST_NAME = "manifest.json"
 ALLOWED_SERVICES = {"web-api", "frontend", "collector-worker", "prometheus", "upgrade-runner"}
+PLATFORM_PACKAGE_SERVICES = {"web-api", "frontend", "collector-worker"}
 CORE_VOLUME_MARKERS = (
     "/data/smartx-capacity-insight-data/app:/data",
     "/data/smartx-capacity-insight-data/prometheus:/prometheus",
@@ -186,7 +187,7 @@ def precheck_upgrade(task_id: str) -> dict[str, Any]:
     check("version", bool(target_version) and _version_gte(current_version, min_version), f"当前版本 {current_version}，目标版本 {target_version or '-'}，最低兼容版本 {min_version}。")
 
     service_names = _manifest_services(manifest)
-    check("services", bool(service_names) and service_names.issubset(ALLOWED_SERVICES), f"影响服务：{', '.join(sorted(service_names)) or '-'}。")
+    check("services", bool(service_names) and service_names.issubset(PLATFORM_PACKAGE_SERVICES), f"影响服务：{', '.join(sorted(service_names)) or '-'}。平台升级包只允许 web-api、collector-worker、frontend。")
 
     hash_ok = True
     hash_details: list[str] = []
@@ -972,17 +973,17 @@ def _image_names_check(manifest: dict[str, Any]) -> tuple[bool, str, list[str]]:
         "web-api": f"nazawsze/smartx-hci-capacity-insight-web-api:{version}",
         "collector-worker": f"nazawsze/smartx-hci-capacity-insight-collector-worker:{version}",
         "frontend": f"nazawsze/smartx-hci-capacity-insight-frontend:{version}",
-        "upgrade-runner": f"nazawsze/smartx-hci-capacity-insight-upgrade-runner:{version}",
     }
     ok = True
+    unexpected = sorted(_manifest_services(manifest) - PLATFORM_PACKAGE_SERVICES)
+    if unexpected:
+        details.append("平台升级包不允许包含：" + ", ".join(unexpected))
+        ok = False
     for service, image in expected.items():
         actual = next((str(item.get("image") or "") for item in manifest.get("images") or [] if item.get("service") == service), "")
         if not actual:
-            if service == RUNNER_SERVICE:
-                details.append(f"{service} 未包含，当前包不能支撑后续完整离线部署")
-            else:
-                details.append(f"{service} 缺少镜像")
-                ok = False
+            details.append(f"{service} 缺少镜像")
+            ok = False
             continue
         if actual != image:
             details.append(f"{service} 镜像应为 {image}，实际为 {actual}")
@@ -1102,14 +1103,14 @@ def _validate_manifest_shape(manifest: dict[str, Any]) -> None:
         if not isinstance(image, dict):
             raise HTTPException(status_code=400, detail="manifest images 格式不正确。")
         service = image.get("service")
-        if service not in ALLOWED_SERVICES:
+        if service not in PLATFORM_PACKAGE_SERVICES:
             raise HTTPException(status_code=400, detail=f"不支持升级服务：{service}。")
         if not image.get("file") or not image.get("image"):
             raise HTTPException(status_code=400, detail="manifest image 缺少 file 或 image。")
         if ".." in str(image.get("file")):
             raise HTTPException(status_code=400, detail="manifest image file 路径不安全。")
-    restart_services = manifest.get("restart_services") or [item["service"] for item in images if item.get("service") != RUNNER_SERVICE]
-    if not isinstance(restart_services, list) or any(service not in ALLOWED_SERVICES for service in restart_services):
+    restart_services = manifest.get("restart_services") or [item["service"] for item in images]
+    if not isinstance(restart_services, list) or any(service not in PLATFORM_PACKAGE_SERVICES for service in restart_services):
         raise HTTPException(status_code=400, detail="manifest restart_services 包含不支持的服务。")
     project_files = manifest.get("project_files")
     if not isinstance(project_files, list) or not project_files:

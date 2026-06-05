@@ -4,7 +4,7 @@
 
 **SmartX 超融合容量洞察平台**
 
-版本：`v0.4.0`
+版本：`v0.4.1`
 
 > 状态：本项目目前处于测试阶段，未经充分验证前不建议直接用于生产环境。
 
@@ -123,14 +123,13 @@ Prometheus: http://<server-ip>:9090
 推荐目录结构：
 
 ```text
-smartx-capacity-insight-v0.4.0-upgrade.tar.gz
+smartx-capacity-insight-v0.4.1-upgrade.tar.gz
 ├── manifest.json
 ├── release-notes.md                 # 可选
 ├── images/
 │   ├── web-api.tar
 │   ├── frontend.tar
-│   ├── collector-worker.tar
-│   └── upgrade-runner.tar           # 可选，用于组件升级包
+│   └── collector-worker.tar
 └── scripts/
     └── migrate.sh                   # 可选，仅 database_migration=true 时需要
 ```
@@ -141,8 +140,8 @@ smartx-capacity-insight-v0.4.0-upgrade.tar.gz
 
 ```json
 {
-  "version": "v0.4.0",
-  "min_compatible_version": "v0.3.0",
+  "version": "v0.4.1",
+  "min_version": "v0.3.0",
   "package_type": "platform",
   "database_migration": false,
   "restart_services": ["web-api", "collector-worker", "frontend"],
@@ -150,7 +149,7 @@ smartx-capacity-insight-v0.4.0-upgrade.tar.gz
     {
       "service": "web-api",
       "file": "images/web-api.tar",
-      "tag": "nazawsze/smartx-hci-capacity-insight-web-api:v0.4.0",
+      "image": "nazawsze/smartx-hci-capacity-insight-web-api:v0.4.1",
       "sha256": "<sha256>"
     }
   ]
@@ -158,6 +157,8 @@ smartx-capacity-insight-v0.4.0-upgrade.tar.gz
 ```
 
 普通平台升级包不建议在同一次升级任务中重启 `upgrade-runner`，避免中断正在执行升级的服务。如需替换 `upgrade-runner`，请使用组件升级包。
+
+`upgrade-runner` 组件升级包独立于平台升级包，使用 runner 组件版本，例如 `v0.2.2`，不使用平台版本号。
 
 ### 推荐迁移方式：新装后从旧系统命令导出数据
 
@@ -199,6 +200,7 @@ sha256sum "$host_path"
 - [使用说明](docs/usage.md)
 - [API 参考](docs/api.md)
 - [upgrade-runner 生命周期与组件升级策略](docs/upgrade-runner-lifecycle.md)
+- [版本治理说明](docs/version-governance.md)
 - [v0.2 更新说明](docs/releases/v0.2.md)
 
 ## CloudTower 权限

@@ -29,7 +29,7 @@ def test_upgrade_package_migrate_script_only_syncs_project_files(tmp_path) -> No
     spec.loader.exec_module(module)
 
     script_path = tmp_path / "migrate.sh"
-    module.write_migrate_script(script_path, "v0.4.0")
+    module.write_migrate_script(script_path, "v0.4.1")
     text = script_path.read_text(encoding="utf-8")
 
     assert "project_files = manifest.get(\"project_files\") or []" in text
@@ -40,6 +40,43 @@ def test_upgrade_package_migrate_script_only_syncs_project_files(tmp_path) -> No
     assert "docker-compose.runner-upgrade.yml.before-" not in text
     assert "runner_override.unlink()" not in text
     assert "copy_task_file_if_newer" not in text
+
+
+def test_compose_splits_platform_and_runner_versions() -> None:
+    root = Path(__file__).resolve().parents[2]
+    for name in ("docker-compose.offline.yml", "docker-compose.release.yml"):
+        text = (root / name).read_text(encoding="utf-8")
+        assert "SMARTX_IMAGE_TAG:-v0.4.1" in text
+        assert "SMARTX_RUNNER_IMAGE_TAG:-v0.2.2" in text
+        assert "upgrade-runner:${SMARTX_IMAGE_TAG" not in text
+        assert "SMARTX_IMAGE_TAG:-v0.4.0" not in text
+
+
+def test_platform_upgrade_package_excludes_runner() -> None:
+    root = Path(__file__).resolve().parents[2]
+    text = (root / "scripts/build_upgrade_package.py").read_text(encoding="utf-8")
+    assert '"images/upgrade-runner.tar"' not in text
+    assert "and the offline upgrade-runner image" not in text
+    assert '("upgrade-runner",' not in text
+
+
+def test_upgrade_override_uses_platform_release_images() -> None:
+    root = Path(__file__).resolve().parents[2]
+    text = (root / "docker-compose.upgrade.yml").read_text(encoding="utf-8")
+    assert "nazawsze/smartx-hci-capacity-insight-web-api:v0.4.1" in text
+    assert "nazawsze/smartx-hci-capacity-insight-collector-worker:v0.4.1" in text
+    assert "nazawsze/smartx-hci-capacity-insight-frontend:v0.4.1" in text
+    assert "smartx-storage-forecast-web-api:v0.4.0" not in text
+
+
+def test_runner_workflow_is_separate_from_platform_workflow() -> None:
+    root = Path(__file__).resolve().parents[2]
+    platform = (root / ".github/workflows/docker-images.yml").read_text(encoding="utf-8")
+    runner = (root / ".github/workflows/upgrade-runner-image.yml").read_text(encoding="utf-8")
+    assert "smartx-hci-capacity-insight-upgrade-runner" not in platform
+    assert 'tags:\n      - "runner-v*"' in runner
+    assert "type=raw,value=${{ steps.version.outputs.tag }}" in runner
+
 
 def test_migration_and_report_artifacts_live_under_exports() -> None:
     root = Path(__file__).resolve().parents[2]

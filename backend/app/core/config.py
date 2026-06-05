@@ -6,7 +6,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 IMAGE_VERSION_FILE = Path("/app/VERSION")
-DEFAULT_APP_VERSION = "v0.4.0"
+DEFAULT_APP_VERSION = "v0.4.1"
 
 
 def read_app_version(version_file: Path = IMAGE_VERSION_FILE) -> str:

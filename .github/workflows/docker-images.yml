@@ -30,10 +30,6 @@ jobs:
             context: ./frontend
             dockerfile: ./frontend/Dockerfile
             image: smartx-hci-capacity-insight-frontend
-          - name: upgrade-runner
-            context: .
-            dockerfile: ./backend/Dockerfile.upgrade
-            image: smartx-hci-capacity-insight-upgrade-runner
 
     steps:
       - name: Checkout

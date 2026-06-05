@@ -1,5 +1,6 @@
 from app.core.config import read_app_version
 from app.services import upgrade
+from fastapi import HTTPException
 
 
 def test_verification_summary_uses_latest_successful_platform_task(monkeypatch):
@@ -7,11 +8,11 @@ def test_verification_summary_uses_latest_successful_platform_task(monkeypatch):
     monkeypatch.setattr(upgrade, "_task_package_sha256", lambda task: "c" * 64)
     monkeypatch.setattr(upgrade, "_latest_successful_platform_task", lambda: {
         "task_id": "abc123",
-        "package_filename": "smartx-capacity-insight-upgrade-v0.4.0.tar.gz",
+        "package_filename": "smartx-capacity-insight-upgrade-v0.4.1.tar.gz",
         "uploaded_at": "2026-06-02T01:00:00+00:00",
         "finished_at": "2026-06-02T01:05:00+00:00",
         "manifest": {
-            "version": "v0.4.0",
+            "version": "v0.4.1",
             "images": [
                 {"service": "web-api", "file": "images/web-api.tar", "sha256": "a" * 64},
                 {"service": "frontend", "file": "images/frontend.tar", "sha256": "b" * 64},
@@ -21,7 +22,7 @@ def test_verification_summary_uses_latest_successful_platform_task(monkeypatch):
 
     summary = upgrade.verification_summary()
 
-    assert summary["package"]["version"] == "v0.4.0"
+    assert summary["package"]["version"] == "v0.4.1"
     assert summary["package"]["sha256"] == "c" * 64
     assert summary["package"]["image_sha256"] == {"web-api": "a" * 64, "frontend": "b" * 64}
 
@@ -143,3 +144,25 @@ def test_start_upgrade_assumes_runner_v022_runtime_is_ready(tmp_path, monkeypatc
     assert result["status"] == "pending"
     assert saved["status"] == "pending"
     assert "upgrade-runner 运行时挂载" not in "\n".join(saved["logs"])
+
+
+def test_platform_manifest_rejects_upgrade_runner_service():
+    manifest = {
+        "product": "smartx-storage-forecast",
+        "version": "v0.4.1",
+        "images": [
+            {"service": "web-api", "file": "images/web-api.tar", "image": "nazawsze/smartx-hci-capacity-insight-web-api:v0.4.1"},
+            {"service": "collector-worker", "file": "images/collector-worker.tar", "image": "nazawsze/smartx-hci-capacity-insight-collector-worker:v0.4.1"},
+            {"service": "frontend", "file": "images/frontend.tar", "image": "nazawsze/smartx-hci-capacity-insight-frontend:v0.4.1"},
+            {"service": "upgrade-runner", "file": "images/upgrade-runner.tar", "image": "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.2.2"},
+        ],
+        "restart_services": ["web-api", "collector-worker", "frontend"],
+        "project_files": ["docker-compose.offline.yml", "docker-compose.release.yml"],
+    }
+
+    try:
+        upgrade._validate_manifest_shape(manifest)
+    except HTTPException as exc:
+        assert "不支持升级服务：upgrade-runner" in str(exc.detail)
+    else:
+        raise AssertionError("platform manifest accepted upgrade-runner")

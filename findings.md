@@ -153,3 +153,13 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 不把 SSH 密码、平台密码、token 写入仓库文档。
 - 不在文档中保存真实凭据。
 - 不执行破坏性命令，例如 `git reset --hard`、删除 volumes、删除数据目录，除非用户明确要求。
+
+## 版本治理发现
+
+- DockerHub 已有平台镜像 tag `v0.4.1`，但仓库 dev 曾仍停留在 `v0.4.0` 元数据。
+- `docker-compose.offline.yml` 和 `docker-compose.release.yml` 曾用同一个 `SMARTX_IMAGE_TAG` 控制平台服务和 `upgrade-runner`，会导致 runner 被平台版本牵引。
+- runner 应作为独立组件，当前目标版本为 `v0.2.2`。
+- 平台升级包不应包含 `upgrade-runner.tar`。
+- `scripts/build_runner_component_package.py` 曾默认 `v0.2.0`，需要改为读取根目录 `RUNNER_VERSION`。
+- GitHub Actions 曾在平台镜像矩阵中构建 `upgrade-runner`，导致 runner 仓库出现 `v0.4.0`、`v0.4.1`、`main`、`latest` 等平台语义 tag。
+- 后续 DockerHub 错误 tag 清理方法记录在 `docs/version-governance.md`。

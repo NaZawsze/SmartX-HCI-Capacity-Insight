@@ -11,12 +11,12 @@ import tarfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+RUNNER_VERSION_FILE = ROOT / 'RUNNER_VERSION'
 OUTPUT_DIR = Path('/data/upgrade-packages/components')
 PRODUCT = 'smartx-upgrade-runner'
 COMPONENT = 'upgrade-runner'
 LOCAL_IMAGE = 'smartx-storage-forecast-upgrade-runner:local'
 RELEASE_IMAGE_REPO = 'nazawsze/smartx-hci-capacity-insight-upgrade-runner'
-DEFAULT_VERSION = 'v0.2.0'
 DEFAULT_MIN_VERSION = 'v0.1.0'
 
 
@@ -34,6 +34,12 @@ def normalize_version(value: str) -> str:
     if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+(?:[A-Za-z0-9._-]+)?', version):
         raise SystemExit(f'Invalid component version: {value!r}')
     return version
+
+
+def read_default_version() -> str:
+    if RUNNER_VERSION_FILE.exists():
+        return normalize_version(RUNNER_VERSION_FILE.read_text(encoding='utf-8'))
+    return 'v0.2.2'
 
 
 def sha256_file(path: Path) -> str:
@@ -99,7 +105,7 @@ def build_package(version: str, min_version: str, output_dir: Path, build_image:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='Build upgrade-runner component package.')
-    parser.add_argument('--version', default=DEFAULT_VERSION)
+    parser.add_argument('--version', default=read_default_version())
     parser.add_argument('--min-version', default=DEFAULT_MIN_VERSION)
     parser.add_argument('--output-dir', type=Path, default=OUTPUT_DIR)
     parser.add_argument('--no-build', action='store_true')

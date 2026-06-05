@@ -13,6 +13,7 @@ from typing import Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION_FILE = ROOT / "VERSION"
+RUNNER_VERSION_FILE = ROOT / "RUNNER_VERSION"
 PACKAGE_DIR = Path("/data/upgrade-packages")
 PRODUCT = "smartx-storage-forecast"
 DEFAULT_MIN_VERSION = "0.3.0"
@@ -21,7 +22,6 @@ PLATFORM_IMAGES = [
     ("web-api", "smartx-storage-forecast-web-api", "smartx-hci-capacity-insight-web-api", "images/web-api.tar", True),
     ("collector-worker", "smartx-storage-forecast-collector-worker", "smartx-hci-capacity-insight-collector-worker", "images/collector-worker.tar", True),
     ("frontend", "smartx-storage-forecast-frontend", "smartx-hci-capacity-insight-frontend", "images/frontend.tar", True),
-    ("upgrade-runner", "smartx-storage-forecast-upgrade-runner", "smartx-hci-capacity-insight-upgrade-runner", "images/upgrade-runner.tar", False),
 ]
 PROJECT_FILES = [
     "docker-compose.offline.yml",
@@ -49,6 +49,13 @@ def read_version() -> str:
     return version
 
 
+def read_runner_version() -> str:
+    version = RUNNER_VERSION_FILE.read_text(encoding="utf-8").strip()
+    if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:[A-Za-z0-9._-]+)?", version):
+        raise SystemExit(f"Invalid RUNNER_VERSION value: {version!r}")
+    return version
+
+
 def run(command: list[str], cwd: Path = ROOT) -> str:
     completed = subprocess.run(command, cwd=str(cwd), text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
     if completed.returncode != 0:
@@ -63,18 +70,28 @@ def assert_contains(path: Path, expected: str) -> None:
 
 
 def check_versions(version: str) -> None:
+    runner_version = read_runner_version()
     checks = [
         (ROOT / "README.md", f"Version: `{version}`"),
         (ROOT / "README.zh-CN.md", f"版本：`{version}`"),
         (ROOT / "backend/app/core/config.py", f'DEFAULT_APP_VERSION = "{version}"'),
         (ROOT / "docker-compose.offline.yml", f"SMARTX_IMAGE_TAG:-{version}"),
         (ROOT / "docker-compose.release.yml", f"SMARTX_IMAGE_TAG:-{version}"),
+        (ROOT / "docker-compose.offline.yml", f"SMARTX_RUNNER_IMAGE_TAG:-{runner_version}"),
+        (ROOT / "docker-compose.release.yml", f"SMARTX_RUNNER_IMAGE_TAG:-{runner_version}"),
     ]
     for path, expected in checks:
         assert_contains(path, expected)
     offline_text = (ROOT / "docker-compose.offline.yml").read_text(encoding="utf-8")
     if "SMARTX_IMAGE_TAG:-latest" in offline_text:
         raise SystemExit("docker-compose.offline.yml must not default to latest.")
+    if "smartx-hci-capacity-insight-upgrade-runner:${SMARTX_IMAGE_TAG" in offline_text:
+        raise SystemExit("upgrade-runner must not use SMARTX_IMAGE_TAG.")
+    upgrade_text = (ROOT / "docker-compose.upgrade.yml").read_text(encoding="utf-8")
+    for service, _, release_repository, _, _ in PLATFORM_IMAGES:
+        expected = release_image(release_repository, version)
+        if expected not in upgrade_text:
+            raise SystemExit(f"docker-compose.upgrade.yml missing {expected}.")
     print(f"Version metadata OK: {version}")
 
 
@@ -83,7 +100,7 @@ def release_image(repository: str, version: str) -> str:
 
 
 def docker_build(version: str, *, include_frontend: bool) -> None:
-    services = ["web-api", "collector-worker", "upgrade-runner"] + (["frontend"] if include_frontend else [])
+    services = ["web-api", "collector-worker"] + (["frontend"] if include_frontend else [])
     run(["docker", "compose", "-f", "docker-compose.yml", "build", *services])
     for service, local_repository, release_repository, _, _ in PLATFORM_IMAGES:
         if service == "frontend" and not include_frontend:
@@ -268,10 +285,10 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
     (work / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (work / "release-notes.md").write_text(
         f"# {version}\n\n"
-        "- Platform upgrade package for web-api, collector-worker, frontend, and the offline upgrade-runner image.\n"
+        "- Platform upgrade package for web-api, collector-worker, and frontend.\n"
         "- Syncs whitelisted project files such as compose, docs, and scripts.\n"
         "- Writes image overrides into docker-compose.upgrade.yml before service restart.\n\n"
-        "This package does not include .env, databases, Prometheus data, Tower credentials, or runtime data.\n",
+        "This package does not include upgrade-runner, .env, databases, Prometheus data, Tower credentials, or runtime data.\n",
         encoding="utf-8",
     )
 
@@ -281,7 +298,6 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
         "images/web-api.tar",
         "images/collector-worker.tar",
         "images/frontend.tar",
-        "images/upgrade-runner.tar",
         "scripts/migrate.sh",
         *[f"project/{rel}" for rel in project_files],
     ]
