@@ -252,7 +252,7 @@
 剩余：
 
 - Prometheus 组件升级策略仍为设计待定。
-- 数据迁移后的 Prometheus 历史指标、日/月增长和趋势图仍需真实回归验证。
+- [已解决] 数据迁移后的 Prometheus 历史指标、日/月增长和趋势图已在 `10.20.11.3` 完成真实回归验证。
 - 数据迁移导入前需要自动生成备份，备份成功后才继续导入。
 - 需要根据历史升级问题重新设计全新的平台升级和组件升级模式。
 
@@ -279,15 +279,55 @@
 
 ### 数据迁移导入前备份
 
-状态：待处理
+状态：已解决
 
 新增需求：
 
-- 数据迁移导入前自动生成当前系统备份，避免导入包异常、导入中断、Prometheus block 合并异常或权限问题导致难以回退。
-- 建议备份路径：`/data/backups/import-before-时间.tar.gz`。
-- 页面需要显示备份进度和备份路径。
-- 备份成功后才开始导入；备份失败默认阻止继续导入。
-- 导入完成结果中需要展示导入前备份路径。
+- [已完成] 数据迁移导入前自动生成当前系统备份，避免导入包异常、导入中断、Prometheus block 合并异常或权限问题导致难以回退。
+- [已完成] 备份路径使用 `/data/backups/import-before-YYYYMMDDHHMMSS-任务前缀.tar.gz`。
+- [已完成] 页面任务中心和导入完成提示显示备份路径。
+- [已完成] 备份成功后才开始导入；备份失败默认阻止继续导入。
+- [已完成] 导入完成结果中返回 `backup_path`。
+
+### 2026-06-05 数据迁移备份、报表 VM 口径与历史指标回归
+
+状态：已完成
+
+实现：
+
+- 数据迁移导入在写入业务库和 Prometheus 历史指标前生成导入前备份，跳过 `upgrades/backups/exports/compose-runtime` 和 Prometheus `wal/chunks_head/lock/queries.active` 等运行时目录。
+- 报表月增长 VM 要求样本跨度满 30 天；不足 30 天不进入月增长榜，Word/Excel 导出复用同一口径。
+- 报表接口增加 `day_new_vms`、`month_new_vms`、`period_window` 和 `month_growth_min_sample_days`。
+- 报表页增加“本日新建 VM”和“本月新建 VM”，点击仍按 `vm_id` 跳转。
+- VM 展示名称优先使用最新采集名称，历史趋势和增长计算继续按 `tower_id + cluster_id + vm_id` 绑定。
+- Word/Excel VM 表头从“上期容量”改为“期初容量”，并显示统计窗口起止日期。
+- 修复增长量/增长率双 TOP100 合并后可能超过 100 条的问题。
+
+验证：
+
+- 本地 `python3 -m py_compile backend/app/services/dashboard.py backend/app/services/data_migration.py backend/app/services/report_export.py backend/tests/test_dashboard.py backend/tests/test_data_migration.py` 通过。
+- `10.20.11.3` 远端 `docker compose build web-api frontend` 通过，frontend `tsc -b && vite build` 通过；仅存在 Vite 大 chunk 提示。
+- `10.20.11.3` 重启 `web-api/frontend` 后 `/metrics` 返回 200，`8080` 返回 200。
+- `10.20.11.3` Prometheus 当前 `smartx_vm_storage_used_bytes` 查询返回 175 条 series。
+- `10.20.11.3` 报表接口返回：`clusters=1`、`day_fastest_growing_vms=100`、`month_fastest_growing_vms=0`、`day_new_vms=0`、`month_new_vms=0`；月榜为空符合“样本满 30 天”新口径。
+- `10.20.11.3` Word/Excel 导出均可生成；Word 和 Excel 均确认包含“统计窗口”和“期初容量”。
+- `10.20.11.3` 容器内验证导入前备份 helper：备份包含 `smartx.db` 和 Prometheus block，跳过 app 运行时目录和 Prometheus runtime 目录。
+
+### 2026-06-05 UPG-016 数据迁移历史指标回归
+
+状态：已解决
+
+验证链路：
+
+- 迁移导出任务生成 `/data/exports/migrations/smartx-storage-migration-20260605113838.tar.gz`。
+- 导出包包含 `smartx-data/smartx.db` 和 7 个 Prometheus block 的 `meta.json`。
+- 导出包不包含 Prometheus `wal` 运行时目录，也不包含导入任务运行时目录。
+- 使用 merge 模式导回当前系统，返回 `ok=True`，生成导入前备份 `/data/backups/import-before-20260605114014-0ac6678f.tar.gz`。
+- 同包回导未覆盖现有数据：业务库已有记录跳过，Prometheus 已有 7 个 block 跳过。
+- 重启 `web-api`、`collector-worker`、`prometheus` 后服务均正常运行。
+- Prometheus 即时查询 `smartx_vm_storage_used_bytes` 返回 175 条 series。
+- Prometheus `query_range` 最近 7 天返回 175 条 series，前 10 条 series 共 260 个历史点。
+- 报表接口返回 `clusters=1`、`day_fastest_growing_vms=100`、集群趋势点数 13；月增长为空符合 30 天样本口径。
 
 ### 全新平台升级与组件升级模式设计
 

@@ -115,6 +115,8 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
 
   const dayTopVms = sortGrowthReports(report?.day_fastest_growing_vms || report?.fastest_growing_vms || [], dayGrowthSort).slice(0, 50);
   const monthTopVms = sortGrowthReports(report?.month_fastest_growing_vms || [], monthGrowthSort).slice(0, 50);
+  const dayNewVms = (report?.day_new_vms || []).slice(0, 20);
+  const monthNewVms = (report?.month_new_vms || []).slice(0, 20);
   const clusterGrowthRate = clusterGrowthRates(report);
   const selectedClusterLabel = selectedCluster === "all" ? "全部集群" : clusterOptions.find((item) => item.value === selectedCluster)?.label || "集群";
 
@@ -268,6 +270,24 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
             {!monthTopVms.length && <div className="empty-state">暂无增长数据</div>}
           </div>
         </Card>
+
+        <VmListCard
+          title="本日新建 VM"
+          subtitle={`${dayNewVms.length || 0} 台本日新建`}
+          items={dayNewVms}
+          emptyText="暂无本日新建 VM"
+          renderValue={(item) => formatBytes(item.forecast.current)}
+          onSelectVm={onSelectVm}
+        />
+
+        <VmListCard
+          title="本月新建 VM"
+          subtitle={`${monthNewVms.length || 0} 台本月新建`}
+          items={monthNewVms}
+          emptyText="暂无本月新建 VM"
+          renderValue={(item) => formatBytes(item.forecast.current)}
+          onSelectVm={onSelectVm}
+        />
       </div>
     </div>
   );
@@ -313,6 +333,41 @@ function GrowthSortTabs({ value, onChange }: { value: GrowthSortMode; onChange: 
 
 function sortGrowthReports(items: GrowthVmReport[], mode: GrowthSortMode): GrowthVmReport[] {
   return [...items].sort((left, right) => growthSortValue(right, mode) - growthSortValue(left, mode));
+}
+
+function VmListCard({
+  title,
+  subtitle,
+  items,
+  emptyText,
+  renderValue,
+  onSelectVm
+}: {
+  title: string;
+  subtitle?: string;
+  items: GrowthVmReport[];
+  emptyText: string;
+  renderValue: (item: GrowthVmReport) => string;
+  onSelectVm: (vmId: string, vmName?: string) => void;
+}) {
+  return (
+    <Card title={title} subtitle={subtitle}>
+      <div className="list-table growth-scroll auto-scrollbar">
+        {items.map((item) => (
+          <button
+            className="table-row clickable"
+            key={`${item.labels.tower_id || ""}-${item.labels.cluster_id || ""}-${item.labels.vm_id}`}
+            type="button"
+            onClick={() => onSelectVm(item.labels.vm_id, item.labels.vm || item.labels.vm_id)}
+          >
+            <span>{item.labels.vm || item.labels.vm_id}</span>
+            <strong>{renderValue(item)}</strong>
+          </button>
+        ))}
+        {!items.length && <div className="empty-state">{emptyText}</div>}
+      </div>
+    </Card>
+  );
 }
 
 function growthSortValue(item: GrowthVmReport, mode: GrowthSortMode): number {

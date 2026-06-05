@@ -1,8 +1,10 @@
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.collector.collector import latest_run
+from app.core.config import get_settings
 from app.db import get_conn, rows_to_dicts
 from app.services.forecast import forecast_series
 from app.services.prometheus import CLUSTER_METRICS, PrometheusQuery, VM_METRICS, load_latest_samples
@@ -62,9 +64,10 @@ async def vm_list(tower_id: int | None = None, cluster_id: str | None = None) ->
     provisioned_items = _filter_items(_filter_configured_items(provisioned_items, configured_clusters), tower_id, cluster_id)
     guest_used_by_vm = {_vm_key(item.get("metric", {})): _value(item) for item in guest_used_items}
     provisioned_by_vm = {_vm_key(item.get("metric", {})): _value(item) for item in provisioned_items}
+    latest_label_by_vm = _latest_vm_label_map(latest_samples)
     mapped = []
     for item in used_items:
-        metric = item.get("metric", {})
+        metric = _labels_with_latest_name(item.get("metric", {}), latest_label_by_vm)
         used = _value(item)
         guest_used = guest_used_by_vm.get(_vm_key(metric))
         provisioned = provisioned_by_vm.get(_vm_key(metric))
@@ -141,13 +144,31 @@ async def latest_report(tower_id: int | None = None, cluster_id: str | None = No
             }
         )
     cluster_growth_rate = _cluster_growth_rate_from_series(growth_clusters)
-    day_vm_reports = await _top_growing_vm_reports(prom, latest_samples, configured_clusters, tower_id, cluster_id, 1, 100)
-    month_vm_reports = await _top_growing_vm_reports(prom, latest_samples, configured_clusters, tower_id, cluster_id, window_days, 100)
+    latest_label_by_vm = _latest_vm_label_map(latest_samples)
+    day_vm_reports = await _top_growing_vm_reports(prom, latest_samples, configured_clusters, tower_id, cluster_id, 1, 100, latest_label_by_vm=latest_label_by_vm)
+    month_vm_reports = await _top_growing_vm_reports(
+        prom,
+        latest_samples,
+        configured_clusters,
+        tower_id,
+        cluster_id,
+        window_days,
+        100,
+        min_sample_days=30,
+        latest_label_by_vm=latest_label_by_vm,
+    )
+    day_window = _natural_window("day")
+    month_window = _natural_window("month")
+    day_new_vms = await _new_vm_reports(prom, latest_samples, configured_clusters, tower_id, cluster_id, day_window, 100, latest_label_by_vm)
+    month_new_vms = await _new_vm_reports(prom, latest_samples, configured_clusters, tower_id, cluster_id, month_window, 100, latest_label_by_vm)
+    period_window = _period_window(window_days)
     return {
         "clusters": cluster_reports,
         "fastest_growing_vms": day_vm_reports,
         "day_fastest_growing_vms": day_vm_reports,
         "month_fastest_growing_vms": month_vm_reports,
+        "day_new_vms": day_new_vms,
+        "month_new_vms": month_new_vms,
         "cluster_growth_rate_per_day": cluster_growth_rate,
         "cluster_growth_rate": {
             "per_day": cluster_growth_rate,
@@ -158,6 +179,8 @@ async def latest_report(tower_id: int | None = None, cluster_id: str | None = No
         "chart_days": chart_window_days,
         "growth_rate_window_days": 7,
         "forecast_days": 90,
+        "period_window": period_window,
+        "month_growth_min_sample_days": 30,
     }
 
 
@@ -239,10 +262,7 @@ def _capacity_risk_summary(cluster_items: list[dict[str, Any]]) -> dict[str, Any
     else:
         level = "normal"
         title = "容量风险正常"
-        highest = ranked[0]
-        percent = _format_ratio(float(highest.get("used_ratio") or 0))
-        name = _cluster_display_name(highest.get("metric", {}))
-        description = f"最高集群 {name} 当前已使用 {percent}，暂无明显容量风险。"
+        description = "当前所有集群暂无明显容量风险。"
 
     return {
         "level": level,
@@ -330,6 +350,38 @@ def _latest_metric_items(samples: list[dict[str, Any]], kind: str, field: str) -
             continue
         items.append({"metric": labels, "value": [sample.get("collected_at") or "", str(numeric_value)]})
     return items
+
+
+def _latest_vm_label_map(samples: list[dict[str, Any]]) -> dict[tuple[str, str, str], dict[str, Any]]:
+    labels_by_vm: dict[tuple[str, str, str], tuple[int, dict[str, Any]]] = {}
+    for sample in samples:
+        if sample.get("kind") != "vm":
+            continue
+        labels = {
+            "tower_id": str(sample.get("tower_id") or ""),
+            "tower": str(sample.get("tower") or ""),
+            "cluster_id": str(sample.get("cluster_id") or ""),
+            "cluster": str(sample.get("cluster") or ""),
+            "vm_id": str(sample.get("vm_id") or ""),
+            "vm": str(sample.get("vm") or sample.get("vm_id") or ""),
+        }
+        key = _vm_key(labels)
+        ts = _sample_timestamp(sample)
+        previous = labels_by_vm.get(key)
+        if previous is None or ts >= previous[0]:
+            labels_by_vm[key] = (ts, labels)
+    return {key: labels for key, (_, labels) in labels_by_vm.items()}
+
+
+def _labels_with_latest_name(labels: dict[str, Any], latest_label_by_vm: dict[tuple[str, str, str], dict[str, Any]]) -> dict[str, Any]:
+    latest = latest_label_by_vm.get(_vm_key(labels))
+    if not latest:
+        return {key: value for key, value in labels.items()}
+    merged = {key: value for key, value in labels.items()}
+    for field in ["tower", "cluster", "vm"]:
+        if latest.get(field):
+            merged[field] = latest[field]
+    return merged
 
 
 def _latest_vm_point(vm_id: str, field: str, tower_id: int | None = None, cluster_id: str | None = None) -> tuple[int, float] | None:
@@ -431,8 +483,10 @@ async def _top_growing_vm_reports(
     cluster_id: str | None,
     period_days: int,
     limit: int,
+    min_sample_days: int | None = None,
+    latest_label_by_vm: dict[tuple[str, str, str], dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    baseline_days = max(2, period_days)
+    baseline_days = max(2, period_days, min_sample_days or 0)
     baseline_step = "15m" if baseline_days <= 2 else "1h"
     baseline_series = await _safe_range(prom, VM_METRICS["used"], days=baseline_days, step=baseline_step)
     latest_items = _latest_metric_items(latest_samples, "vm", "used") or await _safe_instant(prom, VM_METRICS["used"])
@@ -460,6 +514,26 @@ async def _top_growing_vm_reports(
         labels = item.get("metric", {})
         previous_by_vm[_vm_key(labels)] = _value(item)
 
+    return _top_growing_vm_reports_from_items(
+        latest_items,
+        baseline_by_vm,
+        previous_by_vm,
+        period_days=period_days,
+        limit=limit,
+        min_sample_days=min_sample_days,
+        latest_label_by_vm=latest_label_by_vm or _latest_vm_label_map(latest_samples),
+    )
+
+
+def _top_growing_vm_reports_from_items(
+    latest_items: list[dict[str, Any]],
+    baseline_by_vm: dict[tuple[str, str, str], tuple[int, float]],
+    previous_by_vm: dict[tuple[str, str, str], float],
+    period_days: int,
+    limit: int,
+    min_sample_days: int | None,
+    latest_label_by_vm: dict[tuple[str, str, str], dict[str, Any]],
+) -> list[dict[str, Any]]:
     mapped = []
     for item in latest_items:
         labels = item.get("metric", {})
@@ -469,8 +543,11 @@ async def _top_growing_vm_reports(
         if baseline is None or latest_ts is None:
             continue
         baseline_ts, baseline_value = baseline
+        sample_span_days = (latest_ts - baseline_ts) / 86_400
+        if min_sample_days is not None and sample_span_days < min_sample_days:
+            continue
         current = _value(item)
-        elapsed_days = max((latest_ts - baseline_ts) / 86_400, 1)
+        elapsed_days = max(sample_span_days, 1)
         slope_per_day = max(0.0, (current - baseline_value) / elapsed_days)
         previous_value = previous_by_vm.get(key)
         if previous_value is None:
@@ -481,11 +558,14 @@ async def _top_growing_vm_reports(
         growth_ratio = growth_amount / previous_value if previous_value > 0 else None
         mapped.append(
             {
-                "labels": labels,
+                "labels": _labels_with_latest_name(labels, latest_label_by_vm),
                 "growth_amount": growth_amount,
                 "previous_value": previous_value,
                 "growth_ratio": growth_ratio,
                 "period_days": period_days,
+                "sample_span_days": sample_span_days,
+                "window_start_at": datetime.fromtimestamp(baseline_ts).isoformat(),
+                "window_end_at": datetime.fromtimestamp(latest_ts).isoformat(),
                 "forecast": {
                     "status": "ok",
                     "slope_per_day": slope_per_day,
@@ -500,6 +580,70 @@ async def _top_growing_vm_reports(
             }
         )
     return _ranked_growth_items(mapped, limit)
+
+
+async def _new_vm_reports(
+    prom: PrometheusQuery,
+    latest_samples: list[dict[str, Any]],
+    configured_clusters: set[tuple[str, str]],
+    tower_id: int | None,
+    cluster_id: str | None,
+    window: dict[str, Any],
+    limit: int,
+    latest_label_by_vm: dict[tuple[str, str, str], dict[str, Any]],
+) -> list[dict[str, Any]]:
+    end_ts = int(window["end"].timestamp())
+    start_ts = int(window["start"].timestamp())
+    history_days = 720
+    series = await _safe_range(prom, VM_METRICS["used"], days=history_days, step="6h")
+    latest_items = _latest_metric_items(latest_samples, "vm", "used") or await _safe_instant(prom, VM_METRICS["used"])
+    series = _filter_items(_filter_configured_items(series, configured_clusters), tower_id, cluster_id)
+    latest_items = _filter_items(_filter_configured_items(latest_items, configured_clusters), tower_id, cluster_id)
+    latest_value_by_vm = {_vm_key(item.get("metric", {})): _value(item) for item in latest_items}
+    return _new_vm_reports_from_series(series, start_ts, end_ts, limit, latest_label_by_vm, latest_value_by_vm)
+
+
+def _new_vm_reports_from_series(
+    series_list: list[dict[str, Any]],
+    start_ts: int,
+    end_ts: int,
+    limit: int,
+    latest_label_by_vm: dict[tuple[str, str, str], dict[str, Any]],
+    latest_value_by_vm: dict[tuple[str, str, str], float],
+) -> list[dict[str, Any]]:
+    mapped = []
+    for series in series_list:
+        labels = series.get("metric", {})
+        key = _vm_key(labels)
+        points = sorted(_series_points(series))
+        if not points:
+            continue
+        first_ts, first_value = points[0]
+        if first_ts < start_ts or first_ts > end_ts:
+            continue
+        current = latest_value_by_vm.get(key, points[-1][1])
+        mapped.append(
+            {
+                "labels": _labels_with_latest_name(labels, latest_label_by_vm),
+                "first_seen_at": datetime.fromtimestamp(first_ts).isoformat(),
+                "age_days": max((end_ts - first_ts) / 86_400, 0),
+                "growth_amount": max(0.0, current - first_value),
+                "previous_value": first_value,
+                "growth_ratio": (current - first_value) / first_value if first_value > 0 and current > first_value else None,
+                "forecast": {
+                    "status": "ok",
+                    "slope_per_day": 0,
+                    "current": current,
+                    "forecast_30d": current,
+                    "forecast_60d": current,
+                    "forecast_90d": current,
+                    "forecast_180d": current,
+                    "exhaustion_days": None,
+                    "exhaustion_date": None,
+                },
+            }
+        )
+    return sorted(mapped, key=lambda item: item["first_seen_at"], reverse=True)[:limit]
 
 
 async def _cluster_growth_rate_per_day(
@@ -593,7 +737,7 @@ def _ranked_growth_items(items: list[dict[str, Any]], limit: int) -> list[dict[s
     merged: dict[tuple[str, str, str], dict[str, Any]] = {}
     for item in [*amount_ranked, *ratio_ranked]:
         merged[_vm_key(item["labels"])] = item
-    return sorted(merged.values(), key=lambda item: item["growth_amount"], reverse=True)
+    return sorted(merged.values(), key=lambda item: item["growth_amount"], reverse=True)[:limit]
 
 
 async def _safe_range(prom: PrometheusQuery, query: str, days: int, step: str = "1d") -> list[dict[str, Any]]:
@@ -637,6 +781,51 @@ def _item_timestamp(item: dict[str, Any]) -> int | None:
         return int(datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp())
     except (TypeError, ValueError):
         return None
+
+
+def _sample_timestamp(sample: dict[str, Any]) -> int:
+    raw = sample.get("collected_at") or sample.get("timestamp") or 0
+    try:
+        return int(float(raw))
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp())
+    except (TypeError, ValueError):
+        return 0
+
+
+def _report_timezone() -> ZoneInfo:
+    timezone_name = get_settings().collection_timezone or "Asia/Shanghai"
+    try:
+        return ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("Asia/Shanghai")
+
+
+def _natural_window(kind: str) -> dict[str, Any]:
+    now = datetime.now(_report_timezone())
+    if kind == "month":
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    else:
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return {
+        "start": start,
+        "end": now,
+        "start_at": start.isoformat(),
+        "end_at": now.isoformat(),
+    }
+
+
+def _period_window(days: int) -> dict[str, Any]:
+    now = datetime.now(_report_timezone())
+    start = now - timedelta(days=days)
+    return {
+        "days": days,
+        "start_at": start.isoformat(),
+        "end_at": now.isoformat(),
+        "label": f"{start.strftime('%Y年%m月%d日')}-{now.strftime('%Y年%m月%d日')}",
+    }
 
 
 def _series_key(labels: dict[str, Any]) -> tuple[str, str, str]:

@@ -70,8 +70,10 @@ async def build_report_docx(tower_id: int | None = None, cluster_id: str | None 
         _add_cluster_customer_summary(document, cluster, len(vms))
         _add_single_cluster_charts(document, cluster, vms)
         document.add_heading("增长量 TOP100 虚拟机（按增长量降序）", level=2)
+        _add_vm_window_note(document, context)
         _add_vm_table(document, _top_vms(vms, "amount"), "amount")
         document.add_heading("增长率 TOP100 虚拟机（按增长率降序）", level=2)
+        _add_vm_window_note(document, context)
         _add_vm_table(document, _top_vms(vms, "ratio"), "ratio")
 
     filename = _export_filename(context, "docx")
@@ -88,7 +90,7 @@ async def build_report_xlsx(tower_id: int | None = None, cluster_id: str | None 
     _write_cluster_summary_sheet(summary_sheet, context)
 
     vms = report.get("month_fastest_growing_vms") or []
-    _write_vm_summary_sheet(workbook.create_sheet("VM_TOP100_汇总"), vms)
+    _write_vm_summary_sheet(workbook.create_sheet("VM_TOP100_汇总"), vms, context)
 
     vms_by_cluster = _vms_by_cluster(vms)
     cluster_sheets: list[tuple[dict[str, Any], str]] = []
@@ -97,7 +99,7 @@ async def build_report_xlsx(tower_id: int | None = None, cluster_id: str | None 
         sheet = workbook.create_sheet(_safe_sheet_name(labels.get("cluster") or labels.get("cluster_id") or "集群"))
         cluster_sheets.append((cluster, sheet.title))
         cluster_vms = vms_by_cluster.get(_cluster_key(labels), [])
-        _write_cluster_vm_sheet(sheet, cluster, cluster_vms)
+        _write_cluster_vm_sheet(sheet, cluster, cluster_vms, context)
 
     _write_directory_sheet(workbook.create_sheet("目录", 1), cluster_sheets)
 
@@ -139,6 +141,7 @@ def _export_context(report: dict[str, Any], tower_id: int | None, cluster_id: st
         "scope_label": scope_label,
         "scope_slug": scope_slug,
         "report": report,
+        "period_window": report.get("period_window") or {},
         "app_version": get_settings().app_version,
     }
 
@@ -525,6 +528,15 @@ def _add_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode: str)
             _shade_row(row, "FAFCFF")
 
 
+def _add_vm_window_note(document: Document, context: dict[str, Any]) -> None:
+    note = document.add_paragraph(_vm_window_label(context))
+    note.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    for run in note.runs:
+        _apply_run_font(run)
+        run.font.size = Pt(8)
+        run.font.color.rgb = RGBColor(91, 115, 139)
+
+
 def _set_docx_headers(cells: Any, headers: list[str]) -> None:
     for cell, header in zip(cells, headers):
         _set_cell(cell, header, fill=ACCENT, color="FFFFFF", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
@@ -691,9 +703,9 @@ def _write_directory_sheet(sheet: Any, clusters: list[tuple[dict[str, Any], str]
     _style_sheet(sheet, header_rows={1, 2})
 
 
-def _write_vm_summary_sheet(sheet: Any, vms: list[dict[str, Any]]) -> None:
+def _write_vm_summary_sheet(sheet: Any, vms: list[dict[str, Any]], context: dict[str, Any]) -> None:
     headers = _vm_headers(include_cluster=True, sort_mode="amount")
-    _append_section_title(sheet, "增长量 TOP100（按增长量降序）", len(headers))
+    _append_section_title(sheet, f"增长量 TOP100（按增长量降序，{_vm_window_label(context)}）", len(headers))
     amount_header_row = sheet.max_row + 1
     sheet.append(headers)
     amount_start = sheet.max_row + 1
@@ -703,7 +715,7 @@ def _write_vm_summary_sheet(sheet: Any, vms: list[dict[str, Any]]) -> None:
 
     sheet.append([])
     ratio_title_row = sheet.max_row + 1
-    _append_section_title(sheet, "增长率 TOP100（按增长率降序）", len(headers))
+    _append_section_title(sheet, f"增长率 TOP100（按增长率降序，{_vm_window_label(context)}）", len(headers))
     ratio_header_row = sheet.max_row + 1
     sheet.append(_vm_headers(include_cluster=True, sort_mode="ratio"))
     ratio_start = sheet.max_row + 1
@@ -719,14 +731,14 @@ def _write_vm_summary_sheet(sheet: Any, vms: list[dict[str, Any]]) -> None:
     _add_excel_table(sheet, "VmRatioSummary", ratio_header_row, ratio_end, len(headers))
 
 
-def _write_cluster_vm_sheet(sheet: Any, cluster: dict[str, Any], vms: list[dict[str, Any]]) -> None:
+def _write_cluster_vm_sheet(sheet: Any, cluster: dict[str, Any], vms: list[dict[str, Any]], context: dict[str, Any]) -> None:
     labels = cluster.get("labels", {})
     forecast = cluster.get("forecast", {})
     risk, _ = _risk_level(cluster)
     sheet.append([_cluster_title(labels)])
     sheet.append(["当前容量", forecast.get("current") or 0, "较上月增加", _cluster_period_growth(cluster, "month"), "较上季度增加", _cluster_period_growth(cluster, "quarter"), "较上一年增加", _cluster_period_growth(cluster, "year"), "风险", risk])
     sheet.append([])
-    sheet.append(["增长量 TOP100（按增长量降序）"])
+    sheet.append([f"增长量 TOP100（按增长量降序，{_vm_window_label(context)}）"])
     amount_headers = _vm_headers(include_cluster=False, sort_mode="amount")
     sheet.append(amount_headers)
     amount_header_row = sheet.max_row
@@ -735,7 +747,7 @@ def _write_cluster_vm_sheet(sheet: Any, cluster: dict[str, Any], vms: list[dict[
         sheet.append(_vm_row(vm, include_cluster=False, raw=True, rank=index))
     amount_end = sheet.max_row
     start = sheet.max_row + 2
-    sheet.cell(row=start, column=1, value="增长率 TOP100（按增长率降序）")
+    sheet.cell(row=start, column=1, value=f"增长率 TOP100（按增长率降序，{_vm_window_label(context)}）")
     ratio_headers = _vm_headers(include_cluster=False, sort_mode="ratio")
     for col, header in enumerate(ratio_headers, start=1):
         sheet.cell(row=start + 1, column=col, value=header)
@@ -1022,8 +1034,17 @@ def _top_vms(vms: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
     return sorted(vms, key=key, reverse=True)[:100]
 
 
+def _vm_window_label(context: dict[str, Any]) -> str:
+    period = context.get("period_window") or {}
+    label = period.get("label")
+    if label:
+        return f"统计窗口：{label}"
+    days = int((context.get("report") or {}).get("window_days") or 30)
+    return f"统计窗口：最近 {days} 天"
+
+
 def _vm_headers(include_cluster: bool, sort_mode: str) -> list[str]:
-    headers = ["排名", "VM", "当前容量", "上期容量", "增长量", "增长率"]
+    headers = ["排名", "VM", "当前容量", "期初容量", "增长量", "增长率"]
     if sort_mode == "amount":
         headers[4] = "增长量 ↓"
     elif sort_mode == "ratio":

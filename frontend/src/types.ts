@@ -133,6 +133,8 @@ export interface ForecastPayload {
   fastest_growing_vms: GrowthVmReport[];
   day_fastest_growing_vms?: GrowthVmReport[];
   month_fastest_growing_vms?: GrowthVmReport[];
+  day_new_vms?: GrowthVmReport[];
+  month_new_vms?: GrowthVmReport[];
   cluster_growth_rate_per_day?: number | null;
   cluster_growth_rate?: {
     per_day?: number | null;
@@ -152,6 +154,9 @@ export interface GrowthVmReport {
     previous_value?: number | null;
     growth_ratio?: number | null;
     period_days?: number | null;
+    first_seen_at?: string | null;
+    age_days?: number | null;
+    sample_span_days?: number | null;
 }
 
 export interface ForecastResult {

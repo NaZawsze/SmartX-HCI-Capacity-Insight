@@ -133,7 +133,11 @@ async def restore_migration_archive(upload: UploadFile, confirmed: bool, mode: s
             )
             raise HTTPException(status_code=400, detail="导入包格式不正确。")
 
-        _update_migration_import_task(task, progress=55, detail="正在导入业务库和历史指标", logs=[f"导入模式：{normalized_mode}"])
+        _update_migration_import_task(task, progress=35, detail="正在生成导入前备份", logs=["正在生成当前系统导入前备份"])
+        backup_path = _create_import_backup(task)
+        _update_migration_import_task(task, progress=50, detail="导入前备份已生成", logs=[f"导入前备份：{backup_path}"], backup_path=str(backup_path))
+
+        _update_migration_import_task(task, progress=60, detail="正在导入业务库和历史指标", logs=[f"导入模式：{normalized_mode}"])
         if normalized_mode == OVERWRITE_MODE:
             result = _restore_overwrite(package_dir, settings.data_path, settings.prometheus_data_path)
             message = "数据覆盖导入完成，请重启 web-api、collector-worker 和 prometheus 使数据完全生效。"
@@ -147,6 +151,7 @@ async def restore_migration_archive(upload: UploadFile, confirmed: bool, mode: s
             progress=100,
             detail="数据迁移导入完成",
             logs=[message],
+            backup_path=str(backup_path),
             restored=result["restored"],
             summary=result["summary"],
             finished_at=datetime.now(timezone.utc).isoformat(),
@@ -159,6 +164,7 @@ async def restore_migration_archive(upload: UploadFile, confirmed: bool, mode: s
             "message": message,
             "task_id": task["task_id"],
             "saved_path": str(upload_path),
+            "backup_path": str(backup_path),
         }
     except HTTPException:
         raise
@@ -271,6 +277,38 @@ def _restore_merge(temp_dir: Path, app_target: Path, prometheus_target: Path) ->
         summary[PROMETHEUS_DATA_DIR] = prometheus_summary
         restored.append(PROMETHEUS_DATA_DIR)
     return {"restored": restored, "summary": summary}
+
+
+def _create_import_backup(task: dict[str, Any]) -> Path:
+    settings = get_settings()
+    generated_at = datetime.now(timezone.utc)
+    backup_dir = settings.backup_path
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    task_suffix = str(task.get("task_id") or uuid.uuid4().hex)[:8]
+    target = backup_dir / f"import-before-{generated_at.strftime('%Y%m%d%H%M%S')}-{task_suffix}.tar.gz"
+    manifest = {
+        "format": "smartx-storage-forecast-import-backup",
+        "version": 1,
+        "generated_at": generated_at.isoformat(),
+        "source_task_id": task.get("task_id"),
+        "contains": {
+            APP_DATA_DIR: settings.data_path.exists(),
+            PROMETHEUS_DATA_DIR: settings.prometheus_data_path.exists(),
+        },
+    }
+    manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
+    entries = _collect_migration_export_entries(settings.data_path, APP_DATA_DIR, APP_RUNTIME_ENTRIES)
+    entries += _collect_migration_export_entries(settings.prometheus_data_path, PROMETHEUS_DATA_DIR, PROMETHEUS_RUNTIME_ENTRIES)
+
+    with tarfile.open(target, mode="w:gz") as archive:
+        manifest_info = tarfile.TarInfo(MANIFEST_NAME)
+        manifest_info.size = len(manifest_bytes)
+        manifest_info.mtime = int(generated_at.timestamp())
+        archive.addfile(manifest_info, io.BytesIO(manifest_bytes))
+        for source, arcname, _ in entries:
+            archive.add(source, arcname=arcname, recursive=False)
+    task["backup_path"] = str(target)
+    return target
 
 
 def _merge_app_data(source: Path, target: Path) -> dict[str, Any]:

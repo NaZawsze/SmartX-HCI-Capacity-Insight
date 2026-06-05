@@ -284,15 +284,22 @@ sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
 
 ## UPG-016 数据迁移后增长和趋势为空
 
-状态：需验证
+状态：[已解决] 已在 10.20.11.3 完成导出、导入、重启和 Prometheus 历史指标回归验证
 
 现象：新部署导入迁移数据后，日增长、月增长、集群预测报表、趋势图为空。
 
 已知原因：这些页面依赖 Prometheus 历史指标，不只依赖业务库 `smartx.db`。如果迁移包只包含业务库，或者 Prometheus 数据目录权限错误，增长和趋势会为空。
 
-当前处理：数据迁移包应包含业务库和 Prometheus 历史指标；`pre_install.sh` 负责修正 Prometheus 数据目录权限。
+当前处理：数据迁移包包含业务库和 Prometheus 历史指标；`pre_install.sh` 负责修正 Prometheus 数据目录权限；导入前会自动生成当前系统备份，备份成功后才执行 merge/overwrite。
 
-后续：需要验证导出包确实包含 Prometheus blocks，导入后 Prometheus 正常启动并能查询 `smartx_vm_storage_used_bytes`。
+验证记录：
+- 2026-06-05 在 `10.20.11.3` 通过后台迁移导出任务生成 `/data/exports/migrations/smartx-storage-migration-20260605113838.tar.gz`。
+- 导出包检查：包含 `smartx-data/smartx.db`，包含 7 个 Prometheus block 的 `meta.json`，不包含 Prometheus `wal` 运行时目录。
+- 使用 merge 模式导回当前系统，导入成功并生成导入前备份 `/data/backups/import-before-20260605114014-0ac6678f.tar.gz`。
+- 同包回导时业务库已有数据被跳过，Prometheus 7 个已有 block 被跳过，未覆盖现有数据。
+- 重启 `web-api`、`collector-worker`、`prometheus` 后，`smartx_vm_storage_used_bytes` 即时查询返回 175 条 series。
+- `query_range` 最近 7 天返回 175 条 series，前 10 条 series 共 260 个历史点。
+- 报表接口返回 `clusters=1`、`day_fastest_growing_vms=100`，集群趋势点数为 13；`month_fastest_growing_vms=0` 符合当前“样本满 30 天”新口径。
 
 ## UPG-017 文档中 runner 版本来源描述陈旧
 
@@ -342,7 +349,7 @@ compose_command docker compose -p smartx-capacity-insight -f /data/compose-runti
 5. [已解决] 增强升级前备份精确进度和小日志。
 6. [已解决] 清理升级 UI：合并平台升级与升级后核验，预检查步骤化。
 7. [设计待定] 定义 Prometheus 组件升级策略。
-8. [需验证] 回归验证数据迁移后的 Prometheus 历史指标、日/月增长和趋势图。
+8. [已解决] 回归验证数据迁移后的 Prometheus 历史指标、日/月增长和趋势图。
 9. [设计待定] 基于历史问题重新设计全新的平台升级与组件升级模式，覆盖包格式、runner 自升级、状态机、备份和回滚闭环。
 
 ## UPG-019 运行产物落在 app 数据目录导致备份和迁移膨胀

@@ -264,8 +264,9 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     addTask({ id, kind: "import", title: "导入迁移包", detail: migrationFile.name, status: "running", progress: 0 });
     try {
       const result = await api.importMigration(migrationFile, migrationMode, migrationConfirmed, (progress) => updateTask(id, uploadProgressTaskPatch(progress)));
-      updateTask(id, { status: "succeeded", progress: 100, detail: result.message });
-      setMigrationMessage(result.message);
+      const backupLog = result.backup_path ? `导入前备份：${result.backup_path}` : "";
+      updateTask(id, { status: "succeeded", progress: 100, detail: result.message, logs: [result.message, backupLog].filter(Boolean) });
+      setMigrationMessage(backupLog ? `${result.message} ${backupLog}` : result.message);
       setMigrationFile(null);
       if (migrationFileInputRef.current) migrationFileInputRef.current.value = "";
       setMigrationMode("merge");
@@ -1518,11 +1519,11 @@ function uploadProgressTaskPatch(progress: number | TransferProgress): { progres
   if (progress.phase === "processing") {
     return {
       progress: Math.max(96, progress.progress),
-      detail: "上传完成，正在保存、解压并校验升级包..."
+      detail: "上传完成，正在保存、解压并校验文件..."
     };
   }
   if (progress.phase === "done") {
-    return { progress: 100, detail: "升级包处理完成" };
+    return { progress: 100, detail: "文件处理完成" };
   }
   const speed = formatTransferSpeed(progress.speedBytesPerSecond);
   return {

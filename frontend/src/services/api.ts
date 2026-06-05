@@ -287,12 +287,12 @@ export const api = {
   async downloadSavedExport(url: string, onProgress?: ProgressCallback): Promise<DownloadResult> {
     return download(url, onProgress);
   },
-  async importMigration(file: File, mode: "merge" | "overwrite", confirmed: boolean, onProgress?: ProgressCallback): Promise<{ ok: boolean; restored: string[]; message: string }> {
+  async importMigration(file: File, mode: "merge" | "overwrite", confirmed: boolean, onProgress?: ProgressCallback): Promise<{ ok: boolean; restored: string[]; message: string; backup_path?: string; task_id?: string; saved_path?: string }> {
     const formData = new FormData();
     formData.set("file", file);
     formData.set("mode", mode);
     formData.set("confirmed", String(confirmed));
-    return upload<{ ok: boolean; restored: string[]; message: string }>("/api/admin/migration/import", formData, onProgress);
+    return upload<{ ok: boolean; restored: string[]; message: string; backup_path?: string; task_id?: string; saved_path?: string }>("/api/admin/migration/import", formData, onProgress);
   },
   async restartSystemServices(): Promise<{ ok: boolean; services: string[]; message: string }> {
     return request<{ ok: boolean; services: string[]; message: string }>("/api/admin/system/restart", { method: "POST" });
