@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -54,7 +54,7 @@ def get_auth_service(
 
 
 def require_user(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(bearer)],
     auth: Annotated[AuthService, Depends(get_auth_service)],
 ) -> CurrentUser:
     if credentials is None:
