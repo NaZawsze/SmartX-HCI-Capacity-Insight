@@ -134,7 +134,7 @@ curl -s -o /dev/null -w "api_metrics:%{http_code}\n" http://127.0.0.1:8000/metri
 
 ### Phase 7 - 升级预检查步骤化与网络检查
 
-状态：进行中
+状态：完成
 
 目标：
 
@@ -147,3 +147,19 @@ curl -s -o /dev/null -w "api_metrics:%{http_code}\n" http://127.0.0.1:8000/metri
 - 后端新增 `network` 预检查。
 - 前端预检查步骤按后端检查项分组展示。
 - `docs/upgrade-issues.md` 将 UPG-011 标记为已解决，并补充 UPG-014 网络预检查说明。
+
+### Phase 8 - 升级前备份进度
+
+状态：进行中
+
+目标：
+
+- 升级前备份不再只显示“正在备份”，而是展示扫描总量、处理字节数、当前文件和小日志。
+- 任务中心能看到当前运行步骤详情，避免用户误以为卡住。
+
+已完成：
+
+- 后端备份前扫描候选文件数量和总字节。
+- 备份写入过程中按进度或时间节流更新 task.json。
+- 前端任务中心使用当前运行步骤 message 作为 detail。
+- `docs/upgrade-issues.md` 将 UPG-008 标记为已解决。

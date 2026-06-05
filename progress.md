@@ -179,3 +179,20 @@
 - `frontend/src/pages/ServicePage.tsx` 将平台和组件预检查步骤改为按后端检查项分组，并在步骤内展示聚合后的检查消息。
 - `backend/tests/test_deployment_config.py` 增加文本断言覆盖网络检查和前端步骤映射。
 - `docs/upgrade-issues.md` 将 UPG-011 标记为已解决，UPG-014 补充“已纳入升级预检查”。
+
+### 升级前备份进度
+
+状态：进行中
+
+发现：
+
+- 平台升级由 `upgrade-runner` 轮询 pending 任务后执行 `_create_backup()`。
+- 旧备份过程只在 `_run_step()` 开始和完成时保存 task，因此 tar/gzip 大目录时页面会长时间停在“生成升级前数据备份”。
+- 前端已经能显示 step message 和 logs，缺的是后端备份过程中持续更新 task。
+
+修复：
+
+- `_create_backup()` 先扫描待备份文件总数和总字节数，写入 `backup_total_files`、`backup_total_bytes`。
+- 新增 `_BackupProgress` 和进度 reader，备份写入时按字节统计，并按 5 秒或 10% 进度节流更新 `backup_processed_*`、step message 和日志。
+- 任务中心 detail 改为使用当前 running step 的 message，能直接显示 `备份中 xx%`。
+- `docs/upgrade-issues.md` 将 UPG-008 标记为已解决。

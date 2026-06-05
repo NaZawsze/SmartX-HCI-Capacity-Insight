@@ -11,7 +11,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -594,13 +594,27 @@ def _create_backup(task: dict[str, Any]) -> str:
             PROMETHEUS_DATA_DIR: settings.prometheus_data_path.exists(),
         },
     }
-    _write_upgrade_backup_archive(backup_path, settings.data_path, settings.prometheus_data_path, manifest)
+    _update_step_message(task, "backup", "正在扫描需要备份的数据文件...")
+    _save_task(task)
+    backup_files = [
+        *_iter_backup_files(settings.data_path, APP_DATA_DIR, APP_BACKUP_SKIP_NAMES),
+        *_iter_backup_files(settings.prometheus_data_path, PROMETHEUS_DATA_DIR, PROMETHEUS_BACKUP_SKIP_NAMES),
+    ]
+    total_bytes = sum(item[0].stat().st_size for item in backup_files)
+    task["backup_total_files"] = len(backup_files)
+    task["backup_total_bytes"] = total_bytes
+    _append_log(task, f"备份扫描完成：{len(backup_files)} 个文件，{_format_bytes(total_bytes)}。")
+    _update_step_message(task, "backup", f"准备备份 {len(backup_files)} 个文件，共 {_format_bytes(total_bytes)}。")
+    _save_task(task)
+    progress = _BackupProgress(task)
+    _write_upgrade_backup_archive(backup_path, backup_files, manifest, progress)
+    progress.finish()
     task["backup_path"] = str(backup_path)
     task["backup_size_bytes"] = backup_path.stat().st_size
     return f"备份文件：{backup_path}，大小：{_format_bytes(backup_path.stat().st_size)}，已排除 upgrades/backups/exports/compose-runtime。"
 
 
-def _write_upgrade_backup_archive(backup_path: Path, app_data_path: Path, prometheus_data_path: Path, manifest: dict[str, Any]) -> None:
+def _write_upgrade_backup_archive(backup_path: Path, backup_files: list[tuple[Path, str, int]], manifest: dict[str, Any], progress: "_BackupProgress") -> None:
     manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
     temp_path = backup_path.with_suffix(backup_path.suffix + ".tmp")
     temp_path.unlink(missing_ok=True)
@@ -610,17 +624,25 @@ def _write_upgrade_backup_archive(backup_path: Path, app_data_path: Path, promet
             manifest_info.size = len(manifest_bytes)
             manifest_info.mtime = int(time.time())
             archive.addfile(manifest_info, _BytesReader(manifest_bytes))
-            _add_directory_to_backup(archive, app_data_path, APP_DATA_DIR, APP_BACKUP_SKIP_NAMES)
-            _add_directory_to_backup(archive, prometheus_data_path, PROMETHEUS_DATA_DIR, PROMETHEUS_BACKUP_SKIP_NAMES)
+            for source, arcname, size in backup_files:
+                try:
+                    info = archive.gettarinfo(str(source), arcname=arcname)
+                    with source.open("rb") as source_file:
+                        archive.addfile(info, _ProgressFileReader(source_file, source, arcname, progress))
+                except OSError as exc:
+                    progress.skip_file(arcname, exc)
+                    continue
+                progress.finish_file(source, arcname, size)
         temp_path.replace(backup_path)
     except Exception:
         temp_path.unlink(missing_ok=True)
         raise
 
 
-def _add_directory_to_backup(archive: tarfile.TarFile, source: Path, arcname: str, skip_names: set[str]) -> None:
+def _iter_backup_files(source: Path, arcname: str, skip_names: set[str]) -> list[tuple[Path, str, int]]:
+    files: list[tuple[Path, str, int]] = []
     if not source.exists():
-        return
+        return files
     for child in source.rglob("*"):
         try:
             relative = child.relative_to(source)
@@ -630,11 +652,83 @@ def _add_directory_to_backup(archive: tarfile.TarFile, source: Path, arcname: st
             continue
         if not child.is_file() or child.is_symlink():
             continue
-        archive.add(child, arcname=str(Path(arcname) / relative), recursive=False)
+        try:
+            size = child.stat().st_size
+        except OSError:
+            continue
+        files.append((child, str(Path(arcname) / relative), size))
+    return files
 
 
 def _skip_backup_path(relative: Path, skip_names: set[str]) -> bool:
     return any(part in skip_names or part == ".DS_Store" or part.startswith("._") for part in relative.parts)
+
+
+class _BackupProgress:
+    def __init__(self, task: dict[str, Any]) -> None:
+        self.task = task
+        self.total_bytes = int(task.get("backup_total_bytes") or 0)
+        self.total_files = int(task.get("backup_total_files") or 0)
+        self.processed_bytes = 0
+        self.processed_files = 0
+        self.last_saved_at = 0.0
+        self.last_percent = -1
+
+    def add_bytes(self, source: Path, arcname: str, size: int) -> None:
+        if size <= 0:
+            return
+        self.processed_bytes += size
+        self._maybe_save(arcname)
+
+    def finish_file(self, source: Path, arcname: str, size: int) -> None:
+        self.processed_files += 1
+        self._maybe_save(arcname, force=size == 0)
+
+    def skip_file(self, arcname: str, exc: OSError) -> None:
+        message = f"跳过备份文件：{arcname}，原因：{exc}"
+        _append_log(self.task, message)
+        _update_step_message(self.task, "backup", message)
+        _save_task(self.task)
+
+    def _maybe_save(self, arcname: str, force: bool = False) -> None:
+        percent = 100 if self.total_bytes <= 0 else min(100, int((self.processed_bytes / self.total_bytes) * 100))
+        now = time.monotonic()
+        should_save = percent >= 100 or percent >= self.last_percent + 10 or now - self.last_saved_at >= 5
+        if not force and not should_save:
+            return
+        self.last_percent = percent
+        self.last_saved_at = now
+        message = (
+            f"备份中 {percent}%：{self.processed_files}/{self.total_files} 个文件，"
+            f"{_format_bytes(self.processed_bytes)}/{_format_bytes(self.total_bytes)}，当前 {arcname}"
+        )
+        self.task["backup_processed_files"] = self.processed_files
+        self.task["backup_processed_bytes"] = self.processed_bytes
+        _update_step_message(self.task, "backup", message)
+        _append_log(self.task, message)
+        _save_task(self.task)
+
+    def finish(self) -> None:
+        message = f"备份数据写入完成：{self.processed_files}/{self.total_files} 个文件，{_format_bytes(self.processed_bytes)}。"
+        self.task["backup_processed_files"] = self.processed_files
+        self.task["backup_processed_bytes"] = self.processed_bytes
+        _update_step_message(self.task, "backup", message)
+        _append_log(self.task, message)
+        _save_task(self.task)
+
+
+class _ProgressFileReader:
+    def __init__(self, handle: BinaryIO, source: Path, arcname: str, progress: _BackupProgress) -> None:
+        self.handle = handle
+        self.source = source
+        self.arcname = arcname
+        self.progress = progress
+
+    def read(self, size: int = -1) -> bytes:
+        chunk = self.handle.read(size)
+        if chunk:
+            self.progress.add_bytes(self.source, self.arcname, len(chunk))
+        return chunk
 
 
 class _BytesReader:
@@ -1282,6 +1376,14 @@ def _save_component_task(task: dict[str, Any]) -> None:
 def _append_log(task: dict[str, Any], message: str) -> None:
     task.setdefault("logs", []).append(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}")
     task["logs"] = task["logs"][-500:]
+
+
+def _update_step_message(task: dict[str, Any], key: str, message: str) -> None:
+    for step in task.setdefault("steps", []):
+        if step.get("key") == key:
+            step["message"] = message
+            return
+    task.setdefault("steps", []).append({"key": key, "title": key, "status": "running", "message": message})
 
 
 def _iter_tasks_oldest_first() -> list[dict[str, Any]]:

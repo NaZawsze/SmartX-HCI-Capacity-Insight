@@ -153,7 +153,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             updateTask(appTaskId, {
               status: upgradeTaskStatus(next),
               progress: upgradeProgress(next),
-              detail: upgradeStatusText(next.status)
+              detail: activeUpgradeDetail(next)
             });
             if (done) delete upgradeRunTaskRef.current[next.task_id];
           }
@@ -179,7 +179,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             updateTask(appTaskId, {
               status: upgradeTaskStatus(next),
               progress: upgradeProgress(next),
-              detail: upgradeStatusText(next.status)
+              detail: activeUpgradeDetail(next)
             });
             if (done) delete upgradeRunTaskRef.current[next.task_id];
           }
@@ -1552,6 +1552,15 @@ function upgradeProgress(task: UpgradeTask): number {
   const finished = task.steps.filter((step) => step.status === "succeeded").length;
   const running = task.steps.some((step) => step.status === "running") ? 0.5 : 0;
   return Math.min(95, Math.max(10, Math.round(((finished + running) / total) * 100)));
+}
+
+function activeUpgradeDetail(task: UpgradeTask): string {
+  const running = task.steps.find((step) => step.status === "running");
+  if (running?.message) return running.message;
+  if (running?.title) return running.title;
+  const failed = task.steps.find((step) => step.status === "failed");
+  if (failed?.message) return failed.message;
+  return upgradeStatusText(task.status);
 }
 
 

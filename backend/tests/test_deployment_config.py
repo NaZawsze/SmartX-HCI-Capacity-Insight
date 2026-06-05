@@ -101,6 +101,18 @@ def test_upgrade_backup_skips_legacy_runtime_artifacts() -> None:
     assert '"exports"' in text
 
 
+def test_upgrade_backup_reports_progress() -> None:
+    root = Path(__file__).resolve().parents[2]
+    backend = (root / "backend/app/services/upgrade.py").read_text(encoding="utf-8")
+    frontend = (root / "frontend/src/pages/ServicePage.tsx").read_text(encoding="utf-8")
+
+    assert "class _BackupProgress" in backend
+    assert 'task["backup_total_bytes"]' in backend
+    assert '"backup_processed_bytes"' in backend
+    assert "备份中 {percent}%" in backend
+    assert "activeUpgradeDetail(next)" in frontend
+
+
 def test_upgrade_precheck_checks_network_and_project_closure() -> None:
     root = Path(__file__).resolve().parents[2]
     backend = (root / "backend/app/services/upgrade.py").read_text(encoding="utf-8")
