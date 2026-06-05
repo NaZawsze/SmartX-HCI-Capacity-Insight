@@ -92,6 +92,14 @@ class V2Database:
                     PRIMARY KEY (tower_id, cluster_id, vm_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS collection_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    status TEXT NOT NULL,
+                    message TEXT,
+                    started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    finished_at TEXT
+                );
+
                 CREATE TABLE IF NOT EXISTS schema_migrations (
                     name TEXT PRIMARY KEY,
                     applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP

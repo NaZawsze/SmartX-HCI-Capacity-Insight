@@ -697,3 +697,30 @@ TDD 记录：
 
 - Phase V2-3 后续还需要 CloudTower 客户端、连接测试、手动采集、collector-worker 定时采集、Prometheus 写入和查询服务。
 - 当前只完成 Tower/Cluster 存储与 API、指标文本格式基础，尚未打通真实采集链路。
+
+### 2026-06-06 Phase V2-3 手动采集基础链路
+
+状态：进行中，fake client 驱动的采集基础完成本地验证
+
+实施内容：
+
+- `backend/app/v2/database.py` 增加 `collection_runs` 表。
+- 新增 `backend/app/v2/collection/service.py`。
+- `CollectionService.run_manual_collection()` 读取已启用 Tower 和已启用集群，调用注入的 CloudTower collector，更新 `vm_latest`，生成 Prometheus 指标文本，并记录 collection run 状态。
+- 采集失败时根据 Tower 凭据做错误摘要脱敏，避免 password/api_token 出现在返回 message 中。
+
+TDD 记录：
+
+- RED：`PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_collection -v` 先失败，原因是 `app.v2.collection.service` 不存在。
+- GREEN：新增 `CollectionService` 后测试通过。
+
+本地验证：
+
+- `PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_skeleton backend.tests.test_v2_task_models backend.tests.test_v2_foundation backend.tests.test_v2_inventory_metrics backend.tests.test_v2_collection backend.tests.test_v2_auth_api backend.tests.test_v2_inventory_api -v` 通过：16 个测试 OK，2 个 FastAPI 集成测试因本机基础 Python 缺依赖跳过。
+- `PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_skeleton backend.tests.test_v2_task_models backend.tests.test_v2_foundation backend.tests.test_v2_inventory_metrics backend.tests.test_v2_collection backend.tests.test_v2_auth_api backend.tests.test_v2_inventory_api -v` 通过：18 个测试 OK。
+- `python3 -m py_compile backend/app/v2/collection/service.py backend/app/v2/database.py backend/tests/test_v2_collection.py` 通过。
+
+限制：
+
+- 当前采集测试使用 fake CloudTower collector，尚未实现真实 CloudTower HTTP 客户端。
+- 当前仅生成 Prometheus exposition 文本，尚未接入 Prometheus 写入/查询服务。
