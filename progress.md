@@ -816,3 +816,25 @@ TDD 记录：
 - 本机没有 Docker CLI，`docker compose build web-api collector-worker frontend` 无法本地执行，错误为 `zsh:1: command not found: docker`。
 - 需要在 `10.20.11.3` 上拉取 `feature/upgrade-v2` 后执行 Docker 构建和容器内测试。
 - Phase V2-3 的采集和指标基础链路已具备，但 Dashboard/VM/报表展示仍属于后续 V2-4/V2-5。
+
+### 2026-06-06 Phase V2-3 远端 Docker 验证补充
+
+状态：完成
+
+远端验证位置：
+
+- 主机：`10.20.11.3`
+- v2 worktree：`/opt/smartx-storage-forecast-v2`
+- 分支：`feature/upgrade-v2`
+- 提交：`38a5af1`
+
+验证记录：
+
+- `git pull --ff-only origin feature/upgrade-v2` 成功拉到 `38a5af1`。
+- `docker compose build web-api collector-worker frontend` 通过，确认 v2 `web-api`、v2 `collector-worker` 和前端镜像可构建。
+- `docker run --rm -v /opt/smartx-storage-forecast-v2:/src -e PYTHONPATH=/src/backend -w /src smartx-storage-forecast-web-api:local python -m unittest backend.tests.test_v2_skeleton backend.tests.test_v2_task_models backend.tests.test_v2_foundation backend.tests.test_v2_inventory_metrics backend.tests.test_v2_cloudtower_client backend.tests.test_v2_prometheus_service backend.tests.test_v2_collection backend.tests.test_v2_worker backend.tests.test_v2_auth_api backend.tests.test_v2_inventory_api -v` 通过：28 个测试 OK。
+
+结论：
+
+- Phase V2-3 的 Tower、真实 CloudTower 客户端、连接测试、手动采集、collector-worker 定时采集基础、Prometheus `/metrics` scrape 基础、Prometheus 查询和健康检查基础已完成本地与远端容器验证。
+- 后续进入 Phase V2-4：Dashboard 和 VM 页面，重点把 Prometheus 历史查询结果接入容量风险、日增长、本日新建 VM、VM 列表和趋势。
