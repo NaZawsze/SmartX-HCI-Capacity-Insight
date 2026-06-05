@@ -149,7 +149,7 @@
 
 ### 修复清理空间显示 0B
 
-状态：进行中
+状态：完成
 
 发现：
 
@@ -165,7 +165,7 @@
 
 ### 升级预检查步骤化与网络检查
 
-状态：进行中
+状态：完成
 
 发现：
 
@@ -182,7 +182,7 @@
 
 ### 升级前备份进度
 
-状态：进行中
+状态：完成
 
 发现：
 
@@ -199,7 +199,7 @@
 
 ### 平台升级 UI 去重
 
-状态：进行中
+状态：完成
 
 发现：
 
@@ -212,6 +212,13 @@
 - `renderUpgradeRuntimeVerification()` 只返回运行服务表，刷新按钮移到平台状态标题行。
 - `docs/upgrade-issues.md` 将 UPG-010 标记为已解决。
 
+验证：
+
+- 本地 `python3 -m py_compile backend/app/services/upgrade.py backend/tests/test_deployment_config.py` 通过。
+- 本地 `python3 scripts/build_upgrade_package.py --check-version` 通过。
+- 本地敏感信息 diff 扫描未发现密码、secret、credential。
+- 10.20.11.3 已拉取 dev，`python3 -m py_compile`、`scripts/build_upgrade_package.py --check-version`、`docker compose build frontend` 通过。
+
 ### runner 生命周期文档版本来源
 
 状态：完成
@@ -221,3 +228,81 @@
 - `docs/upgrade-runner-lifecycle.md` 将“升级后核验”文案更新为“平台状态”。
 - `docs/upgrade-issues.md` 将 UPG-017 标记为已解决。
 - `docs/releases/CHANGELOG.md` 同步服务管理页命名，避免维护人员继续引用旧区域名。
+
+### 当前状态汇总
+
+状态：完成
+
+最近提交：
+
+- `df77a57 docs: update runner version source notes`
+- `dcf328d fix: consolidate upgrade status UI`
+- `7fd71b6 fix: report upgrade backup progress`
+- `3d917c0 fix: make upgrade precheck steps actionable`
+- `2cf9103 fix: report cleanup reclaimed space accurately`
+
+已解决：
+
+- Docker 镜像清理和空间清理显示 `0B`。
+- 升级预检查步骤化，并覆盖镜像名/tag、compose、项目文件、敏感路径、volume、网络和磁盘空间。
+- 升级前备份显示扫描总量、处理字节数、当前文件和小日志。
+- 平台升级 UI 合并为“平台状态”，不再重复展示升级后核验。
+- runner 生命周期文档已明确平台版本来自镜像内 `/app/VERSION`，runner 版本独立来自 `/data/upgrade-runner.version` 或 `RUNNER_VERSION`。
+
+剩余：
+
+- Prometheus 组件升级策略仍为设计待定。
+- 数据迁移后的 Prometheus 历史指标、日/月增长和趋势图仍需真实回归验证。
+- 数据迁移导入前需要自动生成备份，备份成功后才继续导入。
+- 需要根据历史升级问题重新设计全新的平台升级和组件升级模式。
+
+### 新增报表与 VM 口径需求
+
+状态：待处理
+
+新增需求：
+
+- 月增长最快 VM 必须排除历史数据不足 30 天的 VM；如果刚部署没有任何 VM 满足 30 天样本，月增长最快 VM 显示为空。
+- Word/Excel 导出报表的月增长 TOP VM 使用同样过滤口径。
+- Word/Excel 导出报表需要在“上期容量”表头或说明中直接标注统计窗口起止日期。
+- 报表页在“日增长最快 VM”下新增“本日新建 VM”，在“月增长最快 VM”下新增“本月新建 VM”。
+- 本日/本月新建 VM 支持点击跳转到虚拟机页面。
+- 验证并必要时修复 VM 改名显示：历史数据以 UUID 绑定，最新一次采集后页面展示名称应与 Tower 最新名称同步。
+
+初步口径建议：
+
+- VM 身份继续使用 `tower_id + cluster_id + vm_id`。
+- VM 名称只作为展示字段，不能作为历史数据绑定字段。
+- “新建 VM”建议按该 VM 在 Prometheus 历史指标中首次出现时间判断。
+- 月增长过滤建议按该 VM 指标最早样本与当前统计结束时间的跨度判断，跨度小于 30 天则排除。
+- “上期容量”建议更名或注释为“统计窗口起始容量”，并显示具体日期范围，例如 `统计窗口：2026年05月01日-2026年05月31日`。
+
+### 数据迁移导入前备份
+
+状态：待处理
+
+新增需求：
+
+- 数据迁移导入前自动生成当前系统备份，避免导入包异常、导入中断、Prometheus block 合并异常或权限问题导致难以回退。
+- 建议备份路径：`/data/backups/import-before-时间.tar.gz`。
+- 页面需要显示备份进度和备份路径。
+- 备份成功后才开始导入；备份失败默认阻止继续导入。
+- 导入完成结果中需要展示导入前备份路径。
+
+### 全新平台升级与组件升级模式设计
+
+状态：待处理
+
+新增需求：
+
+- 基于之前遇到的升级失败、runner 自升级、compose tag 不闭环、项目文件未同步、路径只读、任务卡住、备份不透明等问题，重新设计平台升级和组件升级模式。
+- 目标不是继续修补现有流程，而是形成新的升级架构、状态机、包格式和回滚策略。
+
+设计范围：
+
+- 平台升级、组件升级、未来 Prometheus 升级的包类型和职责边界。
+- web-api 与 upgrade-runner 的职责分工，尤其是 runner 自升级的安全路径。
+- manifest、镜像名、tag、compose/project 文件同步和版本来源的统一规则。
+- 升级前备份、项目文件备份、运行配置备份和手动/自动回滚策略。
+- 跨容器重启后的任务恢复、日志持久化、步骤状态和 UI 展示。
+- 旧版本向新升级模式过渡的兼容或迁移方案。
