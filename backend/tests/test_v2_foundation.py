@@ -98,6 +98,30 @@ class V2FoundationTest(unittest.TestCase):
             self.assertTrue(result.checks["prometheus"])
             self.assertEqual(result.version, settings.app_version)
 
+    def test_health_check_reports_required_directory_writeability(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.metrics.prometheus import PrometheusHealth
+        from app.v2.system.health import check_health
+
+        class ReadyPrometheus:
+            def health(self):
+                return PrometheusHealth(ok=True, message="ready")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="unit-secret")
+            db = V2Database(settings)
+            db.initialize()
+            blocked = settings.prometheus_data_dir
+            blocked.mkdir(parents=True, exist_ok=True)
+            marker = blocked / ".smartx-healthcheck"
+            marker.mkdir()
+
+            result = check_health(settings, db, prometheus=ReadyPrometheus())
+
+            self.assertFalse(result.ok)
+            self.assertFalse(result.checks["directories"])
+
 
 if __name__ == "__main__":
     unittest.main()

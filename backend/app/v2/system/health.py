@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from app.v2.config import V2Settings
 from app.v2.database import V2Database
@@ -15,9 +16,21 @@ class HealthResult:
     checks: dict[str, bool]
 
 
+def _directory_ready(directory: Path) -> bool:
+    if not directory.exists() or not directory.is_dir():
+        return False
+    marker = directory / ".smartx-healthcheck"
+    try:
+        marker.write_text("ok", encoding="utf-8")
+        marker.unlink()
+        return True
+    except Exception:
+        return False
+
+
 def check_health(settings: V2Settings, database: V2Database, prometheus=None) -> HealthResult:
     checks = {
-        "directories": all(directory.exists() and directory.is_dir() for directory in settings.required_directories()),
+        "directories": all(_directory_ready(directory) for directory in settings.required_directories()),
         "database": False,
         "prometheus": False,
     }

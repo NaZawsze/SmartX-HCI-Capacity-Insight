@@ -1347,3 +1347,25 @@ TDD 记录：
   - `python3 -m py_compile backend/app/v2/migration/service.py backend/tests/test_v2_migration.py` 通过。
 - 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
   - 使用 `smartx-storage-forecast-web-api:local` 容器执行 `backend.tests.test_v2_migration` 通过。
+
+### 2026-06-06 Phase V2-1 部署目录与健康检查写权限
+
+状态：完成本地验证，待远端验证和提交
+
+实施内容：
+
+- v2 健康检查从“目录存在”升级为“目录存在且可写”。
+- 对每个 required directory 写入并删除 `.smartx-healthcheck` marker，能发现 Prometheus 数据目录权限错误、只读挂载或目录被占用为不可写路径等问题。
+- 新增回归测试覆盖目录存在但 marker 无法写入时 `directories=false`。
+- `docs/v2-rebuild-task-plan.md` 将 v2 配置模型、版本文件、运行目录、健康检查和 pre_install 初始化标记完成。
+
+TDD 记录：
+
+- RED：新增 `test_health_check_reports_required_directory_writeability` 后，旧健康检查仍返回 `ok=True`，测试按预期失败。
+- GREEN：新增 `_directory_ready()` 写入 marker 判断后，v2 foundation 和 deployment config 测试通过。
+
+验证：
+
+- 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_foundation -v` 通过。
+- 本地：临时安装 pytest 到 `/tmp/smartx-v2-venv` 后，`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m pytest backend/tests/test_deployment_config.py -q` 通过，15 个部署约束测试通过。
+- 本地：v2 后端完整 unittest 集 47 个测试通过。
