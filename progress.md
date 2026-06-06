@@ -1729,3 +1729,20 @@ TDD 记录：
 
 - 本地：`PYTHONPATH=backend SMARTX_UPGRADE_DRY_RUN=1 /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_migration -v` 通过，4 个测试通过。
 - 远端 `10.20.11.3`：`npm test -- ServicePage.test.tsx` 通过，1 个测试文件、4 个测试通过。
+
+### 2026-06-06 Phase V2-7 升级中心预检查与平台状态验证
+
+状态：完成远端验证，待提交
+
+实施内容：
+
+- 扩展 `frontend/src/pages/ServicePage.test.tsx`，覆盖平台升级页：
+  - “平台状态”区域集中展示当前版本、目标版本、升级中心版本、Compose 项目、最近成功包、SHA256 和服务运行表。
+  - 页面不再出现单独的“服务运行核验”二级区块。
+  - 点击“预检查”后立即显示步骤化进度，包括执行中和未执行状态。
+- 当前 `ServicePage` 已具备平台状态合并和预检查步骤化 UI，本次补自动化测试和任务文档勾选。
+- `docs/v2-rebuild-task-plan.md` 将“预检查显示步骤化进度”和“页面合并平台状态和升级后核验”标记完成。
+
+验证：
+
+- 远端 `10.20.11.3`：`npm test -- ServicePage.test.tsx` 通过，1 个测试文件、6 个测试通过。

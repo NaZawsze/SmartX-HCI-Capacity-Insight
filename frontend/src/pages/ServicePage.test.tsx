@@ -9,6 +9,7 @@ const apiMock = vi.hoisted(() => ({
   upgradeHistory: vi.fn(),
   componentUpgradeHistory: vi.fn(),
   upgradeVerification: vi.fn(),
+  precheckUpgrade: vi.fn(),
   importMigration: vi.fn()
 }));
 
@@ -30,6 +31,20 @@ function mockServicePageBootstrap() {
     package: null,
     services: []
   });
+}
+
+function uploadedPlatformTask() {
+  return {
+    task_id: "upgrade-1",
+    status: "uploaded",
+    target_version: "v0.4.2",
+    package_filename: "smartx-capacity-insight-upgrade-v0.4.2.tar.gz",
+    restart_services: ["web-api", "collector-worker", "frontend"],
+    database_migration: true,
+    checks: [],
+    steps: [],
+    logs: []
+  };
 }
 
 describe("formatVersionForDisplay", () => {
@@ -79,5 +94,69 @@ describe("ServicePage migration overwrite mode", () => {
       expect(apiMock.importMigration).toHaveBeenCalledWith(file, "overwrite", true, expect.any(Function));
     });
     expect(addTask).toHaveBeenCalledWith(expect.objectContaining({ kind: "import", title: "导入迁移包" }));
+  });
+});
+
+describe("ServicePage upgrade center", () => {
+  it("shows platform status and runtime verification in one section", async () => {
+    mockServicePageBootstrap();
+    apiMock.upgradeVerification.mockResolvedValue({
+      app_version: "v0.4.1",
+      runner_version: "v0.2.2",
+      compose_project: "smartx-capacity-insight",
+      compose_file: "docker-compose.offline.yml",
+      package: {
+        task_id: "upgrade-ok",
+        version: "v0.4.1",
+        filename: "smartx-capacity-insight-upgrade-v0.4.1.tar.gz",
+        sha256: "abcdef1234567890abcdef"
+      },
+      services: [
+        {
+          service: "web-api",
+          container: "smartx-capacity-insight-web-api-1",
+          status: "running",
+          running: true,
+          image: "nazawsze/smartx-hci-capacity-insight-web-api:v0.4.1",
+          app_version: "v0.4.1",
+          started_at: "2026-06-06T01:00:00+08:00"
+        }
+      ]
+    });
+
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    expect(await screen.findByText("平台状态")).toBeInTheDocument();
+    expect(screen.getByText("版本、升级包和当前运行服务集中展示。")).toBeInTheDocument();
+    expect(screen.getByText("当前版本")).toBeInTheDocument();
+    expect(screen.getAllByText("v0.4.1").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("最近成功包")).toBeInTheDocument();
+    expect(screen.getByText(/smartx-capacity-insight-upgrade-v0\.4\.1/)).toBeInTheDocument();
+    expect(screen.getByText("web-api")).toBeInTheDocument();
+    expect(screen.getByText("运行中")).toBeInTheDocument();
+    expect(screen.queryByText("服务运行核验")).not.toBeInTheDocument();
+  });
+
+  it("shows precheck progress steps while platform precheck is running", async () => {
+    mockServicePageBootstrap();
+    apiMock.upgradeHistory.mockResolvedValue([uploadedPlatformTask()]);
+    apiMock.precheckUpgrade.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          window.setTimeout(() => resolve({ ...uploadedPlatformTask(), status: "prechecked", precheck_ok: true, checks: [{ name: "manifest", ok: true, message: "manifest 格式正确" }] }), 120);
+        })
+    );
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText("v0.4.2"));
+    fireEvent.click(screen.getByRole("button", { name: "预检查" }));
+
+    expect(await screen.findByText("校验升级包结构")).toBeInTheDocument();
+    expect(screen.getByText("检查 Docker 与升级执行器")).toBeInTheDocument();
+    expect(screen.getByText("生成预检查结果")).toBeInTheDocument();
+    expect(screen.getByText("执行中")).toBeInTheDocument();
+    expect(screen.getAllByText("未执行").length).toBeGreaterThan(0);
+
+    await waitFor(() => expect(apiMock.precheckUpgrade).toHaveBeenCalledWith("upgrade-1"));
   });
 });
