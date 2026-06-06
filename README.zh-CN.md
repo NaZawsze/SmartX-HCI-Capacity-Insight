@@ -177,6 +177,16 @@ smartx-capacity-insight-v0.5.0-upgrade.tar.gz
 
 `upgrade-runner` 组件升级包独立于平台升级包，使用 runner 组件版本，例如 `v0.3.0`，不使用平台版本号。
 
+Prometheus 作为 `observability` 组件单独升级，不放入普通平台升级包。Prometheus 组件包只包含 Prometheus 镜像：
+
+```text
+smartx-prometheus-v2.55.1.tar.gz
+├── manifest.json
+├── release-notes.md
+└── images/
+    └── prometheus.tar
+```
+
 ### 推荐迁移方式：新装后从旧系统命令导出数据
 
 如果旧版本升级链路不稳定，建议直接在目标机器重新安装最新版本的存储预测平台，然后在旧系统服务器 CLI 执行下面命令提取迁出数据包，再到新系统的 `服务管理 -> 数据迁移` 页面导入。

@@ -175,6 +175,16 @@ For normal platform upgrades, do not restart `upgrade-runner` in the same packag
 
 Component upgrade packages for `upgrade-runner` are separate and use the runner component version, for example `v0.3.0`, not the platform version.
 
+Prometheus is upgraded as an `observability` component package. It is separate from normal platform packages and contains only the Prometheus image:
+
+```text
+smartx-prometheus-v2.55.1.tar.gz
+├── manifest.json
+├── release-notes.md
+└── images/
+    └── prometheus.tar
+```
+
 ### Recommended Migration Path: Fresh Install + CLI Data Export
 
 If the old upgrade flow is unreliable, install the latest storage forecast platform on the target server first. Then run the following command on the old system CLI to export a migration package, and import that package from the new system page: `Service Management -> Data Migration`.

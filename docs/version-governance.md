@@ -65,6 +65,14 @@ release-notes.md
 images/upgrade-runner.tar
 ```
 
+Prometheus/observability 组件升级包由 `scripts/build_prometheus_component_package.py` 生成，包含：
+
+```text
+manifest.json
+release-notes.md
+images/prometheus.tar
+```
+
 ## 发版检查清单
 
 每次发版必须检查并更新：

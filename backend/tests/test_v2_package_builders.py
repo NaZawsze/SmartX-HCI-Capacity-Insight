@@ -87,3 +87,29 @@ class V2PackageBuilderTest(unittest.TestCase):
         self.assertEqual(runner["services"], ["upgrade-runner"])
         self.assertEqual(runner["images"][0]["archive"], "images/upgrade-runner.tar")
         self.assertEqual(runner["images"][0]["image"], "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0")
+
+    def test_prometheus_component_builder_emits_observability_manifest(self) -> None:
+        builder = _load_script("build_prometheus_component_package.py")
+        builder.run = _fake_docker_run
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            package = builder.build_package("v2.55.1", "v2.55.1", Path(tmpdir), pull_image=False)
+
+            with tarfile.open(package, mode="r:gz") as archive:
+                names = set(archive.getnames())
+                manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
+
+        self.assertEqual(manifest["schema_version"], "2")
+        self.assertEqual(manifest["package_id"], "smartx-prometheus-v2.55.1")
+        self.assertEqual(manifest["version"], "v2.55.1")
+        self.assertEqual(manifest["compatibility"]["min_prometheus_version"], "v2.55.1")
+        self.assertEqual(manifest["restart_services"], ["prometheus"])
+        self.assertIs(manifest["project_files"], False)
+        self.assertEqual([component["type"] for component in manifest["components"]], ["observability"])
+        observability = manifest["components"][0]
+        self.assertEqual(observability["services"], ["prometheus"])
+        self.assertEqual(observability["images"][0]["archive"], "images/prometheus.tar")
+        self.assertEqual(observability["images"][0]["image"], "prom/prometheus:v2.55.1")
+        self.assertIn("images/prometheus.tar", names)
+        self.assertNotIn("images/web-api.tar", names)
+        self.assertNotIn("images/upgrade-runner.tar", names)

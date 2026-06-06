@@ -352,8 +352,16 @@ class UpgradeService:
         public["checks"] = task.get("checks") or []
         public["steps"] = task.get("steps") or []
         public["logs"] = task.get("logs") or []
-        public["kind"] = "component" if set(task.get("components") or []) <= {"runner"} else "platform"
-        public["component"] = "upgrade-runner" if public["kind"] == "component" else None
+        components = set(task.get("components") or [])
+        if components <= {"runner"}:
+            public["kind"] = "component"
+            public["component"] = "upgrade-runner"
+        elif components <= {"observability"}:
+            public["kind"] = "component"
+            public["component"] = "prometheus"
+        else:
+            public["kind"] = "platform"
+            public["component"] = None
         public["ok"] = bool(public["precheck_ok"] or public["status"] in {"succeeded", "running", "pending", "rolled_back"})
         if task.get("status") == "success":
             public.setdefault("finished_at", task.get("updated_at"))

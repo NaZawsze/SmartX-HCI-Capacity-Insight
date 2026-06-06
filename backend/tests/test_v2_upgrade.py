@@ -424,6 +424,40 @@ class V2UpgradeApiTest(unittest.TestCase):
                     self.assertEqual(runner_started.status_code, 200)
                     self.assertEqual(runner_started.json()["status"], "succeeded")
                     self.assertFalse(runner_started.json().get("runner_requested", False))
+
+                    prometheus_image = b"prometheus-image"
+                    prometheus_manifest = {
+                        "schema_version": "2",
+                        "version": "v2.55.1",
+                        "components": [
+                            {
+                                "type": "observability",
+                                "services": ["prometheus"],
+                                "images": [
+                                    {
+                                        "service": "prometheus",
+                                        "image": "prom/prometheus:v2.55.1",
+                                        "archive": "images/prometheus.tar",
+                                        "sha256": hashlib.sha256(prometheus_image).hexdigest(),
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                    prometheus_package = build_package(prometheus_manifest, {"images/prometheus.tar": prometheus_image})
+                    prometheus_upload = client.post("/api/admin/component-upgrade/upload", files={"file": ("prometheus.tar.gz", prometheus_package, "application/gzip")}, headers=headers)
+                    self.assertEqual(prometheus_upload.status_code, 200)
+                    prometheus_payload = prometheus_upload.json()
+                    self.assertEqual(prometheus_payload["kind"], "component")
+                    self.assertEqual(prometheus_payload["component"], "prometheus")
+                    prometheus_precheck = client.post(f"/api/admin/component-upgrade/precheck/{prometheus_payload['task_id']}", headers=headers)
+                    self.assertEqual(prometheus_precheck.status_code, 200)
+                    self.assertTrue(prometheus_precheck.json()["ok"])
+
+                    prometheus_started = client.post(f"/api/admin/component-upgrade/start/{prometheus_payload['task_id']}", headers=headers)
+                    self.assertEqual(prometheus_started.status_code, 200)
+                    self.assertEqual(prometheus_started.json()["status"], "pending")
+                    self.assertTrue(prometheus_started.json()["runner_requested"])
             finally:
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)

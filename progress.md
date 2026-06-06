@@ -2026,3 +2026,40 @@ TDD 记录：
 
 - 删除远端 `frontend/src/**/._*` 运行产物后，执行 `docker run --rm -v /opt/smartx-storage-forecast-v2/frontend:/app -w /app node:22-alpine npm test -- AppLayout.test.tsx DashboardPage.test.tsx global.test.ts ServicePage.test.tsx` 通过。
 - 前端结果：4 个测试文件、20 个测试通过。
+
+### 2026-06-06 Phase V2 Prometheus observability 组件包与真实升级验证
+
+状态：完成
+
+实施内容：
+
+- 新增 `scripts/build_prometheus_component_package.py`，用于生成 Prometheus/observability 组件升级包。
+- Prometheus 组件包 manifest 使用 `schema_version=2`，组件类型为 `observability`，服务只包含 `prometheus`，镜像只包含 `images/prometheus.tar`。
+- 修复升级任务公开字段：`components=["observability"]` 时返回 `kind=component`、`component=prometheus`。
+- 修复组件升级启动逻辑：只有 runner-only 包由 web-api 直接执行；Prometheus/observability 组件包提交给 upgrade-runner 执行。
+
+TDD 记录：
+
+- RED：新增 `test_prometheus_component_builder_emits_observability_manifest` 后，脚本不存在导致测试失败。
+- GREEN：新增 Prometheus 组件包构建脚本，测试通过。
+- RED：新增 API 断言后，Prometheus 组件包被错误返回为 `kind=platform`。
+- GREEN：修复 `_public_task()` 分类和 component-upgrade start 执行者选择，远端容器内 API 测试通过。
+
+远端验证：
+
+- 在 `10.20.11.3` 生成真实组件包：`/data/upgrade-packages/components/smartx-prometheus-v2.55.1.tar.gz`。
+- 包大小：`121243325` bytes。
+- SHA256：`c01bd4d9753751b2e1e75acb7f171055c8740770c05c034f8a9cf43bd24801db`。
+- 包结构检查：只包含 `manifest.json`、`release-notes.md`、`images/prometheus.tar`；不包含平台镜像或 runner 镜像。
+- 首次真实执行 Prometheus 组件包任务 `upgrade-8e38afe4ac520146` 成功，验证 Prometheus 重启后 healthy，历史 `query_range` 返回 175 条 series。
+- 修复分类/执行者后，再次真实执行 Prometheus 组件包任务 `upgrade-91593ac4799312d2` 成功：
+  - upload 返回 `kind=component`、`component=prometheus`、`components=["observability"]`。
+  - start 返回 `pending` 且 `runner_requested=true`，由 upgrade-runner 执行。
+  - 升级前备份：`/data/backups/upgrade-v2.55.1-before-20260606093851.tar.gz`。
+  - Prometheus 容器重启后 healthy。
+  - `smartx_vm_storage_used_bytes` 最近 2 天 `query_range` 返回 175 条 series。
+
+仍未完成：
+
+- 新部署添加 Tower 并采集未执行，避免覆盖现场已有 Tower 凭据和采集状态。
+- v1 迁移包导入独立验证环境仍未执行。
