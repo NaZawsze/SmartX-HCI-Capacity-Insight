@@ -1,5 +1,6 @@
 import io
 import json
+import sqlite3
 import tarfile
 import tempfile
 import unittest
@@ -97,6 +98,64 @@ class V2MigrationServiceTest(unittest.TestCase):
             clusters = target_inventory.list_towers()[0].clusters
             self.assertEqual(clusters[0].name, "Existing Cluster")
             self.assertIn("smartx_db", result["restored"])
+
+    def test_import_v1_archive_extracts_latest_vm_volume_payload_into_v2_volumes(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.migration.service import MigrationService
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source_db = root / "v1-smartx.db"
+            with sqlite3.connect(source_db) as conn:
+                conn.executescript(
+                    """
+                    CREATE TABLE towers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, base_url TEXT NOT NULL, username TEXT, password_encrypted TEXT, api_token_encrypted TEXT, verify_tls INTEGER NOT NULL DEFAULT 1, enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT, updated_at TEXT);
+                    CREATE TABLE clusters (id INTEGER PRIMARY KEY, tower_id INTEGER NOT NULL, cluster_id TEXT NOT NULL, name TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, updated_at TEXT);
+                    CREATE TABLE latest_vm_volumes (tower_id INTEGER NOT NULL, cluster_id TEXT NOT NULL, vm_id TEXT NOT NULL, payload_json TEXT NOT NULL, collected_at TEXT);
+                    """
+                )
+                conn.execute("INSERT INTO towers (id, name, base_url) VALUES (1, 'Tower A', 'https://tower.example.com')")
+                conn.execute("INSERT INTO clusters (tower_id, cluster_id, name) VALUES (1, 'cluster-a', 'Cluster A')")
+                payload = [
+                    {
+                        "id": "vol-1",
+                        "name": "System",
+                        "path": "/vm/system",
+                        "size": 1000,
+                        "used_size": 450,
+                        "elf_storage_policy": "Replica-2",
+                        "elf_storage_policy_replica_num": 2,
+                        "elf_storage_policy_thin_provision": True,
+                        "cluster": {"raw": "discard"},
+                        "vm_disks": [{"raw": "discard"}],
+                    }
+                ]
+                conn.execute(
+                    "INSERT INTO latest_vm_volumes (tower_id, cluster_id, vm_id, payload_json, collected_at) VALUES (1, 'cluster-a', 'vm-1', ?, '2026-06-01T00:00:00Z')",
+                    (json.dumps(payload),),
+                )
+
+            archive_buffer = io.BytesIO()
+            with tarfile.open(fileobj=archive_buffer, mode="w:gz") as archive:
+                manifest_bytes = json.dumps({"format": "smartx-storage-forecast-migration", "version": 2}).encode("utf-8")
+                manifest_info = tarfile.TarInfo("manifest.json")
+                manifest_info.size = len(manifest_bytes)
+                archive.addfile(manifest_info, io.BytesIO(manifest_bytes))
+                archive.add(source_db, arcname="smartx-data/smartx.db", recursive=False)
+
+            settings = V2Settings(data_root=root / "target", secret_key="target-secret")
+            database = V2Database(settings)
+            database.initialize()
+            result = MigrationService(database, settings, TaskService(database)).restore_archive_bytes(archive_buffer.getvalue(), filename="v1-migration.tar.gz", mode="merge")
+
+            self.assertIn("smartx_db", result["restored"])
+            with database.connection() as conn:
+                volume = conn.execute(
+                    "SELECT volume_id, name, path, size_bytes, used_bytes, storage_policy, replica_num, thin_provision FROM vm_volumes WHERE tower_id = 1 AND cluster_id = 'cluster-a' AND vm_id = 'vm-1'"
+                ).fetchone()
+            self.assertEqual(tuple(volume), ("vol-1", "System", "/vm/system", 1000, 450, "Replica-2", 2, 1))
 
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")

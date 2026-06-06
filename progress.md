@@ -1412,3 +1412,27 @@ TDD 记录：
   - 快进拉取到 `8300d47`。
   - 使用 `smartx-storage-forecast-web-api:local` 容器执行 `backend.tests.test_v2_tasks_api backend.tests.test_v2_migration` 通过。
   - `docker compose build web-api frontend` 通过，前端 Vite 构建成功；仅有 bundle 大小警告。
+
+### 2026-06-06 Phase V2-10 v1 迁移包与旧 VM 卷 payload 兼容
+
+状态：完成本地验证，待远端验证和提交
+
+实施内容：
+
+- v2 数据迁入兼容 v1 迁移包路径：
+  - v2：`app/smartx.db`、`prometheus/`
+  - v1：`smartx-data/smartx.db`、`prometheus-data/`
+- v2 merge 导入时，如果 incoming SQLite 不存在 v2 `vm_volumes` 表，但存在 v1 `latest_vm_volumes.payload_json`，会抽取必要字段写入 v2 `vm_volumes`。
+- 抽取字段包含卷 ID、名称、path、容量、已用容量、存储策略、副本数、thin provision、EC k/m、采集时间。
+- 原始 Tower 嵌套对象、vm_disks 等大 payload 不写入 v2 结构表。
+- `docs/v2-rebuild-task-plan.md` 将 v1 迁移包导入和旧 VM 卷 payload 抽取标记为第一版完成。
+
+TDD 记录：
+
+- RED：构造 v1 风格迁移包 `smartx-data/smartx.db`，导入后 `restored` 为空，说明 v2 未识别 v1 路径。
+- GREEN：新增 v1/v2 数据目录兼容路径，新增 `_merge_v1_latest_vm_volume_payloads()`，测试通过。
+
+验证：
+
+- 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_migration -v` 通过。
+- 本地：v2 后端完整 unittest 集 48 个测试通过。

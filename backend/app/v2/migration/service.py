@@ -24,6 +24,8 @@ ARCHIVE_MEDIA_TYPE = "application/gzip"
 MANIFEST_NAME = "manifest.json"
 APP_DIR = "app"
 PROMETHEUS_DIR = "prometheus"
+V1_APP_DIR = "smartx-data"
+V1_PROMETHEUS_DIR = "prometheus-data"
 DB_FILENAME = "smartx.db"
 MERGE_MODE = "merge"
 OVERWRITE_MODE = "overwrite"
@@ -211,21 +213,21 @@ class MigrationService:
 
     def _restore_package(self, package_dir: Path, mode: str) -> list[str]:
         restored: list[str] = []
-        source_db = package_dir / APP_DIR / DB_FILENAME
-        source_prometheus = package_dir / PROMETHEUS_DIR
+        source_db = _first_existing(package_dir / APP_DIR / DB_FILENAME, package_dir / V1_APP_DIR / DB_FILENAME)
+        source_prometheus = _first_existing(package_dir / PROMETHEUS_DIR, package_dir / V1_PROMETHEUS_DIR)
         if mode == OVERWRITE_MODE:
-            if source_db.exists():
+            if source_db and source_db.exists():
                 self.settings.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_db, self.settings.sqlite_path)
                 restored.append("smartx_db")
-            if source_prometheus.exists():
+            if source_prometheus and source_prometheus.exists():
                 _replace_directory(source_prometheus, self.settings.prometheus_data_dir)
                 restored.append("prometheus")
             return restored
-        if source_db.exists():
+        if source_db and source_db.exists():
             self._merge_sqlite(source_db)
             restored.append("smartx_db")
-        if source_prometheus.exists():
+        if source_prometheus and source_prometheus.exists():
             _copy_missing_tree(source_prometheus, self.settings.prometheus_data_dir, skip_names=PROMETHEUS_RUNTIME_ENTRIES)
             restored.append("prometheus")
         return restored
@@ -241,6 +243,7 @@ class MigrationService:
                 _merge_clusters(target)
                 _merge_vm_latest(target)
                 _merge_vm_volumes(target)
+                _merge_v1_latest_vm_volume_payloads(target)
                 _merge_collection_runs(target)
                 _merge_metric_snapshot(target)
                 target.commit()
@@ -338,6 +341,40 @@ def _merge_vm_volumes(conn: sqlite3.Connection) -> None:
                 row["updated_at"] if "updated_at" in row.keys() else None,
             ),
         )
+
+
+def _merge_v1_latest_vm_volume_payloads(conn: sqlite3.Connection) -> None:
+    if not _incoming_table_exists(conn, "latest_vm_volumes"):
+        return
+    for row in conn.execute("SELECT * FROM incoming.latest_vm_volumes").fetchall():
+        volumes = _loads_json_list(row["payload_json"])
+        for index, volume in enumerate(volumes):
+            normalized = _v1_volume_to_v2(volume, index)
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO vm_volumes (
+                    tower_id, cluster_id, vm_id, volume_id, name, path, size_bytes, used_bytes,
+                    storage_policy, replica_num, thin_provision, ec_k, ec_m, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+                """,
+                (
+                    row["tower_id"],
+                    row["cluster_id"],
+                    row["vm_id"],
+                    normalized["volume_id"],
+                    normalized["name"],
+                    normalized["path"],
+                    normalized["size_bytes"],
+                    normalized["used_bytes"],
+                    normalized["storage_policy"],
+                    normalized["replica_num"],
+                    normalized["thin_provision"],
+                    normalized["ec_k"],
+                    normalized["ec_m"],
+                    row["collected_at"] if "collected_at" in row.keys() else None,
+                ),
+            )
 
 
 def _merge_collection_runs(conn: sqlite3.Connection) -> None:
@@ -438,6 +475,75 @@ def _replace_directory(source: Path, target: Path) -> None:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _first_existing(*paths: Path) -> Path | None:
+    for path in paths:
+        if path.exists():
+            return path
+    return None
+
+
+def _loads_json_list(payload_json: Any) -> list[dict[str, Any]]:
+    try:
+        payload = json.loads(payload_json)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [item for item in payload if isinstance(item, dict)]
+
+
+def _v1_volume_to_v2(volume: dict[str, Any], index: int) -> dict[str, Any]:
+    volume_id = _text(volume.get("id"), volume.get("volume_id"), volume.get("local_id"), volume.get("path"), volume.get("name")) or f"volume-{index}"
+    return {
+        "volume_id": volume_id,
+        "name": _text(volume.get("name"), volume.get("volume_name"), volume.get("path"), volume_id),
+        "path": _text(volume.get("path")),
+        "size_bytes": _int_or_none(volume.get("size"), volume.get("size_bytes"), volume.get("capacity"), volume.get("capacity_bytes"), volume.get("provisioned_size"), volume.get("provisioned_size_bytes")),
+        "used_bytes": _int_or_none(volume.get("used_size"), volume.get("used_size_bytes"), volume.get("used_bytes")),
+        "storage_policy": _text(volume.get("elf_storage_policy"), volume.get("storage_policy"), volume.get("storagePolicy"), volume.get("policy_name"), volume.get("policyName"), volume.get("policy")),
+        "replica_num": _int_or_none(volume.get("elf_storage_policy_replica_num"), volume.get("replica_num"), volume.get("replicaNum"), volume.get("replica_count"), volume.get("replicaCount")),
+        "thin_provision": _bool_to_int(volume.get("elf_storage_policy_thin_provision", volume.get("thin_provision", volume.get("thinProvision")))),
+        "ec_k": _int_or_none(volume.get("elf_storage_policy_ec_k"), volume.get("ec_data"), volume.get("ecData"), volume.get("ec_k"), volume.get("ecDataUnits")),
+        "ec_m": _int_or_none(volume.get("elf_storage_policy_ec_m"), volume.get("ec_parity"), volume.get("ecParity"), volume.get("ec_m"), volume.get("ecParityUnits")),
+    }
+
+
+def _text(*values: Any) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def _int_or_none(*values: Any) -> int | None:
+    for value in values:
+        if value is None or value == "":
+            continue
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _bool_to_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return 1 if value else 0
+    if isinstance(value, (int, float)):
+        return 1 if value else 0
+    text = str(value).strip().lower()
+    if text in {"true", "1", "yes", "y"}:
+        return 1
+    if text in {"false", "0", "no", "n"}:
+        return 0
+    return None
 
 
 def _step(key: str, title: str, status: str, message: str = "") -> dict[str, str]:
