@@ -2063,3 +2063,31 @@ TDD 记录：
 
 - 新部署添加 Tower 并采集未执行，避免覆盖现场已有 Tower 凭据和采集状态。
 - v1 迁移包导入独立验证环境仍未执行。
+
+### 2026-06-06 Phase V2 数据迁移隔离回归与报表历史尾点回退
+
+状态：完成一轮不影响正式数据的隔离迁移回归，并修复报表 instant 为空时的增长榜空白问题
+
+发现：
+
+- 在 `10.20.11.3` 使用最新迁移包 `/data/exports/migrations/smartx-capacity-insight-migration-20260606075715-438dc55b.tar.gz` 导入隔离目录 `/data/v2-migration-verify`。
+- 隔离导入结果：SQLite 中 `towers=1`、`clusters=1`、`vm_latest=523`、`vm_volumes=89530`；Prometheus 历史 block 为 `7` 个，迁移健康检查 `complete=true`。
+- 隔离 Prometheus 直接查询历史 block：`smartx_vm_storage_used_bytes` 90 天窗口返回 `525` 条历史 series，最大样本时间为 `2026-06-06 13:07:52`。
+- 单独只有历史 block、还没有当前 scrape 样本时，Prometheus 当前 instant 可能为空；旧报表逻辑依赖 instant 作为 VM 当前值，会导致日/月增长榜暂时为空。
+
+修复：
+
+- `backend/app/v2/reports/service.py` 中 VM 增长榜当前值优先使用 Prometheus instant；instant 为空或缺少部分 VM 时，用历史窗口每条 VM series 的最后一个样本回退。
+- 集群总容量优先使用 `smartx_cluster_storage_total_bytes` instant；instant 为空时，用历史窗口尾点回退，避免预测报表缺少容量阈值。
+- 新增 `backend/tests/test_v2_reports.py` 覆盖 Prometheus instant 为空但 range 有历史样本时，日增长、月增长和集群总容量仍可恢复。
+
+验证：
+
+- 本地 `python3 -m py_compile backend/app/v2/reports/service.py backend/tests/test_v2_reports.py` 通过。
+- 远端容器内 `backend.tests.test_v2_reports backend.tests.test_v2_migration backend.tests.test_v2_dashboard_vm` 共 11 个测试通过。
+- 远端隔离 Prometheus + 迁移目录验证：修复后报表返回 `clusters=1`、`cluster_points=15`、`day_growth=100`。
+- 隔离包 `month_growth=0` 符合 v2 口径：该迁移包历史跨度约 15 天，不满足月增长榜固定 `>=30` 天样本跨度要求。
+
+仍未完成：
+
+- 新部署后添加 Tower 并真实采集的现场验证未执行，避免擅自修改现有 Tower 配置和凭据。

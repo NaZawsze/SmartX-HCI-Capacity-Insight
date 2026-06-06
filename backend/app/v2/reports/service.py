@@ -65,9 +65,12 @@ class ReportService:
                     "warning": capacity * 0.9 if capacity else None,
                 }
             )
-        latest_vms = self._latest_vm_items(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         vm_series = self._vm_series(days=max(window_days, 30), tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         day_vm_series = self._vm_series(days=2, tower_id=tower_id, cluster_id=cluster_id, step="1h", enabled_scope=enabled_scope)
+        latest_vms = _merge_latest_items(
+            self._latest_vm_items(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope),
+            _latest_items_from_series_tail(vm_series),
+        )
         latest_label_by_vm = self._latest_vm_labels()
         day_vms = _growth_reports_from_series(latest_vms, day_vm_series, period_days=1, limit=100, latest_label_by_vm=latest_label_by_vm)
         month_vms = _growth_reports_from_series(latest_vms, vm_series, period_days=window_days, limit=100, latest_label_by_vm=latest_label_by_vm, min_sample_days=30)
@@ -121,6 +124,15 @@ class ReportService:
             key = _cluster_key(metric)
             if labels_match(metric, tower_id=tower_id, cluster_id=cluster_id) and _in_enabled_scope(key, enabled_scope):
                 totals[key] = metric_value(row)
+        if totals:
+            return totals
+        start = self.now_ts - 30 * SECONDS_PER_DAY
+        for series in self.prometheus.range(scoped_query(CLUSTER_TOTAL_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step="1d"):
+            metric = series.get("metric", {})
+            key = _cluster_key(metric)
+            points = range_values(series)
+            if labels_match(metric, tower_id=tower_id, cluster_id=cluster_id) and _in_enabled_scope(key, enabled_scope) and points:
+                totals[key] = points[-1][1]
         return totals
 
     def _latest_vm_items(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
@@ -278,6 +290,26 @@ def _cluster_growth_rate_from_series(series_list: list[dict[str, Any]]) -> float
 
 def _latest_vm_value_map(items: list[dict[str, Any]]) -> dict[tuple[int, str, str], float]:
     return {_vm_key(item.get("metric", {})): metric_value(item) for item in items}
+
+
+def _latest_items_from_series_tail(series_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    items = []
+    for series in series_list:
+        points = sorted(range_values(series))
+        if not points:
+            continue
+        latest_ts, latest_value = points[-1]
+        items.append({"metric": dict(series.get("metric", {})), "value": [latest_ts, str(latest_value)]})
+    return items
+
+
+def _merge_latest_items(primary: list[dict[str, Any]], fallback: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[tuple[int, str, str], dict[str, Any]] = {}
+    for item in fallback:
+        merged[_vm_key(item.get("metric", {}))] = item
+    for item in primary:
+        merged[_vm_key(item.get("metric", {}))] = item
+    return list(merged.values())
 
 
 def _labels_with_latest_name(labels: dict[str, Any], latest_label_by_vm: dict[tuple[int, str, str], dict[str, str]]) -> dict[str, str]:

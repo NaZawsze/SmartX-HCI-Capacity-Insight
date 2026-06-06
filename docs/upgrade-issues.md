@@ -284,13 +284,13 @@ sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
 
 ## UPG-016 数据迁移后增长和趋势为空
 
-状态：[已解决] 已在 10.20.11.3 完成导出、导入、重启和 Prometheus 历史指标回归验证
+状态：[已解决] 已在 10.20.11.3 完成导出、隔离导入和 Prometheus 历史指标回归验证
 
 现象：新部署导入迁移数据后，日增长、月增长、集群预测报表、趋势图为空。
 
 已知原因：这些页面依赖 Prometheus 历史指标，不只依赖业务库 `smartx.db`。如果迁移包只包含业务库，或者 Prometheus 数据目录权限错误，增长和趋势会为空。
 
-当前处理：数据迁移包包含业务库和 Prometheus 历史指标；`pre_install.sh` 负责修正 Prometheus 数据目录权限；导入前会自动生成当前系统备份，备份成功后才执行 merge/overwrite。
+当前处理：数据迁移包包含业务库和 Prometheus 历史指标；`pre_install.sh` 负责修正 Prometheus 数据目录权限；导入前会自动生成当前系统备份，备份成功后才执行 merge/overwrite。v2 报表服务在 Prometheus 当前 instant 样本为空时，会用历史窗口内每条 series 的最后一个样本回退计算 VM 增长和集群总容量，避免刚导入后页面空白。
 
 验证记录：
 - 2026-06-05 在 `10.20.11.3` 通过后台迁移导出任务生成 `/data/exports/migrations/smartx-storage-migration-20260605113838.tar.gz`。
@@ -300,6 +300,9 @@ sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
 - 重启 `web-api`、`collector-worker`、`prometheus` 后，`smartx_vm_storage_used_bytes` 即时查询返回 175 条 series。
 - `query_range` 最近 7 天返回 175 条 series，前 10 条 series 共 260 个历史点。
 - 报表接口返回 `clusters=1`、`day_fastest_growing_vms=100`，集群趋势点数为 13；`month_fastest_growing_vms=0` 符合当前“样本满 30 天”新口径。
+- 2026-06-06 使用 `/data/exports/migrations/smartx-capacity-insight-migration-20260606075715-438dc55b.tar.gz` 在 `/data/v2-migration-verify` 做隔离导入验证：导入后 SQLite 有 `towers=1`、`clusters=1`、`vm_latest=523`、`vm_volumes=89530`，Prometheus 历史 block `7` 个，健康检查 `complete=true`。
+- 2026-06-06 用隔离 Prometheus 查询历史 block，`smartx_vm_storage_used_bytes` 90 天窗口返回 `525` 条历史 series，最大样本时间 `2026-06-06 13:07:52`；修复后报表在 instant 为空时以历史尾点回退，返回 `clusters=1`、`cluster_points=15`、`day_growth=100`。
+- 同一隔离包 `month_growth=0` 是符合规则的结果：迁移包历史跨度约 15 天，不满足月增长榜固定 `>=30` 天样本跨度要求。
 
 ## UPG-017 文档中 runner 版本来源描述陈旧
 

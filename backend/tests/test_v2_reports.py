@@ -59,6 +59,21 @@ class FakePrometheus:
         return []
 
 
+class RangeOnlyPrometheus(FakePrometheus):
+    def instant(self, query: str):
+        return []
+
+    def range(self, query: str, *, start: int, end: int, step: str):
+        if query.startswith("smartx_cluster_storage_total_bytes"):
+            return [
+                {
+                    "metric": {"tower_id": "1", "cluster_id": "cluster-a"},
+                    "values": [[self.now_ts - 31 * SECONDS_PER_DAY, "1000"], [self.now_ts, "1000"]],
+                },
+            ]
+        return super().range(query, start=start, end=end, step=step)
+
+
 class V2ReportsTest(unittest.TestCase):
     def _seed_inventory(self, tmpdir: str):
         from app.v2.config import V2Settings
@@ -97,6 +112,19 @@ class V2ReportsTest(unittest.TestCase):
             self.assertEqual([item["labels"]["vm_id"] for item in report["month_fastest_growing_vms"]], ["vm-old"])
             self.assertEqual([item["labels"]["vm_id"] for item in report["day_new_vms"]], ["vm-new"])
             self.assertEqual([item["labels"]["cluster_id"] for item in report["clusters"]], ["cluster-a"])
+
+    def test_latest_report_uses_range_tail_when_current_vm_instant_is_empty(self) -> None:
+        from app.v2.reports.service import ReportService
+
+        now_ts = 1_700_000_000
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            report = ReportService(db, settings, prometheus=RangeOnlyPrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
+
+            self.assertIn("vm-old", [item["labels"]["vm_id"] for item in report["day_fastest_growing_vms"]])
+            self.assertEqual([item["labels"]["vm_id"] for item in report["month_fastest_growing_vms"]], ["vm-old"])
+            self.assertEqual(report["month_fastest_growing_vms"][0]["labels"]["vm"], "Old Latest")
+            self.assertEqual(report["clusters"][0]["total"], 1000.0)
 
 
 if __name__ == "__main__":
