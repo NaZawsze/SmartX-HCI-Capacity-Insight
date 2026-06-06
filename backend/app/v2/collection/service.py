@@ -61,6 +61,12 @@ class CollectionService:
                         )
                         vm_samples.append(sample)
                         self._upsert_latest_vm(sample)
+                        self._replace_vm_volumes(
+                            tower_id=tower.id,
+                            cluster_id=cluster.cluster_id,
+                            vm_id=sample.vm_id,
+                            volumes=list(vm.get("volumes") or []),
+                        )
             metrics_text = render_capacity_metrics(clusters=cluster_samples, vms=vm_samples)
             self._save_metrics_text(metrics_text)
             message = f"采集完成：{len(cluster_samples)} 个集群，{len(vm_samples)} 台虚拟机。"
@@ -124,8 +130,56 @@ class CollectionService:
                 (metrics_text,),
             )
 
+    def _replace_vm_volumes(self, *, tower_id: int, cluster_id: str, vm_id: str, volumes: list[dict]) -> None:
+        with self.database.connection() as conn:
+            conn.execute("DELETE FROM vm_volumes WHERE tower_id = ? AND cluster_id = ? AND vm_id = ?", (tower_id, cluster_id, vm_id))
+            for index, volume in enumerate(volumes):
+                conn.execute(
+                    """
+                    INSERT INTO vm_volumes (
+                        tower_id, cluster_id, vm_id, volume_id, name, path, size_bytes,
+                        used_bytes, storage_policy, replica_num, thin_provision, ec_k, ec_m
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        tower_id,
+                        cluster_id,
+                        vm_id,
+                        str(volume.get("volume_id") or volume.get("id") or f"volume-{index}"),
+                        volume.get("name"),
+                        volume.get("path"),
+                        _int_or_none(volume.get("size_bytes"), volume.get("size")),
+                        _int_or_none(volume.get("used_bytes"), volume.get("used_size")),
+                        volume.get("storage_policy") or volume.get("elf_storage_policy"),
+                        _int_or_none(volume.get("replica_num"), volume.get("elf_storage_policy_replica_num")),
+                        _bool_to_int(volume.get("thin_provision", volume.get("elf_storage_policy_thin_provision"))),
+                        _int_or_none(volume.get("ec_k"), volume.get("elf_storage_policy_ec_k")),
+                        _int_or_none(volume.get("ec_m"), volume.get("elf_storage_policy_ec_m")),
+                    ),
+                )
+
     def _mask_secret_material(self, message: str) -> str:
         masked = message
         for tower in self.inventory.list_towers():
             masked = self.inventory.mask_secret_material(tower.id, masked)
         return masked
+
+
+def _int_or_none(*values: object) -> int | None:
+    for value in values:
+        if value is None:
+            continue
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _bool_to_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return 1 if value.lower() in {"1", "true", "yes"} else 0
+    return 1 if bool(value) else 0

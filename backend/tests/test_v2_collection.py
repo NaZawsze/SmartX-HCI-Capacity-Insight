@@ -12,7 +12,23 @@ class FakeCloudTowerClient:
         return {
             "cluster": {"used_bytes": 80, "total_bytes": 100},
             "vms": [
-                {"vm_id": "vm-1", "name": "VM One Renamed", "used_bytes": 42},
+                {
+                    "vm_id": "vm-1",
+                    "name": "VM One Renamed",
+                    "used_bytes": 42,
+                    "volumes": [
+                        {
+                            "volume_id": "vol-1",
+                            "name": "Root",
+                            "path": "/root",
+                            "size_bytes": 100,
+                            "used_bytes": 60,
+                            "storage_policy": "Replica-2",
+                            "replica_num": 2,
+                            "thin_provision": True,
+                        }
+                    ],
+                },
             ],
         }
 
@@ -62,6 +78,11 @@ class V2CollectionTest(unittest.TestCase):
             self.assertEqual(latest_vm["name"], "VM One Renamed")
             self.assertEqual(latest_vm["used_bytes"], 42)
             self.assertIn("VM One Renamed", CollectionService(db, settings, cloudtower_client=fake_client).latest_metrics_text())
+            with db.connection() as conn:
+                row = conn.execute(
+                    "SELECT volume_id, name, size_bytes, used_bytes, storage_policy, replica_num, thin_provision FROM vm_volumes WHERE tower_id = 1 AND cluster_id = 'enabled-cluster' AND vm_id = 'vm-1'"
+                ).fetchone()
+            self.assertEqual(dict(row), {"volume_id": "vol-1", "name": "Root", "size_bytes": 100, "used_bytes": 60, "storage_policy": "Replica-2", "replica_num": 2, "thin_provision": 1})
 
     def test_collection_failure_masks_secret_material(self) -> None:
         from app.v2.collection.service import CollectionService

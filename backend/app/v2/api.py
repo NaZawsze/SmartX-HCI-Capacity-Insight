@@ -376,6 +376,32 @@ def vm_trend(
     return VmTrendResponse(**vms.trend(vm_id=vm_id, tower_id=tower_id, cluster_id=cluster_id, days=days))
 
 
+@router.get("/api/vms/{vm_id}")
+def vm_detail(
+    vm_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    vms: Annotated[VmService, Depends(get_vm_service)],
+    tower_id: Optional[int] = None,
+    cluster_id: Optional[str] = None,
+) -> dict:
+    if tower_id is None or not cluster_id:
+        raise HTTPException(status_code=400, detail="tower_id and cluster_id are required.")
+    return vms.detail(vm_id=vm_id, tower_id=tower_id, cluster_id=cluster_id)
+
+
+@router.get("/api/vms/{vm_id}/volumes")
+def vm_volumes(
+    vm_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    vms: Annotated[VmService, Depends(get_vm_service)],
+    tower_id: Optional[int] = None,
+    cluster_id: Optional[str] = None,
+) -> list[dict]:
+    if tower_id is None or not cluster_id:
+        raise HTTPException(status_code=400, detail="tower_id and cluster_id are required.")
+    return vms.volumes(vm_id=vm_id, tower_id=tower_id, cluster_id=cluster_id)
+
+
 @router.get("/api/system/health")
 def health(
     settings: Annotated[V2Settings, Depends(get_v2_settings)],

@@ -115,12 +115,18 @@ class CloudTowerClient:
                     _number(storage.get("total_data_capacity"), storage.get("total_capacity"), storage.get("total_size"), storage.get("capacity_total")) or 0
                 ),
             },
-            "vms": [
-                normalized_vm
-                for normalized_vm in (_normalize_vm(vm) for vm in self.get_vms(cluster_id))
-                if normalized_vm is not None
-            ],
+            "vms": self._collect_vms_with_volumes(cluster_id),
         }
+
+    def _collect_vms_with_volumes(self, cluster_id: str) -> list[dict[str, Any]]:
+        vms: list[dict[str, Any]] = []
+        for raw_vm in self.get_vms(cluster_id):
+            normalized_vm = _normalize_vm(raw_vm)
+            if normalized_vm is None:
+                continue
+            normalized_vm["volumes"] = [_normalize_volume(volume) for volume in self.get_vm_volumes(normalized_vm["vm_id"])]
+            vms.append(normalized_vm)
+        return vms
 
 
 def _normalize_cluster(raw: dict[str, Any]) -> ClusterInput | None:
@@ -138,6 +144,21 @@ def _normalize_vm(raw: dict[str, Any]) -> dict[str, Any] | None:
         "vm_id": vm_id,
         "name": str(raw.get("name") or raw.get("vm_name") or vm_id),
         "used_bytes": int(_number(raw.get("used_size"), raw.get("used_size_bytes"), raw.get("capacity_used")) or 0),
+    }
+
+
+def _normalize_volume(raw: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "volume_id": str(raw.get("volume_id") or raw.get("id") or raw.get("name") or ""),
+        "name": raw.get("name"),
+        "path": raw.get("path"),
+        "size_bytes": _int_or_none(raw.get("size_bytes"), raw.get("size")),
+        "used_bytes": _int_or_none(raw.get("used_bytes"), raw.get("used_size")),
+        "storage_policy": raw.get("storage_policy") or raw.get("elf_storage_policy"),
+        "replica_num": _int_or_none(raw.get("replica_num"), raw.get("elf_storage_policy_replica_num")),
+        "thin_provision": _bool_or_none(raw.get("thin_provision", raw.get("elf_storage_policy_thin_provision"))),
+        "ec_k": _int_or_none(raw.get("ec_k"), raw.get("elf_storage_policy_ec_k")),
+        "ec_m": _int_or_none(raw.get("ec_m"), raw.get("elf_storage_policy_ec_m")),
     }
 
 
@@ -177,3 +198,16 @@ def _number(*values: Any) -> float | None:
         except (TypeError, ValueError):
             continue
     return None
+
+
+def _int_or_none(*values: Any) -> int | None:
+    number = _number(*values)
+    return int(number) if number is not None else None
+
+
+def _bool_or_none(value: Any) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value.lower() in {"1", "true", "yes"}
+    return bool(value)

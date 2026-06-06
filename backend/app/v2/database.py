@@ -92,6 +92,24 @@ class V2Database:
                     PRIMARY KEY (tower_id, cluster_id, vm_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS vm_volumes (
+                    tower_id INTEGER NOT NULL,
+                    cluster_id TEXT NOT NULL,
+                    vm_id TEXT NOT NULL,
+                    volume_id TEXT NOT NULL,
+                    name TEXT,
+                    path TEXT,
+                    size_bytes INTEGER,
+                    used_bytes INTEGER,
+                    storage_policy TEXT,
+                    replica_num INTEGER,
+                    thin_provision INTEGER,
+                    ec_k INTEGER,
+                    ec_m INTEGER,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (tower_id, cluster_id, vm_id, volume_id)
+                );
+
                 CREATE TABLE IF NOT EXISTS collection_runs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     status TEXT NOT NULL,

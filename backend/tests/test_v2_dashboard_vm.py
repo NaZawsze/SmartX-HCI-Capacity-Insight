@@ -63,6 +63,15 @@ class V2DashboardVmTest(unittest.TestCase):
                 "INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cluster-a', 'vm-1', 'VM One Latest', 70)"
             )
             conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cluster-a', 'vm-2', 'VM Two', 10)")
+            conn.execute(
+                """
+                INSERT INTO vm_volumes (
+                    tower_id, cluster_id, vm_id, volume_id, name, path, size_bytes,
+                    used_bytes, storage_policy, replica_num, thin_provision
+                )
+                VALUES (1, 'cluster-a', 'vm-1', 'vol-1', 'Root', '/root', 100, 60, 'Replica-2', 2, 1)
+                """
+            )
             conn.execute("INSERT INTO collection_runs (status, message, finished_at) VALUES ('success', 'ok', '2026-06-06 02:00:00')")
         return settings, db
 
@@ -99,6 +108,23 @@ class V2DashboardVmTest(unittest.TestCase):
             self.assertIn('tower_id="1"', prometheus.range_calls[-1]["query"])
             self.assertIn('cluster_id="cluster-a"', prometheus.range_calls[-1]["query"])
             self.assertIn('vm_id="vm-1"', prometheus.range_calls[-1]["query"])
+
+    def test_vm_detail_and_volumes_return_structured_latest_data(self) -> None:
+        from app.v2.vms.service import VmService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            service = VmService(db, settings, prometheus=FakePrometheus(), now_ts=200)
+
+            detail = service.detail(vm_id="vm-1", tower_id=1, cluster_id="cluster-a")
+            volumes = service.volumes(vm_id="vm-1", tower_id=1, cluster_id="cluster-a")
+
+            self.assertEqual(detail["vm_name"], "VM One Latest")
+            self.assertEqual(detail["used_bytes"], 70)
+            self.assertEqual(volumes[0]["volume_id"], "vol-1")
+            self.assertEqual(volumes[0]["storage_policy"], "Replica-2")
+            self.assertEqual(volumes[0]["replica_num"], 2)
+            self.assertTrue(volumes[0]["thin_provision"])
 
 
 if __name__ == "__main__":

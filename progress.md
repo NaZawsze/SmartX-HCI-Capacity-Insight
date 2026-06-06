@@ -881,3 +881,50 @@ TDD 记录：
 - 本次只完成 Dashboard/VM 后端第一薄片。
 - VM 详情和卷信息仍待实现。
 - 前端 Dashboard/VM 页面仍待接入 v2 API。
+
+### 2026-06-06 Phase V2-4 VM 详情和卷信息后端
+
+状态：完成本地验证，待远端 Docker 验证
+
+实施内容：
+
+- v2 schema 增加 `vm_volumes` 结构化卷表。
+- CloudTower client 在采集 VM 时同步获取 VM volumes，并归一化为：
+  - `volume_id`
+  - `name`
+  - `path`
+  - `size_bytes`
+  - `used_bytes`
+  - `storage_policy`
+  - `replica_num`
+  - `thin_provision`
+  - `ec_k`
+  - `ec_m`
+- `CollectionService` 采集成功后按 `tower_id + cluster_id + vm_id` 替换该 VM 最新卷信息，避免旧卷残留。
+- `VmService` 增加：
+  - `detail(vm_id, tower_id, cluster_id)`
+  - `volumes(vm_id, tower_id, cluster_id)`
+- v2 API 增加：
+  - `GET /api/vms/{vm_id}`
+  - `GET /api/vms/{vm_id}/volumes`
+- 详情和卷接口均强制要求 `tower_id` 和 `cluster_id`，避免跨 Tower/集群混合。
+- `docs/v2-rebuild-task-plan.md` 将 VM 详情和卷信息后端基础标记为完成。
+
+TDD 记录：
+
+- RED：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_collection backend.tests.test_v2_dashboard_vm -v` 先失败，原因是 `vm_volumes` 表不存在。
+- GREEN：新增 `vm_volumes` schema、采集保存逻辑、VM detail/volumes service 后，目标测试通过。
+- RED：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_cloudtower_client -v` 先失败，原因是 CloudTower client 未返回 `volumes`。
+- GREEN：新增 CloudTower 卷归一化和每 VM 获取卷后，目标测试通过。
+- RED：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_dashboard_vm_api -v` 先失败，原因是 VM detail API 404。
+- GREEN：新增 VM detail 和 volumes API 后，API 测试通过。
+
+本地验证：
+
+- `PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_skeleton backend.tests.test_v2_task_models backend.tests.test_v2_foundation backend.tests.test_v2_inventory_metrics backend.tests.test_v2_cloudtower_client backend.tests.test_v2_prometheus_service backend.tests.test_v2_collection backend.tests.test_v2_worker backend.tests.test_v2_dashboard_vm backend.tests.test_v2_dashboard_vm_api backend.tests.test_v2_auth_api backend.tests.test_v2_inventory_api -v` 通过：32 个测试 OK。
+- `python3 -m py_compile backend/app/v2/api.py backend/app/v2/cloudtower/client.py backend/app/v2/collection/service.py backend/app/v2/database.py backend/app/v2/vms/service.py backend/tests/test_v2_cloudtower_client.py backend/tests/test_v2_collection.py backend/tests/test_v2_dashboard_vm.py backend/tests/test_v2_dashboard_vm_api.py` 通过。
+
+限制：
+
+- 本次只完成 VM 详情和卷信息后端。
+- Dashboard/VM 前端页面仍待接入 v2 API。
