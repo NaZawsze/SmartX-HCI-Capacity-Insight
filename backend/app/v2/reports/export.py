@@ -8,6 +8,9 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.shared import Pt
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
@@ -27,6 +30,7 @@ def build_report_docx(report: dict[str, Any], settings: V2Settings, *, period_da
     context = _export_context(report, settings, period_days, "docx")
     document = Document()
     _setup_document(document)
+    _setup_footer(document, report, context)
     document.add_heading("SmartX HCI 容量预测报表", level=0)
     _add_paragraph_table(
         document,
@@ -39,6 +43,7 @@ def build_report_docx(report: dict[str, Any], settings: V2Settings, *, period_da
             ("当前软件版本", settings.app_version),
         ],
     )
+    _add_cluster_directory(document, report.get("clusters") or [])
     document.add_heading("集群预测汇总", level=1)
     _add_cluster_table(document, report.get("clusters") or [])
     document.add_heading("月增长 TOP100 VM", level=1)
@@ -118,6 +123,17 @@ def _add_paragraph_table(document: Document, rows: list[tuple[str, str]]) -> Non
         cells[1].text = value
 
 
+def _add_cluster_directory(document: Document, clusters: list[dict[str, Any]]) -> None:
+    document.add_heading("目录", level=1)
+    if not clusters:
+        document.add_paragraph("暂无集群目录")
+        return
+    for index, cluster in enumerate(clusters, start=1):
+        labels = cluster.get("labels", {})
+        name = labels.get("cluster") or labels.get("cluster_id") or f"集群 {index}"
+        document.add_paragraph(f"{index}. {name}", style="List Number")
+
+
 def _add_cluster_table(document: Document, clusters: list[dict[str, Any]]) -> None:
     table = document.add_table(rows=1, cols=5)
     table.style = "Table Grid"
@@ -167,6 +183,9 @@ def _add_vm_table(document: Document, vms: list[dict[str, Any]]) -> None:
         row = table.add_row().cells
         for index, value in enumerate(values):
             row[index].text = value
+        if _is_alert_vm(vm):
+            for cell in row:
+                _shade_cell(cell, VM_ALERT_FILL)
 
 
 def _export_context(report: dict[str, Any], settings: V2Settings, period_days: int, extension: str) -> dict[str, str]:
@@ -195,6 +214,24 @@ def _persist_report(content: bytes, settings: V2Settings, filename: str) -> tupl
     return content, filename, path, f"/api/admin/exports/reports/{quote(path.name)}"
 
 
+def _setup_footer(document: Document, report: dict[str, Any], context: dict[str, str]) -> None:
+    footer = document.sections[0].footer
+    paragraph = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    paragraph.text = _footer_label(report, context)
+
+
+def _footer_label(report: dict[str, Any], context: dict[str, str]) -> str:
+    clusters = report.get("clusters") or []
+    tower_names = sorted({str((cluster.get("labels") or {}).get("tower") or "") for cluster in clusters if (cluster.get("labels") or {}).get("tower")})
+    cluster_names = [str((cluster.get("labels") or {}).get("cluster") or (cluster.get("labels") or {}).get("cluster_id") or "") for cluster in clusters]
+    tower_label = "、".join(tower_names[:2]) if tower_names else context["scope_label"]
+    cluster_label = "、".join([name for name in cluster_names if name][:3]) if cluster_names else "全部集群"
+    if len(cluster_names) > 3:
+        cluster_label += f" 等 {len(cluster_names)} 个集群"
+    return f"{tower_label} - {cluster_label} - {context['generated_at']}"
+
+
 def _period_window_label(report: dict[str, Any]) -> str:
     window = report.get("period_window") or {}
     start = str(window.get("start_at") or "")
@@ -213,6 +250,15 @@ def _first_cluster_name(clusters: list[dict[str, Any]]) -> str | None:
 
 def _is_alert_vm(vm: dict[str, Any]) -> bool:
     return float(vm.get("growth_ratio") or 0) > VM_ALERT_RATIO and float(vm.get("growth_amount") or 0) > VM_ALERT_BYTES
+
+
+def _shade_cell(cell, fill: str) -> None:
+    properties = cell._tc.get_or_add_tcPr()
+    shading = properties.find(qn("w:shd"))
+    if shading is None:
+        shading = OxmlElement("w:shd")
+        properties.append(shading)
+    shading.set(qn("w:fill"), fill)
 
 
 def _docx_bytes(document: Document) -> bytes:

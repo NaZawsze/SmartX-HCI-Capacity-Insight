@@ -1808,3 +1808,25 @@ TDD 记录：
 - 远端 `10.20.11.3`：使用 `smartx-storage-forecast-web-api:local` 容器运行 15 个 v2 后端测试模块，40 个测试通过。
 - 远端 `10.20.11.3`：使用 `node:22-alpine` 运行核心前端测试 `AppLayout/Dashboard/Vms/Reports/Service/Settings`，6 个测试文件、18 个测试通过。
 - 注意：第一次前端测试发现远端存在 macOS 资源叉垃圾文件 `frontend/src/pages/._ReportsPage.test.tsx` 导致 Vitest 误读；已删除 `frontend/src/**/._*` 后重跑通过。
+
+### 2026-06-06 Phase V2-5 报表 Word 目录页脚与高风险底纹
+
+状态：完成远端红绿验证，待提交
+
+实施内容：
+
+- 扩展 `backend/tests/test_v2_report_exports.py`，验证：
+  - Word 文档包含“目录”以及每个集群名称。
+  - Word 页脚包含 Tower、集群和生成时间。
+  - Word 高风险 VM 行写入红色底纹 `F4CCCC`。
+  - Excel 高风险 VM 样式仍包含 `F4CCCC`。
+- 修改 `backend/app/v2/reports/export.py`：
+  - 首页信息表后新增集群目录段。
+  - Word 页脚输出 `Tower - 集群 - 生成时间`。
+  - Word VM 表格对增长率超过 20% 且增长量大于 100G 的 VM 行设置红色底纹。
+- `docs/v2-rebuild-task-plan.md` 将 Word 目录、Word 页脚、高风险 VM 底纹标红标记完成。
+
+TDD 记录：
+
+- RED：远端 `10.20.11.3` 运行 `python -m unittest backend.tests.test_v2_report_exports -v`，失败于 Word XML 不包含“目录”，符合预期。
+- GREEN：实现目录、页脚和 Word 底纹后，远端同一测试通过。

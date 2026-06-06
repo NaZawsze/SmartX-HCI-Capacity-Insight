@@ -1,6 +1,8 @@
+import io
 import os
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 
@@ -22,7 +24,7 @@ class V2ReportExportApiTest(unittest.TestCase):
                     "scope": {"tower_id": tower_id, "cluster_id": cluster_id},
                     "clusters": [
                         {
-                            "labels": {"tower_id": "1", "cluster_id": "cluster-a", "cluster": "Cluster A"},
+                            "labels": {"tower_id": "1", "tower": "Tower A", "cluster_id": "cluster-a", "cluster": "Cluster A"},
                             "forecast": {
                                 "status": "ok",
                                 "slope_per_day": 10,
@@ -33,14 +35,27 @@ class V2ReportExportApiTest(unittest.TestCase):
                             "points": [],
                             "total": 1000,
                             "warning": 900,
+                        },
+                        {
+                            "labels": {"tower_id": "1", "tower": "Tower A", "cluster_id": "cluster-b", "cluster": "Cluster B"},
+                            "forecast": {
+                                "status": "ok",
+                                "slope_per_day": 2,
+                                "current": 120,
+                                "forecast_90d": 300,
+                                "exhaustion_days": 2056,
+                            },
+                            "points": [],
+                            "total": 1000,
+                            "warning": 900,
                         }
                     ],
                     "day_fastest_growing_vms": [],
                     "month_fastest_growing_vms": [
                         {
-                            "labels": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-1", "vm": "VM One"},
-                            "forecast": {"status": "ok", "slope_per_day": 4, "current": 240},
-                            "growth_amount": 120,
+                            "labels": {"tower_id": "1", "tower": "Tower A", "cluster_id": "cluster-a", "cluster": "Cluster A", "vm_id": "vm-1", "vm": "VM One"},
+                            "forecast": {"status": "ok", "slope_per_day": 4, "current": 240 * 1024**3},
+                            "growth_amount": 150 * 1024**3,
                             "previous_value": 120,
                             "growth_ratio": 1.0,
                         }
@@ -76,6 +91,14 @@ class V2ReportExportApiTest(unittest.TestCase):
                     self.assertEqual(word_path.parent, Path(tmpdir) / "exports" / "reports")
                     self.assertTrue(word.headers["x-smartx-export-url"].startswith("/api/admin/exports/reports/"))
                     self.assertGreater(len(word.content), 1000)
+                    word_xml, footer_xml = _docx_xml(word.content)
+                    self.assertIn("目录", word_xml)
+                    self.assertIn("Cluster A", word_xml)
+                    self.assertIn("Cluster B", word_xml)
+                    self.assertIn('w:fill="F4CCCC"', word_xml)
+                    self.assertIn("Tower A", footer_xml)
+                    self.assertIn("Cluster A", footer_xml)
+                    self.assertIn("2026", footer_xml)
 
                     excel = client.get("/api/reports/export/excel?period_days=30", headers=headers)
                     self.assertEqual(excel.status_code, 200)
@@ -84,6 +107,9 @@ class V2ReportExportApiTest(unittest.TestCase):
                     self.assertTrue(excel_path.is_file())
                     self.assertEqual(excel_path.parent, Path(tmpdir) / "exports" / "reports")
                     self.assertGreater(len(excel.content), 1000)
+                    with zipfile.ZipFile(excel_path) as workbook:
+                        styles_xml = workbook.read("xl/styles.xml").decode("utf-8")
+                    self.assertIn("F4CCCC", styles_xml)
 
                     download = client.get(word.headers["x-smartx-export-url"], headers=headers)
                     self.assertEqual(download.status_code, 200)
@@ -102,3 +128,14 @@ class V2ReportExportApiTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _docx_xml(content: bytes) -> tuple[str, str]:
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        document_xml = archive.read("word/document.xml").decode("utf-8")
+        footer_xml = "\n".join(
+            archive.read(name).decode("utf-8")
+            for name in archive.namelist()
+            if name.startswith("word/footer")
+        )
+    return document_xml, footer_xml
