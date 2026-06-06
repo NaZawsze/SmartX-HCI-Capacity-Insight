@@ -978,3 +978,58 @@ TDD 记录：
 
 - 本阶段只完成 Dashboard/VM 前端接入。
 - 报表页跳转到 VM、月增长、本月新建 VM 属于后续 V2-5 报表阶段。
+
+### 2026-06-06 Phase V2-5 报表 latest_report 第一切片
+
+状态：完成本地和远端验证，待提交
+
+实施内容：
+
+- 新增 `backend/app/v2/reports/service.py`。
+- `ReportService.latest_report()` 支持：
+  - 集群 90 天预测。
+  - 最近 7 天平均容量增长速率。
+  - 7/14/30/90/180/365 天统计窗口归一。
+  - 7/30/90/365/720 天趋势窗口归一。
+  - 日增长 VM、月增长 VM。
+  - 月增长 VM 样本跨度不足 30 天时过滤。
+  - 本日新建 VM、本月新建 VM。
+  - VM 展示名称优先使用 `vm_latest` 最新名称。
+- v2 API 新增 `GET /api/reports/latest`，支持全部、Tower、集群 scope。
+- 报表页已有结构接入 v2 合同：
+  - 显示 90 天预测文案和值。
+  - 显示 7 天平均增长速率。
+  - 显示日/月增长 VM 和本日/本月新建 VM。
+  - VM 项点击可跳转虚拟机页面。
+- 新增测试：
+  - `backend/tests/test_v2_reports.py`
+  - `backend/tests/test_v2_reports_api.py`
+  - `frontend/src/pages/ReportsPage.test.tsx`
+- `docs/v2-rebuild-task-plan.md` 将 Phase V2-5 第一切片标记为进行中/部分完成。
+
+TDD 记录：
+
+- RED：报表后端测试先失败，原因是 `app.v2.reports.service` 不存在。
+- GREEN：新增 `ReportService` 后，报表服务测试通过。
+- RED：报表 API 测试先失败，原因是 `get_report_service` 和 `/api/reports/latest` 不存在。
+- GREEN：接入 API 后，鉴权、scope、period/chart 参数测试通过。
+- 前端新增报表页面测试，验证 v2 合同内容和 VM 跳转。
+
+兼容性修复：
+
+- 当前本地测试环境为 Python 3.9，`dataclass(slots=True)` 和 `zip(..., strict=True)` 不兼容，已改为 Python 3.9 兼容写法。
+- “本日新建 VM”测试假数据改为自然日内首次出现，保持业务定义为平台自然日。
+
+验证：
+
+- 本地：
+  - `PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_reports backend.tests.test_v2_reports_api -v` 通过。
+  - v2 后端完整测试集 34 个测试通过。
+  - `python3 -m py_compile backend/app/v2/api.py backend/app/v2/reports/service.py backend/tests/test_v2_reports.py backend/tests/test_v2_reports_api.py` 通过。
+- 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
+  - 使用 `smartx-storage-forecast-web-api:local` 容器执行报表后端测试通过。
+  - 使用临时 `node:22-alpine` 容器安装前端依赖并执行 `npm test -- --run src/pages/ReportsPage.test.tsx` 通过。
+
+限制：
+
+- 本切片尚未实现 v2 Word/Excel 导出、报表文件留存和任务中心下载链接。

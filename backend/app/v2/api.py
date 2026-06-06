@@ -14,6 +14,7 @@ from app.v2.dashboard.service import DashboardService
 from app.v2.database import V2Database
 from app.v2.inventory.models import ClusterInput, TowerInput
 from app.v2.inventory.service import InventoryService
+from app.v2.reports.service import ReportService
 from app.v2.system.health import check_health
 from app.v2.vms.service import VmService
 
@@ -142,6 +143,13 @@ def get_vm_service(
     settings: Annotated[V2Settings, Depends(get_v2_settings)],
 ) -> VmService:
     return VmService(database, settings)
+
+
+def get_report_service(
+    database: Annotated[V2Database, Depends(get_v2_database)],
+    settings: Annotated[V2Settings, Depends(get_v2_settings)],
+) -> ReportService:
+    return ReportService(database, settings)
 
 
 def require_user(
@@ -400,6 +408,20 @@ def vm_volumes(
     if tower_id is None or not cluster_id:
         raise HTTPException(status_code=400, detail="tower_id and cluster_id are required.")
     return vms.volumes(vm_id=vm_id, tower_id=tower_id, cluster_id=cluster_id)
+
+
+@router.get("/api/reports/latest")
+def latest_report(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    reports: Annotated[ReportService, Depends(get_report_service)],
+    tower_id: Optional[int] = None,
+    cluster_id: Optional[str] = None,
+    period_days: int = 30,
+    chart_days: int = 365,
+) -> dict:
+    if cluster_id and tower_id is None:
+        raise HTTPException(status_code=400, detail="cluster_id requires tower_id.")
+    return reports.latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days, chart_days=chart_days)
 
 
 @router.get("/api/system/health")
