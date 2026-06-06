@@ -53,6 +53,24 @@ function runningTask(): AppTask {
   };
 }
 
+function failedTask(): AppTask {
+  return {
+    id: "task-failed",
+    kind: "upgrade",
+    title: "执行升级失败",
+    detail: "升级失败：镜像 sha256 不匹配",
+    status: "failed",
+    progress: 100,
+    steps: [
+      { key: "manifest", title: "校验 manifest", status: "succeeded", message: "通过" },
+      { key: "images", title: "校验镜像", status: "failed", message: "sha256 不匹配" }
+    ],
+    logs: ["manifest 格式正确", "镜像 sha256 不匹配：images/web-api.tar"],
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+}
+
 describe("AppLayout menus", () => {
   it("closes the account menu when clicking outside", async () => {
     render(<AppLayout {...baseProps} />);
@@ -78,5 +96,16 @@ describe("AppLayout menus", () => {
     await waitFor(() => {
       expect(screen.queryByText("执行升级")).not.toBeInTheDocument();
     });
+  });
+
+  it("shows failed task step and error summary in the task menu", () => {
+    render(<AppLayout {...baseProps} tasks={[failedTask()]} />);
+
+    fireEvent.click(screen.getByTitle("任务"));
+
+    expect(screen.getByText("执行升级失败")).toBeInTheDocument();
+    expect(screen.getByText("升级失败：镜像 sha256 不匹配")).toBeInTheDocument();
+    expect(screen.getByText(/失败 校验镜像/)).toBeInTheDocument();
+    expect(screen.getByText("镜像 sha256 不匹配：images/web-api.tar")).toBeInTheDocument();
   });
 });

@@ -1693,3 +1693,20 @@ TDD 记录：
 验证：
 
 - 远端 `10.20.11.3`：`npm test -- AppLayout.test.tsx` 通过，1 个测试文件、2 个测试通过。
+
+### 2026-06-06 Phase V2-11 失败任务展示验证
+
+状态：完成远端验证，待提交
+
+实施内容：
+
+- 扩展 `frontend/src/components/AppLayout.test.tsx`，覆盖失败任务在任务中心中展示：
+  - 失败任务标题和错误摘要。
+  - 失败步骤，如 `失败 校验镜像`。
+  - 错误日志摘要，如镜像 sha256 不匹配。
+- 当前 `AppLayout` 已渲染 `task.detail`、`task.steps` 和 `task.logs`，本次补测试和文档勾选。
+- `docs/v2-rebuild-task-plan.md` 将“失败任务展示失败步骤和错误摘要”标记完成。
+
+验证：
+
+- 远端 `10.20.11.3`：`npm test -- AppLayout.test.tsx` 通过，1 个测试文件、3 个测试通过。
