@@ -90,6 +90,14 @@ def test_upgrade_runner_uses_v2_runner_entrypoint() -> None:
         assert "app.upgrade.runner" not in text
 
 
+def test_upgrade_runner_dependencies_do_not_pull_web_api_stack() -> None:
+    root = Path(__file__).resolve().parents[2]
+    text = (root / "backend/requirements-upgrade.txt").read_text(encoding="utf-8")
+    assert "fastapi" not in text
+    assert "pydantic" not in text
+    assert "python-multipart" not in text
+
+
 def test_upgrade_override_uses_platform_release_images() -> None:
     root = Path(__file__).resolve().parents[2]
     text = (root / "docker-compose.upgrade.yml").read_text(encoding="utf-8")

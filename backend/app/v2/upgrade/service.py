@@ -12,7 +12,17 @@ from pathlib import Path
 from secrets import token_hex
 from typing import Any
 
-from fastapi import HTTPException, UploadFile
+try:  # upgrade-runner intentionally avoids the web-api dependency stack.
+    from fastapi import HTTPException, UploadFile
+except ModuleNotFoundError:  # pragma: no cover - covered by runner image import smoke test.
+    class HTTPException(Exception):
+        def __init__(self, status_code: int, detail: str) -> None:
+            self.status_code = status_code
+            self.detail = detail
+            super().__init__(detail)
+
+    class UploadFile:  # type: ignore[no-redef]
+        filename: str | None
 
 from app.v2.config import V2Settings
 from app.v2.tasks.models import TaskStatus, TaskType

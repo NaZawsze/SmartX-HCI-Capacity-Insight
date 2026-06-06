@@ -1499,3 +1499,24 @@ TDD 记录：
 - 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade -v` 通过。
 - 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m pytest backend/tests/test_deployment_config.py -q` 通过，16 个测试通过。
 - 本地：v2 后端完整 unittest 集 49 个测试通过。
+
+### 2026-06-06 Phase V2-15 upgrade-runner 依赖瘦身
+
+状态：完成本地验证，待远端验证和提交
+
+实施内容：
+
+- `backend/requirements-upgrade.txt` 不再安装 FastAPI/Pydantic/python-multipart 等 web-api 依赖，runner 镜像构建不再因为 PyPI 拉取 FastAPI 失败而中断。
+- `app.v2.upgrade.service` 对 FastAPI 依赖使用兼容 shim：web-api 环境仍使用 FastAPI `HTTPException`/`UploadFile`，runner 环境无 FastAPI 时仍可 import 并执行任务。
+- 部署测试新增 runner 依赖约束，防止后续重新把 web-api 依赖塞回 runner 镜像。
+
+TDD 记录：
+
+- RED：新增部署测试后，`requirements-upgrade.txt` 包含 `fastapi` 导致失败。
+- GREEN：移除 runner 第三方依赖，并让 upgrade service 不硬依赖 FastAPI。
+
+验证：
+
+- 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m pytest backend/tests/test_deployment_config.py -q` 通过，17 个测试通过。
+- 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade -v` 通过。
+- 本地：v2 后端完整 unittest 集 49 个测试通过。
