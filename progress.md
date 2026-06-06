@@ -1677,3 +1677,19 @@ TDD 记录：
 - 本地：`/tmp/smartx-v2-venv/bin/python -m pytest backend/tests/test_deployment_config.py backend/tests/test_v2_package_builders.py -q` 通过，19 个测试通过。
 - 本地：`PYTHONPATH=backend SMARTX_UPGRADE_DRY_RUN=1 /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade -v` 通过，7 个测试通过。
 - 本地：`python3 -m py_compile scripts/build_upgrade_package.py scripts/build_runner_component_package.py` 通过。
+
+### 2026-06-06 Phase V2-14 顶部菜单点击空白处收起验证
+
+状态：完成远端验证，待提交
+
+实施内容：
+
+- 新增 `frontend/src/components/AppLayout.test.tsx`，覆盖：
+  - 账号头像菜单打开后点击内容区会自动收起。
+  - 任务菜单打开后点击内容区会自动收起。
+- 当前 `AppLayout` 已有 `pointerdown` 外部点击关闭逻辑，本次只补自动化测试和任务文档勾选。
+- `docs/v2-rebuild-task-plan.md` 将“点击空白处可收起任务菜单”和“下拉菜单点击空白处自动收起”标记完成。
+
+验证：
+
+- 远端 `10.20.11.3`：`npm test -- AppLayout.test.tsx` 通过，1 个测试文件、2 个测试通过。
