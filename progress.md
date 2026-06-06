@@ -1167,3 +1167,44 @@ TDD 记录：
 
 - 当前是 v2 迁移第一版，v1 旧迁移包和旧 `latest_vm_volumes.payload_json` 到 v2 结构化卷表的深度兼容仍待实现。
 - 迁移任务已有任务中心记录，但尚未拆分为持久化步骤表。
+
+### 2026-06-06 Phase V2-8 空间清理第一版
+
+状态：完成本地和远端验证，待提交
+
+实施内容：
+
+- 新增 `backend/app/v2/cleanup/service.py`。
+- v2 API 新增：
+  - `GET /api/admin/system/cleanup-artifacts/scan`
+  - `POST /api/admin/system/cleanup-artifacts`
+- 清理范围第一版：
+  - `/data/upgrades`
+  - `/data/exports/reports`
+  - `/data/exports/migrations`
+  - `/data/exports/imports`
+- 清理明确不碰 `/data/backups`。
+- 扫描返回每项：
+  - key、label、path、count、size、size_label。
+  - total_count、total_size、space_reclaimable。
+- 清理按真实文件大小统计释放空间，并写入 `cleanup` 任务日志。
+- `docs/v2-rebuild-task-plan.md` 将空间扫描和清理第一版标记完成。
+
+TDD 记录：
+
+- RED：新增 `backend/tests/test_v2_cleanup.py` 后，`app.v2.cleanup` 缺失。
+- GREEN：新增 `CleanupService` 后，扫描/清理真实大小、不删除 backups、任务记录测试通过。
+- 扩展 API 测试后，清理接口鉴权、扫描和执行测试通过。
+
+验证：
+
+- 本地：
+  - `PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_cleanup -v` 通过。
+  - v2 后端完整测试集 42 个测试通过。
+  - `python3 -m py_compile backend/app/v2/api.py backend/app/v2/cleanup/service.py backend/tests/test_v2_cleanup.py` 通过。
+- 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
+  - 使用 `smartx-storage-forecast-web-api:local` 容器执行 `backend.tests.test_v2_cleanup` 通过。
+
+限制：
+
+- 旧 Docker 镜像扫描/清理尚未接入 v2；本阶段只完成运行文件产物清理。

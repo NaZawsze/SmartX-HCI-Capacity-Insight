@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.v2.auth.service import AuthService, CurrentUser
 from app.v2.cloudtower.service import CloudTowerService
+from app.v2.cleanup.service import CleanupService
 from app.v2.collection.service import CollectionService
 from app.v2.config import V2Settings, settings_from_environment
 from app.v2.dashboard.service import DashboardService
@@ -170,6 +171,13 @@ def get_migration_service(
     tasks: Annotated[TaskService, Depends(get_task_service)],
 ) -> MigrationService:
     return MigrationService(database, settings, tasks)
+
+
+def get_cleanup_service(
+    settings: Annotated[V2Settings, Depends(get_v2_settings)],
+    tasks: Annotated[TaskService, Depends(get_task_service)],
+) -> CleanupService:
+    return CleanupService(settings, tasks)
 
 
 def require_user(
@@ -533,6 +541,22 @@ def clear_finished_tasks(
     tasks: Annotated[TaskService, Depends(get_task_service)],
 ) -> dict[str, int]:
     return {"deleted": tasks.clear_finished()}
+
+
+@router.get("/api/admin/system/cleanup-artifacts/scan")
+def scan_cleanup_artifacts(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
+) -> dict:
+    return cleanup.scan_artifacts()
+
+
+@router.post("/api/admin/system/cleanup-artifacts")
+def cleanup_artifacts(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
+) -> dict:
+    return cleanup.cleanup_artifacts()
 
 
 @router.get("/api/system/health")
