@@ -41,6 +41,27 @@ class CleanupService:
             "message": f"发现 {total_count} 个可清理项目，可释放 {_size_label(total_size)}。",
         }
 
+    def local_storage_usage(self) -> dict[str, Any]:
+        path = self.settings.data_root
+        path.mkdir(parents=True, exist_ok=True)
+        usage = shutil.disk_usage(path)
+        total = int(usage.total)
+        free = int(usage.free)
+        used = int(usage.used)
+        used_ratio = used / total if total > 0 else 0
+        free_ratio = free / total if total > 0 else 0
+        return {
+            "path": str(path),
+            "total_bytes": total,
+            "used_bytes": used,
+            "free_bytes": free,
+            "used_ratio": used_ratio,
+            "free_ratio": free_ratio,
+            "total_label": _size_label(total),
+            "used_label": _size_label(used),
+            "free_label": _size_label(free),
+        }
+
     def cleanup_artifacts(self) -> dict[str, Any]:
         scan = self.scan_artifacts()
         logs: list[str] = []

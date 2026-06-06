@@ -2,10 +2,12 @@ import type {
   DashboardScope,
   DashboardSummary,
   ForecastPayload,
+  LocalStorageUsage,
   LoginResponse,
   MetricItem,
   MigrationExportTask,
   MigrationHealth,
+  ReportBundleExport,
   ServerTask,
   SpaceCleanupResult,
   SpaceCleanupScanResult,
@@ -323,7 +325,10 @@ function normalizeVmTrend(payload: unknown, metric: string): VmTrend {
   return {
     vm_id: String(raw.vm_id || ""),
     metric,
-    points
+    points,
+    tower_id: optionalNumber(raw.tower_id) ?? undefined,
+    cluster_id: raw.cluster_id == null ? undefined : String(raw.cluster_id),
+    vm_name: raw.vm_name == null ? undefined : String(raw.vm_name)
   };
 }
 
@@ -433,11 +438,22 @@ export const api = {
   async exportReport(format: "word" | "excel", scope?: DashboardScope, periodDays?: number, onProgress?: ProgressCallback): Promise<DownloadResult> {
     return download(`/api/reports/export/${format}${scopedQuery(scope, periodDays)}`, onProgress);
   },
+  async exportReportBundle(scope?: DashboardScope, periodDays?: number, taskId?: string): Promise<ReportBundleExport> {
+    const params = scopedParams(scope, periodDays);
+    if (taskId) {
+      params.set("task_id", taskId);
+    }
+    const query = params.toString();
+    return request<ReportBundleExport>(`/api/reports/export/bundle${query ? `?${query}` : ""}`, { method: "POST" });
+  },
   async tasks(): Promise<ServerTask[]> {
     return request<ServerTask[]>("/api/tasks");
   },
   async clearFinishedTasks(): Promise<{ deleted: number }> {
     return request<{ deleted: number }>("/api/tasks/finished", { method: "DELETE" });
+  },
+  async deleteTask(taskId: string): Promise<{ ok: boolean; task_id: string }> {
+    return request<{ ok: boolean; task_id: string }>(`/api/tasks/${taskId}`, { method: "DELETE" });
   },
   async exportMigration(onProgress?: ProgressCallback): Promise<DownloadResult> {
     return download("/api/admin/migration/export", onProgress);
@@ -476,6 +492,9 @@ export const api = {
   async cleanupSpaceArtifacts(): Promise<SpaceCleanupResult> {
     return request<SpaceCleanupResult>("/api/admin/system/cleanup-artifacts", { method: "POST" });
   },
+  async localStorageUsage(): Promise<LocalStorageUsage> {
+    return request<LocalStorageUsage>("/api/admin/system/local-storage");
+  },
   async upgradeVersion(): Promise<{ version: string }> {
     return request<{ version: string }>("/api/admin/upgrade/version");
   },
@@ -495,6 +514,9 @@ export const api = {
   },
   async rollbackUpgrade(taskId: string): Promise<UpgradeTask> {
     return request<UpgradeTask>(`/api/admin/upgrade/rollback/${taskId}`, { method: "POST" });
+  },
+  async cancelUpgrade(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/upgrade/cancel/${taskId}`, { method: "POST" });
   },
   async deleteUpgradePackage(taskId: string): Promise<{ ok: boolean; task_id: string }> {
     return request<{ ok: boolean; task_id: string }>(`/api/admin/upgrade/package/${taskId}`, { method: "DELETE" });
@@ -518,6 +540,9 @@ export const api = {
   },
   async startComponentUpgrade(taskId: string): Promise<UpgradeTask> {
     return request<UpgradeTask>(`/api/admin/component-upgrade/start/${taskId}`, { method: "POST" });
+  },
+  async cancelComponentUpgrade(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/component-upgrade/cancel/${taskId}`, { method: "POST" });
   },
   async deleteComponentUpgradePackage(taskId: string): Promise<{ ok: boolean; task_id: string }> {
     return request<{ ok: boolean; task_id: string }>(`/api/admin/component-upgrade/package/${taskId}`, { method: "DELETE" });

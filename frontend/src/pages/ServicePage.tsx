@@ -2,7 +2,7 @@ import { Check, Circle, Download, FileArchive, History, Info, ListChecks, Loader
 import { useEffect, useRef, useState } from "react";
 import { api } from "../services/api";
 import type { TransferProgress } from "../services/api";
-import type { AppTask, MigrationExportTask, SpaceCleanupScanItem, UpgradeTask, UpgradeVerification } from "../types";
+import type { AppTask, LocalStorageUsage, MigrationExportTask, SpaceCleanupScanItem, UpgradeTask, UpgradeVerification } from "../types";
 
 type ServiceSection = "migration" | "restart" | "space-cleanup" | "platform-upgrade" | "component-upgrade" | "history";
 type CleanupScanImage = { id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string; reclaimable_size?: number; reclaimable_size_label?: string; created_at?: number };
@@ -101,6 +101,8 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
   const [spaceCleanupItems, setSpaceCleanupItems] = useState<SpaceCleanupScanItem[]>([]);
   const [spaceCleanupTotal, setSpaceCleanupTotal] = useState("0 B");
   const [spaceCleanupLogs, setSpaceCleanupLogs] = useState<string[]>([]);
+  const [localStorage, setLocalStorage] = useState<LocalStorageUsage | null>(null);
+  const [localStorageMessage, setLocalStorageMessage] = useState("");
   const [migrationMessage, setMigrationMessage] = useState("");
   const [migrationBusy, setMigrationBusy] = useState(false);
   const [migrationFile, setMigrationFile] = useState<File | null>(null);
@@ -193,6 +195,11 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     }, 2500);
     return () => window.clearInterval(timer);
   }, [componentTask, updateTask]);
+
+  useEffect(() => {
+    if (section !== "space-cleanup") return;
+    refreshLocalStorageUsage().catch(() => undefined);
+  }, [section]);
 
   function taskId(prefix: string) {
     return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -310,6 +317,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     setSpaceCleanupScanBusy(true);
     setSpaceCleanupLogs(["开始扫描升级包、数据迁移导出和报表导出..."]);
     try {
+      await refreshLocalStorageUsage();
       const result = await api.scanSpaceCleanup();
       setSpaceCleanupItems(result.items);
       setSpaceCleanupTotal(result.total_size_label);
@@ -321,6 +329,15 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
       setSpaceCleanupMessage(message);
     } finally {
       setSpaceCleanupScanBusy(false);
+    }
+  }
+
+  async function refreshLocalStorageUsage() {
+    try {
+      setLocalStorage(await api.localStorageUsage());
+      setLocalStorageMessage("");
+    } catch (exc) {
+      setLocalStorageMessage(exc instanceof Error ? exc.message : "本机空间刷新失败");
     }
   }
 
@@ -336,11 +353,13 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
       setSpaceCleanupTotal(result.space_reclaimed_label);
       setSpaceCleanupItems([]);
       updateTask(id, { status: "succeeded", progress: 100, detail: result.message, logs: result.logs });
+      await refreshLocalStorageUsage();
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "空间清理失败";
       setSpaceCleanupLogs((current) => [...current, message]);
       setSpaceCleanupMessage(message);
       updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["空间清理失败", message] });
+      await refreshLocalStorageUsage();
     } finally {
       setSpaceCleanupBusy(false);
     }
@@ -478,7 +497,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     if (!upgradeTask) return;
     setUpgradeMessage("");
     setUpgradeBusy(true);
-    const id = taskId("upgrade-start");
+    const id = upgradeTask.task_id;
     addTask({ id, kind: "upgrade", title: "执行系统升级", detail: upgradeTask.target_version || "升级任务", status: "running", progress: 10 });
     try {
       const task = await api.startUpgrade(upgradeTask.task_id);
@@ -586,7 +605,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     if (!componentTask) return;
     setComponentMessage("");
     setComponentBusy(true);
-    const id = taskId("component-start");
+    const id = componentTask.task_id;
     addTask({ id, kind: "upgrade", title: "执行组件升级", detail: componentTask.target_version || "upgrade-runner", status: "running", progress: 10 });
     try {
       const task = await api.startComponentUpgrade(componentTask.task_id);
@@ -876,6 +895,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           )}
         />
         <div className="service-operation-card">
+          <LocalStorageUsageCard usage={localStorage} message={localStorageMessage} />
           <div className="service-operation-head">
             <div>
               <strong>可清理空间</strong>
@@ -1357,6 +1377,32 @@ function CleanupStep({ active, done, label }: { active: boolean; done: boolean; 
     <div className={done ? "cleanup-step done" : active ? "cleanup-step active" : "cleanup-step"}>
       <span>{done ? <Check size={14} /> : active ? <LoaderCircle size={14} /> : <Circle size={14} />}</span>
       <strong>{label}</strong>
+    </div>
+  );
+}
+
+function LocalStorageUsageCard({ usage, message }: { usage: LocalStorageUsage | null; message: string }) {
+  const usedRatio = usage ? Math.max(0, Math.min(usage.used_ratio, 1)) : 0;
+  const lowFree = usage ? usage.free_ratio < 0.2 : false;
+  return (
+    <div className="local-storage-card">
+      <div className="local-storage-head">
+        <div>
+          <strong>本机空间使用量</strong>
+          <span>{usage?.path || "/data"}</span>
+        </div>
+        <div>
+          <strong>{usage ? `${(usedRatio * 100).toFixed(1)}%` : "-"}</strong>
+          <span>{usage ? `剩余 ${usage.free_label}` : message || "正在刷新..."}</span>
+        </div>
+      </div>
+      <div className={lowFree ? "local-storage-track danger" : "local-storage-track"} aria-label={`本机空间使用率 ${(usedRatio * 100).toFixed(1)}%`}>
+        <span style={{ width: `${usedRatio * 100}%` }} />
+      </div>
+      <div className="local-storage-meta">
+        <span>{usage ? `已用 ${usage.used_label} / 总量 ${usage.total_label}` : "等待空间数据"}</span>
+        <span>{usage ? `剩余 ${usage.free_label}` : message}</span>
+      </div>
     </div>
   );
 }

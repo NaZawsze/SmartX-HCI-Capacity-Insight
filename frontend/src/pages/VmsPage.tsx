@@ -1,4 +1,4 @@
-import { ArrowDownWideNarrow, Search } from "lucide-react";
+import { ArrowDown, ArrowDownWideNarrow, ArrowUp, Search } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "../components/Card";
@@ -9,6 +9,15 @@ import type { DashboardScope, MetricItem, VmDetail, VmTrend, VmVolume } from "..
 const trendRanges = [7, 14, 30, 90, 180] as const;
 type TrendRange = (typeof trendRanges)[number];
 type SortMode = "size" | "usage";
+type VolumeSortField = "vm" | "used" | "occupied";
+type SortDirection = "asc" | "desc";
+type DisplayVolume = VmVolume & {
+  tower_id?: number;
+  cluster_id?: string;
+  cluster_name?: string;
+  vm_id?: string;
+  vm_name?: string;
+};
 
 interface VmsPageProps {
   refreshKey?: number;
@@ -27,6 +36,8 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
   const [trend, setTrend] = useState<VmTrend | null>(null);
   const [detail, setDetail] = useState<VmDetail | null>(null);
   const [currentVmVolumes, setCurrentVmVolumes] = useState<VmVolume[]>([]);
+  const [allVolumeSets, setAllVolumeSets] = useState<DisplayVolume[]>([]);
+  const [volumeSort, setVolumeSort] = useState<{ field: VolumeSortField; direction: SortDirection }>({ field: "used", direction: "desc" });
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const selectedItemRef = useRef<HTMLButtonElement | null>(null);
   const lastOpenedVmNameRef = useRef("");
@@ -49,10 +60,26 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
       setCurrentVmVolumes([]);
       return;
     }
-    api.vmTrend(selectedVm, "used", trendDays, scope).then(setTrend).catch(() => setTrend(null));
-    api.vmDetail(selectedVm, scope).then(setDetail).catch(() => setDetail(null));
-    api.vmVolumes(selectedVm, scope).then((result) => setCurrentVmVolumes(result.volumes || [])).catch(() => setCurrentVmVolumes([]));
-  }, [refreshKey, scope, selectedVm, trendDays]);
+    const selectedItem = items.find((item) => item.metric.vm_id === selectedVm);
+    const requestScope = selectedItem ? scopeForVm(selectedItem) ?? (scope.type === "cluster" ? scope : undefined) : scope.type === "cluster" ? scope : undefined;
+    if (!requestScope) {
+      setTrend(null);
+      setDetail(null);
+      setCurrentVmVolumes([]);
+      return;
+    }
+    api.vmTrend(selectedVm, "used", trendDays, requestScope).then(setTrend).catch(() => setTrend(null));
+    api.vmDetail(selectedVm, requestScope).then(setDetail).catch(() => setDetail(null));
+    api.vmVolumes(selectedVm, requestScope).then((result) => setCurrentVmVolumes(result.volumes || [])).catch(() => setCurrentVmVolumes([]));
+  }, [items, refreshKey, scope, selectedVm, trendDays]);
+
+  useEffect(() => {
+    api.vmVolumesAll(scope)
+      .then((sets) => {
+        setAllVolumeSets(flattenVolumeSets(sets));
+      })
+      .catch(() => setAllVolumeSets([]));
+  }, [refreshKey, scope]);
 
   useEffect(() => {
     if (selectedVmName) {
@@ -87,16 +114,17 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
     const term = query.trim().toLowerCase();
     const sorted = [...items].sort((left, right) => {
       if (sortMode === "usage") {
-        return getVmUsageRatio(right, itemVolumesForRatio(right, selectedVm, currentVmVolumes)) - getVmUsageRatio(left, itemVolumesForRatio(left, selectedVm, currentVmVolumes));
+        return getVmUsageRatio(right, volumesForVm(right, allVolumeSets, selectedVm, currentVmVolumes)) - getVmUsageRatio(left, volumesForVm(left, allVolumeSets, selectedVm, currentVmVolumes));
       }
       return (right.value ?? 0) - (left.value ?? 0);
     });
     if (!term) return sorted;
     return sorted.filter((item) => `${item.metric.vm} ${item.metric.cluster}`.toLowerCase().includes(term));
-  }, [currentVmVolumes, items, query, selectedVm, sortMode]);
+  }, [allVolumeSets, currentVmVolumes, items, query, selectedVm, sortMode]);
 
   const current = filtered.find((item) => item.metric.vm_id === selectedVm) ?? items.find((item) => item.metric.vm_id === selectedVm);
   const selectedItemVisible = filtered.some((item) => item.metric.vm_id === selectedVm);
+  const sortedAllVolumes = useMemo(() => sortVolumes(allVolumeSets, volumeSort), [allVolumeSets, volumeSort]);
 
   return (
     <div className="vm-page-grid">
@@ -119,7 +147,7 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
         </div>
         <div className="vm-list">
           {filtered.map((item) => {
-            const itemVolumes = itemVolumesForRatio(item, selectedVm, currentVmVolumes);
+            const itemVolumes = volumesForVm(item, allVolumeSets, selectedVm, currentVmVolumes);
             const usage = getVmUsageRatio(item, itemVolumes);
             return (
               <button
@@ -132,7 +160,7 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
                 <span>{item.metric.vm || item.metric.vm_id}</span>
                 <small className="vm-cluster">{item.metric.cluster}</small>
                 <strong>{formatBytes(item.value)}</strong>
-                <small className={usage > 0.9 ? "vm-usage over-limit" : "vm-usage"}>{formatUsageLabel(item, itemVolumes)}</small>
+                <small className={usage >= 0.8 ? "vm-usage over-limit" : "vm-usage"}>{formatUsageLabel(item, itemVolumes)}</small>
               </button>
             );
           })}
@@ -154,7 +182,7 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
         }
       >
         <div className="trend-meta">
-          <span>{current?.metric.cluster || detail?.cluster_id || "未选择集群"}</span>
+          <span>{current?.metric.cluster || "全部集群"}</span>
           <strong>{formatBytes(detail?.used_bytes ?? current?.value)}</strong>
         </div>
         <TrendChart points={trend?.points || []} referenceValue={current?.value} height={360} />
@@ -165,39 +193,98 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
           {currentVmVolumes.length ? currentVmVolumes.map(renderVolumeRow) : <div className="empty-state">暂无当前虚拟机卷数据</div>}
         </VolumeTable>
       </Card>
+
+      <Card title="所有虚拟卷" subtitle="当前范围内全部虚拟机卷" className="volume-card all-volume-card">
+        <VolumeTable
+          variant="all"
+          sort={volumeSort}
+          onSort={(field) => {
+            setVolumeSort((currentSort) => ({
+              field,
+              direction: currentSort.field === field ? (currentSort.direction === "desc" ? "asc" : "desc") : field === "vm" ? "asc" : "desc",
+            }));
+          }}
+        >
+          <div aria-label="所有虚拟卷">
+            {sortedAllVolumes.length ? sortedAllVolumes.map(renderAllVolumeRow) : <div className="empty-state">暂无虚拟卷数据</div>}
+          </div>
+        </VolumeTable>
+      </Card>
     </div>
   );
 }
 
-function VolumeTable({ children }: { children: ReactNode }) {
+function VolumeTable({ children, variant = "current", sort, onSort }: { children: ReactNode; variant?: "current" | "all"; sort?: { field: VolumeSortField; direction: SortDirection }; onSort?: (field: VolumeSortField) => void }) {
   return (
-    <div className="volume-table">
+    <div className={variant === "all" ? "volume-table volume-table-all" : "volume-table"}>
       <div className="volume-table-head">
+        {variant === "all" && <SortableVolumeHeader field="vm" label="VM" sort={sort} onSort={onSort} />}
+        {variant === "all" && <span>集群</span>}
         <span>虚拟卷名称</span>
-        <span>实际使用空间</span>
+        <SortableVolumeHeader field="used" label="实际使用空间" sort={sort} onSort={onSort} />
         <span>分配空间</span>
         <span>副本机制</span>
-        <span>实际占用集群空间</span>
+        <SortableVolumeHeader field="occupied" label="实际占用集群空间" sort={sort} onSort={onSort} />
       </div>
       <div className="volume-table-body auto-scrollbar">{children}</div>
     </div>
   );
 }
 
-function itemVolumesForRatio(item: MetricItem, selectedVm: string, currentVmVolumes: VmVolume[]): VmVolume[] {
-  if (!currentVmVolumes.length) return [];
-  if (item.metric.vm_id !== selectedVm) return [];
-  return currentVmVolumes;
+function SortableVolumeHeader({ field, label, sort, onSort }: { field: VolumeSortField; label: string; sort?: { field: VolumeSortField; direction: SortDirection }; onSort?: (field: VolumeSortField) => void }) {
+  if (!onSort || !sort) return <span>{label}</span>;
+  const active = sort.field === field;
+  const direction = active ? sort.direction : "desc";
+  const nextDirection = active ? (direction === "desc" ? "asc" : "desc") : field === "vm" ? "asc" : "desc";
+  return (
+    <button
+      type="button"
+      className={active ? "volume-sort-button active" : "volume-sort-button"}
+      onClick={() => onSort(field)}
+      aria-label={`按${label}${nextDirection === "asc" ? "升序" : "降序"}排序`}
+    >
+      {label}
+      {active && direction === "asc" ? <ArrowUp size={13} /> : <ArrowDown size={13} />}
+    </button>
+  );
+}
+
+function volumesForVm(item: MetricItem, allVolumes: DisplayVolume[], selectedVm: string, currentVmVolumes: VmVolume[]): VmVolume[] {
+  const towerId = String(item.metric.tower_id || "");
+  const clusterId = String(item.metric.cluster_id || "");
+  const vmId = String(item.metric.vm_id || "");
+  const scopedVolumes = allVolumes.filter((volume) => String(volume.tower_id || "") === towerId && String(volume.cluster_id || "") === clusterId && String(volume.vm_id || "") === vmId);
+  if (scopedVolumes.length) return scopedVolumes;
+  if (vmId === selectedVm && currentVmVolumes.length) return currentVmVolumes;
+  return [];
 }
 
 function renderVolumeRow(volume: VmVolume, index?: number) {
   const key = volume.id || volume.volume_id || volume.name || volume.path || String(index ?? 0);
-  const actualUsed = readSize(volume, ["used_size", "used_size_bytes", "unique_logical_size", "guest_used_size", "guest_used_size_bytes"]);
+  const actualUsed = readSize(volume, ["used_bytes", "used_size", "used_size_bytes", "unique_logical_size", "guest_used_size", "guest_used_size_bytes"]);
   const provisioned = readSize(volume, ["provisioned_size", "provisioned_size_bytes", "size", "size_bytes", "capacity", "capacity_bytes"]);
   const actualOccupied = getOccupiedSize(volume, actualUsed);
   return (
     <div className="volume-table-row" key={key}>
-      <span title={readVolumeName(volume)}>{readVolumeName(volume)}</span>
+      <span data-testid="volume-name" title={readVolumeName(volume)}>{readVolumeName(volume)}</span>
+      <strong>{formatBytes(actualUsed)}</strong>
+      <strong>{formatBytes(provisioned)}</strong>
+      <span>{readVolumePolicy(volume) || "-"}</span>
+      <strong>{formatBytes(actualOccupied)}</strong>
+    </div>
+  );
+}
+
+function renderAllVolumeRow(volume: DisplayVolume, index?: number) {
+  const key = `${volume.tower_id ?? ""}-${volume.cluster_id ?? ""}-${volume.vm_id ?? ""}-${volume.volume_id ?? volume.id ?? index}`;
+  const actualUsed = readVolumeUsed(volume);
+  const provisioned = readSize(volume, ["provisioned_size", "provisioned_size_bytes", "size", "size_bytes", "capacity", "capacity_bytes"]);
+  const actualOccupied = getOccupiedSize(volume, actualUsed);
+  return (
+    <div className="volume-table-row" key={key}>
+      <span title={volume.vm_name || volume.vm_id || "-"}>{volume.vm_name || volume.vm_id || "-"}</span>
+      <span title={volume.cluster_name || volume.cluster_id || "-"}>{volume.cluster_name || volume.cluster_id || "-"}</span>
+      <span data-testid="volume-name" title={readVolumeName(volume)}>{readVolumeName(volume)}</span>
       <strong>{formatBytes(actualUsed)}</strong>
       <strong>{formatBytes(provisioned)}</strong>
       <span>{readVolumePolicy(volume) || "-"}</span>
@@ -238,7 +325,7 @@ function getVmVolumeUsageRatio(volumes: VmVolume[]): number | null {
   let used = 0;
   let provisioned = 0;
   for (const volume of volumes) {
-    const volumeUsed = readSize(volume, ["used_size", "used_size_bytes"]);
+    const volumeUsed = readVolumeUsed(volume);
     const volumeProvisioned = readSize(volume, ["provisioned_size", "provisioned_size_bytes", "size", "size_bytes", "capacity", "capacity_bytes"]);
     if (volumeUsed === null || volumeProvisioned === null || volumeUsed < 0 || volumeProvisioned <= 0) continue;
     used += volumeUsed;
@@ -265,6 +352,56 @@ function formatRatio(item: MetricItem, volumes: VmVolume[]): string {
 function formatUsageLabel(item: MetricItem, volumes: VmVolume[]): string {
   const ratio = formatRatio(item, volumes);
   return ratio ? `已使用 ${ratio}` : "";
+}
+
+function flattenVolumeSets(sets: Array<{ tower_id: number; cluster_id: string; cluster_name?: string; vm_id: string; vm_name?: string; volumes: VmVolume[] }>): DisplayVolume[] {
+  return sets.flatMap((set) =>
+    (set.volumes || []).map((volume) => ({
+      ...volume,
+      tower_id: set.tower_id,
+      cluster_id: set.cluster_id,
+      cluster_name: set.cluster_name,
+      vm_id: set.vm_id,
+      vm_name: set.vm_name,
+    }))
+  );
+}
+
+function sortVolumes(volumes: DisplayVolume[], sort: { field: VolumeSortField; direction: SortDirection }): DisplayVolume[] {
+  return [...volumes].sort((left, right) => {
+    const delta = compareVolumeSortValue(left, right, sort.field);
+    return sort.direction === "desc" ? delta : -delta;
+  });
+}
+
+function compareVolumeSortValue(left: DisplayVolume, right: DisplayVolume, field: VolumeSortField): number {
+  if (field === "vm") {
+    const leftName = String(left.vm_name || left.vm_id || "");
+    const rightName = String(right.vm_name || right.vm_id || "");
+    const byVm = rightName.localeCompare(leftName, "zh-Hans-CN", { numeric: true, sensitivity: "base" });
+    if (byVm !== 0) return byVm;
+    return readVolumeName(right).localeCompare(readVolumeName(left), "zh-Hans-CN", { numeric: true, sensitivity: "base" });
+  }
+  const leftValue = volumeSortValue(left, field);
+  const rightValue = volumeSortValue(right, field);
+  return rightValue - leftValue;
+}
+
+function volumeSortValue(volume: VmVolume, field: Exclude<VolumeSortField, "vm">): number {
+  const used = readVolumeUsed(volume) ?? 0;
+  if (field === "used") return used;
+  return getOccupiedSize(volume, used) ?? 0;
+}
+
+function readVolumeUsed(volume: VmVolume): number | null {
+  return readSize(volume, ["used_bytes", "used_size", "used_size_bytes", "unique_logical_size", "guest_used_size", "guest_used_size_bytes"]);
+}
+
+function scopeForVm(item: MetricItem): DashboardScope | undefined {
+  const towerId = numberish(item.metric.tower_id);
+  const clusterId = item.metric.cluster_id;
+  if (!towerId || !clusterId) return undefined;
+  return { type: "cluster", towerId, clusterId };
 }
 
 function readVolumeName(volume: VmVolume): string {

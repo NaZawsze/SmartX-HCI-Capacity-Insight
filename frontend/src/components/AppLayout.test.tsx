@@ -71,6 +71,32 @@ function failedTask(): AppTask {
   };
 }
 
+function pendingUpgradeTask(): AppTask {
+  return {
+    id: "upgrade-pending",
+    kind: "upgrade",
+    title: "执行系统升级",
+    detail: "升级任务已提交，等待 upgrade-runner 执行",
+    status: "pending",
+    progress: 1,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+}
+
+function pendingCleanupTask(): AppTask {
+  return {
+    id: "cleanup-pending",
+    kind: "upgrade",
+    title: "空间清理",
+    detail: "等待扫描清理文件",
+    status: "pending",
+    progress: 1,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+}
+
 describe("AppLayout menus", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -123,6 +149,36 @@ describe("AppLayout menus", () => {
     expect(screen.getByText("升级失败：镜像 sha256 不匹配")).toBeInTheDocument();
     expect(screen.getByText(/失败 校验镜像/)).toBeInTheDocument();
     expect(screen.getByText("镜像 sha256 不匹配：images/web-api.tar")).toBeInTheDocument();
+  });
+
+  it("shows a cancel button for pending upgrade tasks", () => {
+    const onTaskAction = vi.fn();
+    const task = pendingUpgradeTask();
+    render(<AppLayout {...baseProps} tasks={[task]} onTaskAction={onTaskAction} />);
+
+    fireEvent.click(screen.getByTitle("任务"));
+    expect(screen.getByText("升级任务已提交，等待 upgrade-runner 执行")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("取消等待任务"));
+    expect(onTaskAction).toHaveBeenCalledWith(task);
+  });
+
+  it("does not show the cancel button for non-upgrade pending tasks", () => {
+    render(<AppLayout {...baseProps} tasks={[pendingCleanupTask()]} onTaskAction={vi.fn()} />);
+
+    fireEvent.click(screen.getByTitle("任务"));
+    expect(screen.queryByTitle("取消等待任务")).not.toBeInTheDocument();
+  });
+
+  it("shows a remove button for failed tasks", () => {
+    const onTaskAction = vi.fn();
+    const task = failedTask();
+    render(<AppLayout {...baseProps} tasks={[task]} onTaskAction={onTaskAction} />);
+
+    fireEvent.click(screen.getByTitle("任务"));
+    fireEvent.click(screen.getByTitle("从任务中心移除"));
+
+    expect(onTaskAction).toHaveBeenCalledWith(task);
   });
 
   it("only reveals auto scrollbars while the user is scrolling", () => {

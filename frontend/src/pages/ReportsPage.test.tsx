@@ -1,10 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ReportsPage } from "./ReportsPage";
 
 const apiMock = vi.hoisted(() => ({
   report: vi.fn(),
-  exportReport: vi.fn()
+  exportReport: vi.fn(),
+  exportReportBundle: vi.fn(),
+  downloadSavedExport: vi.fn()
 }));
 
 vi.mock("../services/api", async () => ({
@@ -13,6 +15,16 @@ vi.mock("../services/api", async () => ({
 }));
 
 describe("ReportsPage", () => {
+  beforeEach(() => {
+    apiMock.report.mockReset();
+    apiMock.exportReport.mockReset();
+    apiMock.exportReportBundle.mockReset();
+    apiMock.downloadSavedExport.mockReset();
+    URL.createObjectURL = vi.fn(() => "blob:report");
+    URL.revokeObjectURL = vi.fn();
+    HTMLAnchorElement.prototype.click = vi.fn();
+  });
+
   it("renders v2 report contract and lets vm rows jump to the vm page", async () => {
     const onSelectVm = vi.fn();
     apiMock.report.mockResolvedValue({
@@ -89,5 +101,72 @@ describe("ReportsPage", () => {
 
     fireEvent.click(screen.getByText("Month VM"));
     expect(onSelectVm).toHaveBeenCalledWith("vm-month", "Month VM");
+  });
+
+  it("exports word and excel through one bundle task", async () => {
+    const addTask = vi.fn();
+    const updateTask = vi.fn();
+    apiMock.report.mockResolvedValue({
+      clusters: [],
+      fastest_growing_vms: [],
+      day_fastest_growing_vms: [],
+      month_fastest_growing_vms: [],
+      day_new_vms: [],
+      month_new_vms: [],
+      cluster_growth_rate: { per_day: 0, per_month: 0, per_quarter: 0 },
+      window_days: 30,
+      chart_days: 365,
+      growth_rate_window_days: 7,
+      forecast_days: 90
+    });
+    apiMock.exportReportBundle.mockResolvedValue({
+      task_id: "report-bundle-1",
+      status: "success",
+      files: [
+        { label: "Word", filename: "storage-forecast-all-20260606-120000-30d.docx", url: "/api/admin/exports/reports/word.docx", path: "/data/exports/reports/word.docx" },
+        { label: "Excel", filename: "storage-forecast-all-20260606-120000-30d.xlsx", url: "/api/admin/exports/reports/excel.xlsx", path: "/data/exports/reports/excel.xlsx" }
+      ],
+      links: [
+        { label: "Word", filename: "storage-forecast-all-20260606-120000-30d.docx", url: "/api/admin/exports/reports/word.docx", path: "/data/exports/reports/word.docx" },
+        { label: "Excel", filename: "storage-forecast-all-20260606-120000-30d.xlsx", url: "/api/admin/exports/reports/excel.xlsx", path: "/data/exports/reports/excel.xlsx" }
+      ],
+      message: "Word 和 Excel 报表已生成"
+    });
+    apiMock.downloadSavedExport.mockResolvedValue({ blob: new Blob(["ok"]), filename: "report.docx" });
+
+    render(
+      <ReportsPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 1, vm_count: 0, used_bytes: 0, total_bytes: 0, used_ratio: 0 },
+          top_vms: [],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSelectVm={vi.fn()}
+        addTask={addTask}
+        updateTask={updateTask}
+      />
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "导出" }));
+    fireEvent.click(screen.getByRole("button", { name: "导出 Word 和 Excel" }));
+
+    await waitFor(() => expect(apiMock.exportReportBundle).toHaveBeenCalledTimes(1));
+    expect(apiMock.exportReportBundle).toHaveBeenCalledWith(undefined, 30, expect.stringMatching(/^report-export-/));
+    expect(apiMock.exportReport).not.toHaveBeenCalled();
+    expect(addTask).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(updateTask).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          status: "succeeded",
+          links: expect.arrayContaining([
+            expect.objectContaining({ label: "Word" }),
+            expect.objectContaining({ label: "Excel" })
+          ])
+        })
+      )
+    );
   });
 });

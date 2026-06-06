@@ -76,6 +76,7 @@ class V2CollectionTest(unittest.TestCase):
             self.assertIn('smartx_vm_storage_used_bytes{tower_id="1",cluster_id="enabled-cluster",vm_id="vm-1",vm_name="VM One Renamed"} 42', result.metrics_text)
             latest_vm = CollectionService(db, settings, cloudtower_client=fake_client).latest_vm(1, "enabled-cluster", "vm-1")
             self.assertEqual(latest_vm["name"], "VM One Renamed")
+            self.assertEqual(set(latest_vm), {"tower_id", "cluster_id", "vm_id", "name", "used_bytes"})
             self.assertEqual(latest_vm["used_bytes"], 42)
             self.assertIn("VM One Renamed", CollectionService(db, settings, cloudtower_client=fake_client).latest_metrics_text())
             with db.connection() as conn:

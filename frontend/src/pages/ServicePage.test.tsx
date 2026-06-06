@@ -10,8 +10,10 @@ const apiMock = vi.hoisted(() => ({
   componentUpgradeHistory: vi.fn(),
   upgradeVerification: vi.fn(),
   precheckUpgrade: vi.fn(),
+  startUpgrade: vi.fn(),
   importMigration: vi.fn(),
-  scanSpaceCleanup: vi.fn()
+  scanSpaceCleanup: vi.fn(),
+  localStorageUsage: vi.fn()
 }));
 
 vi.mock("../services/api", async () => ({
@@ -31,6 +33,17 @@ function mockServicePageBootstrap() {
     compose_file: "docker-compose.offline.yml",
     package: null,
     services: []
+  });
+  apiMock.localStorageUsage.mockResolvedValue({
+    path: "/data",
+    total_bytes: 1000,
+    used_bytes: 850,
+    free_bytes: 150,
+    used_ratio: 0.85,
+    free_ratio: 0.15,
+    total_label: "1000 B",
+    used_label: "850 B",
+    free_label: "150 B"
   });
 }
 
@@ -132,6 +145,28 @@ describe("ServicePage migration overwrite mode", () => {
     expect(scanButton).toHaveClass("primary-button", "service-header-button");
     expect(cleanupButton).toHaveClass("danger-button", "service-header-button");
   });
+
+  it("loads local host storage usage on the space cleanup page and warns when free space is low", async () => {
+    mockServicePageBootstrap();
+    apiMock.scanSpaceCleanup.mockResolvedValue({
+      ok: true,
+      items: [],
+      total_count: 0,
+      total_size: 0,
+      total_size_label: "0 B",
+      message: "没有可清理文件"
+    });
+
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "空间清理" }));
+
+    expect(await screen.findByText("本机空间使用量")).toBeInTheDocument();
+    expect(apiMock.localStorageUsage).toHaveBeenCalled();
+    expect(screen.getByText("已用 850 B / 总量 1000 B")).toBeInTheDocument();
+    expect(screen.getByText("剩余 150 B")).toBeInTheDocument();
+    expect(screen.getByLabelText("本机空间使用率 85.0%")).toHaveClass("danger");
+  });
 });
 
 describe("ServicePage upgrade center", () => {
@@ -195,5 +230,21 @@ describe("ServicePage upgrade center", () => {
     expect(screen.getAllByText("未执行").length).toBeGreaterThan(0);
 
     await waitFor(() => expect(apiMock.precheckUpgrade).toHaveBeenCalledWith("upgrade-1"));
+  });
+
+  it("uses the backend upgrade task id for the task center start task", async () => {
+    mockServicePageBootstrap();
+    apiMock.upgradeHistory.mockResolvedValue([{ ...uploadedPlatformTask(), status: "prechecked", precheck_ok: true }]);
+    apiMock.startUpgrade.mockResolvedValue({ ...uploadedPlatformTask(), status: "pending", precheck_ok: true });
+    const addTask = vi.fn();
+    const updateTask = vi.fn();
+    render(<ServicePage addTask={addTask} updateTask={updateTask} />);
+
+    fireEvent.click(await screen.findByText("v0.4.2"));
+    fireEvent.click(screen.getByRole("button", { name: "开始升级" }));
+
+    await waitFor(() => expect(apiMock.startUpgrade).toHaveBeenCalledWith("upgrade-1"));
+    expect(addTask).toHaveBeenCalledWith(expect.objectContaining({ id: "upgrade-1", kind: "upgrade", title: "执行系统升级" }));
+    expect(updateTask).toHaveBeenCalledWith("upgrade-1", expect.objectContaining({ progress: expect.any(Number) }));
   });
 });

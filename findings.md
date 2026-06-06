@@ -189,3 +189,38 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - `scripts/build_runner_component_package.py` 曾默认 `v0.2.0`，需要改为读取根目录 `RUNNER_VERSION`。
 - GitHub Actions 曾在平台镜像矩阵中构建 `upgrade-runner`，导致 runner 仓库出现 `v0.4.0`、`v0.5.0`、`main`、`latest` 等平台语义 tag。
 - 后续 DockerHub 错误 tag 清理方法记录在 `docs/version-governance.md`。
+
+## v2 任务中心状态机发现
+
+任务中心的数据来源不是 `/data/upgrades` 目录本身，而是 SQLite `tasks` 表：
+
+- `tasks` 表记录全局任务中心列表。
+- `/data/upgrades/<task_id>/task.json` 记录升级包/升级任务详情。
+- 如果 `tasks` 表存在 `pending` 升级任务，但对应 `task.json` 已丢失，前端会一直从 `/api/tasks` 拉回这条 pending 任务；用户点“清空”不会删除 pending，因此看起来“删不掉”。
+
+2026-06-07 在 `10.20.11.3` 现场确认：
+
+- `tasks` 表有 19 条任务中心记录。
+- 多数为 `status=pending`、`title=执行系统升级`、`progress=1`。
+- 多数记录对应 `/data/upgrades/<task_id>/task.json` 已不存在。
+- 直接清理 `tasks` 表后 `tasks_count=0`，任务中心不再拉回这些残留项。
+
+当前 v2 任务中心语义：
+
+- `清空` 只清理成功完成任务，即后端 `status=success` / 前端 `succeeded`。
+- `failed`、`cancelled`、异常任务需要手动点任务右侧 X 删除。
+- `pending` / `running` 不能通过清空删除。
+- pending 的“执行系统升级 / 执行组件升级”右侧 X 是取消等待任务，不是普通删除。
+- failed/cancelled 右侧 X 是从任务中心移除。
+
+后端修复点：
+
+- `UpgradeService.cancel()` 若读不到 `/data/upgrades/<task_id>/task.json`，会回退检查 SQLite `tasks` 表。
+- 只有当 `tasks.status == pending` 时，才允许把孤儿升级任务标记为 `cancelled`。
+- 新增单条任务删除 API：`DELETE /api/tasks/{task_id}`，只允许删除非 active 任务。
+
+前端修复点：
+
+- `startUpgrade()` / `startComponentUpgrade()` 使用后端真实 `task_id` 创建任务中心记录，避免 `upgrade-start-*` 临时 id 导致取消接口找不到任务。
+- `addTask()` 同 id upsert，避免重复任务堆叠。
+- `mergeTasks()` 允许后端完成态覆盖本地 active 状态，避免完成任务继续显示执行中。

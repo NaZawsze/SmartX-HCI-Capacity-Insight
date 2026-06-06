@@ -150,6 +150,23 @@ class UpgradeService:
         shutil.rmtree(task_dir, ignore_errors=True)
         return {"ok": True, "task_id": task_id}
 
+    def cancel(self, task_id: str) -> dict[str, Any]:
+        task_dir = self.settings.upgrades_dir / task_id
+        task = self._read_task_or_pending_record(task_id, task_dir)
+        if task.get("started_at") or task.get("status") != "pending":
+            raise HTTPException(status_code=400, detail="只能取消等待执行的升级任务。")
+        task["status"] = "cancelled"
+        task["runner_requested"] = False
+        task["runner_resume_pending"] = False
+        task["cancelled_at"] = _now().isoformat()
+        task["updated_at"] = task["cancelled_at"]
+        logs = list(task.get("logs") or [])
+        logs.append("管理员已取消等待中的升级任务")
+        task["logs"] = logs
+        _save_task_file(task_dir, task)
+        self.tasks.update_task(task_id, status=TaskStatus.CANCELLED, progress=100, message="升级任务已取消", logs=logs)
+        return self._public_task(task)
+
     def version(self) -> dict[str, str]:
         return {"version": self.settings.app_version}
 
@@ -366,6 +383,25 @@ class UpgradeService:
         if task.get("status") == "success":
             public.setdefault("finished_at", task.get("updated_at"))
         return public
+
+    def _read_task_or_pending_record(self, task_id: str, task_dir: Path) -> dict[str, Any]:
+        try:
+            return _read_task_file(task_dir)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+        record = self.tasks.get_task(task_id)
+        if not record or record.get("status") != TaskStatus.PENDING.value:
+            raise HTTPException(status_code=404, detail="升级任务不存在。")
+        return {
+            "task_id": task_id,
+            "status": "pending",
+            "target_version": record.get("message") or "",
+            "components": ["platform"],
+            "checks": [],
+            "steps": [],
+            "logs": [],
+        }
 
     def _create_upgrade_backup(self, task: dict[str, Any]) -> Path:
         generated_at = _now()
@@ -655,6 +691,7 @@ def _public_status(status: str) -> str:
         "runner_restarting": "running",
         "success": "succeeded",
         "failed": "failed",
+        "cancelled": "cancelled",
     }.get(status, status)
 
 

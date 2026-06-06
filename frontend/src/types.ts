@@ -101,6 +101,9 @@ export interface VmTrend {
   vm_id: string;
   metric: string;
   points: [number, number][];
+  tower_id?: number;
+  cluster_id?: string;
+  vm_name?: string;
 }
 
 export interface VmDetail {
@@ -138,8 +141,22 @@ export interface VmVolume {
 export interface VmVolumeSet {
   tower_id: number;
   cluster_id: string;
+  cluster_name?: string;
   vm_id: string;
+  vm_name?: string;
   volumes: VmVolume[];
+}
+
+export interface LocalStorageUsage {
+  path: string;
+  total_bytes: number;
+  used_bytes: number;
+  free_bytes: number;
+  used_ratio: number;
+  free_ratio: number;
+  total_label: string;
+  used_label: string;
+  free_label: string;
 }
 
 export interface ForecastPayload {
@@ -306,7 +323,7 @@ export interface MigrationHealth {
   };
 }
 
-export type AppTaskStatus = "running" | "succeeded" | "failed";
+export type AppTaskStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled";
 export type AppTaskKind = "upload" | "download" | "import" | "export" | "upgrade";
 
 export interface AppTaskLink {
@@ -314,6 +331,14 @@ export interface AppTaskLink {
   filename?: string;
   url: string;
   path?: string;
+}
+
+export interface ReportBundleExport {
+  task_id: string;
+  status: "success" | "failed" | string;
+  files: AppTaskLink[];
+  links: AppTaskLink[];
+  message: string;
 }
 
 export interface AppTaskStep {

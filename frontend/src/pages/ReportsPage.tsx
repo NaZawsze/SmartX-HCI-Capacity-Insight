@@ -89,19 +89,21 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
     const id = `report-export-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     addTask({ id, kind: "export", title: "导出预测报表", detail: "正在生成 Word 和 Excel", status: "running", progress: 10 });
     try {
-      const [word, excel] = await Promise.all([
-        api.exportReport("word", reportScope, exportPeriodDays, (progress) => updateTask(id, { progress: Math.max(10, Math.min(88, numericProgress(progress))), detail: "正在生成 Word/Excel" })),
-        api.exportReport("excel", reportScope, exportPeriodDays, (progress) => updateTask(id, { progress: Math.max(10, Math.min(88, numericProgress(progress))), detail: "正在生成 Word/Excel" }))
-      ]);
-      const wordFilename = word.filename || fallbackExportFilename("word", selectedCluster, exportPeriodDays);
-      const excelFilename = excel.filename || fallbackExportFilename("excel", selectedCluster, exportPeriodDays);
-      saveBlob(word.blob, wordFilename);
-      saveBlob(excel.blob, excelFilename);
+      updateTask(id, { progress: 35, detail: "正在生成 Word/Excel" });
+      const result = await api.exportReportBundle(reportScope, exportPeriodDays, id);
+      const links = result.links?.length ? result.links : result.files;
+      updateTask(id, { progress: 82, detail: "报表已生成，正在准备下载", links });
+      await Promise.all(
+        links.map(async (link) => {
+          const downloaded = await api.downloadSavedExport(link.url);
+          saveBlob(downloaded.blob, link.filename || downloaded.filename || fallbackExportFilename(link.label === "Excel" ? "excel" : "word", selectedCluster, exportPeriodDays));
+        })
+      );
       updateTask(id, {
         status: "succeeded",
         progress: 100,
-        detail: "报表已生成，可从任务下载",
-        links: [taskLink("Word", wordFilename, word.downloadUrl, word.savedPath), taskLink("Excel", excelFilename, excel.downloadUrl, excel.savedPath)].filter(Boolean) as AppTask["links"]
+        detail: result.message || "报表已生成，可从任务下载",
+        links
       });
       setExportDialogOpen(false);
     } catch (error) {
@@ -388,15 +390,6 @@ function formatExhaustionDays(value?: number | null): string {
 function formatPercent(value?: number | null): string {
   if (value == null || !Number.isFinite(value)) return "-";
   return `${(value * 100).toFixed(value >= 1 ? 0 : 1)}%`;
-}
-
-function numericProgress(progress: number | { progress: number }): number {
-  return typeof progress === "number" ? progress : progress.progress;
-}
-
-function taskLink(label: string, filename: string, url?: string, path?: string): AppTask["links"] extends Array<infer Link> | undefined ? Link | null : never {
-  if (!url) return null as never;
-  return { label, filename, url, path } as never;
 }
 
 function saveBlob(blob: Blob, filename: string) {

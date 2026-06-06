@@ -90,6 +90,22 @@ class V2FoundationTest(unittest.TestCase):
                 os.environ.pop("SMARTX_DB_PATH", None)
                 os.environ.pop("SMARTX_PROMETHEUS_DATA_PATH", None)
 
+    def test_direct_settings_read_compose_mounted_data_path_overrides(self) -> None:
+        from app.v2.config import V2Settings
+
+        os.environ["SMARTX_DB_PATH"] = "/data/smartx.db"
+        os.environ["SMARTX_PROMETHEUS_DATA_PATH"] = "/prometheus-data"
+        try:
+            settings = V2Settings()
+            self.assertEqual(settings.sqlite_path, Path("/data/smartx.db"))
+            self.assertEqual(settings.sqlite_dir, Path("/data"))
+            self.assertEqual(settings.prometheus_data_dir, Path("/prometheus-data"))
+            self.assertNotIn(Path("/data/smartx-capacity-insight-data/app"), settings.required_directories())
+            self.assertNotIn(Path("/data/smartx-capacity-insight-data/prometheus"), settings.required_directories())
+        finally:
+            os.environ.pop("SMARTX_DB_PATH", None)
+            os.environ.pop("SMARTX_PROMETHEUS_DATA_PATH", None)
+
     def test_database_initializes_default_admin_and_auth_flow(self) -> None:
         from app.v2.auth.service import AuthService
         from app.v2.config import V2Settings

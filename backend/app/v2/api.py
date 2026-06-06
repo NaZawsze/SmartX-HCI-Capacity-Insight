@@ -480,6 +480,18 @@ def vm_volumes(
     return vms.volumes(vm_id=vm_id, tower_id=tower_id, cluster_id=cluster_id)
 
 
+@router.get("/api/vm-volumes")
+def vm_volumes_all(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    vms: Annotated[VmService, Depends(get_vm_service)],
+    tower_id: Optional[int] = None,
+    cluster_id: Optional[str] = None,
+) -> list[dict]:
+    if cluster_id and tower_id is None:
+        raise HTTPException(status_code=400, detail="cluster_id requires tower_id.")
+    return vms.all_volumes(tower_id=tower_id, cluster_id=cluster_id)
+
+
 @router.get("/api/reports/latest")
 def latest_report(
     _: Annotated[CurrentUser, Depends(require_user)],
@@ -528,6 +540,36 @@ def export_report_excel(
     content, filename, path, download_url = build_report_xlsx(report, settings, period_days=period_days)
     record_export_task(tasks, filename, path, download_url, "Excel")
     return download_response(content, filename, XLSX_MEDIA_TYPE, path=path, download_url=download_url)
+
+
+@router.post("/api/reports/export/bundle")
+def export_report_bundle(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    reports: Annotated[ReportService, Depends(get_report_service)],
+    settings: Annotated[V2Settings, Depends(get_v2_settings)],
+    tasks: Annotated[TaskService, Depends(get_task_service)],
+    tower_id: Optional[int] = None,
+    cluster_id: Optional[str] = None,
+    period_days: int = 30,
+    task_id: Optional[str] = None,
+) -> dict:
+    if cluster_id and tower_id is None:
+        raise HTTPException(status_code=400, detail="cluster_id requires tower_id.")
+    report = reports.latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days)
+    _, word_filename, word_path, word_url = build_report_docx(report, settings, period_days=period_days)
+    _, excel_filename, excel_path, excel_url = build_report_xlsx(report, settings, period_days=period_days)
+    files = [
+        {"label": "Word", "filename": word_filename, "url": word_url, "path": str(word_path)},
+        {"label": "Excel", "filename": excel_filename, "url": excel_url, "path": str(excel_path)},
+    ]
+    task_id = record_export_bundle_task(tasks, files, task_id=task_id)
+    return {
+        "task_id": task_id,
+        "status": "success",
+        "files": files,
+        "links": files,
+        "message": "Word 和 Excel 报表已生成",
+    }
 
 
 @router.get("/api/admin/exports/{category}/{filename}")
@@ -602,12 +644,31 @@ def clear_finished_tasks(
     return {"deleted": tasks.clear_finished()}
 
 
+@router.delete("/api/tasks/{task_id}")
+def delete_inactive_task(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    tasks: Annotated[TaskService, Depends(get_task_service)],
+) -> dict[str, bool | str]:
+    if not tasks.delete_inactive(task_id):
+        raise HTTPException(status_code=400, detail="只能手动清除已完成、失败或已取消的任务。")
+    return {"ok": True, "task_id": task_id}
+
+
 @router.get("/api/admin/system/cleanup-artifacts/scan")
 def scan_cleanup_artifacts(
     _: Annotated[CurrentUser, Depends(require_user)],
     cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
 ) -> dict:
     return cleanup.scan_artifacts()
+
+
+@router.get("/api/admin/system/local-storage")
+def local_storage_usage(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
+) -> dict:
+    return cleanup.local_storage_usage()
 
 
 @router.post("/api/admin/system/cleanup-artifacts")
@@ -676,6 +737,15 @@ def rollback_upgrade_package(
     upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
 ) -> dict:
     return upgrade.rollback(task_id)
+
+
+@router.post("/api/admin/upgrade/cancel/{task_id}")
+def cancel_upgrade_package(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.cancel(task_id)
 
 
 @router.get("/api/admin/upgrade/status/{task_id}")
@@ -757,6 +827,15 @@ def component_upgrade_status(
     return upgrade.status(task_id)
 
 
+@router.post("/api/admin/component-upgrade/cancel/{task_id}")
+def cancel_component_upgrade_package(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.cancel(task_id)
+
+
 @router.get("/api/admin/component-upgrade/history")
 def component_upgrade_history(
     _: Annotated[CurrentUser, Depends(require_user)],
@@ -812,3 +891,9 @@ def download_response(content: bytes, filename: str, media_type: str, *, path: P
 def record_export_task(tasks: TaskService, filename: str, path: Path, download_url: str, label: str) -> None:
     task_id = f"report-{token_hex(8)}"
     tasks.create_task(task_id, TaskType.REPORT, "导出预测报表", status=TaskStatus.SUCCESS, progress=100, message=f"{label} 报表已生成", links=[{"label": label, "filename": filename, "url": download_url, "path": str(path)}])
+
+
+def record_export_bundle_task(tasks: TaskService, files: list[dict], task_id: Optional[str] = None) -> str:
+    task_id = task_id or f"report-{token_hex(8)}"
+    tasks.create_task(task_id, TaskType.REPORT, "导出预测报表", status=TaskStatus.SUCCESS, progress=100, message="Word 和 Excel 报表已生成", links=files)
+    return task_id

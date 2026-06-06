@@ -99,8 +99,16 @@ class TaskService:
 
     def clear_finished(self) -> int:
         with self.database.connection() as conn:
-            cursor = conn.execute("DELETE FROM tasks WHERE status IN (?, ?, ?)", (TaskStatus.SUCCESS.value, TaskStatus.FAILED.value, TaskStatus.CANCELLED.value))
+            cursor = conn.execute("DELETE FROM tasks WHERE status = ?", (TaskStatus.SUCCESS.value,))
             return int(cursor.rowcount or 0)
+
+    def delete_inactive(self, task_id: str) -> bool:
+        task = self.get_task(task_id)
+        if task is None or task["status"] in {TaskStatus.PENDING.value, TaskStatus.RUNNING.value}:
+            return False
+        with self.database.connection() as conn:
+            cursor = conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            return bool(cursor.rowcount)
 
 
 def _task_row(row) -> dict[str, Any]:

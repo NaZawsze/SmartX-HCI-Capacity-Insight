@@ -132,6 +132,7 @@ class V2DashboardVmTest(unittest.TestCase):
             trend = service.trend(vm_id="vm-1", tower_id=1, cluster_id="cluster-a", days=1)
 
             self.assertEqual(vms[0]["vm_name"], "VM One Latest")
+            self.assertEqual(vms[0]["cluster_name"], "Cluster A")
             self.assertEqual(trend["vm_name"], "VM One Latest")
             self.assertEqual(trend["points"], [{"timestamp": -86200, "used_bytes": 50.0}, {"timestamp": 200, "used_bytes": 70.0}])
             self.assertIn('tower_id="1"', prometheus.range_calls[-1]["query"])
@@ -172,6 +173,23 @@ class V2DashboardVmTest(unittest.TestCase):
             self.assertEqual(volumes[0]["storage_policy"], "Replica-2")
             self.assertEqual(volumes[0]["replica_num"], 2)
             self.assertTrue(volumes[0]["thin_provision"])
+
+    def test_all_volumes_return_vm_and_cluster_context(self) -> None:
+        from app.v2.vms.service import VmService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            service = VmService(db, settings, prometheus=FakePrometheus(), now_ts=200)
+
+            volume_sets = service.all_volumes(tower_id=1, cluster_id="cluster-a")
+
+            self.assertEqual(len(volume_sets), 1)
+            self.assertEqual(volume_sets[0]["tower_id"], 1)
+            self.assertEqual(volume_sets[0]["cluster_id"], "cluster-a")
+            self.assertEqual(volume_sets[0]["cluster_name"], "Cluster A")
+            self.assertEqual(volume_sets[0]["vm_id"], "vm-1")
+            self.assertEqual(volume_sets[0]["vm_name"], "VM One Latest")
+            self.assertEqual(volume_sets[0]["volumes"][0]["used_bytes"], 60)
 
 
 if __name__ == "__main__":

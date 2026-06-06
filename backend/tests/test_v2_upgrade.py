@@ -149,6 +149,79 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertFalse(Path(started["override_path"]).exists())
             self.assertTrue(any(command[-1:] == ["web-api"] for command in service.executor.commands if command[:3] == ["docker", "compose", "-f"]))
 
+    def test_cancel_pending_upgrade_prevents_runner_execution_and_marks_task_cancelled(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.runner import run_pending_once
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def __init__(self) -> None:
+                self.commands: list[list[str]] = []
+
+            def run(self, command: list[str], *, cwd: Path | None = None) -> None:
+                self.commands.append(command)
+
+        image = b"web-api-image"
+        manifest = {
+            "schema_version": "2",
+            "version": "v2.0.2",
+            "components": [
+                {
+                    "type": "platform",
+                    "services": ["web-api"],
+                    "images": [{"service": "web-api", "image": "repo/web-api:v2.0.2", "archive": "images/web-api.tar", "sha256": hashlib.sha256(image).hexdigest()}],
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            task_service = TaskService(database)
+            executor = FakeExecutor()
+            service = UpgradeService(settings, task_service, executor=executor, project_path=Path(tmpdir) / "project")
+            task = service.upload_package_bytes(self._package(manifest, {"images/web-api.tar": image}), filename="upgrade.tar.gz")
+            self.assertTrue(service.precheck(task["task_id"])["ok"])
+            started = service.start(task["task_id"], submit_to_runner=True)
+            self.assertEqual(started["status"], "pending")
+
+            cancelled = service.cancel(task["task_id"])
+            self.assertEqual(cancelled["status"], "cancelled")
+            self.assertFalse(cancelled.get("runner_requested", False))
+            stored_task = task_service.get_task(task["task_id"])
+            self.assertEqual(stored_task["status"], "cancelled")
+            self.assertEqual(stored_task["progress"], 100)
+
+            executed = run_pending_once(settings, task_service, executor=executor, project_path=Path(tmpdir) / "project")
+            self.assertEqual(executed, 0)
+            self.assertEqual(executor.commands, [])
+
+    def test_cancel_orphaned_pending_upgrade_task_marks_task_cancelled(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.models import TaskStatus, TaskType
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            task_service = TaskService(database)
+            task_service.create_task("upgrade-orphan", TaskType.UPGRADE, "执行系统升级", status=TaskStatus.PENDING, progress=1, message="升级任务已提交，等待 upgrade-runner 执行")
+            service = UpgradeService(settings, task_service, project_path=Path(tmpdir) / "project")
+
+            cancelled = service.cancel("upgrade-orphan")
+
+            self.assertEqual(cancelled["task_id"], "upgrade-orphan")
+            self.assertEqual(cancelled["status"], "cancelled")
+            stored_task = task_service.get_task("upgrade-orphan")
+            self.assertEqual(stored_task["status"], "cancelled")
+            self.assertEqual(stored_task["progress"], 100)
+            self.assertEqual(stored_task["message"], "升级任务已取消")
+
     def test_start_can_submit_task_for_runner_and_runner_executes_it(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.database import V2Database

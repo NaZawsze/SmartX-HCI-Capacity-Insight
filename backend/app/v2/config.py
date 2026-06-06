@@ -9,6 +9,9 @@ IMAGE_VERSION_FILE = Path("/app/VERSION")
 RUNNER_VERSION_FILE = Path("/app/RUNNER_VERSION")
 DEFAULT_APP_VERSION = "v0.5.0"
 DEFAULT_RUNNER_VERSION = "v0.3.0"
+DEFAULT_DATA_ROOT = Path("/data")
+DEFAULT_SQLITE_PATH = DEFAULT_DATA_ROOT / "smartx.db"
+DEFAULT_PROMETHEUS_DATA_PATH = Path("/prometheus-data")
 
 
 def read_version(version_file: Path, env_name: str, default: str) -> str:
@@ -21,9 +24,13 @@ def read_version(version_file: Path, env_name: str, default: str) -> str:
 
 @dataclass(frozen=True)
 class V2Settings:
-    data_root: Path = Path("/data")
-    db_path_override: Path | None = None
-    prometheus_data_path_override: Path | None = None
+    data_root: Path = DEFAULT_DATA_ROOT
+    db_path_override: Path | None = field(
+        default_factory=lambda: Path(value) if (value := os.environ.get("SMARTX_DB_PATH")) else None
+    )
+    prometheus_data_path_override: Path | None = field(
+        default_factory=lambda: Path(value) if (value := os.environ.get("SMARTX_PROMETHEUS_DATA_PATH")) else None
+    )
     secret_key: str = field(default_factory=lambda: os.environ.get("SMARTX_SECRET_KEY", "change-me-in-production"))
     credential_key: str | None = field(default_factory=lambda: os.environ.get("SMARTX_CREDENTIAL_KEY"))
     admin_user: str = field(default_factory=lambda: os.environ.get("SMARTX_ADMIN_USER", "admin"))
@@ -37,7 +44,20 @@ class V2Settings:
     token_ttl_minutes: int = field(default_factory=lambda: int(os.environ.get("SMARTX_TOKEN_TTL_MINUTES", "720")))
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "data_root", Path(self.data_root))
+        data_root = Path(self.data_root)
+        object.__setattr__(self, "data_root", data_root)
+        if self.db_path_override is not None:
+            object.__setattr__(self, "db_path_override", Path(self.db_path_override))
+            if data_root != DEFAULT_DATA_ROOT and Path(self.db_path_override) == DEFAULT_SQLITE_PATH:
+                object.__setattr__(self, "db_path_override", None)
+        elif data_root == DEFAULT_DATA_ROOT:
+            object.__setattr__(self, "db_path_override", DEFAULT_SQLITE_PATH)
+        if self.prometheus_data_path_override is not None:
+            object.__setattr__(self, "prometheus_data_path_override", Path(self.prometheus_data_path_override))
+            if data_root != DEFAULT_DATA_ROOT and Path(self.prometheus_data_path_override) == DEFAULT_PROMETHEUS_DATA_PATH:
+                object.__setattr__(self, "prometheus_data_path_override", None)
+        elif data_root == DEFAULT_DATA_ROOT:
+            object.__setattr__(self, "prometheus_data_path_override", DEFAULT_PROMETHEUS_DATA_PATH)
 
     @property
     def app_data_dir(self) -> Path:

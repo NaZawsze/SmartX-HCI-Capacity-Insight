@@ -41,7 +41,11 @@ export default function App() {
   }, []);
   const addTask = useCallback((task: Omit<AppTask, "createdAt" | "updatedAt">) => {
     const now = Date.now();
-    setTasks((current) => [{ ...task, createdAt: now, updatedAt: now }, ...current].slice(0, 30));
+    setTasks((current) => {
+      const existing = current.find((item) => item.id === task.id);
+      const nextTask = { ...existing, ...task, createdAt: existing?.createdAt ?? now, updatedAt: now };
+      return [nextTask, ...current.filter((item) => item.id !== task.id)].slice(0, 30);
+    });
   }, []);
 
   const updateTask = useCallback((id: string, patch: Partial<Omit<AppTask, "id" | "createdAt">>) => {
@@ -50,8 +54,31 @@ export default function App() {
 
   const clearTasks = useCallback(() => {
     api.clearFinishedTasks().catch(() => undefined);
-    setTasks((current) => current.filter((task) => task.status === "running"));
+    setTasks((current) => current.filter((task) => task.status !== "succeeded"));
   }, []);
+
+  const handleTaskAction = useCallback(async (task: AppTask) => {
+    if (!isCancellableUpgradeTask(task) && isActiveTask(task)) return;
+    setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, detail: isCancellableUpgradeTask(task) ? "正在取消等待任务" : "正在从任务中心移除", updatedAt: Date.now() } : item)));
+    try {
+      if (isCancellableUpgradeTask(task)) {
+        if (task.title === "执行组件升级") {
+          await api.cancelComponentUpgrade(task.id);
+        } else {
+          await api.cancelUpgrade(task.id);
+        }
+        setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, status: "cancelled", progress: 100, detail: "升级任务已取消", updatedAt: Date.now() } : item)));
+      } else {
+        await api.deleteTask(task.id);
+        setTasks((current) => current.filter((item) => item.id !== task.id));
+      }
+      await refreshTasks();
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "取消任务失败";
+      const notFound = message.includes("不存在");
+      setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, status: notFound ? "cancelled" : item.status, progress: notFound ? 100 : item.progress, detail: notFound ? "升级任务已不存在，已从等待队列移除" : message, updatedAt: Date.now() } : item)));
+    }
+  }, [refreshTasks]);
 
 
   useEffect(() => {
@@ -94,7 +121,7 @@ export default function App() {
   }
 
   return (
-    <AppLayout activePage={activePage} onNavigate={setActivePage} onLogout={logout} summary={summary} scope={scope} onScopeChange={setScope} onSummary={handleSummary} tasks={tasks} onClearTasks={clearTasks}>
+    <AppLayout activePage={activePage} onNavigate={setActivePage} onLogout={logout} summary={summary} scope={scope} onScopeChange={setScope} onSummary={handleSummary} tasks={tasks} onClearTasks={clearTasks} onTaskAction={handleTaskAction}>
       {activePage === "dashboard" && <DashboardPage summary={summary} scope={scope} onSummary={handleSummary} onSelectVm={openVm} />}
       {activePage === "vms" && (
         <VmsPage
@@ -119,11 +146,19 @@ function mergeTasks(localTasks: AppTask[], serverTasks: AppTask[]): AppTask[] {
   const byId = new Map<string, AppTask>();
   for (const task of [...serverTasks, ...localTasks]) {
     const existing = byId.get(task.id);
-    if (!existing || task.updatedAt >= existing.updatedAt || existing.status === "running") {
+    if (!existing || task.updatedAt >= existing.updatedAt || (isActiveTask(existing) && isActiveTask(task))) {
       byId.set(task.id, { ...existing, ...task });
     }
   }
   return [...byId.values()].sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+function isActiveTask(task: AppTask): boolean {
+  return task.status === "pending" || task.status === "running";
+}
+
+function isCancellableUpgradeTask(task: AppTask): boolean {
+  return task.kind === "upgrade" && task.status === "pending" && (task.title === "执行系统升级" || task.title === "执行组件升级");
 }
 
 function serverTaskToAppTask(task: ServerTask): AppTask {
@@ -132,7 +167,7 @@ function serverTaskToAppTask(task: ServerTask): AppTask {
     kind: task.kind || "download",
     title: task.title,
     detail: task.detail || task.message || "",
-    status: task.status === "success" ? "succeeded" : task.status === "failed" || task.status === "cancelled" ? "failed" : "running",
+    status: task.status === "success" ? "succeeded" : task.status === "failed" ? "failed" : task.status === "cancelled" ? "cancelled" : task.status === "pending" ? "pending" : "running",
     progress: task.progress,
     links: task.links,
     logs: task.logs,

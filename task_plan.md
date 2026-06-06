@@ -218,6 +218,50 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 设计重点：
 
 - 平台升级和组件升级的职责边界重新定义：哪些由 web-api 执行，哪些必须由独立 runner 执行。
+
+### Phase 18 - 任务中心状态机与残留任务治理
+
+状态：完成第一版，待提交
+
+目标：
+
+- 修复任务中心里“执行系统升级”pending 残留任务删不掉、清空后又恢复的问题。
+- 明确任务中心清理语义，避免“清空”和“取消/移除”混用。
+- 修复完成任务仍显示执行中、进度未正确落到完成状态的问题。
+
+已完成：
+
+- 后端 `UpgradeService.cancel()` 支持处理“任务表中存在 pending 记录，但 `/data/upgrades/<task_id>/task.json` 已不存在”的孤儿升级任务；这类任务可被标记为 `cancelled`，不再永久挂在 pending。
+- 后端任务清理语义调整：
+  - `DELETE /api/tasks/finished` 只清理 `success` 成功完成任务。
+  - `failed`、`cancelled` 等异常/失败/已取消任务不会被“清空”删除。
+  - 新增 `DELETE /api/tasks/{task_id}`，仅允许手动删除非 active 任务；`pending/running` 不能被直接删除。
+- 前端任务中心语义调整：
+  - `清空` 只移除前端本地 `succeeded` 任务，并调用后端成功任务清理接口。
+  - pending 的“执行系统升级 / 执行组件升级”右侧 X 表示取消等待任务。
+  - failed/cancelled 右侧 X 表示从任务中心手动移除。
+  - 普通 pending/running 任务不允许清除。
+- 前端 `startUpgrade()` 和 `startComponentUpgrade()` 创建任务中心记录时使用后端真实 `task_id`，不再使用 `upgrade-start-*` 或 `component-start-*` 临时 id。
+- 前端 `addTask()` 改为同 id upsert，避免重复任务堆叠。
+- 前端任务合并逻辑修复：后端 `success/failed/cancelled` 可以覆盖本地 active 状态，避免完成任务继续显示执行中。
+- 已在 `10.20.11.3` 直接清理现场任务表 `tasks`，清理前 19 条、清理后 0 条；只删除任务中心记录，未动业务数据、升级包目录、Prometheus 历史指标。
+
+验证：
+
+- 本地后端目标测试：
+  - `backend.tests.test_v2_upgrade.V2UpgradeServiceTest.test_cancel_orphaned_pending_upgrade_task_marks_task_cancelled`
+  - `backend.tests.test_v2_upgrade.V2UpgradeServiceTest.test_cancel_pending_upgrade_prevents_runner_execution_and_marks_task_cancelled`
+  - `backend.tests.test_v2_tasks_api.V2TaskServiceTest.test_task_service_persists_lists_updates_and_clears_finished_tasks`
+- 远端 `10.20.11.3` 后端目标测试通过。
+- 远端前端测试 `AppLayout.test.tsx ServicePage.test.tsx` 通过，17 个测试通过。
+- 远端前端 build 通过。
+- 远端已重建并重启 `web-api`、`frontend`，`/api/system/health=200`、`8080=200`。
+
+后续注意：
+
+- 如果任务中心仍出现历史升级任务，先查 SQLite `tasks` 表，不要只看 `/data/upgrades` 目录。
+- 任务中心状态来源有两层：SQLite `tasks` 表用于全局任务中心，`/data/upgrades/<task_id>/task.json` 用于升级包历史和升级任务详情；二者可能因测试或旧逻辑产生不一致。
+- 现场直接清空任务中心记录可执行 `DELETE FROM tasks`，但只能在用户明确要求“直接清理”时操作。
 - runner 自升级不能依赖旧 web-api 写只读路径，也不能在执行任务中重启自己导致任务断链。
 - 升级包采用统一入口，由 `manifest.json` 自动识别平台服务、runner 组件和 Prometheus/observability 组件；包类型和目标组件由 manifest 声明，不再依赖用户手动选择。
 - Prometheus 作为 `observability` 组件升级，必须包含独立预检查、强制数据备份、数据目录权限检查、版本兼容检查、健康检查和历史指标查询回归。

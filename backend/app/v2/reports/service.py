@@ -48,10 +48,12 @@ class ReportService:
         capacity_by_cluster = self._cluster_totals(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         chart_points_by_cluster = _points_by_cluster(chart_series)
         clusters = []
+        tower_names = self._tower_names()
         cluster_names = self._cluster_names()
         for key, points in _points_by_cluster(cluster_series).items():
             labels = {
                 "tower_id": str(key[0]),
+                "tower": tower_names.get(key[0], str(key[0])),
                 "cluster_id": key[1],
                 "cluster": cluster_names.get(key, key[1]),
             }
@@ -69,17 +71,28 @@ class ReportService:
         clusters.sort(key=lambda item: (item["labels"].get("cluster", ""), item["labels"].get("cluster_id", "")))
         latest_vms = self._latest_vm_items(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         vm_series = self._vm_series(days=max(window_days, 30), tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        window_vm_series = self._vm_series(days=window_days, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         day_vm_series = self._vm_series(days=2, tower_id=tower_id, cluster_id=cluster_id, step="1h", enabled_scope=enabled_scope)
         latest_vms = _merge_latest_items(latest_vms, _latest_items_from_series_tail(vm_series))
         latest_label_by_vm = self._latest_vm_labels()
+        window_vms = _growth_reports_from_series(latest_vms, window_vm_series, period_days=window_days, limit=100, latest_label_by_vm=latest_label_by_vm)
         day_vms = _growth_reports_from_series(latest_vms, day_vm_series, period_days=1, limit=100, latest_label_by_vm=latest_label_by_vm)
-        month_vms = _growth_reports_from_series(latest_vms, vm_series, period_days=window_days, limit=100, latest_label_by_vm=latest_label_by_vm, min_sample_days=30)
+        month_vms = _growth_reports_from_series(
+            latest_vms,
+            vm_series,
+            period_days=window_days,
+            limit=100,
+            latest_label_by_vm=latest_label_by_vm,
+            min_sample_days=0,
+            max_sample_days=window_days,
+        )
         day_new_vms = _new_vm_reports_from_series(vm_series, *_period_bounds(self.now_ts, "day"), 100, latest_label_by_vm, _latest_vm_value_map(latest_vms))
         month_new_vms = _new_vm_reports_from_series(vm_series, *_period_bounds(self.now_ts, "month"), 100, latest_label_by_vm, _latest_vm_value_map(latest_vms))
         cluster_growth_rate = _cluster_growth_rate_from_points(_points_by_cluster(growth_series))
         return {
             "scope": {"tower_id": tower_id, "cluster_id": cluster_id},
             "clusters": clusters,
+            "window_fastest_growing_vms": window_vms,
             "fastest_growing_vms": day_vms,
             "day_fastest_growing_vms": day_vms,
             "month_fastest_growing_vms": month_vms,
@@ -96,7 +109,10 @@ class ReportService:
             "growth_rate_window_days": 7,
             "forecast_days": 90,
             "period_window": _period_window(self.now_ts, window_days),
-            "month_growth_min_sample_days": 30,
+            "data_window": _data_window_from_series(vm_series, cluster_series),
+            "timezone": self.settings.timezone,
+            "vm_growth_sample_bucket": {"min_days": 0, "max_days": window_days},
+            "month_growth_min_sample_days": 0,
         }
 
     def _cluster_series(self, *, days: int, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]], step: str = "1d") -> list[dict[str, Any]]:
@@ -148,13 +164,20 @@ class ReportService:
             rows = conn.execute("SELECT tower_id, cluster_id, name FROM clusters").fetchall()
         return {(int(row["tower_id"]), str(row["cluster_id"])): str(row["name"]) for row in rows}
 
+    def _tower_names(self) -> dict[int, str]:
+        with self.database.connection() as conn:
+            rows = conn.execute("SELECT id, name FROM towers").fetchall()
+        return {int(row["id"]): str(row["name"]) for row in rows}
+
     def _latest_vm_labels(self) -> dict[tuple[int, str, str], dict[str, str]]:
         with self.database.connection() as conn:
             rows = conn.execute("SELECT tower_id, cluster_id, vm_id, name FROM vm_latest").fetchall()
+        tower_names = self._tower_names()
         cluster_names = self._cluster_names()
         return {
             (int(row["tower_id"]), str(row["cluster_id"]), str(row["vm_id"])): {
                 "tower_id": str(row["tower_id"]),
+                "tower": tower_names.get(int(row["tower_id"]), str(row["tower_id"])),
                 "cluster_id": str(row["cluster_id"]),
                 "cluster": cluster_names.get((int(row["tower_id"]), str(row["cluster_id"])), str(row["cluster_id"])),
                 "vm_id": str(row["vm_id"]),
@@ -202,18 +225,15 @@ def _growth_reports_from_series(
     limit: int,
     latest_label_by_vm: dict[tuple[int, str, str], dict[str, str]],
     min_sample_days: int | None = None,
+    max_sample_days: int | None = None,
 ) -> list[dict[str, Any]]:
-    baseline_by_vm = {}
-    for series in series_list:
-        points = range_values(series)
-        if not points:
-            continue
-        baseline_by_vm[_vm_key(series.get("metric", {}))] = points[0]
+    points_by_vm = _points_by_vm(series_list)
     mapped = []
     for item in latest_items:
         labels = item.get("metric", {})
         key = _vm_key(labels)
-        baseline = baseline_by_vm.get(key)
+        points = points_by_vm.get(key) or []
+        baseline = points[0] if points else None
         if baseline is None:
             continue
         latest_ts = _item_timestamp(item)
@@ -222,6 +242,8 @@ def _growth_reports_from_series(
         baseline_ts, baseline_value = baseline
         sample_span_days = (latest_ts - baseline_ts) / SECONDS_PER_DAY
         if min_sample_days is not None and sample_span_days < min_sample_days:
+            continue
+        if max_sample_days is not None and sample_span_days > max_sample_days:
             continue
         current = metric_value(item)
         growth_amount = max(0.0, current - baseline_value)
@@ -254,18 +276,17 @@ def _new_vm_reports_from_series(
     latest_value_by_vm: dict[tuple[int, str, str], float],
 ) -> list[dict[str, Any]]:
     mapped = []
-    for series in series_list:
-        points = sorted(range_values(series))
+    latest_labels_by_key = {_vm_key(series.get("metric", {})): series.get("metric", {}) for series in series_list}
+    for key, points in _points_by_vm(series_list).items():
         if not points:
             continue
-        key = _vm_key(series.get("metric", {}))
         first_ts, first_value = points[0]
         if first_ts < start_ts or first_ts > end_ts:
             continue
         current = latest_value_by_vm.get(key, points[-1][1])
         mapped.append(
             {
-                "labels": _labels_with_latest_name(series.get("metric", {}), latest_label_by_vm),
+                "labels": _labels_with_latest_name(latest_labels_by_key.get(key, {}), latest_label_by_vm),
                 "first_seen_at": datetime.fromtimestamp(first_ts, tz=timezone.utc).isoformat(),
                 "age_days": max((end_ts - first_ts) / SECONDS_PER_DAY, 0),
                 "growth_amount": max(0.0, current - first_value),
@@ -293,6 +314,18 @@ def _points_by_cluster(series_list: list[dict[str, Any]]) -> dict[tuple[int, str
     for series in series_list:
         key = _cluster_key(series.get("metric", {}))
         if not key[1]:
+            continue
+        points = grouped.setdefault(key, {})
+        for timestamp, value in range_values(series):
+            points[int(timestamp)] = float(value)
+    return {key: sorted(points.items()) for key, points in grouped.items()}
+
+
+def _points_by_vm(series_list: list[dict[str, Any]]) -> dict[tuple[int, str, str], list[tuple[int, float]]]:
+    grouped: dict[tuple[int, str, str], dict[int, float]] = {}
+    for series in series_list:
+        key = _vm_key(series.get("metric", {}))
+        if not key[2]:
             continue
         points = grouped.setdefault(key, {})
         for timestamp, value in range_values(series):
@@ -359,6 +392,22 @@ def _period_window(now_ts: int, days: int) -> dict[str, Any]:
         "days": days,
         "start_at": datetime.fromtimestamp(start_ts, tz=timezone.utc).isoformat(),
         "end_at": datetime.fromtimestamp(now_ts, tz=timezone.utc).isoformat(),
+    }
+
+
+def _data_window_from_series(*series_groups: list[dict[str, Any]]) -> dict[str, Any]:
+    timestamps: list[int] = []
+    for series_list in series_groups:
+        for series in series_list:
+            points = range_values(series)
+            if points:
+                timestamps.append(int(points[0][0]))
+                timestamps.append(int(points[-1][0]))
+    if not timestamps:
+        return {}
+    return {
+        "start_at": datetime.fromtimestamp(min(timestamps), tz=timezone.utc).isoformat(),
+        "end_at": datetime.fromtimestamp(max(timestamps), tz=timezone.utc).isoformat(),
     }
 
 

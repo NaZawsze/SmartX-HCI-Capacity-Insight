@@ -1313,6 +1313,11 @@ button {
   align-items: center;
 }
 
+.volume-table-all .volume-table-head,
+.volume-table-all .volume-table-row {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.15fr) minmax(0, 1.55fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.85fr) minmax(0, 1.2fr);
+}
+
 .volume-table-head {
   min-height: 34px;
   padding: 0 4px 10px;
@@ -1320,6 +1325,24 @@ button {
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
+}
+
+.volume-sort-button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.volume-sort-button.active {
+  color: var(--blue);
 }
 
 .volume-table-body {
@@ -1533,6 +1556,53 @@ button {
   border-radius: inherit;
   background: linear-gradient(90deg, #1677ff, #35c2ff);
   transition: width 0.25s ease;
+}
+
+.local-storage-card {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfdff;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.local-storage-head,
+.local-storage-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.local-storage-head strong {
+  display: block;
+  color: var(--ink);
+}
+
+.local-storage-head span,
+.local-storage-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.local-storage-track {
+  height: 9px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #e7eef7;
+  margin: 12px 0 8px;
+}
+
+.local-storage-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--blue), #55b6ff);
+  transition: width 0.2s ease;
+}
+
+.local-storage-track.danger span {
+  background: linear-gradient(90deg, #d92d20, var(--red));
 }
 
 .cleanup-steps {
@@ -3426,12 +3496,37 @@ button {
   font-weight: 700;
 }
 
+.task-menu-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
 .task-menu-item em {
   color: #7f8fa4;
   font-size: 12px;
   font-style: normal;
   font-weight: 800;
   text-align: right;
+}
+
+.task-cancel-button {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #7f8fa4;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.16s ease;
+}
+
+.task-cancel-button:hover {
+  background: transparent;
+  color: #dc2626;
 }
 
 .task-progress {
@@ -3455,6 +3550,10 @@ button {
 
 .task-menu-item.failed .task-progress span {
   background: #ef4444;
+}
+
+.task-menu-item.cancelled .task-progress span {
+  background: #94a3b8;
 }
 
 .task-menu-empty {

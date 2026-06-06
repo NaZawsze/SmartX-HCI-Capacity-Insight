@@ -13,6 +13,7 @@ interface AppLayoutProps {
   summary?: DashboardSummary | null;
   tasks?: AppTask[];
   onClearTasks?: () => void;
+  onTaskAction?: (task: AppTask) => void;
   children: ReactNode;
 }
 
@@ -48,7 +49,7 @@ function scopeKey(scope: DashboardScope): string {
   return "all";
 }
 
-export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChange, onSummary, summary, tasks = [], onClearTasks, children }: AppLayoutProps) {
+export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChange, onSummary, summary, tasks = [], onClearTasks, onTaskAction, children }: AppLayoutProps) {
   const towers = summary?.towers ?? emptyTowers;
   const selectedTower = scope.type === "tower" || scope.type === "cluster" ? towers.find((tower) => tower.id === scope.towerId) || towers[0] : towers[0];
   const totalClusterCount = towers.reduce((total, tower) => total + tower.clusters.length, 0);
@@ -77,7 +78,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   const selectedScopeKey = scopeKey(scope);
   const serviceFocus = activePage === "service";
   const shellStyle = { "--sidebar-width": `${sidebarWidth}px` } as CSSProperties;
-  const runningTaskCount = tasks.filter((task) => task.status === "running").length;
+  const runningTaskCount = tasks.filter((task) => task.status === "pending" || task.status === "running").length;
   const visibleTasks = [...tasks].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, 8);
 
   const resetWorkspaceScroll = useCallback(() => {
@@ -271,7 +272,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
                     <div className="task-menu-list auto-scrollbar">
                       {visibleTasks.map((task) => (
                         <div className={`task-menu-item ${task.status}`} key={task.id}>
-                          <span className="task-state-icon">{task.status === "succeeded" ? <Check size={14} /> : task.status === "failed" ? <X size={14} /> : <ClipboardList size={14} />}</span>
+                          <span className="task-state-icon">{task.status === "succeeded" ? <Check size={14} /> : task.status === "failed" || task.status === "cancelled" ? <X size={14} /> : <ClipboardList size={14} />}</span>
                           <div>
                             <strong>{task.title}</strong>
                             <small>{task.detail || taskStatusText(task.status)}</small>
@@ -304,7 +305,22 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
                               <span style={{ width: `${task.progress}%` }} />
                             </span>
                           </div>
-                          <em>{Math.round(task.progress)}%</em>
+                          <div className="task-menu-actions">
+                            <em>{Math.round(task.progress)}%</em>
+                            {isActionableTask(task) && onTaskAction ? (
+                              <button
+                                className="task-cancel-button"
+                                type="button"
+                                title={isCancellableUpgradeTask(task) ? "取消等待任务" : "从任务中心移除"}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  onTaskAction(task);
+                                }}
+                              >
+                                <X size={18} strokeWidth={3} />
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -546,11 +562,21 @@ function scrollElementToTop(element: HTMLElement | null) {
 
 function taskStatusText(status: AppTask["status"]): string {
   const labels: Record<AppTask["status"], string> = {
+    pending: "等待中",
     running: "执行中",
     succeeded: "已完成",
-    failed: "失败"
+    failed: "失败",
+    cancelled: "已取消"
   };
   return labels[status];
+}
+
+function isCancellableUpgradeTask(task: AppTask): boolean {
+  return task.kind === "upgrade" && task.status === "pending" && (task.title === "执行系统升级" || task.title === "执行组件升级");
+}
+
+function isActionableTask(task: AppTask): boolean {
+  return isCancellableUpgradeTask(task) || task.status === "failed" || task.status === "cancelled";
 }
 
 function stepStatusText(status: string): string {

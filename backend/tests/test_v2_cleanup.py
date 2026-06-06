@@ -83,6 +83,25 @@ class V2CleanupServiceTest(unittest.TestCase):
             self.assertEqual(result["space_reclaimed"], 134217728)
             self.assertTrue(any(command[:3] == ["docker", "image", "rm"] for command in executor.commands))
 
+    def test_local_storage_usage_uses_data_root_filesystem(self) -> None:
+        from app.v2.cleanup.service import CleanupService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="cleanup-secret")
+            database = V2Database(settings)
+            database.initialize()
+            cleanup = CleanupService(settings, TaskService(database))
+
+            usage = cleanup.local_storage_usage()
+
+            self.assertEqual(usage["path"], str(settings.data_root))
+            self.assertGreater(usage["total_bytes"], 0)
+            self.assertGreaterEqual(usage["free_ratio"], 0)
+            self.assertLessEqual(usage["used_ratio"], 1)
+
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2CleanupApiTest(unittest.TestCase):
@@ -129,6 +148,11 @@ class V2CleanupApiTest(unittest.TestCase):
 
                     image_cleanup = client.post("/api/admin/system/cleanup-images", headers=headers)
                     self.assertEqual(image_cleanup.status_code, 200)
+
+                    local_storage = client.get("/api/admin/system/local-storage", headers=headers)
+                    self.assertEqual(local_storage.status_code, 200)
+                    self.assertEqual(local_storage.json()["path"], str(settings.data_root))
+                    self.assertIn("free_ratio", local_storage.json())
 
                     restart = client.post("/api/admin/system/restart", headers=headers)
                     self.assertEqual(restart.status_code, 200)

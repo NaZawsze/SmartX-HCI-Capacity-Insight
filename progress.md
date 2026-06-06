@@ -2274,3 +2274,63 @@ TDD 记录：
 
 - 本轮只修改文档。
 - `rg` 检查当前任务文档和升级台账不再保留未收口的 v2 待验证项；剩余 v0.2.x/v0.4.0 文本仅作为历史现象或历史验证记录保留。
+
+### 2026-06-07 Phase 18 任务中心状态机与残留任务清理
+
+状态：完成第一版并已部署到 `10.20.11.3`
+
+问题：
+
+- 任务中心出现多条 `执行系统升级`，进度 1%，点 X 后显示“升级任务不存在”或“已从等待队列移除”，但点“清空”后又恢复。
+- 用户要求：清空只能清成功完成任务；异常/失败任务不能被清空，需要手动点 X 消除。
+- 用户最后明确要求“直接清理掉”现场残留任务。
+
+根因：
+
+- 前端开始升级时曾使用 `upgrade-start-*` 临时 id 创建任务中心记录，取消接口需要真实后端升级 `task_id`，因此取消会找不到升级任务。
+- SQLite `tasks` 表中残留了大量 `pending` 升级任务，但对应 `/data/upgrades/<task_id>/task.json` 已不存在；`/api/tasks` 会继续返回这些记录，而“清空”不会删除 pending。
+- 前端任务合并逻辑曾让本地 active 状态压过后端完成态，导致完成任务可能继续显示执行中。
+
+代码修复：
+
+- `backend/app/v2/upgrade/service.py`
+  - `cancel()` 支持 task.json 缺失时回退读取 SQLite `tasks` pending 记录，把孤儿升级任务标记为 `cancelled`。
+- `backend/app/v2/tasks/service.py`
+  - `clear_finished()` 改为只删除 `success`。
+  - 新增 `delete_inactive()`，仅允许删除非 `pending/running` 任务。
+- `backend/app/v2/api.py`
+  - 新增 `DELETE /api/tasks/{task_id}` 手动移除非 active 任务。
+- `frontend/src/App.tsx`
+  - `clearTasks()` 只移除 `succeeded`。
+  - 新增任务 X 处理逻辑：pending 升级走取消；failed/cancelled 走手动删除。
+  - `addTask()` 改为同 id upsert。
+  - `mergeTasks()` 允许后端完成态覆盖本地 active。
+- `frontend/src/pages/ServicePage.tsx`
+  - `startUpgrade()` / `startComponentUpgrade()` 使用真实 `task_id` 创建任务中心任务。
+- `frontend/src/components/AppLayout.tsx`
+  - failed/cancelled 显示“从任务中心移除”的 X。
+  - pending 的系统/组件升级显示“取消等待任务”的 X。
+
+测试：
+
+- 本地通过：
+  - `PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_upgrade.V2UpgradeServiceTest.test_cancel_orphaned_pending_upgrade_task_marks_task_cancelled backend.tests.test_v2_upgrade.V2UpgradeServiceTest.test_cancel_pending_upgrade_prevents_runner_execution_and_marks_task_cancelled`
+  - `PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_tasks_api.V2TaskServiceTest.test_task_service_persists_lists_updates_and_clears_finished_tasks`
+  - `python3 -m py_compile backend/app/v2/upgrade/service.py backend/app/v2/tasks/service.py backend/app/v2/api.py`
+- 远端 `10.20.11.3` 通过：
+  - 后端目标测试 2 个通过。
+  - 前端 `AppLayout.test.tsx ServicePage.test.tsx` 17 个测试通过。
+  - 前端 build 通过。
+  - 重建并启动 `web-api`、`frontend` 后，`/api/system/health=200`、`8080=200`。
+
+现场清理：
+
+- 在 `10.20.11.3` 的 `web-api` 容器内连接 `/data/smartx.db`。
+- 清理前 `tasks` 表 19 条记录，大部分为 `pending` 的 `执行系统升级` 且 `task.json` 已缺失。
+- 用户明确要求直接清理后，执行 `DELETE FROM tasks`。
+- 清理后确认 `tasks_count=0`。
+
+注意：
+
+- 本次直接清理只删除任务中心记录，未删除业务库数据、升级包目录、Prometheus 历史指标或备份。
+- 后续如果用户没有明确要求，不要直接 `DELETE FROM tasks`；优先使用页面 X 或 API。

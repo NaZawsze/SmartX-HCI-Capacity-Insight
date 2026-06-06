@@ -51,8 +51,18 @@ class V2TaskServiceTest(unittest.TestCase):
             self.assertEqual(listed[0]["message"], "完成")
             self.assertEqual(listed[0]["steps"][0]["title"], "准备数据")
 
-            tasks.clear_finished()
-            self.assertEqual(tasks.list_tasks(), [])
+            tasks.create_task("task-pending", TaskType.UPGRADE, "执行系统升级", progress=1, message="等待 upgrade-runner 执行")
+            tasks.create_task("task-running", TaskType.UPGRADE, "执行系统升级", status=TaskStatus.RUNNING, progress=30)
+            tasks.create_task("task-failed", TaskType.UPGRADE, "执行系统升级", status=TaskStatus.FAILED, progress=100)
+            tasks.create_task("task-cancelled", TaskType.UPGRADE, "执行系统升级", status=TaskStatus.CANCELLED, progress=100)
+
+            self.assertEqual(tasks.clear_finished(), 1)
+            self.assertEqual([task["id"] for task in tasks.list_tasks()], ["task-cancelled", "task-failed", "task-running", "task-pending"])
+
+            self.assertFalse(tasks.delete_inactive("task-running"))
+            self.assertTrue(tasks.delete_inactive("task-failed"))
+            self.assertTrue(tasks.delete_inactive("task-cancelled"))
+            self.assertEqual([task["id"] for task in tasks.list_tasks()], ["task-running", "task-pending"])
 
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
@@ -79,7 +89,10 @@ class V2TaskApiTest(unittest.TestCase):
                     service = TaskService(database)
                     service.create_task("task-1", TaskType.REPORT, "导出预测报表")
                     service.update_task("task-1", status=TaskStatus.SUCCESS, progress=100, message="完成")
-
+                    service.create_task("task-pending", TaskType.UPGRADE, "执行系统升级", progress=1, message="等待 upgrade-runner 执行")
+                    service.create_task("task-running", TaskType.UPGRADE, "执行系统升级", status=TaskStatus.RUNNING, progress=30)
+                    service.create_task("task-failed", TaskType.UPGRADE, "执行系统升级", status=TaskStatus.FAILED, progress=100)
+                    service.create_task("task-cancelled", TaskType.UPGRADE, "执行系统升级", status=TaskStatus.CANCELLED, progress=100)
                     listed = client.get("/api/tasks", headers=headers)
                     self.assertEqual(listed.status_code, 200)
                     self.assertEqual(listed.json()[0]["id"], "task-1")
@@ -87,7 +100,14 @@ class V2TaskApiTest(unittest.TestCase):
                     cleared = client.delete("/api/tasks/finished", headers=headers)
                     self.assertEqual(cleared.status_code, 200)
                     self.assertEqual(cleared.json()["deleted"], 1)
-                    self.assertEqual(client.get("/api/tasks", headers=headers).json(), [])
+                    remaining = client.get("/api/tasks", headers=headers).json()
+                    self.assertEqual([task["id"] for task in remaining], ["task-cancelled", "task-failed", "task-running", "task-pending"])
+
+                    self.assertEqual(client.delete("/api/tasks/task-running", headers=headers).status_code, 400)
+                    deleted = client.delete("/api/tasks/task-failed", headers=headers)
+                    self.assertEqual(deleted.status_code, 200)
+                    remaining = client.get("/api/tasks", headers=headers).json()
+                    self.assertEqual([task["id"] for task in remaining], ["task-cancelled", "task-running", "task-pending"])
             finally:
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)
