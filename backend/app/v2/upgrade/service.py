@@ -102,11 +102,23 @@ class UpgradeService:
         )
         return {"ok": task["status"] == "precheck_passed", "task_id": task_id, "checks": checks, "components": task.get("components", [])}
 
-    def start(self, task_id: str) -> dict[str, Any]:
+    def start(self, task_id: str, *, submit_to_runner: bool = False) -> dict[str, Any]:
         task_dir = self.settings.upgrades_dir / task_id
         task = _read_task_file(task_dir)
         if task.get("status") != "precheck_passed":
             raise HTTPException(status_code=400, detail="预检查通过后才能开始升级。")
+        if submit_to_runner:
+            task["status"] = "pending"
+            task["runner_requested"] = True
+            task["updated_at"] = _now().isoformat()
+            _save_task_file(task_dir, task)
+            self.tasks.create_task(task_id, TaskType.UPGRADE, "执行系统升级", status=TaskStatus.PENDING, progress=1, message="升级任务已提交，等待 upgrade-runner 执行")
+            return task
+        return self.execute_task(task)
+
+    def execute_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        task_id = task["task_id"]
+        task_dir = self.settings.upgrades_dir / task_id
         steps = [
             _step("backup", "生成升级前数据备份", "running"),
             _step("load_images", "加载升级镜像", "pending"),
@@ -116,6 +128,11 @@ class UpgradeService:
             _step("healthcheck", "执行服务健康检查", "pending"),
         ]
         logs: list[str] = []
+        task["status"] = "running"
+        task["started_at"] = _now().isoformat()
+        task["steps"] = steps
+        task["logs"] = logs
+        _save_task_file(task_dir, task)
         self.tasks.create_task(task_id, TaskType.UPGRADE, "执行系统升级", status=TaskStatus.RUNNING, progress=5, message="正在生成升级前备份", logs=logs, steps=steps)
         try:
             backup_path = self._create_upgrade_backup(task)

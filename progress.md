@@ -1472,3 +1472,30 @@ TDD 记录：
   - 快进拉取到 `a671e6c`。
   - 使用 `SMARTX_UPGRADE_DRY_RUN=1` 执行 `backend.tests.test_v2_upgrade` 通过。
   - `docker compose build web-api frontend` 通过。
+
+### 2026-06-06 Phase V2-12 upgrade-runner 接管第一版
+
+状态：完成本地验证，待远端验证和提交
+
+实施内容：
+
+- 新增 `app.v2.upgrade.runner`：
+  - `run_pending_once(settings, tasks, executor, project_path)` 扫描 `/data/upgrades/*/task.json`。
+  - 遇到 `status=pending` 且 `runner_requested=true` 的升级任务，调用 v2 `UpgradeService.execute_task()` 执行。
+  - `main()` 循环每 3 秒扫描一次，支持 SIGTERM/SIGINT 退出。
+- `UpgradeService.start(task_id, submit_to_runner=True)` 支持只提交任务给 runner，不在 web-api 内执行 Docker 操作。
+- compose 和 `backend/Dockerfile.upgrade` 的 runner 入口统一改为 `python -m app.v2.upgrade.runner`。
+- 部署测试新增校验，防止 runner 入口回退到旧 `app.upgrade.runner`。
+- `docs/v2-rebuild-task-plan.md` 将“升级任务由 upgrade-runner 执行”标记为第一版完成。
+
+TDD 记录：
+
+- RED：新增 runner 接管测试后，`app.v2.upgrade.runner` 模块不存在。
+- GREEN：新增 runner 模块、start 提交模式和 execute_task 复用执行链。
+- 回归：compose/Dockerfile 仍指向旧 runner，更新入口并补部署测试。
+
+验证：
+
+- 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade -v` 通过。
+- 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m pytest backend/tests/test_deployment_config.py -q` 通过，16 个测试通过。
+- 本地：v2 后端完整 unittest 集 49 个测试通过。

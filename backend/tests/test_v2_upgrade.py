@@ -102,6 +102,48 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertEqual(stored_task["status"], "success")
             self.assertTrue(stored_task["steps"])
 
+    def test_start_can_submit_task_for_runner_and_runner_executes_it(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.runner import run_pending_once
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def __init__(self) -> None:
+                self.commands: list[list[str]] = []
+
+            def run(self, command: list[str], *, cwd: Path | None = None) -> None:
+                self.commands.append(command)
+
+        image = b"web-api-image"
+        manifest = {
+            "schema_version": "2",
+            "version": "v2.0.0",
+            "components": [
+                {"type": "platform", "services": ["web-api"], "images": [{"service": "web-api", "image": "repo/web-api:v2.0.0", "archive": "images/web-api.tar", "sha256": hashlib.sha256(image).hexdigest()}]},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            executor = FakeExecutor()
+            service = UpgradeService(settings, TaskService(database), executor=executor, project_path=Path(tmpdir) / "project")
+            task = service.upload_package_bytes(self._package(manifest, {"images/web-api.tar": image}), filename="upgrade.tar.gz")
+            self.assertTrue(service.precheck(task["task_id"])["ok"])
+
+            submitted = service.start(task["task_id"], submit_to_runner=True)
+            self.assertEqual(submitted["status"], "pending")
+            self.assertTrue(submitted["runner_requested"])
+            self.assertEqual(executor.commands, [])
+
+            executed = run_pending_once(settings, TaskService(database), executor=executor, project_path=Path(tmpdir) / "project")
+            self.assertEqual(executed, 1)
+            final = json.loads((settings.upgrades_dir / task["task_id"] / "task.json").read_text(encoding="utf-8"))
+            self.assertEqual(final["status"], "success")
+            self.assertTrue(any(command[:2] == ["docker", "load"] for command in executor.commands))
+
     def test_upload_rejects_sensitive_paths(self) -> None:
         from fastapi import HTTPException
 

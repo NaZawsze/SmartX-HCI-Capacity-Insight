@@ -16,4 +16,4 @@ RUN pip install --no-cache-dir -r requirements-upgrade.txt
 
 COPY backend/app ./app
 
-CMD ["python", "-m", "app.upgrade.runner"]
+CMD ["python", "-m", "app.v2.upgrade.runner"]

@@ -82,6 +82,14 @@ def test_platform_upgrade_package_excludes_runner() -> None:
     assert '("upgrade-runner",' not in text
 
 
+def test_upgrade_runner_uses_v2_runner_entrypoint() -> None:
+    root = Path(__file__).resolve().parents[2]
+    for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml", "backend/Dockerfile.upgrade"):
+        text = (root / name).read_text(encoding="utf-8")
+        assert "app.v2.upgrade.runner" in text
+        assert "app.upgrade.runner" not in text
+
+
 def test_upgrade_override_uses_platform_release_images() -> None:
     root = Path(__file__).resolve().parents[2]
     text = (root / "docker-compose.upgrade.yml").read_text(encoding="utf-8")

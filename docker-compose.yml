@@ -70,7 +70,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile.upgrade
     image: smartx-storage-forecast-upgrade-runner:local
-    command: ["python", "-m", "app.upgrade.runner"]
+    command: ["python", "-m", "app.v2.upgrade.runner"]
     env_file:
       - .env
     environment:
