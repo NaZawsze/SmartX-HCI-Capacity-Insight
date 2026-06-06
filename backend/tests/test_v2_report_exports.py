@@ -88,6 +88,12 @@ class V2ReportExportApiTest(unittest.TestCase):
                     download = client.get(word.headers["x-smartx-export-url"], headers=headers)
                     self.assertEqual(download.status_code, 200)
                     self.assertEqual(download.content, word.content)
+
+                    tasks = client.get("/api/tasks", headers=headers).json()
+                    report_tasks = [task for task in tasks if task["type"] == "report"]
+                    self.assertGreaterEqual(len(report_tasks), 2)
+                    self.assertEqual(report_tasks[0]["status"], "success")
+                    self.assertTrue(report_tasks[0]["links"][0]["url"].startswith("/api/admin/exports/reports/"))
             finally:
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)

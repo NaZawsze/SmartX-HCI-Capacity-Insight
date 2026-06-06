@@ -5,6 +5,8 @@ import type {
   LoginResponse,
   MetricItem,
   MigrationExportTask,
+  MigrationHealth,
+  ServerTask,
   SpaceCleanupResult,
   SpaceCleanupScanResult,
   Tower,
@@ -431,6 +433,12 @@ export const api = {
   async exportReport(format: "word" | "excel", scope?: DashboardScope, periodDays?: number, onProgress?: ProgressCallback): Promise<DownloadResult> {
     return download(`/api/reports/export/${format}${scopedQuery(scope, periodDays)}`, onProgress);
   },
+  async tasks(): Promise<ServerTask[]> {
+    return request<ServerTask[]>("/api/tasks");
+  },
+  async clearFinishedTasks(): Promise<{ deleted: number }> {
+    return request<{ deleted: number }>("/api/tasks/finished", { method: "DELETE" });
+  },
   async exportMigration(onProgress?: ProgressCallback): Promise<DownloadResult> {
     return download("/api/admin/migration/export", onProgress);
   },
@@ -440,15 +448,18 @@ export const api = {
   async migrationExportStatus(taskId: string): Promise<MigrationExportTask> {
     return request<MigrationExportTask>(`/api/admin/migration/export/status/${taskId}`);
   },
+  async migrationHealth(): Promise<MigrationHealth> {
+    return request<MigrationHealth>("/api/admin/migration/health");
+  },
   async downloadSavedExport(url: string, onProgress?: ProgressCallback): Promise<DownloadResult> {
     return download(url, onProgress);
   },
-  async importMigration(file: File, mode: "merge" | "overwrite", confirmed: boolean, onProgress?: ProgressCallback): Promise<{ ok: boolean; restored: string[]; message: string; backup_path?: string; task_id?: string; saved_path?: string }> {
+  async importMigration(file: File, mode: "merge" | "overwrite", confirmed: boolean, onProgress?: ProgressCallback): Promise<{ ok: boolean; restored: string[]; message: string; backup_path?: string; task_id?: string; saved_path?: string; summary?: { health?: { message?: string; checks?: Record<string, boolean> } } }> {
     const formData = new FormData();
     formData.set("file", file);
     formData.set("mode", mode);
     formData.set("confirmed", String(confirmed));
-    return upload<{ ok: boolean; restored: string[]; message: string; backup_path?: string; task_id?: string; saved_path?: string }>("/api/admin/migration/import", formData, onProgress);
+    return upload<{ ok: boolean; restored: string[]; message: string; backup_path?: string; task_id?: string; saved_path?: string; summary?: { health?: { message?: string; checks?: Record<string, boolean> } } }>("/api/admin/migration/import", formData, onProgress);
   },
   async restartSystemServices(): Promise<{ ok: boolean; services: string[]; message: string }> {
     return request<{ ok: boolean; services: string[]; message: string }>("/api/admin/system/restart", { method: "POST" });

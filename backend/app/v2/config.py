@@ -31,6 +31,9 @@ class V2Settings:
     runner_version: str = field(default_factory=lambda: read_version(RUNNER_VERSION_FILE, "SMARTX_RUNNER_VERSION", DEFAULT_RUNNER_VERSION))
     token_ttl_minutes: int = field(default_factory=lambda: int(os.environ.get("SMARTX_TOKEN_TTL_MINUTES", "720")))
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "data_root", Path(self.data_root))
+
     @property
     def app_data_dir(self) -> Path:
         return self.data_root / "smartx-capacity-insight-data" / "app"

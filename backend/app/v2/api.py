@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from secrets import token_hex
 from typing import Annotated, Optional
 from urllib.parse import quote
 
@@ -20,6 +21,8 @@ from app.v2.inventory.service import InventoryService
 from app.v2.reports.export import DOCX_MEDIA_TYPE, XLSX_MEDIA_TYPE, build_report_docx, build_report_xlsx
 from app.v2.reports.service import ReportService
 from app.v2.system.health import check_health
+from app.v2.tasks.models import TaskStatus, TaskType
+from app.v2.tasks.service import TaskService
 from app.v2.vms.service import VmService
 
 
@@ -154,6 +157,10 @@ def get_report_service(
     settings: Annotated[V2Settings, Depends(get_v2_settings)],
 ) -> ReportService:
     return ReportService(database, settings)
+
+
+def get_task_service(database: Annotated[V2Database, Depends(get_v2_database)]) -> TaskService:
+    return TaskService(database)
 
 
 def require_user(
@@ -433,6 +440,7 @@ def export_report_word(
     _: Annotated[CurrentUser, Depends(require_user)],
     reports: Annotated[ReportService, Depends(get_report_service)],
     settings: Annotated[V2Settings, Depends(get_v2_settings)],
+    tasks: Annotated[TaskService, Depends(get_task_service)],
     tower_id: Optional[int] = None,
     cluster_id: Optional[str] = None,
     period_days: int = 30,
@@ -441,6 +449,7 @@ def export_report_word(
         raise HTTPException(status_code=400, detail="cluster_id requires tower_id.")
     report = reports.latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days)
     content, filename, path, download_url = build_report_docx(report, settings, period_days=period_days)
+    record_export_task(tasks, filename, path, download_url, "Word")
     return download_response(content, filename, DOCX_MEDIA_TYPE, path=path, download_url=download_url)
 
 
@@ -449,6 +458,7 @@ def export_report_excel(
     _: Annotated[CurrentUser, Depends(require_user)],
     reports: Annotated[ReportService, Depends(get_report_service)],
     settings: Annotated[V2Settings, Depends(get_v2_settings)],
+    tasks: Annotated[TaskService, Depends(get_task_service)],
     tower_id: Optional[int] = None,
     cluster_id: Optional[str] = None,
     period_days: int = 30,
@@ -457,6 +467,7 @@ def export_report_excel(
         raise HTTPException(status_code=400, detail="cluster_id requires tower_id.")
     report = reports.latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days)
     content, filename, path, download_url = build_report_xlsx(report, settings, period_days=period_days)
+    record_export_task(tasks, filename, path, download_url, "Excel")
     return download_response(content, filename, XLSX_MEDIA_TYPE, path=path, download_url=download_url)
 
 
@@ -473,6 +484,22 @@ def download_saved_export(
     if not path.is_file():
         raise HTTPException(status_code=404, detail="导出文件不存在。")
     return FileResponse(path, filename=Path(filename).name)
+
+
+@router.get("/api/tasks")
+def list_tasks(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    tasks: Annotated[TaskService, Depends(get_task_service)],
+) -> list[dict]:
+    return tasks.list_tasks()
+
+
+@router.delete("/api/tasks/finished")
+def clear_finished_tasks(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    tasks: Annotated[TaskService, Depends(get_task_service)],
+) -> dict[str, int]:
+    return {"deleted": tasks.clear_finished()}
 
 
 @router.get("/api/system/health")
@@ -500,3 +527,8 @@ def download_response(content: bytes, filename: str, media_type: str, *, path: P
             "X-SmartX-Export-Url": download_url,
         },
     )
+
+
+def record_export_task(tasks: TaskService, filename: str, path: Path, download_url: str, label: str) -> None:
+    task_id = f"report-{token_hex(8)}"
+    tasks.create_task(task_id, TaskType.REPORT, "导出预测报表", status=TaskStatus.SUCCESS, progress=100, message=f"{label} 报表已生成", links=[{"label": label, "filename": filename, "url": download_url, "path": str(path)}])

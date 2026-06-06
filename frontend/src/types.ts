@@ -287,6 +287,24 @@ export interface MigrationExportTask {
   finished_at?: string;
 }
 
+export interface MigrationHealth {
+  checks: Record<string, boolean>;
+  message: string;
+  sqlite?: {
+    exists?: boolean;
+    size_bytes?: number;
+    tables?: Record<string, number>;
+    latest_vm_volumes_payload_bytes?: number;
+    latest_vm_volume_items?: number;
+  };
+  prometheus?: {
+    exists?: boolean;
+    block_count?: number;
+    blocks?: string[];
+    runtime_entries_skipped?: string[];
+  };
+}
+
 export type AppTaskStatus = "running" | "succeeded" | "failed";
 export type AppTaskKind = "upload" | "download" | "import" | "export" | "upgrade";
 
@@ -308,4 +326,20 @@ export interface AppTask {
   logs?: string[];
   createdAt: number;
   updatedAt: number;
+}
+
+export interface ServerTask {
+  id: string;
+  type?: string;
+  kind?: AppTaskKind;
+  status: "pending" | "running" | "success" | "failed" | "cancelled";
+  title: string;
+  message?: string;
+  detail?: string;
+  progress: number;
+  links?: AppTaskLink[];
+  logs?: string[];
+  created_at?: string;
+  updated_at?: string;
+  finished_at?: string | null;
 }

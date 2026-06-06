@@ -1075,3 +1075,45 @@ TDD 记录：
 
 - 当前是导出第一版，文档视觉仍是轻量客户报表，不是 v1 已打磨的完整美化版。
 - 报表导出任务中心目前使用前端现有同步下载任务入口，尚未接入 v2 统一后台任务状态持久化。
+
+### 2026-06-06 Phase V2-11 统一任务中心基础
+
+状态：完成本地和远端验证，待提交
+
+实施内容：
+
+- 新增 `backend/app/v2/tasks/service.py`。
+- 扩展 `tasks` 表，增加 `links_json` 和 `logs_json`，并为旧库提供 `_ensure_column` 兼容。
+- `TaskService` 支持：
+  - 创建任务。
+  - 更新状态、进度、消息、日志、下载链接。
+  - 列出最近任务。
+  - 清理已完成任务。
+- v2 API 新增：
+  - `GET /api/tasks`
+  - `DELETE /api/tasks/finished`
+- `V2Settings` 增加 `__post_init__`，确保 `data_root` 即使传入字符串也会转为 `Path`。
+- 前端 App 登录后轮询 `/api/tasks`，将服务端任务合并到右上角任务菜单。
+- 前端清空任务按钮调用 `/api/tasks/finished`，并保留本地运行中任务。
+- 报表导出成功后写入 `report` 任务，包含 Word/Excel 下载链接，刷新后仍可在任务菜单看到。
+
+TDD 记录：
+
+- RED：新增 `backend/tests/test_v2_tasks_api.py` 后，`app.v2.tasks.service` 缺失。
+- GREEN：新增 `TaskService`、tasks API 后，持久化、列表、清理测试通过。
+- RED：扩展 `backend/tests/test_v2_report_exports.py` 要求导出后写入任务表，初始返回 0 个 report 任务。
+- GREEN：导出路由写入成功任务和下载链接后测试通过。
+
+验证：
+
+- 本地：
+  - `PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_report_exports backend.tests.test_v2_tasks_api -v` 通过。
+  - v2 后端完整测试集 37 个测试通过。
+  - `python3 -m py_compile backend/app/v2/api.py backend/app/v2/config.py backend/app/v2/database.py backend/app/v2/tasks/service.py backend/tests/test_v2_tasks_api.py` 通过。
+- 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
+  - 使用 `smartx-storage-forecast-web-api:local` 容器执行 `backend.tests.test_v2_report_exports backend.tests.test_v2_tasks_api` 通过。
+  - `docker compose build frontend` 通过。
+
+限制：
+
+- 当前任务中心还没有独立步骤表，步骤化进度会在迁移/升级/清理模块接入时继续扩展。

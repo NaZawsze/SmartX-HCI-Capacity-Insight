@@ -54,6 +54,8 @@ class V2Database:
                     title TEXT NOT NULL,
                     progress INTEGER NOT NULL DEFAULT 0,
                     message TEXT,
+                    links_json TEXT,
+                    logs_json TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     finished_at TEXT
@@ -130,6 +132,8 @@ class V2Database:
                 );
                 """
             )
+            _ensure_column(conn, "tasks", "links_json", "TEXT")
+            _ensure_column(conn, "tasks", "logs_json", "TEXT")
             self._ensure_admin(conn)
 
     def _ensure_admin(self, conn: sqlite3.Connection) -> None:
@@ -140,3 +144,9 @@ class V2Database:
             "INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)",
             (self.settings.admin_user, hash_password(self.settings.admin_password)),
         )
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")

@@ -7,7 +7,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { ServicePage } from "./pages/ServicePage";
 import { VmsPage } from "./pages/VmsPage";
 import { AUTH_CHANGED_EVENT, api, getToken, setToken } from "./services/api";
-import type { AppTask, DashboardScope, DashboardSummary, PageKey } from "./types";
+import type { AppTask, DashboardScope, DashboardSummary, PageKey, ServerTask } from "./types";
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(Boolean(getToken()));
@@ -34,6 +34,11 @@ export default function App() {
     const result = await api.summary(scope);
     handleSummary(result);
   }, [handleSummary, scope]);
+
+  const refreshTasks = useCallback(async () => {
+    const serverTasks = await api.tasks();
+    setTasks((current) => mergeTasks(current, serverTasks.map(serverTaskToAppTask)).slice(0, 30));
+  }, []);
   const addTask = useCallback((task: Omit<AppTask, "createdAt" | "updatedAt">) => {
     const now = Date.now();
     setTasks((current) => [{ ...task, createdAt: now, updatedAt: now }, ...current].slice(0, 30));
@@ -44,6 +49,7 @@ export default function App() {
   }, []);
 
   const clearTasks = useCallback(() => {
+    api.clearFinishedTasks().catch(() => undefined);
     setTasks((current) => current.filter((task) => task.status === "running"));
   }, []);
 
@@ -51,16 +57,18 @@ export default function App() {
   useEffect(() => {
     if (authenticated) {
       refreshSummary().catch(() => undefined);
+      refreshTasks().catch(() => undefined);
     }
-  }, [authenticated, refreshSummary]);
+  }, [authenticated, refreshSummary, refreshTasks]);
 
   useEffect(() => {
     if (!authenticated) return;
     const timer = window.setInterval(() => {
       refreshSummary().catch(() => undefined);
+      refreshTasks().catch(() => undefined);
     }, 15000);
     return () => window.clearInterval(timer);
-  }, [authenticated, refreshSummary]);
+  }, [authenticated, refreshSummary, refreshTasks]);
 
   useEffect(() => {
     function syncAuthState() {
@@ -105,4 +113,30 @@ export default function App() {
       {activePage === "service" && <ServicePage addTask={addTask} updateTask={updateTask} />}
     </AppLayout>
   );
+}
+
+function mergeTasks(localTasks: AppTask[], serverTasks: AppTask[]): AppTask[] {
+  const byId = new Map<string, AppTask>();
+  for (const task of [...serverTasks, ...localTasks]) {
+    const existing = byId.get(task.id);
+    if (!existing || task.updatedAt >= existing.updatedAt || existing.status === "running") {
+      byId.set(task.id, { ...existing, ...task });
+    }
+  }
+  return [...byId.values()].sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+function serverTaskToAppTask(task: ServerTask): AppTask {
+  return {
+    id: task.id,
+    kind: task.kind || "download",
+    title: task.title,
+    detail: task.detail || task.message || "",
+    status: task.status === "success" ? "succeeded" : task.status === "failed" || task.status === "cancelled" ? "failed" : "running",
+    progress: task.progress,
+    links: task.links,
+    logs: task.logs,
+    createdAt: task.created_at ? Date.parse(task.created_at) : Date.now(),
+    updatedAt: task.updated_at ? Date.parse(task.updated_at) : Date.now()
+  };
 }
