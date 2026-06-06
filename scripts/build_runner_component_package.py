@@ -68,21 +68,32 @@ def build_package(version: str, min_version: str, output_dir: Path, build_image:
     run(['docker', 'save', '-o', str(image_file), image])
 
     manifest = {
+        'schema_version': '2',
         'product': PRODUCT,
+        'package_id': f'{PRODUCT}-{version}',
         'component': COMPONENT,
         'version': version,
         'min_version': min_version,
         'package_type': 'component',
-        'restart_services': [COMPONENT],
-        'release_notes': f'{COMPONENT} {version}: safe backup, no-deps restart, docker-socket compose path handling.',
-        'images': [
+        'components': [
             {
-                'service': COMPONENT,
-                'image': image,
-                'file': 'images/upgrade-runner.tar',
-                'sha256': sha256_file(image_file),
+                'type': 'runner',
+                'services': [COMPONENT],
+                'images': [
+                    {
+                        'service': COMPONENT,
+                        'image': image,
+                        'archive': 'images/upgrade-runner.tar',
+                        'sha256': sha256_file(image_file),
+                    }
+                ],
             }
         ],
+        'project_files': False,
+        'restart_services': [COMPONENT],
+        'compatibility': {'min_runner_version': min_version},
+        'notes': 'release-notes.md',
+        'release_notes': f'{COMPONENT} {version}: safe backup, no-deps restart, docker-socket compose path handling.',
     }
     (work / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     (work / 'release-notes.md').write_text(

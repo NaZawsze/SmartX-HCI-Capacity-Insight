@@ -1641,3 +1641,39 @@ TDD 记录：
 - 本地：`PYTHONPATH=backend SMARTX_UPGRADE_DRY_RUN=1 /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_cleanup -v` 通过，3 个测试通过。
 - 本地：v2 后端完整 unittest 集 53 个测试通过。
 - 本地：`python3 -m py_compile backend/app/v2/api.py backend/app/v2/cleanup/service.py backend/app/v2/system/control.py backend/tests/test_v2_cleanup.py` 通过。
+
+### 2026-06-06 Phase V2-9 升级包与组件包 v2 manifest 闭环
+
+状态：完成本地验证，待远端验证和提交
+
+实施内容：
+
+- 平台升级包脚本改为输出 v2 manifest：
+  - `schema_version: "2"`
+  - `package_id`
+  - `components[0].type = platform`
+  - `components[0].images[].archive`
+  - `project_files: true`
+  - `project_file_list` 白名单明细
+  - `migration.script = scripts/migrate.sh`
+  - `compatibility.min_platform_version`
+- runner 组件包脚本改为输出 v2 manifest：
+  - `schema_version: "2"`
+  - `components[0].type = runner`
+  - `project_files: false`
+  - `compatibility.min_runner_version`
+- 平台包继续不包含 `upgrade-runner.tar`，runner 包继续只包含 `upgrade-runner`。
+- migrate 脚本从 `project_file_list` 读取白名单，并从 `components[].images[]` 写平台服务 override。
+- `docs/v2-rebuild-task-plan.md` 将 Phase V2-9 “升级包和组件包打包第一版”标记完成。
+
+TDD 记录：
+
+- RED：新增 `backend/tests/test_v2_package_builders.py` 后，两个包构建器测试因 manifest 缺少 `schema_version` 失败。
+- GREEN：调整两个打包脚本输出 v2 manifest，并更新旧部署配置断言。
+
+验证：
+
+- 本地：`PYTHONPATH=backend SMARTX_UPGRADE_DRY_RUN=1 /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_package_builders -v` 通过，2 个测试通过。
+- 本地：`/tmp/smartx-v2-venv/bin/python -m pytest backend/tests/test_deployment_config.py backend/tests/test_v2_package_builders.py -q` 通过，19 个测试通过。
+- 本地：`PYTHONPATH=backend SMARTX_UPGRADE_DRY_RUN=1 /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade -v` 通过，7 个测试通过。
+- 本地：`python3 -m py_compile scripts/build_upgrade_package.py scripts/build_runner_component_package.py` 通过。

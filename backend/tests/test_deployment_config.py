@@ -32,7 +32,7 @@ def test_upgrade_package_migrate_script_only_syncs_project_files(tmp_path) -> No
     module.write_migrate_script(script_path, "v0.4.1")
     text = script_path.read_text(encoding="utf-8")
 
-    assert "project_files = manifest.get(\"project_files\") or []" in text
+    assert "project_files = manifest.get(\"project_file_list\") or []" in text
     assert "override_path.write_text" in text
     assert "migrate_legacy_artifacts" not in text
     assert "/host-data" not in text

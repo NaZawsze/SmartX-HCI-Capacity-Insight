@@ -688,7 +688,7 @@ v2 不兼容 v1 旧升级路径，但必须兼容 v1 数据迁入。
 - [ ] compose 和 Dockerfile。
 - [ ] GitHub Actions。
 - [ ] pre_install。
-- [ ] 升级包和组件包打包。
+- [x] 升级包和组件包打包第一版。
 - [ ] 在 `10.20.11.3` 切换到 `feature/upgrade-v2` 后完整验证。
 
 ## 8. 测试计划

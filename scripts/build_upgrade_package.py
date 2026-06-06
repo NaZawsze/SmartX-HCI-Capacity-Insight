@@ -152,7 +152,7 @@ def safe_rel(value):
         raise RuntimeError(f"项目文件路径疑似包含敏感信息：{{value}}")
     return rel
 
-project_files = manifest.get("project_files") or []
+project_files = manifest.get("project_file_list") or []
 if not project_files:
     raise RuntimeError("升级包缺少 project_files。")
 
@@ -174,11 +174,13 @@ for item in project_files:
     shutil.copy2(source, target)
     copied.append(str(rel))
 
-services = {{
-    item["service"]: item["image"]
-    for item in manifest.get("images", [])
-    if item.get("service") in {{"web-api", "collector-worker", "frontend"}}
-}}
+services = {{}}
+for component in manifest.get("components", []):
+    if component.get("type") != "platform":
+        continue
+    for item in component.get("images", []):
+        if item.get("service") in {{"web-api", "collector-worker", "frontend"}}:
+            services[item["service"]] = item["image"]
 lines = ["services:"]
 for service in ("web-api", "collector-worker", "frontend"):
     image = services.get(service)
@@ -257,7 +259,7 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
         item = {
             "service": service,
             "image": image,
-            "file": rel_path,
+            "archive": rel_path,
             "sha256": sha256_file(target),
         }
         if not restart:
@@ -272,15 +274,27 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
 
     write_migrate_script(work / "scripts/migrate.sh", version)
     manifest = {
+        "schema_version": "2",
         "product": PRODUCT,
+        "package_id": f"smartx-capacity-insight-{version}",
         "version": version,
         "min_version": min_version,
         "package_type": "platform",
         "database_migration": True,
+        "components": [
+            {
+                "type": "platform",
+                "services": ["web-api", "collector-worker", "frontend"],
+                "images": manifest_images,
+            }
+        ],
+        "project_files": True,
+        "project_file_list": project_files,
+        "migration": {"required": True, "script": "scripts/migrate.sh"},
         "restart_services": ["web-api", "collector-worker", "frontend"],
+        "compatibility": {"min_platform_version": min_version},
+        "notes": "release-notes.md",
         "release_notes": f"{version} platform upgrade package.",
-        "project_files": project_files,
-        "images": manifest_images,
     }
     (work / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (work / "release-notes.md").write_text(
