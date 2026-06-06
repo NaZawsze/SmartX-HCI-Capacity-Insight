@@ -25,6 +25,7 @@ from app.v2.reports.service import ReportService
 from app.v2.system.health import check_health
 from app.v2.tasks.models import TaskStatus, TaskType
 from app.v2.tasks.service import TaskService
+from app.v2.upgrade.service import UpgradeService
 from app.v2.vms.service import VmService
 
 
@@ -178,6 +179,13 @@ def get_cleanup_service(
     tasks: Annotated[TaskService, Depends(get_task_service)],
 ) -> CleanupService:
     return CleanupService(settings, tasks)
+
+
+def get_upgrade_service(
+    settings: Annotated[V2Settings, Depends(get_v2_settings)],
+    tasks: Annotated[TaskService, Depends(get_task_service)],
+) -> UpgradeService:
+    return UpgradeService(settings, tasks)
 
 
 def require_user(
@@ -557,6 +565,24 @@ def cleanup_artifacts(
     cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
 ) -> dict:
     return cleanup.cleanup_artifacts()
+
+
+@router.post("/api/admin/upgrade/upload")
+async def upload_upgrade_package(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+    file: UploadFile = File(...),
+) -> dict:
+    return await upgrade.upload_package(file)
+
+
+@router.post("/api/admin/upgrade/precheck/{task_id}")
+def precheck_upgrade_package(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.precheck(task_id)
 
 
 @router.get("/api/system/health")

@@ -1208,3 +1208,47 @@ TDD 记录：
 限制：
 
 - 旧 Docker 镜像扫描/清理尚未接入 v2；本阶段只完成运行文件产物清理。
+
+### 2026-06-06 Phase V2-7 升级中心 manifest/预检查第一版
+
+状态：完成本地和远端验证，待提交
+
+实施内容：
+
+- 新增 `backend/app/v2/upgrade/service.py`。
+- v2 升级包上传第一版：
+  - 保存上传包到 `/data/upgrades/{task_id}`。
+  - 解压到 `/data/upgrades/{task_id}/package`。
+  - 解析 `manifest.json`。
+  - 自动识别 `components[*].type`，支持 `platform`、`runner`、`observability` 等组件类型。
+  - 拦截绝对路径、`..`、`.env`、`smartx.db`、`backups`、`exports`、`compose-runtime`、`password`、`token`、`secret` 等敏感路径。
+- v2 升级预检查第一版：
+  - manifest 基础字段。
+  - 包内路径安全。
+  - 镜像 archive 是否存在。
+  - 镜像 sha256 是否匹配。
+  - `project_files=true` 时校验 `project/docker-compose.offline.yml`。
+- v2 API 新增：
+  - `POST /api/admin/upgrade/upload`
+  - `POST /api/admin/upgrade/precheck/{task_id}`
+- 上传和预检查结果写入统一任务中心。
+- `docs/v2-rebuild-task-plan.md` 将统一 manifest、组件识别、预检查第一版标记完成。
+
+TDD 记录：
+
+- RED：新增 `backend/tests/test_v2_upgrade.py` 后，`app.v2.upgrade.service` 缺失。
+- GREEN：新增 `UpgradeService` 后，上传解析组件、sha256/project_files 预检查、敏感路径拒绝测试通过。
+- 扩展 API 测试后，升级上传/预检查接口鉴权和返回测试通过。
+
+验证：
+
+- 本地：
+  - `PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade -v` 通过。
+  - v2 后端完整测试集 45 个测试通过。
+  - `python3 -m py_compile backend/app/v2/api.py backend/app/v2/upgrade/service.py backend/tests/test_v2_upgrade.py` 通过。
+- 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
+  - 使用 `smartx-storage-forecast-web-api:local` 容器执行 `backend.tests.test_v2_upgrade` 通过。
+
+限制：
+
+- 本阶段只实现上传和预检查薄片，不执行 Docker load、项目文件同步、备份、重启、健康检查和回滚。
