@@ -22,18 +22,34 @@ class V2TaskServiceTest(unittest.TestCase):
             database.initialize()
             tasks = TaskService(database)
 
-            created = tasks.create_task("task-1", TaskType.REPORT, "导出预测报表", message="排队中")
+            created = tasks.create_task(
+                "task-1",
+                TaskType.REPORT,
+                "导出预测报表",
+                message="排队中",
+                steps=[{"key": "prepare", "title": "准备数据", "status": "running"}],
+            )
             self.assertEqual(created["status"], TaskStatus.PENDING.value)
             self.assertEqual(created["progress"], 0)
+            self.assertEqual(created["steps"][0]["key"], "prepare")
 
-            updated = tasks.update_task("task-1", status=TaskStatus.SUCCESS, progress=120, message="完成", links=[{"label": "Excel", "url": "/download"}])
+            updated = tasks.update_task(
+                "task-1",
+                status=TaskStatus.SUCCESS,
+                progress=120,
+                message="完成",
+                links=[{"label": "Excel", "url": "/download"}],
+                steps=[{"key": "prepare", "title": "准备数据", "status": "succeeded"}],
+            )
             self.assertEqual(updated["status"], TaskStatus.SUCCESS.value)
             self.assertEqual(updated["progress"], 100)
             self.assertEqual(updated["links"][0]["label"], "Excel")
+            self.assertEqual(updated["steps"][0]["status"], "succeeded")
 
             listed = tasks.list_tasks()
             self.assertEqual([task["id"] for task in listed], ["task-1"])
             self.assertEqual(listed[0]["message"], "完成")
+            self.assertEqual(listed[0]["steps"][0]["title"], "准备数据")
 
             tasks.clear_finished()
             self.assertEqual(tasks.list_tasks(), [])

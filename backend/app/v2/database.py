@@ -56,6 +56,7 @@ class V2Database:
                     message TEXT,
                     links_json TEXT,
                     logs_json TEXT,
+                    steps_json TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     finished_at TEXT
@@ -134,6 +135,7 @@ class V2Database:
             )
             _ensure_column(conn, "tasks", "links_json", "TEXT")
             _ensure_column(conn, "tasks", "logs_json", "TEXT")
+            _ensure_column(conn, "tasks", "steps_json", "TEXT")
             self._ensure_admin(conn)
 
     def _ensure_admin(self, conn: sqlite3.Connection) -> None:

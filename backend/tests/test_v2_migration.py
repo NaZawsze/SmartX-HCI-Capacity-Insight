@@ -35,9 +35,12 @@ class V2MigrationServiceTest(unittest.TestCase):
             (settings.prometheus_data_dir / "wal" / "runtime").write_text("skip", encoding="utf-8")
 
             content, filename, path, download_url = MigrationService(database, settings, TaskService(database)).build_export_archive()
+            second_content, second_filename, second_path, _ = MigrationService(database, settings, TaskService(database)).build_export_archive(record_task=False)
 
             self.assertTrue(filename.startswith("smartx-capacity-insight-migration-"))
+            self.assertNotEqual(filename, second_filename)
             self.assertTrue(path.is_file())
+            self.assertTrue(second_path.is_file())
             self.assertEqual(path.parent, settings.migrations_dir)
             self.assertTrue(download_url.startswith("/api/admin/exports/migrations/"))
             with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
@@ -119,6 +122,24 @@ class V2MigrationApiTest(unittest.TestCase):
                     self.assertEqual(exported.headers["content-type"], "application/gzip")
                     self.assertTrue(Path(exported.headers["x-smartx-export-path"]).is_file())
                     self.assertTrue(exported.headers["x-smartx-export-url"].startswith("/api/admin/exports/migrations/"))
+
+                    task = client.post("/api/admin/migration/export/start", headers=headers)
+                    self.assertEqual(task.status_code, 200)
+                    task_payload = task.json()
+                    self.assertIn(task_payload["status"], {"running", "succeeded"})
+                    self.assertGreaterEqual(task_payload["progress"], 0)
+                    self.assertIn("steps", task_payload)
+                    self.assertIn("total_bytes", task_payload)
+                    self.assertIn("processed_bytes", task_payload)
+
+                    task_status = client.get(f"/api/admin/migration/export/status/{task_payload['task_id']}", headers=headers)
+                    self.assertEqual(task_status.status_code, 200)
+                    status_payload = task_status.json()
+                    self.assertEqual(status_payload["task_id"], task_payload["task_id"])
+                    self.assertTrue(status_payload["logs"])
+                    self.assertTrue(any("当前文件" in line for line in status_payload["logs"]))
+                    self.assertEqual(status_payload["processed_bytes"], task_payload["processed_bytes"])
+                    self.assertEqual(status_payload["total_bytes"], task_payload["total_bytes"])
 
                     downloaded = client.get(exported.headers["x-smartx-export-url"], headers=headers)
                     self.assertEqual(downloaded.status_code, 200)

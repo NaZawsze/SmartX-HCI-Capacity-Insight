@@ -275,6 +275,15 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
                           <div>
                             <strong>{task.title}</strong>
                             <small>{task.detail || taskStatusText(task.status)}</small>
+                            {task.steps?.length ? (
+                              <div className="task-step-list">
+                                {task.steps.slice(0, 3).map((step) => (
+                                  <span className={`task-step ${step.status}`} key={`${task.id}-step-${step.key}`}>
+                                    {stepStatusText(step.status)} {step.title}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
                             {task.logs?.length ? (
                               <div className="task-log-list">
                                 {task.logs.slice(-4).map((line, index) => (
@@ -533,4 +542,14 @@ function taskStatusText(status: AppTask["status"]): string {
     failed: "失败"
   };
   return labels[status];
+}
+
+function stepStatusText(status: string): string {
+  const labels: Record<string, string> = {
+    pending: "待执行",
+    running: "执行中",
+    succeeded: "完成",
+    failed: "失败"
+  };
+  return labels[status] || status;
 }

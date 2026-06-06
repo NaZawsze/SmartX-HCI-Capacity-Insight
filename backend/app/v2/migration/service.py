@@ -36,10 +36,12 @@ class MigrationService:
         self.settings = settings
         self.tasks = tasks
 
-    def build_export_archive(self) -> tuple[bytes, str, Path, str]:
+    def build_export_archive(self, *, record_task: bool = True, task_id: str | None = None, steps: list[dict[str, Any]] | None = None) -> tuple[bytes, str, Path, str]:
         generated_at = _now()
-        filename = f"smartx-capacity-insight-migration-{generated_at.strftime('%Y%m%d%H%M%S')}.tar.gz"
-        files = _collect_manifest_files([(self.settings.sqlite_path, f"{APP_DIR}/{DB_FILENAME}")], self.settings.prometheus_data_dir, PROMETHEUS_DIR)
+        filename = f"smartx-capacity-insight-migration-{generated_at.strftime('%Y%m%d%H%M%S')}-{token_hex(4)}.tar.gz"
+        candidate_files = _export_candidate_files(self.settings.sqlite_path, self.settings.prometheus_data_dir)
+        total_bytes = sum(path.stat().st_size for path, _ in candidate_files if path.is_file())
+        files = {archive_name: _file_manifest(path) for path, archive_name in candidate_files if path.is_file()}
         manifest = {
             "format": "smartx-capacity-insight-v2-migration",
             "version": 1,
@@ -53,24 +55,103 @@ class MigrationService:
         buffer = io.BytesIO()
         with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
             _add_json(archive, MANIFEST_NAME, manifest, generated_at)
-            if self.settings.sqlite_path.exists():
-                archive.add(self.settings.sqlite_path, arcname=f"{APP_DIR}/{DB_FILENAME}", recursive=False)
-            _add_directory(archive, self.settings.prometheus_data_dir, PROMETHEUS_DIR, skip_names=PROMETHEUS_RUNTIME_ENTRIES)
+            processed_bytes = 0
+            logs = []
+            for path, archive_name in candidate_files:
+                archive.add(path, arcname=archive_name, recursive=False)
+                processed_bytes += path.stat().st_size
+                logs.append(f"当前文件：{archive_name} ({_size_label(processed_bytes)}/{_size_label(total_bytes)})")
+                if task_id and steps:
+                    self.tasks.update_task(
+                        task_id,
+                        progress=10 + int((processed_bytes / total_bytes) * 70) if total_bytes else 80,
+                        message=f"正在打包：{archive_name}",
+                        logs=logs[-6:],
+                        steps=_replace_step(steps, "archive", "running", f"{_size_label(processed_bytes)}/{_size_label(total_bytes)}"),
+                    )
         content = buffer.getvalue()
         self.settings.migrations_dir.mkdir(parents=True, exist_ok=True)
         path = self.settings.migrations_dir / filename
         path.write_bytes(content)
         download_url = f"/api/admin/exports/migrations/{quote(filename)}"
+        if record_task:
+            self.tasks.create_task(
+                f"migration-export-{token_hex(8)}",
+                TaskType.MIGRATION_EXPORT,
+                "导出迁移包",
+                status=TaskStatus.SUCCESS,
+                progress=100,
+                message="迁移包已生成",
+                links=[{"label": "迁移包", "filename": filename, "url": download_url, "path": str(path)}],
+            )
+        return content, filename, path, download_url
+
+    def start_export_task(self) -> dict[str, Any]:
+        task_id = f"migration-export-{token_hex(8)}"
+        steps = [
+            _step("scan", "扫描迁移数据", "running"),
+            _step("archive", "打包业务库和历史指标", "pending"),
+            _step("save", "保存迁移包", "pending"),
+            _step("finish", "生成下载链接", "pending"),
+        ]
         self.tasks.create_task(
-            f"migration-export-{token_hex(8)}",
+            task_id,
             TaskType.MIGRATION_EXPORT,
             "导出迁移包",
+            status=TaskStatus.RUNNING,
+            progress=1,
+            message="正在扫描迁移数据",
+            logs=["开始扫描 SQLite 和 Prometheus 历史指标"],
+            steps=steps,
+        )
+        try:
+            result = self._run_export_task(task_id, steps)
+            return result
+        except Exception as exc:
+            self.tasks.update_task(
+                task_id,
+                status=TaskStatus.FAILED,
+                progress=100,
+                message=str(exc),
+                logs=["导出失败", str(exc)],
+                steps=_replace_step(steps, "scan", "failed", str(exc)),
+            )
+            raise
+
+    def export_task_status(self, task_id: str) -> dict[str, Any]:
+        task = self.tasks.get_task(task_id)
+        if task is None or task["type"] != TaskType.MIGRATION_EXPORT.value:
+            raise HTTPException(status_code=404, detail="迁移导出任务不存在。")
+        return _migration_export_task(task)
+
+    def _run_export_task(self, task_id: str, steps: list[dict[str, Any]]) -> dict[str, Any]:
+        candidate_files = _export_candidate_files(self.settings.sqlite_path, self.settings.prometheus_data_dir)
+        total_bytes = sum(path.stat().st_size for path, _ in candidate_files if path.is_file())
+        logs = [f"扫描完成：{len(candidate_files)} 个文件，约 {_size_label(total_bytes)}"]
+        steps = _replace_step(steps, "scan", "succeeded", f"{len(candidate_files)} 个文件")
+        steps = _replace_step(steps, "archive", "running")
+        self.tasks.update_task(task_id, progress=10, message="正在打包迁移包", logs=logs, steps=steps)
+
+        content, filename, path, download_url = self.build_export_archive(record_task=False, task_id=task_id, steps=steps)
+        processed_bytes = total_bytes
+        if candidate_files:
+            logs.append(f"当前文件：{candidate_files[-1][1]} ({_size_label(processed_bytes)}/{_size_label(total_bytes)})")
+        logs.append(f"已打包：{Path(filename).name}")
+        steps = _replace_step(steps, "archive", "succeeded", f"已处理 {_size_label(processed_bytes)}")
+        steps = _replace_step(steps, "save", "succeeded", str(path))
+        steps = _replace_step(steps, "finish", "succeeded", download_url)
+        task = self.tasks.update_task(
+            task_id,
             status=TaskStatus.SUCCESS,
             progress=100,
             message="迁移包已生成",
-            links=[{"label": "迁移包", "filename": filename, "url": download_url, "path": str(path)}],
+            links=[{"label": "迁移包", "filename": filename, "url": download_url, "path": str(path), "processed_bytes": processed_bytes, "total_bytes": total_bytes}],
+            logs=logs + [f"服务器留档：{path}"],
+            steps=steps,
         )
-        return content, filename, path, download_url
+        task["processed_bytes"] = processed_bytes
+        task["total_bytes"] = total_bytes
+        return _migration_export_task(task, processed_bytes=processed_bytes, total_bytes=total_bytes)
 
     async def restore_upload(self, upload: UploadFile, *, mode: str = MERGE_MODE, confirmed: bool = False) -> dict[str, Any]:
         content = await upload.read()
@@ -357,3 +438,62 @@ def _replace_directory(source: Path, target: Path) -> None:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _step(key: str, title: str, status: str, message: str = "") -> dict[str, str]:
+    return {"key": key, "title": title, "status": status, "message": message}
+
+
+def _replace_step(steps: list[dict[str, Any]], key: str, status: str, message: str = "") -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for step in steps:
+        if step.get("key") == key:
+            next_step = dict(step)
+            next_step["status"] = status
+            if message:
+                next_step["message"] = message
+            result.append(next_step)
+        else:
+            result.append(step)
+    return result
+
+
+def _export_candidate_files(sqlite_path: Path, prometheus_dir: Path) -> list[tuple[Path, str]]:
+    files: list[tuple[Path, str]] = []
+    if sqlite_path.is_file():
+        files.append((sqlite_path, f"{APP_DIR}/{DB_FILENAME}"))
+    if prometheus_dir.exists():
+        for path in sorted(prometheus_dir.rglob("*")):
+            if not path.is_file() or any(part in PROMETHEUS_RUNTIME_ENTRIES for part in path.relative_to(prometheus_dir).parts):
+                continue
+            files.append((path, str(Path(PROMETHEUS_DIR) / path.relative_to(prometheus_dir))))
+    return files
+
+
+def _migration_export_task(task: dict[str, Any], *, processed_bytes: int | None = None, total_bytes: int | None = None) -> dict[str, Any]:
+    link = (task.get("links") or [{}])[0] if task.get("links") else {}
+    logs = task.get("logs") or []
+    return {
+        "task_id": task["id"],
+        "status": "succeeded" if task["status"] == TaskStatus.SUCCESS.value else "failed" if task["status"] == TaskStatus.FAILED.value else task["status"],
+        "progress": task["progress"],
+        "processed_bytes": int(processed_bytes if processed_bytes is not None else link.get("processed_bytes") or 0),
+        "total_bytes": int(total_bytes if total_bytes is not None else link.get("total_bytes") or 0),
+        "detail": task.get("message") or "",
+        "logs": logs,
+        "steps": task.get("steps") or [],
+        "filename": link.get("filename"),
+        "saved_path": link.get("path"),
+        "download_url": link.get("url"),
+        "created_at": task.get("created_at"),
+        "updated_at": task.get("updated_at"),
+        "finished_at": task.get("finished_at"),
+    }
+
+
+def _size_label(size: int) -> str:
+    value = float(size)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024 or unit == "TB":
+            return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} B"
+        value /= 1024

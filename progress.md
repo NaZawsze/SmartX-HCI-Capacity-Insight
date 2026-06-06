@@ -1374,3 +1374,37 @@ TDD 记录：
   - 使用 `smartx-storage-forecast-web-api:local` 容器执行 `backend.tests.test_v2_foundation` 通过。
   - 执行 `./pre_install.sh` 成功，目录完整；Prometheus 数据目录为 `nobody:nogroup`，对应 `65534:65534`。
   - `docker compose build web-api frontend` 通过。
+
+### 2026-06-06 Phase V2-6 迁移导出精确进度与任务步骤
+
+状态：完成本地验证，待远端验证和提交
+
+实施内容：
+
+- v2 `tasks` 表新增 `steps_json`，`TaskService` 支持创建、更新、列表返回结构化步骤。
+- v2 新增迁移导出后台任务 API：
+  - `POST /api/admin/migration/export/start`
+  - `GET /api/admin/migration/export/status/{task_id}`
+- 迁移导出任务保存 `steps`、`logs`、`processed_bytes`、`total_bytes`、下载链接和服务器留档路径。
+- 迁移包文件名增加随机后缀，避免同一秒多次导出覆盖留档文件。
+- 导出打包时逐文件记录“当前文件”和已处理/总字节数，解决大数据迁出时看起来卡在固定百分比的问题第一版。
+- 前端任务中心类型新增 `steps`，任务菜单显示最近步骤摘要；迁移导出任务 patch 保留后端 steps。
+- `docs/v2-rebuild-task-plan.md` 将迁出精确进度和统一任务步骤标记完成第一版。
+
+TDD 记录：
+
+- RED：TaskService 测试新增 `steps` 后，`create_task()` 不接受 `steps` 参数。
+- GREEN：tasks schema 增加 `steps_json`，TaskService create/update/list 支持 steps。
+- RED：v2 迁移 API 测试调用 `/api/admin/migration/export/start` 返回 404。
+- GREEN：新增 start/status API 和迁移导出任务状态转换。
+- RED：同秒连续导出导致下载文件被覆盖，测试发现 download content 和原始 export content 不一致。
+- GREEN：迁移包文件名增加随机后缀，并避免 start 任务内部重复创建独立完成任务。
+- RED：任务状态日志没有“当前文件”。
+- GREEN：导出按候选文件逐项打包并更新日志、字节进度。
+
+验证：
+
+- 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_tasks_api backend.tests.test_v2_migration -v` 通过。
+- 本地：v2 后端完整 unittest 集 47 个测试通过。
+- 本地：`python3 -m py_compile backend/app/v2/api.py backend/app/v2/database.py backend/app/v2/migration/service.py backend/app/v2/tasks/service.py backend/app/v2/system/health.py backend/tests/test_v2_migration.py backend/tests/test_v2_tasks_api.py` 通过。
+- 本机无 `npm` 可执行文件，前端构建将在远端 Docker build 中验证。

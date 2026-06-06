@@ -279,6 +279,7 @@ export interface MigrationExportTask {
   total_bytes: number;
   detail?: string;
   logs?: string[];
+  steps?: AppTaskStep[];
   filename?: string;
   saved_path?: string;
   download_url?: string;
@@ -315,6 +316,15 @@ export interface AppTaskLink {
   path?: string;
 }
 
+export interface AppTaskStep {
+  key: string;
+  title: string;
+  status: string;
+  message?: string;
+  started_at?: string;
+  finished_at?: string;
+}
+
 export interface AppTask {
   id: string;
   kind: AppTaskKind;
@@ -324,6 +334,7 @@ export interface AppTask {
   progress: number;
   links?: AppTaskLink[];
   logs?: string[];
+  steps?: AppTaskStep[];
   createdAt: number;
   updatedAt: number;
 }
@@ -339,6 +350,7 @@ export interface ServerTask {
   progress: number;
   links?: AppTaskLink[];
   logs?: string[];
+  steps?: AppTaskStep[];
   created_at?: string;
   updated_at?: string;
   finished_at?: string | null;

@@ -551,6 +551,23 @@ def export_migration(
     return download_response(content, filename, ARCHIVE_MEDIA_TYPE, path=path, download_url=download_url)
 
 
+@router.post("/api/admin/migration/export/start")
+def start_migration_export(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    migration: Annotated[MigrationService, Depends(get_migration_service)],
+) -> dict:
+    return migration.start_export_task()
+
+
+@router.get("/api/admin/migration/export/status/{task_id}")
+def migration_export_status(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    migration: Annotated[MigrationService, Depends(get_migration_service)],
+) -> dict:
+    return migration.export_task_status(task_id)
+
+
 @router.post("/api/admin/migration/import")
 async def import_migration(
     _: Annotated[CurrentUser, Depends(require_user)],

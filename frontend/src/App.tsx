@@ -136,6 +136,7 @@ function serverTaskToAppTask(task: ServerTask): AppTask {
     progress: task.progress,
     links: task.links,
     logs: task.logs,
+    steps: task.steps,
     createdAt: task.created_at ? Date.parse(task.created_at) : Date.now(),
     updatedAt: task.updated_at ? Date.parse(task.updated_at) : Date.now()
   };

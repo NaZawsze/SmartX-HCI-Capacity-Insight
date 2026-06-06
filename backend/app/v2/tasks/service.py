@@ -23,13 +23,14 @@ class TaskService:
         message: str = "",
         links: list[dict[str, Any]] | None = None,
         logs: list[str] | None = None,
+        steps: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         now = _now()
         with self.database.connection() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO tasks (id, type, status, title, progress, message, links_json, logs_json, created_at, updated_at, finished_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM tasks WHERE id = ?), ?), ?, ?)
+                INSERT OR REPLACE INTO tasks (id, type, status, title, progress, message, links_json, logs_json, steps_json, created_at, updated_at, finished_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM tasks WHERE id = ?), ?), ?, ?)
                 """,
                 (
                     task_id,
@@ -40,6 +41,7 @@ class TaskService:
                     message,
                     _json(links or []),
                     _json(logs or []),
+                    _json(steps or []),
                     task_id,
                     now,
                     now,
@@ -57,6 +59,7 @@ class TaskService:
         message: str | None = None,
         links: list[dict[str, Any]] | None = None,
         logs: list[str] | None = None,
+        steps: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         existing = self.get_task(task_id)
         if existing is None:
@@ -67,7 +70,7 @@ class TaskService:
             conn.execute(
                 """
                 UPDATE tasks
-                SET status = ?, progress = ?, message = ?, links_json = ?, logs_json = ?, updated_at = ?, finished_at = COALESCE(?, finished_at)
+                SET status = ?, progress = ?, message = ?, links_json = ?, logs_json = ?, steps_json = ?, updated_at = ?, finished_at = COALESCE(?, finished_at)
                 WHERE id = ?
                 """,
                 (
@@ -76,6 +79,7 @@ class TaskService:
                     message if message is not None else existing.get("message") or "",
                     _json(links if links is not None else existing.get("links") or []),
                     _json(logs if logs is not None else existing.get("logs") or []),
+                    _json(steps if steps is not None else existing.get("steps") or []),
                     _now(),
                     finished_at,
                     task_id,
@@ -111,6 +115,7 @@ def _task_row(row) -> dict[str, Any]:
         "detail": row["message"] or "",
         "links": _load_json(row["links_json"], []),
         "logs": _load_json(row["logs_json"], []),
+        "steps": _load_json(row["steps_json"], []),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "finished_at": row["finished_at"],

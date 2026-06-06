@@ -3494,6 +3494,41 @@ button {
   background: #e4f0ff;
 }
 
+.task-step-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.task-step {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #eef4fb;
+  color: #66758a;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-step.running {
+  background: #e8f1ff;
+  color: var(--blue);
+}
+
+.task-step.succeeded {
+  background: #e8f8ee;
+  color: #16a34a;
+}
+
+.task-step.failed {
+  background: #feecec;
+  color: #dc2626;
+}
+
 .task-log-list {
   display: grid;
   gap: 3px;

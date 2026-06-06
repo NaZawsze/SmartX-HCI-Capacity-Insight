@@ -106,6 +106,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
   const [migrationFile, setMigrationFile] = useState<File | null>(null);
   const [migrationMode, setMigrationMode] = useState<"merge" | "overwrite">("merge");
   const [migrationConfirmed, setMigrationConfirmed] = useState(false);
+  const [migrationHealthMessage, setMigrationHealthMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const componentFileInputRef = useRef<HTMLInputElement | null>(null);
   const migrationFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -265,8 +266,9 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     try {
       const result = await api.importMigration(migrationFile, migrationMode, migrationConfirmed, (progress) => updateTask(id, uploadProgressTaskPatch(progress)));
       const backupLog = result.backup_path ? `导入前备份：${result.backup_path}` : "";
-      updateTask(id, { status: "succeeded", progress: 100, detail: result.message, logs: [result.message, backupLog].filter(Boolean) });
-      setMigrationMessage(backupLog ? `${result.message} ${backupLog}` : result.message);
+      const healthLog = result.summary?.health?.message || "";
+      updateTask(id, { status: "succeeded", progress: 100, detail: healthLog || result.message, logs: [result.message, backupLog, healthLog].filter(Boolean) });
+      setMigrationMessage([result.message, backupLog, healthLog].filter(Boolean).join(" "));
       setMigrationFile(null);
       if (migrationFileInputRef.current) migrationFileInputRef.current.value = "";
       setMigrationMode("merge");
@@ -277,6 +279,29 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
       setMigrationMessage(message);
     } finally {
       setMigrationBusy(false);
+    }
+  }
+
+  async function checkMigrationHealth() {
+    setMigrationMessage("");
+    setMigrationHealthMessage("");
+    const id = taskId("migration-health");
+    addTask({ id, kind: "import", title: "迁移健康检查", detail: "正在检查业务库和历史指标", status: "running", progress: 20 });
+    try {
+      const result = await api.migrationHealth();
+      const failed = Object.entries(result.checks || {}).filter(([, ok]) => !ok).map(([name]) => name);
+      const logs = [
+        result.message,
+        `SQLite 表数量：${Object.keys(result.sqlite?.tables || {}).length}`,
+        `Prometheus block：${result.prometheus?.block_count ?? 0}`,
+        failed.length ? `未通过项：${failed.join(", ")}` : "所有检查项均通过"
+      ];
+      updateTask(id, { status: failed.length ? "failed" : "succeeded", progress: 100, detail: result.message, logs });
+      setMigrationHealthMessage(result.message);
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "迁移健康检查失败";
+      updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["迁移健康检查失败", message] });
+      setMigrationHealthMessage(message);
     }
   }
 
@@ -734,10 +759,16 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     return (
       <>
         <PageHeader eyebrow="系统运维" title="数据迁移" action={(
-          <button className="primary-button" type="button" onClick={exportMigration} disabled={migrationBusy}>
-            <Download size={16} />
-            导出迁移包
-          </button>
+          <div className="service-header-actions">
+            <button className="secondary-button" type="button" onClick={checkMigrationHealth} disabled={migrationBusy}>
+              <Info size={16} />
+              健康检查
+            </button>
+            <button className="primary-button" type="button" onClick={exportMigration} disabled={migrationBusy}>
+              <Download size={16} />
+              导出迁移包
+            </button>
+          </div>
         )} />
         <div className="service-operation-card service-migration-card">
           <div className="service-operation-head">
@@ -785,6 +816,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             <Info size={16} />
             导入后请在本页执行“服务重启”，使 web-api、collector-worker 和 Prometheus 完全加载补全后的数据。
           </div>
+          {migrationHealthMessage && <div className="inline-message">{migrationHealthMessage}</div>}
           {migrationMessage && <div className="inline-message">{migrationMessage}</div>}
         </div>
       </>
@@ -1461,6 +1493,7 @@ function migrationExportTaskPatch(task: MigrationExportTask): Partial<Omit<AppTa
     progress: Math.max(0, Math.min(100, task.progress || 0)),
     detail: task.detail || migrationExportStatusText(task.status),
     logs: task.logs,
+    steps: task.steps,
     links: task.status === "succeeded" && task.download_url ? [{ label: "下载", filename: task.filename, url: task.download_url, path: task.saved_path }] : undefined
   };
 }
