@@ -10,10 +10,12 @@ from app.v2.auth.service import AuthService, CurrentUser
 from app.v2.cloudtower.service import CloudTowerService
 from app.v2.collection.service import CollectionService
 from app.v2.config import V2Settings, settings_from_environment
+from app.v2.dashboard.service import DashboardService
 from app.v2.database import V2Database
 from app.v2.inventory.models import ClusterInput, TowerInput
 from app.v2.inventory.service import InventoryService
 from app.v2.system.health import check_health
+from app.v2.vms.service import VmService
 
 
 router = APIRouter()
@@ -91,6 +93,14 @@ class CollectionRunResponse(BaseModel):
     message: str
 
 
+class VmTrendResponse(BaseModel):
+    tower_id: int
+    cluster_id: str
+    vm_id: str
+    vm_name: str
+    points: list[dict]
+
+
 def get_v2_settings() -> V2Settings:
     return settings_from_environment()
 
@@ -118,6 +128,20 @@ def get_cloudtower_service(
     settings: Annotated[V2Settings, Depends(get_v2_settings)],
 ) -> CloudTowerService:
     return CloudTowerService(database, settings)
+
+
+def get_dashboard_service(
+    database: Annotated[V2Database, Depends(get_v2_database)],
+    settings: Annotated[V2Settings, Depends(get_v2_settings)],
+) -> DashboardService:
+    return DashboardService(database, settings)
+
+
+def get_vm_service(
+    database: Annotated[V2Database, Depends(get_v2_database)],
+    settings: Annotated[V2Settings, Depends(get_v2_settings)],
+) -> VmService:
+    return VmService(database, settings)
 
 
 def require_user(
@@ -310,6 +334,46 @@ def run_collection(
 ) -> CollectionRunResponse:
     result = CollectionService(database, settings, cloudtower_client=cloudtower).run_manual_collection()
     return CollectionRunResponse(run_id=result.run_id, status=result.status, message=result.message)
+
+
+@router.get("/api/dashboard/summary")
+def dashboard_summary(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    dashboard: Annotated[DashboardService, Depends(get_dashboard_service)],
+    tower_id: Optional[int] = None,
+    cluster_id: Optional[str] = None,
+) -> dict:
+    if cluster_id and tower_id is None:
+        raise HTTPException(status_code=400, detail="cluster_id requires tower_id.")
+    return dashboard.summary(tower_id=tower_id, cluster_id=cluster_id)
+
+
+@router.get("/api/vms")
+def list_vms(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    vms: Annotated[VmService, Depends(get_vm_service)],
+    tower_id: Optional[int] = None,
+    cluster_id: Optional[str] = None,
+) -> list[dict]:
+    if cluster_id and tower_id is None:
+        raise HTTPException(status_code=400, detail="cluster_id requires tower_id.")
+    return vms.list_vms(tower_id=tower_id, cluster_id=cluster_id)
+
+
+@router.get("/api/vms/{vm_id}/trend", response_model=VmTrendResponse)
+def vm_trend(
+    vm_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    vms: Annotated[VmService, Depends(get_vm_service)],
+    tower_id: Optional[int] = None,
+    cluster_id: Optional[str] = None,
+    days: int = 30,
+) -> VmTrendResponse:
+    if tower_id is None or not cluster_id:
+        raise HTTPException(status_code=400, detail="tower_id and cluster_id are required.")
+    if days not in {7, 14, 30, 90, 180, 365}:
+        raise HTTPException(status_code=400, detail="Unsupported trend range.")
+    return VmTrendResponse(**vms.trend(vm_id=vm_id, tower_id=tower_id, cluster_id=cluster_id, days=days))
 
 
 @router.get("/api/system/health")

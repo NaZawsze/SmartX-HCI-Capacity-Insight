@@ -5,6 +5,8 @@ V2_BACKEND_MODULES = (
     "inventory",
     "collection",
     "metrics",
+    "dashboard",
+    "vms",
     "forecast",
     "reports",
     "migration",

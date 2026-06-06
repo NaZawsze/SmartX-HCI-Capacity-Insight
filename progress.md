@@ -838,3 +838,46 @@ TDD 记录：
 
 - Phase V2-3 的 Tower、真实 CloudTower 客户端、连接测试、手动采集、collector-worker 定时采集基础、Prometheus `/metrics` scrape 基础、Prometheus 查询和健康检查基础已完成本地与远端容器验证。
 - 后续进入 Phase V2-4：Dashboard 和 VM 页面，重点把 Prometheus 历史查询结果接入容量风险、日增长、本日新建 VM、VM 列表和趋势。
+
+### 2026-06-06 Phase V2-4 Dashboard/VM 后端第一薄片
+
+状态：完成本地验证，待远端 Docker 验证
+
+实施内容：
+
+- 新增 `backend/app/v2/dashboard/service.py`：
+  - 汇总 Tower/集群/VM 数量。
+  - 从 Prometheus 集群 used/total 指标计算容量使用率。
+  - 任一集群使用率 `>= 80%` 返回 high 风险；`>= 75%` 返回 warning；否则返回 `当前所有集群暂无明显容量风险`。
+  - 日增长最快 VM 根据 24 小时 Prometheus range 数据计算增长量和增长率。
+  - 本日新建 VM 按 24 小时 range 是否缺少历史样本判断。
+  - VM 展示名称优先使用 SQLite `vm_latest` 最新采集名称。
+- 新增 `backend/app/v2/vms/service.py`：
+  - VM 列表按 scope 查询 Prometheus 即时值。
+  - VM 趋势强制使用 `tower_id + cluster_id + vm_id` 查询，避免跨 Tower/集群混合。
+  - VM 改名后趋势展示仍使用 SQLite 最新名称。
+- 新增 `backend/app/v2/metrics/series.py`，统一解析 Prometheus instant/range 数据和构造带 label 的查询。
+- v2 API 增加：
+  - `GET /api/dashboard/summary`
+  - `GET /api/vms`
+  - `GET /api/vms/{vm_id}/trend`
+- `backend/app/v2/registry.py` 增加 `dashboard` 和 `vms` 模块。
+- `docs/v2-rebuild-task-plan.md` 将 Phase V2-4 标记为进行中，并标出后端基础已完成。
+
+TDD 记录：
+
+- RED：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_dashboard_vm -v` 先失败，原因是 `app.v2.dashboard` 和 `app.v2.vms` 不存在。
+- GREEN：新增 Dashboard/VM service 后，Dashboard/VM 服务测试通过。
+- RED：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_dashboard_vm_api -v` 先失败，原因是 API 未提供 `get_dashboard_service` 和 `get_vm_service`。
+- GREEN：接入 v2 API 后，Dashboard/VM API 测试通过。
+
+本地验证：
+
+- `PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_skeleton backend.tests.test_v2_task_models backend.tests.test_v2_foundation backend.tests.test_v2_inventory_metrics backend.tests.test_v2_cloudtower_client backend.tests.test_v2_prometheus_service backend.tests.test_v2_collection backend.tests.test_v2_worker backend.tests.test_v2_dashboard_vm backend.tests.test_v2_dashboard_vm_api backend.tests.test_v2_auth_api backend.tests.test_v2_inventory_api -v` 通过：31 个测试 OK。
+- `python3 -m py_compile backend/app/v2/api.py backend/app/v2/dashboard/service.py backend/app/v2/vms/service.py backend/app/v2/metrics/series.py backend/app/v2/registry.py backend/tests/test_v2_dashboard_vm.py backend/tests/test_v2_dashboard_vm_api.py backend/tests/test_v2_skeleton.py` 通过。
+
+限制：
+
+- 本次只完成 Dashboard/VM 后端第一薄片。
+- VM 详情和卷信息仍待实现。
+- 前端 Dashboard/VM 页面仍待接入 v2 API。

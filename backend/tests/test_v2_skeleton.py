@@ -12,6 +12,8 @@ class V2SkeletonTest(unittest.TestCase):
             "inventory",
             "collection",
             "metrics",
+            "dashboard",
+            "vms",
             "forecast",
             "reports",
             "migration",
