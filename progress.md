@@ -1785,3 +1785,26 @@ TDD 记录：
 
 - RED：远端 `10.20.11.3` 执行 `npm test -- ServicePage.test.tsx`，新增测试失败，收到 `secondary-button service-header-button`，符合预期。
 - GREEN：改为 `primary-button service-header-button` 后，远端同一测试通过，1 个测试文件、8 个测试通过。
+
+### 2026-06-06 Phase V2 文档状态治理
+
+状态：完成远端验证，待提交
+
+实施内容：
+
+- 按现有 v2 源码和测试覆盖，对 `docs/v2-rebuild-task-plan.md` 中已完成但未勾选的任务做状态对齐。
+- 本次只标记已有测试证据的第一版能力：
+  - 认证、登录、token、`/api/me`、改密、管理接口鉴权。
+  - Tower CRUD、连接测试、集群同步、集群启用和 scope 参数。
+  - CloudTower 客户端、采集入口、定时采集、启用集群过滤、指标写入、VM 最新名称和卷数据。
+  - Prometheus 指标 label、查询服务、趋势身份过滤、健康检查。
+  - v2 schema、结构化 VM 卷、任务状态、导出留档、升级历史第一版。
+  - 报表 90 天预测、7 天平均、图表窗口、30 天样本过滤、新建 VM、导出留存和任务链接第一版。
+  - v1 信息架构、统一布局、Dashboard/VM/报表页面第一版。
+- 未标记仍缺实现或缺专门验证的项，例如 Word 目录、Word 页脚、部署发版现场验证。
+
+验证计划：
+
+- 远端 `10.20.11.3`：使用 `smartx-storage-forecast-web-api:local` 容器运行 15 个 v2 后端测试模块，40 个测试通过。
+- 远端 `10.20.11.3`：使用 `node:22-alpine` 运行核心前端测试 `AppLayout/Dashboard/Vms/Reports/Service/Settings`，6 个测试文件、18 个测试通过。
+- 注意：第一次前端测试发现远端存在 macOS 资源叉垃圾文件 `frontend/src/pages/._ReportsPage.test.tsx` 导致 Vitest 误读；已删除 `frontend/src/**/._*` 后重跑通过。
