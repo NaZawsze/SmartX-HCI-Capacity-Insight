@@ -1849,3 +1849,23 @@ TDD 记录：
 验证：
 
 - 远端 `10.20.11.3`：容器内临时安装 `backend/requirements-dev.txt` 后执行 `python -m pytest backend/tests/test_deployment_config.py backend/tests/test_v2_package_builders.py -q`，19 个测试通过。
+
+### 2026-06-06 Phase V2 测试计划状态治理
+
+状态：完成远端验证，待提交
+
+实施内容：
+
+- 根据已通过的自动化测试结果，对 `docs/v2-rebuild-task-plan.md` 的阶段项和测试计划项做状态对齐。
+- 标记完成的范围仅限已有自动化测试覆盖的第一版能力：
+  - v1 数据兼容迁入、导入后健康验证、平台升级、项目文件同步。
+  - 数据迁移页面、服务重启、compose/Dockerfile、GitHub Actions、pre_install。
+  - 后端测试计划中的认证、Tower、采集、Prometheus、Dashboard、VM 改名、月增长过滤、报表、迁入备份、v1 兼容、升级预检查、空间清理。
+  - 前端测试计划中的登录/token 过期第一版、scope 切换第一版、Dashboard 风险、新建 VM 卡片、VM 跳转、报表/迁移/升级/清理任务。
+- 保留现场端到端项未完成，包括新部署采集、真实 v1 迁入后趋势回归、平台/runner/Prometheus 真实升级包执行。
+
+验证依据：
+
+- 远端 v2 后端 40 个 unittest 通过。
+- 远端核心前端 18 个 Vitest 通过。
+- 远端部署配置和打包脚本 19 个 pytest 通过。
