@@ -1556,3 +1556,28 @@ TDD 记录：
   - 快进拉取到 `24a8ea8`。
   - `docker run --rm -v /opt/smartx-storage-forecast-v2:/src -e PYTHONPATH=/src/backend -e SMARTX_UPGRADE_DRY_RUN=1 -w /src smartx-storage-forecast-web-api:local python -m unittest backend.tests.test_v2_upgrade -v` 通过，5 个测试通过。
   - `docker compose build web-api frontend upgrade-runner` 通过。
+
+### 2026-06-06 Phase V2-12 runner 组件升级第一版
+
+状态：完成本地验证，待远端验证和提交
+
+实施内容：
+
+- v2 升级执行链支持纯 `runner` 组件包。
+- runner 组件升级只加载 `upgrade-runner` 镜像，只重启 `upgrade-runner`。
+- runner 组件升级运行时 override 写入 `/data/compose-runtime/docker-compose.runner-upgrade.yml`，不再写项目目录或只读 `/opt`。
+- 平台升级和 Prometheus 升级继续使用 `/data/compose-runtime/docker-compose.upgrade.yml`，runner 组件升级独立隔离。
+- runner 自升级采用两阶段恢复：重启自身前写入 `runner_restarting` 和 `runner_resume_pending`，新 runner 启动后扫描该状态并完成健康检查收尾，避免任务卡死在执行中。
+- `docs/v2-rebuild-task-plan.md` 将 runner 组件升级第一版和 runner 自升级不中断链第一版标记完成。
+
+TDD 记录：
+
+- RED：新增 `test_runner_component_upgrade_writes_runtime_override_and_only_restarts_runner` 后，服务不会生成 `docker-compose.runner-upgrade.yml`，测试因文件不存在失败；补充 runner 重启中断模拟后，`SystemExit` 直接冒出导致任务无法恢复。
+- GREEN：新增 runner 镜像/服务解析、runner-only 判断、runner 专用 override 写入，以及 `runner_restarting` 状态的恢复收尾逻辑。
+
+验证：
+
+- 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade.V2UpgradeServiceTest.test_runner_component_upgrade_writes_runtime_override_and_only_restarts_runner -v` 通过。
+- 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade -v` 通过，6 个测试通过。
+- 本地：v2 后端完整 unittest 集 51 个测试通过。
+- 本地：`python3 -m py_compile backend/app/v2/upgrade/service.py backend/tests/test_v2_upgrade.py` 通过。

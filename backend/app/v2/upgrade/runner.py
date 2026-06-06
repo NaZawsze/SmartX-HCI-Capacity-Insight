@@ -20,7 +20,7 @@ def run_pending_once(
     count = 0
     for task_file in sorted(settings.upgrades_dir.glob("*/task.json"), key=lambda path: path.stat().st_mtime):
         task = _read_task_file(task_file.parent)
-        if task.get("status") != "pending" or not task.get("runner_requested"):
+        if (task.get("status") != "pending" or not task.get("runner_requested")) and task.get("status") != "runner_restarting":
             continue
         UpgradeService(settings, tasks, executor=executor, project_path=project_path).execute_task(task)
         count += 1

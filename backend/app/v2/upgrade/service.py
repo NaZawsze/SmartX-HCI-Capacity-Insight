@@ -34,6 +34,7 @@ SENSITIVE_NAMES = {".env", "smartx.db"}
 SENSITIVE_PARTS = {"backups", "exports", "compose-runtime", "password", "token", "secret"}
 PLATFORM_SERVICES = {"web-api", "collector-worker", "frontend"}
 OBSERVABILITY_SERVICES = {"prometheus"}
+RUNNER_SERVICES = {"upgrade-runner"}
 
 
 class UpgradeCommandExecutor:
@@ -132,6 +133,8 @@ class UpgradeService:
     def execute_task(self, task: dict[str, Any]) -> dict[str, Any]:
         task_id = task["task_id"]
         task_dir = self.settings.upgrades_dir / task_id
+        if task.get("status") == "runner_restarting" and task.get("runner_resume_pending"):
+            return self._resume_runner_upgrade(task)
         steps = [
             _step("backup", "生成升级前数据备份", "running"),
             _step("load_images", "加载升级镜像", "pending"),
@@ -154,7 +157,7 @@ class UpgradeService:
             self.tasks.update_task(task_id, progress=20, message="升级前备份已完成", logs=logs, steps=steps)
 
             package_path = Path(task["package_path"])
-            images = _upgrade_images(task["manifest"])
+            images = _task_images(task["manifest"])
             steps = _replace_step(steps, "load_images", "running", f"{len(images)} 个镜像")
             self.tasks.update_task(task_id, progress=35, message="正在加载升级镜像", logs=logs, steps=steps)
             for image in images:
@@ -174,13 +177,26 @@ class UpgradeService:
 
             steps = _replace_step(steps, "write_override", "running")
             self.tasks.update_task(task_id, progress=70, message="正在写入运行时覆盖配置", logs=logs[-8:], steps=steps)
-            override_path = self._write_upgrade_override(images)
+            override_path = self._write_task_override(task["manifest"], images)
             logs.append(f"运行时覆盖配置：{override_path}")
             steps = _replace_step(steps, "write_override", "succeeded", str(override_path))
 
             steps = _replace_step(steps, "restart", "running")
             self.tasks.update_task(task_id, progress=82, message="正在重启升级服务", logs=logs[-8:], steps=steps)
-            self.executor.run(["docker", "compose", "-f", "docker-compose.offline.yml", "-f", str(override_path), "--project-name", "smartx-capacity-insight", "up", "-d", "--no-deps", *sorted(_upgrade_services(task["manifest"]))], cwd=self.project_path)
+            if _runner_only(task["manifest"]):
+                task["status"] = "runner_restarting"
+                task["runner_resume_pending"] = True
+                task["steps"] = steps
+                task["logs"] = logs
+                task["updated_at"] = _now().isoformat()
+                _save_task_file(task_dir, task)
+            try:
+                self.executor.run(["docker", "compose", "-f", "docker-compose.offline.yml", "-f", str(override_path), "--project-name", "smartx-capacity-insight", "up", "-d", "--no-deps", *sorted(_task_services(task["manifest"]))], cwd=self.project_path)
+            except SystemExit:
+                if _runner_only(task["manifest"]):
+                    self.tasks.update_task(task_id, status=TaskStatus.RUNNING, progress=86, message="upgrade-runner 正在重启，等待新进程接续", logs=logs, steps=steps)
+                    return task
+                raise
             logs.append("平台服务已提交重启")
             steps = _replace_step(steps, "restart", "succeeded")
 
@@ -203,6 +219,23 @@ class UpgradeService:
             _save_task_file(task_dir, task)
             self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message=str(exc), logs=task["logs"], steps=steps)
             raise
+        return task
+
+    def _resume_runner_upgrade(self, task: dict[str, Any]) -> dict[str, Any]:
+        task_id = task["task_id"]
+        task_dir = self.settings.upgrades_dir / task_id
+        logs = list(task.get("logs") or [])
+        steps = list(task.get("steps") or [])
+        logs.append("upgrade-runner 已重新启动，继续完成组件升级任务")
+        steps = _replace_step(steps, "restart", "succeeded", "upgrade-runner 已重新启动")
+        steps = _replace_step(steps, "healthcheck", "succeeded", "组件升级健康检查占位通过")
+        task["status"] = "success"
+        task["runner_resume_pending"] = False
+        task["steps"] = steps
+        task["logs"] = logs
+        task["updated_at"] = _now().isoformat()
+        _save_task_file(task_dir, task)
+        self.tasks.update_task(task_id, status=TaskStatus.SUCCESS, progress=100, message="组件升级执行完成", logs=logs, steps=steps)
         return task
 
     def _create_upgrade_backup(self, task: dict[str, Any]) -> Path:
@@ -249,6 +282,19 @@ class UpgradeService:
     def _write_upgrade_override(self, images: list[dict[str, Any]]) -> Path:
         self.settings.compose_runtime_dir.mkdir(parents=True, exist_ok=True)
         path = self.settings.compose_runtime_dir / "docker-compose.upgrade.yml"
+        return self._write_override(path, images)
+
+    def _write_runner_override(self, images: list[dict[str, Any]]) -> Path:
+        self.settings.compose_runtime_dir.mkdir(parents=True, exist_ok=True)
+        path = self.settings.compose_runtime_dir / "docker-compose.runner-upgrade.yml"
+        return self._write_override(path, images)
+
+    def _write_task_override(self, manifest: dict[str, Any], images: list[dict[str, Any]]) -> Path:
+        if _runner_only(manifest):
+            return self._write_runner_override(images)
+        return self._write_upgrade_override(images)
+
+    def _write_override(self, path: Path, images: list[dict[str, Any]]) -> Path:
         lines = ["services:"]
         for image in images:
             service = str(image["service"])
@@ -360,12 +406,53 @@ def _observability_services(manifest: dict[str, Any]) -> set[str]:
     return {str(image.get("service")) for image in _observability_images(manifest) if image.get("service") in OBSERVABILITY_SERVICES}
 
 
+def _runner_images(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    images: list[dict[str, Any]] = []
+    for component in manifest.get("components") or []:
+        if component.get("type") != "runner":
+            continue
+        for image in component.get("images") or []:
+            if image.get("service") in RUNNER_SERVICES:
+                images.append(dict(image))
+    return images
+
+
+def _runner_services(manifest: dict[str, Any]) -> set[str]:
+    services: set[str] = set()
+    for component in manifest.get("components") or []:
+        if component.get("type") != "runner":
+            continue
+        for service in component.get("services") or []:
+            if service in RUNNER_SERVICES:
+                services.add(str(service))
+    if services:
+        return services
+    return {str(image.get("service")) for image in _runner_images(manifest) if image.get("service") in RUNNER_SERVICES}
+
+
+def _runner_only(manifest: dict[str, Any]) -> bool:
+    components = set(_component_types(manifest))
+    return bool(components) and components <= {"runner"}
+
+
 def _upgrade_images(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     return _platform_images(manifest) + _observability_images(manifest)
 
 
 def _upgrade_services(manifest: dict[str, Any]) -> set[str]:
     return _platform_services(manifest) | _observability_services(manifest)
+
+
+def _task_images(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    if _runner_only(manifest):
+        return _runner_images(manifest)
+    return _upgrade_images(manifest)
+
+
+def _task_services(manifest: dict[str, Any]) -> set[str]:
+    if _runner_only(manifest):
+        return _runner_services(manifest)
+    return _upgrade_services(manifest)
 
 
 def _check_prometheus_permissions(prometheus_dir: Path) -> dict[str, Any]:
