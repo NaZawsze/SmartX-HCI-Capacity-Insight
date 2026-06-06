@@ -57,7 +57,8 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm }: Dashboa
       : scope.type === "tower"
         ? summary?.towers.find((tower) => tower.id === scope.towerId)?.name || summary?.scope?.label || "当前 Tower"
         : summary?.towers.find((tower) => tower.id === scope.towerId)?.name || summary?.scope?.label || "当前 Tower";
-  const topVms = sortMetricGrowthItems(summary?.top_vms || [], growthSort);
+  const topVms = sortMetricGrowthItems(summary?.day_fastest_growing_vms || summary?.top_vms || [], growthSort);
+  const dayNewVms = summary?.day_new_vms || [];
   const risk = capacityRisk(summary?.capacity_risk, kpis?.used_ratio);
 
   return (
@@ -134,6 +135,26 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm }: Dashboa
         </div>
       </Card>
 
+      <Card title="本日新建 VM" subtitle={`${dayNewVms.length} 台新建`}>
+        <div className="list-table growth-scroll auto-scrollbar">
+          {dayNewVms.length ? (
+            dayNewVms.slice(0, 20).map((item) => (
+              <button
+                className="table-row clickable"
+                key={`${item.metric.tower_id}-${item.metric.cluster_id}-${item.metric.vm_id}`}
+                type="button"
+                onClick={() => onSelectVm(item.metric.vm_id, item.metric.vm || item.metric.vm_id)}
+              >
+                <span>{item.metric.vm || item.metric.vm_id}</span>
+                <strong>{formatBytes(item.value)}</strong>
+              </button>
+            ))
+          ) : (
+            <div className="empty-state">暂无本日新建 VM</div>
+          )}
+        </div>
+      </Card>
+
       <Card title={scope.type === "cluster" ? "当前集群容量" : "集群容量"} subtitle={scopeLabel}>
         <div className="list-table">
           {summary?.clusters?.length ? (
@@ -199,10 +220,11 @@ function capacityRisk(
   usedRatio?: number | null
 ): { tone: "normal" | "warning" | "danger"; title: string; description: string } {
   if (clusterRisk) {
+    const tone = clusterRisk.level === "high" ? "danger" : clusterRisk.level;
     return {
-      tone: clusterRisk.level,
+      tone,
       title: clusterRisk.title,
-      description: clusterRisk.description
+      description: clusterRisk.description || clusterRisk.message || "当前所有集群暂无明显容量风险"
     };
   }
   if (usedRatio == null || !Number.isFinite(usedRatio)) {

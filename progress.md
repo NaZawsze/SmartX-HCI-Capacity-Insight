@@ -928,3 +928,47 @@ TDD 记录：
 
 - 本次只完成 VM 详情和卷信息后端。
 - Dashboard/VM 前端页面仍待接入 v2 API。
+
+远端验证：
+
+- 2026-06-06 09:19 CST，在 `10.20.11.3:/opt/smartx-storage-forecast-v2` 使用 `smartx-storage-forecast-web-api:local` 容器执行完整 v2 后端测试集。
+- 命令：`docker run --rm -v /opt/smartx-storage-forecast-v2:/src -e PYTHONPATH=/src/backend -w /src smartx-storage-forecast-web-api:local python -m unittest backend.tests.test_v2_skeleton backend.tests.test_v2_task_models backend.tests.test_v2_foundation backend.tests.test_v2_inventory_metrics backend.tests.test_v2_cloudtower_client backend.tests.test_v2_prometheus_service backend.tests.test_v2_collection backend.tests.test_v2_worker backend.tests.test_v2_dashboard_vm backend.tests.test_v2_dashboard_vm_api backend.tests.test_v2_auth_api backend.tests.test_v2_inventory_api -v`
+- 结果：32 个测试通过，`OK`。
+
+### 2026-06-06 Phase V2-4 Dashboard/VM 前端接入
+
+状态：完成临时远端容器验证，待正式远端仓库构建验证
+
+实施内容：
+
+- 前端 API 层兼容 v2 Dashboard 响应：
+  - `totals` 归一到旧页面使用的 `kpis`。
+  - `storage` 归一到容量使用数据。
+  - `day_fastest_growing_vms` 和 `day_new_vms` 归一为页面 `MetricItem`。
+  - `capacity_risk.level=high` 归一为页面 danger tone。
+- Dashboard 页面改为优先展示 v2 `day_fastest_growing_vms`。
+- Dashboard 在“日增长最快 VM”下面新增独立“本日新建 VM”卡片，VM 项点击仍跳转到虚拟机页面。
+- VM 页面移除旧的全量 `/api/vm-volumes` 依赖，改为选中 VM 后调用：
+  - `GET /api/vms/{vm_id}`
+  - `GET /api/vms/{vm_id}/volumes`
+  - `GET /api/vms/{vm_id}/trend`
+- VM 趋势点兼容 v2 `{timestamp, used_bytes}` 格式并转换为图表需要的 `[timestamp, value]`。
+- 前端测试增加自动 cleanup，避免多个 render 残留造成误报。
+- `docs/v2-rebuild-task-plan.md` 将 Dashboard/VM 前端接入标记完成。
+
+TDD 记录：
+
+- RED：新增 `frontend/src/pages/VmsPage.test.tsx` 后，在远端临时目录运行前端测试失败，原因是 `VmsPage` 仍调用 `api.vmVolumesAll(scope).then(...)`，测试明确要求单 VM 卷接口。
+- RED：新增 Dashboard v2 日增长/新建 VM 测试后，页面没有显示 v2 `day_fastest_growing_vms` 数据，也没有“本日新建 VM”独立卡片。
+- GREEN：改 API 归一化和 Dashboard/VM 页面后，目标前端测试通过。
+
+验证：
+
+- 远端临时目录 `/tmp/smartx-v2-redcheck`：
+  - `npm test -- --run src/pages/DashboardPage.test.tsx src/pages/VmsPage.test.tsx` 通过：2 个测试文件，4 个测试。
+  - `npm run build` 通过，Vite 成功生成 `dist`。
+
+限制：
+
+- 本阶段只完成 Dashboard/VM 前端接入。
+- 报表页跳转到 VM、月增长、本月新建 VM 属于后续 V2-5 报表阶段。

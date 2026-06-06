@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "../components/Card";
 import { TrendChart } from "../components/TrendChart";
 import { api, formatBytes } from "../services/api";
-import type { DashboardScope, MetricItem, VmTrend, VmVolume, VmVolumeSet } from "../types";
+import type { DashboardScope, MetricItem, VmDetail, VmTrend, VmVolume } from "../types";
 
 const trendRanges = [7, 14, 30, 90, 180] as const;
 type TrendRange = (typeof trendRanges)[number];
@@ -25,7 +25,8 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
   const [trendDays, setTrendDays] = useState<TrendRange>(30);
   const [sortMode, setSortMode] = useState<SortMode>("size");
   const [trend, setTrend] = useState<VmTrend | null>(null);
-  const [allVolumes, setAllVolumes] = useState<VmVolumeSet[]>([]);
+  const [detail, setDetail] = useState<VmDetail | null>(null);
+  const [currentVmVolumes, setCurrentVmVolumes] = useState<VmVolume[]>([]);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const selectedItemRef = useRef<HTMLButtonElement | null>(null);
   const lastOpenedVmNameRef = useRef("");
@@ -42,15 +43,15 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
   }, [refreshKey, scope, selectedVmId]);
 
   useEffect(() => {
-    api.vmVolumesAll(scope).then(setAllVolumes).catch(() => setAllVolumes([]));
-  }, [refreshKey, scope]);
-
-  useEffect(() => {
     if (!selectedVm) {
       setTrend(null);
+      setDetail(null);
+      setCurrentVmVolumes([]);
       return;
     }
     api.vmTrend(selectedVm, "used", trendDays, scope).then(setTrend).catch(() => setTrend(null));
+    api.vmDetail(selectedVm, scope).then(setDetail).catch(() => setDetail(null));
+    api.vmVolumes(selectedVm, scope).then((result) => setCurrentVmVolumes(result.volumes || [])).catch(() => setCurrentVmVolumes([]));
   }, [refreshKey, scope, selectedVm, trendDays]);
 
   useEffect(() => {
@@ -86,16 +87,15 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
     const term = query.trim().toLowerCase();
     const sorted = [...items].sort((left, right) => {
       if (sortMode === "usage") {
-        return getVmUsageRatio(right, allVolumes) - getVmUsageRatio(left, allVolumes);
+        return getVmUsageRatio(right, itemVolumesForRatio(right, selectedVm, currentVmVolumes)) - getVmUsageRatio(left, itemVolumesForRatio(left, selectedVm, currentVmVolumes));
       }
       return (right.value ?? 0) - (left.value ?? 0);
     });
     if (!term) return sorted;
     return sorted.filter((item) => `${item.metric.vm} ${item.metric.cluster}`.toLowerCase().includes(term));
-  }, [allVolumes, items, query, sortMode]);
+  }, [currentVmVolumes, items, query, selectedVm, sortMode]);
 
   const current = filtered.find((item) => item.metric.vm_id === selectedVm) ?? items.find((item) => item.metric.vm_id === selectedVm);
-  const currentVmVolumes = findCurrentVmVolumes(allVolumes, current, selectedVm);
   const selectedItemVisible = filtered.some((item) => item.metric.vm_id === selectedVm);
 
   return (
@@ -119,7 +119,8 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
         </div>
         <div className="vm-list">
           {filtered.map((item) => {
-            const usage = getVmUsageRatio(item, allVolumes);
+            const itemVolumes = itemVolumesForRatio(item, selectedVm, currentVmVolumes);
+            const usage = getVmUsageRatio(item, itemVolumes);
             return (
               <button
                 type="button"
@@ -131,7 +132,7 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
                 <span>{item.metric.vm || item.metric.vm_id}</span>
                 <small className="vm-cluster">{item.metric.cluster}</small>
                 <strong>{formatBytes(item.value)}</strong>
-                <small className={usage > 0.9 ? "vm-usage over-limit" : "vm-usage"}>{formatUsageLabel(item, allVolumes)}</small>
+                <small className={usage > 0.9 ? "vm-usage over-limit" : "vm-usage"}>{formatUsageLabel(item, itemVolumes)}</small>
               </button>
             );
           })}
@@ -153,30 +154,15 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
         }
       >
         <div className="trend-meta">
-          <span>{current?.metric.cluster || "未选择集群"}</span>
-          <strong>{formatBytes(current?.value)}</strong>
+          <span>{current?.metric.cluster || detail?.cluster_id || "未选择集群"}</span>
+          <strong>{formatBytes(detail?.used_bytes ?? current?.value)}</strong>
         </div>
         <TrendChart points={trend?.points || []} referenceValue={current?.value} height={360} />
       </Card>
 
-      <Card title="当前虚拟机明细" subtitle={current?.metric.vm || "未选择虚拟机"} className="current-volume-card">
+      <Card title="当前虚拟机明细" subtitle={detail?.vm_name || current?.metric.vm || "未选择虚拟机"} className="current-volume-card">
         <VolumeTable>
           {currentVmVolumes.length ? currentVmVolumes.map(renderVolumeRow) : <div className="empty-state">暂无当前虚拟机卷数据</div>}
-        </VolumeTable>
-      </Card>
-
-      <Card title="所有虚拟卷明细" className="volume-card">
-        <VolumeTable>
-          {allVolumes.length ? (
-            allVolumes.map((group) => (
-              <div className="volume-group" key={`${group.tower_id}-${group.cluster_id}-${group.vm_id}`}>
-                <div className="volume-group-title">{group.vm_id}</div>
-                {group.volumes.map(renderVolumeRow)}
-              </div>
-            ))
-          ) : (
-            <div className="empty-state">暂无虚拟卷数据</div>
-          )}
         </VolumeTable>
       </Card>
     </div>
@@ -198,19 +184,14 @@ function VolumeTable({ children }: { children: ReactNode }) {
   );
 }
 
-function findCurrentVmVolumes(allVolumes: VmVolumeSet[], current: MetricItem | undefined, selectedVm: string): VmVolume[] {
-  const exact = allVolumes.find(
-    (item) =>
-      item.vm_id === selectedVm &&
-      String(item.tower_id) === String(current?.metric.tower_id ?? "") &&
-      String(item.cluster_id) === String(current?.metric.cluster_id ?? "")
-  );
-  if (exact) return exact.volumes;
-  return allVolumes.find((item) => item.vm_id === selectedVm)?.volumes || [];
+function itemVolumesForRatio(item: MetricItem, selectedVm: string, currentVmVolumes: VmVolume[]): VmVolume[] {
+  if (!currentVmVolumes.length) return [];
+  if (item.metric.vm_id !== selectedVm) return [];
+  return currentVmVolumes;
 }
 
 function renderVolumeRow(volume: VmVolume, index?: number) {
-  const key = volume.id || volume.name || volume.path || String(index ?? 0);
+  const key = volume.id || volume.volume_id || volume.name || volume.path || String(index ?? 0);
   const actualUsed = readSize(volume, ["used_size", "used_size_bytes", "unique_logical_size", "guest_used_size", "guest_used_size_bytes"]);
   const provisioned = readSize(volume, ["provisioned_size", "provisioned_size_bytes", "size", "size_bytes", "capacity", "capacity_bytes"]);
   const actualOccupied = getOccupiedSize(volume, actualUsed);
@@ -241,8 +222,8 @@ function getOccupiedSize(volume: VmVolume, actualUsed: number | null): number | 
   return actualUsed;
 }
 
-function getVmUsageRatio(item: MetricItem, allVolumes: VmVolumeSet[]): number {
-  const volumeRatio = getVmVolumeUsageRatio(item, allVolumes);
+function getVmUsageRatio(item: MetricItem, volumes: VmVolume[]): number {
+  const volumeRatio = getVmVolumeUsageRatio(volumes);
   if (volumeRatio !== null) return volumeRatio;
   const guest = item.guest_used ?? 0;
   const provisioned = item.provisioned ?? 0;
@@ -251,8 +232,7 @@ function getVmUsageRatio(item: MetricItem, allVolumes: VmVolumeSet[]): number {
   return item.used_ratio ?? item.value / item.provisioned;
 }
 
-function getVmVolumeUsageRatio(item: MetricItem, allVolumes: VmVolumeSet[]): number | null {
-  const volumes = findCurrentVmVolumes(allVolumes, item, item.metric.vm_id);
+function getVmVolumeUsageRatio(volumes: VmVolume[]): number | null {
   if (!volumes.length) return null;
 
   let used = 0;
@@ -269,8 +249,8 @@ function getVmVolumeUsageRatio(item: MetricItem, allVolumes: VmVolumeSet[]): num
   return used / provisioned;
 }
 
-function formatRatio(item: MetricItem, allVolumes: VmVolumeSet[]): string {
-  const volumeRatio = getVmVolumeUsageRatio(item, allVolumes);
+function formatRatio(item: MetricItem, volumes: VmVolume[]): string {
+  const volumeRatio = getVmVolumeUsageRatio(volumes);
   if (volumeRatio !== null) return `${(volumeRatio * 100).toFixed(1)}%`;
   const guest = item.guest_used ?? 0;
   const provisioned = item.provisioned ?? 0;
@@ -282,8 +262,8 @@ function formatRatio(item: MetricItem, allVolumes: VmVolumeSet[]): string {
   return `${(ratio * 100).toFixed(1)}%`;
 }
 
-function formatUsageLabel(item: MetricItem, allVolumes: VmVolumeSet[]): string {
-  const ratio = formatRatio(item, allVolumes);
+function formatUsageLabel(item: MetricItem, volumes: VmVolume[]): string {
+  const ratio = formatRatio(item, volumes);
   return ratio ? `已使用 ${ratio}` : "";
 }
 

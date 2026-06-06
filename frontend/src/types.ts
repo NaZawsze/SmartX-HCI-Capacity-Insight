@@ -55,8 +55,9 @@ export interface DashboardSummary {
     used_ratio: number;
   };
   capacity_risk?: {
-    level: "normal" | "warning" | "danger";
+    level: "normal" | "warning" | "danger" | "high";
     title: string;
+    message?: string;
     description: string;
     cluster_count: number;
     warning_count: number;
@@ -79,6 +80,8 @@ export interface DashboardSummary {
     message?: string;
   };
   top_vms: MetricItem[];
+  day_fastest_growing_vms?: MetricItem[];
+  day_new_vms?: MetricItem[];
   clusters: MetricItem[];
   towers: Tower[];
   tower_runs?: Array<{
@@ -100,19 +103,36 @@ export interface VmTrend {
   points: [number, number][];
 }
 
+export interface VmDetail {
+  tower_id: number;
+  cluster_id: string;
+  vm_id: string;
+  vm_name: string;
+  used_bytes: number;
+  updated_at?: string | null;
+}
+
 export interface VmVolume {
   [key: string]: unknown;
   id?: string;
+  volume_id?: string;
   name?: string;
   used_size?: number;
   used_size_bytes?: number;
+  used_bytes?: number;
   provisioned_size?: number;
   provisioned_size_bytes?: number;
+  size_bytes?: number;
   path?: string;
   elf_storage_policy?: string;
+  storage_policy?: string;
   elf_storage_policy_replica_num?: number;
+  replica_num?: number;
   elf_storage_policy_ec_k?: number;
+  ec_k?: number;
   elf_storage_policy_ec_m?: number;
+  ec_m?: number;
+  thin_provision?: boolean | null;
 }
 
 export interface VmVolumeSet {
