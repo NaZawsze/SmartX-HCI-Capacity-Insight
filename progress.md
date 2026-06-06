@@ -1830,3 +1830,22 @@ TDD 记录：
 
 - RED：远端 `10.20.11.3` 运行 `python -m unittest backend.tests.test_v2_report_exports -v`，失败于 Word XML 不包含“目录”，符合预期。
 - GREEN：实现目录、页脚和 Word 底纹后，远端同一测试通过。
+
+### 2026-06-06 Phase V2-9 部署发版状态治理
+
+状态：完成远端验证，待提交
+
+实施内容：
+
+- 根据 `backend/tests/test_deployment_config.py` 和 `backend/tests/test_v2_package_builders.py` 的验证结果，更新 `docs/v2-rebuild-task-plan.md`：
+  - 平台镜像使用平台版本 tag。
+  - runner 镜像使用 runner 版本 tag。
+  - 平台 GitHub Actions 与 runner GitHub Actions 分离。
+  - offline/release compose 使用明确版本，且不包含 build。
+  - 平台升级包不包含 `.env`、数据库、Prometheus 数据、凭据，也不包含 runner 镜像。
+  - 打包脚本自动校验版本一致性。
+  - README 已写明升级包目录结构，changelog 第一版已存在。
+
+验证：
+
+- 远端 `10.20.11.3`：容器内临时安装 `backend/requirements-dev.txt` 后执行 `python -m pytest backend/tests/test_deployment_config.py backend/tests/test_v2_package_builders.py -q`，19 个测试通过。
