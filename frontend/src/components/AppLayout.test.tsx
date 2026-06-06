@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppLayout } from "./AppLayout";
 import type { AppTask, DashboardScope, DashboardSummary, PageKey } from "../types";
 
@@ -72,6 +72,10 @@ function failedTask(): AppTask {
 }
 
 describe("AppLayout menus", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("keeps service management as a main navigation item after settings", () => {
     const onNavigate = vi.fn();
     render(<AppLayout {...baseProps} onNavigate={onNavigate} />);
@@ -119,5 +123,23 @@ describe("AppLayout menus", () => {
     expect(screen.getByText("升级失败：镜像 sha256 不匹配")).toBeInTheDocument();
     expect(screen.getByText(/失败 校验镜像/)).toBeInTheDocument();
     expect(screen.getByText("镜像 sha256 不匹配：images/web-api.tar")).toBeInTheDocument();
+  });
+
+  it("only reveals auto scrollbars while the user is scrolling", () => {
+    vi.useFakeTimers();
+    render(<AppLayout {...baseProps} />);
+
+    const workspace = document.querySelector<HTMLElement>(".workspace.auto-scrollbar");
+    expect(workspace).toBeTruthy();
+    expect(workspace).not.toHaveClass("is-scrolling");
+
+    fireEvent.scroll(workspace!);
+    expect(workspace).toHaveClass("is-scrolling");
+
+    act(() => {
+      vi.advanceTimersByTime(900);
+    });
+
+    expect(workspace).not.toHaveClass("is-scrolling");
   });
 });

@@ -61,6 +61,43 @@ describe("DashboardPage", () => {
     expect(screen.getByText(/风险集群/)).toBeInTheDocument();
   });
 
+  it("keeps capacity risk, tower, and cluster as separate metric cards in the first row", () => {
+    const { container } = render(
+      <DashboardPage
+        summary={{
+          kpis: { tower_count: 3, cluster_count: 6, vm_count: 30, used_bytes: 100, total_bytes: 200, used_ratio: 0.5 },
+          capacity_risk: {
+            level: "normal",
+            title: "容量风险正常",
+            description: "当前所有集群暂无明显容量风险",
+            cluster_count: 6,
+            warning_count: 0,
+            danger_count: 0,
+            top_clusters: []
+          },
+          top_vms: [],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSummary={vi.fn()}
+        onSelectVm={vi.fn()}
+      />
+    );
+
+    const row = container.querySelector(".dashboard-metrics-row");
+    expect(row).toBeTruthy();
+    const cards = Array.from(row!.children);
+    expect(cards).toHaveLength(5);
+    expect(cards[0]).toHaveTextContent("容量风险正常");
+    expect(cards[1]).toHaveTextContent("Tower");
+    expect(cards[1]).toHaveTextContent("3");
+    expect(cards[2]).toHaveTextContent("集群");
+    expect(cards[2]).toHaveTextContent("6");
+    expect(cards[0]).not.toHaveTextContent("Tower");
+    expect(cards[1]).not.toHaveTextContent("集群");
+  });
+
   it("renders v2 day growth and day new vm as separate cards", () => {
     render(
       <DashboardPage

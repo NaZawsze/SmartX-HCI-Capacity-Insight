@@ -1869,3 +1869,22 @@ TDD 记录：
 - 远端 v2 后端 40 个 unittest 通过。
 - 远端核心前端 18 个 Vitest 通过。
 - 远端部署配置和打包脚本 19 个 pytest 通过。
+
+### 2026-06-06 Phase V2 前端布局与滚动条回归
+
+状态：完成远端验证，待提交
+
+实施内容：
+
+- 新增 `frontend/src/components/AppLayout.test.tsx` 用例，验证 `.workspace.auto-scrollbar` 默认隐藏滚动条、滚动时添加 `is-scrolling`、900ms 后自动移除。
+- 新增 `frontend/src/pages/DashboardPage.test.tsx` 用例，验证首页容量风险、Tower、集群是 `dashboard-metrics-row` 下三个独立指标卡，不互相嵌套。
+- 新增 `frontend/src/styles/global.test.ts`，验证关键响应式 CSS：
+  - 桌面 Dashboard 指标行保持容量风险小列、Tower/集群中列的受控列宽。
+  - 960px 移动端 Dashboard/metrics 切单列，workspace 不遮挡滚动。
+  - 服务管理二级导航在移动端横向换行，service-focus 主内容移动端左右边距收缩。
+- `docs/v2-rebuild-task-plan.md` 标记 Dashboard 独立卡片、移动端第一版布局、隐藏滚动条三项完成。
+
+验证：
+
+- 远端 `10.20.11.3`：`npm test -- AppLayout.test.tsx DashboardPage.test.tsx`，2 个测试文件、9 个测试通过。
+- 远端 `10.20.11.3`：`npm test -- global.test.ts`，1 个测试文件、3 个测试通过。
