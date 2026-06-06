@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import hashlib
 import shutil
 import sqlite3
 import tarfile
@@ -38,6 +39,7 @@ class MigrationService:
     def build_export_archive(self) -> tuple[bytes, str, Path, str]:
         generated_at = _now()
         filename = f"smartx-capacity-insight-migration-{generated_at.strftime('%Y%m%d%H%M%S')}.tar.gz"
+        files = _collect_manifest_files([(self.settings.sqlite_path, f"{APP_DIR}/{DB_FILENAME}")], self.settings.prometheus_data_dir, PROMETHEUS_DIR)
         manifest = {
             "format": "smartx-capacity-insight-v2-migration",
             "version": 1,
@@ -46,6 +48,7 @@ class MigrationService:
                 "sqlite": self.settings.sqlite_path.exists(),
                 "prometheus": self.settings.prometheus_data_dir.exists(),
             },
+            "files": files,
         }
         buffer = io.BytesIO()
         with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
@@ -98,8 +101,9 @@ class MigrationService:
             backup_path = self._create_import_backup(task_id)
             self.tasks.update_task(task_id, progress=55, message="导入前备份已生成", logs=[f"导入前备份：{backup_path}"])
             restored = self._restore_package(package_dir, normalized_mode)
+            health = self.health_check()
             self.tasks.update_task(task_id, status=TaskStatus.SUCCESS, progress=100, message="数据迁移导入完成")
-            return {"ok": True, "mode": normalized_mode, "restored": restored, "backup_path": str(backup_path), "task_id": task_id, "saved_path": str(upload_path)}
+            return {"ok": True, "mode": normalized_mode, "restored": restored, "backup_path": str(backup_path), "task_id": task_id, "saved_path": str(upload_path), "health": health}
         except HTTPException:
             self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message="数据迁移导入失败")
             raise
@@ -161,6 +165,17 @@ class MigrationService:
                 target.commit()
             finally:
                 target.execute("DETACH DATABASE incoming")
+
+    def health_check(self) -> dict[str, Any]:
+        sqlite_exists = self.settings.sqlite_path.is_file()
+        prometheus_exists = self.settings.prometheus_data_dir.exists()
+        prometheus_blocks = [path.name for path in self.settings.prometheus_data_dir.iterdir() if path.is_dir() and (path / "meta.json").is_file()] if prometheus_exists else []
+        return {
+            "sqlite": {"exists": sqlite_exists, "path": str(self.settings.sqlite_path)},
+            "prometheus": {"exists": prometheus_exists, "path": str(self.settings.prometheus_data_dir), "block_count": len(prometheus_blocks), "blocks": prometheus_blocks[:20]},
+            "complete": bool(sqlite_exists and prometheus_blocks),
+            "message": "业务库和 Prometheus 历史指标完整" if sqlite_exists and prometheus_blocks else "迁移结果不完整，请确认迁移包是否包含 Prometheus 历史指标。",
+        }
 
 
 def _merge_towers(conn: sqlite3.Connection) -> None:
@@ -284,6 +299,24 @@ def _add_directory(archive: tarfile.TarFile, source: Path, arcname: str, *, skip
         if any(part in skip_names for part in path.relative_to(source).parts):
             continue
         archive.add(path, arcname=str(Path(arcname) / path.relative_to(source)), recursive=False)
+
+
+def _collect_manifest_files(files: list[tuple[Path, str]], directory: Path, arcname: str) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for path, archive_name in files:
+        if path.is_file():
+            result[archive_name] = _file_manifest(path)
+    if directory.exists():
+        for path in sorted(directory.rglob("*")):
+            if not path.is_file() or any(part in PROMETHEUS_RUNTIME_ENTRIES for part in path.relative_to(directory).parts):
+                continue
+            result[str(Path(arcname) / path.relative_to(directory))] = _file_manifest(path)
+    return result
+
+
+def _file_manifest(path: Path) -> dict[str, Any]:
+    content = path.read_bytes()
+    return {"size": len(content), "sha256": hashlib.sha256(content).hexdigest()}
 
 
 def _validate_members(archive: tarfile.TarFile) -> None:

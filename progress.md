@@ -1281,3 +1281,35 @@ TDD 记录：
   - `python3 -m py_compile backend/app/v2/api.py backend/app/v2/collection/service.py backend/tests/test_v2_collection_runs_api.py` 通过。
 - 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
   - 使用 `smartx-storage-forecast-web-api:local` 容器执行 `backend.tests.test_v2_collection_runs_api` 通过。
+
+### 2026-06-06 Phase V2-6 迁移校验和导入健康检查
+
+状态：完成本地和远端验证，待提交
+
+实施内容：
+
+- v2 迁移包 `manifest.json` 增加 `files` 字段。
+- 每个导出的 SQLite/Prometheus 文件记录：
+  - `size`
+  - `sha256`
+- 导入完成后返回 `health`：
+  - SQLite 是否存在。
+  - Prometheus 目录是否存在。
+  - Prometheus block 数量和部分 block 名称。
+  - `complete` 标识业务库和 Prometheus 历史指标是否完整。
+- 如果迁移包只包含业务库、没有 Prometheus 历史 block，`health.complete=false` 并返回提示信息。
+- `docs/v2-rebuild-task-plan.md` 将“迁移包校验信息”和“导入后 Prometheus 历史指标回归检查第一版”标记完成。
+
+TDD 记录：
+
+- RED：扩展 `backend/tests/test_v2_migration.py` 后，manifest 缺少 `files`，导入结果缺少 `health`。
+- GREEN：新增文件 sha256/size manifest 和 `MigrationService.health_check()` 后测试通过。
+
+验证：
+
+- 本地：
+  - `PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_migration -v` 通过。
+  - v2 后端完整测试集 46 个测试通过。
+  - `python3 -m py_compile backend/app/v2/migration/service.py backend/tests/test_v2_migration.py` 通过。
+- 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
+  - 使用 `smartx-storage-forecast-web-api:local` 容器执行 `backend.tests.test_v2_migration` 通过。

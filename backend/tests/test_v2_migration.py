@@ -1,4 +1,5 @@
 import io
+import json
 import tarfile
 import tempfile
 import unittest
@@ -41,10 +42,15 @@ class V2MigrationServiceTest(unittest.TestCase):
             self.assertTrue(download_url.startswith("/api/admin/exports/migrations/"))
             with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
                 names = set(archive.getnames())
+                manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
+                archived_db = archive.extractfile("app/smartx.db").read()
             self.assertIn("manifest.json", names)
             self.assertIn("app/smartx.db", names)
             self.assertIn("prometheus/01ABC/meta.json", names)
             self.assertNotIn("prometheus/wal/runtime", names)
+            self.assertIn("files", manifest)
+            self.assertIn("app/smartx.db", manifest["files"])
+            self.assertEqual(manifest["files"]["app/smartx.db"]["sha256"], __import__("hashlib").sha256(archived_db).hexdigest())
             tasks = TaskService(database).list_tasks()
             self.assertEqual(tasks[0]["type"], "migration_export")
             self.assertEqual(tasks[0]["links"][0]["url"], download_url)
@@ -77,6 +83,9 @@ class V2MigrationServiceTest(unittest.TestCase):
             result = MigrationService(target_db, target_settings, TaskService(target_db)).restore_archive_bytes(archive_content, filename="migration.tar.gz", mode="merge")
 
             self.assertTrue(result["ok"])
+            self.assertTrue(result["health"]["sqlite"]["exists"])
+            self.assertTrue(result["health"]["prometheus"]["exists"])
+            self.assertFalse(result["health"]["complete"])
             self.assertTrue(Path(result["backup_path"]).is_file())
             with tarfile.open(result["backup_path"], mode="r:gz") as backup:
                 backup_names = set(backup.getnames())
