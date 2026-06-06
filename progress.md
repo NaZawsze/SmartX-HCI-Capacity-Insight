@@ -1613,3 +1613,31 @@ TDD 记录：
 - 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade -v` 通过，7 个测试通过。
 - 本地：v2 后端完整 unittest 集 52 个测试通过。
 - 本地：`python3 -m py_compile backend/app/v2/api.py backend/app/v2/upgrade/service.py backend/app/v2/upgrade/runner.py backend/tests/test_v2_upgrade.py` 通过。
+
+### 2026-06-06 Phase V2-8 服务重启与旧镜像清理接口第一版
+
+状态：完成本地验证，待远端验证和提交
+
+实施内容：
+
+- 新增 v2 系统控制服务 `app.v2.system.control`。
+- 后端新增 `/api/admin/system/restart`，按 v2 设计提交重启 `web-api`、`collector-worker`、`prometheus`。
+- 后端补齐前端服务管理页已调用的 Docker 镜像接口：
+  - `/api/admin/system/cleanup-images/scan`
+  - `/api/admin/system/cleanup-images`
+- 旧镜像清理支持先扫描再清理，返回镜像列表、每个镜像大小、预计可释放空间、实际释放空间和日志。
+- 测试和 API 支持 `SMARTX_UPGRADE_DRY_RUN=1`，避免本地/CI 没有 Docker CLI 时误清理真实镜像。
+- `docs/v2-rebuild-task-plan.md` 将服务重启第一版和未使用 Docker 镜像扫描清理第一版标记完成。
+
+TDD 记录：
+
+- RED：新增镜像清理 service 测试后，`CleanupService` 不支持 executor，也没有 `scan_unused_images()`。
+- GREEN：新增 Docker image 扫描/inspect/rm 执行链，兼容 Docker 按行 JSON 和测试 JSON 数组输出。
+- RED：API 测试要求 cleanup-images 和 restart 接口后，`/api/admin/system/cleanup-images/scan` 返回 404。
+- GREEN：新增系统控制服务和三个后端 API 路由。
+
+验证：
+
+- 本地：`PYTHONPATH=backend SMARTX_UPGRADE_DRY_RUN=1 /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_cleanup -v` 通过，3 个测试通过。
+- 本地：v2 后端完整 unittest 集 53 个测试通过。
+- 本地：`python3 -m py_compile backend/app/v2/api.py backend/app/v2/cleanup/service.py backend/app/v2/system/control.py backend/tests/test_v2_cleanup.py` 通过。

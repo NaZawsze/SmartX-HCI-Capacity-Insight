@@ -46,6 +46,43 @@ class V2CleanupServiceTest(unittest.TestCase):
             self.assertEqual(task["status"], "success")
             self.assertGreater(task["progress"], 0)
 
+    def test_image_cleanup_scans_and_cleans_with_executor_output(self) -> None:
+        from app.v2.cleanup.service import CleanupService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+
+        class FakeExecutor:
+            def __init__(self) -> None:
+                self.commands: list[list[str]] = []
+
+            def output(self, command: list[str]) -> str:
+                self.commands.append(command)
+                if command[:3] == ["docker", "image", "ls"]:
+                    return '[{"ID":"sha256:abc","Repository":"old","Tag":"v0.1","Size":"128MB","CreatedAt":"2026-01-01 00:00:00 +0000 UTC"}]'
+                if command[:3] == ["docker", "image", "inspect"]:
+                    return '[{"Id":"sha256:abc","Size":134217728,"RepoTags":["old:v0.1"],"Created": "2026-01-01T00:00:00Z"}]'
+                if command[:3] == ["docker", "image", "rm"]:
+                    return "Untagged: old:v0.1\nDeleted: sha256:abc\n"
+                return ""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="cleanup-secret")
+            database = V2Database(settings)
+            database.initialize()
+            executor = FakeExecutor()
+            cleanup = CleanupService(settings, TaskService(database), executor=executor)
+
+            scan = cleanup.scan_unused_images()
+            self.assertEqual(scan["image_count"], 1)
+            self.assertEqual(scan["space_reclaimable"], 134217728)
+            self.assertEqual(scan["images"][0]["display_name"], "old:v0.1")
+
+            result = cleanup.cleanup_unused_images()
+            self.assertEqual(result["deleted_count"], 1)
+            self.assertEqual(result["space_reclaimed"], 134217728)
+            self.assertTrue(any(command[:3] == ["docker", "image", "rm"] for command in executor.commands))
+
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2CleanupApiTest(unittest.TestCase):
@@ -75,6 +112,16 @@ class V2CleanupApiTest(unittest.TestCase):
                     self.assertEqual(result.status_code, 200)
                     self.assertEqual(result.json()["deleted_count"], 1)
                     self.assertFalse((settings.reports_dir / "report.xlsx").exists())
+
+                    image_scan = client.get("/api/admin/system/cleanup-images/scan", headers=headers)
+                    self.assertEqual(image_scan.status_code, 200)
+
+                    image_cleanup = client.post("/api/admin/system/cleanup-images", headers=headers)
+                    self.assertEqual(image_cleanup.status_code, 200)
+
+                    restart = client.post("/api/admin/system/restart", headers=headers)
+                    self.assertEqual(restart.status_code, 200)
+                    self.assertEqual(restart.json()["services"], ["web-api", "collector-worker", "prometheus"])
             finally:
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)

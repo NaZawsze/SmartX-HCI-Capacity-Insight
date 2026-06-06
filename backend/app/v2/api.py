@@ -22,6 +22,7 @@ from app.v2.inventory.service import InventoryService
 from app.v2.migration.service import ARCHIVE_MEDIA_TYPE, MigrationService
 from app.v2.reports.export import DOCX_MEDIA_TYPE, XLSX_MEDIA_TYPE, build_report_docx, build_report_xlsx
 from app.v2.reports.service import ReportService
+from app.v2.system.control import SystemControlService
 from app.v2.system.health import check_health
 from app.v2.tasks.models import TaskStatus, TaskType
 from app.v2.tasks.service import TaskService
@@ -179,6 +180,10 @@ def get_cleanup_service(
     tasks: Annotated[TaskService, Depends(get_task_service)],
 ) -> CleanupService:
     return CleanupService(settings, tasks)
+
+
+def get_system_control_service() -> SystemControlService:
+    return SystemControlService()
 
 
 def get_upgrade_service(
@@ -609,6 +614,30 @@ def cleanup_artifacts(
     cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
 ) -> dict:
     return cleanup.cleanup_artifacts()
+
+
+@router.get("/api/admin/system/cleanup-images/scan")
+def scan_cleanup_images(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
+) -> dict:
+    return cleanup.scan_unused_images()
+
+
+@router.post("/api/admin/system/cleanup-images")
+def cleanup_images(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
+) -> dict:
+    return cleanup.cleanup_unused_images()
+
+
+@router.post("/api/admin/system/restart")
+def restart_system_services(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    system: Annotated[SystemControlService, Depends(get_system_control_service)],
+) -> dict:
+    return system.restart_data_services()
 
 
 @router.post("/api/admin/upgrade/upload")
