@@ -214,6 +214,15 @@ class V2MigrationApiTest(unittest.TestCase):
                     payload = imported.json()
                     self.assertTrue(payload["ok"])
                     self.assertTrue(Path(payload["backup_path"]).is_file())
+
+                    overwrite_without_confirm = client.post(
+                        "/api/admin/migration/import",
+                        data={"mode": "overwrite", "confirmed": "false"},
+                        files={"file": ("migration.tar.gz", exported.content, "application/gzip")},
+                        headers=headers,
+                    )
+                    self.assertEqual(overwrite_without_confirm.status_code, 400)
+                    self.assertIn("覆盖导入会清空当前系统数据", overwrite_without_confirm.json()["detail"])
             finally:
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)

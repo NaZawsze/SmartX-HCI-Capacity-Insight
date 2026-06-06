@@ -1710,3 +1710,22 @@ TDD 记录：
 验证：
 
 - 远端 `10.20.11.3`：`npm test -- AppLayout.test.tsx` 通过，1 个测试文件、3 个测试通过。
+
+### 2026-06-06 Phase V2-6 overwrite 导入显式确认验证
+
+状态：完成本地和远端验证，待提交
+
+实施内容：
+
+- 后端 API 测试补充 `mode=overwrite` 且 `confirmed=false` 时返回 `400`，错误明确提示覆盖导入会清空当前系统数据。
+- 前端 `ServicePage` 测试覆盖：
+  - 选择覆盖导入后，未勾选确认时“导入迁移包”按钮禁用。
+  - 勾选“我确认覆盖当前系统数据”后才调用 `api.importMigration(file, "overwrite", true, ...)`。
+- 修复 `ServicePage` 滚动重置在不支持 `HTMLElement.scrollTo` 的环境中抛错的问题，回退到设置 `scrollTop = 0`。
+- 测试环境 `frontend/src/test/setup.ts` 增加 `window.scrollTo` stub。
+- `docs/v2-rebuild-task-plan.md` 将 “overwrite 模式必须显式选择” 标记完成。
+
+验证：
+
+- 本地：`PYTHONPATH=backend SMARTX_UPGRADE_DRY_RUN=1 /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_migration -v` 通过，4 个测试通过。
+- 远端 `10.20.11.3`：`npm test -- ServicePage.test.tsx` 通过，1 个测试文件、4 个测试通过。

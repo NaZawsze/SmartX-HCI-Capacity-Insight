@@ -704,8 +704,8 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
   function resetServiceScroll() {
     window.requestAnimationFrame(() => {
       window.scrollTo({ top: 0 });
-      document.querySelector<HTMLElement>(".workspace")?.scrollTo({ top: 0 });
-      contentPanelRef.current?.scrollTo({ top: 0 });
+      scrollElementToTop(document.querySelector<HTMLElement>(".workspace"));
+      scrollElementToTop(contentPanelRef.current);
     });
   }
 
@@ -1391,6 +1391,15 @@ function UploadPanel({ title, description, actionText, disabled, onClick }: { ti
       </button>
     </div>
   );
+}
+
+function scrollElementToTop(element: HTMLElement | null) {
+  if (!element) return;
+  if (typeof element.scrollTo === "function") {
+    element.scrollTo({ top: 0 });
+    return;
+  }
+  element.scrollTop = 0;
 }
 
 function upgradeStatusText(status: string): string {
