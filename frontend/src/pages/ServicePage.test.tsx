@@ -10,7 +10,8 @@ const apiMock = vi.hoisted(() => ({
   componentUpgradeHistory: vi.fn(),
   upgradeVerification: vi.fn(),
   precheckUpgrade: vi.fn(),
-  importMigration: vi.fn()
+  importMigration: vi.fn(),
+  scanSpaceCleanup: vi.fn()
 }));
 
 vi.mock("../services/api", async () => ({
@@ -107,6 +108,29 @@ describe("ServicePage migration overwrite mode", () => {
       expect(apiMock.importMigration).toHaveBeenCalledWith(file, "overwrite", true, expect.any(Function));
     });
     expect(addTask).toHaveBeenCalledWith(expect.objectContaining({ kind: "import", title: "导入迁移包" }));
+  });
+
+  it("uses primary scan and danger cleanup buttons with matching header sizing", async () => {
+    mockServicePageBootstrap();
+    apiMock.scanSpaceCleanup.mockResolvedValue({
+      ok: true,
+      items: [],
+      total_count: 0,
+      total_size: 0,
+      total_size_label: "0 B",
+      message: "没有可清理文件"
+    });
+
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "空间清理" }));
+    await waitFor(() => expect(screen.getByText("可清理空间")).toBeInTheDocument());
+
+    const scanButton = screen.getByRole("button", { name: "扫描" });
+    const cleanupButton = screen.getByRole("button", { name: "一键清理" });
+
+    expect(scanButton).toHaveClass("primary-button", "service-header-button");
+    expect(cleanupButton).toHaveClass("danger-button", "service-header-button");
   });
 });
 

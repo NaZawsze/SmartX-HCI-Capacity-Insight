@@ -864,7 +864,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           title="空间清理"
           action={(
             <div className="service-header-actions">
-              <button className="secondary-button service-header-button" type="button" onClick={scanSpaceCleanup} disabled={spaceCleanupBusy || spaceCleanupScanBusy}>
+              <button className="primary-button service-header-button" type="button" onClick={scanSpaceCleanup} disabled={spaceCleanupBusy || spaceCleanupScanBusy}>
                 <RefreshCw size={16} />
                 {spaceCleanupScanBusy ? "扫描中" : "扫描"}
               </button>

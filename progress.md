@@ -1768,3 +1768,20 @@ TDD 记录：
 验证：
 
 - 远端 `10.20.11.3`：`npm test -- AppLayout.test.tsx ServicePage.test.tsx SettingsPage.test.tsx` 通过，3 个测试文件、12 个测试通过。
+
+### 2026-06-06 Phase V2-8 空间清理按钮色彩验证
+
+状态：完成远端红绿验证，待提交
+
+实施内容：
+
+- 扩展 `frontend/src/pages/ServicePage.test.tsx`，覆盖“空间清理”页：
+  - “扫描”按钮使用 `primary-button service-header-button`。
+  - “一键清理”按钮使用 `danger-button service-header-button`。
+- 修复 `frontend/src/pages/ServicePage.tsx` 中空间清理扫描按钮仍使用次级按钮的问题，改为主色按钮。
+- `docs/v2-rebuild-task-plan.md` 将“清理按钮使用危险色，扫描按钮使用主色”标记完成。
+
+TDD 记录：
+
+- RED：远端 `10.20.11.3` 执行 `npm test -- ServicePage.test.tsx`，新增测试失败，收到 `secondary-button service-header-button`，符合预期。
+- GREEN：改为 `primary-button service-header-button` 后，远端同一测试通过，1 个测试文件、8 个测试通过。
