@@ -1252,3 +1252,32 @@ TDD 记录：
 限制：
 
 - 本阶段只实现上传和预检查薄片，不执行 Docker load、项目文件同步、备份、重启、健康检查和回滚。
+
+### 2026-06-06 Phase V2-3 采集记录 API
+
+状态：完成本地和远端验证，待提交
+
+实施内容：
+
+- `CollectionService` 增加：
+  - `list_runs(limit=30)`
+  - `run_detail(run_id)`
+- v2 API 新增：
+  - `GET /api/collection/runs`
+  - `GET /api/collection/runs/{run_id}`
+- 手动采集路由改为复用 `get_collection_service` 依赖，便于测试和后续扩展。
+- `docs/v2-rebuild-task-plan.md` 将采集状态写入 SQLite、采集记录列表和详情 API 标记完成。
+
+TDD 记录：
+
+- RED：新增 `backend/tests/test_v2_collection_runs_api.py` 后，未登录访问 `/api/collection/runs` 返回 404。
+- GREEN：新增 CollectionService 查询方法和 API 路由后，鉴权、列表倒序、详情、404 测试通过。
+
+验证：
+
+- 本地：
+  - `PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_collection_runs_api backend.tests.test_v2_collection -v` 通过。
+  - v2 后端完整测试集 46 个测试通过。
+  - `python3 -m py_compile backend/app/v2/api.py backend/app/v2/collection/service.py backend/tests/test_v2_collection_runs_api.py` 通过。
+- 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
+  - 使用 `smartx-storage-forecast-web-api:local` 容器执行 `backend.tests.test_v2_collection_runs_api` 通过。

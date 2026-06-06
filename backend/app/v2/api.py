@@ -188,6 +188,14 @@ def get_upgrade_service(
     return UpgradeService(settings, tasks)
 
 
+def get_collection_service(
+    database: Annotated[V2Database, Depends(get_v2_database)],
+    settings: Annotated[V2Settings, Depends(get_v2_settings)],
+    cloudtower: Annotated[CloudTowerService, Depends(get_cloudtower_service)],
+) -> CollectionService:
+    return CollectionService(database, settings, cloudtower_client=cloudtower)
+
+
 def require_user(
     credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(bearer)],
     auth: Annotated[AuthService, Depends(get_auth_service)],
@@ -372,12 +380,31 @@ def update_cluster(
 @router.post("/api/collection/run", response_model=CollectionRunResponse)
 def run_collection(
     _: Annotated[CurrentUser, Depends(require_user)],
-    database: Annotated[V2Database, Depends(get_v2_database)],
-    settings: Annotated[V2Settings, Depends(get_v2_settings)],
-    cloudtower: Annotated[CloudTowerService, Depends(get_cloudtower_service)],
+    collection: Annotated[CollectionService, Depends(get_collection_service)],
 ) -> CollectionRunResponse:
-    result = CollectionService(database, settings, cloudtower_client=cloudtower).run_manual_collection()
+    result = collection.run_manual_collection()
     return CollectionRunResponse(run_id=result.run_id, status=result.status, message=result.message)
+
+
+@router.get("/api/collection/runs")
+def collection_runs(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    collection: Annotated[CollectionService, Depends(get_collection_service)],
+    limit: int = 30,
+) -> list[dict]:
+    return collection.list_runs(limit=limit)
+
+
+@router.get("/api/collection/runs/{run_id}")
+def collection_run_detail(
+    run_id: int,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    collection: Annotated[CollectionService, Depends(get_collection_service)],
+) -> dict:
+    result = collection.run_detail(run_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="采集记录不存在。")
+    return result
 
 
 @router.get("/api/dashboard/summary")

@@ -91,6 +91,27 @@ class CollectionService:
             row = conn.execute("SELECT metrics_text FROM metric_snapshots WHERE id = 1").fetchone()
         return str(row["metrics_text"]) if row else ""
 
+    def list_runs(self, limit: int = 30) -> list[dict]:
+        with self.database.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, status, message, started_at, finished_at
+                FROM collection_runs
+                ORDER BY started_at DESC, id DESC
+                LIMIT ?
+                """,
+                (int(limit),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def run_detail(self, run_id: int) -> dict | None:
+        with self.database.connection() as conn:
+            row = conn.execute(
+                "SELECT id, status, message, started_at, finished_at FROM collection_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
     def _start_run(self) -> int:
         with self.database.connection() as conn:
             cursor = conn.execute("INSERT INTO collection_runs (status, message) VALUES ('running', '采集中')")
