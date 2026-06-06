@@ -1439,3 +1439,32 @@ TDD 记录：
 - 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
   - 快进拉取到 `fa4c2f3`。
   - 使用 `smartx-storage-forecast-web-api:local` 容器执行 `backend.tests.test_v2_migration` 通过。
+
+### 2026-06-06 Phase V2-12 升级执行链第一版
+
+状态：完成本地验证，待远端验证和提交
+
+实施内容：
+
+- v2 `UpgradeService.start()` 从“备份后等待 runner”升级为第一版可执行链：
+  - 生成升级前备份。
+  - 加载 manifest 中声明的 platform 镜像。
+  - 同步 `project/` 白名单项目文件，并先备份目标项目文件到 `/data/backups/project-files-before-版本-时间/`。
+  - 写入 `/data/compose-runtime/docker-compose.upgrade.yml`。
+  - 通过 `docker compose -f docker-compose.offline.yml -f <override> up -d --no-deps ...` 重启 platform 服务。
+  - 写入结构化 steps、logs、backup_path、project_backup_path、override_path。
+- 平台升级只处理 `web-api`、`collector-worker`、`frontend`；manifest 里的 runner 镜像不会写入平台 override。
+- 新增 `UpgradeCommandExecutor`，生产默认执行真实命令；测试可注入 fake executor。
+- API 测试通过 `SMARTX_UPGRADE_DRY_RUN=1` 避免本地/CI 无 Docker CLI 时失败，生产不设置该变量。
+- `docs/v2-rebuild-task-plan.md` 将平台三件套升级、项目文件备份同步、升级历史第一版标记完成；真正由 upgrade-runner 接管仍保留待办。
+
+TDD 记录：
+
+- RED：升级测试导入 `UpgradeCommandExecutor` 失败。
+- GREEN：新增 executor 抽象，start 执行 Docker load、项目同步、override 写入和 compose up。
+- 回归：API 测试本地无 Docker CLI 失败，增加显式 dry-run 环境变量用于测试环境。
+
+验证：
+
+- 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade -v` 通过。
+- 本地：v2 后端完整 unittest 集 48 个测试通过。

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import io
 import json
@@ -35,7 +37,14 @@ class V2UpgradeServiceTest(unittest.TestCase):
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
         from app.v2.tasks.service import TaskService
-        from app.v2.upgrade.service import UpgradeService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def __init__(self) -> None:
+                self.commands: list[list[str]] = []
+
+            def run(self, command: list[str], *, cwd: Path | None = None) -> None:
+                self.commands.append(command)
 
         web_api = b"web-api-image"
         runner = b"runner-image"
@@ -53,7 +62,8 @@ class V2UpgradeServiceTest(unittest.TestCase):
             settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
             database = V2Database(settings)
             database.initialize()
-            service = UpgradeService(settings, TaskService(database))
+            executor = FakeExecutor()
+            service = UpgradeService(settings, TaskService(database), executor=executor, project_path=Path(tmpdir) / "project")
             task = service.upload_package_bytes(
                 self._package(
                     manifest,
@@ -76,13 +86,21 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertTrue(all(check["ok"] for check in precheck["checks"]))
 
             started = service.start(task["task_id"])
-            self.assertEqual(started["status"], "backup_completed")
             self.assertTrue(Path(started["backup_path"]).is_file())
             self.assertIn("upgrade-v2.0.0-before", Path(started["backup_path"]).name)
             with tarfile.open(started["backup_path"], mode="r:gz") as backup:
                 backup_names = set(backup.getnames())
             self.assertIn("manifest.json", backup_names)
             self.assertIn("app/smartx.db", backup_names)
+            self.assertEqual(started["status"], "success")
+            self.assertTrue((settings.compose_runtime_dir / "docker-compose.upgrade.yml").is_file())
+            self.assertIn("repo/web-api:v2.0.0", (settings.compose_runtime_dir / "docker-compose.upgrade.yml").read_text(encoding="utf-8"))
+            self.assertTrue((Path(tmpdir) / "project" / "docker-compose.offline.yml").is_file())
+            self.assertTrue(any(command[:2] == ["docker", "load"] for command in executor.commands))
+            self.assertTrue(any(command[:3] == ["docker", "compose", "-f"] for command in executor.commands))
+            stored_task = TaskService(database).get_task(task["task_id"])
+            self.assertEqual(stored_task["status"], "success")
+            self.assertTrue(stored_task["steps"])
 
     def test_upload_rejects_sensitive_paths(self) -> None:
         from fastapi import HTTPException
@@ -122,6 +140,7 @@ class V2UpgradeApiTest(unittest.TestCase):
             os.environ["SMARTX_DATA_ROOT"] = tmpdir
             os.environ["SMARTX_SECRET_KEY"] = "upgrade-api-secret"
             os.environ["SMARTX_ADMIN_PASSWORD"] = "password"
+            os.environ["SMARTX_UPGRADE_DRY_RUN"] = "1"
             try:
                 app = create_app()
                 with TestClient(app) as client:
@@ -145,6 +164,7 @@ class V2UpgradeApiTest(unittest.TestCase):
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)
                 os.environ.pop("SMARTX_ADMIN_PASSWORD", None)
+                os.environ.pop("SMARTX_UPGRADE_DRY_RUN", None)
 
 
 if __name__ == "__main__":

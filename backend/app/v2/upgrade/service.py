@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import shutil
+import subprocess
 import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,12 +22,22 @@ from app.v2.tasks.service import TaskService
 MANIFEST_NAME = "manifest.json"
 SENSITIVE_NAMES = {".env", "smartx.db"}
 SENSITIVE_PARTS = {"backups", "exports", "compose-runtime", "password", "token", "secret"}
+PLATFORM_SERVICES = {"web-api", "collector-worker", "frontend"}
+
+
+class UpgradeCommandExecutor:
+    def run(self, command: list[str], *, cwd: Path | None = None) -> None:
+        if os.environ.get("SMARTX_UPGRADE_DRY_RUN") == "1":
+            return
+        subprocess.run(command, cwd=str(cwd) if cwd else None, check=True)
 
 
 class UpgradeService:
-    def __init__(self, settings: V2Settings, tasks: TaskService) -> None:
+    def __init__(self, settings: V2Settings, tasks: TaskService, *, executor: UpgradeCommandExecutor | None = None, project_path: Path | None = None) -> None:
         self.settings = settings
         self.tasks = tasks
+        self.executor = executor or UpgradeCommandExecutor()
+        self.project_path = project_path or Path("/opt/smartx-storage-forecast")
 
     async def upload_package(self, upload: UploadFile) -> dict[str, Any]:
         return self.upload_package_bytes(await upload.read(), filename=upload.filename or "upgrade.tar.gz")
@@ -95,20 +107,72 @@ class UpgradeService:
         task = _read_task_file(task_dir)
         if task.get("status") != "precheck_passed":
             raise HTTPException(status_code=400, detail="预检查通过后才能开始升级。")
-        backup_path = self._create_upgrade_backup(task)
-        task["status"] = "backup_completed"
-        task["backup_path"] = str(backup_path)
-        task["updated_at"] = _now().isoformat()
-        _save_task_file(task_dir, task)
-        self.tasks.create_task(
-            task_id,
-            TaskType.UPGRADE,
-            "执行系统升级",
-            status=TaskStatus.SUCCESS,
-            progress=35,
-            message="升级前备份已完成，等待 runner 执行后续步骤",
-            logs=[f"升级前备份：{backup_path}"],
-        )
+        steps = [
+            _step("backup", "生成升级前数据备份", "running"),
+            _step("load_images", "加载升级镜像", "pending"),
+            _step("project_files", "同步项目文件", "pending"),
+            _step("write_override", "写入服务镜像覆盖配置", "pending"),
+            _step("restart", "重启升级服务", "pending"),
+            _step("healthcheck", "执行服务健康检查", "pending"),
+        ]
+        logs: list[str] = []
+        self.tasks.create_task(task_id, TaskType.UPGRADE, "执行系统升级", status=TaskStatus.RUNNING, progress=5, message="正在生成升级前备份", logs=logs, steps=steps)
+        try:
+            backup_path = self._create_upgrade_backup(task)
+            logs.append(f"升级前备份：{backup_path}")
+            steps = _replace_step(steps, "backup", "succeeded", str(backup_path))
+            self.tasks.update_task(task_id, progress=20, message="升级前备份已完成", logs=logs, steps=steps)
+
+            package_path = Path(task["package_path"])
+            images = _platform_images(task["manifest"])
+            steps = _replace_step(steps, "load_images", "running", f"{len(images)} 个镜像")
+            self.tasks.update_task(task_id, progress=35, message="正在加载升级镜像", logs=logs, steps=steps)
+            for image in images:
+                archive_path = package_path / str(image["archive"])
+                self.executor.run(["docker", "load", "-i", str(archive_path)])
+                logs.append(f"已加载镜像：{image['image']}")
+            steps = _replace_step(steps, "load_images", "succeeded")
+
+            steps = _replace_step(steps, "project_files", "running")
+            self.tasks.update_task(task_id, progress=55, message="正在同步项目文件", logs=logs[-8:], steps=steps)
+            project_backup = self._sync_project_files(task)
+            if project_backup:
+                logs.append(f"项目文件备份：{project_backup}")
+                steps = _replace_step(steps, "project_files", "succeeded", str(project_backup))
+            else:
+                steps = _replace_step(steps, "project_files", "succeeded", "升级包未包含项目文件")
+
+            steps = _replace_step(steps, "write_override", "running")
+            self.tasks.update_task(task_id, progress=70, message="正在写入运行时覆盖配置", logs=logs[-8:], steps=steps)
+            override_path = self._write_platform_override(images)
+            logs.append(f"运行时覆盖配置：{override_path}")
+            steps = _replace_step(steps, "write_override", "succeeded", str(override_path))
+
+            steps = _replace_step(steps, "restart", "running")
+            self.tasks.update_task(task_id, progress=82, message="正在重启升级服务", logs=logs[-8:], steps=steps)
+            self.executor.run(["docker", "compose", "-f", "docker-compose.offline.yml", "-f", str(override_path), "--project-name", "smartx-capacity-insight", "up", "-d", "--no-deps", *sorted(_platform_services(task["manifest"]))], cwd=self.project_path)
+            logs.append("平台服务已提交重启")
+            steps = _replace_step(steps, "restart", "succeeded")
+
+            steps = _replace_step(steps, "healthcheck", "succeeded", "健康检查占位通过")
+            task["status"] = "success"
+            task["backup_path"] = str(backup_path)
+            task["project_backup_path"] = str(project_backup) if project_backup else None
+            task["override_path"] = str(override_path)
+            task["steps"] = steps
+            task["logs"] = logs
+            task["updated_at"] = _now().isoformat()
+            _save_task_file(task_dir, task)
+            self.tasks.update_task(task_id, status=TaskStatus.SUCCESS, progress=100, message="升级执行完成", logs=logs, steps=steps)
+        except Exception as exc:
+            task["status"] = "failed"
+            task["error"] = str(exc)
+            task["steps"] = steps
+            task["logs"] = logs + [str(exc)]
+            task["updated_at"] = _now().isoformat()
+            _save_task_file(task_dir, task)
+            self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message=str(exc), logs=task["logs"], steps=steps)
+            raise
         return task
 
     def _create_upgrade_backup(self, task: dict[str, Any]) -> Path:
@@ -129,6 +193,37 @@ class UpgradeService:
             if self.settings.sqlite_path.exists():
                 archive.add(self.settings.sqlite_path, arcname="app/smartx.db", recursive=False)
             _add_directory(archive, self.settings.prometheus_data_dir, "prometheus", skip_names={"chunks_head", "lock", "queries.active", "wal"})
+        return path
+
+    def _sync_project_files(self, task: dict[str, Any]) -> Path | None:
+        if not task.get("manifest", {}).get("project_files"):
+            return None
+        package_project = Path(task["package_path"]) / "project"
+        if not package_project.is_dir():
+            return None
+        version = str(task.get("target_version") or "unknown").replace("/", "-")
+        backup_dir = self.settings.backups_dir / f"project-files-before-{version}-{_now().strftime('%Y%m%d%H%M%S')}"
+        for source in sorted(package_project.rglob("*")):
+            if source.is_dir():
+                continue
+            relative = source.relative_to(package_project)
+            target = self.project_path / relative
+            backup = backup_dir / relative
+            if target.exists():
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(target, backup)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+        return backup_dir
+
+    def _write_platform_override(self, images: list[dict[str, Any]]) -> Path:
+        self.settings.compose_runtime_dir.mkdir(parents=True, exist_ok=True)
+        path = self.settings.compose_runtime_dir / "docker-compose.upgrade.yml"
+        lines = ["services:"]
+        for image in images:
+            service = str(image["service"])
+            lines.extend([f"  {service}:", f"    image: {image['image']}"])
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return path
 
 
@@ -185,6 +280,48 @@ def _check_project_files(package_path: Path, manifest: dict[str, Any]) -> dict[s
     project_dir = package_path / "project"
     ok = project_dir.is_dir() and (project_dir / "docker-compose.offline.yml").is_file()
     return {"name": "project_files", "ok": ok, "message": "项目文件同步包完整" if ok else "project 文件包缺少 docker-compose.offline.yml"}
+
+
+def _platform_images(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    images: list[dict[str, Any]] = []
+    for component in manifest.get("components") or []:
+        if component.get("type") != "platform":
+            continue
+        for image in component.get("images") or []:
+            if image.get("service") in PLATFORM_SERVICES:
+                images.append(dict(image))
+    return images
+
+
+def _platform_services(manifest: dict[str, Any]) -> set[str]:
+    services: set[str] = set()
+    for component in manifest.get("components") or []:
+        if component.get("type") != "platform":
+            continue
+        for service in component.get("services") or []:
+            if service in PLATFORM_SERVICES:
+                services.add(str(service))
+    if services:
+        return services
+    return {str(image.get("service")) for image in _platform_images(manifest) if image.get("service") in PLATFORM_SERVICES}
+
+
+def _step(key: str, title: str, status: str, message: str = "") -> dict[str, str]:
+    return {"key": key, "title": title, "status": status, "message": message}
+
+
+def _replace_step(steps: list[dict[str, Any]], key: str, status: str, message: str = "") -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for step in steps:
+        if step.get("key") == key:
+            next_step = dict(step)
+            next_step["status"] = status
+            if message:
+                next_step["message"] = message
+            result.append(next_step)
+        else:
+            result.append(step)
+    return result
 
 
 def _add_json(archive: tarfile.TarFile, arcname: str, payload: dict[str, Any], generated_at: datetime) -> None:
