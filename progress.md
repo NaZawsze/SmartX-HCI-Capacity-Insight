@@ -967,6 +967,12 @@ TDD 记录：
 - 远端临时目录 `/tmp/smartx-v2-redcheck`：
   - `npm test -- --run src/pages/DashboardPage.test.tsx src/pages/VmsPage.test.tsx` 通过：2 个测试文件，4 个测试。
   - `npm run build` 通过，Vite 成功生成 `dist`。
+- 干净 staged 树 `/tmp/smartx-v2-staged`：
+  - 前端目标测试通过：2 个测试文件，4 个测试。
+  - `npm run build` 通过。
+  - 后端完整 v2 测试集通过：32 个测试 OK。
+- 正式远端仓库 `10.20.11.3:/opt/smartx-storage-forecast-v2` 已拉取到 `b64ec7a`。
+- 正式远端仓库执行 `docker compose build web-api frontend` 通过。
 
 限制：
 
