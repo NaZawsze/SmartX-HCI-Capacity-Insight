@@ -23,8 +23,9 @@ class DashboardService:
         self.now_ts = int(now_ts) if now_ts is not None else int(__import__("time").time())
 
     def summary(self, tower_id: int | None = None, cluster_id: str | None = None) -> dict[str, Any]:
-        clusters = self._cluster_capacity(tower_id=tower_id, cluster_id=cluster_id)
-        vms = self._latest_vms(tower_id=tower_id, cluster_id=cluster_id)
+        enabled_scope = self._enabled_cluster_scope(tower_id=tower_id, cluster_id=cluster_id)
+        clusters = self._cluster_capacity(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        vms = self._latest_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         towers = InventoryService(self.database, self.settings).list_towers()
         return {
             "scope": {"tower_id": tower_id, "cluster_id": cluster_id},
@@ -32,15 +33,15 @@ class DashboardService:
             "totals": self._totals(tower_id=tower_id, cluster_id=cluster_id),
             "storage": self._storage(clusters),
             "collection": self._latest_collection(),
-            "day_fastest_growing_vms": self._day_fastest_growing_vms(tower_id=tower_id, cluster_id=cluster_id),
-            "day_new_vms": self._day_new_vms(vms, tower_id=tower_id, cluster_id=cluster_id),
+            "day_fastest_growing_vms": self._day_fastest_growing_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope),
+            "day_new_vms": self._day_new_vms(vms, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope),
             "clusters": clusters,
             "towers": [_tower_payload(tower) for tower in towers],
         }
 
-    def _cluster_capacity(self, *, tower_id: int | None, cluster_id: str | None) -> list[dict[str, Any]]:
-        used_by_key = self._cluster_metric_map(CLUSTER_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id)
-        total_by_key = self._cluster_metric_map(CLUSTER_TOTAL_METRIC, tower_id=tower_id, cluster_id=cluster_id)
+    def _cluster_capacity(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
+        used_by_key = self._cluster_metric_map(CLUSTER_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        total_by_key = self._cluster_metric_map(CLUSTER_TOTAL_METRIC, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         names = self._cluster_names()
         clusters: list[dict[str, Any]] = []
         for key in sorted(set(used_by_key) | set(total_by_key)):
@@ -59,13 +60,15 @@ class DashboardService:
             )
         return clusters
 
-    def _cluster_metric_map(self, metric_name: str, *, tower_id: int | None, cluster_id: str | None) -> dict[tuple[int, str], float]:
+    def _cluster_metric_map(self, metric_name: str, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> dict[tuple[int, str], float]:
         values: dict[tuple[int, str], float] = {}
         for row in self.prometheus.instant(scoped_query(metric_name, tower_id=tower_id, cluster_id=cluster_id)):
             metric = row.get("metric", {})
             if not labels_match(metric, tower_id=tower_id, cluster_id=cluster_id):
                 continue
             key = (int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""))
+            if not _in_enabled_scope(key, enabled_scope):
+                continue
             values[key] = metric_value(row)
         return values
 
@@ -102,8 +105,18 @@ class DashboardService:
             if cluster_id:
                 vm_filters.append("cluster_id = ?")
                 vm_params.append(cluster_id)
-            where = f"WHERE {' AND '.join(vm_filters)}" if vm_filters else ""
-            vm_count = conn.execute(f"SELECT COUNT(*) AS count FROM vm_latest {where}", vm_params).fetchone()["count"]
+            vm_where = f"AND {' AND '.join('vm_latest.' + item for item in vm_filters)}" if vm_filters else ""
+            vm_count = conn.execute(
+                f"""
+                SELECT COUNT(*) AS count
+                FROM vm_latest
+                JOIN clusters ON clusters.tower_id = vm_latest.tower_id
+                             AND clusters.cluster_id = vm_latest.cluster_id
+                             AND clusters.enabled = 1
+                WHERE 1 = 1 {vm_where}
+                """,
+                vm_params,
+            ).fetchone()["count"]
         return {"towers": int(tower_count), "clusters": int(cluster_count), "vms": int(vm_count)}
 
     def _storage(self, clusters: list[dict[str, Any]]) -> dict[str, float]:
@@ -118,7 +131,7 @@ class DashboardService:
             return None
         return {"status": row["status"], "message": row["message"], "last_success_at": row["finished_at"] if row["status"] == "success" else None}
 
-    def _latest_vms(self, *, tower_id: int | None, cluster_id: str | None) -> list[dict[str, Any]]:
+    def _latest_vms(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
         names = self._latest_vm_names()
         vms: list[dict[str, Any]] = []
         for row in self.prometheus.instant(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id)):
@@ -126,6 +139,8 @@ class DashboardService:
             if not labels_match(metric, tower_id=tower_id, cluster_id=cluster_id):
                 continue
             key = (int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""), str(metric.get("vm_id") or ""))
+            if not _in_enabled_scope((key[0], key[1]), enabled_scope):
+                continue
             vms.append(
                 {
                     "tower_id": key[0],
@@ -137,10 +152,10 @@ class DashboardService:
                 }
             )
         if not vms:
-            return self._latest_vms_from_database(tower_id=tower_id, cluster_id=cluster_id)
+            return self._latest_vms_from_database(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         return vms
 
-    def _day_fastest_growing_vms(self, *, tower_id: int | None, cluster_id: str | None) -> list[dict[str, Any]]:
+    def _day_fastest_growing_vms(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
         names = self._latest_vm_names()
         result: list[dict[str, Any]] = []
         start = self.now_ts - 86400
@@ -150,6 +165,8 @@ class DashboardService:
                 continue
             metric = series.get("metric", {})
             key = (int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""), str(metric.get("vm_id") or ""))
+            if not _in_enabled_scope((key[0], key[1]), enabled_scope):
+                continue
             growth = points[-1][1] - points[0][1]
             if growth <= 0:
                 continue
@@ -167,14 +184,16 @@ class DashboardService:
             )
         return sorted(result, key=lambda item: (-float(item["growth_amount"]), item["vm_name"]))[:100]
 
-    def _day_new_vms(self, vms: list[dict[str, Any]], *, tower_id: int | None, cluster_id: str | None) -> list[dict[str, Any]]:
+    def _day_new_vms(self, vms: list[dict[str, Any]], *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
         existing_keys = set()
         start = self.now_ts - 86400
         for series in self.prometheus.range(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step="1h"):
             points = range_values(series)
             if len(points) >= 2:
                 metric = series.get("metric", {})
-                existing_keys.add((int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""), str(metric.get("vm_id") or "")))
+                key = (int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""))
+                if _in_enabled_scope(key, enabled_scope):
+                    existing_keys.add((key[0], key[1], str(metric.get("vm_id") or "")))
         new_vms = []
         for vm in vms:
             if vm.get("source") != "prometheus":
@@ -194,7 +213,7 @@ class DashboardService:
             rows = conn.execute("SELECT tower_id, cluster_id, vm_id, name FROM vm_latest").fetchall()
         return {(int(row["tower_id"]), str(row["cluster_id"]), str(row["vm_id"])): str(row["name"]) for row in rows}
 
-    def _latest_vms_from_database(self, *, tower_id: int | None, cluster_id: str | None) -> list[dict[str, Any]]:
+    def _latest_vms_from_database(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
         filters: list[str] = []
         params: list[object] = []
         if tower_id is not None:
@@ -216,7 +235,21 @@ class DashboardService:
                 "source": "sqlite",
             }
             for row in rows
+            if _in_enabled_scope((int(row["tower_id"]), str(row["cluster_id"])), enabled_scope)
         ]
+
+    def _enabled_cluster_scope(self, *, tower_id: int | None, cluster_id: str | None) -> set[tuple[int, str]]:
+        filters = ["enabled = 1"]
+        params: list[object] = []
+        if tower_id is not None:
+            filters.append("tower_id = ?")
+            params.append(tower_id)
+        if cluster_id:
+            filters.append("cluster_id = ?")
+            params.append(cluster_id)
+        with self.database.connection() as conn:
+            rows = conn.execute(f"SELECT tower_id, cluster_id FROM clusters WHERE {' AND '.join(filters)}", params).fetchall()
+        return {(int(row["tower_id"]), str(row["cluster_id"])) for row in rows}
 
 
 def _tower_payload(tower) -> dict[str, Any]:
@@ -236,3 +269,7 @@ def _tower_payload(tower) -> dict[str, Any]:
             for cluster in tower.clusters
         ],
     }
+
+
+def _in_enabled_scope(key: tuple[int, str], enabled_scope: set[tuple[int, str]]) -> bool:
+    return key in enabled_scope if enabled_scope else True

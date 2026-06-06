@@ -65,7 +65,7 @@ docker compose up -d --build
 Release image mode, for servers that can pull images from the registry:
 
 ```bash
-docker compose -f docker-compose.release.yml --project-name smartx-capacity-insight up -d
+docker compose -f docker-compose.release.yml --project-name smartx-storage-forecast up -d
 ```
 
 `docker-compose.release.yml` uses the Docker images built by GitHub Actions and does not contain `build:` sections. Use it when the target server should not build images locally, but can access the image registry.
@@ -73,16 +73,16 @@ docker compose -f docker-compose.release.yml --project-name smartx-capacity-insi
 Offline image mode, for servers that already have the images loaded locally and should not pull from the registry:
 
 ```bash
-docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insight up -d
+docker compose -f docker-compose.offline.yml --project-name smartx-storage-forecast up -d
 ```
 
 `docker-compose.offline.yml` sets `pull_policy: never` and uses explicit local version tags by default. Before starting, make sure these images exist on the target server:
 
 ```text
-nazawsze/smartx-hci-capacity-insight-web-api:v0.4.1
-nazawsze/smartx-hci-capacity-insight-collector-worker:v0.4.1
-nazawsze/smartx-hci-capacity-insight-frontend:v0.4.1
-nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.2.2
+nazawsze/smartx-hci-capacity-insight-web-api:v0.5.0
+nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.0
+nazawsze/smartx-hci-capacity-insight-frontend:v0.5.0
+nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0
 prom/prometheus:v2.55.1
 ```
 
@@ -99,8 +99,8 @@ Optional image variables for release or offline mode. Platform services and `upg
 
 ```text
 SMARTX_IMAGE_PREFIX=docker.io/nazawsze
-SMARTX_IMAGE_TAG=v0.4.1
-SMARTX_RUNNER_IMAGE_TAG=v0.2.2
+SMARTX_IMAGE_TAG=v0.5.0
+SMARTX_RUNNER_IMAGE_TAG=v0.3.0
 ```
 
 Service ports:

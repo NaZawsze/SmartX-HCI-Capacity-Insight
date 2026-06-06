@@ -39,7 +39,7 @@ def normalize_version(value: str) -> str:
 def read_default_version() -> str:
     if RUNNER_VERSION_FILE.exists():
         return normalize_version(RUNNER_VERSION_FILE.read_text(encoding='utf-8'))
-    return 'v0.2.2'
+    return 'v0.3.0'
 
 
 def sha256_file(path: Path) -> str:

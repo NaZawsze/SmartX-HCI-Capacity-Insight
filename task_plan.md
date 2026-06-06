@@ -98,9 +98,9 @@ curl -s -o /dev/null -w "api_metrics:%{http_code}\n" http://127.0.0.1:8000/metri
 
 目标：
 
-- 平台版本统一为 `v0.4.1`。
+- 平台版本统一为 `v0.5.0`。
 - 平台三件套为 `web-api`、`collector-worker`、`frontend`。
-- `upgrade-runner` 作为独立组件，版本为 `v0.2.2`。
+- `upgrade-runner` 作为独立组件，版本为 `v0.3.0`。
 - 平台升级包不包含 `upgrade-runner`。
 - runner 只通过组件升级包和 runner 专用 GitHub Actions 构建。
 - 每次版本提交必须更新 `docs/releases/CHANGELOG.md` 和相关版本治理文档。
@@ -109,7 +109,7 @@ curl -s -o /dev/null -w "api_metrics:%{http_code}\n" http://127.0.0.1:8000/metri
 待办：
 
 - [已完成] 拆分 `SMARTX_IMAGE_TAG` 和 `SMARTX_RUNNER_IMAGE_TAG`。
-- [已完成] 更新平台版本元数据到 `v0.4.1`。
+- [已完成] 更新平台版本元数据到 `v0.5.0`。
 - [已完成] 移除平台升级包中的 runner 镜像。
 - [已完成] runner 组件包默认读取 `RUNNER_VERSION`。
 - [已完成] GitHub Actions 拆分平台和 runner 构建。
@@ -307,7 +307,7 @@ curl -s -o /dev/null -w "api_metrics:%{http_code}\n" http://127.0.0.1:8000/metri
 
 ### Phase 17 - feature/upgrade-v2 受控重建
 
-状态：已记录，待执行
+状态：进行中，已完成 v2 第一版远端构建和运行验证
 
 目标：
 
@@ -341,3 +341,10 @@ Phase V2-0 细化文档：
 - 只在 `feature/upgrade-v2` 上推进，不影响 `dev/main`。
 - 在 `10.20.11.3` 执行 v2 验证前，先确认远端仓库位于 `feature/upgrade-v2`。
 - 不提交 `.env`、SQLite、Prometheus 数据、Tower 凭据、升级包、迁移包、备份包。
+
+最新验证摘要：
+
+- 平台版本已切换为 `v0.5.0`，runner 组件版本已切换为 `v0.3.0`。
+- `10.20.11.3:/opt/smartx-storage-forecast-v2` 已在 `feature/upgrade-v2` 构建并启动五个容器。
+- 健康接口返回 `version=v0.5.0`、`runner_version=v0.3.0`。
+- 平台升级包仅面向 v2 同架构后续升级；v1/v0.4.x 只通过数据迁移包兼容。

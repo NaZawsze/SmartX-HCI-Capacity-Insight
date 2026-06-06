@@ -22,6 +22,7 @@ class FakePrometheus:
             ]
         if query.startswith("smartx_vm_storage_used_bytes"):
             return [
+                {"metric": {"tower_id": "9", "cluster_id": "orphan-cluster", "vm_id": "vm-orphan", "vm_name": "Orphan VM"}, "value": [100, "999"]},
                 {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-1", "vm_name": "VM One Latest"}, "value": [100, "70"]},
                 {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-2", "vm_name": "VM Two"}, "value": [100, "10"]},
             ]
@@ -34,6 +35,7 @@ class FakePrometheus:
         if 'vm_id="vm-2"' in query:
             return [{"metric": {"vm_id": "vm-2"}, "values": [[end, "10"]]}]
         return [
+            {"metric": {"tower_id": "9", "cluster_id": "orphan-cluster", "vm_id": "vm-orphan", "vm_name": "Orphan VM"}, "values": [[start, "1"], [end, "999"]]},
             {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-1", "vm_name": "VM One Old"}, "values": [[start, "50"], [end, "70"]]},
             {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-2", "vm_name": "VM Two"}, "values": [[end, "10"]]},
         ]
@@ -69,6 +71,7 @@ class V2DashboardVmTest(unittest.TestCase):
                 "INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cluster-a', 'vm-1', 'VM One Latest', 70)"
             )
             conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cluster-a', 'vm-2', 'VM Two', 10)")
+            conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (9, 'orphan-cluster', 'vm-orphan', 'Orphan VM', 999)")
             conn.execute(
                 """
                 INSERT INTO vm_volumes (
@@ -96,6 +99,21 @@ class V2DashboardVmTest(unittest.TestCase):
             self.assertEqual(summary["day_fastest_growing_vms"][0]["vm_name"], "VM One Latest")
             self.assertEqual(summary["day_fastest_growing_vms"][0]["growth_amount"], 20)
             self.assertEqual(summary["day_new_vms"], [{"tower_id": 1, "cluster_id": "cluster-a", "vm_id": "vm-2", "vm_name": "VM Two", "current_bytes": 10}])
+
+    def test_dashboard_and_vm_list_ignore_metrics_outside_enabled_clusters_by_default(self) -> None:
+        from app.v2.dashboard.service import DashboardService
+        from app.v2.vms.service import VmService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            prometheus = FakePrometheus()
+
+            summary = DashboardService(db, settings, prometheus=prometheus, now_ts=200).summary()
+            vms = VmService(db, settings, prometheus=prometheus, now_ts=200).list_vms()
+
+            self.assertEqual(summary["totals"], {"towers": 1, "clusters": 2, "vms": 2})
+            self.assertNotIn("vm-orphan", {vm["vm_id"] for vm in summary["day_fastest_growing_vms"]})
+            self.assertEqual([vm["vm_id"] for vm in vms], ["vm-1", "vm-2"])
 
     def test_vm_list_and_trend_use_stable_identity_and_latest_names(self) -> None:
         from app.v2.vms.service import VmService

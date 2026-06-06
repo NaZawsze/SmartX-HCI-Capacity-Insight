@@ -162,8 +162,8 @@ class UpgradeService:
         return {
             "app_version": self.settings.app_version,
             "runner_version": self.settings.runner_version,
-            "compose_project": os.environ.get("SMARTX_COMPOSE_PROJECT_NAME", "smartx-capacity-insight"),
-            "compose_file": os.environ.get("SMARTX_COMPOSE_FILE", "docker-compose.offline.yml"),
+            "compose_project": self.settings.compose_project_name,
+            "compose_file": self.settings.compose_file,
             "package": {
                 "task_id": latest_package.get("task_id"),
                 "version": latest_package.get("target_version"),
@@ -211,7 +211,7 @@ class UpgradeService:
             steps = _replace_step(steps, "rollback_config", "succeeded")
             steps = _replace_step(steps, "rollback_restart", "running")
             self.tasks.update_task(task_id, progress=60, message="正在重启回滚服务", logs=logs, steps=steps)
-            self.executor.run(["docker", "compose", "-f", "docker-compose.offline.yml", "--project-name", "smartx-capacity-insight", "up", "-d", "--no-deps", *services], cwd=self.project_path)
+            self.executor.run(["docker", "compose", "-f", self.settings.compose_file, "--project-name", self.settings.compose_project_name, "up", "-d", "--no-deps", *services], cwd=self.project_path)
             steps = _replace_step(steps, "rollback_restart", "succeeded")
             steps = _replace_step(steps, "rollback_healthcheck", "succeeded", "回滚健康检查占位通过")
             task["status"] = "rolled_back"
@@ -293,17 +293,18 @@ class UpgradeService:
                 task["updated_at"] = _now().isoformat()
                 _save_task_file(task_dir, task)
             try:
-                self.executor.run(["docker", "compose", "-f", "docker-compose.offline.yml", "-f", str(override_path), "--project-name", "smartx-capacity-insight", "up", "-d", "--no-deps", *sorted(_task_services(task["manifest"]))], cwd=self.project_path)
+                self.executor.run(["docker", "compose", "-f", self.settings.compose_file, "-f", str(override_path), "--project-name", self.settings.compose_project_name, "up", "-d", "--no-deps", *sorted(_task_services(task["manifest"]))], cwd=self.project_path)
             except SystemExit:
                 if _runner_only(task["manifest"]):
                     self.tasks.update_task(task_id, status=TaskStatus.RUNNING, progress=86, message="upgrade-runner 正在重启，等待新进程接续", logs=logs, steps=steps)
                     return self._public_task(task)
                 raise
-            logs.append("平台服务已提交重启")
+            logs.append("升级服务已提交重启")
             steps = _replace_step(steps, "restart", "succeeded")
 
             steps = _replace_step(steps, "healthcheck", "succeeded", "健康检查占位通过")
             task["status"] = "success"
+            task["runner_resume_pending"] = False
             task["backup_path"] = str(backup_path)
             task["project_backup_path"] = str(project_backup) if project_backup else None
             task["override_path"] = str(override_path)

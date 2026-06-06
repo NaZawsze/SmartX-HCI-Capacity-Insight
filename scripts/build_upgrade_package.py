@@ -16,7 +16,7 @@ VERSION_FILE = ROOT / "VERSION"
 RUNNER_VERSION_FILE = ROOT / "RUNNER_VERSION"
 PACKAGE_DIR = Path("/data/upgrade-packages")
 PRODUCT = "smartx-storage-forecast"
-DEFAULT_MIN_VERSION = "0.3.0"
+DEFAULT_MIN_VERSION = "v0.5.0"
 RELEASE_NAMESPACE = "nazawsze"
 PLATFORM_IMAGES = [
     ("web-api", "smartx-storage-forecast-web-api", "smartx-hci-capacity-insight-web-api", "images/web-api.tar", True),

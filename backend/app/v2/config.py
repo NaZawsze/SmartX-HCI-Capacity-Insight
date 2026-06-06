@@ -7,8 +7,8 @@ from pathlib import Path
 
 IMAGE_VERSION_FILE = Path("/app/VERSION")
 RUNNER_VERSION_FILE = Path("/app/RUNNER_VERSION")
-DEFAULT_APP_VERSION = "v0.4.1"
-DEFAULT_RUNNER_VERSION = "v0.2.2"
+DEFAULT_APP_VERSION = "v0.5.0"
+DEFAULT_RUNNER_VERSION = "v0.3.0"
 
 
 def read_version(version_file: Path, env_name: str, default: str) -> str:
@@ -29,6 +29,8 @@ class V2Settings:
     admin_password: str = field(default_factory=lambda: os.environ.get("SMARTX_ADMIN_PASSWORD", "password"))
     timezone: str = field(default_factory=lambda: os.environ.get("SMARTX_COLLECTION_TIMEZONE", "Asia/Shanghai"))
     prometheus_url: str = field(default_factory=lambda: os.environ.get("SMARTX_PROMETHEUS_URL", "http://prometheus:9090"))
+    compose_file: str = field(default_factory=lambda: os.environ.get("SMARTX_COMPOSE_FILE", "docker-compose.offline.yml"))
+    compose_project_name: str = field(default_factory=lambda: os.environ.get("SMARTX_COMPOSE_PROJECT_NAME", "smartx-storage-forecast"))
     app_version: str = field(default_factory=lambda: read_version(IMAGE_VERSION_FILE, "SMARTX_APP_VERSION", DEFAULT_APP_VERSION))
     runner_version: str = field(default_factory=lambda: read_version(RUNNER_VERSION_FILE, "SMARTX_RUNNER_VERSION", DEFAULT_RUNNER_VERSION))
     token_ttl_minutes: int = field(default_factory=lambda: int(os.environ.get("SMARTX_TOKEN_TTL_MINUTES", "720")))

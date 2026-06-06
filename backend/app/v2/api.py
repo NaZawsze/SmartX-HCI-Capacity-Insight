@@ -666,7 +666,7 @@ def start_upgrade_package(
     _: Annotated[CurrentUser, Depends(require_user)],
     upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
 ) -> dict:
-    return upgrade.start(task_id)
+    return upgrade.start(task_id, submit_to_runner=True)
 
 
 @router.post("/api/admin/upgrade/rollback/{task_id}")
@@ -744,7 +744,7 @@ def start_component_upgrade_package(
     _: Annotated[CurrentUser, Depends(require_user)],
     upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
 ) -> dict:
-    return upgrade.start(task_id)
+    return upgrade.start(task_id, submit_to_runner=False)
 
 
 @router.get("/api/admin/component-upgrade/status/{task_id}")

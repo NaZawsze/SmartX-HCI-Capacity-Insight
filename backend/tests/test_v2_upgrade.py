@@ -59,7 +59,7 @@ class V2UpgradeServiceTest(unittest.TestCase):
             ],
         }
         with tempfile.TemporaryDirectory() as tmpdir:
-            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret", compose_project_name="custom-project")
             database = V2Database(settings)
             database.initialize()
             executor = FakeExecutor()
@@ -98,6 +98,8 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertTrue((Path(tmpdir) / "project" / "docker-compose.offline.yml").is_file())
             self.assertTrue(any(command[:2] == ["docker", "load"] for command in executor.commands))
             self.assertTrue(any(command[:3] == ["docker", "compose", "-f"] for command in executor.commands))
+            compose_commands = [command for command in executor.commands if command[:3] == ["docker", "compose", "-f"]]
+            self.assertIn("custom-project", compose_commands[-1])
             stored_task = TaskService(database).get_task(task["task_id"])
             self.assertEqual(stored_task["status"], "success")
             self.assertTrue(stored_task["steps"])
@@ -357,11 +359,12 @@ class V2UpgradeApiTest(unittest.TestCase):
 
                     started = client.post(f"/api/admin/upgrade/start/{payload['task_id']}", headers=headers)
                     self.assertEqual(started.status_code, 200)
-                    self.assertTrue(Path(started.json()["backup_path"]).is_file())
+                    self.assertEqual(started.json()["status"], "pending")
+                    self.assertTrue(started.json()["runner_requested"])
 
                     status = client.get(f"/api/admin/upgrade/status/{payload['task_id']}", headers=headers)
                     self.assertEqual(status.status_code, 200)
-                    self.assertEqual(status.json()["status"], "succeeded")
+                    self.assertEqual(status.json()["status"], "pending")
 
                     history = client.get("/api/admin/upgrade/history", headers=headers)
                     self.assertEqual(history.status_code, 200)
@@ -378,7 +381,8 @@ class V2UpgradeApiTest(unittest.TestCase):
                     verification = client.get("/api/admin/upgrade/verification", headers=headers)
                     self.assertEqual(verification.status_code, 200)
                     self.assertIn("app_version", verification.json())
-                    self.assertEqual(verification.json()["package"]["task_id"], payload["task_id"])
+                    self.assertIn("runner_version", verification.json())
+                    self.assertIsNone(verification.json()["package"])
 
                     delete_blocked = client.delete(f"/api/admin/upgrade/package/{payload['task_id']}", headers=headers)
                     self.assertEqual(delete_blocked.status_code, 400)
@@ -388,6 +392,38 @@ class V2UpgradeApiTest(unittest.TestCase):
                     component_payload = component_upload.json()
                     component_deleted = client.delete(f"/api/admin/component-upgrade/package/{component_payload['task_id']}", headers=headers)
                     self.assertEqual(component_deleted.status_code, 200)
+
+                    runner_image = b"runner-image"
+                    runner_manifest = {
+                        "schema_version": "2",
+                        "version": "v0.3.0",
+                        "components": [
+                            {
+                                "type": "runner",
+                                "services": ["upgrade-runner"],
+                                "images": [
+                                    {
+                                        "service": "upgrade-runner",
+                                        "image": "repo/upgrade-runner:v0.3.0",
+                                        "archive": "images/upgrade-runner.tar",
+                                        "sha256": hashlib.sha256(runner_image).hexdigest(),
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                    runner_package = build_package(runner_manifest, {"images/upgrade-runner.tar": runner_image})
+                    runner_upload = client.post("/api/admin/component-upgrade/upload", files={"file": ("runner.tar.gz", runner_package, "application/gzip")}, headers=headers)
+                    self.assertEqual(runner_upload.status_code, 200)
+                    runner_payload = runner_upload.json()
+                    runner_precheck = client.post(f"/api/admin/component-upgrade/precheck/{runner_payload['task_id']}", headers=headers)
+                    self.assertEqual(runner_precheck.status_code, 200)
+                    self.assertTrue(runner_precheck.json()["ok"])
+
+                    runner_started = client.post(f"/api/admin/component-upgrade/start/{runner_payload['task_id']}", headers=headers)
+                    self.assertEqual(runner_started.status_code, 200)
+                    self.assertEqual(runner_started.json()["status"], "succeeded")
+                    self.assertFalse(runner_started.json().get("runner_requested", False))
             finally:
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)

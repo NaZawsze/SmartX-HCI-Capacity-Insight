@@ -13,14 +13,17 @@ class FakePrometheus:
     def instant(self, query: str):
         if query.startswith("smartx_cluster_storage_total_bytes"):
             return [
+                {"metric": {"tower_id": "9", "cluster_id": "orphan-cluster"}, "value": [self.now_ts, "1000"]},
                 {"metric": {"tower_id": "1", "cluster_id": "cluster-a"}, "value": [self.now_ts, "1000"]},
             ]
         if query.startswith("smartx_cluster_storage_used_bytes"):
             return [
+                {"metric": {"tower_id": "9", "cluster_id": "orphan-cluster"}, "value": [self.now_ts, "900"]},
                 {"metric": {"tower_id": "1", "cluster_id": "cluster-a"}, "value": [self.now_ts, "190"]},
             ]
         if query.startswith("smartx_vm_storage_used_bytes"):
             return [
+                {"metric": {"tower_id": "9", "cluster_id": "orphan-cluster", "vm_id": "vm-orphan", "vm_name": "Orphan Raw"}, "value": [self.now_ts, "900"]},
                 {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-old", "vm_name": "Old Raw"}, "value": [self.now_ts, "300"]},
                 {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-new", "vm_name": "New Raw"}, "value": [self.now_ts, "50"]},
             ]
@@ -30,12 +33,20 @@ class FakePrometheus:
         if query.startswith("smartx_cluster_storage_used_bytes"):
             return [
                 {
+                    "metric": {"tower_id": "9", "cluster_id": "orphan-cluster"},
+                    "values": [[self.now_ts - day * SECONDS_PER_DAY, str(900 - day)] for day in reversed(range(14))],
+                },
+                {
                     "metric": {"tower_id": "1", "cluster_id": "cluster-a"},
                     "values": [[self.now_ts - day * SECONDS_PER_DAY, str(190 - day * 10)] for day in reversed(range(14))],
                 }
             ]
         if query.startswith("smartx_vm_storage_used_bytes"):
             return [
+                {
+                    "metric": {"tower_id": "9", "cluster_id": "orphan-cluster", "vm_id": "vm-orphan", "vm_name": "Orphan Raw"},
+                    "values": [[self.now_ts - 31 * SECONDS_PER_DAY, "10"], [self.now_ts, "900"]],
+                },
                 {
                     "metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-old", "vm_name": "Old Raw"},
                     "values": [[self.now_ts - 31 * SECONDS_PER_DAY, "100"], [self.now_ts, "300"]],
@@ -85,6 +96,7 @@ class V2ReportsTest(unittest.TestCase):
             self.assertEqual(report["month_fastest_growing_vms"][0]["labels"]["vm"], "Old Latest")
             self.assertEqual([item["labels"]["vm_id"] for item in report["month_fastest_growing_vms"]], ["vm-old"])
             self.assertEqual([item["labels"]["vm_id"] for item in report["day_new_vms"]], ["vm-new"])
+            self.assertEqual([item["labels"]["cluster_id"] for item in report["clusters"]], ["cluster-a"])
 
 
 if __name__ == "__main__":

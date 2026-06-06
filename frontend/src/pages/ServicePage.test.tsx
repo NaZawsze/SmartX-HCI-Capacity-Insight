@@ -20,13 +20,13 @@ vi.mock("../services/api", async () => ({
 }));
 
 function mockServicePageBootstrap() {
-  apiMock.upgradeVersion.mockResolvedValue({ version: "v0.4.1" });
-  apiMock.componentUpgradeVersion.mockResolvedValue({ component: "upgrade-runner", version: "v0.2.2" });
+  apiMock.upgradeVersion.mockResolvedValue({ version: "v0.5.0" });
+  apiMock.componentUpgradeVersion.mockResolvedValue({ component: "upgrade-runner", version: "v0.3.0" });
   apiMock.upgradeHistory.mockResolvedValue([]);
   apiMock.componentUpgradeHistory.mockResolvedValue([]);
   apiMock.upgradeVerification.mockResolvedValue({
-    app_version: "v0.4.1",
-    runner_version: "v0.2.2",
+    app_version: "v0.5.0",
+    runner_version: "v0.3.0",
     compose_project: "smartx-capacity-insight",
     compose_file: "docker-compose.offline.yml",
     package: null,
@@ -138,14 +138,14 @@ describe("ServicePage upgrade center", () => {
   it("shows platform status and runtime verification in one section", async () => {
     mockServicePageBootstrap();
     apiMock.upgradeVerification.mockResolvedValue({
-      app_version: "v0.4.1",
-      runner_version: "v0.2.2",
+      app_version: "v0.5.0",
+      runner_version: "v0.3.0",
       compose_project: "smartx-capacity-insight",
       compose_file: "docker-compose.offline.yml",
       package: {
         task_id: "upgrade-ok",
-        version: "v0.4.1",
-        filename: "smartx-capacity-insight-upgrade-v0.4.1.tar.gz",
+        version: "v0.5.0",
+        filename: "smartx-capacity-insight-upgrade-v0.5.0.tar.gz",
         sha256: "abcdef1234567890abcdef"
       },
       services: [
@@ -154,8 +154,8 @@ describe("ServicePage upgrade center", () => {
           container: "smartx-capacity-insight-web-api-1",
           status: "running",
           running: true,
-          image: "nazawsze/smartx-hci-capacity-insight-web-api:v0.4.1",
-          app_version: "v0.4.1",
+          image: "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.0",
+          app_version: "v0.5.0",
           started_at: "2026-06-06T01:00:00+08:00"
         }
       ]
@@ -166,9 +166,9 @@ describe("ServicePage upgrade center", () => {
     expect(await screen.findByText("平台状态")).toBeInTheDocument();
     expect(screen.getByText("版本、升级包和当前运行服务集中展示。")).toBeInTheDocument();
     expect(screen.getByText("当前版本")).toBeInTheDocument();
-    expect(screen.getAllByText("v0.4.1").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("v0.5.0").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("最近成功包")).toBeInTheDocument();
-    expect(screen.getByText(/smartx-capacity-insight-upgrade-v0\.4\.1/)).toBeInTheDocument();
+    expect(screen.getByText(/smartx-capacity-insight-upgrade-v0\.5\.0/)).toBeInTheDocument();
     expect(screen.getByText("web-api")).toBeInTheDocument();
     expect(screen.getByText("运行中")).toBeInTheDocument();
     expect(screen.queryByText("服务运行核验")).not.toBeInTheDocument();

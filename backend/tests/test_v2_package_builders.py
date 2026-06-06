@@ -38,8 +38,8 @@ class V2PackageBuilderTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             package = builder.build_package(
-                "v0.4.1",
-                min_version="v0.4.0",
+                "v0.5.0",
+                min_version="v0.5.0",
                 output_dir=Path(tmpdir),
                 build_images=False,
                 include_frontend_build=False,
@@ -50,9 +50,9 @@ class V2PackageBuilderTest(unittest.TestCase):
                 manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
 
         self.assertEqual(manifest["schema_version"], "2")
-        self.assertEqual(manifest["package_id"], "smartx-capacity-insight-v0.4.1")
-        self.assertEqual(manifest["version"], "v0.4.1")
-        self.assertEqual(manifest["compatibility"]["min_platform_version"], "v0.4.0")
+        self.assertEqual(manifest["package_id"], "smartx-capacity-insight-v0.5.0")
+        self.assertEqual(manifest["version"], "v0.5.0")
+        self.assertEqual(manifest["compatibility"]["min_platform_version"], "v0.5.0")
         self.assertIs(manifest["project_files"], True)
         self.assertEqual(manifest["migration"]["script"], "scripts/migrate.sh")
         self.assertEqual(manifest["restart_services"], ["web-api", "collector-worker", "frontend"])
@@ -71,14 +71,14 @@ class V2PackageBuilderTest(unittest.TestCase):
         builder.run = _fake_docker_run
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            package = builder.build_package("v0.2.2", "v0.2.1", Path(tmpdir), build_image=False)
+            package = builder.build_package("v0.3.0", "v0.2.1", Path(tmpdir), build_image=False)
 
             with tarfile.open(package, mode="r:gz") as archive:
                 manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
 
         self.assertEqual(manifest["schema_version"], "2")
-        self.assertEqual(manifest["package_id"], "smartx-upgrade-runner-v0.2.2")
-        self.assertEqual(manifest["version"], "v0.2.2")
+        self.assertEqual(manifest["package_id"], "smartx-upgrade-runner-v0.3.0")
+        self.assertEqual(manifest["version"], "v0.3.0")
         self.assertEqual(manifest["compatibility"]["min_runner_version"], "v0.2.1")
         self.assertEqual(manifest["restart_services"], ["upgrade-runner"])
         self.assertIs(manifest["project_files"], False)
@@ -86,4 +86,4 @@ class V2PackageBuilderTest(unittest.TestCase):
         runner = manifest["components"][0]
         self.assertEqual(runner["services"], ["upgrade-runner"])
         self.assertEqual(runner["images"][0]["archive"], "images/upgrade-runner.tar")
-        self.assertEqual(runner["images"][0]["image"], "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.2.2")
+        self.assertEqual(runner["images"][0]["image"], "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0")

@@ -2,6 +2,35 @@
 
 本文档记录 SmartX HCI Capacity Insight 各版本的主要变化。项目介绍、部署方式和基础使用说明仍以根目录 README 和 docs 文档为准。
 
+## v0.5.0
+
+发布日期：2026-06-06
+
+### 更新摘要
+
+v0.5.0 是 v2 受控重建版本，保持 v1 的业务能力和页面风格，同时重建后端模块边界、任务中心、数据迁移灾备、升级中心和服务管理。平台版本使用 `v0.5.0`，`upgrade-runner` 作为独立组件升级到 `v0.3.0`。
+
+### 新增与优化
+
+- 平台版本统一为 `v0.5.0`，平台三件套使用 `v0.5.0` 镜像 tag。
+- `upgrade-runner` 组件版本统一为 `v0.3.0`，不跟随平台版本 tag。
+- v2 后端重建认证、Tower、采集、Dashboard、VM、报表、迁移、升级和服务管理模块。
+- Dashboard 容量风险按单集群使用率判断，任一集群超过 80% 即高风险。
+- 日增长、本日新建 VM、月增长、本月新建 VM 使用稳定 VM UUID 口径，展示名称优先使用最新采集名称。
+- 月增长 VM 要求样本跨度满 30 天；刚部署不足 30 天时月增长榜为空。
+- Word/Excel 报表复用页面数据口径，保存到 `/data/exports/reports`，任务中心提供下载链接。
+- 数据迁移导入前强制备份当前系统，迁出/迁入文件留存在 `/data/exports` 对应目录。
+- 升级中心 manifest 支持 platform、runner、observability 组件类型，平台升级、runner 组件升级和 Prometheus 组件升级分离。
+- 服务管理页包含数据迁移、服务重启、升级中心和空间清理。
+- Docker Compose 平台 tag 与 runner tag 分离，离线和 release compose 默认使用明确版本，不再依赖 `latest`。
+
+### 升级策略
+
+- 平台升级继续由 `upgrade-runner v0.3.0` 执行。
+- 平台升级包只面向 v2 同架构后续升级；v1/v0.4.x 通过新装 v2 后导入数据迁移包兼容。
+- 如果仅更新业务平台，不需要更新 runner。
+- 如果升级流程、manifest、compose、volume、网络或 runner 自身能力变化，先发布 runner 组件包，再发布平台升级包。
+
 ## v0.4.1
 
 发布日期：2026-06-05

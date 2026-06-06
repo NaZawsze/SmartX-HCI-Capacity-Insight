@@ -29,7 +29,7 @@ class SystemControlService:
                 "-f",
                 os.environ.get("SMARTX_COMPOSE_FILE", "docker-compose.offline.yml"),
                 "--project-name",
-                os.environ.get("SMARTX_COMPOSE_PROJECT_NAME", "smartx-capacity-insight"),
+                os.environ.get("SMARTX_COMPOSE_PROJECT_NAME", "smartx-storage-forecast"),
                 "up",
                 "-d",
                 "--no-deps",

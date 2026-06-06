@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) | English
 
-Version: `v0.4.1`
+Version: `v0.5.0`
 
 > Status: This project is currently in the testing stage and is not recommended for production use without additional validation.
 
@@ -116,39 +116,56 @@ Change the password after the first login from the admin avatar menu: `Set Passw
 
 The platform supports offline `.tar.gz` upgrade packages uploaded from the service management page. An upgrade package replaces service images and can optionally run a migration script. It must not include runtime data, `.env`, SQLite databases, Prometheus data, Tower credentials, or other secrets.
 
-Compatibility: the `v0.4.1` upgrade package only supports upgrades from versions between `v0.3.0` and `v0.4.0`. For versions earlier than `v0.3.0`, install the latest version fresh, then export a migration package from the old system with the README command and import it into the new system.
+Compatibility: the `v0.5.0` upgrade package targets the v2 upgrade flow only. It is not an in-place upgrade path from v1 or `v0.4.x`; those older systems are supported through data migration instead. For older v1 installations, install the latest version fresh, then export a migration package from the old system with the README command and import it into the new system.
 
 Recommended package structure:
 
 ```text
-smartx-capacity-insight-v0.4.1-upgrade.tar.gz
+smartx-capacity-insight-v0.5.0-upgrade.tar.gz
 ├── manifest.json
 ├── release-notes.md                 # optional
 ├── images/
 │   ├── web-api.tar
 │   ├── frontend.tar
 │   └── collector-worker.tar
-└── scripts/
-    └── migrate.sh                   # optional, only when database_migration=true
+├── scripts/
+│   └── migrate.sh
+└── project/
+    ├── docker-compose.yml
+    ├── docker-compose.offline.yml
+    ├── docker-compose.release.yml
+    ├── prometheus/
+    ├── scripts/
+    └── docs/
 ```
 
-`manifest.json` should describe the target version, minimum compatible version, image list, image SHA256 checksums, whether a database migration is required, services to restart, and package type.
+`manifest.json` should describe the target version, minimum compatible version, component list, image SHA256 checksums, project file sync, migration script, services to restart, and package type.
 
 Example fields:
 
 ```json
 {
-  "version": "v0.4.1",
-  "min_version": "v0.3.0",
+  "schema_version": "2",
+  "product": "smartx-storage-forecast",
+  "package_id": "smartx-capacity-insight-v0.5.0",
+  "version": "v0.5.0",
+  "min_version": "v0.5.0",
   "package_type": "platform",
-  "database_migration": false,
+  "project_files": true,
+  "migration": {"required": true, "script": "scripts/migrate.sh"},
   "restart_services": ["web-api", "collector-worker", "frontend"],
-  "images": [
+  "components": [
     {
-      "service": "web-api",
-      "file": "images/web-api.tar",
-      "image": "nazawsze/smartx-hci-capacity-insight-web-api:v0.4.1",
-      "sha256": "<sha256>"
+      "type": "platform",
+      "services": ["web-api", "collector-worker", "frontend"],
+      "images": [
+        {
+          "service": "web-api",
+          "archive": "images/web-api.tar",
+          "image": "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.0",
+          "sha256": "<sha256>"
+        }
+      ]
     }
   ]
 }
@@ -156,7 +173,7 @@ Example fields:
 
 For normal platform upgrades, do not restart `upgrade-runner` in the same package that is executing the upgrade. Use a component upgrade package when `upgrade-runner` itself needs to be replaced.
 
-Component upgrade packages for `upgrade-runner` are separate and use the runner component version, for example `v0.2.2`, not the platform version.
+Component upgrade packages for `upgrade-runner` are separate and use the runner component version, for example `v0.3.0`, not the platform version.
 
 ### Recommended Migration Path: Fresh Install + CLI Data Export
 

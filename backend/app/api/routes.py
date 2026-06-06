@@ -26,7 +26,7 @@ from app.models import (
     VmVolumeSetResponse,
 )
 from app.services.cloudtower import CloudTowerClient, normalize_tower
-from app.services.data_migration import ARCHIVE_MEDIA_TYPE, build_migration_archive, create_migration_export_task, get_migration_export_task, restore_migration_archive, run_migration_export_task
+from app.services.data_migration import ARCHIVE_MEDIA_TYPE, build_migration_archive, create_migration_export_task, get_migration_export_task, migration_health_summary, restore_migration_archive, run_migration_export_task
 from app.services.dashboard import dashboard_summary, latest_report, vm_list, vm_trend
 from app.services.prometheus import latest_metrics_text
 from app.services.report_export import DOCX_MEDIA_TYPE, XLSX_MEDIA_TYPE, build_report_docx, build_report_xlsx
@@ -214,6 +214,11 @@ async def start_migration_export(_: dict = Depends(current_user)) -> dict:
 @router.get("/api/admin/migration/export/status/{task_id}")
 def migration_export_status(task_id: str, _: dict = Depends(current_user)) -> dict:
     return get_migration_export_task(task_id)
+
+
+@router.get("/api/admin/migration/health")
+def migration_health(_: dict = Depends(current_user)) -> dict:
+    return migration_health_summary()
 
 
 @router.get("/api/admin/exports/{category}/{filename}")

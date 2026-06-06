@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import HTTPException, UploadFile
 
 from app.core.config import get_settings
+from app.core.vm_volumes import compact_vm_volumes_json, normalize_vm_volumes
 from app.db import init_db
 
 
@@ -39,15 +40,7 @@ def build_migration_archive(save_export: bool = True) -> tuple[bytes, str]:
     app_data_path = settings.data_path
     prometheus_data_path = settings.prometheus_data_path
     generated_at = datetime.now(timezone.utc)
-    manifest = {
-        "format": "smartx-storage-forecast-migration",
-        "version": 1,
-        "generated_at": generated_at.isoformat(),
-        "contains": {
-            APP_DATA_DIR: app_data_path.exists(),
-            PROMETHEUS_DATA_DIR: prometheus_data_path.exists(),
-        },
-    }
+    manifest = _build_migration_manifest(generated_at, app_data_path, prometheus_data_path)
 
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
@@ -260,7 +253,7 @@ def _restore_overwrite(temp_dir: Path, app_target: Path, prometheus_target: Path
     if prometheus_source.exists():
         _replace_directory(prometheus_source, prometheus_target)
         restored.append(PROMETHEUS_DATA_DIR)
-    return {"restored": restored, "summary": {"mode": OVERWRITE_MODE}}
+    return {"restored": restored, "summary": {"mode": OVERWRITE_MODE, "health": migration_health_summary(target_db=app_target / DB_FILENAME, prometheus_path=prometheus_target)}}
 
 
 def _restore_merge(temp_dir: Path, app_target: Path, prometheus_target: Path) -> dict[str, Any]:
@@ -276,6 +269,7 @@ def _restore_merge(temp_dir: Path, app_target: Path, prometheus_target: Path) ->
         prometheus_summary = _merge_prometheus_data(prometheus_source, prometheus_target)
         summary[PROMETHEUS_DATA_DIR] = prometheus_summary
         restored.append(PROMETHEUS_DATA_DIR)
+    summary["health"] = migration_health_summary(target_db=app_target / DB_FILENAME, prometheus_path=prometheus_target)
     return {"restored": restored, "summary": summary}
 
 
@@ -347,6 +341,7 @@ def _merge_sqlite_database(source_db: Path, target_db: Path) -> dict[str, Any]:
         _merge_json_table(target_conn, "reports", ["generated_at", "payload_json"], inserted, skipped)
         _merge_json_table(target_conn, "metric_samples", ["collected_at", "payload_json"], inserted, skipped)
         _merge_latest_vm_volumes(target_conn, tower_id_map, inserted, skipped)
+        _merge_latest_vm_volume_items(target_conn, tower_id_map, inserted, skipped)
         target_conn.commit()
         target_conn.execute("DETACH DATABASE incoming")
 
@@ -517,14 +512,117 @@ def _merge_latest_vm_volumes(conn: sqlite3.Connection, tower_id_map: dict[int, i
         if target_tower_id is None:
             _inc(skipped, "latest_vm_volumes")
             continue
+        volumes = _loads_volume_payload(row["payload_json"])
+        compact_payload = compact_vm_volumes_json(volumes)
         cur = conn.execute(
             """
             INSERT OR IGNORE INTO latest_vm_volumes (tower_id, cluster_id, vm_id, payload_json, collected_at)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (target_tower_id, row["cluster_id"], row["vm_id"], row["payload_json"], row["collected_at"]),
+            (target_tower_id, row["cluster_id"], row["vm_id"], compact_payload, row["collected_at"]),
         )
+        _upsert_volume_items_from_payload(conn, target_tower_id, row["cluster_id"], row["vm_id"], volumes, row["collected_at"])
         _count_result("latest_vm_volumes", cur.rowcount, inserted, skipped)
+
+
+def _merge_latest_vm_volume_items(conn: sqlite3.Connection, tower_id_map: dict[int, int], inserted: dict[str, int], skipped: dict[str, int]) -> None:
+    if not _incoming_table_exists(conn, "latest_vm_volume_items"):
+        return
+    rows = conn.execute("SELECT * FROM incoming.latest_vm_volume_items ORDER BY tower_id, cluster_id, vm_id, volume_id").fetchall()
+    for row in rows:
+        target_tower_id = tower_id_map.get(int(row["tower_id"]))
+        if target_tower_id is None:
+            _inc(skipped, "latest_vm_volume_items")
+            continue
+        cur = _insert_volume_item_row(conn, target_tower_id, row)
+        _count_result("latest_vm_volume_items", cur.rowcount, inserted, skipped)
+
+
+def _incoming_table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute("SELECT name FROM incoming.sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone()
+    return row is not None
+
+
+def _loads_volume_payload(payload_json: Any) -> list[dict[str, Any]]:
+    try:
+        payload = json.loads(payload_json)
+    except (TypeError, ValueError):
+        return []
+    return normalize_vm_volumes(payload)
+
+
+def _upsert_volume_items_from_payload(conn: sqlite3.Connection, tower_id: int, cluster_id: str, vm_id: str, volumes: list[dict[str, Any]], collected_at: str) -> None:
+    for index, volume in enumerate(volumes):
+        volume_id = str(volume.get("id") or f"volume-{index}")
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO latest_vm_volume_items (
+                tower_id, cluster_id, vm_id, volume_id, name, path, type, size, used_size,
+                unique_size, unique_logical_size, guest_used_size, used_size_usage,
+                guest_size_usage, storage_policy, replica_num, thin_provision, ec_k, ec_m,
+                collected_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                tower_id,
+                cluster_id,
+                vm_id,
+                volume_id,
+                volume.get("name"),
+                volume.get("path"),
+                volume.get("type"),
+                volume.get("size"),
+                volume.get("used_size"),
+                volume.get("unique_size"),
+                volume.get("unique_logical_size"),
+                volume.get("guest_used_size"),
+                volume.get("used_size_usage"),
+                volume.get("guest_size_usage"),
+                volume.get("elf_storage_policy"),
+                volume.get("elf_storage_policy_replica_num"),
+                int(volume["elf_storage_policy_thin_provision"]) if "elf_storage_policy_thin_provision" in volume else None,
+                volume.get("elf_storage_policy_ec_k"),
+                volume.get("elf_storage_policy_ec_m"),
+                collected_at,
+            ),
+        )
+
+
+def _insert_volume_item_row(conn: sqlite3.Connection, tower_id: int, row: sqlite3.Row) -> sqlite3.Cursor:
+    return conn.execute(
+        """
+        INSERT OR IGNORE INTO latest_vm_volume_items (
+            tower_id, cluster_id, vm_id, volume_id, name, path, type, size, used_size,
+            unique_size, unique_logical_size, guest_used_size, used_size_usage,
+            guest_size_usage, storage_policy, replica_num, thin_provision, ec_k, ec_m,
+            collected_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            tower_id,
+            row["cluster_id"],
+            row["vm_id"],
+            row["volume_id"],
+            row["name"],
+            row["path"],
+            row["type"],
+            row["size"],
+            row["used_size"],
+            row["unique_size"],
+            row["unique_logical_size"],
+            row["guest_used_size"],
+            row["used_size_usage"],
+            row["guest_size_usage"],
+            row["storage_policy"],
+            row["replica_num"],
+            row["thin_provision"],
+            row["ec_k"],
+            row["ec_m"],
+            row["collected_at"],
+        ),
+    )
 
 
 def _same_tower(target_row: sqlite3.Row, source_row: sqlite3.Row) -> bool:
@@ -692,15 +790,7 @@ def run_migration_export_task(task_id: str) -> None:
         settings = get_settings()
         _update_migration_export_task(task, status="running", progress=1, detail="正在扫描导出数据", logs=["正在统计业务库和历史指标大小"])
         generated_at = datetime.now(timezone.utc)
-        manifest = {
-            "format": "smartx-storage-forecast-migration",
-            "version": 1,
-            "generated_at": generated_at.isoformat(),
-            "contains": {
-                APP_DATA_DIR: settings.data_path.exists(),
-                PROMETHEUS_DATA_DIR: settings.prometheus_data_path.exists(),
-            },
-        }
+        manifest = _build_migration_manifest(generated_at, settings.data_path, settings.prometheus_data_path)
         manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
         entries = _collect_migration_export_entries(settings.data_path, APP_DATA_DIR, APP_RUNTIME_ENTRIES)
         entries += _collect_migration_export_entries(settings.prometheus_data_path, PROMETHEUS_DATA_DIR, PROMETHEUS_RUNTIME_ENTRIES)
@@ -748,6 +838,7 @@ def run_migration_export_task(task_id: str) -> None:
             processed_bytes=total_bytes,
             detail="迁移包已生成",
             logs=["迁移包已生成", f"服务器留档：{target}"],
+            manifest=manifest,
             finished_at=datetime.now(timezone.utc).isoformat(),
         )
     except Exception as exc:
@@ -877,3 +968,90 @@ def _format_bytes(value: int) -> str:
         size /= 1024
         index += 1
     return f"总数据量 {size:.1f} {units[index]}"
+
+
+def _build_migration_manifest(generated_at: datetime, app_data_path: Path, prometheus_data_path: Path) -> dict[str, Any]:
+    sqlite_summary = _sqlite_export_summary(app_data_path / DB_FILENAME)
+    prometheus_summary = _prometheus_export_summary(prometheus_data_path)
+    return {
+        "format": "smartx-storage-forecast-migration",
+        "version": 2,
+        "generated_at": generated_at.isoformat(),
+        "contains": {
+            APP_DATA_DIR: app_data_path.exists(),
+            PROMETHEUS_DATA_DIR: prometheus_data_path.exists(),
+        },
+        "sqlite": sqlite_summary,
+        "prometheus": prometheus_summary,
+        "compatibility": {
+            "latest_vm_volumes": "旧 payload_json 可导入；导入时只抽取页面、报表和分析需要的字段，其余原始字段会被丢弃。",
+        },
+    }
+
+
+def _sqlite_export_summary(db_path: Path) -> dict[str, Any]:
+    summary: dict[str, Any] = {"exists": db_path.exists(), "path": str(db_path.name)}
+    if not db_path.exists():
+        return summary
+    summary["size_bytes"] = db_path.stat().st_size
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            tables = [row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()]
+            row_counts = {}
+            for table in tables:
+                row_counts[table] = int(conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
+            summary["tables"] = row_counts
+            summary["latest_vm_volumes_payload_bytes"] = int(conn.execute("SELECT COALESCE(SUM(LENGTH(payload_json)), 0) FROM latest_vm_volumes").fetchone()[0])
+            if "latest_vm_volume_items" in tables:
+                summary["latest_vm_volume_items"] = row_counts.get("latest_vm_volume_items", 0)
+    except sqlite3.Error as exc:
+        summary["error"] = str(exc)
+    return summary
+
+
+def _prometheus_export_summary(prometheus_path: Path) -> dict[str, Any]:
+    blocks = _prometheus_blocks(prometheus_path)
+    return {
+        "exists": prometheus_path.exists(),
+        "block_count": len(blocks),
+        "blocks": [block.name for block in blocks],
+        "runtime_entries_skipped": sorted(name for name in PROMETHEUS_RUNTIME_ENTRIES if (prometheus_path / name).exists()),
+    }
+
+
+def migration_health_summary(target_db: Path | None = None, prometheus_path: Path | None = None) -> dict[str, Any]:
+    settings = get_settings()
+    db_path = target_db or settings.db_path
+    prometheus_data_path = prometheus_path or settings.prometheus_data_path
+    sqlite_summary = _sqlite_export_summary(db_path)
+    prometheus_summary = _prometheus_export_summary(prometheus_data_path)
+    checks = {
+        "database_exists": bool(sqlite_summary.get("exists")),
+        "has_towers": int(sqlite_summary.get("tables", {}).get("towers", 0)) > 0,
+        "has_clusters": int(sqlite_summary.get("tables", {}).get("clusters", 0)) > 0,
+        "has_metric_samples": int(sqlite_summary.get("tables", {}).get("metric_samples", 0)) > 0,
+        "has_vm_volume_items": int(sqlite_summary.get("tables", {}).get("latest_vm_volume_items", 0)) > 0,
+        "has_prometheus_blocks": int(prometheus_summary.get("block_count", 0)) > 0,
+    }
+    return {
+        "checks": checks,
+        "sqlite": sqlite_summary,
+        "prometheus": prometheus_summary,
+        "message": _health_message(checks),
+    }
+
+
+def _health_message(checks: dict[str, bool]) -> str:
+    missing = [name for name, ok in checks.items() if not ok]
+    if not missing:
+        return "数据迁移健康检查通过：业务库、虚拟卷结构化数据和 Prometheus 历史指标均存在。"
+    labels = {
+        "database_exists": "业务库",
+        "has_towers": "Tower 数据",
+        "has_clusters": "集群数据",
+        "has_metric_samples": "最新指标样本",
+        "has_vm_volume_items": "结构化虚拟卷明细",
+        "has_prometheus_blocks": "Prometheus 历史指标 block",
+    }
+    return "数据迁移健康检查存在缺口：" + "、".join(labels.get(name, name) for name in missing)

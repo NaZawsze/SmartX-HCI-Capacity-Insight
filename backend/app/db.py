@@ -6,6 +6,7 @@ from typing import Any, Iterator
 
 from app.core.config import get_settings
 from app.core.security import hash_password
+from app.core.vm_volumes import compact_vm_volumes_json, normalize_vm_volumes
 
 
 def _connect() -> sqlite3.Connection:
@@ -111,9 +112,39 @@ def init_db() -> None:
                 collected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (tower_id, cluster_id, vm_id)
             );
+
+            CREATE TABLE IF NOT EXISTS latest_vm_volume_items (
+                tower_id INTEGER NOT NULL,
+                cluster_id TEXT NOT NULL,
+                vm_id TEXT NOT NULL,
+                volume_id TEXT NOT NULL,
+                name TEXT,
+                path TEXT,
+                type TEXT,
+                size INTEGER,
+                used_size INTEGER,
+                unique_size INTEGER,
+                unique_logical_size INTEGER,
+                guest_used_size INTEGER,
+                used_size_usage REAL,
+                guest_size_usage REAL,
+                storage_policy TEXT,
+                replica_num INTEGER,
+                thin_provision INTEGER,
+                ec_k INTEGER,
+                ec_m INTEGER,
+                collected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (tower_id, cluster_id, vm_id, volume_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                name TEXT PRIMARY KEY,
+                applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             """
         )
         _ensure_admin(conn)
+        _migrate_latest_vm_volume_storage(conn)
 
 
 def _ensure_admin(conn: sqlite3.Connection) -> None:
@@ -125,6 +156,70 @@ def _ensure_admin(conn: sqlite3.Connection) -> None:
         "INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)",
         (settings.admin_user, hash_password(settings.admin_password)),
     )
+
+
+def _migrate_latest_vm_volume_storage(conn: sqlite3.Connection) -> None:
+    migration_name = "latest_vm_volume_items_v1"
+    if conn.execute("SELECT 1 FROM schema_migrations WHERE name = ?", (migration_name,)).fetchone():
+        return
+    existing_items = int(conn.execute("SELECT COUNT(*) FROM latest_vm_volume_items").fetchone()[0])
+    if existing_items:
+        conn.execute("INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)", (migration_name,))
+        return
+    rows = conn.execute("SELECT tower_id, cluster_id, vm_id, payload_json, collected_at FROM latest_vm_volumes").fetchall()
+    for row in rows:
+        try:
+            payload = json.loads(row["payload_json"])
+        except (TypeError, ValueError):
+            payload = []
+        normalized = normalize_vm_volumes(payload)
+        compact_json = compact_vm_volumes_json(normalized)
+        if compact_json != row["payload_json"]:
+            conn.execute(
+                """
+                UPDATE latest_vm_volumes
+                SET payload_json = ?
+                WHERE tower_id = ? AND cluster_id = ? AND vm_id = ?
+                """,
+                (compact_json, row["tower_id"], row["cluster_id"], row["vm_id"]),
+            )
+        conn.execute("DELETE FROM latest_vm_volume_items WHERE tower_id = ? AND cluster_id = ? AND vm_id = ?", (row["tower_id"], row["cluster_id"], row["vm_id"]))
+        for index, volume in enumerate(normalized):
+            volume_id = str(volume.get("id") or f"volume-{index}")
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO latest_vm_volume_items (
+                    tower_id, cluster_id, vm_id, volume_id, name, path, type, size, used_size,
+                    unique_size, unique_logical_size, guest_used_size, used_size_usage,
+                    guest_size_usage, storage_policy, replica_num, thin_provision, ec_k, ec_m,
+                    collected_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    row["tower_id"],
+                    row["cluster_id"],
+                    row["vm_id"],
+                    volume_id,
+                    volume.get("name"),
+                    volume.get("path"),
+                    volume.get("type"),
+                    volume.get("size"),
+                    volume.get("used_size"),
+                    volume.get("unique_size"),
+                    volume.get("unique_logical_size"),
+                    volume.get("guest_used_size"),
+                    volume.get("used_size_usage"),
+                    volume.get("guest_size_usage"),
+                    volume.get("elf_storage_policy"),
+                    volume.get("elf_storage_policy_replica_num"),
+                    int(volume["elf_storage_policy_thin_provision"]) if "elf_storage_policy_thin_provision" in volume else None,
+                    volume.get("elf_storage_policy_ec_k"),
+                    volume.get("elf_storage_policy_ec_m"),
+                    row["collected_at"],
+                ),
+            )
+    conn.execute("INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)", (migration_name,))
 
 
 def insert_report(payload: dict[str, Any]) -> int:

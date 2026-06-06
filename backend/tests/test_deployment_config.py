@@ -29,7 +29,7 @@ def test_upgrade_package_migrate_script_only_syncs_project_files(tmp_path) -> No
     spec.loader.exec_module(module)
 
     script_path = tmp_path / "migrate.sh"
-    module.write_migrate_script(script_path, "v0.4.1")
+    module.write_migrate_script(script_path, "v0.5.0")
     text = script_path.read_text(encoding="utf-8")
 
     assert "project_files = manifest.get(\"project_file_list\") or []" in text
@@ -46,10 +46,19 @@ def test_compose_splits_platform_and_runner_versions() -> None:
     root = Path(__file__).resolve().parents[2]
     for name in ("docker-compose.offline.yml", "docker-compose.release.yml"):
         text = (root / name).read_text(encoding="utf-8")
-        assert "SMARTX_IMAGE_TAG:-v0.4.1" in text
-        assert "SMARTX_RUNNER_IMAGE_TAG:-v0.2.2" in text
+        assert "SMARTX_IMAGE_TAG:-v0.5.0" in text
+        assert "SMARTX_RUNNER_IMAGE_TAG:-v0.3.0" in text
         assert "upgrade-runner:${SMARTX_IMAGE_TAG" not in text
         assert "SMARTX_IMAGE_TAG:-v0.4.0" not in text
+
+
+def test_compose_project_name_is_consistent_across_runtime_and_upgrade() -> None:
+    root = Path(__file__).resolve().parents[2]
+    for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+        text = (root / name).read_text(encoding="utf-8")
+        assert "SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast" in text
+        assert "SMARTX_COMPOSE_PROJECT_NAME: smartx-capacity-insight" not in text
+    assert "--project-name smartx-storage-forecast" in (root / "docs/deployment.md").read_text(encoding="utf-8")
 
 
 def test_backend_images_carry_platform_and_runner_version_files() -> None:
@@ -68,10 +77,10 @@ def test_deployment_docs_use_explicit_platform_and_runner_tags() -> None:
     assert "SMARTX_IMAGE_TAG=v0.3.1" not in text
     assert "nazawsze/smartx-hci-capacity-insight-web-api:latest" not in text
     assert "nazawsze/smartx-hci-capacity-insight-upgrade-runner:latest" not in text
-    assert "SMARTX_IMAGE_TAG=v0.4.1" in text
-    assert "SMARTX_RUNNER_IMAGE_TAG=v0.2.2" in text
-    assert "nazawsze/smartx-hci-capacity-insight-web-api:v0.4.1" in text
-    assert "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.2.2" in text
+    assert "SMARTX_IMAGE_TAG=v0.5.0" in text
+    assert "SMARTX_RUNNER_IMAGE_TAG=v0.3.0" in text
+    assert "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.0" in text
+    assert "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0" in text
 
 
 def test_platform_upgrade_package_excludes_runner() -> None:
@@ -101,9 +110,9 @@ def test_upgrade_runner_dependencies_do_not_pull_web_api_stack() -> None:
 def test_upgrade_override_uses_platform_release_images() -> None:
     root = Path(__file__).resolve().parents[2]
     text = (root / "docker-compose.upgrade.yml").read_text(encoding="utf-8")
-    assert "nazawsze/smartx-hci-capacity-insight-web-api:v0.4.1" in text
-    assert "nazawsze/smartx-hci-capacity-insight-collector-worker:v0.4.1" in text
-    assert "nazawsze/smartx-hci-capacity-insight-frontend:v0.4.1" in text
+    assert "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.0" in text
+    assert "nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.0" in text
+    assert "nazawsze/smartx-hci-capacity-insight-frontend:v0.5.0" in text
     assert "smartx-storage-forecast-web-api:v0.4.0" not in text
 
 

@@ -8,11 +8,11 @@ def test_verification_summary_uses_latest_successful_platform_task(monkeypatch):
     monkeypatch.setattr(upgrade, "_task_package_sha256", lambda task: "c" * 64)
     monkeypatch.setattr(upgrade, "_latest_successful_platform_task", lambda: {
         "task_id": "abc123",
-        "package_filename": "smartx-capacity-insight-upgrade-v0.4.1.tar.gz",
+        "package_filename": "smartx-capacity-insight-upgrade-v0.5.0.tar.gz",
         "uploaded_at": "2026-06-02T01:00:00+00:00",
         "finished_at": "2026-06-02T01:05:00+00:00",
         "manifest": {
-            "version": "v0.4.1",
+            "version": "v0.5.0",
             "images": [
                 {"service": "web-api", "file": "images/web-api.tar", "sha256": "a" * 64},
                 {"service": "frontend", "file": "images/frontend.tar", "sha256": "b" * 64},
@@ -22,7 +22,7 @@ def test_verification_summary_uses_latest_successful_platform_task(monkeypatch):
 
     summary = upgrade.verification_summary()
 
-    assert summary["package"]["version"] == "v0.4.1"
+    assert summary["package"]["version"] == "v0.5.0"
     assert summary["package"]["sha256"] == "c" * 64
     assert summary["package"]["image_sha256"] == {"web-api": "a" * 64, "frontend": "b" * 64}
 
@@ -132,7 +132,7 @@ def test_runner_override_uses_runtime_path_not_data_subdirectory(tmp_path, monke
     settings.runtime_path.mkdir(parents=True)
     monkeypatch.setattr(upgrade, "get_settings", lambda: settings)
 
-    task = {"manifest": {"images": [{"service": "upgrade-runner", "image": "runner:v0.2.2"}]}}
+    task = {"manifest": {"images": [{"service": "upgrade-runner", "image": "runner:v0.3.0"}]}}
     upgrade._write_runner_override(task)
 
     assert (settings.runtime_path / "docker-compose.runner-upgrade.yml").exists()
@@ -146,7 +146,7 @@ def test_start_upgrade_assumes_runner_v022_runtime_is_ready(tmp_path, monkeypatc
         "status": "prechecked",
         "precheck_ok": True,
         "logs": [],
-        "manifest": {"version": "v0.4.1"},
+        "manifest": {"version": "v0.5.0"},
     }
     saved = {}
     monkeypatch.setattr(upgrade, "get_settings", lambda: settings)
@@ -163,12 +163,12 @@ def test_start_upgrade_assumes_runner_v022_runtime_is_ready(tmp_path, monkeypatc
 def test_platform_manifest_rejects_upgrade_runner_service():
     manifest = {
         "product": "smartx-storage-forecast",
-        "version": "v0.4.1",
+        "version": "v0.5.0",
         "images": [
-            {"service": "web-api", "file": "images/web-api.tar", "image": "nazawsze/smartx-hci-capacity-insight-web-api:v0.4.1"},
-            {"service": "collector-worker", "file": "images/collector-worker.tar", "image": "nazawsze/smartx-hci-capacity-insight-collector-worker:v0.4.1"},
-            {"service": "frontend", "file": "images/frontend.tar", "image": "nazawsze/smartx-hci-capacity-insight-frontend:v0.4.1"},
-            {"service": "upgrade-runner", "file": "images/upgrade-runner.tar", "image": "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.2.2"},
+            {"service": "web-api", "file": "images/web-api.tar", "image": "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.0"},
+            {"service": "collector-worker", "file": "images/collector-worker.tar", "image": "nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.0"},
+            {"service": "frontend", "file": "images/frontend.tar", "image": "nazawsze/smartx-hci-capacity-insight-frontend:v0.5.0"},
+            {"service": "upgrade-runner", "file": "images/upgrade-runner.tar", "image": "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0"},
         ],
         "restart_services": ["web-api", "collector-worker", "frontend"],
         "project_files": ["docker-compose.offline.yml", "docker-compose.release.yml"],

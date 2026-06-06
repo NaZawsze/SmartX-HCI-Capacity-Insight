@@ -125,10 +125,10 @@
 已完成：
 
 - 盘点仓库和 DockerHub 版本混乱问题。
-- 临时隔离修复 `main` 的三份 compose 文件，并将 `v0.4.1` tag 指向该修复提交。
+- 临时隔离修复 `main` 的三份 compose 文件，并将 `v0.5.0` tag 指向该修复提交。
 - 在 dev 中新增 `RUNNER_VERSION`。
-- 将平台版本元数据改为 `v0.4.1`。
-- 将 runner compose tag 拆为 `SMARTX_RUNNER_IMAGE_TAG:-v0.2.2`。
+- 将平台版本元数据改为 `v0.5.0`。
+- 将 runner compose tag 拆为 `SMARTX_RUNNER_IMAGE_TAG:-v0.3.0`。
 - 平台升级包脚本不再包含 `upgrade-runner.tar`。
 - runner 组件包脚本默认读取 `RUNNER_VERSION`。
 - GitHub Actions 拆分平台三件套和 runner 专用 workflow。
@@ -144,7 +144,7 @@
 验证记录：
 
 - `python3 -m py_compile backend/app/services/upgrade.py backend/app/core/config.py scripts/build_upgrade_package.py scripts/build_runner_component_package.py backend/tests/test_deployment_config.py backend/tests/test_upgrade.py` 通过。
-- `python3 scripts/build_upgrade_package.py --check-version` 通过，输出 `Version metadata OK: v0.4.1`。
+- `python3 scripts/build_upgrade_package.py --check-version` 通过，输出 `Version metadata OK: v0.5.0`。
 - 直接导入 `backend/tests/test_upgrade.py` 时本地缺少 `pydantic`，需要在远端环境或容器内跑完整导入测试。
 
 ### 修复清理空间显示 0B
@@ -337,16 +337,16 @@
 
 - `backend/app/core/config.py` 增加 `read_runner_version()`，runner 组件版本优先读取镜像内 `/app/RUNNER_VERSION`，环境变量 `SMARTX_RUNNER_VERSION` 仅作为兜底覆盖。
 - `backend/Dockerfile`、`backend/Dockerfile.worker`、`backend/Dockerfile.upgrade` 均复制根目录 `VERSION` 和 `RUNNER_VERSION`，避免平台版本和 runner 版本依赖 compose 默认值。
-- `docs/deployment.md` 修正离线部署说明：平台三件套默认 `v0.4.1`，`upgrade-runner` 默认 `v0.2.2`，不再描述为 `latest`。
+- `docs/deployment.md` 修正离线部署说明：平台三件套默认 `v0.5.0`，`upgrade-runner` 默认 `v0.3.0`，不再描述为 `latest`。
 - `docs/deployment.md` 补充 `/data/upgrades`、`/data/backups`、`/data/exports`、`/data/compose-runtime` 运行产物目录说明，并修正密码修改入口为 admin 头像菜单。
 - `docs/version-governance.md` 和 `docs/releases/CHANGELOG.md` 补充镜像内置版本文件规则。
 - 增加测试断言，防止后续 Dockerfile 漏复制 `RUNNER_VERSION`、部署文档回退到 `latest/v0.3.1`、runner 版本不读镜像文件。
 
 验证：
 
-- `python3 scripts/build_upgrade_package.py --check-version --no-build` 通过，输出 `Version metadata OK: v0.4.1`。
+- `python3 scripts/build_upgrade_package.py --check-version --no-build` 通过，输出 `Version metadata OK: v0.5.0`。
 - `python3 -m py_compile backend/app/core/config.py backend/tests/test_upgrade.py backend/tests/test_deployment_config.py scripts/build_upgrade_package.py scripts/build_runner_component_package.py` 通过。
-- 自定义静态断言通过，确认 compose 拆分 `SMARTX_IMAGE_TAG:-v0.4.1` 与 `SMARTX_RUNNER_IMAGE_TAG:-v0.2.2`，Dockerfile 均复制 `VERSION/RUNNER_VERSION`，部署文档不再包含 `latest` 默认 tag 或 `SMARTX_IMAGE_TAG=v0.3.1`。
+- 自定义静态断言通过，确认 compose 拆分 `SMARTX_IMAGE_TAG:-v0.5.0` 与 `SMARTX_RUNNER_IMAGE_TAG:-v0.3.0`，Dockerfile 均复制 `VERSION/RUNNER_VERSION`，部署文档不再包含 `latest` 默认 tag 或 `SMARTX_IMAGE_TAG=v0.3.1`。
 - `python3 -m pytest backend/tests/test_upgrade.py backend/tests/test_deployment_config.py` 未执行成功，原因是本机 Python 环境缺少 `pytest` 模块。
 
 ### 全新平台升级与组件升级模式设计
@@ -1891,7 +1891,7 @@ TDD 记录：
 
 ### 2026-06-06 Phase V2 远端现场验证与旧库兼容修复
 
-状态：完成本轮修复和远端 smoke，待提交
+状态：完成本轮修复和远端 smoke，待继续升级/迁移端到端验证
 
 发现的问题：
 
@@ -1900,6 +1900,7 @@ TDD 记录：
 - 旧库中已有 `latest_vm_volumes` 和 `latest_vm_volume_items`，但 v2 新表 `vm_latest`、`vm_volumes` 初始为空，切到 v2 后 VM 页面和 Dashboard 容易空。
 - Prometheus 当前 instant 查询为空时，`/api/vms` 只依赖 Prometheus 会返回 0 台 VM；但 SQLite 中有最新 VM 和卷数据，趋势 query_range 仍可查到历史点。
 - 远端当前 compose 实际 project name 是 `smartx-storage-forecast`；使用不匹配的 project name 执行 `docker compose ps` 会显示空表。
+- 现场库里存在历史导入残留的 tower_id 1/2/3 数据，而当前启用 Tower/集群只有 tower_id 3；默认 Dashboard、VM、报表必须按当前启用集群过滤，否则会显示旧残留 VM 和没有趋势的历史记录。
 
 实施内容：
 
@@ -1909,6 +1910,7 @@ TDD 记录：
 - `backend/app/v2/api.py` 的 VM 趋势接口兼容前端使用的 `period_days` 参数。
 - `backend/app/v2/dashboard/service.py` 返回 Tower 树，支持前端 scope 选择；Prometheus instant 为空时从 SQLite `vm_latest` 兜底 VM 概览，且不会把兜底数据误算为“本日新建 VM”。
 - `backend/app/v2/vms/service.py` 在 Prometheus instant 为空时从 SQLite `vm_latest` 返回 VM 列表。
+- `backend/app/v2/dashboard/service.py`、`backend/app/v2/vms/service.py`、`backend/app/v2/reports/service.py` 默认只统计当前启用集群下的数据；选择 Tower/集群时使用对应启用范围过滤。
 
 验证：
 
@@ -1916,8 +1918,9 @@ TDD 记录：
 - 远端重建并启动 v2 compose 后，容器入口确认：`uvicorn app.v2.main:app`、`python -m app.v2.worker`、`python -m app.v2.upgrade.runner`。
 - 远端受影响后端测试：`test_v2_foundation`、`test_v2_dashboard_vm`、`test_v2_dashboard_vm_api`、`test_v2_migration` 共 18 个测试通过。
 - 远端完整 v2 后端测试曾扩展至 43 个测试并通过。
-- 远端 smoke：登录成功；Dashboard 读取到 1 个 Tower、1 个集群、523 台 VM；`/api/vms` 返回 523 台；单 VM 趋势 2 个点、卷明细 258 条；Word/Excel 报表保存到 `/data/exports/reports` 并返回下载 URL；迁移导出任务成功并返回下载 URL；空间清理扫描返回可清理项；compose 五个容器均运行。
+- 远端 smoke：登录成功；Dashboard 读取到 1 个 Tower、1 个集群；启用范围过滤修复后 Dashboard VM 数和 `/api/vms` 均为 177 台；Word/Excel 报表保存到 `/data/exports/reports`；迁移导出任务成功并返回下载 URL；空间清理扫描返回可清理项；compose 五个容器均运行。
 - 远端运行容器内复核：`backend.tests.test_v2_foundation`、`backend.tests.test_v2_dashboard_vm`、`backend.tests.test_v2_dashboard_vm_api`、`backend.tests.test_v2_migration` 共 18 个测试通过。
+- 远端运行容器内复核：新增 orphan 指标/SQLite 残留过滤测试后，`backend.tests.test_v2_dashboard_vm`、`backend.tests.test_v2_reports` 共 6 个测试通过。
 
 仍未完成：
 
@@ -1925,3 +1928,101 @@ TDD 记录：
 - 平台升级包、runner 组件包、Prometheus 组件包未实际执行。
 - 迁出数据导入独立验证环境未执行。
 - 日/月增长是否非空仍取决于 Prometheus 历史样本窗口和当前 scrape 状态，本轮只验证趋势、VM 列表、报表和迁移导出恢复。
+
+### 2026-06-06 Phase V2 v0.5.0 / runner v0.3.0 版本治理与远端验证
+
+状态：完成本轮版本治理、远端构建、运行 smoke 和升级包生成，待继续真实升级包执行
+
+实施内容：
+
+- 平台版本统一为 `v0.5.0`，根目录 `VERSION`、compose 默认平台 tag、README、部署文档、版本治理文档和测试断言同步更新。
+- `upgrade-runner` 组件版本统一为 `v0.3.0`，根目录 `RUNNER_VERSION`、compose `SMARTX_RUNNER_IMAGE_TAG`、runner 组件包脚本和测试断言同步更新。
+- 明确 `v0.5.0` 平台升级包只面向 v2 同架构后续升级；v1/v0.4.x 不走原地升级，只通过“新装 v2 + 数据迁移包导入”兼容。
+- README 中升级包结构更新为 v2 manifest：`schema_version=2`、`components`、`project_files`、`scripts/migrate.sh`、`project/**`。
+- 三个后端 Dockerfile 增加 `PIP_DEFAULT_TIMEOUT=120` 和 `PIP_RETRIES=10`，缓解现场 pip 下载超时导致构建失败。
+- 远端 `10.20.11.3` 已删除旧平台、runner 和 Prometheus 容器/镜像后重新构建 v2。
+
+远端验证：
+
+- `python3 scripts/build_upgrade_package.py --check-version --no-build` 通过，输出 `Version metadata OK: v0.5.0`。
+- `docker compose build web-api collector-worker frontend upgrade-runner` 通过。
+- 镜像内版本检查：`web-api` 与 `upgrade-runner` 均显示 `/app/VERSION=v0.5.0`、`/app/RUNNER_VERSION=v0.3.0`。
+- 容器内测试通过：`backend.tests.test_deployment_config`、`backend.tests.test_v2_package_builders`、`backend.tests.test_v2_upgrade` 共 9 个测试通过。
+- 容器内测试通过：`backend.tests.test_v2_dashboard_vm`、`backend.tests.test_v2_reports`、`backend.tests.test_v2_migration` 共 10 个测试通过。
+- `bash pre_install.sh` 通过，确认 `/data/upgrades`、`/data/backups`、`/data/exports`、`/data/compose-runtime` 和 Prometheus 权限准备完成。
+- `docker compose --project-name smartx-storage-forecast up -d` 启动五个容器成功。
+- HTTP 验证通过：`/api/system/health` 返回 `version=v0.5.0`、`runner_version=v0.3.0`；`/api/admin/upgrade/version` 返回 `v0.5.0`；`/api/admin/component-upgrade/version` 返回 `v0.3.0`；前端 `8080` 返回 200；Prometheus `/-/healthy` 正常。
+- 登录后接口验证通过：Dashboard、报表接口均返回数据；Dashboard 风险文案为 `当前所有集群暂无明显容量风险`。
+
+升级包：
+
+- 平台升级包：`/data/upgrade-packages/smartx-capacity-insight-upgrade-v0.5.0.tar.gz`，大小约 342 MB，SHA256 `6924766cb52a67b9562c2894300ec7eddd09d397b37ec79203c84c2b3e83a53b`。
+- runner 组件包：`/data/upgrade-packages/components/smartx-upgrade-runner-v0.3.0.tar.gz`，大小约 81 MB，SHA256 `6c44e1d09a15573e06d15f247ea7ef438a6cf8a24d48e54cf5925dba7b57a748`。
+- 平台包 manifest：`version=v0.5.0`、`min_version=v0.5.0`、`package_type=platform`、只包含 `web-api`、`collector-worker`、`frontend`，不包含 `images/upgrade-runner.tar`。
+- runner 包 manifest：`version=v0.3.0`、`package_type=component`、只包含 `images/upgrade-runner.tar`。
+- 两个包检查均未发现 `.env`、`smartx.db`、Prometheus 数据或凭据类内容。
+
+注意：
+
+- 使用 `docker compose run` 时必须显式 `--project-name smartx-storage-forecast`，否则目录名 `smartx-storage-forecast-v2` 会尝试创建同样 `10.249.249.0/24` 的网络并与正式网络冲突。
+- 本轮没有执行真实平台升级包、runner 组件包和 Prometheus 组件包升级流程；这些仍保留为后续端到端验证项。
+
+### 2026-06-06 Phase V2-7 真实平台升级与 runner 组件升级验证
+
+状态：完成平台升级包和 runner 组件包真实执行验证，修复 runner-only 组件升级执行者问题
+
+现场验证：
+
+- 在 `10.20.11.3` 通过 API 上传并执行 `/data/upgrade-packages/smartx-capacity-insight-upgrade-v0.5.0.tar.gz`。
+- 平台升级任务 `upgrade-9c1b8ce0fb6f7b47` 成功：
+  - 生成升级前备份 `/data/backups/upgrade-v0.5.0-before-20260606085950.tar.gz`。
+  - 加载 `web-api`、`collector-worker`、`frontend` 三个 `v0.5.0` 镜像。
+  - 同步项目文件并备份到 `/data/backups/project-files-before-v0.5.0-20260606090010`。
+  - 写入 `/data/compose-runtime/docker-compose.upgrade.yml`。
+  - 平台三件套重启后容器均运行，`/api/system/health` 返回 `version=v0.5.0`、`runner_version=v0.3.0`。
+- 首次真实执行 runner 组件包 `/data/upgrade-packages/components/smartx-upgrade-runner-v0.3.0.tar.gz` 时发现现场问题：
+  - 任务 `upgrade-aa714bd774e894a3` 完成备份、加载镜像和写 runner override 后停在 `restart running`。
+  - Docker 状态显示旧 runner 退出，新 runner 容器一度只处于 Created，说明 runner 自己执行 `docker compose up -d --no-deps upgrade-runner` 会被自身重启打断。
+
+修复内容：
+
+- 新增 API 回归测试：runner-only 组件升级通过 `/api/admin/component-upgrade/start/{task_id}` 启动后不再返回 `pending + runner_requested`，而是由 web-api 直接执行。
+- RED：远端容器内执行 `backend.tests.test_v2_upgrade.V2UpgradeApiTest.test_upgrade_api_requires_auth_uploads_and_prechecks_package`，新断言失败，实际返回 `pending`。
+- GREEN：`backend/app/v2/api.py` 将组件升级 start 改为 `upgrade.start(..., submit_to_runner=False)`。
+- 清理成功路径：`backend/app/v2/upgrade/service.py` 在任务成功时清空 `runner_resume_pending=False`，并将日志文案改为“升级服务已提交重启”。
+
+修复后验证：
+
+- 远端容器内同一 API 回归测试通过。
+- 重建并重启远端 `web-api` 后，再次通过 API 执行 runner 组件包，任务 `upgrade-99f319a07635fcb1` 成功：
+  - 生成备份 `/data/backups/upgrade-v0.3.0-before-20260606091212.tar.gz`。
+  - 加载 `nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0`。
+  - 写入 `/data/compose-runtime/docker-compose.runner-upgrade.yml`。
+  - runner 容器成功切换为 `nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0` 并运行。
+
+仍未完成：
+
+- Prometheus 组件包真实执行和历史指标回归仍未跑。
+- 新部署添加 Tower 并采集、v1 迁移包导入独立验证环境仍未跑。
+
+补充验证产物：
+
+- 修复后重新生成平台升级包：`/data/upgrade-packages/smartx-capacity-insight-upgrade-v0.5.0.tar.gz`，大小 `342339041` bytes，SHA256 `0958b9aa592ef528aabd489d1e979104d3878e1a0978a467d1a6735c96f195c5`。
+- 修复后重新生成 runner 组件包：`/data/upgrade-packages/components/smartx-upgrade-runner-v0.3.0.tar.gz`，大小 `81373272` bytes，SHA256 `6567f7ec135b550e690ecc41bb468e45e798d37fdcb80f38b589532d5fb4c023`。
+- 平台包 manifest 仍为 `version=v0.5.0`、components `platform`，不包含 `images/upgrade-runner.tar`。
+- runner 组件包 manifest 仍为 `version=v0.3.0`、components `runner`，只包含 `images/upgrade-runner.tar`。
+- 包内检查未发现 `.env`、`smartx.db`、Prometheus 历史数据或凭据；`project/prometheus/prometheus.yml` 是 Prometheus 配置文件，属于预期项目文件。
+
+### 2026-06-06 Phase V2 前端版本断言与远端测试清理
+
+状态：完成
+
+发现与修复：
+
+- 远端用 Docker `node:22-alpine` 跑 Vitest 时，`frontend/src` 内残留 macOS `._*` AppleDouble 文件导致 Vite 尝试解析二进制文件失败。
+- `frontend/src/pages/ServicePage.test.tsx` 中平台状态测试仍断言旧包名 `smartx-capacity-insight-upgrade-v0.4.1`，已修正为 `v0.5.0`。
+
+验证：
+
+- 删除远端 `frontend/src/**/._*` 运行产物后，执行 `docker run --rm -v /opt/smartx-storage-forecast-v2/frontend:/app -w /app node:22-alpine npm test -- AppLayout.test.tsx DashboardPage.test.tsx global.test.ts ServicePage.test.tsx` 通过。
+- 前端结果：4 个测试文件、20 个测试通过。

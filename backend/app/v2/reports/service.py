@@ -41,10 +41,11 @@ class ReportService:
     def latest_report(self, tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, chart_days: int = 365) -> dict[str, Any]:
         window_days = _normalize_period_days(period_days)
         chart_window_days = _normalize_chart_days(chart_days)
-        cluster_series = self._cluster_series(days=window_days, tower_id=tower_id, cluster_id=cluster_id)
-        chart_series = self._cluster_series(days=chart_window_days, tower_id=tower_id, cluster_id=cluster_id)
-        growth_series = self._cluster_series(days=7, tower_id=tower_id, cluster_id=cluster_id)
-        capacity_by_cluster = self._cluster_totals(tower_id=tower_id, cluster_id=cluster_id)
+        enabled_scope = self._enabled_cluster_scope(tower_id=tower_id, cluster_id=cluster_id)
+        cluster_series = self._cluster_series(days=window_days, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        chart_series = self._cluster_series(days=chart_window_days, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        growth_series = self._cluster_series(days=7, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        capacity_by_cluster = self._cluster_totals(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         chart_points_by_cluster = {_cluster_key(series.get("metric", {})): range_values(series) for series in chart_series}
         clusters = []
         cluster_names = self._cluster_names()
@@ -64,9 +65,9 @@ class ReportService:
                     "warning": capacity * 0.9 if capacity else None,
                 }
             )
-        latest_vms = self._latest_vm_items(tower_id=tower_id, cluster_id=cluster_id)
-        vm_series = self._vm_series(days=max(window_days, 30), tower_id=tower_id, cluster_id=cluster_id)
-        day_vm_series = self._vm_series(days=2, tower_id=tower_id, cluster_id=cluster_id, step="1h")
+        latest_vms = self._latest_vm_items(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        vm_series = self._vm_series(days=max(window_days, 30), tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        day_vm_series = self._vm_series(days=2, tower_id=tower_id, cluster_id=cluster_id, step="1h", enabled_scope=enabled_scope)
         latest_label_by_vm = self._latest_vm_labels()
         day_vms = _growth_reports_from_series(latest_vms, day_vm_series, period_days=1, limit=100, latest_label_by_vm=latest_label_by_vm)
         month_vms = _growth_reports_from_series(latest_vms, vm_series, period_days=window_days, limit=100, latest_label_by_vm=latest_label_by_vm, min_sample_days=30)
@@ -95,35 +96,39 @@ class ReportService:
             "month_growth_min_sample_days": 30,
         }
 
-    def _cluster_series(self, *, days: int, tower_id: int | None, cluster_id: str | None, step: str = "1d") -> list[dict[str, Any]]:
+    def _cluster_series(self, *, days: int, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]], step: str = "1d") -> list[dict[str, Any]]:
         start = self.now_ts - days * SECONDS_PER_DAY
         return [
             series
             for series in self.prometheus.range(scoped_query(CLUSTER_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step=step)
             if labels_match(series.get("metric", {}), tower_id=tower_id, cluster_id=cluster_id)
+            and _in_enabled_scope(_cluster_key(series.get("metric", {})), enabled_scope)
         ]
 
-    def _vm_series(self, *, days: int, tower_id: int | None, cluster_id: str | None, step: str = "6h") -> list[dict[str, Any]]:
+    def _vm_series(self, *, days: int, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]], step: str = "6h") -> list[dict[str, Any]]:
         start = self.now_ts - days * SECONDS_PER_DAY
         return [
             series
             for series in self.prometheus.range(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step=step)
             if labels_match(series.get("metric", {}), tower_id=tower_id, cluster_id=cluster_id)
+            and _in_enabled_scope(_cluster_key(series.get("metric", {})), enabled_scope)
         ]
 
-    def _cluster_totals(self, *, tower_id: int | None, cluster_id: str | None) -> dict[tuple[int, str], float]:
+    def _cluster_totals(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> dict[tuple[int, str], float]:
         totals = {}
         for row in self.prometheus.instant(scoped_query(CLUSTER_TOTAL_METRIC, tower_id=tower_id, cluster_id=cluster_id)):
             metric = row.get("metric", {})
-            if labels_match(metric, tower_id=tower_id, cluster_id=cluster_id):
-                totals[_cluster_key(metric)] = metric_value(row)
+            key = _cluster_key(metric)
+            if labels_match(metric, tower_id=tower_id, cluster_id=cluster_id) and _in_enabled_scope(key, enabled_scope):
+                totals[key] = metric_value(row)
         return totals
 
-    def _latest_vm_items(self, *, tower_id: int | None, cluster_id: str | None) -> list[dict[str, Any]]:
+    def _latest_vm_items(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
         return [
             row
             for row in self.prometheus.instant(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id))
             if labels_match(row.get("metric", {}), tower_id=tower_id, cluster_id=cluster_id)
+            and _in_enabled_scope(_cluster_key(row.get("metric", {})), enabled_scope)
         ]
 
     def _cluster_names(self) -> dict[tuple[int, str], str]:
@@ -146,6 +151,19 @@ class ReportService:
             }
             for row in rows
         }
+
+    def _enabled_cluster_scope(self, *, tower_id: int | None, cluster_id: str | None) -> set[tuple[int, str]]:
+        filters = ["enabled = 1"]
+        params: list[object] = []
+        if tower_id is not None:
+            filters.append("tower_id = ?")
+            params.append(tower_id)
+        if cluster_id:
+            filters.append("cluster_id = ?")
+            params.append(cluster_id)
+        with self.database.connection() as conn:
+            rows = conn.execute(f"SELECT tower_id, cluster_id FROM clusters WHERE {' AND '.join(filters)}", params).fetchall()
+        return {(int(row["tower_id"]), str(row["cluster_id"])) for row in rows}
 
 
 def forecast_series(points: list[tuple[int, float]], capacity: float | None = None) -> ForecastResult:
@@ -312,6 +330,10 @@ def _cluster_key(labels: dict[str, Any]) -> tuple[int, str]:
 
 def _vm_key(labels: dict[str, Any]) -> tuple[int, str, str]:
     return (int(labels.get("tower_id") or 0), str(labels.get("cluster_id") or ""), str(labels.get("vm_id") or ""))
+
+
+def _in_enabled_scope(key: tuple[int, str], enabled_scope: set[tuple[int, str]]) -> bool:
+    return key in enabled_scope if enabled_scope else True
 
 
 def _item_timestamp(item: dict[str, Any]) -> int | None:

@@ -106,12 +106,13 @@ panic: Unable to create mmap-ed active query log
 - 可选 `scripts/migrate.sh`
 - 可选 `release-notes.md`
 
-系统升级由 `upgrade-runner` 执行。`upgrade-runner` 不能可靠地在线升级自己，因为它在升级过程中承担执行者角色。
+平台升级和 Prometheus/observability 升级由 `upgrade-runner` 执行。`upgrade-runner` 不能可靠地执行“重启自己”的任务，因为 Docker 停掉旧 runner 后，正在执行 compose 的进程也可能被杀掉，导致新 runner 只创建不启动、任务停在 `restart running`。v2 当前策略是：runner-only 组件升级由 `web-api` 直接执行 Docker 操作，平台升级仍提交给 `upgrade-runner`。
 
 后续已引入“组件升级”概念：
 
 - 平台升级：升级业务服务。
-- 组件升级：用于升级 `upgrade-runner` 等基础组件。
+- 组件升级：用于升级 `upgrade-runner` 等基础组件；runner-only 包由 `web-api` 直接执行，不能提交给 runner 自己执行。
+- Prometheus 升级应并入全新升级模式，作为 `observability` 组件由 manifest 自动识别；不能混在普通平台升级里默认执行。
 
 一般原则：
 
@@ -119,6 +120,9 @@ panic: Unable to create mmap-ed active query log
 - 不覆盖 `.env`。
 - 不完整替换 `docker-compose.yml`。
 - 不替换或清空核心数据目录。
+- 上传升级包后应由 `manifest.json` 自动识别包含的组件：平台三件套、`upgrade-runner`、Prometheus 或组合包。
+- Prometheus 组件升级必须由 `upgrade-runner` 执行，并在升级前强制备份 `/data/smartx-capacity-insight-data/prometheus`，检查 `65534:65534` 写权限、磁盘空间、版本兼容性和历史 block 状态。
+- Prometheus 升级后必须验证 `/-/ready`、`/api/v1/query`、`/api/v1/query_range`，并查询 `smartx_vm_storage_used_bytes`，确认趋势图、日增长、月增长和报表数据链路仍可用。
 
 ## 离线部署注意事项
 
@@ -141,6 +145,27 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 趋势图窗口可以切换 `7 / 30 / 90 / 365 / 720` 天。
 - 图表横坐标需要根据窗口大小调整显示间隔。
 
+## 后续产品化方向
+
+项目已经从“功能可用”进入“现场可交付、可运维、可升级”的阶段。后续待办需要合并为几个清晰主线，避免零散堆功能：
+
+- 升级体系：统一升级包入口，manifest 自动识别平台、runner、Prometheus/observability 组件，升级任务由 runner 执行并支持可恢复状态、备份验证和回滚。
+- 数据迁移灾备：导出/导入必须覆盖 SQLite 业务库和 Prometheus 历史指标，导入前备份、merge 规则、导入后健康验证需要形成闭环。
+- 报表产品化：Word/Excel 报表要面向客户交付，风险摘要、统计窗口、图表风格、高风险 VM 和导出留存需要更清晰。
+- 首页风险驾驶舱：首页需要一眼看到任一集群容量风险、最危险集群、预计耗尽时间、7 天增长和主要增长来源。
+- 版本治理：平台版本、runner 版本、Prometheus 版本、compose tag、升级包 manifest、DockerHub tag、changelog 和验证记录必须保持一致。
+
+## SQLite 存储体积发现
+
+`10.20.11.3` 当前 SQLite 文件 `/data/smartx-capacity-insight-data/app/smartx.db` 约 135M，其中估算实际使用约 90M、空闲页约 45M。主要空间来自 `latest_vm_volumes`：
+
+- `latest_vm_volumes` 约 94M，523 行。
+- `payload_json` 合计约 93M。
+- 最大单行 `payload_json` 约 268KB，顶层是虚拟卷列表，单台 VM 可包含 258 个卷对象。
+- 每个卷对象包含 Tower 返回的较完整原始字段，例如 `cluster`、`lun`、`vm_disks`、`path`、`labels`、storage policy、size、used_size 等。
+
+后续应优化 `latest_vm_volumes` 存储结构：只保存页面、报表、导出和分析真正需要的字段。旧版本迁移包导入时必须兼容旧 `payload_json`，从旧 JSON 抽取所需字段写入新结构，其他 Tower 原始字段直接丢弃。
+
 ## Git 规则
 
 - 默认开发分支：`dev`。
@@ -156,10 +181,10 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 
 ## 版本治理发现
 
-- DockerHub 已有平台镜像 tag `v0.4.1`，但仓库 dev 曾仍停留在 `v0.4.0` 元数据。
+- DockerHub 已有平台镜像 tag `v0.5.0`，但仓库 dev 曾仍停留在 `v0.4.0` 元数据。
 - `docker-compose.offline.yml` 和 `docker-compose.release.yml` 曾用同一个 `SMARTX_IMAGE_TAG` 控制平台服务和 `upgrade-runner`，会导致 runner 被平台版本牵引。
-- runner 应作为独立组件，当前目标版本为 `v0.2.2`。
+- runner 应作为独立组件，当前目标版本为 `v0.3.0`。
 - 平台升级包不应包含 `upgrade-runner.tar`。
 - `scripts/build_runner_component_package.py` 曾默认 `v0.2.0`，需要改为读取根目录 `RUNNER_VERSION`。
-- GitHub Actions 曾在平台镜像矩阵中构建 `upgrade-runner`，导致 runner 仓库出现 `v0.4.0`、`v0.4.1`、`main`、`latest` 等平台语义 tag。
+- GitHub Actions 曾在平台镜像矩阵中构建 `upgrade-runner`，导致 runner 仓库出现 `v0.4.0`、`v0.5.0`、`main`、`latest` 等平台语义 tag。
 - 后续 DockerHub 错误 tag 清理方法记录在 `docs/version-governance.md`。

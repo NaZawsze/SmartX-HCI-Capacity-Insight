@@ -20,6 +20,7 @@ class VmService:
 
     def list_vms(self, tower_id: int | None = None, cluster_id: str | None = None) -> list[dict[str, Any]]:
         latest_names = self._latest_vm_names()
+        enabled_scope = self._enabled_cluster_scope(tower_id=tower_id, cluster_id=cluster_id)
         rows = self.prometheus.instant(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id))
         vms: list[dict[str, Any]] = []
         for row in rows:
@@ -27,6 +28,8 @@ class VmService:
             if not labels_match(metric, tower_id=tower_id, cluster_id=cluster_id):
                 continue
             key = _vm_key(metric)
+            if not _in_enabled_scope((key[0], key[1]), enabled_scope):
+                continue
             name = latest_names.get(key) or str(metric.get("vm_name") or metric.get("vm_id") or "")
             vms.append(
                 {
@@ -38,7 +41,7 @@ class VmService:
                 }
             )
         if not vms:
-            vms = self._latest_vms_from_database(tower_id=tower_id, cluster_id=cluster_id)
+            vms = self._latest_vms_from_database(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         return sorted(vms, key=lambda item: (-float(item["used_bytes"]), item["vm_name"]))
 
     def trend(self, *, vm_id: str, tower_id: int, cluster_id: str, days: int) -> dict[str, Any]:
@@ -111,7 +114,7 @@ class VmService:
             rows = conn.execute("SELECT tower_id, cluster_id, vm_id, name FROM vm_latest").fetchall()
         return {(int(row["tower_id"]), str(row["cluster_id"]), str(row["vm_id"])): str(row["name"]) for row in rows}
 
-    def _latest_vms_from_database(self, *, tower_id: int | None, cluster_id: str | None) -> list[dict[str, Any]]:
+    def _latest_vms_from_database(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
         filters: list[str] = []
         params: list[object] = []
         if tower_id is not None:
@@ -135,11 +138,29 @@ class VmService:
                 "used_bytes": int(row["used_bytes"] or 0),
             }
             for row in rows
+            if _in_enabled_scope((int(row["tower_id"]), str(row["cluster_id"])), enabled_scope)
         ]
+
+    def _enabled_cluster_scope(self, *, tower_id: int | None, cluster_id: str | None) -> set[tuple[int, str]]:
+        filters = ["enabled = 1"]
+        params: list[object] = []
+        if tower_id is not None:
+            filters.append("tower_id = ?")
+            params.append(tower_id)
+        if cluster_id:
+            filters.append("cluster_id = ?")
+            params.append(cluster_id)
+        with self.database.connection() as conn:
+            rows = conn.execute(f"SELECT tower_id, cluster_id FROM clusters WHERE {' AND '.join(filters)}", params).fetchall()
+        return {(int(row["tower_id"]), str(row["cluster_id"])) for row in rows}
 
 
 def _vm_key(metric: dict[str, Any]) -> tuple[int, str, str]:
     return (int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""), str(metric.get("vm_id") or ""))
+
+
+def _in_enabled_scope(key: tuple[int, str], enabled_scope: set[tuple[int, str]]) -> bool:
+    return key in enabled_scope if enabled_scope else True
 
 
 def _step_for_days(days: int) -> str:

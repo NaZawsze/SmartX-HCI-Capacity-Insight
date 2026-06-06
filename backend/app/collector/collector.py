@@ -3,6 +3,7 @@ import json
 from typing import Any
 
 from app.db import get_conn, row_to_dict, rows_to_dicts
+from app.core.vm_volumes import compact_vm_volumes_json, normalize_vm_volumes
 from app.services.cloudtower import CloudTowerClient, normalize_tower
 from app.services.prometheus import set_latest_samples
 from app.services.towers import upsert_clusters
@@ -93,6 +94,8 @@ class Collector:
             conn.execute("UPDATE towers SET last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (message, tower_id))
 
     def _save_vm_volumes(self, tower_id: int, cluster_id: str, vm_id: str, volumes: list[dict[str, Any]]) -> None:
+        compact_json = compact_vm_volumes_json(volumes)
+        normalized = normalize_vm_volumes(volumes)
         with get_conn() as conn:
             conn.execute(
                 """
@@ -102,8 +105,9 @@ class Collector:
                     payload_json = excluded.payload_json,
                     collected_at = CURRENT_TIMESTAMP
                 """,
-                (tower_id, cluster_id, vm_id, json.dumps(volumes, ensure_ascii=False)),
+                (tower_id, cluster_id, vm_id, compact_json),
             )
+            _replace_vm_volume_items(conn, tower_id, cluster_id, vm_id, normalized)
 
 
 def latest_run() -> dict[str, Any] | None:
@@ -193,6 +197,44 @@ def latest_all_vm_volumes(tower_id: int | None = None, cluster_id: str | None = 
             }
         )
     return volumes
+
+
+def _replace_vm_volume_items(conn, tower_id: int, cluster_id: str, vm_id: str, volumes: list[dict[str, Any]]) -> None:
+    conn.execute("DELETE FROM latest_vm_volume_items WHERE tower_id = ? AND cluster_id = ? AND vm_id = ?", (tower_id, cluster_id, vm_id))
+    for index, volume in enumerate(volumes):
+        volume_id = str(volume.get("id") or f"volume-{index}")
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO latest_vm_volume_items (
+                tower_id, cluster_id, vm_id, volume_id, name, path, type, size, used_size,
+                unique_size, unique_logical_size, guest_used_size, used_size_usage,
+                guest_size_usage, storage_policy, replica_num, thin_provision, ec_k, ec_m,
+                collected_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            (
+                tower_id,
+                cluster_id,
+                vm_id,
+                volume_id,
+                volume.get("name"),
+                volume.get("path"),
+                volume.get("type"),
+                volume.get("size"),
+                volume.get("used_size"),
+                volume.get("unique_size"),
+                volume.get("unique_logical_size"),
+                volume.get("guest_used_size"),
+                volume.get("used_size_usage"),
+                volume.get("guest_size_usage"),
+                volume.get("elf_storage_policy"),
+                volume.get("elf_storage_policy_replica_num"),
+                int(volume["elf_storage_policy_thin_provision"]) if "elf_storage_policy_thin_provision" in volume else None,
+                volume.get("elf_storage_policy_ec_k"),
+                volume.get("elf_storage_policy_ec_m"),
+            ),
+        )
 
 
 def _number(*values: Any) -> float | None:
