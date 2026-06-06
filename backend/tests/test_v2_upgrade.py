@@ -333,6 +333,7 @@ class V2UpgradeApiTest(unittest.TestCase):
         }
         package = build_package(manifest, {"images/web-api.tar": image})
         with tempfile.TemporaryDirectory() as tmpdir:
+            previous_dry_run = os.environ.get("SMARTX_UPGRADE_DRY_RUN")
             os.environ["SMARTX_DATA_ROOT"] = tmpdir
             os.environ["SMARTX_SECRET_KEY"] = "upgrade-api-secret"
             os.environ["SMARTX_ADMIN_PASSWORD"] = "password"
@@ -391,7 +392,10 @@ class V2UpgradeApiTest(unittest.TestCase):
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)
                 os.environ.pop("SMARTX_ADMIN_PASSWORD", None)
-                os.environ.pop("SMARTX_UPGRADE_DRY_RUN", None)
+                if previous_dry_run is None:
+                    os.environ.pop("SMARTX_UPGRADE_DRY_RUN", None)
+                else:
+                    os.environ["SMARTX_UPGRADE_DRY_RUN"] = previous_dry_run
 
 
 if __name__ == "__main__":
