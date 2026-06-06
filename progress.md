@@ -1033,3 +1033,45 @@ TDD 记录：
 限制：
 
 - 本切片尚未实现 v2 Word/Excel 导出、报表文件留存和任务中心下载链接。
+
+### 2026-06-06 Phase V2-5 报表导出与留存第一版
+
+状态：完成本地和远端验证，待提交
+
+实施内容：
+
+- 新增 `backend/app/v2/reports/export.py`。
+- v2 API 新增：
+  - `GET /api/reports/export/word`
+  - `GET /api/reports/export/excel`
+  - `GET /api/admin/exports/reports/{filename}`
+- Word/Excel 导出复用 `ReportService.latest_report()` 输出，确保与页面口径一致。
+- 导出文件保存到 `settings.reports_dir`，即 `/data/exports/reports`。
+- 下载响应头提供：
+  - `Content-Disposition`
+  - `X-SmartX-Export-Path`
+  - `X-SmartX-Export-Url`
+- 文件名格式使用 `storage-forecast-<scope>-YYYYMMDD-HHmmss-<days>d.docx/xlsx`。
+- Word 首页包含导出范围、生成时间、统计窗口、预测窗口、集群数量、当前软件版本。
+- Excel `汇总` sheet 包含同样基础信息，`VM_TOP100_汇总` sheet 标注统计窗口。
+- 高风险 VM 底纹逻辑第一版已接入：增长率超过 20% 且增长量大于 100G 时标红。
+- `docs/v2-rebuild-task-plan.md` 将 Word/Excel 导出和留存第一版标记完成。
+
+TDD 记录：
+
+- RED：新增 `backend/tests/test_v2_report_exports.py` 后，未登录访问 `/api/reports/export/word` 返回 404，证明 v2 导出路由缺失。
+- GREEN：新增导出模块和 API 路由后，导出鉴权、文件保存、响应头、下载链接测试通过。
+
+验证：
+
+- 本地：
+  - `PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_report_exports -v` 通过。
+  - v2 后端完整测试集 35 个测试通过。
+  - `python3 -m py_compile backend/app/v2/api.py backend/app/v2/reports/service.py backend/app/v2/reports/export.py backend/tests/test_v2_report_exports.py` 通过。
+- 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
+  - 使用 `smartx-storage-forecast-web-api:local` 容器执行 `backend.tests.test_v2_reports backend.tests.test_v2_reports_api backend.tests.test_v2_report_exports` 通过。
+
+限制：
+
+- 当前是导出第一版，文档视觉仍是轻量客户报表，不是 v1 已打磨的完整美化版。
+- 报表导出任务中心目前使用前端现有同步下载任务入口，尚未接入 v2 统一后台任务状态持久化。

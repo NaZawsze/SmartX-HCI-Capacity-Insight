@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated, Optional
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -14,6 +17,7 @@ from app.v2.dashboard.service import DashboardService
 from app.v2.database import V2Database
 from app.v2.inventory.models import ClusterInput, TowerInput
 from app.v2.inventory.service import InventoryService
+from app.v2.reports.export import DOCX_MEDIA_TYPE, XLSX_MEDIA_TYPE, build_report_docx, build_report_xlsx
 from app.v2.reports.service import ReportService
 from app.v2.system.health import check_health
 from app.v2.vms.service import VmService
@@ -424,6 +428,53 @@ def latest_report(
     return reports.latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days, chart_days=chart_days)
 
 
+@router.get("/api/reports/export/word")
+def export_report_word(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    reports: Annotated[ReportService, Depends(get_report_service)],
+    settings: Annotated[V2Settings, Depends(get_v2_settings)],
+    tower_id: Optional[int] = None,
+    cluster_id: Optional[str] = None,
+    period_days: int = 30,
+) -> Response:
+    if cluster_id and tower_id is None:
+        raise HTTPException(status_code=400, detail="cluster_id requires tower_id.")
+    report = reports.latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days)
+    content, filename, path, download_url = build_report_docx(report, settings, period_days=period_days)
+    return download_response(content, filename, DOCX_MEDIA_TYPE, path=path, download_url=download_url)
+
+
+@router.get("/api/reports/export/excel")
+def export_report_excel(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    reports: Annotated[ReportService, Depends(get_report_service)],
+    settings: Annotated[V2Settings, Depends(get_v2_settings)],
+    tower_id: Optional[int] = None,
+    cluster_id: Optional[str] = None,
+    period_days: int = 30,
+) -> Response:
+    if cluster_id and tower_id is None:
+        raise HTTPException(status_code=400, detail="cluster_id requires tower_id.")
+    report = reports.latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days)
+    content, filename, path, download_url = build_report_xlsx(report, settings, period_days=period_days)
+    return download_response(content, filename, XLSX_MEDIA_TYPE, path=path, download_url=download_url)
+
+
+@router.get("/api/admin/exports/{category}/{filename}")
+def download_saved_export(
+    category: str,
+    filename: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    settings: Annotated[V2Settings, Depends(get_v2_settings)],
+) -> FileResponse:
+    if category != "reports":
+        raise HTTPException(status_code=404, detail="导出文件不存在。")
+    path = settings.reports_dir / Path(filename).name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="导出文件不存在。")
+    return FileResponse(path, filename=Path(filename).name)
+
+
 @router.get("/api/system/health")
 def health(
     settings: Annotated[V2Settings, Depends(get_v2_settings)],
@@ -436,3 +487,16 @@ def health(
         "runner_version": result.runner_version,
         "checks": result.checks,
     }
+
+
+def download_response(content: bytes, filename: str, media_type: str, *, path: Path, download_url: str) -> Response:
+    quoted = quote(filename)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f"attachment; filename={quoted}; filename*=UTF-8''{quoted}",
+            "X-SmartX-Export-Path": str(path),
+            "X-SmartX-Export-Url": download_url,
+        },
+    )
