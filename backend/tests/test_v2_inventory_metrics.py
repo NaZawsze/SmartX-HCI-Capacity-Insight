@@ -1,6 +1,10 @@
 import tempfile
 import unittest
+import base64
+import hashlib
 from pathlib import Path
+
+from cryptography.fernet import Fernet
 
 
 class V2InventoryMetricsTest(unittest.TestCase):
@@ -61,6 +65,30 @@ class V2InventoryMetricsTest(unittest.TestCase):
 
             self.assertTrue(inventory.delete_tower(tower.id))
             self.assertEqual(inventory.list_towers(), [])
+
+    def test_tower_secret_material_can_read_v1_fernet_credentials(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.service import InventoryService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="v1-secret")
+            db = V2Database(settings)
+            db.initialize()
+            key = base64.urlsafe_b64encode(hashlib.sha256(settings.secret_key.encode("utf-8")).digest())
+            encrypted_password = Fernet(key).encrypt(b"legacy-password").decode("ascii")
+            with db.connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO towers (name, base_url, username, password_encrypted, verify_tls, enabled)
+                    VALUES ('Legacy Tower', 'https://tower.example.com', 'admin', ?, 0, 1)
+                    """,
+                    (encrypted_password,),
+                )
+
+            secrets = InventoryService(db, settings).get_tower_secret_material(1)
+
+            self.assertEqual(secrets["password"], "legacy-password")
 
     def test_scope_requires_cluster_identity_when_cluster_is_selected(self) -> None:
         from app.v2.inventory.scope import DashboardScope, ScopeType

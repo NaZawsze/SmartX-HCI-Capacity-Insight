@@ -2091,3 +2091,40 @@ TDD 记录：
 仍未完成：
 
 - 新部署后添加 Tower 并真实采集的现场验证未执行，避免擅自修改现有 Tower 配置和凭据。
+
+### 2026-06-06 Phase V2 真实 Tower 采集闭环与凭据兼容
+
+状态：完成真实采集验证，修复 v1 Tower 凭据兼容和报表重复集群问题
+
+发现：
+
+- `10.20.11.3` 的 v2 环境已有启用 Tower `CHINATOWER` 和启用集群 `SMARTX-TT-WW`，但首次手动采集失败，提示 `Tower requires either an API token or username/password.`。
+- 只读检查确认 Tower 用户名存在，但旧密码/API Token 无法被 v2 当前凭据格式解密。
+- 根因是 v1/v0.4.x Tower 凭据使用 Fernet 加密，密钥种子来自 `SMARTX_CREDENTIAL_KEY` 或 `SMARTX_SECRET_KEY`；v2 第一版只支持新凭据格式。
+- 用户重新录入 Tower 密码后，远端布尔检查显示 `password_decrypts=true`。
+- 真实采集后发现报表里同一集群被拆成两条 series：历史指标带 `cluster/tower` label，新指标不带，Prometheus 按完整 label set 生成多条 series。
+
+修复：
+
+- `V2Settings` 增加 `credential_key`。
+- `InventoryService.get_tower_secret_material()` 优先按 v2 格式解密；失败后按 v1 Fernet 格式兼容解密，密钥种子优先 `SMARTX_CREDENTIAL_KEY`，其次 `SMARTX_SECRET_KEY`。
+- 新增 `backend/tests/test_v2_inventory_metrics.py` 覆盖 v1 Fernet 凭据可由 v2 读取。
+- `ReportService.latest_report()` 按 `(tower_id, cluster_id)` 合并集群 series，避免旧 label 和新 label 导致同一集群重复显示。
+- 新增 `backend/tests/test_v2_reports.py` 覆盖同集群多 label series 合并。
+
+现场验证：
+
+- 手动采集成功：`采集完成：1 个集群，172 台虚拟机。`
+- collector-worker `/metrics` 有约 `27608` bytes，VM 指标行 `174`，集群 used 指标行 `3`。
+- Prometheus target `smartx-collector` 状态 `up`，当前 VM instant 样本 `172` 条，最近 2 小时 series `172` 条。
+- Dashboard：`towers=1`、`clusters=1`、`vms=177`、`day_growth=69`、采集状态 success。
+- VM：列表 `172` 台，首个 VM 7 天趋势点 `146`。
+- Report：`clusters=1`、`cluster_points=14`、`forecast_days=90`。
+
+验证命令：
+
+- 本地 `python3 -m py_compile backend/app/v2/config.py backend/app/v2/security.py backend/app/v2/inventory/service.py backend/app/v2/reports/service.py backend/tests/test_v2_inventory_metrics.py backend/tests/test_v2_reports.py` 通过。
+- 本地 `git diff --check` 通过。
+- 远端容器内后端组合测试 `backend.tests.test_v2_reports backend.tests.test_v2_inventory_metrics backend.tests.test_v2_collection backend.tests.test_v2_dashboard_vm backend.tests.test_v2_migration backend.tests.test_v2_upgrade backend.tests.test_v2_package_builders` 共 28 个测试通过。
+- 远端前端关键测试 `AppLayout.test.tsx DashboardPage.test.tsx global.test.ts ServicePage.test.tsx` 共 20 个测试通过。
+- 远端健康检查：`/api/system/health` 返回 ok，前端 8080 返回 200，Prometheus healthy。

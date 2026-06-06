@@ -3,7 +3,7 @@ from __future__ import annotations
 from app.v2.config import V2Settings
 from app.v2.database import V2Database
 from app.v2.inventory.models import ClusterInput, ClusterRecord, TowerInput, TowerRecord
-from app.v2.security import decrypt_secret, encrypt_secret
+from app.v2.security import decrypt_fernet_secret, decrypt_secret, encrypt_secret
 
 
 class InventoryService:
@@ -144,8 +144,8 @@ class InventoryService:
         if row is None:
             raise KeyError(f"tower {tower_id} not found")
         return {
-            "password": decrypt_secret(row["password_encrypted"], self.settings.secret_key),
-            "api_token": decrypt_secret(row["api_token_encrypted"], self.settings.secret_key),
+            "password": self._decrypt_tower_secret(row["password_encrypted"]),
+            "api_token": self._decrypt_tower_secret(row["api_token_encrypted"]),
         }
 
     def mask_secret_material(self, tower_id: int, message: str) -> str:
@@ -169,3 +169,9 @@ class InventoryService:
             enabled=bool(row["enabled"]),
             clusters=clusters,
         )
+
+    def _decrypt_tower_secret(self, value: str | None) -> str | None:
+        current = decrypt_secret(value, self.settings.secret_key)
+        if current:
+            return current
+        return decrypt_fernet_secret(value, self.settings.credential_key) or decrypt_fernet_secret(value, self.settings.secret_key)

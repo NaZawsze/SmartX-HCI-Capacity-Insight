@@ -25,6 +25,7 @@ class V2Settings:
     db_path_override: Path | None = None
     prometheus_data_path_override: Path | None = None
     secret_key: str = field(default_factory=lambda: os.environ.get("SMARTX_SECRET_KEY", "change-me-in-production"))
+    credential_key: str | None = field(default_factory=lambda: os.environ.get("SMARTX_CREDENTIAL_KEY"))
     admin_user: str = field(default_factory=lambda: os.environ.get("SMARTX_ADMIN_USER", "admin"))
     admin_password: str = field(default_factory=lambda: os.environ.get("SMARTX_ADMIN_PASSWORD", "password"))
     timezone: str = field(default_factory=lambda: os.environ.get("SMARTX_COLLECTION_TIMEZONE", "Asia/Shanghai"))

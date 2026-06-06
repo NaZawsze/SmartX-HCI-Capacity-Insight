@@ -46,14 +46,15 @@ class ReportService:
         chart_series = self._cluster_series(days=chart_window_days, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         growth_series = self._cluster_series(days=7, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         capacity_by_cluster = self._cluster_totals(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
-        chart_points_by_cluster = {_cluster_key(series.get("metric", {})): range_values(series) for series in chart_series}
+        chart_points_by_cluster = _points_by_cluster(chart_series)
         clusters = []
         cluster_names = self._cluster_names()
-        for series in cluster_series:
-            labels = dict(series.get("metric", {}))
-            key = _cluster_key(labels)
-            labels["cluster"] = cluster_names.get(key, labels.get("cluster") or key[1])
-            points = range_values(series)
+        for key, points in _points_by_cluster(cluster_series).items():
+            labels = {
+                "tower_id": str(key[0]),
+                "cluster_id": key[1],
+                "cluster": cluster_names.get(key, key[1]),
+            }
             capacity = capacity_by_cluster.get(key)
             forecast = forecast_series(points, capacity)
             clusters.append(
@@ -65,18 +66,17 @@ class ReportService:
                     "warning": capacity * 0.9 if capacity else None,
                 }
             )
+        clusters.sort(key=lambda item: (item["labels"].get("cluster", ""), item["labels"].get("cluster_id", "")))
+        latest_vms = self._latest_vm_items(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         vm_series = self._vm_series(days=max(window_days, 30), tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         day_vm_series = self._vm_series(days=2, tower_id=tower_id, cluster_id=cluster_id, step="1h", enabled_scope=enabled_scope)
-        latest_vms = _merge_latest_items(
-            self._latest_vm_items(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope),
-            _latest_items_from_series_tail(vm_series),
-        )
+        latest_vms = _merge_latest_items(latest_vms, _latest_items_from_series_tail(vm_series))
         latest_label_by_vm = self._latest_vm_labels()
         day_vms = _growth_reports_from_series(latest_vms, day_vm_series, period_days=1, limit=100, latest_label_by_vm=latest_label_by_vm)
         month_vms = _growth_reports_from_series(latest_vms, vm_series, period_days=window_days, limit=100, latest_label_by_vm=latest_label_by_vm, min_sample_days=30)
         day_new_vms = _new_vm_reports_from_series(vm_series, *_period_bounds(self.now_ts, "day"), 100, latest_label_by_vm, _latest_vm_value_map(latest_vms))
         month_new_vms = _new_vm_reports_from_series(vm_series, *_period_bounds(self.now_ts, "month"), 100, latest_label_by_vm, _latest_vm_value_map(latest_vms))
-        cluster_growth_rate = _cluster_growth_rate_from_series(growth_series)
+        cluster_growth_rate = _cluster_growth_rate_from_points(_points_by_cluster(growth_series))
         return {
             "scope": {"tower_id": tower_id, "cluster_id": cluster_id},
             "clusters": clusters,
@@ -281,6 +281,28 @@ def _cluster_growth_rate_from_series(series_list: list[dict[str, Any]]) -> float
     total = 0.0
     for series in series_list:
         points = range_values(series)
+        if len(points) < 2:
+            continue
+        elapsed_days = max((points[-1][0] - points[0][0]) / SECONDS_PER_DAY, 1)
+        total += max(0.0, (points[-1][1] - points[0][1]) / elapsed_days)
+    return total
+
+
+def _points_by_cluster(series_list: list[dict[str, Any]]) -> dict[tuple[int, str], list[tuple[int, float]]]:
+    grouped: dict[tuple[int, str], dict[int, float]] = {}
+    for series in series_list:
+        key = _cluster_key(series.get("metric", {}))
+        if not key[1]:
+            continue
+        points = grouped.setdefault(key, {})
+        for timestamp, value in range_values(series):
+            points[int(timestamp)] = float(value)
+    return {key: sorted(points.items()) for key, points in grouped.items()}
+
+
+def _cluster_growth_rate_from_points(points_by_cluster: dict[tuple[int, str], list[tuple[int, float]]]) -> float:
+    total = 0.0
+    for points in points_by_cluster.values():
         if len(points) < 2:
             continue
         elapsed_days = max((points[-1][0] - points[0][0]) / SECONDS_PER_DAY, 1)

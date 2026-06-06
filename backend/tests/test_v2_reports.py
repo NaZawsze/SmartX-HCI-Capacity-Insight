@@ -74,6 +74,22 @@ class RangeOnlyPrometheus(FakePrometheus):
         return super().range(query, start=start, end=end, step=step)
 
 
+class DuplicateClusterLabelPrometheus(FakePrometheus):
+    def range(self, query: str, *, start: int, end: int, step: str):
+        if query.startswith("smartx_cluster_storage_used_bytes"):
+            return [
+                {
+                    "metric": {"tower_id": "1", "cluster_id": "cluster-a", "cluster": "Cluster A", "tower": "Tower A"},
+                    "values": [[self.now_ts - 2 * SECONDS_PER_DAY, "100"], [self.now_ts - SECONDS_PER_DAY, "120"]],
+                },
+                {
+                    "metric": {"tower_id": "1", "cluster_id": "cluster-a"},
+                    "values": [[self.now_ts, "150"]],
+                },
+            ]
+        return super().range(query, start=start, end=end, step=step)
+
+
 class V2ReportsTest(unittest.TestCase):
     def _seed_inventory(self, tmpdir: str):
         from app.v2.config import V2Settings
@@ -125,6 +141,19 @@ class V2ReportsTest(unittest.TestCase):
             self.assertEqual([item["labels"]["vm_id"] for item in report["month_fastest_growing_vms"]], ["vm-old"])
             self.assertEqual(report["month_fastest_growing_vms"][0]["labels"]["vm"], "Old Latest")
             self.assertEqual(report["clusters"][0]["total"], 1000.0)
+
+    def test_latest_report_merges_duplicate_cluster_series_by_identity(self) -> None:
+        from app.v2.reports.service import ReportService
+
+        now_ts = 1_700_000_000
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            report = ReportService(db, settings, prometheus=DuplicateClusterLabelPrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
+
+            self.assertEqual(len(report["clusters"]), 1)
+            self.assertEqual(report["clusters"][0]["labels"]["cluster"], "Cluster A")
+            self.assertEqual(len(report["clusters"][0]["points"]), 3)
+            self.assertEqual(report["clusters"][0]["forecast"]["current"], 150.0)
 
 
 if __name__ == "__main__":

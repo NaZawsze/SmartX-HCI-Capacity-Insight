@@ -395,6 +395,30 @@ compose_command docker compose -p smartx-capacity-insight -f /data/compose-runti
 
 取舍：已取消“数据迁移导出跳过 Prometheus 历史指标”的优化方向。历史指标是日增长、月增长和趋势图的数据来源，不能为了导出速度跳过；真正优化方向是目录职责拆开，并给导出/导入/备份增加精确进度和可清理留档。
 
+## UPG-020 v1 Tower 凭据迁入后无法采集
+
+状态：[已解决] v2 已兼容 v1 Fernet 凭据解密，并在 `10.20.11.3` 完成真实采集验证
+
+现象：v1/v0.4.x 数据迁入 v2 后，Tower 用户名存在，但手动采集失败，提示 `Tower requires either an API token or username/password.`。
+
+原因：v1 Tower 密码/API Token 使用 Fernet 加密，密钥种子来自 `SMARTX_CREDENTIAL_KEY` 或 `SMARTX_SECRET_KEY`；v2 第一版只支持新的轻量凭据格式，导致旧 `password_encrypted` 无法被解出。
+
+修复：
+
+- `V2Settings` 增加 `credential_key`。
+- `InventoryService.get_tower_secret_material()` 优先按 v2 格式解密；失败后按 v1 Fernet 格式兼容解密。
+- 新增测试覆盖 v1 Fernet 密文可被 v2 读取。
+- 凭据只用于连接，不在 API、日志或测试输出中打印明文。
+
+验证：
+
+- 用户在 `10.20.11.3` 重新录入 Tower 密码后，v2 解密状态为 `password_decrypts=true`。
+- 手动采集成功：`采集完成：1 个集群，172 台虚拟机。`
+- Prometheus 当前 VM 样本 `172` 条，最近 2 小时 series `172` 条。
+- Dashboard 返回 `towers=1`、`clusters=1`、`vms=177`，采集状态为 success。
+- VM 列表返回 `172` 台，首个 VM 7 天趋势点 `146`。
+- 报表返回 `clusters=1`、趋势点 `14`、预测窗口 `90` 天。
+
 ## v2 升级中心规避策略
 
 v2 不继续兼容旧升级路径，而是在 `feature/upgrade-v2` 上重新设计升级中心。历史问题在 v2 中按下面方式规避。

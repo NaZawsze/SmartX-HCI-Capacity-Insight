@@ -76,3 +76,15 @@ def decrypt_secret(value: str | None, secret_key: str) -> str | None:
         return bytes(byte ^ key_byte for byte, key_byte in zip(encrypted, cycle(key))).decode("utf-8")
     except (ValueError, UnicodeDecodeError):
         return None
+
+
+def decrypt_fernet_secret(value: str | None, key_seed: str | None) -> str | None:
+    if not value or not key_seed:
+        return None
+    try:
+        from cryptography.fernet import Fernet, InvalidToken
+
+        key = base64.urlsafe_b64encode(hashlib.sha256(key_seed.encode("utf-8")).digest())
+        return Fernet(key).decrypt(value.encode("ascii")).decode("utf-8")
+    except (ImportError, InvalidToken, ValueError, UnicodeDecodeError):
+        return None
