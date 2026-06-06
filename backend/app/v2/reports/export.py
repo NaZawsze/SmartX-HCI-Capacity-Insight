@@ -40,6 +40,7 @@ def build_report_docx(report: dict[str, Any], settings: V2Settings, *, period_da
             ("统计窗口", _period_window_label(report)),
             ("预测窗口", f"{report.get('forecast_days', 90)} 天"),
             ("集群数量", str(len(report.get("clusters") or []))),
+            ("容量风险摘要", _capacity_risk_summary(report)),
             ("当前软件版本", settings.app_version),
         ],
     )
@@ -63,6 +64,7 @@ def build_report_xlsx(report: dict[str, Any], settings: V2Settings, *, period_da
     summary.append(["统计窗口", _period_window_label(report)])
     summary.append(["预测窗口", f"{report.get('forecast_days', 90)} 天"])
     summary.append(["集群数量", len(report.get("clusters") or [])])
+    summary.append(["容量风险摘要", _capacity_risk_summary(report)])
     summary.append(["当前软件版本", settings.app_version])
     summary.append([])
     summary.append(["集群", "当前容量", "90 天预测", "容量阈值", "预计耗尽天数"])
@@ -239,6 +241,47 @@ def _period_window_label(report: dict[str, Any]) -> str:
     if start and end:
         return f"{start[:10]} - {end[:10]}"
     return f"近 {report.get('window_days', 30)} 天"
+
+
+def _capacity_risk_summary(report: dict[str, Any]) -> str:
+    clusters = report.get("clusters") or []
+    if not clusters:
+        return "暂无集群容量数据，无法判断容量风险。"
+    ranked = sorted(clusters, key=_cluster_used_ratio, reverse=True)
+    high = [cluster for cluster in ranked if _cluster_used_ratio(cluster) >= 0.8]
+    warning = [cluster for cluster in ranked if _cluster_used_ratio(cluster) >= 0.75]
+    if high:
+        return _risk_summary_sentence(high, "使用率超过 80%，容量风险较高")
+    if warning:
+        return _risk_summary_sentence(warning, "使用率超过 75%，需要关注容量增长")
+    return "当前所有集群暂无明显容量风险。"
+
+
+def _risk_summary_sentence(clusters: list[dict[str, Any]], suffix: str) -> str:
+    names = "、".join(_cluster_name(cluster) for cluster in clusters[:3])
+    if len(clusters) > 3:
+        names += f" 等 {len(clusters)} 个集群"
+    return f"{names} {suffix}。"
+
+
+def _cluster_name(cluster: dict[str, Any]) -> str:
+    labels = cluster.get("labels") or {}
+    return str(labels.get("cluster") or labels.get("cluster_id") or "未知集群")
+
+
+def _cluster_used_ratio(cluster: dict[str, Any]) -> float:
+    total = _float_or_none(cluster.get("total"))
+    current = _float_or_none((cluster.get("forecast") or {}).get("current"))
+    if total and total > 0 and current is not None:
+        return current / total
+    return 0.0
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _first_cluster_name(clusters: list[dict[str, Any]]) -> str | None:

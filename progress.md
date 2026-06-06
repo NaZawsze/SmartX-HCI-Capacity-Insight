@@ -2176,3 +2176,23 @@ TDD 记录：
 - 本地 `python3 -m py_compile backend/app/v2/dashboard/service.py backend/tests/test_v2_dashboard_vm.py` 通过。
 - 本地 `git diff --check` 通过。
 - 在 `10.20.11.3` 重建并重启 `web-api` 后，真实 `/api/dashboard/summary` 返回完整容量风险字段：`level/title/description/cluster_count/warning_count/danger_count`，且 `top_clusters=1`。
+
+### 2026-06-06 Phase V2-14 报表容量风险摘要
+
+状态：完成 Word/Excel 首页容量风险摘要第一版
+
+目标：
+
+- 报表不只导出数据表，还要在首页把客户最关心的容量风险前置展示。
+- 风险摘要复用集群当前容量/总容量口径，任一集群达到阈值即可提示。
+
+TDD 记录：
+
+- RED：扩展 `backend/tests/test_v2_report_exports.py`，要求 Word XML 和 Excel 汇总页包含“容量风险摘要”以及 `Cluster A 使用率超过 80%`。
+- GREEN：`backend/app/v2/reports/export.py` 在 Word 首页基础信息表和 Excel `汇总` sheet 增加“容量风险摘要”。
+- 测试样例调整为 Cluster A 当前容量 `810/1000`，确保测试真实覆盖高风险路径。
+
+验证：
+
+- 远端容器内 `backend.tests.test_v2_report_exports.V2ReportExportApiTest.test_report_exports_require_auth_save_files_and_expose_download_link` 通过。
+- Excel 断言改为 `openpyxl.load_workbook` 读取汇总页单元格，避免依赖 `sharedStrings.xml` 是否存在。

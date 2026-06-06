@@ -28,7 +28,7 @@ class V2ReportExportApiTest(unittest.TestCase):
                             "forecast": {
                                 "status": "ok",
                                 "slope_per_day": 10,
-                                "current": 190,
+                                "current": 810,
                                 "forecast_90d": 1090,
                                 "exhaustion_days": None,
                             },
@@ -93,6 +93,8 @@ class V2ReportExportApiTest(unittest.TestCase):
                     self.assertGreater(len(word.content), 1000)
                     word_xml, footer_xml = _docx_xml(word.content)
                     self.assertIn("目录", word_xml)
+                    self.assertIn("容量风险摘要", word_xml)
+                    self.assertIn("Cluster A 使用率超过 80%", word_xml)
                     self.assertIn("Cluster A", word_xml)
                     self.assertIn("Cluster B", word_xml)
                     self.assertIn('w:fill="F4CCCC"', word_xml)
@@ -109,6 +111,12 @@ class V2ReportExportApiTest(unittest.TestCase):
                     self.assertGreater(len(excel.content), 1000)
                     with zipfile.ZipFile(excel_path) as workbook:
                         styles_xml = workbook.read("xl/styles.xml").decode("utf-8")
+                    from openpyxl import load_workbook
+
+                    workbook = load_workbook(excel_path, read_only=True)
+                    summary_values = [cell for row in workbook["汇总"].iter_rows(values_only=True) for cell in row if cell]
+                    self.assertIn("容量风险摘要", summary_values)
+                    self.assertTrue(any("Cluster A 使用率超过 80%" in str(value) for value in summary_values))
                     self.assertIn("F4CCCC", styles_xml)
 
                     download = client.get(word.headers["x-smartx-export-url"], headers=headers)
