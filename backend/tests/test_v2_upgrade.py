@@ -75,6 +75,15 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertEqual([check["name"] for check in precheck["checks"]], ["manifest", "paths", "images", "project_files"])
             self.assertTrue(all(check["ok"] for check in precheck["checks"]))
 
+            started = service.start(task["task_id"])
+            self.assertEqual(started["status"], "backup_completed")
+            self.assertTrue(Path(started["backup_path"]).is_file())
+            self.assertIn("upgrade-v2.0.0-before", Path(started["backup_path"]).name)
+            with tarfile.open(started["backup_path"], mode="r:gz") as backup:
+                backup_names = set(backup.getnames())
+            self.assertIn("manifest.json", backup_names)
+            self.assertIn("app/smartx.db", backup_names)
+
     def test_upload_rejects_sensitive_paths(self) -> None:
         from fastapi import HTTPException
 
@@ -128,6 +137,10 @@ class V2UpgradeApiTest(unittest.TestCase):
                     precheck = client.post(f"/api/admin/upgrade/precheck/{payload['task_id']}", headers=headers)
                     self.assertEqual(precheck.status_code, 200)
                     self.assertTrue(precheck.json()["ok"])
+
+                    started = client.post(f"/api/admin/upgrade/start/{payload['task_id']}", headers=headers)
+                    self.assertEqual(started.status_code, 200)
+                    self.assertTrue(Path(started.json()["backup_path"]).is_file())
             finally:
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)

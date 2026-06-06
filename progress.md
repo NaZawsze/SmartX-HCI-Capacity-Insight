@@ -1163,6 +1163,40 @@ TDD 记录：
 - 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
   - 使用 `smartx-storage-forecast-web-api:local` 容器执行 `backend.tests.test_v2_migration` 通过。
 
+### 2026-06-06 Phase V2-7 升级开始前数据备份第一版
+
+状态：完成本地和远端验证，待提交
+
+实施内容：
+
+- `UpgradeService` 增加 `start(task_id)`。
+- `POST /api/admin/upgrade/start/{task_id}` 接入。
+- start 前要求任务状态为 `precheck_passed`。
+- start 阶段生成升级前数据备份：
+  - 路径：`/data/backups/upgrade-<version>-before-<YYYYMMDDHHMMSS>.tar.gz`
+  - 内容：`manifest.json`、`app/smartx.db`、Prometheus 历史目录。
+  - 跳过 Prometheus 运行时目录：`chunks_head`、`lock`、`queries.active`、`wal`。
+- 任务状态更新为 `backup_completed`，统一任务中心记录“升级前备份已完成，等待 runner 执行后续步骤”。
+- `docs/v2-rebuild-task-plan.md` 将“升级前强制备份数据第一版”标记完成。
+
+TDD 记录：
+
+- RED：扩展 `backend/tests/test_v2_upgrade.py` 后，`UpgradeService.start()` 缺失，`/api/admin/upgrade/start/{task_id}` 返回 404。
+- GREEN：新增 start 备份阶段和 API 路由后，服务和 API 测试通过。
+
+验证：
+
+- 本地：
+  - `PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade -v` 通过。
+  - v2 后端完整测试集 46 个测试通过。
+  - `python3 -m py_compile backend/app/v2/api.py backend/app/v2/upgrade/service.py backend/tests/test_v2_upgrade.py` 通过。
+- 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
+  - 使用 `smartx-storage-forecast-web-api:local` 容器执行 `backend.tests.test_v2_upgrade` 通过。
+
+限制：
+
+- start 当前只完成强制备份，不执行 Docker load、项目文件同步、服务重启和健康检查；这些仍需由 runner 执行链路继续实现。
+
 限制：
 
 - 当前是 v2 迁移第一版，v1 旧迁移包和旧 `latest_vm_volumes.payload_json` 到 v2 结构化卷表的深度兼容仍待实现。

@@ -612,6 +612,15 @@ def precheck_upgrade_package(
     return upgrade.precheck(task_id)
 
 
+@router.post("/api/admin/upgrade/start/{task_id}")
+def start_upgrade_package(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.start(task_id)
+
+
 @router.get("/api/system/health")
 def health(
     settings: Annotated[V2Settings, Depends(get_v2_settings)],

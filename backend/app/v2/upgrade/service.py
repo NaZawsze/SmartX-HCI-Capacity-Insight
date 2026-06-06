@@ -90,6 +90,47 @@ class UpgradeService:
         )
         return {"ok": task["status"] == "precheck_passed", "task_id": task_id, "checks": checks, "components": task.get("components", [])}
 
+    def start(self, task_id: str) -> dict[str, Any]:
+        task_dir = self.settings.upgrades_dir / task_id
+        task = _read_task_file(task_dir)
+        if task.get("status") != "precheck_passed":
+            raise HTTPException(status_code=400, detail="预检查通过后才能开始升级。")
+        backup_path = self._create_upgrade_backup(task)
+        task["status"] = "backup_completed"
+        task["backup_path"] = str(backup_path)
+        task["updated_at"] = _now().isoformat()
+        _save_task_file(task_dir, task)
+        self.tasks.create_task(
+            task_id,
+            TaskType.UPGRADE,
+            "执行系统升级",
+            status=TaskStatus.SUCCESS,
+            progress=35,
+            message="升级前备份已完成，等待 runner 执行后续步骤",
+            logs=[f"升级前备份：{backup_path}"],
+        )
+        return task
+
+    def _create_upgrade_backup(self, task: dict[str, Any]) -> Path:
+        generated_at = _now()
+        version = str(task.get("target_version") or "unknown").replace("/", "-")
+        self.settings.backups_dir.mkdir(parents=True, exist_ok=True)
+        path = self.settings.backups_dir / f"upgrade-{version}-before-{generated_at.strftime('%Y%m%d%H%M%S')}.tar.gz"
+        manifest = {
+            "format": "smartx-capacity-insight-v2-upgrade-backup",
+            "version": 1,
+            "generated_at": generated_at.isoformat(),
+            "source_task_id": task.get("task_id"),
+            "target_version": task.get("target_version"),
+            "components": task.get("components", []),
+        }
+        with tarfile.open(path, mode="w:gz") as archive:
+            _add_json(archive, MANIFEST_NAME, manifest, generated_at)
+            if self.settings.sqlite_path.exists():
+                archive.add(self.settings.sqlite_path, arcname="app/smartx.db", recursive=False)
+            _add_directory(archive, self.settings.prometheus_data_dir, "prometheus", skip_names={"chunks_head", "lock", "queries.active", "wal"})
+        return path
+
 
 def _validate_members(archive: tarfile.TarFile) -> None:
     for member in archive.getmembers():
@@ -144,6 +185,24 @@ def _check_project_files(package_path: Path, manifest: dict[str, Any]) -> dict[s
     project_dir = package_path / "project"
     ok = project_dir.is_dir() and (project_dir / "docker-compose.offline.yml").is_file()
     return {"name": "project_files", "ok": ok, "message": "项目文件同步包完整" if ok else "project 文件包缺少 docker-compose.offline.yml"}
+
+
+def _add_json(archive: tarfile.TarFile, arcname: str, payload: dict[str, Any], generated_at: datetime) -> None:
+    content = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    info = tarfile.TarInfo(arcname)
+    info.size = len(content)
+    info.mtime = int(generated_at.timestamp())
+    archive.addfile(info, io.BytesIO(content))
+
+
+def _add_directory(archive: tarfile.TarFile, source: Path, arcname: str, *, skip_names: set[str]) -> None:
+    if not source.exists():
+        return
+    for path in sorted(source.rglob("*")):
+        relative = path.relative_to(source)
+        if any(part in skip_names for part in relative.parts):
+            continue
+        archive.add(path, arcname=str(Path(arcname) / relative), recursive=False)
 
 
 def _save_task_file(task_dir: Path, task: dict[str, Any]) -> None:
