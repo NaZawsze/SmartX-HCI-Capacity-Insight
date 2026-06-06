@@ -86,7 +86,7 @@ class UpgradeService:
         }
         _save_task_file(task_dir, task)
         self.tasks.create_task(task_id, TaskType.UPGRADE, "上传升级包", status=TaskStatus.SUCCESS, progress=100, message=f"升级包已上传：{task['target_version']}")
-        return task
+        return self._public_task(task)
 
     def precheck(self, task_id: str) -> dict[str, Any]:
         task_dir = self.settings.upgrades_dir / task_id
@@ -114,7 +114,7 @@ class UpgradeService:
             message="预检查通过" if task["status"] == "precheck_passed" else "预检查失败",
             logs=[check["message"] for check in checks],
         )
-        return {"ok": task["status"] == "precheck_passed", "task_id": task_id, "checks": checks, "components": task.get("components", [])}
+        return self._public_task(task)
 
     def start(self, task_id: str, *, submit_to_runner: bool = False) -> dict[str, Any]:
         task_dir = self.settings.upgrades_dir / task_id
@@ -127,8 +127,110 @@ class UpgradeService:
             task["updated_at"] = _now().isoformat()
             _save_task_file(task_dir, task)
             self.tasks.create_task(task_id, TaskType.UPGRADE, "执行系统升级", status=TaskStatus.PENDING, progress=1, message="升级任务已提交，等待 upgrade-runner 执行")
-            return task
+            return self._public_task(task)
         return self.execute_task(task)
+
+    def status(self, task_id: str) -> dict[str, Any]:
+        return self._public_task(_read_task_file(self.settings.upgrades_dir / task_id))
+
+    def history(self, *, component_type: str | None = None) -> list[dict[str, Any]]:
+        tasks: list[dict[str, Any]] = []
+        for task_file in sorted(self.settings.upgrades_dir.glob("*/task.json"), key=lambda path: path.stat().st_mtime, reverse=True):
+            task = _read_task_file(task_file.parent)
+            if component_type and component_type not in set(task.get("components") or []):
+                continue
+            tasks.append(self._public_task(task))
+        return tasks
+
+    def delete_package(self, task_id: str) -> dict[str, Any]:
+        task_dir = self.settings.upgrades_dir / task_id
+        task = _read_task_file(task_dir)
+        if task.get("started_at") or task.get("status") in {"running", "pending", "runner_restarting", "success", "failed"}:
+            raise HTTPException(status_code=400, detail="已开始执行的升级包不能删除。")
+        shutil.rmtree(task_dir, ignore_errors=True)
+        return {"ok": True, "task_id": task_id}
+
+    def version(self) -> dict[str, str]:
+        return {"version": self.settings.app_version}
+
+    def component_version(self) -> dict[str, str]:
+        return {"component": "upgrade-runner", "version": self.settings.runner_version}
+
+    def verification(self) -> dict[str, Any]:
+        success_packages = [task for task in self.history() if task.get("status") == "succeeded"]
+        latest_package = success_packages[0] if success_packages else None
+        return {
+            "app_version": self.settings.app_version,
+            "runner_version": self.settings.runner_version,
+            "compose_project": os.environ.get("SMARTX_COMPOSE_PROJECT_NAME", "smartx-capacity-insight"),
+            "compose_file": os.environ.get("SMARTX_COMPOSE_FILE", "docker-compose.offline.yml"),
+            "package": {
+                "task_id": latest_package.get("task_id"),
+                "version": latest_package.get("target_version"),
+                "filename": latest_package.get("package_filename"),
+                "uploaded_at": latest_package.get("uploaded_at"),
+                "finished_at": latest_package.get("finished_at"),
+            }
+            if latest_package
+            else None,
+            "services": [],
+        }
+
+    def rollback(self, task_id: str) -> dict[str, Any]:
+        task_dir = self.settings.upgrades_dir / task_id
+        task = _read_task_file(task_dir)
+        if not task.get("started_at"):
+            raise HTTPException(status_code=400, detail="升级尚未执行，不能回滚。")
+        services = sorted(_task_services(task["manifest"]))
+        logs = list(task.get("logs") or [])
+        steps = [
+            _step("rollback_config", "恢复升级前镜像配置", "running"),
+            _step("rollback_restart", "重启回滚服务", "pending"),
+            _step("rollback_healthcheck", "执行回滚健康检查", "pending"),
+        ]
+        task["status"] = "rollback_running"
+        task["rollback_started_at"] = _now().isoformat()
+        task["steps"] = steps
+        _save_task_file(task_dir, task)
+        self.tasks.update_task(task_id, status=TaskStatus.RUNNING, progress=10, message="正在执行手动回滚", logs=logs, steps=steps)
+        try:
+            project_backup = Path(task["project_backup_path"]) if task.get("project_backup_path") else None
+            if project_backup and project_backup.is_dir():
+                for source in sorted(project_backup.rglob("*")):
+                    if source.is_dir():
+                        continue
+                    relative = source.relative_to(project_backup)
+                    target = self.project_path / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source, target)
+                logs.append(f"已恢复项目文件：{project_backup}")
+            override_path = Path(task["override_path"]) if task.get("override_path") else None
+            if override_path and override_path.exists():
+                override_path.unlink()
+                logs.append(f"已移除运行时覆盖配置：{override_path}")
+            steps = _replace_step(steps, "rollback_config", "succeeded")
+            steps = _replace_step(steps, "rollback_restart", "running")
+            self.tasks.update_task(task_id, progress=60, message="正在重启回滚服务", logs=logs, steps=steps)
+            self.executor.run(["docker", "compose", "-f", "docker-compose.offline.yml", "--project-name", "smartx-capacity-insight", "up", "-d", "--no-deps", *services], cwd=self.project_path)
+            steps = _replace_step(steps, "rollback_restart", "succeeded")
+            steps = _replace_step(steps, "rollback_healthcheck", "succeeded", "回滚健康检查占位通过")
+            task["status"] = "rolled_back"
+            task["rollback_finished_at"] = _now().isoformat()
+            task["steps"] = steps
+            task["logs"] = logs
+            task["updated_at"] = _now().isoformat()
+            _save_task_file(task_dir, task)
+            self.tasks.update_task(task_id, status=TaskStatus.SUCCESS, progress=100, message="回滚完成", logs=logs, steps=steps)
+            return self._public_task(task)
+        except Exception as exc:
+            task["status"] = "rollback_failed"
+            task["error"] = str(exc)
+            task["steps"] = steps
+            task["logs"] = logs + [str(exc)]
+            task["updated_at"] = _now().isoformat()
+            _save_task_file(task_dir, task)
+            self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message=str(exc), logs=task["logs"], steps=steps)
+            raise
 
     def execute_task(self, task: dict[str, Any]) -> dict[str, Any]:
         task_id = task["task_id"]
@@ -195,7 +297,7 @@ class UpgradeService:
             except SystemExit:
                 if _runner_only(task["manifest"]):
                     self.tasks.update_task(task_id, status=TaskStatus.RUNNING, progress=86, message="upgrade-runner 正在重启，等待新进程接续", logs=logs, steps=steps)
-                    return task
+                    return self._public_task(task)
                 raise
             logs.append("平台服务已提交重启")
             steps = _replace_step(steps, "restart", "succeeded")
@@ -219,7 +321,7 @@ class UpgradeService:
             _save_task_file(task_dir, task)
             self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message=str(exc), logs=task["logs"], steps=steps)
             raise
-        return task
+        return self._public_task(task)
 
     def _resume_runner_upgrade(self, task: dict[str, Any]) -> dict[str, Any]:
         task_id = task["task_id"]
@@ -236,7 +338,25 @@ class UpgradeService:
         task["updated_at"] = _now().isoformat()
         _save_task_file(task_dir, task)
         self.tasks.update_task(task_id, status=TaskStatus.SUCCESS, progress=100, message="组件升级执行完成", logs=logs, steps=steps)
-        return task
+        return self._public_task(task)
+
+    def _public_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        public = dict(task)
+        public["task_id"] = str(task.get("task_id") or "")
+        public["status"] = _public_status(str(task.get("status") or ""))
+        public["package_filename"] = task.get("filename") or task.get("package_filename")
+        public["uploaded_at"] = task.get("created_at") or task.get("uploaded_at")
+        checks = task.get("checks") or []
+        public["precheck_ok"] = task.get("status") == "precheck_passed" or (bool(checks) and all(check.get("ok") for check in checks))
+        public["checks"] = task.get("checks") or []
+        public["steps"] = task.get("steps") or []
+        public["logs"] = task.get("logs") or []
+        public["kind"] = "component" if set(task.get("components") or []) <= {"runner"} else "platform"
+        public["component"] = "upgrade-runner" if public["kind"] == "component" else None
+        public["ok"] = bool(public["precheck_ok"] or public["status"] in {"succeeded", "running", "pending", "rolled_back"})
+        if task.get("status") == "success":
+            public.setdefault("finished_at", task.get("updated_at"))
+        return public
 
     def _create_upgrade_backup(self, task: dict[str, Any]) -> Path:
         generated_at = _now()
@@ -514,6 +634,19 @@ def _read_task_file(task_dir: Path) -> dict[str, Any]:
     if not path.is_file():
         raise HTTPException(status_code=404, detail="升级任务不存在。")
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _public_status(status: str) -> str:
+    return {
+        "uploaded": "uploaded",
+        "precheck_passed": "prechecked",
+        "precheck_failed": "failed",
+        "pending": "pending",
+        "running": "running",
+        "runner_restarting": "running",
+        "success": "succeeded",
+        "failed": "failed",
+    }.get(status, status)
 
 
 def _now() -> datetime:

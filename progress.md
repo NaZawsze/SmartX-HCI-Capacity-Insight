@@ -1581,3 +1581,35 @@ TDD 记录：
 - 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade -v` 通过，6 个测试通过。
 - 本地：v2 后端完整 unittest 集 51 个测试通过。
 - 本地：`python3 -m py_compile backend/app/v2/upgrade/service.py backend/tests/test_v2_upgrade.py` 通过。
+
+### 2026-06-06 Phase V2-12 升级 API 与回滚闭环第一版
+
+状态：完成本地验证，待远端验证和提交
+
+实施内容：
+
+- 后端补齐前端服务管理页已调用的 v2 升级接口：
+  - `/api/admin/upgrade/status/{task_id}`
+  - `/api/admin/upgrade/history`
+  - `/api/admin/upgrade/package/{task_id}`
+  - `/api/admin/upgrade/version`
+  - `/api/admin/upgrade/verification`
+  - `/api/admin/component-upgrade/*` 上传、预检查、开始、状态、历史、删除和版本别名。
+- 升级 service 返回前端公共状态：`succeeded`、`running`、`prechecked` 等，同时 task 文件内部仍保留执行状态。
+- 回滚第一版支持恢复项目文件备份、移除运行时 override、重启 manifest 声明服务，并写入 rollback steps/logs。
+- `docs/v2-rebuild-task-plan.md` 将回滚和历史记录第一版标记完成。
+
+TDD 记录：
+
+- RED：API 测试新增 status/history/version/verification/component alias 后，`/api/admin/upgrade/status/{task_id}` 返回 404。
+- GREEN：补齐 UpgradeService 公共任务响应和 API 路由别名。
+- RED：回滚测试调用 `service.rollback()` 失败，因为方法不存在。
+- GREEN：实现项目文件恢复、override 删除、服务重启和 rollback 状态写入。
+
+验证：
+
+- 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade.V2UpgradeApiTest.test_upgrade_api_requires_auth_uploads_and_prechecks_package -v` 通过。
+- 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade.V2UpgradeServiceTest.test_rollback_restores_project_files_and_removes_runtime_override -v` 通过。
+- 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade -v` 通过，7 个测试通过。
+- 本地：v2 后端完整 unittest 集 52 个测试通过。
+- 本地：`python3 -m py_compile backend/app/v2/api.py backend/app/v2/upgrade/service.py backend/app/v2/upgrade/runner.py backend/tests/test_v2_upgrade.py` 通过。

@@ -638,6 +638,118 @@ def start_upgrade_package(
     return upgrade.start(task_id)
 
 
+@router.post("/api/admin/upgrade/rollback/{task_id}")
+def rollback_upgrade_package(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.rollback(task_id)
+
+
+@router.get("/api/admin/upgrade/status/{task_id}")
+def upgrade_status(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.status(task_id)
+
+
+@router.get("/api/admin/upgrade/history")
+def upgrade_history(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> list[dict]:
+    return upgrade.history()
+
+
+@router.delete("/api/admin/upgrade/package/{task_id}")
+def delete_upgrade_package(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.delete_package(task_id)
+
+
+@router.get("/api/admin/upgrade/version")
+def upgrade_version(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.version()
+
+
+@router.get("/api/admin/upgrade/verification")
+def upgrade_verification(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.verification()
+
+
+@router.post("/api/admin/component-upgrade/upload")
+async def upload_component_upgrade_package(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+    file: UploadFile = File(...),
+) -> dict:
+    return await upgrade.upload_package(file)
+
+
+@router.post("/api/admin/component-upgrade/precheck/{task_id}")
+def precheck_component_upgrade_package(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.precheck(task_id)
+
+
+@router.post("/api/admin/component-upgrade/start/{task_id}")
+def start_component_upgrade_package(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.start(task_id)
+
+
+@router.get("/api/admin/component-upgrade/status/{task_id}")
+def component_upgrade_status(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.status(task_id)
+
+
+@router.get("/api/admin/component-upgrade/history")
+def component_upgrade_history(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> list[dict]:
+    return upgrade.history(component_type="runner")
+
+
+@router.delete("/api/admin/component-upgrade/package/{task_id}")
+def delete_component_upgrade_package(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.delete_package(task_id)
+
+
+@router.get("/api/admin/component-upgrade/version")
+def component_upgrade_version(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.component_version()
+
+
 @router.get("/api/system/health")
 def health(
     settings: Annotated[V2Settings, Depends(get_v2_settings)],

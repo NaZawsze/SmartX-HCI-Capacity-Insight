@@ -92,7 +92,7 @@ class V2UpgradeServiceTest(unittest.TestCase):
                 backup_names = set(backup.getnames())
             self.assertIn("manifest.json", backup_names)
             self.assertIn("app/smartx.db", backup_names)
-            self.assertEqual(started["status"], "success")
+            self.assertEqual(started["status"], "succeeded")
             self.assertTrue((settings.compose_runtime_dir / "docker-compose.upgrade.yml").is_file())
             self.assertIn("repo/web-api:v2.0.0", (settings.compose_runtime_dir / "docker-compose.upgrade.yml").read_text(encoding="utf-8"))
             self.assertTrue((Path(tmpdir) / "project" / "docker-compose.offline.yml").is_file())
@@ -101,6 +101,51 @@ class V2UpgradeServiceTest(unittest.TestCase):
             stored_task = TaskService(database).get_task(task["task_id"])
             self.assertEqual(stored_task["status"], "success")
             self.assertTrue(stored_task["steps"])
+
+    def test_rollback_restores_project_files_and_removes_runtime_override(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def __init__(self) -> None:
+                self.commands: list[list[str]] = []
+
+            def run(self, command: list[str], *, cwd: Path | None = None) -> None:
+                self.commands.append(command)
+
+        image = b"web-api-image"
+        manifest = {
+            "schema_version": "2",
+            "version": "v2.0.1",
+            "project_files": True,
+            "components": [
+                {"type": "platform", "services": ["web-api"], "images": [{"service": "web-api", "image": "repo/web-api:v2.0.1", "archive": "images/web-api.tar", "sha256": hashlib.sha256(image).hexdigest()}]},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            project_path = Path(tmpdir) / "project"
+            project_path.mkdir()
+            (project_path / "docker-compose.offline.yml").write_text("old-compose\n", encoding="utf-8")
+            service = UpgradeService(settings, TaskService(database), executor=FakeExecutor(), project_path=project_path)
+            task = service.upload_package_bytes(
+                self._package(manifest, {"images/web-api.tar": image, "project/docker-compose.offline.yml": b"new-compose\n"}),
+                filename="upgrade.tar.gz",
+            )
+            self.assertTrue(service.precheck(task["task_id"])["ok"])
+            started = service.start(task["task_id"])
+            self.assertEqual((project_path / "docker-compose.offline.yml").read_text(encoding="utf-8"), "new-compose\n")
+            self.assertTrue(Path(started["override_path"]).exists())
+
+            rolled_back = service.rollback(task["task_id"])
+            self.assertEqual(rolled_back["status"], "rolled_back")
+            self.assertEqual((project_path / "docker-compose.offline.yml").read_text(encoding="utf-8"), "old-compose\n")
+            self.assertFalse(Path(started["override_path"]).exists())
+            self.assertTrue(any(command[-1:] == ["web-api"] for command in service.executor.commands if command[:3] == ["docker", "compose", "-f"]))
 
     def test_start_can_submit_task_for_runner_and_runner_executes_it(self) -> None:
         from app.v2.config import V2Settings
@@ -184,7 +229,7 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertIn("prometheus_permissions", [check["name"] for check in precheck["checks"]])
 
             started = service.start(task["task_id"])
-            self.assertEqual(started["status"], "success")
+            self.assertEqual(started["status"], "succeeded")
             override = (settings.compose_runtime_dir / "docker-compose.upgrade.yml").read_text(encoding="utf-8")
             self.assertIn("prometheus:", override)
             self.assertIn("prom/prometheus:v2.55.2", override)
@@ -235,7 +280,9 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertEqual(precheck["components"], ["runner"])
 
             started = service.start(task["task_id"])
-            self.assertEqual(started["status"], "runner_restarting")
+            self.assertEqual(started["status"], "running")
+            restart_state = json.loads((settings.upgrades_dir / task["task_id"] / "task.json").read_text(encoding="utf-8"))
+            self.assertEqual(restart_state["status"], "runner_restarting")
             override = (settings.compose_runtime_dir / "docker-compose.runner-upgrade.yml").read_text(encoding="utf-8")
             self.assertIn("upgrade-runner:", override)
             self.assertIn("repo/upgrade-runner:v0.3.0", override)
@@ -301,6 +348,7 @@ class V2UpgradeApiTest(unittest.TestCase):
                     payload = uploaded.json()
                     self.assertEqual(payload["target_version"], "v2.0.0")
                     self.assertEqual(payload["components"], ["platform"])
+                    self.assertFalse(payload["precheck_ok"])
 
                     precheck = client.post(f"/api/admin/upgrade/precheck/{payload['task_id']}", headers=headers)
                     self.assertEqual(precheck.status_code, 200)
@@ -309,6 +357,36 @@ class V2UpgradeApiTest(unittest.TestCase):
                     started = client.post(f"/api/admin/upgrade/start/{payload['task_id']}", headers=headers)
                     self.assertEqual(started.status_code, 200)
                     self.assertTrue(Path(started.json()["backup_path"]).is_file())
+
+                    status = client.get(f"/api/admin/upgrade/status/{payload['task_id']}", headers=headers)
+                    self.assertEqual(status.status_code, 200)
+                    self.assertEqual(status.json()["status"], "succeeded")
+
+                    history = client.get("/api/admin/upgrade/history", headers=headers)
+                    self.assertEqual(history.status_code, 200)
+                    self.assertEqual(history.json()[0]["task_id"], payload["task_id"])
+
+                    version = client.get("/api/admin/upgrade/version", headers=headers)
+                    self.assertEqual(version.status_code, 200)
+                    self.assertTrue(version.json()["version"])
+
+                    component_version = client.get("/api/admin/component-upgrade/version", headers=headers)
+                    self.assertEqual(component_version.status_code, 200)
+                    self.assertEqual(component_version.json()["component"], "upgrade-runner")
+
+                    verification = client.get("/api/admin/upgrade/verification", headers=headers)
+                    self.assertEqual(verification.status_code, 200)
+                    self.assertIn("app_version", verification.json())
+                    self.assertEqual(verification.json()["package"]["task_id"], payload["task_id"])
+
+                    delete_blocked = client.delete(f"/api/admin/upgrade/package/{payload['task_id']}", headers=headers)
+                    self.assertEqual(delete_blocked.status_code, 400)
+
+                    component_upload = client.post("/api/admin/component-upgrade/upload", files={"file": ("upgrade.tar.gz", package, "application/gzip")}, headers=headers)
+                    self.assertEqual(component_upload.status_code, 200)
+                    component_payload = component_upload.json()
+                    component_deleted = client.delete(f"/api/admin/component-upgrade/package/{component_payload['task_id']}", headers=headers)
+                    self.assertEqual(component_deleted.status_code, 200)
             finally:
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)
