@@ -1117,3 +1117,53 @@ TDD 记录：
 限制：
 
 - 当前任务中心还没有独立步骤表，步骤化进度会在迁移/升级/清理模块接入时继续扩展。
+
+### 2026-06-06 Phase V2-6 数据迁移灾备第一版
+
+状态：完成本地和远端验证，待提交
+
+实施内容：
+
+- 新增 `backend/app/v2/migration/service.py`。
+- v2 迁移包格式第一版：
+  - `manifest.json`
+  - `app/smartx.db`
+  - `prometheus/**`
+- 迁出：
+  - 生成 `.tar.gz` 迁移包。
+  - 跳过 Prometheus 运行时目录：`chunks_head`、`lock`、`queries.active`、`wal`。
+  - 保存到 `/data/exports/migrations`。
+  - 写入 `migration_export` 任务并提供下载链接。
+- 迁入：
+  - 上传文件保存到 `/data/exports/imports/{task_id}/`。
+  - 解压前校验 tar 成员路径，拒绝绝对路径和 `..`。
+  - 写入前强制生成 `/data/backups/import-before-*.tar.gz`。
+  - 备份包含当前 `app/smartx.db` 和 Prometheus 历史目录。
+  - merge 模式使用 `INSERT OR IGNORE`，不覆盖已有 Tower、集群、VM 最新元数据、卷、采集记录和 metrics snapshot。
+  - Prometheus 历史目录只补齐缺失文件。
+- v2 API 新增：
+  - `GET /api/admin/migration/export`
+  - `POST /api/admin/migration/import`
+  - `/api/admin/exports/migrations/{filename}` 下载分类。
+- `docs/v2-rebuild-task-plan.md` 将迁出、迁入、导入前备份、任务中心链接第一版标记完成。
+
+TDD 记录：
+
+- RED：新增 `backend/tests/test_v2_migration.py` 后，`app.v2.migration.service` 缺失。
+- GREEN：新增 `MigrationService` 后，迁出包含 SQLite/Prometheus、任务链接、导入前备份、merge 不覆盖已有集群测试通过。
+- RED：新增迁移 API 测试后，未登录访问 `/api/admin/migration/export` 返回 404。
+- GREEN：接入 v2 migration API 后，鉴权、导出、下载、导入备份测试通过。
+
+验证：
+
+- 本地：
+  - `PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_migration -v` 通过。
+  - v2 后端完整测试集 40 个测试通过。
+  - `python3 -m py_compile backend/app/v2/api.py backend/app/v2/migration/service.py backend/tests/test_v2_migration.py` 通过。
+- 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
+  - 使用 `smartx-storage-forecast-web-api:local` 容器执行 `backend.tests.test_v2_migration` 通过。
+
+限制：
+
+- 当前是 v2 迁移第一版，v1 旧迁移包和旧 `latest_vm_volumes.payload_json` 到 v2 结构化卷表的深度兼容仍待实现。
+- 迁移任务已有任务中心记录，但尚未拆分为持久化步骤表。

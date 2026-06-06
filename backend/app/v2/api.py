@@ -5,7 +5,7 @@ from secrets import token_hex
 from typing import Annotated, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -18,6 +18,7 @@ from app.v2.dashboard.service import DashboardService
 from app.v2.database import V2Database
 from app.v2.inventory.models import ClusterInput, TowerInput
 from app.v2.inventory.service import InventoryService
+from app.v2.migration.service import ARCHIVE_MEDIA_TYPE, MigrationService
 from app.v2.reports.export import DOCX_MEDIA_TYPE, XLSX_MEDIA_TYPE, build_report_docx, build_report_xlsx
 from app.v2.reports.service import ReportService
 from app.v2.system.health import check_health
@@ -161,6 +162,14 @@ def get_report_service(
 
 def get_task_service(database: Annotated[V2Database, Depends(get_v2_database)]) -> TaskService:
     return TaskService(database)
+
+
+def get_migration_service(
+    database: Annotated[V2Database, Depends(get_v2_database)],
+    settings: Annotated[V2Settings, Depends(get_v2_settings)],
+    tasks: Annotated[TaskService, Depends(get_task_service)],
+) -> MigrationService:
+    return MigrationService(database, settings, tasks)
 
 
 def require_user(
@@ -478,12 +487,36 @@ def download_saved_export(
     _: Annotated[CurrentUser, Depends(require_user)],
     settings: Annotated[V2Settings, Depends(get_v2_settings)],
 ) -> FileResponse:
-    if category != "reports":
+    if category == "reports":
+        base_dir = settings.reports_dir
+    elif category == "migrations":
+        base_dir = settings.migrations_dir
+    else:
         raise HTTPException(status_code=404, detail="导出文件不存在。")
-    path = settings.reports_dir / Path(filename).name
+    path = base_dir / Path(filename).name
     if not path.is_file():
         raise HTTPException(status_code=404, detail="导出文件不存在。")
     return FileResponse(path, filename=Path(filename).name)
+
+
+@router.get("/api/admin/migration/export")
+def export_migration(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    migration: Annotated[MigrationService, Depends(get_migration_service)],
+) -> Response:
+    content, filename, path, download_url = migration.build_export_archive()
+    return download_response(content, filename, ARCHIVE_MEDIA_TYPE, path=path, download_url=download_url)
+
+
+@router.post("/api/admin/migration/import")
+async def import_migration(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    migration: Annotated[MigrationService, Depends(get_migration_service)],
+    mode: str = Form("merge"),
+    confirmed: bool = Form(False),
+    file: UploadFile = File(...),
+) -> dict:
+    return await migration.restore_upload(file, mode=mode, confirmed=confirmed)
 
 
 @router.get("/api/tasks")
