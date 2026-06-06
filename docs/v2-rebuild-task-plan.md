@@ -588,6 +588,7 @@ v2 不兼容 v1 旧升级路径，但必须兼容 v1 数据迁入。
 状态：完成
 
 - [x] 输出 `docs/architecture-v2.md`。
+- [x] 输出 `docs/architecture.md`，作为项目架构总览入口。
 - [x] 输出 `docs/v1-data-compatibility.md`。
 - [x] 输出 `docs/v2-upgrade-center-design.md`。
 - [x] 输出 `docs/v2-api-contracts.md`。

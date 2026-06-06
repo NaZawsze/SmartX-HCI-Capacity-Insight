@@ -2196,3 +2196,24 @@ TDD 记录：
 
 - 远端容器内 `backend.tests.test_v2_report_exports.V2ReportExportApiTest.test_report_exports_require_auth_save_files_and_expose_download_link` 通过。
 - Excel 断言改为 `openpyxl.load_workbook` 读取汇总页单元格，避免依赖 `sharedStrings.xml` 是否存在。
+
+### 2026-06-06 Phase V2-16 项目架构总览
+
+状态：完成项目架构总览文档第一版
+
+目标：
+
+- 给 v2 重建后项目提供一个统一架构入口，方便后续接手、排障和继续开发。
+- 把容器职责、数据职责、任务模型、升级包结构、迁移包结构和安全边界集中记录，避免只散落在多个细节文档里。
+
+处理：
+
+- 新增 `docs/architecture.md`。
+- 文档记录 5 容器交付形态：`frontend`、`web-api`、`collector-worker`、`prometheus`、`upgrade-runner`。
+- 文档记录后端模块边界、SQLite/Prometheus/`/data` 职责、任务模型、升级包结构、迁移包结构、安全边界和当前版本边界。
+- `task_plan.md` 将 Phase 16 标记为完成第一版。
+- `docs/v2-rebuild-task-plan.md` 补充 `docs/architecture.md` 作为架构总览交付物。
+
+验证：
+
+- 本轮为文档架构整理，无代码改动。

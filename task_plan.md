@@ -313,7 +313,7 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 
 ### Phase 16 - 项目架构整理
 
-状态：待处理，最低优先级
+状态：完成第一版
 
 目标：
 
@@ -328,6 +328,12 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 - 明确 SQLite、Prometheus 和 `/data` 文件系统的职责分层。
 - 后续如果后台耗时任务明显影响 `web-api`，再评估新增第 6 个容器 `task-worker`，用于报表生成、迁移导入导出、空间清理和批量健康检查。
 - 输出 `docs/architecture.md`，记录数据职责、容器职责、任务模型、升级包结构、迁移包结构和安全边界。
+
+当前证据：
+
+- 已新增 `docs/architecture.md` 作为项目架构总览入口。
+- 文档明确 5 容器职责、后端模块边界、SQLite/Prometheus/`/data` 职责、任务模型、升级包结构、迁移包结构和安全边界。
+- 文档记录当前版本边界：平台 `v0.5.0`、runner `v0.3.0`、Prometheus `v2.55.1`、分支 `feature/upgrade-v2`。
 
 ### Phase 17 - feature/upgrade-v2 受控重建
 
