@@ -62,6 +62,19 @@ describe("formatVersionForDisplay", () => {
 });
 
 describe("ServicePage migration overwrite mode", () => {
+  it("renders service management subnav with migration restart upgrade and cleanup entries", async () => {
+    mockServicePageBootstrap();
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    expect(await screen.findByText("平台状态")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "数据迁移" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "服务重启" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "空间清理" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "平台升级" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "组件升级" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "升级历史" })).toBeInTheDocument();
+  });
+
   it("requires explicit confirmation before overwrite import can start", async () => {
     mockServicePageBootstrap();
     apiMock.importMigration.mockResolvedValue({

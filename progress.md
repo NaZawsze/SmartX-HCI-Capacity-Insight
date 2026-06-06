@@ -1746,3 +1746,25 @@ TDD 记录：
 验证：
 
 - 远端 `10.20.11.3`：`npm test -- ServicePage.test.tsx` 通过，1 个测试文件、6 个测试通过。
+
+### 2026-06-06 Phase V2-8 服务管理页面结构验证
+
+状态：完成远端验证，待提交
+
+实施内容：
+
+- 扩展 `frontend/src/components/AppLayout.test.tsx`，覆盖“服务管理”作为主导航项位于“设置”后，并点击后触发 `onNavigate("service")`。
+- 扩展 `frontend/src/pages/ServicePage.test.tsx`，覆盖服务管理二级菜单包含：
+  - 数据迁移
+  - 服务重启
+  - 空间清理
+  - 平台升级
+  - 组件升级
+  - 升级历史
+- 新增 `frontend/src/pages/SettingsPage.test.tsx`，确认设置页只保留 Tower 配置，不出现服务管理、系统升级、数据迁移内容。
+- 修复 `AppLayout` 滚动重置在不支持 `HTMLElement.scrollTo` 的环境中抛错的问题，回退到设置 `scrollTop = 0`。
+- `docs/v2-rebuild-task-plan.md` 将服务管理独立页、二级菜单、设置页清理和对应前端 UI 项标记完成。
+
+验证：
+
+- 远端 `10.20.11.3`：`npm test -- AppLayout.test.tsx ServicePage.test.tsx SettingsPage.test.tsx` 通过，3 个测试文件、12 个测试通过。

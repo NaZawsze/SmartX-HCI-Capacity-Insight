@@ -72,6 +72,18 @@ function failedTask(): AppTask {
 }
 
 describe("AppLayout menus", () => {
+  it("keeps service management as a main navigation item after settings", () => {
+    const onNavigate = vi.fn();
+    render(<AppLayout {...baseProps} onNavigate={onNavigate} />);
+
+    const settings = screen.getByRole("button", { name: /设置/ });
+    const service = screen.getByRole("button", { name: /服务管理/ });
+    expect(settings.compareDocumentPosition(service) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(service);
+    expect(onNavigate).toHaveBeenCalledWith("service");
+  });
+
   it("closes the account menu when clicking outside", async () => {
     render(<AppLayout {...baseProps} />);
 

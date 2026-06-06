@@ -83,7 +83,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   const resetWorkspaceScroll = useCallback(() => {
     window.requestAnimationFrame(() => {
       window.scrollTo({ top: 0 });
-      document.querySelector<HTMLElement>(".workspace")?.scrollTo({ top: 0 });
+      scrollElementToTop(document.querySelector<HTMLElement>(".workspace"));
     });
   }, []);
 
@@ -533,6 +533,15 @@ function saveTaskBlob(blob: Blob, filename: string) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function scrollElementToTop(element: HTMLElement | null) {
+  if (!element) return;
+  if (typeof element.scrollTo === "function") {
+    element.scrollTo({ top: 0 });
+    return;
+  }
+  element.scrollTop = 0;
 }
 
 function taskStatusText(status: AppTask["status"]): string {
