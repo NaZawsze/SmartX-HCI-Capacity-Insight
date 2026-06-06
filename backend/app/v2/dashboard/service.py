@@ -72,18 +72,68 @@ class DashboardService:
             values[key] = metric_value(row)
         return values
 
-    def _capacity_risk(self, clusters: list[dict[str, Any]]) -> dict[str, str]:
+    def _capacity_risk(self, clusters: list[dict[str, Any]]) -> dict[str, Any]:
+        sorted_clusters = sorted(clusters, key=lambda cluster: float(cluster.get("used_ratio") or 0.0), reverse=True)
+        top_clusters = [
+            {
+                "tower_id": cluster["tower_id"],
+                "cluster_id": cluster["cluster_id"],
+                "cluster": cluster["name"],
+                "used_bytes": cluster["used_bytes"],
+                "total_bytes": cluster["total_bytes"],
+                "used_ratio": cluster["used_ratio"],
+            }
+            for cluster in sorted_clusters[:5]
+        ]
         if not clusters:
-            return {"level": "normal", "message": NORMAL_RISK_MESSAGE}
+            return {
+                "level": "normal",
+                "title": "容量风险正常",
+                "message": NORMAL_RISK_MESSAGE,
+                "description": NORMAL_RISK_MESSAGE,
+                "cluster_count": 0,
+                "warning_count": 0,
+                "danger_count": 0,
+                "top_clusters": [],
+            }
         high = [cluster for cluster in clusters if float(cluster["used_ratio"]) >= 0.8]
         if high:
             names = "、".join(cluster["name"] for cluster in high[:3])
-            return {"level": "high", "message": f"{names} 使用率超过 80%，容量风险较高。"}
+            message = f"{names} 使用率超过 80%，容量风险较高。"
+            return {
+                "level": "high",
+                "title": "容量高风险",
+                "message": message,
+                "description": message,
+                "cluster_count": len(clusters),
+                "warning_count": 0,
+                "danger_count": len(high),
+                "top_clusters": top_clusters,
+            }
         warning = [cluster for cluster in clusters if float(cluster["used_ratio"]) >= 0.75]
         if warning:
             names = "、".join(cluster["name"] for cluster in warning[:3])
-            return {"level": "warning", "message": f"{names} 使用率超过 75%，需要关注容量增长。"}
-        return {"level": "normal", "message": NORMAL_RISK_MESSAGE}
+            message = f"{names} 使用率超过 75%，需要关注容量增长。"
+            return {
+                "level": "warning",
+                "title": "容量需关注",
+                "message": message,
+                "description": message,
+                "cluster_count": len(clusters),
+                "warning_count": len(warning),
+                "danger_count": 0,
+                "top_clusters": top_clusters,
+            }
+        return {
+            "level": "normal",
+            "title": "容量风险正常",
+            "message": NORMAL_RISK_MESSAGE,
+            "description": NORMAL_RISK_MESSAGE,
+            "cluster_count": len(clusters),
+            "warning_count": 0,
+            "danger_count": 0,
+            "top_clusters": top_clusters,
+        }
 
     def _totals(self, *, tower_id: int | None, cluster_id: str | None) -> dict[str, int]:
         with self.database.connection() as conn:

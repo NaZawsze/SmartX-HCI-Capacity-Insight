@@ -2152,3 +2152,27 @@ TDD 记录：
 
 - 本轮是文档状态治理，没有修改代码。
 - 已计划执行 `git diff --check` 和状态检查后提交。
+
+### 2026-06-06 Phase V2-15 首页容量风险 API 第一版
+
+状态：完成 Dashboard 容量风险结构增强
+
+目标：
+
+- 首页打开后能一眼看到容量风险。
+- 风险判断必须以单集群为准：任一集群使用率 `>=80%` 即高风险，不被整体平均容量掩盖。
+- API 返回足够结构化的信息，前端风险卡片和风险提示不再只依赖前端兜底文案。
+
+TDD 记录：
+
+- RED：在 `backend/tests/test_v2_dashboard_vm.py` 增加断言，要求 `capacity_risk` 返回 `title`、`danger_count`、`warning_count` 和 `top_clusters`；远端容器内测试因缺少 `title` 失败。
+- GREEN：`DashboardService._capacity_risk()` 返回完整结构：`level/title/message/description/cluster_count/warning_count/danger_count/top_clusters`。
+
+验证：
+
+- 远端容器内单测 `backend.tests.test_v2_dashboard_vm.V2DashboardVmTest.test_dashboard_summary_uses_single_cluster_risk_and_latest_vm_names` 通过。
+- 远端容器内 `backend.tests.test_v2_dashboard_vm` 共 5 个测试通过。
+- 远端临时 Node 容器内 `DashboardPage.test.tsx` 共 4 个测试通过。
+- 本地 `python3 -m py_compile backend/app/v2/dashboard/service.py backend/tests/test_v2_dashboard_vm.py` 通过。
+- 本地 `git diff --check` 通过。
+- 在 `10.20.11.3` 重建并重启 `web-api` 后，真实 `/api/dashboard/summary` 返回完整容量风险字段：`level/title/description/cluster_count/warning_count/danger_count`，且 `top_clusters=1`。

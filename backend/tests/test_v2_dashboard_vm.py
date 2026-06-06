@@ -92,7 +92,12 @@ class V2DashboardVmTest(unittest.TestCase):
             summary = DashboardService(db, settings, prometheus=FakePrometheus(), now_ts=200).summary()
 
             self.assertEqual(summary["capacity_risk"]["level"], "high")
+            self.assertEqual(summary["capacity_risk"]["title"], "容量高风险")
+            self.assertEqual(summary["capacity_risk"]["danger_count"], 1)
+            self.assertEqual(summary["capacity_risk"]["warning_count"], 0)
             self.assertIn("Cluster A", summary["capacity_risk"]["message"])
+            self.assertEqual(summary["capacity_risk"]["top_clusters"][0]["cluster"], "Cluster A")
+            self.assertEqual(summary["capacity_risk"]["top_clusters"][0]["used_ratio"], 0.81)
             self.assertEqual(summary["totals"], {"towers": 1, "clusters": 2, "vms": 2})
             self.assertEqual(summary["storage"]["used_bytes"], 91)
             self.assertEqual(summary["storage"]["total_bytes"], 200)
