@@ -1530,7 +1530,7 @@ TDD 记录：
 
 ### 2026-06-06 Phase V2-12 Prometheus observability 组件升级第一版
 
-状态：完成本地验证，待远端验证和提交
+状态：完成本地与远端验证
 
 实施内容：
 
@@ -1552,3 +1552,7 @@ TDD 记录：
 - 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade -v` 通过，5 个测试通过。
 - 本地：v2 后端完整 unittest 集 50 个测试通过。
 - 本地：`python3 -m py_compile backend/app/v2/upgrade/service.py backend/tests/test_v2_upgrade.py` 通过。
+- 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
+  - 快进拉取到 `24a8ea8`。
+  - `docker run --rm -v /opt/smartx-storage-forecast-v2:/src -e PYTHONPATH=/src/backend -e SMARTX_UPGRADE_DRY_RUN=1 -w /src smartx-storage-forecast-web-api:local python -m unittest backend.tests.test_v2_upgrade -v` 通过，5 个测试通过。
+  - `docker compose build web-api frontend upgrade-runner` 通过。
