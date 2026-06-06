@@ -22,6 +22,8 @@ def read_version(version_file: Path, env_name: str, default: str) -> str:
 @dataclass(frozen=True)
 class V2Settings:
     data_root: Path = Path("/data")
+    db_path_override: Path | None = None
+    prometheus_data_path_override: Path | None = None
     secret_key: str = field(default_factory=lambda: os.environ.get("SMARTX_SECRET_KEY", "change-me-in-production"))
     admin_user: str = field(default_factory=lambda: os.environ.get("SMARTX_ADMIN_USER", "admin"))
     admin_password: str = field(default_factory=lambda: os.environ.get("SMARTX_ADMIN_PASSWORD", "password"))
@@ -40,14 +42,20 @@ class V2Settings:
 
     @property
     def sqlite_dir(self) -> Path:
+        if self.db_path_override is not None:
+            return self.db_path_override.parent
         return self.app_data_dir
 
     @property
     def sqlite_path(self) -> Path:
+        if self.db_path_override is not None:
+            return self.db_path_override
         return self.sqlite_dir / "smartx.db"
 
     @property
     def prometheus_data_dir(self) -> Path:
+        if self.prometheus_data_path_override is not None:
+            return self.prometheus_data_path_override
         return self.data_root / "smartx-capacity-insight-data" / "prometheus"
 
     @property
@@ -102,4 +110,10 @@ class V2Settings:
 
 def settings_from_environment() -> V2Settings:
     data_root = Path(os.environ.get("SMARTX_DATA_ROOT", os.environ.get("SMARTX_DATA_PATH", "/data")))
-    return V2Settings(data_root=data_root)
+    db_path = os.environ.get("SMARTX_DB_PATH")
+    prometheus_data_path = os.environ.get("SMARTX_PROMETHEUS_DATA_PATH")
+    return V2Settings(
+        data_root=data_root,
+        db_path_override=Path(db_path) if db_path else None,
+        prometheus_data_path_override=Path(prometheus_data_path) if prometheus_data_path else None,
+    )

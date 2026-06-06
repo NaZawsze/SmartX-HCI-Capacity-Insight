@@ -29,10 +29,13 @@ class V2DashboardVmApiTest(unittest.TestCase):
                 }
 
         class FakeVmService:
+            trend_days: int | None = None
+
             def list_vms(self, tower_id=None, cluster_id=None):
                 return [{"tower_id": tower_id, "cluster_id": cluster_id, "vm_id": "vm-1", "vm_name": "VM One", "used_bytes": 1}]
 
             def trend(self, *, vm_id, tower_id, cluster_id, days):
+                self.trend_days = days
                 return {"tower_id": tower_id, "cluster_id": cluster_id, "vm_id": vm_id, "vm_name": "VM One", "points": []}
 
             def detail(self, *, vm_id, tower_id, cluster_id):
@@ -46,9 +49,10 @@ class V2DashboardVmApiTest(unittest.TestCase):
             os.environ["SMARTX_SECRET_KEY"] = "dashboard-api-secret"
             os.environ["SMARTX_ADMIN_PASSWORD"] = "password"
             try:
+                vm_service = FakeVmService()
                 app = create_app()
                 app.dependency_overrides[get_dashboard_service] = lambda: FakeDashboardService()
-                app.dependency_overrides[get_vm_service] = lambda: FakeVmService()
+                app.dependency_overrides[get_vm_service] = lambda: vm_service
                 with TestClient(app) as client:
                     self.assertEqual(client.get("/api/dashboard/summary").status_code, 401)
                     token = client.post("/api/auth/login", json={"username": "admin", "password": "password"}).json()["access_token"]
@@ -68,6 +72,11 @@ class V2DashboardVmApiTest(unittest.TestCase):
                     trend = client.get("/api/vms/vm-1/trend?tower_id=1&cluster_id=cluster-a&days=7", headers=headers)
                     self.assertEqual(trend.status_code, 200)
                     self.assertEqual(trend.json()["vm_id"], "vm-1")
+
+                    trend = client.get("/api/vms/vm-1/trend?tower_id=1&cluster_id=cluster-a&period_days=7", headers=headers)
+                    self.assertEqual(trend.status_code, 200)
+                    self.assertEqual(trend.json()["vm_id"], "vm-1")
+                    self.assertEqual(vm_service.trend_days, 7)
 
                     detail = client.get("/api/vms/vm-1?tower_id=1&cluster_id=cluster-a", headers=headers)
                     self.assertEqual(detail.status_code, 200)

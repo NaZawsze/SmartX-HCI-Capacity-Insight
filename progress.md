@@ -1888,3 +1888,40 @@ TDD 记录：
 
 - 远端 `10.20.11.3`：`npm test -- AppLayout.test.tsx DashboardPage.test.tsx`，2 个测试文件、9 个测试通过。
 - 远端 `10.20.11.3`：`npm test -- global.test.ts`，1 个测试文件、3 个测试通过。
+
+### 2026-06-06 Phase V2 远端现场验证与旧库兼容修复
+
+状态：完成本轮修复和远端 smoke，待提交
+
+发现的问题：
+
+- `10.20.11.3` 的 v2 工作目录已在 `feature/upgrade-v2`，但运行容器最初仍是旧入口：`uvicorn app.main:app`、`python -m app.collector...`。
+- v2 镜像启动后，默认数据路径指向 `/data/smartx-capacity-insight-data/app/smartx.db`；当前 compose 将业务库目录挂载到容器 `/data`，真实业务库是 `/data/smartx.db`，导致 API 读到空库。
+- 旧库中已有 `latest_vm_volumes` 和 `latest_vm_volume_items`，但 v2 新表 `vm_latest`、`vm_volumes` 初始为空，切到 v2 后 VM 页面和 Dashboard 容易空。
+- Prometheus 当前 instant 查询为空时，`/api/vms` 只依赖 Prometheus 会返回 0 台 VM；但 SQLite 中有最新 VM 和卷数据，趋势 query_range 仍可查到历史点。
+- 远端当前 compose 实际 project name 是 `smartx-storage-forecast`；使用不匹配的 project name 执行 `docker compose ps` 会显示空表。
+
+实施内容：
+
+- `backend/app/v2/config.py` 支持 `SMARTX_DB_PATH` 和 `SMARTX_PROMETHEUS_DATA_PATH` 覆盖，compose 明确传入 `/data/smartx.db` 与 `/prometheus-data`。
+- `docker-compose.yml`、`docker-compose.offline.yml`、`docker-compose.release.yml` 同步补齐 v2 数据路径环境变量。
+- `backend/app/v2/database.py` 初始化时兼容旧 `latest_vm_volumes`，自动 backfill 到 `vm_latest` 和 `vm_volumes`。
+- `backend/app/v2/api.py` 的 VM 趋势接口兼容前端使用的 `period_days` 参数。
+- `backend/app/v2/dashboard/service.py` 返回 Tower 树，支持前端 scope 选择；Prometheus instant 为空时从 SQLite `vm_latest` 兜底 VM 概览，且不会把兜底数据误算为“本日新建 VM”。
+- `backend/app/v2/vms/service.py` 在 Prometheus instant 为空时从 SQLite `vm_latest` 返回 VM 列表。
+
+验证：
+
+- 远端 `10.20.11.3` 执行 `./pre_install.sh`，目录和 Prometheus 权限检查通过。
+- 远端重建并启动 v2 compose 后，容器入口确认：`uvicorn app.v2.main:app`、`python -m app.v2.worker`、`python -m app.v2.upgrade.runner`。
+- 远端受影响后端测试：`test_v2_foundation`、`test_v2_dashboard_vm`、`test_v2_dashboard_vm_api`、`test_v2_migration` 共 18 个测试通过。
+- 远端完整 v2 后端测试曾扩展至 43 个测试并通过。
+- 远端 smoke：登录成功；Dashboard 读取到 1 个 Tower、1 个集群、523 台 VM；`/api/vms` 返回 523 台；单 VM 趋势 2 个点、卷明细 258 条；Word/Excel 报表保存到 `/data/exports/reports` 并返回下载 URL；迁移导出任务成功并返回下载 URL；空间清理扫描返回可清理项；compose 五个容器均运行。
+- 远端运行容器内复核：`backend.tests.test_v2_foundation`、`backend.tests.test_v2_dashboard_vm`、`backend.tests.test_v2_dashboard_vm_api`、`backend.tests.test_v2_migration` 共 18 个测试通过。
+
+仍未完成：
+
+- 真实“新增 Tower 并采集”未在本轮执行，避免覆盖现场已有 Tower 凭据和数据。
+- 平台升级包、runner 组件包、Prometheus 组件包未实际执行。
+- 迁出数据导入独立验证环境未执行。
+- 日/月增长是否非空仍取决于 Prometheus 历史样本窗口和当前 scrape 状态，本轮只验证趋势、VM 列表、报表和迁移导出恢复。

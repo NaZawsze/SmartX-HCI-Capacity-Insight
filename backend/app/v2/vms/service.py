@@ -37,6 +37,8 @@ class VmService:
                     "used_bytes": metric_value(row),
                 }
             )
+        if not vms:
+            vms = self._latest_vms_from_database(tower_id=tower_id, cluster_id=cluster_id)
         return sorted(vms, key=lambda item: (-float(item["used_bytes"]), item["vm_name"]))
 
     def trend(self, *, vm_id: str, tower_id: int, cluster_id: str, days: int) -> dict[str, Any]:
@@ -108,6 +110,32 @@ class VmService:
         with self.database.connection() as conn:
             rows = conn.execute("SELECT tower_id, cluster_id, vm_id, name FROM vm_latest").fetchall()
         return {(int(row["tower_id"]), str(row["cluster_id"]), str(row["vm_id"])): str(row["name"]) for row in rows}
+
+    def _latest_vms_from_database(self, *, tower_id: int | None, cluster_id: str | None) -> list[dict[str, Any]]:
+        filters: list[str] = []
+        params: list[object] = []
+        if tower_id is not None:
+            filters.append("tower_id = ?")
+            params.append(tower_id)
+        if cluster_id:
+            filters.append("cluster_id = ?")
+            params.append(cluster_id)
+        where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        with self.database.connection() as conn:
+            rows = conn.execute(
+                f"SELECT tower_id, cluster_id, vm_id, name, used_bytes FROM vm_latest {where}",
+                params,
+            ).fetchall()
+        return [
+            {
+                "tower_id": int(row["tower_id"]),
+                "cluster_id": str(row["cluster_id"]),
+                "vm_id": str(row["vm_id"]),
+                "vm_name": str(row["name"]),
+                "used_bytes": int(row["used_bytes"] or 0),
+            }
+            for row in rows
+        ]
 
 
 def _vm_key(metric: dict[str, Any]) -> tuple[int, str, str]:

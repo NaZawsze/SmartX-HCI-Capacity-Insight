@@ -10,6 +10,8 @@ services:
       TZ: Asia/Shanghai
       SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
       SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast
+      SMARTX_DB_PATH: /data/smartx.db
+      SMARTX_PROMETHEUS_DATA_PATH: /prometheus-data
     volumes:
       - /data/smartx-capacity-insight-data/app:/data
       - /data/upgrades:/data/upgrades
@@ -37,6 +39,7 @@ services:
       - .env
     environment:
       TZ: Asia/Shanghai
+      SMARTX_DB_PATH: /data/smartx.db
     volumes:
       - /data/smartx-capacity-insight-data/app:/data
       - /data/upgrades:/data/upgrades
@@ -77,6 +80,8 @@ services:
       TZ: Asia/Shanghai
       SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
       SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast
+      SMARTX_DB_PATH: /data/smartx.db
+      SMARTX_PROMETHEUS_DATA_PATH: /prometheus-data
     volumes:
       - .:/opt/smartx-storage-forecast
       - /data/smartx-capacity-insight-data/app:/data

@@ -1,4 +1,6 @@
 import os
+import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -54,6 +56,27 @@ class V2FoundationTest(unittest.TestCase):
                 os.environ.pop("SMARTX_SECRET_KEY", None)
                 os.environ.pop("SMARTX_APP_VERSION", None)
 
+    def test_settings_respect_compose_mounted_data_paths(self) -> None:
+        from app.v2.config import settings_from_environment
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "smartx.db"
+            prometheus_path = Path(tmpdir) / "prometheus-data"
+            os.environ["SMARTX_DATA_ROOT"] = "/data"
+            os.environ["SMARTX_DB_PATH"] = str(db_path)
+            os.environ["SMARTX_PROMETHEUS_DATA_PATH"] = str(prometheus_path)
+            try:
+                settings = settings_from_environment()
+                self.assertEqual(settings.sqlite_path, db_path)
+                self.assertEqual(settings.sqlite_dir, db_path.parent)
+                self.assertEqual(settings.prometheus_data_dir, prometheus_path)
+                self.assertIn(db_path.parent, settings.required_directories())
+                self.assertIn(prometheus_path, settings.required_directories())
+            finally:
+                os.environ.pop("SMARTX_DATA_ROOT", None)
+                os.environ.pop("SMARTX_DB_PATH", None)
+                os.environ.pop("SMARTX_PROMETHEUS_DATA_PATH", None)
+
     def test_database_initializes_default_admin_and_auth_flow(self) -> None:
         from app.v2.auth.service import AuthService
         from app.v2.config import V2Settings
@@ -75,6 +98,77 @@ class V2FoundationTest(unittest.TestCase):
             self.assertTrue(auth.change_password("admin", "password", "new-password"))
             self.assertIsNone(auth.login("admin", "password"))
             self.assertEqual(auth.login("admin", "new-password").username, "admin")
+
+    def test_database_initialization_backfills_v1_latest_vm_payloads(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="compat-secret")
+            settings.sqlite_dir.mkdir(parents=True, exist_ok=True)
+            with sqlite3.connect(settings.sqlite_path) as conn:
+                conn.executescript(
+                    """
+                    CREATE TABLE towers (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        base_url TEXT NOT NULL,
+                        username TEXT,
+                        password_encrypted TEXT,
+                        api_token_encrypted TEXT,
+                        verify_tls INTEGER NOT NULL DEFAULT 1,
+                        enabled INTEGER NOT NULL DEFAULT 1,
+                        created_at TEXT,
+                        updated_at TEXT
+                    );
+                    CREATE TABLE clusters (
+                        id INTEGER PRIMARY KEY,
+                        tower_id INTEGER NOT NULL,
+                        cluster_id TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        enabled INTEGER NOT NULL DEFAULT 1,
+                        updated_at TEXT
+                    );
+                    CREATE TABLE latest_vm_volumes (
+                        tower_id INTEGER NOT NULL,
+                        cluster_id TEXT NOT NULL,
+                        vm_id TEXT NOT NULL,
+                        payload_json TEXT NOT NULL,
+                        collected_at TEXT,
+                        PRIMARY KEY (tower_id, cluster_id, vm_id)
+                    );
+                    """
+                )
+                conn.execute("INSERT INTO towers (id, name, base_url) VALUES (3, 'Tower A', 'https://tower.example.com')")
+                conn.execute("INSERT INTO clusters (tower_id, cluster_id, name) VALUES (3, 'cluster-a', 'Cluster A')")
+                conn.execute(
+                    "INSERT INTO latest_vm_volumes (tower_id, cluster_id, vm_id, payload_json, collected_at) VALUES (3, 'cluster-a', 'vm-1', ?, '2026-06-01T00:00:00Z')",
+                    (
+                        json.dumps(
+                            [
+                                {
+                                    "id": "vol-1",
+                                    "name": "Root",
+                                    "path": "/root",
+                                    "size": 1000,
+                                    "used_size": 450,
+                                    "elf_storage_policy": "Replica-2",
+                                    "elf_storage_policy_replica_num": 2,
+                                    "elf_storage_policy_thin_provision": True,
+                                    "cluster": {"raw": "discard"},
+                                }
+                            ]
+                        ),
+                    ),
+                )
+
+            V2Database(settings).initialize()
+
+            with sqlite3.connect(settings.sqlite_path) as conn:
+                latest = conn.execute("SELECT tower_id, cluster_id, vm_id, name, used_bytes FROM vm_latest").fetchone()
+                volume = conn.execute("SELECT volume_id, name, path, size_bytes, used_bytes, storage_policy, replica_num, thin_provision FROM vm_volumes").fetchone()
+            self.assertEqual(latest, (3, "cluster-a", "vm-1", "vm-1", 450))
+            self.assertEqual(volume, ("vol-1", "Root", "/root", 1000, 450, "Replica-2", 2, 1))
 
     def test_health_check_reports_database_and_directories(self) -> None:
         from app.v2.config import V2Settings

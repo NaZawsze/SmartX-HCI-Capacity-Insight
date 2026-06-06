@@ -444,9 +444,11 @@ def vm_trend(
     tower_id: Optional[int] = None,
     cluster_id: Optional[str] = None,
     days: int = 30,
+    period_days: Optional[int] = None,
 ) -> VmTrendResponse:
     if tower_id is None or not cluster_id:
         raise HTTPException(status_code=400, detail="tower_id and cluster_id are required.")
+    days = int(period_days or days)
     if days not in {7, 14, 30, 90, 180, 365}:
         raise HTTPException(status_code=400, detail="Unsupported trend range.")
     return VmTrendResponse(**vms.trend(vm_id=vm_id, tower_id=tower_id, cluster_id=cluster_id, days=days))

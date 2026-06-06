@@ -39,6 +39,12 @@ class FakePrometheus:
         ]
 
 
+class EmptyPrometheus(FakePrometheus):
+    def instant(self, query: str):
+        self.instant_queries.append(query)
+        return []
+
+
 class V2DashboardVmTest(unittest.TestCase):
     def _seed_inventory(self, tmpdir: str):
         from app.v2.config import V2Settings
@@ -108,6 +114,24 @@ class V2DashboardVmTest(unittest.TestCase):
             self.assertIn('tower_id="1"', prometheus.range_calls[-1]["query"])
             self.assertIn('cluster_id="cluster-a"', prometheus.range_calls[-1]["query"])
             self.assertIn('vm_id="vm-1"', prometheus.range_calls[-1]["query"])
+
+    def test_vm_list_and_dashboard_fall_back_to_sqlite_latest_when_prometheus_instant_is_empty(self) -> None:
+        from app.v2.dashboard.service import DashboardService
+        from app.v2.vms.service import VmService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            prometheus = EmptyPrometheus()
+            vms = VmService(db, settings, prometheus=prometheus, now_ts=200).list_vms(tower_id=1, cluster_id="cluster-a")
+            summary = DashboardService(db, settings, prometheus=prometheus, now_ts=200).summary(tower_id=1, cluster_id="cluster-a")
+
+            self.assertEqual([item["vm_id"] for item in vms], ["vm-1", "vm-2"])
+            self.assertEqual(vms[0]["vm_name"], "VM One Latest")
+            self.assertEqual(vms[0]["used_bytes"], 70)
+            self.assertEqual(summary["totals"], {"towers": 1, "clusters": 1, "vms": 2})
+            self.assertEqual(len(summary["towers"]), 1)
+            self.assertEqual(summary["towers"][0]["clusters"][0]["cluster_id"], "cluster-a")
+            self.assertEqual(summary["day_new_vms"], [])
 
     def test_vm_detail_and_volumes_return_structured_latest_data(self) -> None:
         from app.v2.vms.service import VmService

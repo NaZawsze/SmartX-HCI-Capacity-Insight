@@ -4,6 +4,7 @@ from typing import Any
 
 from app.v2.config import V2Settings
 from app.v2.database import V2Database, row_to_dict
+from app.v2.inventory.service import InventoryService
 from app.v2.metrics.prometheus import PrometheusService
 from app.v2.metrics.series import labels_match, metric_value, range_values, scoped_query
 
@@ -24,6 +25,7 @@ class DashboardService:
     def summary(self, tower_id: int | None = None, cluster_id: str | None = None) -> dict[str, Any]:
         clusters = self._cluster_capacity(tower_id=tower_id, cluster_id=cluster_id)
         vms = self._latest_vms(tower_id=tower_id, cluster_id=cluster_id)
+        towers = InventoryService(self.database, self.settings).list_towers()
         return {
             "scope": {"tower_id": tower_id, "cluster_id": cluster_id},
             "capacity_risk": self._capacity_risk(clusters),
@@ -33,6 +35,7 @@ class DashboardService:
             "day_fastest_growing_vms": self._day_fastest_growing_vms(tower_id=tower_id, cluster_id=cluster_id),
             "day_new_vms": self._day_new_vms(vms, tower_id=tower_id, cluster_id=cluster_id),
             "clusters": clusters,
+            "towers": [_tower_payload(tower) for tower in towers],
         }
 
     def _cluster_capacity(self, *, tower_id: int | None, cluster_id: str | None) -> list[dict[str, Any]]:
@@ -130,8 +133,11 @@ class DashboardService:
                     "vm_id": key[2],
                     "vm_name": names.get(key, str(metric.get("vm_name") or key[2])),
                     "current_bytes": metric_value(row),
+                    "source": "prometheus",
                 }
             )
+        if not vms:
+            return self._latest_vms_from_database(tower_id=tower_id, cluster_id=cluster_id)
         return vms
 
     def _day_fastest_growing_vms(self, *, tower_id: int | None, cluster_id: str | None) -> list[dict[str, Any]]:
@@ -171,9 +177,11 @@ class DashboardService:
                 existing_keys.add((int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""), str(metric.get("vm_id") or "")))
         new_vms = []
         for vm in vms:
+            if vm.get("source") != "prometheus":
+                continue
             key = (int(vm["tower_id"]), str(vm["cluster_id"]), str(vm["vm_id"]))
             if key not in existing_keys:
-                new_vms.append(vm)
+                new_vms.append({key: value for key, value in vm.items() if key != "source"})
         return sorted(new_vms, key=lambda item: item["vm_name"])[:100]
 
     def _cluster_names(self) -> dict[tuple[int, str], str]:
@@ -185,3 +193,46 @@ class DashboardService:
         with self.database.connection() as conn:
             rows = conn.execute("SELECT tower_id, cluster_id, vm_id, name FROM vm_latest").fetchall()
         return {(int(row["tower_id"]), str(row["cluster_id"]), str(row["vm_id"])): str(row["name"]) for row in rows}
+
+    def _latest_vms_from_database(self, *, tower_id: int | None, cluster_id: str | None) -> list[dict[str, Any]]:
+        filters: list[str] = []
+        params: list[object] = []
+        if tower_id is not None:
+            filters.append("tower_id = ?")
+            params.append(tower_id)
+        if cluster_id:
+            filters.append("cluster_id = ?")
+            params.append(cluster_id)
+        where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        with self.database.connection() as conn:
+            rows = conn.execute(f"SELECT tower_id, cluster_id, vm_id, name, used_bytes FROM vm_latest {where}", params).fetchall()
+        return [
+            {
+                "tower_id": int(row["tower_id"]),
+                "cluster_id": str(row["cluster_id"]),
+                "vm_id": str(row["vm_id"]),
+                "vm_name": str(row["name"]),
+                "current_bytes": int(row["used_bytes"] or 0),
+                "source": "sqlite",
+            }
+            for row in rows
+        ]
+
+
+def _tower_payload(tower) -> dict[str, Any]:
+    return {
+        "id": tower.id,
+        "name": tower.name,
+        "base_url": tower.base_url,
+        "username": tower.username,
+        "verify_tls": tower.verify_tls,
+        "enabled": tower.enabled,
+        "clusters": [
+            {
+                "cluster_id": cluster.cluster_id,
+                "name": cluster.name,
+                "enabled": cluster.enabled,
+            }
+            for cluster in tower.clusters
+        ],
+    }
