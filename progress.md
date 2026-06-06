@@ -1468,3 +1468,7 @@ TDD 记录：
 
 - 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade -v` 通过。
 - 本地：v2 后端完整 unittest 集 48 个测试通过。
+- 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
+  - 快进拉取到 `a671e6c`。
+  - 使用 `SMARTX_UPGRADE_DRY_RUN=1` 执行 `backend.tests.test_v2_upgrade` 通过。
+  - `docker compose build web-api frontend` 通过。
