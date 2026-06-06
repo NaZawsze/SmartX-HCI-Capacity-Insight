@@ -144,6 +144,53 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertEqual(final["status"], "success")
             self.assertTrue(any(command[:2] == ["docker", "load"] for command in executor.commands))
 
+    def test_observability_upgrade_only_restarts_prometheus_and_checks_permissions(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def __init__(self) -> None:
+                self.commands: list[list[str]] = []
+
+            def run(self, command: list[str], *, cwd: Path | None = None) -> None:
+                self.commands.append(command)
+
+        prometheus_image = b"prometheus-image"
+        manifest = {
+            "schema_version": "2",
+            "version": "v2.55.2",
+            "components": [
+                {
+                    "type": "observability",
+                    "services": ["prometheus"],
+                    "images": [{"service": "prometheus", "image": "prom/prometheus:v2.55.2", "archive": "images/prometheus.tar", "sha256": hashlib.sha256(prometheus_image).hexdigest()}],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            (settings.prometheus_data_dir / "01ABC").mkdir(parents=True)
+            (settings.prometheus_data_dir / "01ABC" / "meta.json").write_text("{}", encoding="utf-8")
+            executor = FakeExecutor()
+            service = UpgradeService(settings, TaskService(database), executor=executor, project_path=Path(tmpdir) / "project")
+            task = service.upload_package_bytes(self._package(manifest, {"images/prometheus.tar": prometheus_image}), filename="observability.tar.gz")
+
+            precheck = service.precheck(task["task_id"])
+            self.assertTrue(precheck["ok"])
+            self.assertIn("prometheus_permissions", [check["name"] for check in precheck["checks"]])
+
+            started = service.start(task["task_id"])
+            self.assertEqual(started["status"], "success")
+            override = (settings.compose_runtime_dir / "docker-compose.upgrade.yml").read_text(encoding="utf-8")
+            self.assertIn("prometheus:", override)
+            self.assertIn("prom/prometheus:v2.55.2", override)
+            self.assertNotIn("web-api:", override)
+            self.assertTrue(any(command[-1:] == ["prometheus"] for command in executor.commands if command[:3] == ["docker", "compose", "-f"]))
+
     def test_upload_rejects_sensitive_paths(self) -> None:
         from fastapi import HTTPException
 

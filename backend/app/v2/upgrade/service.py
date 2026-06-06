@@ -33,6 +33,7 @@ MANIFEST_NAME = "manifest.json"
 SENSITIVE_NAMES = {".env", "smartx.db"}
 SENSITIVE_PARTS = {"backups", "exports", "compose-runtime", "password", "token", "secret"}
 PLATFORM_SERVICES = {"web-api", "collector-worker", "frontend"}
+OBSERVABILITY_SERVICES = {"prometheus"}
 
 
 class UpgradeCommandExecutor:
@@ -97,6 +98,8 @@ class UpgradeService:
             _check_images(package_path, manifest),
             _check_project_files(package_path, manifest),
         ]
+        if _observability_services(manifest):
+            checks.append(_check_prometheus_permissions(self.settings.prometheus_data_dir))
         task["checks"] = checks
         task["status"] = "precheck_passed" if all(check["ok"] for check in checks) else "precheck_failed"
         task["updated_at"] = _now().isoformat()
@@ -151,7 +154,7 @@ class UpgradeService:
             self.tasks.update_task(task_id, progress=20, message="升级前备份已完成", logs=logs, steps=steps)
 
             package_path = Path(task["package_path"])
-            images = _platform_images(task["manifest"])
+            images = _upgrade_images(task["manifest"])
             steps = _replace_step(steps, "load_images", "running", f"{len(images)} 个镜像")
             self.tasks.update_task(task_id, progress=35, message="正在加载升级镜像", logs=logs, steps=steps)
             for image in images:
@@ -171,13 +174,13 @@ class UpgradeService:
 
             steps = _replace_step(steps, "write_override", "running")
             self.tasks.update_task(task_id, progress=70, message="正在写入运行时覆盖配置", logs=logs[-8:], steps=steps)
-            override_path = self._write_platform_override(images)
+            override_path = self._write_upgrade_override(images)
             logs.append(f"运行时覆盖配置：{override_path}")
             steps = _replace_step(steps, "write_override", "succeeded", str(override_path))
 
             steps = _replace_step(steps, "restart", "running")
             self.tasks.update_task(task_id, progress=82, message="正在重启升级服务", logs=logs[-8:], steps=steps)
-            self.executor.run(["docker", "compose", "-f", "docker-compose.offline.yml", "-f", str(override_path), "--project-name", "smartx-capacity-insight", "up", "-d", "--no-deps", *sorted(_platform_services(task["manifest"]))], cwd=self.project_path)
+            self.executor.run(["docker", "compose", "-f", "docker-compose.offline.yml", "-f", str(override_path), "--project-name", "smartx-capacity-insight", "up", "-d", "--no-deps", *sorted(_upgrade_services(task["manifest"]))], cwd=self.project_path)
             logs.append("平台服务已提交重启")
             steps = _replace_step(steps, "restart", "succeeded")
 
@@ -243,7 +246,7 @@ class UpgradeService:
             shutil.copy2(source, target)
         return backup_dir
 
-    def _write_platform_override(self, images: list[dict[str, Any]]) -> Path:
+    def _write_upgrade_override(self, images: list[dict[str, Any]]) -> Path:
         self.settings.compose_runtime_dir.mkdir(parents=True, exist_ok=True)
         path = self.settings.compose_runtime_dir / "docker-compose.upgrade.yml"
         lines = ["services:"]
@@ -331,6 +334,51 @@ def _platform_services(manifest: dict[str, Any]) -> set[str]:
     if services:
         return services
     return {str(image.get("service")) for image in _platform_images(manifest) if image.get("service") in PLATFORM_SERVICES}
+
+
+def _observability_images(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    images: list[dict[str, Any]] = []
+    for component in manifest.get("components") or []:
+        if component.get("type") != "observability":
+            continue
+        for image in component.get("images") or []:
+            if image.get("service") in OBSERVABILITY_SERVICES:
+                images.append(dict(image))
+    return images
+
+
+def _observability_services(manifest: dict[str, Any]) -> set[str]:
+    services: set[str] = set()
+    for component in manifest.get("components") or []:
+        if component.get("type") != "observability":
+            continue
+        for service in component.get("services") or []:
+            if service in OBSERVABILITY_SERVICES:
+                services.add(str(service))
+    if services:
+        return services
+    return {str(image.get("service")) for image in _observability_images(manifest) if image.get("service") in OBSERVABILITY_SERVICES}
+
+
+def _upgrade_images(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    return _platform_images(manifest) + _observability_images(manifest)
+
+
+def _upgrade_services(manifest: dict[str, Any]) -> set[str]:
+    return _platform_services(manifest) | _observability_services(manifest)
+
+
+def _check_prometheus_permissions(prometheus_dir: Path) -> dict[str, Any]:
+    if not prometheus_dir.exists() or not prometheus_dir.is_dir():
+        return {"name": "prometheus_permissions", "ok": False, "message": "Prometheus 数据目录不存在。"}
+    marker = prometheus_dir / ".smartx-upgrade-precheck"
+    try:
+        marker.write_text("ok", encoding="utf-8")
+        marker.unlink()
+    except Exception as exc:
+        return {"name": "prometheus_permissions", "ok": False, "message": f"Prometheus 数据目录不可写：{exc}"}
+    blocks = [path.name for path in prometheus_dir.iterdir() if path.is_dir() and (path / "meta.json").is_file()]
+    return {"name": "prometheus_permissions", "ok": True, "message": f"Prometheus 数据目录可写，历史 block {len(blocks)} 个。"}
 
 
 def _step(key: str, title: str, status: str, message: str = "") -> dict[str, str]:

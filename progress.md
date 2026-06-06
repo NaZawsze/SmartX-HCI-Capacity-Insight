@@ -1527,3 +1527,28 @@ TDD 记录：
   - 快进拉取到 `c16c078`。
   - `docker compose build upgrade-runner` 通过。
   - 验证此前失败的 runner pip 安装问题已解除；空 `requirements-upgrade.txt` 可正常构建镜像。
+
+### 2026-06-06 Phase V2-12 Prometheus observability 组件升级第一版
+
+状态：完成本地验证，待远端验证和提交
+
+实施内容：
+
+- v2 升级 manifest 支持 `type=observability` 的 Prometheus 组件。
+- 平台升级、observability 升级的镜像和服务集合拆分计算：
+  - platform 只处理 `web-api`、`collector-worker`、`frontend`。
+  - observability 只处理 `prometheus`。
+- Prometheus 组件预检查增加数据目录写入检查，并统计历史 block 数量。
+- Prometheus 组件升级只写入 `prometheus` 镜像 override，只重启 Prometheus，不误重启平台三件套。
+- `docs/v2-rebuild-task-plan.md` 将 Prometheus 组件升级第一版和 Prometheus 权限预检查第一版标记完成。
+
+TDD 记录：
+
+- RED：新增 `test_observability_upgrade_only_restarts_prometheus_and_checks_permissions` 后，升级服务不会识别 observability 组件，也不会检查 Prometheus 数据目录权限。
+- GREEN：新增 observability 镜像/服务解析、Prometheus 权限预检查、统一 upgrade override 写入和按 manifest 服务重启。
+
+验证：
+
+- 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade -v` 通过，5 个测试通过。
+- 本地：v2 后端完整 unittest 集 50 个测试通过。
+- 本地：`python3 -m py_compile backend/app/v2/upgrade/service.py backend/tests/test_v2_upgrade.py` 通过。
