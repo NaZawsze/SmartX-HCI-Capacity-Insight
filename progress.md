@@ -2253,3 +2253,24 @@ TDD 记录：
 注意：
 
 - 旧 v1 测试和非 v2 测试中仍有会操作 Docker 或依赖旧服务的用例，不适合作为远端在线环境全量回归命令。当前 v2 远端回归以 `backend/tests/test_v2_*.py` 为准。
+
+### 2026-06-06 升级问题台账 v2 口径收口
+
+状态：完成文档口径治理
+
+发现：
+
+- `docs/upgrade-issues.md` 仍保留多处 v1/v0.4 或 runner v0.2.x 时代的“待验证、待完整回归、v0.4.0 升级包、v0.2.2 基线”描述。
+- `docs/v2-upgrade-center-design.md` 仍写着 web-api 不直接执行复杂 Docker 升级动作，但真实 v2 方案已经根据 runner-only 自升级断链问题调整为：runner-only 组件升级由 web-api 直接执行，平台和 Prometheus/observability 升级继续交给 upgrade-runner。
+
+处理：
+
+- `docs/upgrade-issues.md` 更新时间改为 2026-06-06。
+- 将 UPG-001、UPG-002、UPG-003、UPG-004、UPG-005、UPG-006、UPG-007、UPG-008、UPG-009、UPG-011、UPG-014、UPG-015、UPG-019 的状态描述对齐到 v2 当前事实。
+- 补充 `10.20.11.3` 已真实执行平台升级包、runner 组件包和 Prometheus/observability 组件包的验证记录。
+- `docs/v2-upgrade-center-design.md` 明确 runner-only 组件升级由 web-api 直接执行，平台升级和 Prometheus/observability 升级由 upgrade-runner 执行。
+
+验证：
+
+- 本轮只修改文档。
+- `rg` 检查当前任务文档和升级台账不再保留未收口的 v2 待验证项；剩余 v0.2.x/v0.4.0 文本仅作为历史现象或历史验证记录保留。

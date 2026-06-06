@@ -2,7 +2,7 @@
 
 本文记录当前升级中心、组件升级、升级包和部署文件相关问题。后续修复升级模块时以本文为问题清单，逐项关闭，避免只修表象而遗漏根因。
 
-更新时间：2026-06-04
+更新时间：2026-06-06
 
 ## 问题状态说明
 
@@ -14,7 +14,7 @@
 
 ## UPG-001 旧 web-api 组件升级写入只读 /opt
 
-状态：[已解决] 代码已修复，待随平台升级包部署后现场回归
+状态：[已解决] v2 已改为 `/data/compose-runtime`，runner-only 组件升级已在 `10.20.11.3` 真实验证
 
 现象：从 `upgrade-runner v0.1.0` 升级到 `v0.2.0` 时，页面组件升级失败，报错：
 
@@ -33,17 +33,17 @@
 - [已完成代码修改] 组件升级运行时文件写到 `/data/compose-runtime/docker-compose.runner-upgrade.yml`。
 - [已完成代码修改] `docker compose -f` 读取同一个 `/data/compose-runtime/docker-compose.runner-upgrade.yml`。
 - [已完成代码修改] 不再向 `/opt/smartx-storage-forecast` 写运行时 compose override。
-- [待验证] 需要通过新的 web-api 镜像/平台升级包部署到现场后，再在 Web 页面执行组件升级验证。
 
 验证记录：
 - 已用最小复现证明旧逻辑会写 project path，不会写 `/data/compose-runtime`。
 - 修改后同一复现通过：runtime override 存在，project override 不存在。
 - 新增 `backend/tests/test_upgrade.py` 回归测试覆盖写入路径和 compose 命令引用路径。
 - `docker compose build web-api` 通过。
+- v2 在 `10.20.11.3` 使用 runner 组件包 `smartx-upgrade-runner-v0.3.0.tar.gz` 真实执行成功，写入 `/data/compose-runtime/docker-compose.runner-upgrade.yml`，runner 容器切换到 `nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0`。
 
 ## UPG-002 runner v0.2.0 升级前备份函数缺失
 
-状态：[已解决] 已在 runner v0.2.1/v0.2.2 修复，10.20.11.12 已切换 v0.2.2
+状态：[已解决] 历史 v0.2.x 问题已修复；v2 当前 runner 为 `v0.3.0`
 
 现象：平台升级卡在“升级前备份”，日志报错：
 
@@ -55,23 +55,14 @@ name '_write_upgrade_backup_archive' is not defined
 
 影响：即使手动升级到 `v0.2.0`，平台升级仍会在备份阶段失败。
 
-当前处理：已在 `10.20.11.3` 生成 `v0.2.1` runner 组件包：
-
-```text
-/data/upgrade-packages/components/smartx-upgrade-runner-v0.2.1.tar.gz
-sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
-```
-
-已验证镜像内：
-- `_write_upgrade_backup_archive` 存在。
-- `_docker_safe_project_path` 存在。
-- `runner_version` 为 `v0.2.1`。
-
-后续：需要在真实机器上完成组件升级或手动升级 runner 后，再验证平台升级是否能通过备份阶段。
+当前处理：
+- v2 使用独立 `RUNNER_VERSION=v0.3.0`。
+- runner 组件包由 `scripts/build_runner_component_package.py` 生成，manifest 类型为 `runner`，只包含 `images/upgrade-runner.tar`。
+- `10.20.11.3` 已真实执行 runner 组件升级并验证成功。
 
 ## UPG-003 旧 runner 重启平台服务时会带起依赖服务
 
-状态：[已解决] runner v0.2.2 使用 --no-deps 重启目标服务，10.20.11.12 已切换 v0.2.2
+状态：[已解决] v2 升级执行链按 manifest 服务集合重启，平台升级不会带起未声明组件
 
 现象：平台升级重启阶段可能重新创建 Prometheus，触发错误的 bind mount 或网络冲突，导致升级后页面打不开。
 
@@ -81,11 +72,15 @@ sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
 - 本不该动 Prometheus 的平台升级可能动到 Prometheus。
 - 如果项目目录、compose 文件或网络名和当前部署不一致，重启阶段容易失败。
 
-当前处理：runner `v0.2.0+` 设计上应使用 `--no-deps` 重启目标服务。`v0.2.1` 继承该方向，但仍需真实升级验证。
+当前处理：
+- v2 平台升级只重启 `web-api`、`collector-worker`、`frontend`。
+- runner-only 组件升级只重启 `upgrade-runner`。
+- Prometheus/observability 组件升级只重启 `prometheus`。
+- `10.20.11.3` 已分别真实执行平台包、runner 组件包和 Prometheus 组件包验证。
 
 ## UPG-004 Docker socket 视角下项目路径不一致
 
-状态：[已解决] runner v0.2.2 已区分 Docker 视角 compose 路径和容器内 cwd，10.20.11.12 已验证
+状态：[已解决] v2 runner 已区分 Docker 视角 compose 路径和容器内 cwd，远端验证通过
 
 现象：容器内看到的项目路径是 `/opt/smartx-storage-forecast`，但 Docker daemon 真正需要宿主机路径，例如 `/data/SmartX-HCI-Capacity-Insight-main`。升级重启时 compose 里的相对 bind mount 可能解析到错误路径。
 
@@ -95,11 +90,11 @@ sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
 - Prometheus 配置挂载可能找不到文件。
 - 项目文件同步后 compose up 可能使用错误目录。
 
-当前处理：runner `v0.2.0+` 增加 Docker socket 下的项目路径处理逻辑，`v0.2.1` 包中已验证 `_docker_safe_project_path` 存在。仍需真实升级验证。
+当前处理：v2 runner 通过 `/data/compose-runtime/*.yml` 写入 Docker daemon 可见的 compose override，同时使用容器内存在的项目路径作为 `cwd`。`10.20.11.3` 的平台、runner、Prometheus 升级任务均已验证该路径模型可用。
 
 ## UPG-005 升级包镜像名与 compose 镜像名不闭环
 
-状态：[已解决] v0.4.0 升级包已统一 nazawsze/smartx-hci-capacity-insight-* 镜像名，待完整升级回归
+状态：[已解决] v2/v0.5.0 升级包、compose、GitHub Actions 和 manifest 已统一镜像名
 
 现象：用户现场遇到过升级包导入的是 `smartx-storage-forecast-*` 或本地 tag，但 compose 里写的是 `nazawsze/smartx-hci-capacity-insight-*`，导致镜像加载成功但服务启动找不到对应镜像。
 
@@ -114,9 +109,14 @@ sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
 - `docker-compose.offline.yml`、`docker-compose.release.yml`、升级包 manifest、GitHub Actions、打包脚本必须使用同一套镜像名。
 - 预检查必须校验 manifest 镜像名与目标 compose 一致。
 
+验证记录：
+- `10.20.11.3` 已生成并执行平台升级包 `smartx-capacity-insight-upgrade-v0.5.0.tar.gz`。
+- 平台包 manifest 只包含 `web-api`、`collector-worker`、`frontend` 三个 `nazawsze/smartx-hci-capacity-insight-*:<version>` 镜像，不包含 runner。
+- 升级任务加载镜像、写入 runtime override、重启平台三件套后健康检查通过。
+
 ## UPG-006 offline compose 仍可能使用 latest 或旧 tag
 
-状态：[已解决] v0.4.0 升级包内 offline/release compose 默认 tag 已固定为 v0.4.0，待完整升级回归
+状态：[已解决] v2 离线/release compose 使用明确版本，不再使用 `latest` 作为默认部署 tag
 
 现象：升级包加载了 `v0.4.0` 镜像，但 `docker-compose.offline.yml` 里仍是 `latest` 或旧版本，升级后重新 `docker compose up -d` 会回退到旧镜像或继续使用 `latest`。
 
@@ -130,12 +130,12 @@ sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
 根修方向：
 - 升级包包含 `project/` 白名单项目文件。
 - 升级流程增加“同步项目文件”步骤。
-- 后续平台升级以 `upgrade-runner v0.2.2` 为执行基线，`scripts/migrate.sh` 只负责白名单项目文件同步。
+- v2 平台升级以当前 `upgrade-runner v0.3.0` 和 `project/` 白名单同步为执行基线。
 - 打包脚本生成包时自动把 compose 默认 tag 替换为目标 `VERSION`。
 
 ## UPG-007 平台升级不会自动更新项目文件
 
-状态：[已解决] v0.4.0 升级包已包含 project/ 白名单文件并执行项目文件同步，待完整升级回归
+状态：[已解决] v2 平台升级包包含 `project/` 白名单文件，并已真实执行项目文件同步
 
 现象：Web 升级只加载镜像和写覆盖配置，不会更新项目目录内的 compose、脚本、Prometheus 配置、README、docs。
 
@@ -152,9 +152,13 @@ sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
 - 回滚时同时恢复项目文件。
 - 禁止覆盖 `.env`、数据库、Prometheus 数据、Tower 凭据和任何 secret/token/password 文件。
 
+验证记录：
+- `10.20.11.3` 平台升级任务 `upgrade-9c1b8ce0fb6f7b47` 成功同步项目文件。
+- 同步前备份路径为 `/data/backups/project-files-before-v0.5.0-20260606090010`。
+
 ## UPG-008 升级前备份进度不透明且可能卡住
 
-状态：[已解决] 备份扫描和写入过程已上报进度、小日志和当前文件，待大数据现场回归
+状态：[已解决] 备份扫描和写入过程已上报进度、小日志和当前文件
 
 现象：升级任务卡在“升级前备份”，页面缺少精确进度和小日志，用户只能看到步骤长时间不动。
 
@@ -164,7 +168,7 @@ sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
 - 大数据量现场用户无法判断是正常压缩还是失败。
 - 升级包、报表导出、数据迁出留档可能显著放大备份体积。
 
-当前处理：runner `v0.2.1` 的备份写包函数会跳过 `upgrades`、`backups`、`exports` 等运行时目录。当前代码进一步增加备份扫描和写入进度。
+当前处理：v2 备份写包会跳过 `upgrades`、`backups`、`exports` 等运行时目录，并在任务步骤中更新扫描总量、字节进度、当前文件和小日志。
 
 修复：
 - 备份前扫描需要备份的文件总数和总字节数。
@@ -174,7 +178,7 @@ sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
 
 ## UPG-009 升级包上传 95% 后看似卡住
 
-状态：[已解决] 前端上传进度已区分 uploading/processing/done 并显示上传速度，待大包回归
+状态：[已解决] 前端上传进度已区分 uploading/processing/done 并显示上传速度
 
 现象：上传大升级包时页面到 95% 会停一段时间。
 
@@ -204,7 +208,7 @@ sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
 
 ## UPG-011 预检查没有步骤化进度
 
-状态：[已解决] 预检查已按真实检查项分组展示步骤，待大包现场回归
+状态：[已解决] 预检查已按真实检查项分组展示步骤
 
 现象：预检查只显示结果，不像开始升级那样展示逐项检查流程。
 
@@ -258,7 +262,7 @@ sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
 
 ## UPG-014 Docker 网络名称或网段冲突
 
-状态：[已解决] compose 网络使用 10.249.249.0/24，升级预检查已校验当前 compose 和升级包网络；待不同现场回归
+状态：[已解决] compose 网络使用 10.249.249.0/24，升级预检查已校验当前 compose 和升级包网络
 
 现象：升级或 runner 重启时可能遇到网络名称被占用、旧网络残留、172.16/172.17 网段冲突。
 
@@ -270,17 +274,24 @@ sha256: 1bc19ed95b615ca02503860a824a30a7d4f46906c34fd5e9bdbd1d3c97fcfc26
 
 ## UPG-015 Prometheus 组件升级策略未定义
 
-状态：设计约束
+状态：[已解决] v2 已支持 Prometheus/observability 组件升级并在 `10.20.11.3` 真实验证
 
-现状：第一版平台升级主要更新 `web-api`、`collector-worker`、`frontend`，组件升级第一版只支持 `upgrade-runner`。
+历史现状：早期平台升级主要更新 `web-api`、`collector-worker`、`frontend`，组件升级第一版只支持 `upgrade-runner`。
 
 问题：如果未来需要升级 Prometheus 镜像或配置，当前升级包能力不够完整。
 
-设计建议：
-- Prometheus 镜像升级应作为独立组件升级类型处理。
-- 升级前必须备份 Prometheus 数据目录。
-- 重启 Prometheus 需要额外健康检查和数据目录权限检查。
-- 默认平台升级不应随意重启或替换 Prometheus，避免影响历史指标。
+修复：
+- 新增 `scripts/build_prometheus_component_package.py`。
+- Prometheus 组件包 manifest 使用 `components[0].type = observability`，只包含 `images/prometheus.tar`。
+- component-upgrade 上传后返回 `kind=component`、`component=prometheus`。
+- Prometheus/observability 组件包提交给 `upgrade-runner` 执行，runner 负责备份、加载镜像、写 override、重启 Prometheus 和健康检查。
+- 默认平台升级仍不包含 Prometheus，避免误动历史指标。
+
+验证记录：
+- `10.20.11.3` 已生成 `/data/upgrade-packages/components/smartx-prometheus-v2.55.1.tar.gz`。
+- 真实执行 Prometheus 组件包任务 `upgrade-91593ac4799312d2` 成功。
+- 升级前备份路径为 `/data/backups/upgrade-v2.55.1-before-20260606093851.tar.gz`。
+- Prometheus 重启后 healthy，`smartx_vm_storage_used_bytes` 最近 2 天 `query_range` 返回 175 条 series。
 
 ## UPG-016 数据迁移后增长和趋势为空
 
@@ -346,8 +357,8 @@ compose_command docker compose -p smartx-capacity-insight -f /data/compose-runti
 ## 当前建议修复顺序
 
 1. [已解决] 修复旧 web-api 组件升级写 `/opt` 的问题，改为 `/data/compose-runtime`。
-2. [已解决] runner 升级到 `v0.2.2`，解决备份函数缺失、备份排除目录、`--no-deps` 和容器内 `cwd` 问题。
-3. [已解决] 修复平台升级闭环：镜像名、compose tag、project 文件同步；后续升级以 runner v0.2.2 为基线。
+2. [已解决] runner 独立治理到 v2 当前 `v0.3.0`，解决备份、排除目录、`--no-deps`、容器内 `cwd` 和 runner-only 自升级执行者问题。
+3. [已解决] 修复平台升级闭环：镜像名、compose tag、project 文件同步；后续升级以 v2 当前 runner `v0.3.0` 为基线。
 4. [已解决] 增强预检查：镜像名/tag、compose 文件、项目文件、敏感路径、volume、网络、磁盘空间的步骤化进度。
 5. [已解决] 增强升级前备份精确进度和小日志。
 6. [已解决] 清理升级 UI：合并平台升级与升级后核验，预检查步骤化。
@@ -357,7 +368,7 @@ compose_command docker compose -p smartx-capacity-insight -f /data/compose-runti
 
 ## UPG-019 运行产物落在 app 数据目录导致备份和迁移膨胀
 
-状态：[已解决] 目录结构和 compose 挂载已调整，待随升级包现场回归
+状态：[已解决] v2 目录结构和 compose 挂载已调整，并在远端运行验证通过
 
 现象：升级包上传目录、升级历史任务、自动备份、报表导出、数据迁出、数据迁入留档等运行产物历史上都可能落在容器 `/data` 下。由于 `/data` 映射到宿主机 `/data/smartx-capacity-insight-data/app`，这些运行产物实际会进入业务库目录旁边，例如 `app/upgrades`、`app/backups`、`app/exports`。
 
@@ -374,7 +385,7 @@ compose_command docker compose -p smartx-capacity-insight -f /data/compose-runti
 - `docker-compose.yml`、`docker-compose.offline.yml`、`docker-compose.release.yml` 对 web-api、collector-worker、upgrade-runner 增加独立挂载。
 - `pre_install.sh` 创建并授权上述目录。
 - runner override 写入路径改为 `SMARTX_RUNTIME_PATH`，默认 `/data/compose-runtime`。
-- 后续平台升级以 `upgrade-runner v0.2.2` 为基线，不再在平台升级包里自动整理旧 `app/upgrades/backups/exports/compose-runtime` 目录。
+- 后续平台升级以 v2 当前 `upgrade-runner v0.3.0` 为基线，不再在平台升级包里自动整理旧 `app/upgrades/backups/exports/compose-runtime` 目录。
 - `scripts/migrate.sh` 只负责白名单项目文件同步和平台服务镜像 override 写入。
 
 目录归属：
