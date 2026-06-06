@@ -1408,3 +1408,7 @@ TDD 记录：
 - 本地：v2 后端完整 unittest 集 47 个测试通过。
 - 本地：`python3 -m py_compile backend/app/v2/api.py backend/app/v2/database.py backend/app/v2/migration/service.py backend/app/v2/tasks/service.py backend/app/v2/system/health.py backend/tests/test_v2_migration.py backend/tests/test_v2_tasks_api.py` 通过。
 - 本机无 `npm` 可执行文件，前端构建将在远端 Docker build 中验证。
+- 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
+  - 快进拉取到 `8300d47`。
+  - 使用 `smartx-storage-forecast-web-api:local` 容器执行 `backend.tests.test_v2_tasks_api backend.tests.test_v2_migration` 通过。
+  - `docker compose build web-api frontend` 通过，前端 Vite 构建成功；仅有 bundle 大小警告。
