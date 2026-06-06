@@ -351,9 +351,9 @@ compose_command docker compose -p smartx-capacity-insight -f /data/compose-runti
 4. [已解决] 增强预检查：镜像名/tag、compose 文件、项目文件、敏感路径、volume、网络、磁盘空间的步骤化进度。
 5. [已解决] 增强升级前备份精确进度和小日志。
 6. [已解决] 清理升级 UI：合并平台升级与升级后核验，预检查步骤化。
-7. [设计待定] 定义 Prometheus 组件升级策略。
+7. [已解决] 定义并验证 Prometheus/observability 组件升级策略。
 8. [已解决] 回归验证数据迁移后的 Prometheus 历史指标、日/月增长和趋势图。
-9. [设计待定] 基于历史问题重新设计全新的平台升级与组件升级模式，覆盖包格式、runner 自升级、状态机、备份和回滚闭环。
+9. [已解决] 基于历史问题重新设计 v2 平台升级与组件升级模式，覆盖包格式、runner 自升级、状态机、备份和回滚闭环第一版。
 
 ## UPG-019 运行产物落在 app 数据目录导致备份和迁移膨胀
 

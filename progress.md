@@ -2128,3 +2128,27 @@ TDD 记录：
 - 远端容器内后端组合测试 `backend.tests.test_v2_reports backend.tests.test_v2_inventory_metrics backend.tests.test_v2_collection backend.tests.test_v2_dashboard_vm backend.tests.test_v2_migration backend.tests.test_v2_upgrade backend.tests.test_v2_package_builders` 共 28 个测试通过。
 - 远端前端关键测试 `AppLayout.test.tsx DashboardPage.test.tsx global.test.ts ServicePage.test.tsx` 共 20 个测试通过。
 - 远端健康检查：`/api/system/health` 返回 ok，前端 8080 返回 200，Prometheus healthy。
+
+### 2026-06-06 Phase V2 任务文档状态治理
+
+状态：完成一轮 v2 任务文档对齐
+
+发现：
+
+- 根目录 `task_plan.md` 顶部仍保留 v1/dev 旧上下文：默认分支 `dev`、路径 `/opt/smartx-storage-forecast`、基线 `v0.3.3U1` 和一批旧报表未提交变更。
+- `docs/v2-rebuild-task-plan.md` 中 Phase V2-3 到 V2-9 的 checklist 已全部完成，但阶段状态仍写“进行中”或“待处理”。
+- `docs/upgrade-issues.md` 和 `docs/functional-modules.md` 仍把 Prometheus 组件升级策略、全新升级模式、runner 自升级标为“设计待定/待处理”，与当前 v2 代码和远端真实验证不一致。
+
+处理：
+
+- `task_plan.md` 当前环境改为 v2 事实：`feature/upgrade-v2`、`/opt/smartx-storage-forecast-v2`、平台 `v0.5.0`、runner `v0.3.0`。
+- `task_plan.md` 将 v1/dev 旧报表提交阶段标记为归档，不再作为当前 v2 待办。
+- `task_plan.md` 将 Phase 12 全新升级模式和 Phase 13 数据迁移灾备标记为“完成第一版”，并补充当前证据和后续增强边界。
+- `docs/v2-rebuild-task-plan.md` 将 Phase V2-3 到 V2-9 状态统一改为“完成第一版”。
+- `docs/upgrade-issues.md` 将 Prometheus/observability 组件升级策略和 v2 全新升级模式标记为已解决第一版。
+- `docs/functional-modules.md` 将升级模式、runner-only 组件升级和 Prometheus observability 组件升级标记为已解决。
+
+验证：
+
+- 本轮是文档状态治理，没有修改代码。
+- 已计划执行 `git diff --check` 和状态检查后提交。

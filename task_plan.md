@@ -7,31 +7,22 @@
 ## 当前环境
 
 - 主要开发与验证机器：`10.20.11.3`
-- 项目路径：`/opt/smartx-storage-forecast`
-- 默认工作分支：`dev`
-- 当前基线提交：`ed3ed5f`，标签 `v0.3.3U1`
-- 默认提交策略：用户没有特别说明时，提交到 `dev`；只有用户明确要求时才同步 `main` 和打 tag。
+- v2 远端项目路径：`/opt/smartx-storage-forecast-v2`
+- v2 当前工作分支：`feature/upgrade-v2`
+- v2 平台版本：`v0.5.0`
+- v2 runner 组件版本：`v0.3.0`
+- v2 提交策略：当前重建工作只提交并推送到 `feature/upgrade-v2`；不要同步 `dev/main` 或打 tag，除非用户明确要求。
+- v1/dev 维护策略：如果用户明确要求继续修 v1 小版本，再切回 `dev` 并按用户指令处理。
 
 ## 当前未提交变更
 
-以下变更已经在远端 `dev` 工作区内实现并完成基础验证，但尚未提交：
+当前本地 `feature/upgrade-v2` 工作区应保持干净。继续前先执行：
 
-- VM 页面已用容量百分比前增加 `已使用` 文案。
-- 报表页容量增长速率改为固定按最近 7 天平均增长速率计算。
-- 报表页容量增长速率卡片提示改为 `7 天平均`。
-- 报表预测图支持 `7 / 30 / 90 / 365 / 720` 天范围切换。
-- 报表接口 `GET /api/reports/latest` 支持 `chart_days` 参数。
-- 报表接口响应增加 `chart_days` 和 `growth_rate_window_days`。
+```bash
+git status --short --branch
+```
 
-受影响文件：
-
-- `backend/app/api/routes.py`
-- `backend/app/services/dashboard.py`
-- `frontend/src/components/ClusterCapacityChart.tsx`
-- `frontend/src/pages/ReportsPage.tsx`
-- `frontend/src/pages/VmsPage.tsx`
-- `frontend/src/services/api.ts`
-- `frontend/src/types.ts`
+不要提交 `.env`、SQLite、Prometheus 数据、升级包、迁移包、备份包、导出文件或 Tower 凭据。
 
 ## 阶段计划
 
@@ -43,22 +34,17 @@
 - 记录项目当前架构、部署方式、分支规则、已知坑点。
 - 不记录任何账号密码或敏感 token。
 
-### Phase 2 - 提交前验证近期报表改动
+### Phase 2 - v1 历史报表改动
 
-状态：待用户要求
+状态：归档
 
-- 后端语法检查。
-- 前端构建。
-- 重启 `web-api` 和 `frontend`。
-- 验证 `/metrics`、`8080` 和 `chart_days` 接口。
+该阶段是 v1/dev 旧上下文，已由 v2 报表重建覆盖。除非用户明确要求回到 v1/dev，不再作为当前 v2 待办。
 
-### Phase 3 - 提交近期报表改动
+### Phase 3 - v1 历史报表提交
 
-状态：待用户要求
+状态：归档
 
-- 检查 `git diff`。
-- 提交到 `dev`。
-- 只有用户明确要求时推送、同步 `main`、打 tag。
+该阶段是 v1/dev 旧上下文，当前 v2 工作不提交到 `dev/main`。
 
 ### Phase 4 - 导出报表可读性优化
 
@@ -71,22 +57,23 @@
 
 ## 常用验证命令
 
-在 `10.20.11.3:/opt/smartx-storage-forecast` 执行：
+在 `10.20.11.3:/opt/smartx-storage-forecast-v2` 执行：
 
 ```bash
-git status --short
-git diff --stat
-python3 -m py_compile backend/app/services/dashboard.py backend/app/api/routes.py
-docker compose build frontend
-docker compose build web-api
-docker compose up -d web-api frontend
-curl -s -o /dev/null -w "frontend:%{http_code}\n" http://127.0.0.1:8080
-curl -s -o /dev/null -w "api_metrics:%{http_code}\n" http://127.0.0.1:8000/metrics
+git status --short --branch
+git diff --check
+docker compose --project-name smartx-storage-forecast exec -T web-api sh -lc \
+  'cd /opt/smartx-storage-forecast && PYTHONPATH=backend python -m unittest backend.tests.test_v2_reports backend.tests.test_v2_inventory_metrics backend.tests.test_v2_collection backend.tests.test_v2_dashboard_vm backend.tests.test_v2_migration backend.tests.test_v2_upgrade backend.tests.test_v2_package_builders'
+docker run --rm -v /opt/smartx-storage-forecast-v2/frontend:/src:ro -w /tmp node:22-alpine sh -lc \
+  'cp -a /src ./frontend-test && cd frontend-test && npm install --no-audit --no-fund && npm test -- --run AppLayout.test.tsx DashboardPage.test.tsx global.test.ts ServicePage.test.tsx'
+curl -fsS http://127.0.0.1:8000/api/system/health
+curl -fsSI http://127.0.0.1:8080 | head -n 1
+curl -fsS http://127.0.0.1:9090/-/healthy
 ```
 
 ## 注意事项
 
-- 所有项目实现、构建、部署验证默认都在 `10.20.11.3` 执行。
+- v2 实现可以先在本地 worktree 修改，再推送 `feature/upgrade-v2`，最后在 `10.20.11.3` 拉取并验证。
 - 不要在本机运行应用验证，除非用户明确要求。
 - 不要回滚用户或其他会话留下的未提交改动。
 - 修改文档时不要写入密码、私钥、token。
@@ -116,7 +103,7 @@ curl -s -o /dev/null -w "api_metrics:%{http_code}\n" http://127.0.0.1:8000/metri
 - [已完成] 文档增加 DockerHub 错误 tag 清理方法。
 - [已完成] 后端镜像内置 `VERSION` 和 `RUNNER_VERSION`，运行时优先读取镜像内版本文件。
 - [已完成] 部署文档修正离线部署默认 tag，不再描述为 `latest`。
-- [已完成] 本地验证后提交并推送到 `dev`。
+- [已完成] 本地验证后提交并推送到 `feature/upgrade-v2`。
 
 ### Phase 6 - 清理空间显示 0B 修复
 
@@ -215,7 +202,7 @@ curl -s -o /dev/null -w "api_metrics:%{http_code}\n" http://127.0.0.1:8000/metri
 
 ### Phase 12 - 全新升级模式设计
 
-状态：待处理
+状态：完成第一版
 
 目标：
 
@@ -235,9 +222,15 @@ curl -s -o /dev/null -w "api_metrics:%{http_code}\n" http://127.0.0.1:8000/metri
 - 统一包需要支持只升级平台三件套、只升级 runner、只升级 Prometheus，或组合升级；未在 manifest 中声明的组件一律不动。
 - 新模式需要输出设计文档、接口草案、升级包目录结构、状态机和迁移路线。
 
+当前证据：
+
+- `docs/v2-upgrade-center-design.md` 已定义统一 manifest、状态机、runner/Prometheus 组件升级、备份和回滚边界。
+- v2 代码已实现平台、runner-only、Prometheus/observability 三类包识别和第一版执行链。
+- `10.20.11.3` 已真实执行平台升级包、runner 组件包和 Prometheus 组件包，历史指标回归通过。
+
 ### Phase 13 - 数据迁移灾备闭环
 
-状态：待处理
+状态：完成第一版
 
 目标：
 
@@ -254,6 +247,17 @@ curl -s -o /dev/null -w "api_metrics:%{http_code}\n" http://127.0.0.1:8000/metri
 - 优化 SQLite 中 `latest_vm_volumes` 的存储结构，避免继续保存 Tower 返回的完整虚拟卷原始 JSON。
 - 新结构只保留页面、报表、导出和增长分析真正需要的虚拟卷字段；旧版本迁移包导入时需要兼容旧 `payload_json`，从旧 JSON 中抽取所需字段写入新结构，其他不需要的原始字段直接丢弃。
 - 存储结构优化后需要提供旧数据迁移脚本，并验证迁移后 VM 页面、报表导出、数据迁移导入导出和历史指标分析不受影响。
+
+当前证据：
+
+- `docs/v1-data-compatibility.md` 已定义 v1 迁入、merge/overwrite、导入前备份、Prometheus 历史指标和健康验证规则。
+- v2 已实现迁出、迁入、导入前备份、v1 迁移包兼容、旧 VM 卷 payload 抽取和导入后健康验证第一版。
+- `10.20.11.3` 已完成迁移导出、隔离导入、Prometheus 历史 block 查询、日增长和报表历史尾点回退验证。
+
+后续增强：
+
+- 大规模现场数据下的迁移导出/导入耗时和进度仍可继续优化。
+- SQLite 存储结构可继续瘦身，但当前 v2 已不把该项作为交付阻塞。
 
 ### Phase 14 - 报表产品化与客户交付
 
