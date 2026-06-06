@@ -1520,3 +1520,10 @@ TDD 记录：
 - 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m pytest backend/tests/test_deployment_config.py -q` 通过，17 个测试通过。
 - 本地：`PYTHONPATH=backend /tmp/smartx-v2-venv/bin/python -m unittest backend.tests.test_v2_upgrade -v` 通过。
 - 本地：v2 后端完整 unittest 集 49 个测试通过。
+
+远端验证补充：
+
+- 远端 `10.20.11.3:/opt/smartx-storage-forecast-v2`：
+  - 快进拉取到 `c16c078`。
+  - `docker compose build upgrade-runner` 通过。
+  - 验证此前失败的 runner pip 安装问题已解除；空 `requirements-upgrade.txt` 可正常构建镜像。
