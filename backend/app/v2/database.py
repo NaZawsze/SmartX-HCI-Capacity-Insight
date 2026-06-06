@@ -134,6 +134,8 @@ class V2Database:
                 );
                 """
             )
+            _ensure_column(conn, "users", "updated_at", "TEXT")
+            conn.execute("UPDATE users SET updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)")
             _ensure_column(conn, "tasks", "links_json", "TEXT")
             _ensure_column(conn, "tasks", "logs_json", "TEXT")
             _ensure_column(conn, "tasks", "steps_json", "TEXT")

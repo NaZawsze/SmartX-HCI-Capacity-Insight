@@ -2217,3 +2217,39 @@ TDD 记录：
 验证：
 
 - 本轮为文档架构整理，无代码改动。
+
+### 2026-06-06 Phase V2-17 远端完整回归与测试隔离修复
+
+状态：完成 v2 第一版远端回归验证
+
+目标：
+
+- 继续完成 `feature/upgrade-v2` 受控重建收口。
+- 在 `10.20.11.3` 重新验证远端 v2 分支、容器状态、后端测试、前端测试和健康检查。
+- 修复回归过程中发现的测试隔离和旧 schema 兼容问题。
+
+发现：
+
+- 远端 `test_v2_cleanup` 的 API 测试调用 `/api/admin/system/restart` 时没有 mock 系统重启服务，在带 Docker socket 的容器里会真实执行 `docker compose up -d`，导致在线验证环境容器被重建。
+- 远端容器环境包含 `SMARTX_DB_PATH=/data/smartx.db`。部分 API 测试只设置 `SMARTX_DATA_ROOT`，仍会被 `SMARTX_DB_PATH` 覆盖到真实业务库，导致采集记录测试读到现场历史记录。
+- 旧库如果已存在 `users` 表但缺少 `updated_at` 列，修改密码会执行 `UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP ...` 并报 `sqlite3.OperationalError: no such column: updated_at`。
+
+修复：
+
+- `backend/tests/test_v2_cleanup.py` 使用 FastAPI `dependency_overrides` 替换 `get_system_control_service`，重启接口测试改为 fake service，不再真实执行 Docker 重启。
+- `backend/app/v2/config.py` 在 `SMARTX_DATA_ROOT` 被显式改为非 `/data` 且 `SMARTX_DB_PATH` 仍为 compose 默认 `/data/smartx.db` 时，忽略该默认 DB path，避免测试或临时实例污染真实库。
+- `backend/app/v2/database.py` 初始化时为旧 `users` schema 补 `updated_at` 列，并回填当前时间；新建 schema 仍保留原来的 `DEFAULT CURRENT_TIMESTAMP`。
+- `backend/tests/test_v2_foundation.py` 增加上述两个回归测试。
+
+验证：
+
+- 本地目标测试 `backend.tests.test_v2_foundation.V2FoundationTest.test_settings_ignore_default_compose_db_path_when_data_root_is_overridden`、`test_database_adds_users_updated_at_for_existing_schema`、`test_settings_respect_compose_mounted_data_paths` 通过。
+- 本地 `python3 -m py_compile backend/app/v2/config.py backend/app/v2/database.py backend/tests/test_v2_foundation.py backend/tests/test_v2_cleanup.py` 通过。
+- `10.20.11.3` 受影响后端组合测试 `backend.tests.test_v2_auth_api backend.tests.test_v2_collection_runs_api backend.tests.test_v2_cleanup backend.tests.test_v2_foundation` 共 16 个通过。
+- `10.20.11.3` 完整 v2 后端测试 `test_v2_*` 共 65 个通过。
+- `10.20.11.3` 前端关键测试 `AppLayout.test.tsx DashboardPage.test.tsx global.test.ts ServicePage.test.tsx` 共 20 个通过。
+- `10.20.11.3` 健康检查：`/api/system/health` 返回 `version=v0.5.0`、`runner_version=v0.3.0`，前端 `8080` 返回 `200`，Prometheus `/-/healthy` 返回 healthy。
+
+注意：
+
+- 旧 v1 测试和非 v2 测试中仍有会操作 Docker 或依赖旧服务的用例，不适合作为远端在线环境全量回归命令。当前 v2 远端回归以 `backend/tests/test_v2_*.py` 为准。

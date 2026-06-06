@@ -90,7 +90,16 @@ class V2CleanupApiTest(unittest.TestCase):
         import os
 
         from app.v2.config import settings_from_environment
+        from app.v2.api import get_system_control_service
         from app.v2.main import create_app
+
+        class FakeSystemControl:
+            def __init__(self) -> None:
+                self.restart_calls = 0
+
+            def restart_data_services(self) -> dict:
+                self.restart_calls += 1
+                return {"ok": True, "services": ["web-api", "collector-worker", "prometheus"]}
 
         with tempfile.TemporaryDirectory() as tmpdir:
             os.environ["SMARTX_DATA_ROOT"] = tmpdir
@@ -98,6 +107,8 @@ class V2CleanupApiTest(unittest.TestCase):
             os.environ["SMARTX_ADMIN_PASSWORD"] = "password"
             try:
                 app = create_app()
+                fake_system = FakeSystemControl()
+                app.dependency_overrides[get_system_control_service] = lambda: fake_system
                 settings = settings_from_environment()
                 settings.ensure_directories()
                 (settings.reports_dir / "report.xlsx").write_bytes(b"report")
@@ -122,6 +133,7 @@ class V2CleanupApiTest(unittest.TestCase):
                     restart = client.post("/api/admin/system/restart", headers=headers)
                     self.assertEqual(restart.status_code, 200)
                     self.assertEqual(restart.json()["services"], ["web-api", "collector-worker", "prometheus"])
+                    self.assertEqual(fake_system.restart_calls, 1)
             finally:
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)

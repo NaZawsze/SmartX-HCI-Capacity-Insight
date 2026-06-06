@@ -56,6 +56,19 @@ class V2FoundationTest(unittest.TestCase):
                 os.environ.pop("SMARTX_SECRET_KEY", None)
                 os.environ.pop("SMARTX_APP_VERSION", None)
 
+    def test_settings_ignore_default_compose_db_path_when_data_root_is_overridden(self) -> None:
+        from app.v2.config import settings_from_environment
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["SMARTX_DATA_ROOT"] = tmpdir
+            os.environ["SMARTX_DB_PATH"] = "/data/smartx.db"
+            try:
+                settings = settings_from_environment()
+                self.assertEqual(settings.sqlite_path, Path(tmpdir) / "smartx-capacity-insight-data" / "app" / "smartx.db")
+            finally:
+                os.environ.pop("SMARTX_DATA_ROOT", None)
+                os.environ.pop("SMARTX_DB_PATH", None)
+
     def test_settings_respect_compose_mounted_data_paths(self) -> None:
         from app.v2.config import settings_from_environment
 
@@ -98,6 +111,41 @@ class V2FoundationTest(unittest.TestCase):
             self.assertTrue(auth.change_password("admin", "password", "new-password"))
             self.assertIsNone(auth.login("admin", "password"))
             self.assertEqual(auth.login("admin", "new-password").username, "admin")
+
+    def test_database_adds_users_updated_at_for_existing_schema(self) -> None:
+        from app.v2.auth.service import AuthService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.security import hash_password
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="schema-secret", admin_password="password")
+            db = V2Database(settings)
+            settings.sqlite_dir.mkdir(parents=True, exist_ok=True)
+            with db.connection() as conn:
+                conn.execute(
+                    """
+                    CREATE TABLE users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT NOT NULL UNIQUE,
+                        password_hash TEXT NOT NULL,
+                        is_admin INTEGER NOT NULL DEFAULT 1,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                conn.execute(
+                    "INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)",
+                    ("admin", hash_password("password")),
+                )
+
+            db.initialize()
+            with db.connection() as conn:
+                columns = [row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()]
+            self.assertIn("updated_at", columns)
+
+            auth = AuthService(db, settings)
+            self.assertTrue(auth.change_password("admin", "password", "new-password"))
 
     def test_database_initialization_backfills_v1_latest_vm_payloads(self) -> None:
         from app.v2.config import V2Settings

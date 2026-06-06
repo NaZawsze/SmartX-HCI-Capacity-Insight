@@ -114,6 +114,8 @@ class V2Settings:
 def settings_from_environment() -> V2Settings:
     data_root = Path(os.environ.get("SMARTX_DATA_ROOT", os.environ.get("SMARTX_DATA_PATH", "/data")))
     db_path = os.environ.get("SMARTX_DB_PATH")
+    if data_root != Path("/data") and db_path == "/data/smartx.db":
+        db_path = None
     prometheus_data_path = os.environ.get("SMARTX_PROMETHEUS_DATA_PATH")
     return V2Settings(
         data_root=data_root,
