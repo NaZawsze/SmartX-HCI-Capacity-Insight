@@ -64,6 +64,48 @@ class V2TaskServiceTest(unittest.TestCase):
             self.assertTrue(tasks.delete_inactive("task-cancelled"))
             self.assertEqual([task["id"] for task in tasks.list_tasks()], ["task-running", "task-pending"])
 
+    def test_task_notifications_track_severity_seen_ack_and_clearable_tasks(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.models import TaskStatus, TaskType
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=tmpdir, secret_key="tasks-secret")
+            database = V2Database(settings)
+            database.initialize()
+            tasks = TaskService(database)
+
+            report = tasks.create_task("report-1", TaskType.REPORT, "导出预测报表", status=TaskStatus.SUCCESS, progress=100)
+            cleanup = tasks.create_task("cleanup-1", TaskType.CLEANUP, "空间清理", status=TaskStatus.FAILED, progress=100)
+            upgrade = tasks.create_task("upgrade-1", TaskType.UPGRADE, "执行系统升级", status=TaskStatus.FAILED, progress=100)
+
+            self.assertEqual(report["severity"], "info")
+            self.assertTrue(report["unhandled"])
+            self.assertFalse(report["clearable"])
+            self.assertEqual(cleanup["severity"], "warning")
+            self.assertTrue(cleanup["unhandled"])
+            self.assertFalse(cleanup["clearable"])
+            self.assertEqual(upgrade["severity"], "critical")
+            self.assertTrue(upgrade["unhandled"])
+            self.assertFalse(upgrade["clearable"])
+
+            seen = tasks.mark_info_seen(["report-1", "cleanup-1", "upgrade-1"])
+            self.assertEqual(seen, 1)
+            acknowledged = tasks.acknowledge("cleanup-1")
+            self.assertEqual(acknowledged["severity"], "warning")
+            self.assertFalse(acknowledged["unhandled"])
+            self.assertTrue(acknowledged["clearable"])
+
+            listed = {task["id"]: task for task in tasks.list_tasks()}
+            self.assertFalse(listed["report-1"]["unhandled"])
+            self.assertTrue(listed["report-1"]["clearable"])
+            self.assertTrue(listed["upgrade-1"]["unhandled"])
+            self.assertFalse(listed["upgrade-1"]["clearable"])
+
+            self.assertEqual(tasks.clear_clearable(), 2)
+            self.assertEqual([task["id"] for task in tasks.list_tasks()], ["upgrade-1"])
+
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2TaskApiTest(unittest.TestCase):
@@ -95,7 +137,7 @@ class V2TaskApiTest(unittest.TestCase):
                     service.create_task("task-cancelled", TaskType.UPGRADE, "执行系统升级", status=TaskStatus.CANCELLED, progress=100)
                     listed = client.get("/api/tasks", headers=headers)
                     self.assertEqual(listed.status_code, 200)
-                    self.assertEqual(listed.json()[0]["id"], "task-1")
+                    self.assertIn("task-1", {task["id"] for task in listed.json()})
 
                     cleared = client.delete("/api/tasks/finished", headers=headers)
                     self.assertEqual(cleared.status_code, 200)
@@ -108,6 +150,43 @@ class V2TaskApiTest(unittest.TestCase):
                     self.assertEqual(deleted.status_code, 200)
                     remaining = client.get("/api/tasks", headers=headers).json()
                     self.assertEqual([task["id"] for task in remaining], ["task-cancelled", "task-running", "task-pending"])
+            finally:
+                os.environ.pop("SMARTX_DATA_ROOT", None)
+                os.environ.pop("SMARTX_SECRET_KEY", None)
+                os.environ.pop("SMARTX_ADMIN_PASSWORD", None)
+
+    def test_task_api_marks_seen_acknowledges_and_clears_only_clearable_tasks(self) -> None:
+        from app.v2.config import settings_from_environment
+        from app.v2.database import V2Database
+        from app.v2.main import create_app
+        from app.v2.tasks.models import TaskStatus, TaskType
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["SMARTX_DATA_ROOT"] = tmpdir
+            os.environ["SMARTX_SECRET_KEY"] = "tasks-api-secret"
+            os.environ["SMARTX_ADMIN_PASSWORD"] = "password"
+            try:
+                app = create_app()
+                with TestClient(app) as client:
+                    token = client.post("/api/auth/login", json={"username": "admin", "password": "password"}).json()["access_token"]
+                    headers = {"Authorization": f"Bearer {token}"}
+
+                    service = TaskService(V2Database(settings_from_environment()))
+                    service.create_task("report-1", TaskType.REPORT, "导出预测报表", status=TaskStatus.SUCCESS, progress=100)
+                    service.create_task("cleanup-1", TaskType.CLEANUP, "空间清理", status=TaskStatus.FAILED, progress=100)
+                    service.create_task("upgrade-1", TaskType.UPGRADE, "执行系统升级", status=TaskStatus.FAILED, progress=100)
+
+                    self.assertEqual(client.post("/api/tasks/seen", json={"task_ids": ["report-1", "cleanup-1", "upgrade-1"]}, headers=headers).json()["updated"], 1)
+                    self.assertEqual(client.post("/api/tasks/cleanup-1/ack", headers=headers).json()["task_id"], "cleanup-1")
+                    cleared = client.delete("/api/tasks/clearable", headers=headers)
+                    self.assertEqual(cleared.status_code, 200)
+                    self.assertEqual(cleared.json()["deleted"], 2)
+
+                    remaining = client.get("/api/tasks", headers=headers).json()
+                    self.assertEqual([task["id"] for task in remaining], ["upgrade-1"])
+                    self.assertEqual(remaining[0]["severity"], "critical")
+                    self.assertTrue(remaining[0]["unhandled"])
             finally:
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)

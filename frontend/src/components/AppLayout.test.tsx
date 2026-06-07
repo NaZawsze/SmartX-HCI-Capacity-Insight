@@ -60,12 +60,31 @@ function failedTask(): AppTask {
     title: "执行升级失败",
     detail: "升级失败：镜像 sha256 不匹配",
     status: "failed",
+    severity: "critical",
+    unhandled: true,
+    clearable: false,
     progress: 100,
     steps: [
       { key: "manifest", title: "校验 manifest", status: "succeeded", message: "通过" },
       { key: "images", title: "校验镜像", status: "failed", message: "sha256 不匹配" }
     ],
     logs: ["manifest 格式正确", "镜像 sha256 不匹配：images/web-api.tar"],
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+}
+
+function succeededInfoTask(): AppTask {
+  return {
+    id: "task-info",
+    kind: "export",
+    title: "导出预测报表",
+    detail: "Word 和 Excel 报表已生成",
+    status: "succeeded",
+    severity: "info",
+    unhandled: true,
+    clearable: false,
+    progress: 100,
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
@@ -178,6 +197,34 @@ describe("AppLayout menus", () => {
     fireEvent.click(screen.getByTitle("任务"));
     fireEvent.click(screen.getByTitle("从任务中心移除"));
 
+    expect(onTaskAction).toHaveBeenCalledWith(task);
+  });
+
+  it("uses unhandled notifications for the badge and marks info tasks seen after closing", async () => {
+    const onTasksSeen = vi.fn();
+    render(<AppLayout {...baseProps} tasks={[succeededInfoTask(), runningTask()]} onTasksSeen={onTasksSeen} />);
+
+    expect(screen.getByText("1")).toHaveClass("task-badge");
+
+    fireEvent.click(screen.getByTitle("任务"));
+    fireEvent.pointerDown(screen.getByTestId("outside-content"));
+
+    await waitFor(() => {
+      expect(onTasksSeen).toHaveBeenCalledWith(["task-info"]);
+    });
+  });
+
+  it("shows acknowledge and remove controls for failed warning or critical tasks", () => {
+    const onTaskAck = vi.fn();
+    const onTaskAction = vi.fn();
+    const task = failedTask();
+    render(<AppLayout {...baseProps} tasks={[task]} onTaskAck={onTaskAck} onTaskAction={onTaskAction} />);
+
+    fireEvent.click(screen.getByTitle("任务"));
+    fireEvent.click(screen.getByTitle("确认任务告警"));
+    fireEvent.click(screen.getByTitle("从任务中心移除"));
+
+    expect(onTaskAck).toHaveBeenCalledWith(task);
     expect(onTaskAction).toHaveBeenCalledWith(task);
   });
 

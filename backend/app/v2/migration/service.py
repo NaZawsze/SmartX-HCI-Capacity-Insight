@@ -6,11 +6,13 @@ import hashlib
 import shutil
 import sqlite3
 import tarfile
+import tempfile
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from secrets import token_hex
-from typing import Any
+from typing import Any, Iterator
 from urllib.parse import quote
 
 from fastapi import HTTPException, UploadFile
@@ -31,6 +33,8 @@ DB_FILENAME = "smartx.db"
 MERGE_MODE = "merge"
 OVERWRITE_MODE = "overwrite"
 PROMETHEUS_RUNTIME_ENTRIES = {"chunks_head", "lock", "queries.active", "wal"}
+CONFIG_SCOPE = "config"
+FULL_SCOPE = "full"
 
 
 class MigrationService:
@@ -86,6 +90,44 @@ class MigrationService:
                 progress=100,
                 message="迁移包已生成",
                 links=[{"label": "迁移包", "filename": filename, "url": download_url, "path": str(path)}],
+            )
+        return content, filename, path, download_url
+
+    def build_config_export_archive(self, *, record_task: bool = True) -> tuple[bytes, str, Path, str]:
+        generated_at = _now()
+        filename = f"smartx-config-migration-{generated_at.strftime('%Y%m%d%H%M%S')}-{token_hex(4)}.tar.gz"
+        buffer = io.BytesIO()
+        with tempfile_sqlite_copy(self.settings.sqlite_path) as config_db:
+            files = {f"{APP_DIR}/{DB_FILENAME}": _file_manifest(config_db)} if config_db.is_file() else {}
+            manifest = {
+                "format": "smartx-capacity-insight-v2-migration",
+                "version": 1,
+                "migration_scope": CONFIG_SCOPE,
+                "generated_at": generated_at.isoformat(),
+                "contains": {
+                    "sqlite": config_db.is_file(),
+                    "prometheus": False,
+                },
+                "files": files,
+            }
+            with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+                _add_json(archive, MANIFEST_NAME, manifest, generated_at)
+                if config_db.is_file():
+                    archive.add(config_db, arcname=f"{APP_DIR}/{DB_FILENAME}", recursive=False)
+        content = buffer.getvalue()
+        self.settings.migrations_dir.mkdir(parents=True, exist_ok=True)
+        path = self.settings.migrations_dir / filename
+        path.write_bytes(content)
+        download_url = f"/api/admin/exports/migrations/{quote(filename)}"
+        if record_task:
+            self.tasks.create_task(
+                f"migration-config-export-{token_hex(8)}",
+                TaskType.MIGRATION_EXPORT,
+                "导出配置迁移包",
+                status=TaskStatus.SUCCESS,
+                progress=100,
+                message="配置迁移包已生成",
+                links=[{"label": "配置迁移包", "filename": filename, "url": download_url, "path": str(path), "scope": CONFIG_SCOPE}],
             )
         return content, filename, path, download_url
 
@@ -225,7 +267,10 @@ class MigrationService:
             manifest = _read_manifest(package_dir / MANIFEST_NAME)
             if manifest.get("format") not in {"smartx-capacity-insight-v2-migration", "smartx-storage-forecast-migration"}:
                 raise HTTPException(status_code=400, detail="导入包格式不正确。")
+            migration_scope = str(manifest.get("migration_scope") or FULL_SCOPE)
             logs.append(f"迁移包格式：{manifest.get('format')}")
+            if migration_scope == CONFIG_SCOPE:
+                logs.append("迁移范围：配置迁移，仅导入 Tower 和集群")
             steps = _replace_step(steps, "extract", "succeeded", "manifest 校验通过")
             steps = _replace_step(steps, "backup", "running")
             self.tasks.update_task(task_id, progress=30, message="正在生成导入前备份", logs=logs, steps=steps)
@@ -234,7 +279,7 @@ class MigrationService:
             steps = _replace_step(steps, "backup", "succeeded", str(backup_path))
             steps = _replace_step(steps, "sqlite", "running")
             self.tasks.update_task(task_id, progress=55, message="正在导入业务库", logs=logs, steps=steps)
-            restore_result = self._restore_package(package_dir, normalized_mode)
+            restore_result = self._restore_package(package_dir, normalized_mode, scope=migration_scope)
             logs.extend(restore_result["logs"])
             steps = _replace_step(steps, "sqlite", "succeeded", _summary_label(restore_result["summary"].get("sqlite", {})))
             steps = _replace_step(steps, "prometheus", "succeeded", _summary_label(restore_result["summary"].get("prometheus", {})))
@@ -290,12 +335,19 @@ class MigrationService:
             _add_directory(archive, self.settings.prometheus_data_dir, PROMETHEUS_DIR, skip_names=PROMETHEUS_RUNTIME_ENTRIES)
         return path
 
-    def _restore_package(self, package_dir: Path, mode: str) -> dict[str, Any]:
+    def _restore_package(self, package_dir: Path, mode: str, *, scope: str = FULL_SCOPE) -> dict[str, Any]:
         restored: list[str] = []
         logs: list[str] = []
-        summary: dict[str, Any] = {"sqlite": {"inserted": 0}, "prometheus": {"copied": 0, "skipped": 0}}
+        summary: dict[str, Any] = {"scope": scope, "sqlite": {"inserted": 0}, "prometheus": {"copied": 0, "skipped": 0}}
         source_db = _first_existing(package_dir / APP_DIR / DB_FILENAME, package_dir / V1_APP_DIR / DB_FILENAME)
         source_prometheus = _first_existing(package_dir / PROMETHEUS_DIR, package_dir / V1_PROMETHEUS_DIR)
+        if scope == CONFIG_SCOPE:
+            if source_db and source_db.exists():
+                summary["sqlite"] = self._merge_config_sqlite(source_db)
+                restored.append("smartx_db")
+                logs.append(f"SQLite：配置合并导入 {summary['sqlite']['inserted']} 条记录")
+            logs.append("Prometheus：配置迁移包不包含历史指标，已跳过")
+            return {"restored": restored, "summary": summary, "logs": logs}
         if mode == OVERWRITE_MODE:
             if source_db and source_db.exists():
                 self.settings.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
@@ -319,6 +371,22 @@ class MigrationService:
             restored.append("prometheus")
             logs.append(f"Prometheus：复制 {summary['prometheus']['copied']} 个 block，跳过 {summary['prometheus']['skipped']} 个 block")
         return {"restored": restored, "summary": summary, "logs": logs}
+
+    def _merge_config_sqlite(self, source_db: Path) -> dict[str, Any]:
+        self.database.initialize()
+        with sqlite3.connect(self.settings.sqlite_path) as target:
+            target.row_factory = sqlite3.Row
+            target.execute("PRAGMA foreign_keys = ON")
+            target.execute("ATTACH DATABASE ? AS incoming", (str(source_db),))
+            try:
+                counts = {
+                    "towers": _merge_towers(target),
+                    "clusters": _merge_clusters(target),
+                }
+                target.commit()
+                return {"inserted": sum(counts.values()), "tables": counts}
+            finally:
+                target.execute("DETACH DATABASE incoming")
 
     def _merge_sqlite(self, source_db: Path) -> dict[str, Any]:
         self.database.initialize()
@@ -507,6 +575,62 @@ def _merge_metric_snapshot(conn: sqlite3.Connection) -> int:
         )
         inserted += int(cursor.rowcount or 0)
     return inserted
+
+
+@contextmanager
+def tempfile_sqlite_copy(source_db: Path) -> Iterator[Path]:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        target_db = Path(tmpdir) / DB_FILENAME
+        with sqlite3.connect(target_db) as conn:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.executescript(
+                """
+                CREATE TABLE towers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    base_url TEXT NOT NULL,
+                    username TEXT,
+                    password_encrypted TEXT,
+                    api_token_encrypted TEXT,
+                    verify_tls INTEGER NOT NULL DEFAULT 1,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE clusters (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tower_id INTEGER NOT NULL REFERENCES towers(id) ON DELETE CASCADE,
+                    cluster_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(tower_id, cluster_id)
+                );
+                """
+            )
+            if source_db.is_file():
+                conn.execute("ATTACH DATABASE ? AS incoming", (str(source_db),))
+                try:
+                    _copy_config_table(conn, "towers")
+                    _copy_config_table(conn, "clusters")
+                    conn.commit()
+                finally:
+                    conn.execute("DETACH DATABASE incoming")
+        yield target_db
+
+
+def _copy_config_table(conn: sqlite3.Connection, table: str) -> None:
+    if not _incoming_table_exists(conn, table):
+        return
+    target_columns = [str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+    incoming_columns = {str(row["name"]) for row in conn.execute(f"PRAGMA incoming.table_info({table})").fetchall()}
+    columns = [column for column in target_columns if column in incoming_columns]
+    if not columns:
+        return
+    column_sql = ", ".join(f'"{column}"' for column in columns)
+    conn.execute(f"INSERT OR IGNORE INTO {table} ({column_sql}) SELECT {column_sql} FROM incoming.{table}")
 
 
 def _incoming_table_exists(conn: sqlite3.Connection, table: str) -> bool:

@@ -387,6 +387,7 @@ export interface SqliteVacuumResult {
 
 export type AppTaskStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled";
 export type AppTaskKind = "upload" | "download" | "import" | "export" | "upgrade";
+export type AppTaskSeverity = "info" | "warning" | "critical";
 
 export interface AppTaskLink {
   label: string;
@@ -419,6 +420,11 @@ export interface AppTask {
   detail?: string;
   status: AppTaskStatus;
   progress: number;
+  severity?: AppTaskSeverity;
+  seenAt?: string | null;
+  acknowledgedAt?: string | null;
+  unhandled?: boolean;
+  clearable?: boolean;
   links?: AppTaskLink[];
   logs?: string[];
   steps?: AppTaskStep[];
@@ -435,6 +441,11 @@ export interface ServerTask {
   message?: string;
   detail?: string;
   progress: number;
+  severity?: AppTaskSeverity;
+  seen_at?: string | null;
+  acknowledged_at?: string | null;
+  unhandled?: boolean;
+  clearable?: boolean;
   links?: AppTaskLink[];
   logs?: string[];
   steps?: AppTaskStep[];

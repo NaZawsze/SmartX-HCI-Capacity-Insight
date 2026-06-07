@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bell, Building2, Check, ChevronDown, CircleCheck, ClipboardList, Database, HardDrive, KeyRound, LayoutDashboard, LogOut, Save, Server, Settings, SlidersHorizontal, UserRound, View, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, Bell, Building2, Check, ChevronDown, CircleCheck, ClipboardList, Database, HardDrive, Info, KeyRound, LayoutDashboard, LogOut, Save, Server, Settings, SlidersHorizontal, UserRound, View, X } from "lucide-react";
 import { api } from "../services/api";
 import type { AppTask, Cluster, DashboardScope, DashboardSummary, PageKey, Tower } from "../types";
 
@@ -13,6 +13,8 @@ interface AppLayoutProps {
   summary?: DashboardSummary | null;
   tasks?: AppTask[];
   onClearTasks?: () => void;
+  onTasksSeen?: (taskIds: string[]) => void;
+  onTaskAck?: (task: AppTask) => void;
   onTaskAction?: (task: AppTask) => void;
   children: ReactNode;
 }
@@ -49,7 +51,7 @@ function scopeKey(scope: DashboardScope): string {
   return "all";
 }
 
-export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChange, onSummary, summary, tasks = [], onClearTasks, onTaskAction, children }: AppLayoutProps) {
+export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChange, onSummary, summary, tasks = [], onClearTasks, onTasksSeen, onTaskAck, onTaskAction, children }: AppLayoutProps) {
   const towers = summary?.towers ?? emptyTowers;
   const selectedTower = scope.type === "tower" || scope.type === "cluster" ? towers.find((tower) => tower.id === scope.towerId) || towers[0] : towers[0];
   const totalClusterCount = towers.reduce((total, tower) => total + tower.clusters.length, 0);
@@ -78,8 +80,9 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   const selectedScopeKey = scopeKey(scope);
   const serviceFocus = activePage === "service";
   const shellStyle = { "--sidebar-width": `${sidebarWidth}px` } as CSSProperties;
-  const runningTaskCount = tasks.filter((task) => task.status === "pending" || task.status === "running").length;
+  const unhandledTaskCount = tasks.filter((task) => task.unhandled).length;
   const visibleTasks = [...tasks].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, 8);
+  const clearableTaskCount = tasks.filter((task) => task.clearable).length;
 
   const resetWorkspaceScroll = useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -112,6 +115,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (taskMenuOpen && !taskMenuRef.current?.contains(target)) {
+        markVisibleInfoTasksSeen();
         setTaskMenuOpen(false);
       }
       if (accountMenuOpen && !accountMenuRef.current?.contains(target)) {
@@ -121,6 +125,11 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [accountMenuOpen, taskMenuOpen]);
+
+  function markVisibleInfoTasksSeen() {
+    const taskIds = visibleTasks.filter((task) => task.severity === "info" && task.unhandled).map((task) => task.id);
+    if (taskIds.length) onTasksSeen?.(taskIds);
+  }
 
   useEffect(() => {
     setExpandedTowerIds((current) => {
@@ -260,19 +269,19 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
             <div className="task-menu-wrap" ref={taskMenuRef}>
               <button className={taskMenuOpen ? "icon-button active" : "icon-button"} title="任务" type="button" onClick={() => setTaskMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={taskMenuOpen}>
                 <ClipboardList size={18} />
-                {runningTaskCount > 0 && <span className="task-badge">{runningTaskCount}</span>}
+                {unhandledTaskCount > 0 && <span className="task-badge">{unhandledTaskCount}</span>}
               </button>
               {taskMenuOpen && (
                 <div className="task-menu" role="menu">
                   <div className="task-menu-head">
                     <strong>任务</strong>
-                    <button type="button" onClick={onClearTasks} disabled={!tasks.length}>清空</button>
+                    <button type="button" onClick={onClearTasks} disabled={!clearableTaskCount}>清空</button>
                   </div>
                   {visibleTasks.length ? (
                     <div className="task-menu-list auto-scrollbar">
                       {visibleTasks.map((task) => (
                         <div className={`task-menu-item ${task.status}`} key={task.id}>
-                          <span className="task-state-icon">{task.status === "succeeded" ? <Check size={14} /> : task.status === "failed" || task.status === "cancelled" ? <X size={14} /> : <ClipboardList size={14} />}</span>
+                          <span className={`task-state-icon ${task.severity || "info"}`}>{taskStateIcon(task)}</span>
                           <div>
                             <strong>{task.title}</strong>
                             <small>{task.detail || taskStatusText(task.status)}</small>
@@ -307,6 +316,19 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
                           </div>
                           <div className="task-menu-actions">
                             <em>{Math.round(task.progress)}%</em>
+                            {task.unhandled && task.severity !== "info" && onTaskAck ? (
+                              <button
+                                className="task-ack-button"
+                                type="button"
+                                title="确认任务告警"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  onTaskAck(task);
+                                }}
+                              >
+                                确认
+                              </button>
+                            ) : null}
                             {isActionableTask(task) && onTaskAction ? (
                               <button
                                 className="task-cancel-button"
@@ -537,6 +559,15 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
       </div>
     </div>
   );
+}
+
+function taskStateIcon(task: AppTask) {
+  if (task.status === "pending" || task.status === "running") return <ClipboardList size={14} />;
+  if (task.severity === "critical") return <AlertCircle size={14} />;
+  if (task.severity === "warning") return <AlertTriangle size={14} />;
+  if (task.severity === "info") return <Info size={14} />;
+  if (task.status === "succeeded") return <Check size={14} />;
+  return <X size={14} />;
 }
 
 

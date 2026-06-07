@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { formatVersionForDisplay } from "./ServicePage";
 import { ServicePage } from "./ServicePage";
 
@@ -15,6 +15,8 @@ const apiMock = vi.hoisted(() => ({
   importMigration: vi.fn(),
   startMigrationImport: vi.fn(),
   migrationImportStatus: vi.fn(),
+  exportConfigMigration: vi.fn(),
+  downloadSavedExport: vi.fn(),
   scanSpaceCleanup: vi.fn(),
   scanSqliteVacuum: vi.fn(),
   vacuumSqlite: vi.fn(),
@@ -25,6 +27,12 @@ vi.mock("../services/api", async () => ({
   api: apiMock,
   formatBytes: (value: number | null | undefined) => `${value ?? 0} B`
 }));
+
+beforeEach(() => {
+  URL.createObjectURL = vi.fn(() => "blob:service");
+  URL.revokeObjectURL = vi.fn();
+  HTMLAnchorElement.prototype.click = vi.fn();
+});
 
 function mockServicePageBootstrap() {
   apiMock.upgradeVersion.mockResolvedValue({ version: "v0.5.0" });
@@ -164,6 +172,26 @@ describe("ServicePage migration overwrite mode", () => {
       expect(apiMock.startMigrationImport).toHaveBeenCalledWith(file, "overwrite", true, expect.any(Function));
     });
     expect(addTask).toHaveBeenCalledWith(expect.objectContaining({ kind: "import", title: "导入迁移包" }));
+  });
+
+  it("exports a lightweight config migration package separately from the full migration package", async () => {
+    mockServicePageBootstrap();
+    apiMock.exportConfigMigration.mockResolvedValue({
+      blob: new Blob(["config"]),
+      filename: "smartx-config-migration-20260607120000.tar.gz",
+      savedPath: "/data/exports/migrations/smartx-config-migration-20260607120000.tar.gz",
+      downloadUrl: "/api/admin/exports/migrations/smartx-config-migration-20260607120000.tar.gz"
+    });
+    const addTask = vi.fn();
+    const updateTask = vi.fn();
+    render(<ServicePage addTask={addTask} updateTask={updateTask} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "数据迁移" }));
+    fireEvent.click(await screen.findByRole("button", { name: "导出配置迁移包" }));
+
+    await waitFor(() => expect(apiMock.exportConfigMigration).toHaveBeenCalled());
+    expect(addTask).toHaveBeenCalledWith(expect.objectContaining({ kind: "export", title: "导出配置迁移包" }));
+    expect(updateTask).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: "succeeded", detail: "smartx-config-migration-20260607120000.tar.gz" }));
   });
 
   it("renders artifact cleanup and sqlite cleanup as separate cleanup modules", async () => {

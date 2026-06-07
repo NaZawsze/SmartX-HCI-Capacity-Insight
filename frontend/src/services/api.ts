@@ -456,11 +456,23 @@ export const api = {
   async clearFinishedTasks(): Promise<{ deleted: number }> {
     return request<{ deleted: number }>("/api/tasks/finished", { method: "DELETE" });
   },
+  async markTasksSeen(taskIds: string[]): Promise<{ updated: number }> {
+    return request<{ updated: number }>("/api/tasks/seen", { method: "POST", body: JSON.stringify({ task_ids: taskIds }) });
+  },
+  async acknowledgeTask(taskId: string): Promise<ServerTask> {
+    return request<ServerTask>(`/api/tasks/${taskId}/ack`, { method: "POST" });
+  },
+  async clearClearableTasks(): Promise<{ deleted: number }> {
+    return request<{ deleted: number }>("/api/tasks/clearable", { method: "DELETE" });
+  },
   async deleteTask(taskId: string): Promise<{ ok: boolean; task_id: string }> {
     return request<{ ok: boolean; task_id: string }>(`/api/tasks/${taskId}`, { method: "DELETE" });
   },
   async exportMigration(onProgress?: ProgressCallback): Promise<DownloadResult> {
     return download("/api/admin/migration/export", onProgress);
+  },
+  async exportConfigMigration(onProgress?: ProgressCallback): Promise<DownloadResult> {
+    return download("/api/admin/migration/config/export", onProgress);
   },
   async startMigrationExport(): Promise<MigrationExportTask> {
     return request<MigrationExportTask>("/api/admin/migration/export/start", { method: "POST" });

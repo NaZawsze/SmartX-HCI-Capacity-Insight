@@ -251,10 +251,11 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 
 后续任务中心通知设计：
 
-- 任务中心角标应表示未处理通知数量，不应表示运行中任务数量。
-- 任务通知状态需要持久化在 SQLite `tasks` 表中，避免刷新或轮询后角标恢复。
-- 任务严重级别分为 `info`、`warning`、`critical`。
-- `info` 用于成功完成类任务，打开任务中心并关闭后可标记已读。
-- `warning` 用于普通失败/取消任务，需要确认或删除才消除角标。
-- `critical` 用于服务重启失败、平台升级失败、组件升级失败、回滚失败等重要任务失败，需要确认或删除才消除角标。
-- 一键清空只能清除已读信息任务和已确认告警任务，不能清除未确认告警。
+- 已落地：任务中心角标表示未处理通知数量，不表示运行中任务数量。
+- 已落地：任务通知状态持久化在 SQLite `tasks` 表，新增 `severity`、`seen_at`、`acknowledged_at`。
+- 已落地：任务严重级别分为 `info`、`warning`、`critical`。
+- 已落地：`info` 用于成功完成类任务，打开任务中心并点击空白处关闭后可标记已读。
+- 已落地：`warning` 用于普通失败/取消任务，需要确认或删除才消除角标。
+- 已落地：`critical` 用于服务重启失败、平台升级失败、组件升级失败、回滚失败等重要任务失败，需要确认或删除才消除角标。
+- 已落地：一键清空只能清除已读信息任务和已确认告警/严重告警任务，不能清除未确认告警。
+- 已新增 API：`POST /api/tasks/seen`、`POST /api/tasks/{task_id}/ack`、`DELETE /api/tasks/clearable`。

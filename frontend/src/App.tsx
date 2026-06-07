@@ -53,8 +53,26 @@ export default function App() {
   }, []);
 
   const clearTasks = useCallback(() => {
-    api.clearFinishedTasks().catch(() => undefined);
-    setTasks((current) => current.filter((task) => task.status !== "succeeded"));
+    api.clearClearableTasks().catch(() => undefined);
+    setTasks((current) => current.filter((task) => !task.clearable));
+  }, []);
+
+  const markTasksSeen = useCallback((taskIds: string[]) => {
+    if (!taskIds.length) return;
+    api.markTasksSeen(taskIds).catch(() => undefined);
+    setTasks((current) => current.map((task) => (taskIds.includes(task.id) && task.severity === "info" ? { ...task, unhandled: false, clearable: true, seenAt: new Date().toISOString(), updatedAt: Date.now() } : task)));
+  }, []);
+
+  const acknowledgeTask = useCallback(async (task: AppTask) => {
+    setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, detail: item.detail || "任务告警已确认", updatedAt: Date.now() } : item)));
+    try {
+      const updated = await api.acknowledgeTask(task.id);
+      const mapped = serverTaskToAppTask(updated);
+      setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, ...mapped } : item)));
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "确认任务失败";
+      setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, detail: message, updatedAt: Date.now() } : item)));
+    }
   }, []);
 
   const handleTaskAction = useCallback(async (task: AppTask) => {
@@ -121,7 +139,7 @@ export default function App() {
   }
 
   return (
-    <AppLayout activePage={activePage} onNavigate={setActivePage} onLogout={logout} summary={summary} scope={scope} onScopeChange={setScope} onSummary={handleSummary} tasks={tasks} onClearTasks={clearTasks} onTaskAction={handleTaskAction}>
+    <AppLayout activePage={activePage} onNavigate={setActivePage} onLogout={logout} summary={summary} scope={scope} onScopeChange={setScope} onSummary={handleSummary} tasks={tasks} onClearTasks={clearTasks} onTasksSeen={markTasksSeen} onTaskAck={acknowledgeTask} onTaskAction={handleTaskAction}>
       {activePage === "dashboard" && <DashboardPage summary={summary} scope={scope} onSummary={handleSummary} onSelectVm={openVm} />}
       {activePage === "vms" && (
         <VmsPage
@@ -172,6 +190,11 @@ function serverTaskToAppTask(task: ServerTask): AppTask {
     links: task.links,
     logs: task.logs,
     steps: task.steps,
+    severity: task.severity || "info",
+    seenAt: task.seen_at,
+    acknowledgedAt: task.acknowledged_at,
+    unhandled: Boolean(task.unhandled),
+    clearable: Boolean(task.clearable),
     createdAt: task.created_at ? Date.parse(task.created_at) : Date.now(),
     updatedAt: task.updated_at ? Date.parse(task.updated_at) : Date.now()
   };

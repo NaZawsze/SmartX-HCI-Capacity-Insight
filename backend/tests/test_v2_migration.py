@@ -14,6 +14,95 @@ except ModuleNotFoundError:  # pragma: no cover - local host may not have web de
 
 
 class V2MigrationServiceTest(unittest.TestCase):
+    def test_config_export_archive_contains_only_towers_and_clusters(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+        from app.v2.migration.service import MigrationService
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="migration-secret")
+            database = V2Database(settings)
+            database.initialize()
+            inventory = InventoryService(database, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="cluster-a", name="Cluster A")])
+            with database.connection() as conn:
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (?, ?, ?, ?, ?)", (tower.id, "cluster-a", "vm-1", "VM 1", 1024))
+            block = settings.prometheus_data_dir / "01ABC"
+            block.mkdir(parents=True)
+            (block / "meta.json").write_text("{}", encoding="utf-8")
+
+            content, filename, path, download_url = MigrationService(database, settings, TaskService(database)).build_config_export_archive()
+
+            self.assertTrue(filename.startswith("smartx-config-migration-"))
+            self.assertTrue(path.is_file())
+            self.assertTrue(download_url.startswith("/api/admin/exports/migrations/"))
+            with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
+                names = set(archive.getnames())
+                manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
+                archived_db = archive.extractfile("app/smartx.db").read()
+            self.assertEqual(manifest["migration_scope"], "config")
+            self.assertTrue(manifest["contains"]["sqlite"])
+            self.assertFalse(manifest["contains"]["prometheus"])
+            self.assertIn("app/smartx.db", names)
+            self.assertNotIn("prometheus/01ABC/meta.json", names)
+
+            exported_db = Path(tmpdir) / "exported-config.db"
+            exported_db.write_bytes(archived_db)
+            with sqlite3.connect(exported_db) as conn:
+                tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
+                tower_count = conn.execute("SELECT COUNT(*) FROM towers").fetchone()[0]
+                cluster_count = conn.execute("SELECT COUNT(*) FROM clusters").fetchone()[0]
+            self.assertEqual(tower_count, 1)
+            self.assertEqual(cluster_count, 1)
+            self.assertNotIn("vm_latest", tables)
+
+    def test_config_import_merges_only_towers_and_clusters(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+        from app.v2.migration.service import MigrationService
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as source_tmp, tempfile.TemporaryDirectory() as target_tmp:
+            source_settings = V2Settings(data_root=Path(source_tmp), secret_key="source-secret")
+            source_db = V2Database(source_settings)
+            source_db.initialize()
+            source_inventory = InventoryService(source_db, source_settings)
+            source_tower = source_inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            source_inventory.sync_clusters(source_tower.id, [ClusterInput(cluster_id="cluster-a", name="Cluster A")])
+            with source_db.connection() as conn:
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (?, ?, ?, ?, ?)", (source_tower.id, "cluster-a", "vm-1", "VM 1", 1024))
+            block = source_settings.prometheus_data_dir / "01SOURCE"
+            block.mkdir(parents=True)
+            (block / "meta.json").write_text("{}", encoding="utf-8")
+            archive_content, _, _, _ = MigrationService(source_db, source_settings, TaskService(source_db)).build_config_export_archive(record_task=False)
+
+            target_settings = V2Settings(data_root=Path(target_tmp), secret_key="target-secret")
+            target_db = V2Database(target_settings)
+            target_db.initialize()
+            target_block = target_settings.prometheus_data_dir / "01TARGET"
+            target_block.mkdir(parents=True)
+            (target_block / "meta.json").write_text("{}", encoding="utf-8")
+
+            result = MigrationService(target_db, target_settings, TaskService(target_db)).restore_archive_bytes(archive_content, filename="config.tar.gz", mode="merge")
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["summary"]["scope"], "config")
+            self.assertEqual(result["summary"]["sqlite"]["tables"], {"towers": 1, "clusters": 1})
+            self.assertNotIn("prometheus", result["restored"])
+            self.assertTrue(Path(result["backup_path"]).is_file())
+            self.assertTrue((target_settings.prometheus_data_dir / "01TARGET" / "meta.json").is_file())
+            self.assertFalse((target_settings.prometheus_data_dir / "01SOURCE" / "meta.json").exists())
+            with target_db.connection() as conn:
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM towers").fetchone()[0], 1)
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM clusters").fetchone()[0], 1)
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM vm_latest").fetchone()[0], 0)
+
     def test_export_archive_includes_sqlite_and_prometheus_history_and_saves_task(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
@@ -243,6 +332,16 @@ class V2MigrationApiTest(unittest.TestCase):
                     downloaded = client.get(exported.headers["x-smartx-export-url"], headers=headers)
                     self.assertEqual(downloaded.status_code, 200)
                     self.assertEqual(downloaded.content, exported.content)
+
+                    config_export = client.get("/api/admin/migration/config/export", headers=headers)
+                    self.assertEqual(config_export.status_code, 200)
+                    self.assertEqual(config_export.headers["content-type"], "application/gzip")
+                    with tarfile.open(fileobj=io.BytesIO(config_export.content), mode="r:gz") as archive:
+                        config_manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
+                        config_names = set(archive.getnames())
+                    self.assertEqual(config_manifest["migration_scope"], "config")
+                    self.assertIn("app/smartx.db", config_names)
+                    self.assertFalse(any(name.startswith("prometheus/") for name in config_names))
 
                     imported = client.post(
                         "/api/admin/migration/import",

@@ -301,6 +301,34 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     }
   }
 
+  async function exportConfigMigration() {
+    setMigrationMessage("");
+    setMigrationBusy(true);
+    const id = taskId("config-migration-export");
+    addTask({ id, kind: "export", title: "导出配置迁移包", detail: "正在导出 Tower 和集群配置", status: "running", progress: 30, logs: ["配置迁移只包含 Tower 与集群配置"] });
+    try {
+      const result = await api.exportConfigMigration((progress) => {
+        const value = transferProgressValue(progress);
+        updateTask(id, { progress: Math.max(30, Math.min(95, value)), detail: "正在下载配置迁移包" });
+      });
+      saveBlob(result.blob, result.filename || "smartx-config-migration.tar.gz");
+      updateTask(id, {
+        status: "succeeded",
+        progress: 100,
+        detail: result.filename || "配置迁移包已生成",
+        logs: ["配置迁移包已生成", result.savedPath ? `服务器留档：${result.savedPath}` : "已完成浏览器下载"],
+        links: result.downloadUrl ? [{ label: "下载", filename: result.filename, url: result.downloadUrl, path: result.savedPath }] : undefined
+      });
+      setMigrationMessage("配置迁移包已生成，仅包含 Tower 和集群配置");
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "配置迁移包导出失败";
+      updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["配置迁移包导出失败", message] });
+      setMigrationMessage(message);
+    } finally {
+      setMigrationBusy(false);
+    }
+  }
+
   async function importMigration() {
     setMigrationMessage("");
     if (!migrationFile) {
@@ -883,6 +911,10 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             <button className="secondary-button" type="button" onClick={checkMigrationHealth} disabled={migrationBusy}>
               <Info size={16} />
               健康检查
+            </button>
+            <button className="secondary-button" type="button" onClick={exportConfigMigration} disabled={migrationBusy}>
+              <Download size={16} />
+              导出配置迁移包
             </button>
             <button className="primary-button" type="button" onClick={exportMigration} disabled={migrationBusy}>
               <Download size={16} />

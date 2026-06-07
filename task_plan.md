@@ -279,7 +279,7 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 
 ### Phase 19 - 任务中心分级通知与角标治理
 
-状态：待实施
+状态：完成第一版
 
 目标：
 
@@ -298,13 +298,21 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 - 任务中心右侧失败/取消任务增加“确认”按钮，放在 X 左边并排。
 - 一键清空只能清理信息类已读任务，以及已确认的告警/严重告警任务；未确认告警不能被一键清空。
 
-待实现：
+已完成：
 
-- SQLite `tasks` 表增加 `severity`、`seen_at`、`acknowledged_at` 等持久字段。
+- SQLite `tasks` 表增加 `severity`、`seen_at`、`acknowledged_at` 持久字段。
 - 后端任务接口返回 `severity`、`clearable`、`unhandled`。
 - 新增任务已读、确认和可清理任务清空 API。
 - 前端任务角标改为统计未处理通知。
-- 服务管理页同一操作组按钮保持高度、宽度、图标和文字对齐一致。
+- 信息类任务在任务菜单打开后点击空白处关闭时标记已读。
+- 告警/严重告警任务增加“确认”按钮；X 仍用于手动删除非 active 任务。
+- 一键清空只清理已读信息任务和已确认告警/严重告警任务。
+
+验证：
+
+- `10.20.11.3` 容器内 `backend.tests.test_v2_tasks_api` 通过。
+- `10.20.11.3` Node 容器内 `AppLayout.test.tsx ServicePage.test.tsx` 通过。
+- `10.20.11.3` 已重建并 recreate `web-api/frontend`，`/api/system/health` 和 `8080` 均返回 200。
 
 ### Phase 13 - 数据迁移灾备闭环
 
@@ -339,7 +347,7 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 
 ### Phase 20 - 配置迁移包优化
 
-状态：待实施
+状态：完成第一版
 
 目标：
 
@@ -356,13 +364,20 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 - Prometheus 历史指标仍是趋势图、日增长、月增长和预测报表的核心数据来源。
 - 双 DB 方案作为低优先级架构治理项保留，当前不进入实现。
 
-待实现：
+已完成：
 
-- 导出配置迁移包：生成 `smartx-config-migration-YYYYMMDDHHMMSS.tar.gz`，manifest 标记 `migration_scope=config`。
+- 导出配置迁移包：生成 `smartx-config-migration-YYYYMMDDHHMMSS-*.tar.gz`，manifest 标记 `migration_scope=config`。
+- 配置迁移包只包含 `app/smartx.db` 中的 `towers` 和 `clusters`，不包含 Prometheus 历史指标。
 - 导入时自动识别 `config` 与 `full` 两类迁移包。
-- 配置导入前备份当前 `smartx.db`。
+- 配置导入前仍生成当前系统备份。
 - 配置导入只 merge `towers/clusters`，不影响用户、任务、VM/卷缓存和历史指标。
-- 前端数据迁移页区分“导出配置迁移包”和“导出完整迁移包”。
+- 前端数据迁移页区分“导出配置迁移包”和“导出迁移包”。
+
+验证：
+
+- `10.20.11.3` 容器内 `backend.tests.test_v2_migration` 通过。
+- `10.20.11.3` Node 容器内 `ServicePage.test.tsx` 覆盖配置迁移包导出入口。
+- `10.20.11.3` 已重建并 recreate `web-api/frontend`，`/api/system/health` 和 `8080` 均返回 200。
 
 ### Phase 14 - 报表产品化与客户交付
 

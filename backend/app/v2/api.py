@@ -113,6 +113,10 @@ class VmTrendResponse(BaseModel):
     points: list[dict]
 
 
+class TaskSeenRequest(BaseModel):
+    task_ids: list[str] = Field(default_factory=list)
+
+
 def get_v2_settings() -> V2Settings:
     return settings_from_environment()
 
@@ -600,6 +604,15 @@ def export_migration(
     return download_response(content, filename, ARCHIVE_MEDIA_TYPE, path=path, download_url=download_url)
 
 
+@router.get("/api/admin/migration/config/export")
+def export_config_migration(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    migration: Annotated[MigrationService, Depends(get_migration_service)],
+) -> Response:
+    content, filename, path, download_url = migration.build_config_export_archive()
+    return download_response(content, filename, ARCHIVE_MEDIA_TYPE, path=path, download_url=download_url)
+
+
 @router.post("/api/admin/migration/export/start")
 def start_migration_export(
     _: Annotated[CurrentUser, Depends(require_user)],
@@ -681,6 +694,35 @@ def clear_finished_tasks(
     tasks: Annotated[TaskService, Depends(get_task_service)],
 ) -> dict[str, int]:
     return {"deleted": tasks.clear_finished()}
+
+
+@router.post("/api/tasks/seen")
+def mark_tasks_seen(
+    payload: TaskSeenRequest,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    tasks: Annotated[TaskService, Depends(get_task_service)],
+) -> dict[str, int]:
+    return {"updated": tasks.mark_info_seen(payload.task_ids)}
+
+
+@router.post("/api/tasks/{task_id}/ack")
+def acknowledge_task(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    tasks: Annotated[TaskService, Depends(get_task_service)],
+) -> dict:
+    try:
+        return tasks.acknowledge(task_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="任务不存在。") from None
+
+
+@router.delete("/api/tasks/clearable")
+def clear_clearable_tasks(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    tasks: Annotated[TaskService, Depends(get_task_service)],
+) -> dict[str, int]:
+    return {"deleted": tasks.clear_clearable()}
 
 
 @router.delete("/api/tasks/{task_id}")

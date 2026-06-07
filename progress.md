@@ -2437,3 +2437,47 @@ TDD 记录：
 验证：
 
 - 本轮只修改文档。
+
+### 2026-06-07 任务中心通知与配置迁移实现
+
+状态：完成第一版并已在 `10.20.11.3` 验证
+
+实现：
+
+- 任务中心通知状态持久化到 SQLite `tasks` 表：新增 `severity`、`seen_at`、`acknowledged_at`。
+- 后端任务返回 `severity`、`unhandled`、`clearable`，并新增：
+  - `POST /api/tasks/seen`
+  - `POST /api/tasks/{task_id}/ack`
+  - `DELETE /api/tasks/clearable`
+- 前端任务角标改为未处理通知数量，不再统计 running/pending。
+- 信息类成功任务打开任务中心并点击空白关闭后标记已读。
+- 告警/严重告警失败任务显示“确认”按钮，确认或 X 删除后才清除角标。
+- 一键清空只清理已读信息任务和已确认告警/严重告警任务。
+- 新增配置迁移包：
+  - `GET /api/admin/migration/config/export`
+  - 包名 `smartx-config-migration-YYYYMMDDHHMMSS-*.tar.gz`
+  - manifest 标记 `migration_scope=config`
+  - 包内只包含 `towers/clusters` 的轻量 SQLite，不包含 Prometheus 历史指标。
+- 数据迁移导入自动识别 `config` 与 `full` 包；配置导入前仍生成备份，只 merge `towers/clusters`。
+- 前端数据迁移页新增“导出配置迁移包”，与完整“导出迁移包”区分。
+
+验证：
+
+- `10.20.11.3` 后端容器内通过：
+  - `backend.tests.test_v2_tasks_api`
+  - `backend.tests.test_v2_migration`
+  - 共 11 个测试通过。
+- `10.20.11.3` Node 容器内通过：
+  - `AppLayout.test.tsx`
+  - `ServicePage.test.tsx`
+  - 共 22 个测试通过。
+- `10.20.11.3` 完成 `docker compose --project-name smartx-storage-forecast build web-api frontend`。
+- `10.20.11.3` 完成 `web-api/frontend` recreate。
+- 远端健康检查通过：
+  - `/api/system/health` 返回 `ok=true`、`version=v0.5.0`、`runner_version=v0.3.0`。
+  - `8080` 返回 `HTTP/1.1 200 OK`。
+
+注意：
+
+- 配置迁移包适合新机器快速恢复 Tower 纳管和集群配置；不保留趋势、日增长、月增长和预测历史。
+- 需要保留历史趋势和预测时继续使用完整迁移包，完整迁移包仍包含 SQLite 业务库和 Prometheus 历史 block。

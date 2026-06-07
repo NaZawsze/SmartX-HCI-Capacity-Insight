@@ -3488,7 +3488,7 @@ button {
 
 .task-menu-item {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 44px;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
   align-items: start;
   gap: 10px;
   padding: 12px 18px;
@@ -3510,12 +3510,19 @@ button {
   color: var(--blue);
 }
 
+.task-state-icon.info,
 .task-menu-item.succeeded .task-state-icon {
   background: #e8f8ee;
   color: #16a34a;
 }
 
-.task-menu-item.failed .task-state-icon {
+.task-state-icon.warning {
+  background: #fff7df;
+  color: #d97706;
+}
+
+.task-state-icon.critical,
+.task-menu-item.failed .task-state-icon.critical {
   background: #feecec;
   color: #dc2626;
 }
@@ -3546,9 +3553,13 @@ button {
 }
 
 .task-menu-actions {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
   justify-items: end;
   gap: 8px;
+  min-width: 64px;
 }
 
 .task-menu-item em {
@@ -3576,6 +3587,25 @@ button {
 .task-cancel-button:hover {
   background: transparent;
   color: #dc2626;
+}
+
+.task-ack-button {
+  min-width: 40px;
+  height: 24px;
+  border: 1px solid #f2c461;
+  border-radius: 6px;
+  background: #fff8e8;
+  color: #9a6700;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 0 8px;
+}
+
+.task-ack-button:hover {
+  border-color: #d97706;
+  background: #fff1c2;
+  color: #7c4a03;
 }
 
 .task-progress {

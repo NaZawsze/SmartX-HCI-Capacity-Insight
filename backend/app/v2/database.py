@@ -139,6 +139,9 @@ class V2Database:
             _ensure_column(conn, "tasks", "links_json", "TEXT")
             _ensure_column(conn, "tasks", "logs_json", "TEXT")
             _ensure_column(conn, "tasks", "steps_json", "TEXT")
+            _ensure_column(conn, "tasks", "severity", "TEXT")
+            _ensure_column(conn, "tasks", "seen_at", "TEXT")
+            _ensure_column(conn, "tasks", "acknowledged_at", "TEXT")
             _backfill_v1_latest_vm_payloads(conn)
             self._ensure_admin(conn)
 
