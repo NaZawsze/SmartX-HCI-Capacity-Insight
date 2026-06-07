@@ -156,12 +156,24 @@ describe("ReportsPage", () => {
     await waitFor(() => expect(apiMock.exportReportBundle).toHaveBeenCalledTimes(1));
     expect(apiMock.exportReportBundle).toHaveBeenCalledWith(undefined, 30, expect.stringMatching(/^report-export-/));
     expect(apiMock.exportReport).not.toHaveBeenCalled();
-    expect(addTask).toHaveBeenCalledTimes(1);
+    expect(addTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "export",
+        title: "导出预测报表",
+        status: "running",
+        severity: "info",
+        unhandled: true,
+        progress: 10
+      })
+    );
     await waitFor(() =>
       expect(updateTask).toHaveBeenLastCalledWith(
         expect.any(String),
         expect.objectContaining({
           status: "succeeded",
+          severity: "info",
+          unhandled: true,
+          progress: 100,
           links: expect.arrayContaining([
             expect.objectContaining({ label: "Word" }),
             expect.objectContaining({ label: "Excel" })
@@ -169,5 +181,53 @@ describe("ReportsPage", () => {
         })
       )
     );
+  });
+
+  it("keeps the export dialog closable while the bundle task is running", async () => {
+    apiMock.report.mockResolvedValue({
+      clusters: [],
+      fastest_growing_vms: [],
+      day_fastest_growing_vms: [],
+      month_fastest_growing_vms: [],
+      day_new_vms: [],
+      month_new_vms: [],
+      cluster_growth_rate: { per_day: 0, per_month: 0, per_quarter: 0 },
+      window_days: 30,
+      chart_days: 365,
+      growth_rate_window_days: 7,
+      forecast_days: 90
+    });
+    apiMock.exportReportBundle.mockImplementation(
+      () =>
+        new Promise(() => {
+          // Keep the request pending so the dialog is still in its exporting state.
+        })
+    );
+
+    render(
+      <ReportsPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 1, vm_count: 0, used_bytes: 0, total_bytes: 0, used_ratio: 0 },
+          top_vms: [],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSelectVm={vi.fn()}
+        addTask={vi.fn()}
+        updateTask={vi.fn()}
+      />
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "导出" }));
+    const exportButtons = screen.getAllByRole("button", { name: "导出" });
+    fireEvent.click(exportButtons[exportButtons.length - 1]);
+
+    await waitFor(() => expect(screen.getAllByText("导出中").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "导出报表" })).not.toBeInTheDocument();
+    });
   });
 });

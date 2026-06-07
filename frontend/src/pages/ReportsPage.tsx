@@ -87,7 +87,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
     setExporting(true);
     setExportError("");
     const id = `report-export-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    addTask({ id, kind: "export", title: "导出预测报表", detail: "正在生成 Word 和 Excel", status: "running", progress: 10 });
+    addTask({ id, kind: "export", title: "导出预测报表", detail: "正在生成 Word 和 Excel", status: "running", severity: "info", unhandled: true, progress: 10 });
     try {
       updateTask(id, { progress: 35, detail: "正在生成 Word/Excel" });
       const result = await api.exportReportBundle(reportScope, exportPeriodDays, id);
@@ -101,6 +101,8 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
       );
       updateTask(id, {
         status: "succeeded",
+        severity: "info",
+        unhandled: true,
         progress: 100,
         detail: result.message || "报表已生成，可从任务下载",
         links
@@ -108,7 +110,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
       setExportDialogOpen(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : "导出失败，请稍后重试。";
-      updateTask(id, { status: "failed", progress: 100, detail: message });
+      updateTask(id, { status: "failed", severity: "warning", unhandled: true, progress: 100, detail: message });
       setExportError(message);
     } finally {
       setExporting(false);
@@ -195,7 +197,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
       </Card>
 
       {exportDialogOpen && (
-        <div className="modal-backdrop" role="presentation" onClick={() => !exporting && setExportDialogOpen(false)}>
+        <div className="modal-backdrop" role="presentation" onClick={() => setExportDialogOpen(false)}>
           <div className="export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-dialog-title" onClick={(event) => event.stopPropagation()}>
             <div className="export-dialog-head">
               <div>
@@ -218,7 +220,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
             </div>
             {exportError && <div className="inline-error">{exportError}</div>}
             <div className="export-dialog-actions">
-              <button className="secondary-button" type="button" onClick={() => setExportDialogOpen(false)} disabled={exporting}>
+              <button className="secondary-button" type="button" onClick={() => setExportDialogOpen(false)}>
                 取消
               </button>
               <button className="primary-button" type="button" onClick={handleExportBundle} disabled={exporting}>

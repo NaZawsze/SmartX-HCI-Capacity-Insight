@@ -127,7 +127,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   }, [accountMenuOpen, taskMenuOpen]);
 
   function markVisibleInfoTasksSeen() {
-    const taskIds = visibleTasks.filter((task) => task.severity === "info" && task.unhandled).map((task) => task.id);
+    const taskIds = visibleTasks.filter((task) => task.severity === "info" && task.unhandled && isFinishedTask(task)).map((task) => task.id);
     if (taskIds.length) onTasksSeen?.(taskIds);
   }
 
@@ -621,6 +621,10 @@ function isClearableFromMenu(task: AppTask): boolean {
   if (!["succeeded", "failed", "cancelled"].includes(task.status)) return false;
   if ((task.severity || "info") === "info") return true;
   return Boolean(task.clearable);
+}
+
+function isFinishedTask(task: AppTask): boolean {
+  return task.status === "succeeded" || task.status === "failed" || task.status === "cancelled";
 }
 
 function taskLinkButtonLabel(task: AppTask, link: AppTaskLink): string {

@@ -53,6 +53,21 @@ function runningTask(): AppTask {
   };
 }
 
+function runningInfoTask(): AppTask {
+  return {
+    id: "task-running-info",
+    kind: "export",
+    title: "导出预测报表",
+    detail: "正在生成 Word 和 Excel",
+    status: "running",
+    severity: "info",
+    unhandled: true,
+    progress: 35,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+}
+
 function failedTask(): AppTask {
   return {
     id: "task-failed",
@@ -253,6 +268,24 @@ describe("AppLayout menus", () => {
     await waitFor(() => {
       expect(onTasksSeen).toHaveBeenCalledWith(["task-info"]);
     });
+  });
+
+  it("keeps running info tasks badged and visible with progress until they finish", async () => {
+    const onTasksSeen = vi.fn();
+    render(<AppLayout {...baseProps} tasks={[runningInfoTask()]} onTasksSeen={onTasksSeen} />);
+
+    expect(screen.getByText("1")).toHaveClass("task-badge");
+
+    fireEvent.click(screen.getByTitle("任务"));
+    expect(screen.getByText("导出预测报表")).toBeInTheDocument();
+    expect(screen.getByText("正在生成 Word 和 Excel")).toBeInTheDocument();
+    expect(screen.getByText("35%")).toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByTestId("outside-content"));
+
+    await waitFor(() => {
+      expect(screen.queryByText("导出预测报表")).not.toBeInTheDocument();
+    });
+    expect(onTasksSeen).not.toHaveBeenCalled();
   });
 
   it("uses a unified download label for all task download links", () => {
