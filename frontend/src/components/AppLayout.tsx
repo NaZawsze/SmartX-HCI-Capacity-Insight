@@ -305,7 +305,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
                               <div className="task-link-row">
                                 {task.links.map((link) => (
                                   <button key={`${task.id}-${link.url}-${link.label}`} type="button" title={link.path || link.filename || link.label} onClick={() => downloadTaskLink(link.url, link.filename || link.label)}>
-                                    {link.label}
+                                    下载
                                   </button>
                                 ))}
                               </div>

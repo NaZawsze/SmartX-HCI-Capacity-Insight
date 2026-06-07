@@ -3510,10 +3510,9 @@ button {
   color: var(--blue);
 }
 
-.task-state-icon.info,
-.task-menu-item.succeeded .task-state-icon {
-  background: #e8f8ee;
-  color: #16a34a;
+.task-state-icon.info {
+  background: #e8f1ff;
+  color: var(--blue);
 }
 
 .task-state-icon.warning {

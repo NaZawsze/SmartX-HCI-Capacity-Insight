@@ -90,6 +90,26 @@ function succeededInfoTask(): AppTask {
   };
 }
 
+function succeededDownloadTask(): AppTask {
+  return {
+    id: "task-download",
+    kind: "export",
+    title: "导出迁移包",
+    detail: "迁移包已生成",
+    status: "succeeded",
+    severity: "info",
+    unhandled: true,
+    clearable: false,
+    progress: 100,
+    links: [
+      { label: "迁移包", filename: "migration.tar.gz", url: "/api/download/migration.tar.gz", path: "/data/exports/migrations/migration.tar.gz" },
+      { label: "整理前备份", filename: "sqlite-before.tar.gz", url: "/api/download/sqlite-before.tar.gz", path: "/data/backups/sqlite-before.tar.gz" }
+    ],
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+}
+
 function pendingUpgradeTask(): AppTask {
   return {
     id: "upgrade-pending",
@@ -202,16 +222,28 @@ describe("AppLayout menus", () => {
 
   it("uses unhandled notifications for the badge and marks info tasks seen after closing", async () => {
     const onTasksSeen = vi.fn();
-    render(<AppLayout {...baseProps} tasks={[succeededInfoTask(), runningTask()]} onTasksSeen={onTasksSeen} />);
+    const { container } = render(<AppLayout {...baseProps} tasks={[succeededInfoTask(), runningTask()]} onTasksSeen={onTasksSeen} />);
 
     expect(screen.getByText("1")).toHaveClass("task-badge");
 
     fireEvent.click(screen.getByTitle("任务"));
+    expect(container.querySelector(".task-state-icon.info")).toBeInTheDocument();
     fireEvent.pointerDown(screen.getByTestId("outside-content"));
 
     await waitFor(() => {
       expect(onTasksSeen).toHaveBeenCalledWith(["task-info"]);
     });
+  });
+
+  it("uses a unified download label for all task download links", () => {
+    render(<AppLayout {...baseProps} tasks={[succeededDownloadTask()]} />);
+
+    fireEvent.click(screen.getByTitle("任务"));
+
+    const downloadButtons = screen.getAllByRole("button", { name: "下载" });
+    expect(downloadButtons).toHaveLength(2);
+    expect(downloadButtons[0]).toHaveAttribute("title", "/data/exports/migrations/migration.tar.gz");
+    expect(downloadButtons[1]).toHaveAttribute("title", "/data/backups/sqlite-before.tar.gz");
   });
 
   it("shows acknowledge and remove controls for failed warning or critical tasks", () => {
