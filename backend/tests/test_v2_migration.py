@@ -3,6 +3,7 @@ import json
 import sqlite3
 import tarfile
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -301,6 +302,42 @@ class V2MigrationServiceTest(unittest.TestCase):
             self.assertTrue(any(step["key"] == "backup" and step["status"] == "succeeded" for step in status["steps"]))
             self.assertTrue(any("Prometheus" in line for line in status["logs"]))
 
+    def test_start_export_task_can_return_before_archive_finishes(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+        from app.v2.migration.service import MigrationService
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="migration-secret")
+            database = V2Database(settings)
+            database.initialize()
+            inventory = InventoryService(database, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="cluster-a", name="Cluster A")])
+            block = settings.prometheus_data_dir / "01SOURCE"
+            block.mkdir(parents=True)
+            (block / "meta.json").write_text("{}", encoding="utf-8")
+            service = MigrationService(database, settings, TaskService(database))
+
+            result = service.start_export_task(run_inline=False)
+
+            self.assertEqual(result["status"], "running")
+            self.assertLess(result["progress"], 100)
+            self.assertFalse(result.get("download_url"))
+            task_id = result["task_id"]
+            for _ in range(30):
+                status = service.export_task_status(task_id)
+                if status["status"] == "succeeded":
+                    break
+                time.sleep(0.1)
+            self.assertEqual(status["status"], "succeeded")
+            self.assertEqual(status["progress"], 100)
+            self.assertTrue(status["download_url"])
+            self.assertTrue(Path(status["saved_path"]).is_file())
+
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2MigrationApiTest(unittest.TestCase):
@@ -329,20 +366,26 @@ class V2MigrationApiTest(unittest.TestCase):
                     task = client.post("/api/admin/migration/export/start", headers=headers)
                     self.assertEqual(task.status_code, 200)
                     task_payload = task.json()
-                    self.assertIn(task_payload["status"], {"running", "succeeded"})
-                    self.assertGreaterEqual(task_payload["progress"], 0)
+                    self.assertEqual(task_payload["status"], "running")
+                    self.assertLess(task_payload["progress"], 100)
                     self.assertIn("steps", task_payload)
                     self.assertIn("total_bytes", task_payload)
                     self.assertIn("processed_bytes", task_payload)
 
-                    task_status = client.get(f"/api/admin/migration/export/status/{task_payload['task_id']}", headers=headers)
-                    self.assertEqual(task_status.status_code, 200)
-                    status_payload = task_status.json()
+                    for _ in range(30):
+                        task_status = client.get(f"/api/admin/migration/export/status/{task_payload['task_id']}", headers=headers)
+                        self.assertEqual(task_status.status_code, 200)
+                        status_payload = task_status.json()
+                        if status_payload["status"] == "succeeded":
+                            break
+                        time.sleep(0.1)
                     self.assertEqual(status_payload["task_id"], task_payload["task_id"])
+                    self.assertEqual(status_payload["status"], "succeeded")
                     self.assertTrue(status_payload["logs"])
-                    self.assertTrue(any("当前文件" in line for line in status_payload["logs"]))
-                    self.assertEqual(status_payload["processed_bytes"], task_payload["processed_bytes"])
-                    self.assertEqual(status_payload["total_bytes"], task_payload["total_bytes"])
+                    self.assertTrue(status_payload["download_url"])
+                    self.assertTrue(Path(status_payload["saved_path"]).is_file())
+                    self.assertGreaterEqual(status_payload["processed_bytes"], task_payload["processed_bytes"])
+                    self.assertGreaterEqual(status_payload["total_bytes"], task_payload["total_bytes"])
 
                     downloaded = client.get(exported.headers["x-smartx-export-url"], headers=headers)
                     self.assertEqual(downloaded.status_code, 200)

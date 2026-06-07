@@ -134,7 +134,7 @@ class MigrationService:
             )
         return content, filename, path, download_url
 
-    def start_export_task(self) -> dict[str, Any]:
+    def start_export_task(self, *, run_inline: bool = False) -> dict[str, Any]:
         task_id = f"migration-export-{token_hex(8)}"
         steps = [
             _step("scan", "扫描迁移数据", "running"),
@@ -152,6 +152,10 @@ class MigrationService:
             logs=["开始扫描 SQLite 和 Prometheus 历史指标"],
             steps=steps,
         )
+        if not run_inline:
+            worker = threading.Thread(target=self._run_export_task_safely, args=(task_id, steps), daemon=True)
+            worker.start()
+            return _migration_export_task(self.tasks.get_task(task_id) or {})
         try:
             result = self._run_export_task(task_id, steps)
             return result
@@ -165,6 +169,20 @@ class MigrationService:
                 steps=_replace_step(steps, "scan", "failed", str(exc)),
             )
             raise
+
+    def _run_export_task_safely(self, task_id: str, steps: list[dict[str, Any]]) -> None:
+        try:
+            self.database.initialize()
+            self._run_export_task(task_id, steps)
+        except Exception as exc:
+            self.tasks.update_task(
+                task_id,
+                status=TaskStatus.FAILED,
+                progress=100,
+                message=str(exc),
+                logs=["导出失败", str(exc)],
+                steps=_fail_running_step(steps, str(exc)),
+            )
 
     def export_task_status(self, task_id: str) -> dict[str, Any]:
         task = self.tasks.get_task(task_id)

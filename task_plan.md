@@ -339,10 +339,11 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 - `docs/v1-data-compatibility.md` 已定义 v1 迁入、merge/overwrite、导入前备份、Prometheus 历史指标和健康验证规则。
 - v2 已实现迁出、迁入、导入前备份、v1 迁移包兼容、旧 VM 卷 payload 抽取和导入后健康验证第一版。
 - `10.20.11.3` 已完成迁移导出、隔离导入、Prometheus 历史 block 查询、日增长和报表历史尾点回退验证。
+- 完整迁移包导出已改为真正后台任务：`/api/admin/migration/export/start` 立即返回 `task_id`，后台线程执行扫描、打包、保存，前端通过状态接口轮询进度和下载链接。
 
 后续增强：
 
-- 大规模现场数据下的迁移导出/导入耗时和进度仍可继续优化。
+- 大规模现场数据下的迁移导出/导入耗时仍可继续压测和优化；当前 start 接口不再等待完整打包结束。
 - SQLite 存储结构可继续瘦身，但当前 v2 已不把该项作为交付阻塞。
 
 ### Phase 20 - 配置迁移包优化
@@ -506,6 +507,6 @@ Phase V2-0 细化文档：
 
 - Dashboard 风险卡片点击跳转到具体集群报表或 VM 增长来源。
 - 报表图表风格和自然语言摘要继续产品化。
-- [已解决] 大规模现场数据迁移导出/导入进度继续细化：迁出任务记录扫描、打包、保存、下载链接；迁入改为后台任务，展示上传保存、解压校验、导入前备份、SQLite、Prometheus 和健康检查步骤。
+- [已解决] 大规模现场数据迁移导出/导入进度继续细化：迁出任务记录扫描、打包、保存、下载链接，完整迁移包导出 start 接口已真正后台化；迁入改为后台任务，展示上传保存、解压校验、导入前备份、SQLite、Prometheus 和健康检查步骤。
 - [已解决] SQLite / 虚拟卷存储结构瘦身：v2 正式使用 `vm_volumes`，旧 `latest_vm_volumes.payload_json` 抽取后删除并记录 schema migration；空间清理新增 SQLite VACUUM 扫描和整理能力。
 - [已解决] 升级中心 v2 后续增强文档补齐：`docs/v2-upgrade-center-design.md` 已补 manifest 组件声明、执行边界、组合升级顺序、Prometheus 回归和失败恢复策略。
