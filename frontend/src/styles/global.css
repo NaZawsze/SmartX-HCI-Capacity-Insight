@@ -2869,6 +2869,55 @@ button {
   padding: 0 14px;
 }
 
+.component-upgrade-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  max-width: 760px;
+  margin: 0 0 14px;
+}
+
+.component-upgrade-card {
+  min-height: 86px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  text-align: left;
+}
+
+.component-upgrade-card:hover {
+  border-color: #b9d4fb;
+  background: #f7fbff;
+}
+
+.component-upgrade-card.active {
+  border-color: var(--blue);
+  background: #eaf3ff;
+  box-shadow: 0 8px 18px rgba(22, 119, 255, 0.12);
+}
+
+.component-upgrade-card strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.component-upgrade-card span {
+  color: #8a9ab0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.component-upgrade-card small {
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .service-notice {
   max-width: 760px;
   display: flex;

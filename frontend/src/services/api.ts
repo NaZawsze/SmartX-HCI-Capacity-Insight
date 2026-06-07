@@ -1,6 +1,7 @@
 import type {
   DashboardScope,
   DashboardSummary,
+  ComponentInfo,
   ForecastPayload,
   LocalStorageUsage,
   LoginResponse,
@@ -520,6 +521,9 @@ export const api = {
   async componentUpgradeVersion(): Promise<{ component: string; version: string }> {
     return request<{ component: string; version: string }>("/api/admin/component-upgrade/version");
   },
+  async componentUpgradeComponents(): Promise<{ components: ComponentInfo[] }> {
+    return request<{ components: ComponentInfo[] }>("/api/admin/component-upgrade/components");
+  },
   async uploadUpgradePackage(file: File, onProgress?: ProgressCallback): Promise<UpgradeTask> {
     const formData = new FormData();
     formData.set("file", file);
@@ -569,8 +573,9 @@ export const api = {
   async componentUpgradeStatus(taskId: string): Promise<UpgradeTask> {
     return request<UpgradeTask>(`/api/admin/component-upgrade/status/${taskId}`);
   },
-  async componentUpgradeHistory(): Promise<UpgradeTask[]> {
-    return request<UpgradeTask[]>("/api/admin/component-upgrade/history");
+  async componentUpgradeHistory(component?: string): Promise<UpgradeTask[]> {
+    const query = component ? `?component=${encodeURIComponent(component)}` : "";
+    return request<UpgradeTask[]>(`/api/admin/component-upgrade/history${query}`);
   }
 };
 

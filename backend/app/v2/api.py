@@ -895,8 +895,12 @@ def cancel_component_upgrade_package(
 def component_upgrade_history(
     _: Annotated[CurrentUser, Depends(require_user)],
     upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+    component: str | None = None,
 ) -> list[dict]:
-    return upgrade.history(component_type="runner")
+    component_type = {"upgrade-runner": "runner", "prometheus": "observability"}.get(component or "", component)
+    if component_type:
+        return upgrade.history(component_type=component_type)
+    return [task for task in upgrade.history() if task.get("kind") == "component"]
 
 
 @router.delete("/api/admin/component-upgrade/package/{task_id}")
@@ -914,6 +918,14 @@ def component_upgrade_version(
     upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
 ) -> dict:
     return upgrade.component_version()
+
+
+@router.get("/api/admin/component-upgrade/components")
+def component_upgrade_components(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.component_catalog()
 
 
 @router.get("/api/system/health")

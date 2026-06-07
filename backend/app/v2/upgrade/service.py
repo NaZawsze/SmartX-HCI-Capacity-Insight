@@ -43,6 +43,12 @@ class UpgradeCommandExecutor:
             return
         subprocess.run(command, cwd=str(cwd) if cwd else None, check=True)
 
+    def output(self, command: list[str], *, cwd: Path | None = None) -> str:
+        if os.environ.get("SMARTX_UPGRADE_DRY_RUN") == "1":
+            return ""
+        completed = subprocess.run(command, cwd=str(cwd) if cwd else None, check=True, text=True, capture_output=True)
+        return completed.stdout
+
 
 class UpgradeService:
     def __init__(self, settings: V2Settings, tasks: TaskService, *, executor: UpgradeCommandExecutor | None = None, project_path: Path | None = None) -> None:
@@ -173,12 +179,43 @@ class UpgradeService:
     def component_version(self) -> dict[str, str]:
         return {"component": "upgrade-runner", "version": self.settings.runner_version}
 
+    def component_catalog(self) -> dict[str, Any]:
+        prometheus_status = self._inspect_service_by_name("prometheus")
+        prometheus_version = _version_from_service_status(prometheus_status) or "-"
+        return {
+            "components": [
+                {
+                    "type": "runner",
+                    "display_name": "升级中心组件",
+                    "service": "upgrade-runner",
+                    "version": self.settings.runner_version,
+                    "executor": "web-api",
+                    "upgradeable": True,
+                    "status_message": "由 web-api 执行自升级，不修改业务库和历史指标。",
+                },
+                {
+                    "type": "observability",
+                    "display_name": "观测组件",
+                    "service": "prometheus",
+                    "version": prometheus_version,
+                    "executor": "upgrade-runner",
+                    "upgradeable": True,
+                    "status_message": prometheus_status.get("error") or "由 upgrade-runner 执行升级，保留 Prometheus 历史指标。",
+                },
+            ]
+        }
+
     def verification(self) -> dict[str, Any]:
         success_packages = [task for task in self.history() if task.get("status") == "succeeded"]
         latest_package = success_packages[0] if success_packages else None
+        services, service_status_error = self._runtime_services()
+        prometheus_version = next((_version_from_service_status(service) for service in services if service.get("service") == "prometheus"), None)
+        if not prometheus_version:
+            prometheus_version = _version_from_service_status(self._inspect_service_by_name("prometheus")) or "-"
         return {
             "app_version": self.settings.app_version,
             "runner_version": self.settings.runner_version,
+            "prometheus_version": prometheus_version,
             "compose_project": self.settings.compose_project_name,
             "compose_file": self.settings.compose_file,
             "package": {
@@ -190,8 +227,70 @@ class UpgradeService:
             }
             if latest_package
             else None,
-            "services": [],
+            "service_status_error": service_status_error,
+            "services": services,
         }
+
+    def _runtime_services(self) -> tuple[list[dict[str, Any]], str | None]:
+        try:
+            output = self.executor.output(["docker", "compose", "-f", self.settings.compose_file, "--project-name", self.settings.compose_project_name, "ps", "--format", "json"], cwd=self.project_path)
+        except Exception as exc:
+            return [], f"Docker 状态读取失败：{exc}"
+        services: list[dict[str, Any]] = []
+        for raw_line in output.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            service = str(item.get("Service") or item.get("Name") or "")
+            container = str(item.get("Name") or item.get("Container") or service)
+            if not service:
+                continue
+            services.append(self._inspect_container(service, container, fallback_status=str(item.get("State") or item.get("Status") or "")))
+        return services, None
+
+    def _inspect_service_by_name(self, service: str) -> dict[str, Any]:
+        container = f"{self.settings.compose_project_name}-{service}-1"
+        return self._inspect_container(service, container)
+
+    def _inspect_container(self, service: str, container: str, *, fallback_status: str = "") -> dict[str, Any]:
+        result = {
+            "service": service,
+            "container": container,
+            "status": fallback_status,
+            "running": fallback_status == "running",
+            "image": "",
+            "image_id": "",
+            "app_version": None,
+            "started_at": None,
+            "error": None,
+        }
+        try:
+            output = self.executor.output(["docker", "inspect", container], cwd=self.project_path)
+            payload = json.loads(output or "[]")
+            inspected = payload[0] if payload else {}
+        except Exception as exc:
+            result["error"] = str(exc)
+            return result
+        config = inspected.get("Config") or {}
+        state = inspected.get("State") or {}
+        env = config.get("Env") or []
+        image = str(config.get("Image") or "")
+        status = str(state.get("Status") or fallback_status)
+        result.update(
+            {
+                "status": status,
+                "running": bool(state.get("Running")) or status == "running",
+                "image": image,
+                "image_id": str(inspected.get("Image") or ""),
+                "app_version": _version_from_env(env) or _version_from_image(image),
+                "started_at": state.get("StartedAt"),
+            }
+        )
+        return result
 
     def rollback(self, task_id: str) -> dict[str, Any]:
         task_dir = self.settings.upgrades_dir / task_id
@@ -631,6 +730,35 @@ def _check_prometheus_permissions(prometheus_dir: Path) -> dict[str, Any]:
         return {"name": "prometheus_permissions", "ok": False, "message": f"Prometheus 数据目录不可写：{exc}"}
     blocks = [path.name for path in prometheus_dir.iterdir() if path.is_dir() and (path / "meta.json").is_file()]
     return {"name": "prometheus_permissions", "ok": True, "message": f"Prometheus 数据目录可写，历史 block {len(blocks)} 个。"}
+
+
+def _version_from_env(env: list[Any]) -> str | None:
+    for item in env:
+        text = str(item)
+        if text.startswith("SMARTX_APP_VERSION=") or text.startswith("SMARTX_RUNNER_VERSION="):
+            version = text.split("=", 1)[1].strip()
+            if version:
+                return version
+    return None
+
+
+def _version_from_image(image: str) -> str | None:
+    if ":" not in image:
+        return None
+    tag = image.rsplit(":", 1)[1].strip()
+    if not tag or tag == "latest":
+        return None
+    return tag
+
+
+def _version_from_service_status(service: dict[str, Any]) -> str | None:
+    version = service.get("app_version")
+    if isinstance(version, str) and version.strip():
+        return version.strip()
+    image = service.get("image")
+    if isinstance(image, str):
+        return _version_from_image(image)
+    return None
 
 
 def _step(key: str, title: str, status: str, message: str = "") -> dict[str, str]:

@@ -311,6 +311,47 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertNotIn("web-api:", override)
             self.assertTrue(any(command[-1:] == ["prometheus"] for command in executor.commands if command[:3] == ["docker", "compose", "-f"]))
 
+    def test_component_history_defaults_to_runner_and_prometheus_packages(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        runner_image = b"runner-image"
+        prometheus_image = b"prometheus-image"
+        runner_manifest = {
+            "schema_version": "2",
+            "version": "v0.3.0",
+            "components": [
+                {
+                    "type": "runner",
+                    "services": ["upgrade-runner"],
+                    "images": [{"service": "upgrade-runner", "image": "repo/upgrade-runner:v0.3.0", "archive": "images/upgrade-runner.tar", "sha256": hashlib.sha256(runner_image).hexdigest()}],
+                }
+            ],
+        }
+        prometheus_manifest = {
+            "schema_version": "2",
+            "version": "v2.55.2",
+            "components": [
+                {
+                    "type": "observability",
+                    "services": ["prometheus"],
+                    "images": [{"service": "prometheus", "image": "prom/prometheus:v2.55.2", "archive": "images/prometheus.tar", "sha256": hashlib.sha256(prometheus_image).hexdigest()}],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            service = UpgradeService(settings, TaskService(database), project_path=Path(tmpdir) / "project")
+            service.upload_package_bytes(self._package(runner_manifest, {"images/upgrade-runner.tar": runner_image}), filename="runner.tar.gz")
+            service.upload_package_bytes(self._package(prometheus_manifest, {"images/prometheus.tar": prometheus_image}), filename="prometheus.tar.gz")
+
+            self.assertEqual({task["component"] for task in service.history()}, {"upgrade-runner", "prometheus"})
+            self.assertEqual({task["component"] for task in service.history(component_type="observability")}, {"prometheus"})
+
     def test_runner_component_upgrade_writes_runtime_override_and_only_restarts_runner(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
@@ -390,6 +431,87 @@ class V2UpgradeServiceTest(unittest.TestCase):
             with self.assertRaises(HTTPException):
                 service.upload_package_bytes(self._package(manifest, {".env": b"secret"}), filename="bad.tar.gz")
 
+    def test_component_catalog_includes_runner_and_prometheus_versions(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def output(self, command: list[str], *, cwd: Path | None = None) -> str:
+                if command[:2] == ["docker", "inspect"]:
+                    return json.dumps([
+                        {
+                            "Config": {"Image": "prom/prometheus:v2.55.1"},
+                            "State": {"Status": "running", "Running": True},
+                        }
+                    ])
+                return ""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret", runner_version="v0.3.0")
+            database = V2Database(settings)
+            database.initialize()
+            service = UpgradeService(settings, TaskService(database), executor=FakeExecutor(), project_path=Path(tmpdir) / "project")
+
+            components = service.component_catalog()["components"]
+
+            self.assertEqual([component["service"] for component in components], ["upgrade-runner", "prometheus"])
+            self.assertEqual(components[0]["display_name"], "升级中心组件")
+            self.assertEqual(components[0]["version"], "v0.3.0")
+            self.assertEqual(components[1]["display_name"], "观测组件")
+            self.assertEqual(components[1]["version"], "v2.55.1")
+
+    def test_verification_reads_runtime_services_and_prometheus_version(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def output(self, command: list[str], *, cwd: Path | None = None) -> str:
+                if command[:4] == ["docker", "compose", "-f", "docker-compose.offline.yml"]:
+                    return "\n".join(
+                        [
+                            json.dumps({"Service": "web-api", "Name": "smartx-web-api-1", "State": "running"}),
+                            json.dumps({"Service": "prometheus", "Name": "smartx-prometheus-1", "State": "running"}),
+                        ]
+                    )
+                if command[:2] == ["docker", "inspect"] and command[-1] == "smartx-web-api-1":
+                    return json.dumps([
+                        {
+                            "Config": {
+                                "Image": "repo/web-api:v0.5.0",
+                                "Env": ["SMARTX_APP_VERSION=v0.5.0"],
+                            },
+                            "Image": "sha256:webapi",
+                            "State": {"Status": "running", "Running": True, "StartedAt": "2026-06-07T01:00:00Z"},
+                        }
+                    ])
+                if command[:2] == ["docker", "inspect"] and command[-1] == "smartx-prometheus-1":
+                    return json.dumps([
+                        {
+                            "Config": {"Image": "prom/prometheus:v2.55.1", "Env": []},
+                            "Image": "sha256:prom",
+                            "State": {"Status": "running", "Running": True, "StartedAt": "2026-06-07T01:01:00Z"},
+                        }
+                    ])
+                return ""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret", compose_file="docker-compose.offline.yml", compose_project_name="smartx-test")
+            database = V2Database(settings)
+            database.initialize()
+            service = UpgradeService(settings, TaskService(database), executor=FakeExecutor(), project_path=Path(tmpdir) / "project")
+
+            verification = service.verification()
+
+            self.assertEqual(verification["prometheus_version"], "v2.55.1")
+            self.assertIsNone(verification["service_status_error"])
+            self.assertEqual([item["service"] for item in verification["services"]], ["web-api", "prometheus"])
+            self.assertEqual(verification["services"][0]["app_version"], "v0.5.0")
+            self.assertEqual(verification["services"][1]["app_version"], "v2.55.1")
+
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2UpgradeApiTest(unittest.TestCase):
@@ -451,10 +573,15 @@ class V2UpgradeApiTest(unittest.TestCase):
                     self.assertEqual(component_version.status_code, 200)
                     self.assertEqual(component_version.json()["component"], "upgrade-runner")
 
+                    component_catalog = client.get("/api/admin/component-upgrade/components", headers=headers)
+                    self.assertEqual(component_catalog.status_code, 200)
+                    self.assertEqual([component["service"] for component in component_catalog.json()["components"]], ["upgrade-runner", "prometheus"])
+
                     verification = client.get("/api/admin/upgrade/verification", headers=headers)
                     self.assertEqual(verification.status_code, 200)
                     self.assertIn("app_version", verification.json())
                     self.assertIn("runner_version", verification.json())
+                    self.assertIn("prometheus_version", verification.json())
                     self.assertIsNone(verification.json()["package"])
 
                     delete_blocked = client.delete(f"/api/admin/upgrade/package/{payload['task_id']}", headers=headers)
@@ -523,6 +650,9 @@ class V2UpgradeApiTest(unittest.TestCase):
                     prometheus_payload = prometheus_upload.json()
                     self.assertEqual(prometheus_payload["kind"], "component")
                     self.assertEqual(prometheus_payload["component"], "prometheus")
+                    component_history = client.get("/api/admin/component-upgrade/history", headers=headers)
+                    self.assertEqual(component_history.status_code, 200)
+                    self.assertIn("prometheus", [task.get("component") for task in component_history.json()])
                     prometheus_precheck = client.post(f"/api/admin/component-upgrade/precheck/{prometheus_payload['task_id']}", headers=headers)
                     self.assertEqual(prometheus_precheck.status_code, 200)
                     self.assertTrue(prometheus_precheck.json()["ok"])

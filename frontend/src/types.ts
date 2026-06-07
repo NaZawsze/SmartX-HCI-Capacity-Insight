@@ -235,8 +235,10 @@ export interface UpgradeTask {
 export interface UpgradeVerification {
   app_version: string;
   runner_version: string;
+  prometheus_version?: string;
   compose_project: string;
   compose_file: string;
+  service_status_error?: string | null;
   package?: {
     task_id?: string;
     version?: string;
@@ -257,6 +259,16 @@ export interface UpgradeVerification {
     started_at?: string | null;
     error?: string | null;
   }>;
+}
+
+export interface ComponentInfo {
+  type: "runner" | "observability" | string;
+  display_name: string;
+  service: string;
+  version: string;
+  executor: string;
+  upgradeable: boolean;
+  status_message?: string | null;
 }
 
 

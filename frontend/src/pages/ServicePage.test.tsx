@@ -6,6 +6,7 @@ import { ServicePage } from "./ServicePage";
 const apiMock = vi.hoisted(() => ({
   upgradeVersion: vi.fn(),
   componentUpgradeVersion: vi.fn(),
+  componentUpgradeComponents: vi.fn(),
   upgradeHistory: vi.fn(),
   componentUpgradeHistory: vi.fn(),
   upgradeVerification: vi.fn(),
@@ -28,14 +29,36 @@ vi.mock("../services/api", async () => ({
 function mockServicePageBootstrap() {
   apiMock.upgradeVersion.mockResolvedValue({ version: "v0.5.0" });
   apiMock.componentUpgradeVersion.mockResolvedValue({ component: "upgrade-runner", version: "v0.3.0" });
+  apiMock.componentUpgradeComponents.mockResolvedValue({
+    components: [
+      {
+        type: "runner",
+        display_name: "升级中心组件",
+        service: "upgrade-runner",
+        version: "v0.3.0",
+        executor: "web-api",
+        upgradeable: true
+      },
+      {
+        type: "observability",
+        display_name: "观测组件",
+        service: "prometheus",
+        version: "v2.55.1",
+        executor: "upgrade-runner",
+        upgradeable: true
+      }
+    ]
+  });
   apiMock.upgradeHistory.mockResolvedValue([]);
   apiMock.componentUpgradeHistory.mockResolvedValue([]);
   apiMock.upgradeVerification.mockResolvedValue({
     app_version: "v0.5.0",
     runner_version: "v0.3.0",
+    prometheus_version: "v2.55.1",
     compose_project: "smartx-capacity-insight",
     compose_file: "docker-compose.offline.yml",
     package: null,
+    service_status_error: null,
     services: []
   });
   apiMock.localStorageUsage.mockResolvedValue({
@@ -195,6 +218,7 @@ describe("ServicePage upgrade center", () => {
     apiMock.upgradeVerification.mockResolvedValue({
       app_version: "v0.5.0",
       runner_version: "v0.3.0",
+      prometheus_version: "v2.55.1",
       compose_project: "smartx-capacity-insight",
       compose_file: "docker-compose.offline.yml",
       package: {
@@ -221,12 +245,34 @@ describe("ServicePage upgrade center", () => {
     expect(await screen.findByText("平台状态")).toBeInTheDocument();
     expect(screen.getByText("版本、升级包和当前运行服务集中展示。")).toBeInTheDocument();
     expect(screen.getByText("当前版本")).toBeInTheDocument();
+    expect(screen.getByText("升级中心组件版本")).toBeInTheDocument();
+    expect(screen.getByText("观测组件版本")).toBeInTheDocument();
     expect(screen.getAllByText("v0.5.0").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("最近成功包")).toBeInTheDocument();
     expect(screen.getByText(/smartx-capacity-insight-upgrade-v0\.5\.0/)).toBeInTheDocument();
     expect(screen.getByText("web-api")).toBeInTheDocument();
     expect(screen.getByText("运行中")).toBeInTheDocument();
     expect(screen.queryByText("服务运行核验")).not.toBeInTheDocument();
+  });
+
+  it("renders component upgrade as selectable runner and prometheus component cards", async () => {
+    mockServicePageBootstrap();
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "组件升级" }));
+
+    expect(await screen.findByText("升级中心组件")).toBeInTheDocument();
+    expect(screen.getByText("upgrade-runner")).toBeInTheDocument();
+    expect(screen.getByText("观测组件")).toBeInTheDocument();
+    expect(screen.getByText("prometheus")).toBeInTheDocument();
+    expect(screen.getByText("v0.3.0")).toBeInTheDocument();
+    expect(screen.getByText("v2.55.1")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /观测组件.*prometheus/s }));
+
+    expect(screen.getByText("组件名称")).toBeInTheDocument();
+    expect(screen.getByText("观测组件 / prometheus")).toBeInTheDocument();
+    expect(screen.getByText(/升级 Prometheus 观测组件/)).toBeInTheDocument();
   });
 
   it("shows precheck progress steps while platform precheck is running", async () => {
