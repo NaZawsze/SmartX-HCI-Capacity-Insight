@@ -416,7 +416,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
 
   async function scanSqliteVacuum() {
     setSqliteVacuumMessage("");
-    setSqliteVacuumLogs(["开始扫描 SQLite 数据库..."]);
+    setSqliteVacuumLogs(["开始扫描 SQLite 数据库和运行态缓存..."]);
     try {
       const result = await api.scanSqliteVacuum();
       setSqliteVacuumScan(result);
@@ -467,7 +467,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     setSqliteVacuumBusy(true);
     setSqliteVacuumMessage("");
     const id = taskId("sqlite-vacuum");
-    addTask({ id, kind: "upgrade", title: "SQLite 空间整理", detail: "正在备份并整理业务库", status: "running", progress: 35, logs: ["开始 SQLite 空间整理"] });
+    addTask({ id, kind: "upgrade", title: "SQLite 清理并整理", detail: "正在备份、清理运行态缓存并整理业务库", status: "running", progress: 35, logs: ["开始 SQLite 清理并整理"] });
     try {
       const result = await api.vacuumSqlite();
       setSqliteVacuumLogs(result.logs || [result.message]);
@@ -486,7 +486,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
       const message = exc instanceof Error ? exc.message : "SQLite 空间整理失败";
       setSqliteVacuumLogs((current) => [...current, message]);
       setSqliteVacuumMessage(message);
-      updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["SQLite 空间整理失败", message] });
+      updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["SQLite 清理并整理失败", message] });
     } finally {
       setSqliteVacuumBusy(false);
     }
@@ -1062,8 +1062,8 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           <div className="cleanup-module sqlite-vacuum-panel">
             <div className="service-operation-head">
               <div className="cleanup-module-title">
-                <strong>SQLite 空间整理</strong>
-                <span>删除旧虚拟卷 payload 后，可先备份业务库再执行 VACUUM 释放数据库空闲页。</span>
+                <strong>SQLite 清理并整理</strong>
+                <span>清理运行态缓存，备份业务库后执行 VACUUM 释放数据库空闲页。</span>
               </div>
               <div className="cleanup-control-stack">
                 <div className="cleanup-summary compact">
@@ -1077,7 +1077,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                   </button>
                   <button className="secondary-button danger-button service-header-button" type="button" onClick={vacuumSqlite} disabled={sqliteVacuumBusy || spaceCleanupScanBusy || !sqliteVacuumScan}>
                     <RefreshCw size={16} />
-                    {sqliteVacuumBusy ? "整理中" : "整理 SQLite"}
+                    {sqliteVacuumBusy ? "清理中" : "清理并整理 SQLite"}
                   </button>
                 </div>
               </div>
@@ -1090,6 +1090,31 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                 </div>
                 <span>{sqliteVacuumScan ? `预计释放 ${sqliteVacuumScan.estimated_reclaimable_label}` : "待扫描"}</span>
               </div>
+              {sqliteVacuumScan ? (
+                <>
+                  <div className="cleanup-image-row">
+                    <div>
+                      <strong>指标快照</strong>
+                      <small>保留最新 1 条 metric_snapshots</small>
+                    </div>
+                    <span>指标快照：{sqliteVacuumScan.runtime_cache?.metric_snapshots?.delete_count ?? 0} 条可清理</span>
+                  </div>
+                  <div className="cleanup-image-row">
+                    <div>
+                      <strong>采集记录</strong>
+                      <small>collection_runs 保留最近 7 天</small>
+                    </div>
+                    <span>采集记录：{sqliteVacuumScan.runtime_cache?.collection_runs?.delete_count ?? 0} 条可清理</span>
+                  </div>
+                  <div className="cleanup-image-row">
+                    <div>
+                      <strong>任务记录</strong>
+                      <small>tasks 保留最近 30 天，未确认告警继续保留</small>
+                    </div>
+                    <span>任务记录：{sqliteVacuumScan.runtime_cache?.tasks?.delete_count ?? 0} 条可清理</span>
+                  </div>
+                </>
+              ) : null}
             </div>
             <pre className="cleanup-log auto-scrollbar">{sqliteVacuumLogs.length ? sqliteVacuumLogs.join("\n") : "等待扫描..."}</pre>
             {sqliteVacuumMessage && <div className="inline-message">{sqliteVacuumMessage}</div>}

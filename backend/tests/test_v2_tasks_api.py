@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from pathlib import Path
 
 
 try:
@@ -134,6 +135,42 @@ class V2TaskServiceTest(unittest.TestCase):
 
             self.assertEqual(tasks.clear_clearable(), 2)
             self.assertEqual([task["id"] for task in tasks.list_tasks()], ["legacy-upgrade"])
+
+    def test_task_links_report_missing_export_files_as_expired(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.models import TaskStatus, TaskType
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=tmpdir, secret_key="tasks-secret")
+            database = V2Database(settings)
+            database.initialize()
+            tasks = TaskService(database)
+            existing = settings.reports_dir / "report.docx"
+            existing.parent.mkdir(parents=True, exist_ok=True)
+            existing.write_bytes(b"report")
+            missing = settings.migrations_dir / "missing.tar.gz"
+
+            tasks.create_task(
+                "task-links",
+                TaskType.REPORT,
+                "导出预测报表",
+                status=TaskStatus.SUCCESS,
+                progress=100,
+                links=[
+                    {"label": "Word", "filename": existing.name, "url": "/api/admin/exports/reports/report.docx", "path": str(existing)},
+                    {"label": "迁移包", "filename": missing.name, "url": "/api/admin/exports/migrations/missing.tar.gz", "path": str(missing)},
+                    {"label": "整理前备份", "filename": "backup.db", "url": "", "path": str(Path(tmpdir) / "backups" / "backup.db")},
+                ],
+            )
+
+            links = tasks.list_tasks()[0]["links"]
+            self.assertTrue(links[0]["exists"])
+            self.assertFalse(links[0]["expired"])
+            self.assertFalse(links[1]["exists"])
+            self.assertTrue(links[1]["expired"])
+            self.assertNotIn("exists", links[2])
 
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")

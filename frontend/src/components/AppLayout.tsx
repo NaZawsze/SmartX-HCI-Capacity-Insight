@@ -66,6 +66,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [taskMenuOpen, setTaskMenuOpen] = useState(false);
+  const [expiredTaskLinks, setExpiredTaskLinks] = useState<Set<string>>(new Set());
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [passwordForm, setPasswordForm] = useState(emptyPasswordForm);
   const [passwordMessage, setPasswordMessage] = useState("");
@@ -211,12 +212,17 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
     }
   }
 
-  async function downloadTaskLink(url: string, filename: string) {
+  async function downloadTaskLink(task: AppTask, link: AppTaskLink) {
+    if (isTaskLinkExpired(task, link, expiredTaskLinks)) return;
     try {
-      const result = await api.downloadSavedExport(url);
-      saveTaskBlob(result.blob, result.filename || filename);
-    } catch {
-      // Keep the task menu open; the original task result still shows the server path in the tooltip.
+      const result = await api.downloadSavedExport(link.url);
+      saveTaskBlob(result.blob, result.filename || link.filename || link.label);
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "";
+      if (message.includes("已失效") || message.includes("不存在") || message.includes("404")) {
+        const key = taskLinkKey(task, link);
+        setExpiredTaskLinks((current) => new Set(current).add(key));
+      }
     }
   }
 
@@ -311,11 +317,17 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
                             ) : null}
                             {task.links?.length ? (
                               <div className="task-link-row">
-                                {task.links.map((link) => (
-                                  <button key={`${task.id}-${link.url}-${link.label}`} type="button" title={link.path || link.filename || link.label} onClick={() => downloadTaskLink(link.url, link.filename || link.label)}>
-                                    {taskLinkButtonLabel(task, link)}
-                                  </button>
-                                ))}
+                                {task.links.map((link) => {
+                                  const expired = isTaskLinkExpired(task, link, expiredTaskLinks);
+                                  return (
+                                    <span key={`${task.id}-${link.url}-${link.label}`} className="task-link-item">
+                                      <button type="button" title={link.path || link.filename || link.label} disabled={expired} onClick={() => downloadTaskLink(task, link)}>
+                                        {taskLinkButtonLabel(task, link)}
+                                      </button>
+                                      {expired ? <small>已失效</small> : null}
+                                    </span>
+                                  );
+                                })}
                               </div>
                             ) : null}
                             <span className="task-progress" aria-label={`${task.progress}%`}>
@@ -637,6 +649,14 @@ function taskLinkButtonLabel(task: AppTask, link: AppTaskLink): string {
     return link.label;
   }
   return "下载";
+}
+
+function taskLinkKey(task: AppTask, link: AppTaskLink): string {
+  return `${task.id}:${link.url}:${link.label}`;
+}
+
+function isTaskLinkExpired(task: AppTask, link: AppTaskLink, expiredLinks: Set<string>): boolean {
+  return Boolean(link.expired || link.exists === false || expiredLinks.has(taskLinkKey(task, link)));
 }
 
 function stepStatusText(status: string): string {

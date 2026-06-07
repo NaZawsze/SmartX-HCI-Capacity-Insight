@@ -5,7 +5,7 @@ import sqlite3
 import json
 import os
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -110,12 +110,15 @@ class CleanupService:
                 "page_size": 0,
                 "estimated_reclaimable": 0,
                 "estimated_reclaimable_label": _size_label(0),
+                "runtime_cache": _empty_runtime_cache_scan(),
                 "message": "SQLite 数据库尚不存在，无需整理。",
             }
         with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
             page_count = int(conn.execute("PRAGMA page_count").fetchone()[0] or 0)
             freelist_count = int(conn.execute("PRAGMA freelist_count").fetchone()[0] or 0)
             page_size = int(conn.execute("PRAGMA page_size").fetchone()[0] or 0)
+            runtime_cache = _scan_runtime_cache(conn)
         size = path.stat().st_size
         estimated = max(0, freelist_count * page_size)
         return {
@@ -128,6 +131,7 @@ class CleanupService:
             "page_size": page_size,
             "estimated_reclaimable": estimated,
             "estimated_reclaimable_label": _size_label(estimated),
+            "runtime_cache": runtime_cache,
             "message": f"SQLite 当前大小 {_size_label(size)}，预计可整理释放 {_size_label(estimated)}。",
         }
 
@@ -142,30 +146,41 @@ class CleanupService:
                 "after_size": 0,
                 "space_reclaimed": 0,
                 "space_reclaimed_label": _size_label(0),
+                "runtime_cache": {
+                    "metric_snapshots_deleted": 0,
+                    "collection_runs_deleted": 0,
+                    "tasks_deleted": 0,
+                },
                 "message": "SQLite 数据库尚不存在，无需整理。",
             }
         self.settings.backups_dir.mkdir(parents=True, exist_ok=True)
-        backup_path = self.settings.backups_dir / f"sqlite-before-vacuum-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}.db"
+        backup_path = self.settings.backups_dir / f"sqlite-before-cleanup-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}.db"
         shutil.copy2(path, backup_path)
         before_size = path.stat().st_size
         with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            runtime_result = _cleanup_runtime_cache(conn)
+            conn.commit()
             conn.execute("VACUUM")
         after_size = path.stat().st_size
         reclaimed = max(0, before_size - after_size)
         logs = [
             scan["message"],
+            f"指标快照：清理 {runtime_result['metric_snapshots_deleted']} 条，保留最新 1 条",
+            f"采集记录：清理 {runtime_result['collection_runs_deleted']} 条，保留最近 7 天",
+            f"任务记录：清理 {runtime_result['tasks_deleted']} 条，保留最近 30 天和未确认告警",
             f"整理前备份：{backup_path}",
             f"整理前：{_size_label(before_size)}",
             f"整理后：{_size_label(after_size)}",
             f"释放：{_size_label(reclaimed)}",
         ]
         self.tasks.create_task(
-            f"cleanup-sqlite-vacuum-{int(before_size)}-{int(after_size)}",
+            "cleanup-sqlite-runtime",
             TaskType.CLEANUP,
-            "SQLite 空间整理",
+            "SQLite 清理并整理",
             status=TaskStatus.SUCCESS,
             progress=100,
-            message=f"SQLite 整理完成，释放 {_size_label(reclaimed)}",
+            message=f"SQLite 清理并整理完成，释放 {_size_label(reclaimed)}",
             logs=logs,
             links=[{"label": "整理前备份", "filename": backup_path.name, "url": "", "path": str(backup_path)}],
         )
@@ -178,7 +193,8 @@ class CleanupService:
             "after_size_label": _size_label(after_size),
             "space_reclaimed": reclaimed,
             "space_reclaimed_label": _size_label(reclaimed),
-            "message": f"SQLite 整理完成，释放 {_size_label(reclaimed)}。",
+            "runtime_cache": runtime_result,
+            "message": f"SQLite 清理并整理完成，释放 {_size_label(reclaimed)}。",
             "logs": logs,
         }
 
@@ -286,6 +302,120 @@ def _scan_item(key: str, label: str, path: Path) -> dict[str, Any]:
         "size": size,
         "size_label": _size_label(size),
     }
+
+
+def _empty_runtime_cache_scan() -> dict[str, Any]:
+    return {
+        "metric_snapshots": {"keep": 1, "delete_count": 0},
+        "collection_runs": {"retention_days": 7, "delete_count": 0},
+        "tasks": {"retention_days": 30, "delete_count": 0},
+    }
+
+
+def _scan_runtime_cache(conn: sqlite3.Connection) -> dict[str, Any]:
+    snapshot_count = _table_count(conn, "metric_snapshots")
+    collection_cutoff = _utc_cutoff(days=7)
+    task_cutoff = _utc_cutoff(days=30)
+    collection_delete_count = _count_collection_runs_before(conn, collection_cutoff)
+    task_delete_count = _count_expired_tasks(conn, task_cutoff)
+    return {
+        "metric_snapshots": {"keep": 1, "delete_count": max(0, snapshot_count - 1)},
+        "collection_runs": {"retention_days": 7, "delete_count": collection_delete_count},
+        "tasks": {"retention_days": 30, "delete_count": task_delete_count},
+    }
+
+
+def _cleanup_runtime_cache(conn: sqlite3.Connection) -> dict[str, int]:
+    snapshot_deleted = _delete_old_metric_snapshots(conn)
+    collection_cutoff = _utc_cutoff(days=7)
+    task_cutoff = _utc_cutoff(days=30)
+    collection_deleted = _delete_collection_runs_before(conn, collection_cutoff)
+    task_deleted = _delete_expired_tasks(conn, task_cutoff)
+    return {
+        "metric_snapshots_deleted": snapshot_deleted,
+        "collection_runs_deleted": collection_deleted,
+        "tasks_deleted": task_deleted,
+    }
+
+
+def _delete_old_metric_snapshots(conn: sqlite3.Connection) -> int:
+    if not _table_exists(conn, "metric_snapshots"):
+        return 0
+    cursor = conn.execute(
+        """
+        DELETE FROM metric_snapshots
+        WHERE id NOT IN (
+            SELECT id FROM metric_snapshots ORDER BY updated_at DESC, id DESC LIMIT 1
+        )
+        """
+    )
+    return int(cursor.rowcount or 0)
+
+
+def _count_collection_runs_before(conn: sqlite3.Connection, cutoff: str) -> int:
+    if not _table_exists(conn, "collection_runs"):
+        return 0
+    return int(conn.execute("SELECT COUNT(*) FROM collection_runs WHERE started_at < ?", (cutoff,)).fetchone()[0] or 0)
+
+
+def _delete_collection_runs_before(conn: sqlite3.Connection, cutoff: str) -> int:
+    if not _table_exists(conn, "collection_runs"):
+        return 0
+    cursor = conn.execute("DELETE FROM collection_runs WHERE started_at < ?", (cutoff,))
+    return int(cursor.rowcount or 0)
+
+
+def _count_expired_tasks(conn: sqlite3.Connection, cutoff: str) -> int:
+    if not _table_exists(conn, "tasks"):
+        return 0
+    return int(conn.execute(f"SELECT COUNT(*) FROM tasks WHERE {_expired_task_where_sql()}", (cutoff,)).fetchone()[0] or 0)
+
+
+def _delete_expired_tasks(conn: sqlite3.Connection, cutoff: str) -> int:
+    if not _table_exists(conn, "tasks"):
+        return 0
+    cursor = conn.execute(f"DELETE FROM tasks WHERE {_expired_task_where_sql()}", (cutoff,))
+    return int(cursor.rowcount or 0)
+
+
+def _expired_task_where_sql() -> str:
+    return """
+        status IN ('success', 'failed', 'cancelled')
+        AND COALESCE(finished_at, updated_at) < ?
+        AND (
+            COALESCE(severity, CASE
+                WHEN status = 'success' THEN 'info'
+                WHEN status IN ('failed', 'cancelled')
+                     AND (type = 'upgrade' OR lower(title) LIKE '%升级%' OR lower(title) LIKE '%重启%' OR lower(title) LIKE '%回滚%' OR lower(title) LIKE '%upgrade%' OR lower(title) LIKE '%restart%' OR lower(title) LIKE '%rollback%' OR lower(title) LIKE '%component%') THEN 'critical'
+                WHEN status IN ('failed', 'cancelled') THEN 'warning'
+                ELSE 'info'
+            END) = 'info'
+            OR (
+                COALESCE(severity, CASE
+                    WHEN status = 'success' THEN 'info'
+                    WHEN status IN ('failed', 'cancelled')
+                         AND (type = 'upgrade' OR lower(title) LIKE '%升级%' OR lower(title) LIKE '%重启%' OR lower(title) LIKE '%回滚%' OR lower(title) LIKE '%upgrade%' OR lower(title) LIKE '%restart%' OR lower(title) LIKE '%rollback%' OR lower(title) LIKE '%component%') THEN 'critical'
+                    WHEN status IN ('failed', 'cancelled') THEN 'warning'
+                    ELSE 'info'
+                END) IN ('warning', 'critical')
+                AND acknowledged_at IS NOT NULL
+            )
+        )
+    """
+
+
+def _table_count(conn: sqlite3.Connection, table: str) -> int:
+    if not _table_exists(conn, table):
+        return 0
+    return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] or 0)
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    return conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone() is not None
+
+
+def _utc_cutoff(*, days: int) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
 
 def _parse_docker_json_lines(raw: str) -> list[dict[str, Any]]:

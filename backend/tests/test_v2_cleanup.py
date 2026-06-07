@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -132,6 +133,55 @@ class V2CleanupServiceTest(unittest.TestCase):
             task = TaskService(database).list_tasks()[0]
             self.assertEqual(task["type"], "cleanup")
             self.assertIn("SQLite", task["title"])
+
+    def test_sqlite_cleanup_applies_runtime_cache_retention_before_vacuum(self) -> None:
+        from app.v2.cleanup.service import CleanupService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.models import TaskStatus, TaskType
+        from app.v2.tasks.service import TaskService
+
+        def iso(days_ago: int) -> str:
+            return (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="cleanup-secret")
+            database = V2Database(settings)
+            database.initialize()
+            tasks = TaskService(database)
+            tasks.create_task("old-report", TaskType.REPORT, "导出预测报表", status=TaskStatus.SUCCESS, progress=100)
+            tasks.create_task("new-report", TaskType.REPORT, "导出预测报表", status=TaskStatus.SUCCESS, progress=100)
+            tasks.create_task("old-warning", TaskType.CLEANUP, "空间清理", status=TaskStatus.FAILED, progress=100)
+            tasks.create_task("old-critical", TaskType.UPGRADE, "执行系统升级", status=TaskStatus.FAILED, progress=100)
+            tasks.acknowledge("old-warning")
+            with database.connection() as conn:
+                conn.executemany(
+                    "INSERT INTO collection_runs (status, message, started_at, finished_at) VALUES (?, ?, ?, ?)",
+                    [
+                        ("success", "old", iso(8), iso(8)),
+                        ("success", "new", iso(1), iso(1)),
+                    ],
+                )
+                conn.execute("INSERT OR REPLACE INTO metric_snapshots (id, metrics_text, updated_at) VALUES (1, ?, ?)", ("latest", iso(0)))
+                conn.execute("UPDATE tasks SET finished_at = ?, updated_at = ? WHERE id IN ('old-report', 'old-warning', 'old-critical')", (iso(31), iso(31)))
+                conn.execute("UPDATE tasks SET finished_at = ?, updated_at = ? WHERE id = 'new-report'", (iso(1), iso(1)))
+
+            cleanup = CleanupService(settings, tasks)
+            scan = cleanup.scan_sqlite_vacuum()
+            self.assertEqual(scan["runtime_cache"]["metric_snapshots"]["delete_count"], 0)
+            self.assertEqual(scan["runtime_cache"]["collection_runs"]["delete_count"], 1)
+            self.assertEqual(scan["runtime_cache"]["tasks"]["delete_count"], 2)
+
+            result = cleanup.vacuum_sqlite()
+            self.assertTrue(Path(result["backup_path"]).is_file())
+            self.assertEqual(result["runtime_cache"]["collection_runs_deleted"], 1)
+            self.assertEqual(result["runtime_cache"]["tasks_deleted"], 2)
+            self.assertEqual(result["runtime_cache"]["metric_snapshots_deleted"], 0)
+            with database.connection() as conn:
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM collection_runs").fetchone()[0], 1)
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM metric_snapshots").fetchone()[0], 1)
+                task_ids = {row["id"] for row in conn.execute("SELECT id FROM tasks").fetchall()}
+            self.assertEqual(task_ids, {"new-report", "old-critical", "cleanup-sqlite-runtime"})
 
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")

@@ -370,6 +370,11 @@ export interface SqliteVacuumScan {
   page_size: number;
   estimated_reclaimable: number;
   estimated_reclaimable_label: string;
+  runtime_cache?: {
+    metric_snapshots?: { keep?: number; delete_count: number };
+    collection_runs?: { retention_days?: number; delete_count: number };
+    tasks?: { retention_days?: number; delete_count: number };
+  };
   message: string;
 }
 
@@ -382,6 +387,11 @@ export interface SqliteVacuumResult {
   after_size_label?: string;
   space_reclaimed: number;
   space_reclaimed_label: string;
+  runtime_cache?: {
+    metric_snapshots_deleted: number;
+    collection_runs_deleted: number;
+    tasks_deleted: number;
+  };
   message: string;
   logs?: string[];
 }
@@ -395,6 +405,8 @@ export interface AppTaskLink {
   filename?: string;
   url: string;
   path?: string;
+  exists?: boolean;
+  expired?: boolean;
 }
 
 export interface ReportBundleExport {

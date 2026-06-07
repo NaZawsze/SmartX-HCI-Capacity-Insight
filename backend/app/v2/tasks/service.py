@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from app.v2.database import V2Database
@@ -190,7 +191,7 @@ def _task_row(row) -> dict[str, Any]:
         "progress": _clamp(row["progress"]),
         "message": row["message"] or "",
         "detail": row["message"] or "",
-        "links": _load_json(row["links_json"], []),
+        "links": _annotate_links(_load_json(row["links_json"], [])),
         "logs": _load_json(row["logs_json"], []),
         "steps": _load_json(row["steps_json"], []),
         "severity": severity,
@@ -275,6 +276,22 @@ def _load_json(value: str | None, default: Any) -> Any:
         return json.loads(value)
     except json.JSONDecodeError:
         return default
+
+
+def _annotate_links(links: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    annotated: list[dict[str, Any]] = []
+    for link in links:
+        if not isinstance(link, dict):
+            continue
+        next_link = dict(link)
+        path = str(next_link.get("path") or "")
+        url = str(next_link.get("url") or "")
+        if path and url.startswith("/api/admin/exports/"):
+            exists = Path(path).is_file()
+            next_link["exists"] = exists
+            next_link["expired"] = not exists
+        annotated.append(next_link)
+    return annotated
 
 
 def _clamp(value: Any) -> int:

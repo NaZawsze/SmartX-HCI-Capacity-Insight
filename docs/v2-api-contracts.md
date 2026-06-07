@@ -270,13 +270,19 @@
 
 ### `GET /api/admin/system/sqlite-vacuum/scan`
 
-扫描 SQLite 当前大小、总页数、空闲页和预计可释放空间。
+扫描 SQLite 当前大小、总页数、空闲页、预计可释放空间和运行态缓存候选数量。
+
+返回 `runtime_cache`：
+
+- `metric_snapshots.delete_count`：超过最新 1 条的指标快照数量。
+- `collection_runs.delete_count`：超过 7 天的采集记录数量。
+- `tasks.delete_count`：超过 30 天且允许清理的任务记录数量。
 
 ### `POST /api/admin/system/sqlite-vacuum`
 
-执行 SQLite 空间整理。
+执行 SQLite 清理并整理。
 
-执行前必须备份 `smartx.db` 到 `/data/backups/sqlite-before-vacuum-*.db`。
+执行前必须备份 `smartx.db` 到 `/data/backups/sqlite-before-cleanup-*.db`。随后清理运行态缓存并执行 VACUUM，返回 `runtime_cache` 删除统计、整理前后大小和释放空间。
 
 ## 9. 升级中心
 

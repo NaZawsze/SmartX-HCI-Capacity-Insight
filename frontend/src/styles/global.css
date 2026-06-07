@@ -3839,6 +3839,12 @@ button.cluster-capacity-row:focus-visible {
   gap: 6px;
 }
 
+.task-link-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .task-link-row button {
   min-height: 24px;
   padding: 0 9px;
@@ -3852,6 +3858,19 @@ button.cluster-capacity-row:focus-visible {
 
 .task-link-row button:hover {
   background: #e4f0ff;
+}
+
+.task-link-row button:disabled {
+  border-color: #d5dce6;
+  background: #f3f5f8;
+  color: #8a97a8;
+  cursor: not-allowed;
+}
+
+.task-link-item small {
+  color: #9a6a00;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .task-step-list {

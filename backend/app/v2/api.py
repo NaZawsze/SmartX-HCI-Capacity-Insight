@@ -591,7 +591,7 @@ def download_saved_export(
         raise HTTPException(status_code=404, detail="导出文件不存在。")
     path = base_dir / Path(filename).name
     if not path.is_file():
-        raise HTTPException(status_code=404, detail="导出文件不存在。")
+        raise HTTPException(status_code=404, detail="导出文件已失效，请重新生成。")
     return FileResponse(path, filename=Path(filename).name)
 
 

@@ -90,6 +90,11 @@ function mockServicePageBootstrap() {
     page_size: 1024,
     estimated_reclaimable: 1024,
     estimated_reclaimable_label: "1024 B",
+    runtime_cache: {
+      metric_snapshots: { keep: 1, delete_count: 0 },
+      collection_runs: { retention_days: 7, delete_count: 1 },
+      tasks: { retention_days: 30, delete_count: 2 }
+    },
     message: "SQLite 当前大小 1024 B，预计可整理释放 1024 B。"
   });
 }
@@ -211,14 +216,17 @@ describe("ServicePage migration overwrite mode", () => {
     await waitFor(() => expect(screen.getByText("运行产物清理")).toBeInTheDocument());
 
     const cleanupSection = screen.getByText("运行产物清理").closest(".cleanup-module");
-    const sqliteSection = screen.getByText("SQLite 空间整理").closest(".cleanup-module");
+    const sqliteSection = screen.getByText("SQLite 清理并整理").closest(".cleanup-module");
 
     expect(cleanupSection).not.toBeNull();
     expect(sqliteSection).not.toBeNull();
     expect(cleanupSection).toContainElement(screen.getByRole("button", { name: "扫描" }));
     expect(cleanupSection).toContainElement(screen.getByRole("button", { name: "一键清理" }));
     expect(sqliteSection).toContainElement(screen.getByRole("button", { name: "扫描 SQLite" }));
-    expect(sqliteSection).toContainElement(screen.getByRole("button", { name: "整理 SQLite" }));
+    expect(sqliteSection).toContainElement(screen.getByRole("button", { name: "清理并整理 SQLite" }));
+    fireEvent.click(screen.getByRole("button", { name: "扫描 SQLite" }));
+    await waitFor(() => expect(screen.getByText("采集记录：1 条可清理")).toBeInTheDocument());
+    expect(screen.getByText("任务记录：2 条可清理")).toBeInTheDocument();
     expect(cleanupSection!.querySelector(".cleanup-result-panel")).not.toBeNull();
     expect(sqliteSection!.querySelector(".cleanup-result-panel")).not.toBeNull();
     expect(cleanupSection!.querySelector(".cleanup-log")).not.toBeNull();

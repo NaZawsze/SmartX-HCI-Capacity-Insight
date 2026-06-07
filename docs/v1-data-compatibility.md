@@ -153,7 +153,8 @@ v2 正式库处理规则：
 - 如果导入包或旧库存在 `latest_vm_volumes.payload_json`，初始化/导入时只抽取必要字段写入 `vm_volumes`。
 - 抽取完成后删除旧 `latest_vm_volumes` 表，并在 `schema_migrations` 中记录 `drop_legacy_latest_vm_volumes`。
 - 数据迁移导出的 SQLite 只保留 `towers/clusters` 配置表；完整迁移包额外携带 Prometheus 历史 block。`vm_latest`、`vm_volumes`、`collection_runs`、`metric_snapshots` 等运行态缓存不再随 SQLite 迁出，目标环境完成采集后重建。
-- 如需释放 SQLite 文件空间，可在服务管理的空间清理页执行“SQLite 空间整理”；执行前会备份 `smartx.db`。
+- 如需释放 SQLite 文件空间，可在服务管理的空间清理页执行“SQLite 清理并整理”；执行前会备份 `smartx.db`，随后清理运行态缓存并执行 VACUUM。
+- SQLite 运行态缓存默认策略：`metric_snapshots` 最多保留 1 条，`collection_runs` 保留最近 7 天，`tasks` 保留最近 30 天且未确认告警/严重告警继续保留。
 
 ## 7. Prometheus 历史指标兼容
 

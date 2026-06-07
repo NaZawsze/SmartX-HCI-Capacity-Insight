@@ -145,6 +145,17 @@ function succeededReportDownloadTask(): AppTask {
   };
 }
 
+function expiredReportDownloadTask(): AppTask {
+  return {
+    ...succeededReportDownloadTask(),
+    id: "task-expired-report-download",
+    links: [
+      { label: "Word", filename: "storage-forecast.docx", url: "/api/admin/exports/reports/storage-forecast.docx", path: "/data/exports/reports/storage-forecast.docx", exists: false, expired: true },
+      { label: "Excel", filename: "storage-forecast.xlsx", url: "/api/admin/exports/reports/storage-forecast.xlsx", path: "/data/exports/reports/storage-forecast.xlsx", exists: true, expired: false }
+    ]
+  };
+}
+
 function pendingUpgradeTask(): AppTask {
   return {
     id: "upgrade-pending",
@@ -321,6 +332,16 @@ describe("AppLayout menus", () => {
     expect(screen.getByRole("button", { name: "Word" })).toHaveAttribute("title", "/data/exports/reports/storage-forecast.docx");
     expect(screen.getByRole("button", { name: "Excel" })).toHaveAttribute("title", "/data/exports/reports/storage-forecast.xlsx");
     expect(screen.queryByRole("button", { name: "下载" })).not.toBeInTheDocument();
+  });
+
+  it("shows expired next to missing task download links", () => {
+    render(<AppLayout {...baseProps} tasks={[expiredReportDownloadTask()]} />);
+
+    fireEvent.click(screen.getByTitle("任务"));
+
+    expect(screen.getByRole("button", { name: "Word" })).toBeDisabled();
+    expect(screen.getByText("已失效")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Excel" })).not.toBeDisabled();
   });
 
   it("shows all loaded tasks and enables clear for succeeded info tasks", () => {

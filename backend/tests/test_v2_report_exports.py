@@ -217,12 +217,18 @@ class V2ReportExportApiTest(unittest.TestCase):
                     download = client.get(word.headers["x-smartx-export-url"], headers=headers)
                     self.assertEqual(download.status_code, 200)
                     self.assertEqual(download.content, word.content)
+                    word_path.unlink()
+                    expired_download = client.get(word.headers["x-smartx-export-url"], headers=headers)
+                    self.assertEqual(expired_download.status_code, 404)
+                    self.assertIn("已失效", expired_download.json()["detail"])
 
                     tasks = client.get("/api/tasks", headers=headers).json()
                     report_tasks = [task for task in tasks if task["type"] == "report"]
                     self.assertGreaterEqual(len(report_tasks), 2)
                     self.assertEqual(report_tasks[0]["status"], "success")
                     self.assertTrue(report_tasks[0]["links"][0]["url"].startswith("/api/admin/exports/reports/"))
+                    expired_links = [link for task in report_tasks for link in task["links"] if link.get("filename") == word_path.name]
+                    self.assertTrue(any(link.get("expired") for link in expired_links))
             finally:
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)
