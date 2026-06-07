@@ -3718,17 +3718,32 @@ button {
   border: 1px solid var(--border);
   border-radius: 8px;
   display: grid;
-  gap: 12px;
+  gap: 14px;
   margin-top: 14px;
-  padding: 14px;
+  padding: 16px 18px;
 }
 
-.cleanup-module-actions {
+.cleanup-module .service-operation-head {
+  align-items: flex-start;
+}
+
+.cleanup-module-title {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cleanup-inline-actions {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  margin-top: 4px;
+}
+
+.cleanup-inline-actions .service-header-button {
+  min-width: 132px;
 }
 
 .sqlite-vacuum-panel {
