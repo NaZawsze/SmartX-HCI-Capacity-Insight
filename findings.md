@@ -97,6 +97,30 @@ panic: Unable to create mmap-ed active query log
 
 导入策略应尽量补全缺失数据，不覆盖现有系统已有数据。业务库导入应避免按整库覆盖；对于已存在集群，需要谨慎处理 cluster/tower 映射，避免导入后过滤条件不匹配导致历史指标查不到。
 
+### 配置迁移边界
+
+迁移到一台新机器时，并不是 SQLite 中所有表都有必要迁移。当前确认的产品决策：
+
+- 新增“配置迁移包”作为优先方案，只迁移 `towers` 和 `clusters`。
+- `towers/clusters` 是恢复 Tower 纳管关系和集群启用状态的核心配置。
+- `users` 不随配置迁移；新机器继续使用本机初始化的平台管理员账号密码。
+- `vm_latest`、`vm_volumes`、`tasks`、`collection_runs`、`metric_snapshots` 不作为配置迁移必需项。
+- `vm_latest/vm_volumes` 重新采集后可以恢复当前状态；历史趋势仍依赖 Prometheus。
+- `tasks/collection_runs` 是运行痕迹，不应成为新机器迁移重点。
+- `metric_snapshots` 是当前指标快照，可由 Prometheus 查询或后续采集重新生成。
+- 如果 Tower 凭据加密 key 不一致，导入后的 Tower 凭据可能无法解密，需要重新录入 Tower 密码或 token。
+
+短期不拆分 SQLite 双 DB。原因：
+
+- 当前导出慢的主要来源通常是完整迁移包中的 Prometheus 历史 block，以及完整 SQLite/历史数据打包。
+- 只导出 `towers/clusters` 的配置迁移包即可显著缩小包体并提高迁新机器速度。
+- 双 DB（例如 `config.db` + `runtime.db`）会影响数据库初始化、服务依赖、备份、迁移、测试和升级包兼容，适合作为后续大版本架构治理项。
+
+后续保留两种迁移模式：
+
+- 配置迁移：只迁移 `towers/clusters`，适合新机器快速重新开始采集。
+- 完整迁移：迁移 SQLite 必要数据和 Prometheus 历史指标，适合无缝搬家并保留趋势、日增长、月增长和预测。
+
 ## 升级中心注意事项
 
 第一版系统升级设计为离线 `.tar.gz` 升级包：
@@ -224,3 +248,13 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - `startUpgrade()` / `startComponentUpgrade()` 使用后端真实 `task_id` 创建任务中心记录，避免 `upgrade-start-*` 临时 id 导致取消接口找不到任务。
 - `addTask()` 同 id upsert，避免重复任务堆叠。
 - `mergeTasks()` 允许后端完成态覆盖本地 active 状态，避免完成任务继续显示执行中。
+
+后续任务中心通知设计：
+
+- 任务中心角标应表示未处理通知数量，不应表示运行中任务数量。
+- 任务通知状态需要持久化在 SQLite `tasks` 表中，避免刷新或轮询后角标恢复。
+- 任务严重级别分为 `info`、`warning`、`critical`。
+- `info` 用于成功完成类任务，打开任务中心并关闭后可标记已读。
+- `warning` 用于普通失败/取消任务，需要确认或删除才消除角标。
+- `critical` 用于服务重启失败、平台升级失败、组件升级失败、回滚失败等重要任务失败，需要确认或删除才消除角标。
+- 一键清空只能清除已读信息任务和已确认告警任务，不能清除未确认告警。
