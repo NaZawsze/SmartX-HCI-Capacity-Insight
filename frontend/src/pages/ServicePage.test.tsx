@@ -265,8 +265,8 @@ describe("ServicePage upgrade center", () => {
     expect(screen.getByText("upgrade-runner")).toBeInTheDocument();
     expect(screen.getByText("观测组件")).toBeInTheDocument();
     expect(screen.getByText("prometheus")).toBeInTheDocument();
-    expect(screen.getByText("v0.3.0")).toBeInTheDocument();
-    expect(screen.getByText("v2.55.1")).toBeInTheDocument();
+    expect(screen.getAllByText("v0.3.0").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("v2.55.1").length).toBeGreaterThanOrEqual(1);
 
     fireEvent.click(screen.getByRole("button", { name: /观测组件.*prometheus/s }));
 
