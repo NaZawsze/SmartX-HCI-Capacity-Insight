@@ -230,6 +230,7 @@ function normalizeMetricItem(item: unknown): MetricItem {
     growth_ratio: optionalNumber(record.growth_ratio),
     period_days: optionalNumber(record.period_days),
     provisioned: optionalNumber(record.provisioned),
+    total_bytes: optionalNumber(record.total_bytes),
     used_ratio: optionalNumber(record.used_ratio),
     guest_used: optionalNumber(record.guest_used),
     guest_used_ratio: optionalNumber(record.guest_used_ratio)

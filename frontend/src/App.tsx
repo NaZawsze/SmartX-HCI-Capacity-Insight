@@ -138,9 +138,14 @@ export default function App() {
     setActivePage("vms");
   }
 
+  function openRiskReport(reportScope: DashboardScope) {
+    setScope(reportScope);
+    setActivePage("reports");
+  }
+
   return (
     <AppLayout activePage={activePage} onNavigate={setActivePage} onLogout={logout} summary={summary} scope={scope} onScopeChange={setScope} onSummary={handleSummary} tasks={tasks} onClearTasks={clearTasks} onTasksSeen={markTasksSeen} onTaskAck={acknowledgeTask} onTaskAction={handleTaskAction}>
-      {activePage === "dashboard" && <DashboardPage summary={summary} scope={scope} onSummary={handleSummary} onSelectVm={openVm} />}
+      {activePage === "dashboard" && <DashboardPage summary={summary} scope={scope} onSummary={handleSummary} onSelectVm={openVm} onOpenRiskReport={openRiskReport} />}
       {activePage === "vms" && (
         <VmsPage
           refreshKey={dataRefreshKey}

@@ -34,6 +34,7 @@ export interface MetricItem {
   period_days?: number | null;
   forecast?: ForecastResult;
   provisioned?: number | null;
+  total_bytes?: number | null;
   used_ratio?: number | null;
   guest_used?: number | null;
   guest_used_ratio?: number | null;

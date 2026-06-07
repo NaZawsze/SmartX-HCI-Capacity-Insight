@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DashboardPage } from "./DashboardPage";
 
@@ -132,5 +132,93 @@ describe("DashboardPage", () => {
     expect(screen.getByText("本日新建 VM")).toBeInTheDocument();
     expect(screen.getByText("VM One")).toBeInTheDocument();
     expect(screen.getByText("VM Two")).toBeInTheDocument();
+  });
+
+  it("opens the riskiest cluster report when capacity risk is clicked", () => {
+    const onOpenRiskReport = vi.fn();
+    render(
+      <DashboardPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 2, vm_count: 3, used_bytes: 100, total_bytes: 200, used_ratio: 0.5 },
+          capacity_risk: {
+            level: "danger",
+            title: "容量高风险",
+            description: "已有集群容量达到高风险阈值：风险集群 当前已使用 80.00%。",
+            cluster_count: 2,
+            warning_count: 0,
+            danger_count: 1,
+            top_clusters: [{ tower_id: "7", cluster_id: "cluster-risk", cluster: "风险集群", used_ratio: 0.8 }]
+          },
+          top_vms: [],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSummary={vi.fn()}
+        onSelectVm={vi.fn()}
+        onOpenRiskReport={onOpenRiskReport}
+      />
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /容量高风险/ })[0]);
+
+    expect(onOpenRiskReport).toHaveBeenCalledWith({ type: "cluster", towerId: 7, clusterId: "cluster-risk" });
+  });
+
+  it("renders cluster capacity details inside the SmartX ZBS card sorted by usage", () => {
+    const onOpenRiskReport = vi.fn();
+    render(
+      <DashboardPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 3, vm_count: 3, used_bytes: 100, total_bytes: 300, used_ratio: 1 / 3 },
+          top_vms: [],
+          clusters: [
+            { metric: { tower_id: "1", cluster_id: "cluster-low", cluster: "低使用集群" }, value: 20, total_bytes: 100 },
+            { metric: { tower_id: "1", cluster_id: "cluster-risk", cluster: "高风险集群" }, value: 90, total_bytes: 100 },
+            { metric: { tower_id: "1", cluster_id: "cluster-warning", cluster: "关注集群" }, value: 76, total_bytes: 100 }
+          ],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSummary={vi.fn()}
+        onSelectVm={vi.fn()}
+        onOpenRiskReport={onOpenRiskReport}
+      />
+    );
+
+    const zbsCard = screen.getByText("集群容量明细").closest("section")!;
+    const zbs = within(zbsCard);
+
+    const clusterButtons = zbs.getAllByRole("button", { name: /集群/ }).filter((button) => button.className.includes("cluster-capacity-row"));
+    expect(clusterButtons[0]).toHaveTextContent("高风险集群");
+    expect(clusterButtons[0]).toHaveTextContent("已使用 90 B");
+    expect(clusterButtons[0]).toHaveTextContent("总容量 100 B");
+    expect(clusterButtons[0]).toHaveTextContent("90.00%");
+    expect(clusterButtons[1]).toHaveTextContent("关注集群");
+    expect(clusterButtons[2]).toHaveTextContent("低使用集群");
+
+    fireEvent.click(clusterButtons[0]);
+    expect(onOpenRiskReport).toHaveBeenCalledWith({ type: "cluster", towerId: 1, clusterId: "cluster-risk" });
+  });
+
+  it("shows insufficient data for cluster capacity rows without total capacity", () => {
+    render(
+      <DashboardPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 1, vm_count: 0, used_bytes: 0, total_bytes: 0, used_ratio: 0 },
+          top_vms: [],
+          clusters: [{ metric: { tower_id: "1", cluster_id: "cluster-empty", cluster: "容量未知集群" }, value: 0, total_bytes: 0 }],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSummary={vi.fn()}
+        onSelectVm={vi.fn()}
+      />
+    );
+
+    const zbsCard = screen.getByText("集群容量明细").closest("section")!;
+    const zbs = within(zbsCard);
+    expect(zbs.getByText("容量未知集群")).toBeInTheDocument();
+    expect(zbs.getByText("数据不足")).toBeInTheDocument();
   });
 });

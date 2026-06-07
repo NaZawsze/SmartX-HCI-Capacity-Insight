@@ -427,10 +427,12 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 - Dashboard API `capacity_risk` 已返回 `title`、`description`、`cluster_count`、`warning_count`、`danger_count` 和按使用率排序的 `top_clusters`。
 - 任一集群使用率 `>=80%` 返回高风险；`>=75%` 返回需关注；无风险时返回 `当前所有集群暂无明显容量风险`。
 - 首页已在第一行显示容量风险卡片，并在下方风险提示区展示同一风险摘要。
+- 容量风险卡片和风险提示支持点击跳转到报表页；如存在风险集群，优先跳转到使用率最高的集群报表。
+- `SmartX ZBS` 卡片已增加集群容量明细，展示每个集群的已使用、总容量、使用率和风险颜色，并支持点击集群行跳转到对应集群报表。
 
 后续增强：
 
-- 风险卡片点击跳转到具体集群报表或 VM 增长来源仍可作为后续交互增强。
+- 风险链路后续可继续扩展到 VM 增长来源，例如从风险集群直接定位主要增长 VM。
 
 ### Phase 16 - 项目架构整理
 
@@ -505,7 +507,7 @@ Phase V2-0 细化文档：
 
 后续增强：
 
-- Dashboard 风险卡片点击跳转到具体集群报表或 VM 增长来源。
+- [已解决] Dashboard 风险卡片点击跳转到具体集群报表，并在 `SmartX ZBS` 卡片内补充集群容量明细。
 - 报表图表风格和自然语言摘要继续产品化。
 - [已解决] 大规模现场数据迁移导出/导入进度继续细化：迁出任务记录扫描、打包、保存、下载链接，完整迁移包导出 start 接口已真正后台化；迁入改为后台任务，展示上传保存、解压校验、导入前备份、SQLite、Prometheus 和健康检查步骤。
 - [已解决] SQLite / 虚拟卷存储结构瘦身：v2 正式使用 `vm_volumes`，旧 `latest_vm_volumes.payload_json` 抽取后删除并记录 schema migration；旧 `latest_vm_volume_items` 迁入 `vm_volumes` 后删除，`10.20.11.3` 执行 VACUUM 后 SQLite 从约 68.34MB 降到 32.29MB；空间清理新增 SQLite VACUUM 扫描和整理能力。

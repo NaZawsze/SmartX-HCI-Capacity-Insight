@@ -12,9 +12,10 @@ interface DashboardPageProps {
   scope: DashboardScope;
   onSummary: (summary: DashboardSummary) => void;
   onSelectVm: (vmId: string, vmName?: string) => void;
+  onOpenRiskReport?: (scope: DashboardScope) => void;
 }
 
-export function DashboardPage({ summary, scope, onSummary, onSelectVm }: DashboardPageProps) {
+export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRiskReport }: DashboardPageProps) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [growthSort, setGrowthSort] = useState<GrowthSortMode>("amount");
@@ -60,16 +61,27 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm }: Dashboa
   const topVms = sortMetricGrowthItems(summary?.day_fastest_growing_vms || summary?.top_vms || [], growthSort);
   const dayNewVms = summary?.day_new_vms || [];
   const risk = capacityRisk(summary?.capacity_risk, kpis?.used_ratio);
+  const riskReportScope = reportScopeForRisk(summary?.capacity_risk);
+  const clusterCapacityItems = clusterCapacityRows(summary?.clusters || []);
+
+  function openRiskReport() {
+    onOpenRiskReport?.(riskReportScope);
+  }
+
+  function openClusterReport(item: MetricItem) {
+    const reportScope = reportScopeForCluster(item);
+    if (reportScope) onOpenRiskReport?.(reportScope);
+  }
 
   return (
     <div className="dashboard-grid">
       <div className="metrics-row dashboard-metrics-row">
-        <div className={`metric-card capacity-risk-mini ${risk.tone}`}>
+        <button className={`metric-card capacity-risk-mini ${risk.tone} clickable-risk-card`} type="button" onClick={openRiskReport} title="查看容量风险报表">
           <div className="capacity-risk-mini-icon">
             {risk.tone === "normal" ? <Check size={28} strokeWidth={3} /> : <AlertTriangle size={28} strokeWidth={2.6} />}
           </div>
           <strong>{risk.title}</strong>
-        </div>
+        </button>
         <MetricCard label="Tower" value={`${kpis?.tower_count ?? 0}`} hint="已纳管" icon={MonitorCog} />
         <MetricCard label="集群" value={`${kpis?.cluster_count ?? 0}`} hint="启用采集" icon={HardDrive} tone="green" />
         <MetricCard label="虚拟机" value={`${kpis?.vm_count ?? 0}`} hint="最近样本" icon={Server} />
@@ -78,6 +90,21 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm }: Dashboa
 
       <Card title="SmartX ZBS" subtitle={scopeLabel} className="wide-card">
         <StorageBar used={kpis?.used_bytes ?? 0} total={kpis?.total_bytes ?? 0} />
+        <div className="cluster-capacity-section">
+          <div className="cluster-capacity-head">
+            <strong>集群容量明细</strong>
+            <span>{clusterCapacityItems.length ? `${clusterCapacityItems.length} 个集群` : "暂无集群容量数据"}</span>
+          </div>
+          <div className="cluster-capacity-list auto-scrollbar">
+            {clusterCapacityItems.length ? (
+              clusterCapacityItems.map((item) => (
+                <ClusterCapacityRow item={item} key={`${item.metric.tower_id || "tower"}-${item.metric.cluster_id || item.metric.cluster || "cluster"}`} onOpen={openClusterReport} />
+              ))
+            ) : (
+              <div className="cluster-capacity-empty">暂无集群容量数据</div>
+            )}
+          </div>
+        </div>
       </Card>
 
       <Card
@@ -171,17 +198,48 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm }: Dashboa
       </Card>
 
       <Card title="风险提示">
-        <div className={`risk-summary ${risk.tone}`}>
+        <button className={`risk-summary clickable-risk-summary ${risk.tone}`} type="button" onClick={openRiskReport}>
           {risk.tone === "normal" ? <CircleCheck size={38} /> : <AlertTriangle size={38} />}
           <strong>{risk.title}</strong>
           <span>{risk.description}</span>
-        </div>
+        </button>
       </Card>
     </div>
   );
 }
 
 type GrowthSortMode = "amount" | "ratio";
+
+function ClusterCapacityRow({ item, onOpen }: { item: MetricItem; onOpen: (item: MetricItem) => void }) {
+  const total = item.total_bytes ?? 0;
+  const used = item.value ?? 0;
+  const ratio = total > 0 ? Math.min(Math.max(used / total, 0), 1) : 0;
+  const tone = clusterCapacityTone(ratio, total);
+  const reportScope = reportScopeForCluster(item);
+  const content = (
+    <>
+      <div className="cluster-capacity-main">
+        <strong>{item.metric.cluster || item.metric.cluster_id || "未知集群"}</strong>
+        <span>{total > 0 ? `${(ratio * 100).toFixed(2)}%` : "数据不足"}</span>
+      </div>
+      <div className="cluster-capacity-progress">
+        <div className="cluster-capacity-progress-fill" style={{ width: `${ratio * 100}%` }} />
+      </div>
+      <div className="cluster-capacity-meta">
+        <span>已使用 {formatBytes(used)}</span>
+        <span>{total > 0 ? `总容量 ${formatBytes(total)}` : "总容量 数据不足"}</span>
+      </div>
+    </>
+  );
+  if (!reportScope) {
+    return <div className={`cluster-capacity-row ${tone}`}>{content}</div>;
+  }
+  return (
+    <button className={`cluster-capacity-row ${tone}`} type="button" onClick={() => onOpen(item)}>
+      {content}
+    </button>
+  );
+}
 
 function GrowthSortTabs({ value, onChange }: { value: GrowthSortMode; onChange: (value: GrowthSortMode) => void }) {
   return (
@@ -198,6 +256,30 @@ function GrowthSortTabs({ value, onChange }: { value: GrowthSortMode; onChange: 
 
 function sortMetricGrowthItems(items: MetricItem[], mode: GrowthSortMode): MetricItem[] {
   return [...items].sort((left, right) => growthSortValue(right, mode) - growthSortValue(left, mode));
+}
+
+function clusterCapacityRows(items: MetricItem[]): MetricItem[] {
+  return [...items].sort((left, right) => clusterUsageRatio(right) - clusterUsageRatio(left));
+}
+
+function clusterUsageRatio(item: MetricItem): number {
+  const total = item.total_bytes ?? 0;
+  if (total <= 0) return 0;
+  return (item.value ?? 0) / total;
+}
+
+function clusterCapacityTone(ratio: number, total: number): "normal" | "warning" | "danger" | "unknown" {
+  if (total <= 0) return "unknown";
+  if (ratio >= 0.8) return "danger";
+  if (ratio >= 0.75) return "warning";
+  return "normal";
+}
+
+function reportScopeForCluster(item: MetricItem): DashboardScope | undefined {
+  const towerId = Number(item.metric.tower_id);
+  const clusterId = item.metric.cluster_id ? String(item.metric.cluster_id) : "";
+  if (!Number.isFinite(towerId) || !clusterId) return undefined;
+  return { type: "cluster", towerId, clusterId };
 }
 
 function growthSortValue(item: MetricItem, mode: GrowthSortMode): number {
@@ -238,4 +320,14 @@ function capacityRisk(
     return { tone: "warning", title: "容量需关注", description: `当前已使用 ${percent}，建议关注增长趋势和重点 VM。` };
   }
   return { tone: "normal", title: "容量风险正常", description: `当前已使用 ${percent}，暂无明显容量风险。` };
+}
+
+function reportScopeForRisk(clusterRisk?: DashboardSummary["capacity_risk"]): DashboardScope {
+  const target = clusterRisk?.top_clusters?.[0];
+  const towerId = Number(target?.tower_id);
+  const clusterId = target?.cluster_id ? String(target.cluster_id) : "";
+  if (Number.isFinite(towerId) && clusterId) {
+    return { type: "cluster", towerId, clusterId };
+  }
+  return { type: "all" };
 }
