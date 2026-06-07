@@ -107,6 +107,34 @@ def test_upgrade_runner_dependencies_do_not_pull_web_api_stack() -> None:
     assert "python-multipart" not in text
 
 
+def test_web_api_image_uses_slim_runtime_dependencies() -> None:
+    root = Path(__file__).resolve().parents[2]
+    dockerfile = (root / "backend/Dockerfile").read_text(encoding="utf-8")
+    requirements = (root / "backend/requirements-api.txt").read_text(encoding="utf-8")
+    v2_report_export = (root / "backend/app/v2/reports/export.py").read_text(encoding="utf-8")
+    v1_report_export = (root / "backend/app/services/report_export.py").read_text(encoding="utf-8")
+
+    assert "uvicorn[standard]" not in requirements
+    assert "uvicorn==0.34.0" in requirements
+    assert "fonts-noto-core" not in dockerfile
+    assert "fonts-noto-cjk" in dockerfile
+    assert "NotoSerifCJK-Regular.ttc" in dockerfile
+    assert "NotoSerifCJK-Bold.ttc" not in dockerfile
+    assert "NotoSansCJK-Regular.ttc" not in dockerfile
+    assert "fc-cache -f" in dockerfile
+    assert "__pycache__" in dockerfile
+    assert "*.pyc" in dockerfile
+    assert "find ./app -type d -name __pycache__" in dockerfile
+    assert "find ./app -type f -name '*.pyc'" in dockerfile
+    assert "-name tests" in dockerfile
+    assert "-name test" in dockerfile
+    assert ".dist-info" not in dockerfile
+    assert '[CHART_FONT_FAMILY, "Noto Serif", "DejaVu Serif"]' not in v2_report_export
+    assert '[CHART_FONT_FAMILY, "Noto Serif", "DejaVu Serif"]' not in v1_report_export
+    assert '[CHART_FONT_FAMILY, "DejaVu Serif"]' in v2_report_export
+    assert '[CHART_FONT_FAMILY, "DejaVu Serif"]' in v1_report_export
+
+
 def test_upgrade_override_uses_platform_release_images() -> None:
     root = Path(__file__).resolve().parents[2]
     text = (root / "docker-compose.upgrade.yml").read_text(encoding="utf-8")

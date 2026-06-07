@@ -853,7 +853,7 @@ def _line_chart_image(points: list[tuple[int, float]], title: str, ylabel: str) 
         matplotlib.use("Agg")
         import matplotlib.dates as mdates
         import matplotlib.pyplot as plt
-        matplotlib.rcParams["font.family"] = [CHART_FONT_FAMILY, "Noto Serif", "DejaVu Serif"]
+        matplotlib.rcParams["font.family"] = [CHART_FONT_FAMILY, "DejaVu Serif"]
         matplotlib.rcParams["axes.unicode_minus"] = False
     except Exception:
         return None
@@ -928,7 +928,7 @@ def _horizontal_bar_chart_image(items: list[tuple[str, float]], title: str, unit
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        matplotlib.rcParams["font.family"] = [CHART_FONT_FAMILY, "Noto Serif", "DejaVu Serif"]
+        matplotlib.rcParams["font.family"] = [CHART_FONT_FAMILY, "DejaVu Serif"]
         matplotlib.rcParams["axes.unicode_minus"] = False
     except Exception:
         return None
