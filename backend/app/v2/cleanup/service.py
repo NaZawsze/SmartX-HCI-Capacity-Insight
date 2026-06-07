@@ -198,6 +198,66 @@ class CleanupService:
             "logs": logs,
         }
 
+    def scan_sqlite_backups(self) -> dict[str, Any]:
+        self.settings.backups_dir.mkdir(parents=True, exist_ok=True)
+        items: list[dict[str, Any]] = []
+        for path in sorted(self.settings.backups_dir.iterdir(), key=lambda item: item.stat().st_mtime if item.exists() else 0, reverse=True):
+            if not path.is_file() or not _is_sqlite_backup_file(path):
+                continue
+            stat = path.stat()
+            items.append(
+                {
+                    "filename": path.name,
+                    "path": str(path),
+                    "size": int(stat.st_size),
+                    "size_label": _size_label(int(stat.st_size)),
+                    "modified_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+                }
+            )
+        total_size = sum(int(item["size"]) for item in items)
+        return {
+            "ok": True,
+            "items": items,
+            "total_count": len(items),
+            "total_size": total_size,
+            "total_size_label": _size_label(total_size),
+            "message": f"发现 {len(items)} 个 SQLite 数据库备份，可释放 {_size_label(total_size)}。",
+        }
+
+    def cleanup_sqlite_backups(self, filenames: list[str]) -> dict[str, Any]:
+        selected = [_safe_backup_filename(filename) for filename in filenames]
+        selected = [filename for filename in selected if filename]
+        deleted_count = 0
+        reclaimed = 0
+        logs: list[str] = []
+        for filename in selected:
+            path = self.settings.backups_dir / filename
+            if not path.is_file() or not _is_sqlite_backup_file(path):
+                logs.append(f"{filename}：不存在或不是 SQLite 数据库备份，已跳过")
+                continue
+            size = path.stat().st_size
+            path.unlink()
+            deleted_count += 1
+            reclaimed += int(size)
+            logs.append(f"{filename}：删除，释放 {_size_label(int(size))}")
+        self.tasks.create_task(
+            f"cleanup-sqlite-backups-{deleted_count}-{int(reclaimed)}",
+            TaskType.CLEANUP,
+            "SQLite 备份清理",
+            status=TaskStatus.SUCCESS,
+            progress=100,
+            message=f"SQLite 备份清理完成，释放 {_size_label(reclaimed)}",
+            logs=logs,
+        )
+        return {
+            "ok": True,
+            "deleted_count": deleted_count,
+            "space_reclaimed": reclaimed,
+            "space_reclaimed_label": _size_label(reclaimed),
+            "logs": logs,
+            "message": f"SQLite 备份清理完成，释放 {_size_label(reclaimed)}。",
+        }
+
     def scan_unused_images(self) -> dict[str, Any]:
         try:
             raw = self.executor.output(["docker", "image", "ls", "--filter", "dangling=true", "--format", "{{json .}}"])
@@ -302,6 +362,20 @@ def _scan_item(key: str, label: str, path: Path) -> dict[str, Any]:
         "size": size,
         "size_label": _size_label(size),
     }
+
+
+def _is_sqlite_backup_file(path: Path) -> bool:
+    if path.suffix.lower() not in {".db", ".sqlite", ".sqlite3"}:
+        return False
+    name = path.name
+    return name.startswith(("sqlite-before-", "smartx-db-before-", "smartx-before-"))
+
+
+def _safe_backup_filename(filename: object) -> str:
+    name = Path(str(filename or "")).name
+    if name in {"", ".", ".."}:
+        return ""
+    return name
 
 
 def _empty_runtime_cache_scan() -> dict[str, Any]:

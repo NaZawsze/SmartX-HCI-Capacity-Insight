@@ -284,6 +284,49 @@
 
 执行前必须备份 `smartx.db` 到 `/data/backups/sqlite-before-cleanup-*.db`。随后清理运行态缓存并执行 VACUUM，返回 `runtime_cache` 删除统计、整理前后大小和释放空间。
 
+### `GET /api/admin/system/sqlite-backups/scan`
+
+扫描 `/data/backups` 顶层 SQLite 数据库备份。
+
+只返回符合 SQLite 备份命名和扩展名的文件，例如：
+
+- `sqlite-before-cleanup-*.db`
+- `sqlite-before-vacuum-*.db`
+- `smartx-db-before-*.db`
+- `smartx-before-*.db`
+
+不递归子目录，不返回升级前备份、导入前备份、Prometheus 备份或 `.tar.gz` 文件。
+
+响应字段：
+
+- `items[]`：`filename`、`path`、`size`、`size_label`、`modified_at`
+- `total_count`
+- `total_size`
+- `total_size_label`
+- `message`
+
+### `POST /api/admin/system/sqlite-backups/delete`
+
+删除用户勾选的 SQLite 数据库备份文件。
+
+请求体：
+
+```json
+{
+  "filenames": ["sqlite-before-cleanup-20260607133053.db"]
+}
+```
+
+后端只接受文件名，自动丢弃路径穿越部分，并再次校验文件必须位于 `/data/backups` 顶层且符合 SQLite 备份识别规则。不存在或不符合规则的文件会跳过并写入日志。
+
+响应字段：
+
+- `deleted_count`
+- `space_reclaimed`
+- `space_reclaimed_label`
+- `logs[]`
+- `message`
+
 ## 9. 升级中心
 
 ### `POST /api/upgrade/upload`

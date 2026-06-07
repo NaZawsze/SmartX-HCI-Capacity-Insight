@@ -2,7 +2,7 @@ import { Check, Circle, Download, FileArchive, History, Info, ListChecks, Loader
 import { useEffect, useRef, useState } from "react";
 import { api } from "../services/api";
 import type { TransferProgress } from "../services/api";
-import type { AppTask, ComponentInfo, LocalStorageUsage, MigrationExportTask, MigrationImportTask, SpaceCleanupScanItem, SqliteVacuumScan, UpgradeTask, UpgradeVerification } from "../types";
+import type { AppTask, ComponentInfo, LocalStorageUsage, MigrationExportTask, MigrationImportTask, SpaceCleanupScanItem, SqliteBackupScanResult, SqliteVacuumScan, UpgradeTask, UpgradeVerification } from "../types";
 
 type ServiceSection = "migration" | "restart" | "space-cleanup" | "platform-upgrade" | "component-upgrade" | "history";
 type CleanupScanImage = { id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string; reclaimable_size?: number; reclaimable_size_label?: string; created_at?: number };
@@ -129,6 +129,11 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
   const [sqliteVacuumBusy, setSqliteVacuumBusy] = useState(false);
   const [sqliteVacuumMessage, setSqliteVacuumMessage] = useState("");
   const [sqliteVacuumLogs, setSqliteVacuumLogs] = useState<string[]>([]);
+  const [sqliteBackupScan, setSqliteBackupScan] = useState<SqliteBackupScanResult | null>(null);
+  const [sqliteBackupBusy, setSqliteBackupBusy] = useState(false);
+  const [sqliteBackupMessage, setSqliteBackupMessage] = useState("");
+  const [sqliteBackupLogs, setSqliteBackupLogs] = useState<string[]>([]);
+  const [selectedSqliteBackups, setSelectedSqliteBackups] = useState<Set<string>>(new Set());
   const [migrationMessage, setMigrationMessage] = useState("");
   const [migrationBusy, setMigrationBusy] = useState(false);
   const [migrationFile, setMigrationFile] = useState<File | null>(null);
@@ -489,6 +494,73 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
       updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["SQLite 清理并整理失败", message] });
     } finally {
       setSqliteVacuumBusy(false);
+    }
+  }
+
+  async function scanSqliteBackups() {
+    setSqliteBackupBusy(true);
+    setSqliteBackupMessage("");
+    setSqliteBackupLogs(["开始扫描 SQLite 数据库备份..."]);
+    try {
+      const result = await api.scanSqliteBackups();
+      setSqliteBackupScan(result);
+      setSelectedSqliteBackups(new Set());
+      setSqliteBackupLogs([result.message]);
+      setSqliteBackupMessage(result.message);
+      await refreshLocalStorageUsage();
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "SQLite 备份扫描失败";
+      setSqliteBackupLogs((current) => [...current, message]);
+      setSqliteBackupMessage(message);
+    } finally {
+      setSqliteBackupBusy(false);
+    }
+  }
+
+  function toggleSqliteBackup(filename: string) {
+    setSelectedSqliteBackups((current) => {
+      const next = new Set(current);
+      if (next.has(filename)) next.delete(filename);
+      else next.add(filename);
+      return next;
+    });
+  }
+
+  function toggleAllSqliteBackups() {
+    const items = sqliteBackupScan?.items || [];
+    if (!items.length) return;
+    setSelectedSqliteBackups((current) => {
+      if (current.size === items.length) return new Set();
+      return new Set(items.map((item) => item.filename));
+    });
+  }
+
+  async function deleteSelectedSqliteBackups() {
+    const filenames = Array.from(selectedSqliteBackups);
+    if (!filenames.length) {
+      setSqliteBackupMessage("请先选择需要删除的 SQLite 备份。");
+      return;
+    }
+    setSqliteBackupBusy(true);
+    setSqliteBackupMessage("");
+    const id = taskId("sqlite-backup-cleanup");
+    addTask({ id, kind: "upgrade", title: "SQLite 备份清理", detail: `正在删除 ${filenames.length} 个 SQLite 备份`, status: "running", progress: 35, logs: ["开始 SQLite 备份清理"] });
+    try {
+      const result = await api.deleteSqliteBackups(filenames);
+      setSqliteBackupLogs(result.logs || [result.message]);
+      setSqliteBackupMessage(result.message);
+      updateTask(id, { status: "succeeded", progress: 100, detail: result.message, logs: result.logs });
+      const scan = await api.scanSqliteBackups();
+      setSqliteBackupScan(scan);
+      setSelectedSqliteBackups(new Set());
+      await refreshLocalStorageUsage();
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "SQLite 备份清理失败";
+      setSqliteBackupLogs((current) => [...current, message]);
+      setSqliteBackupMessage(message);
+      updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["SQLite 备份清理失败", message] });
+    } finally {
+      setSqliteBackupBusy(false);
     }
   }
 
@@ -1009,6 +1081,8 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
 
   function renderSpaceCleanup() {
     const totalCount = spaceCleanupItems.reduce((total, item) => total + item.count, 0);
+    const sqliteBackupItems = sqliteBackupScan?.items || [];
+    const allSqliteBackupsSelected = sqliteBackupItems.length > 0 && selectedSqliteBackups.size === sqliteBackupItems.length;
     return (
       <>
         <PageHeader eyebrow="系统运维" title="空间清理" />
@@ -1118,6 +1192,56 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             </div>
             <pre className="cleanup-log auto-scrollbar">{sqliteVacuumLogs.length ? sqliteVacuumLogs.join("\n") : "等待扫描..."}</pre>
             {sqliteVacuumMessage && <div className="inline-message">{sqliteVacuumMessage}</div>}
+          </div>
+          <div className="cleanup-module sqlite-backup-panel">
+            <div className="service-operation-head">
+              <div className="cleanup-module-title">
+                <strong>SQLite 备份清理</strong>
+                <span>扫描 /data/backups 中的 SQLite 数据库备份，只删除本框中勾选的 .db / .sqlite 备份文件。</span>
+              </div>
+              <div className="cleanup-control-stack">
+                <div className="cleanup-summary compact">
+                  <strong>{sqliteBackupScan ? `${sqliteBackupScan.total_count} 个备份` : "待扫描"}</strong>
+                  <span>可释放 {sqliteBackupScan?.total_size_label || "0 B"}</span>
+                </div>
+                <div className="cleanup-inline-actions sqlite-backup-actions">
+                  <button className="primary-button service-header-button" type="button" onClick={scanSqliteBackups} disabled={sqliteBackupBusy}>
+                    <RefreshCw size={16} />
+                    {sqliteBackupBusy ? "处理中" : "扫描备份"}
+                  </button>
+                  <button className="secondary-button service-header-button" type="button" onClick={toggleAllSqliteBackups} disabled={sqliteBackupBusy || sqliteBackupItems.length === 0}>
+                    <Check size={16} />
+                    {allSqliteBackupsSelected ? "取消全选" : "全选"}
+                  </button>
+                  <button className="secondary-button danger-button service-header-button" type="button" onClick={deleteSelectedSqliteBackups} disabled={sqliteBackupBusy || selectedSqliteBackups.size === 0}>
+                    <Trash2 size={16} />
+                    {sqliteBackupBusy ? "删除中" : "删除选中"}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="cleanup-warning">
+              <Info size={16} />
+              这里只清理 SQLite 清理并整理、旧表迁移等动作产生的数据库备份；升级前备份、导入前备份和 Prometheus 备份不会出现在列表里。
+            </div>
+            <div className="cleanup-result-panel cleanup-image-list sqlite-backup-list auto-scrollbar">
+              {sqliteBackupItems.length ? (
+                sqliteBackupItems.map((item) => (
+                  <label className="cleanup-image-row sqlite-backup-row" key={item.filename}>
+                    <input type="checkbox" checked={selectedSqliteBackups.has(item.filename)} onChange={() => toggleSqliteBackup(item.filename)} disabled={sqliteBackupBusy} />
+                    <div>
+                      <strong>{item.filename}</strong>
+                      <small>{item.path}{item.modified_at ? ` · ${formatTime(item.modified_at)}` : ""}</small>
+                    </div>
+                    <span>{item.size_label}</span>
+                  </label>
+                ))
+              ) : (
+                <div className="cleanup-image-empty">点击“扫描备份”查看可删除的 SQLite 备份。</div>
+              )}
+            </div>
+            <pre className="cleanup-log auto-scrollbar">{sqliteBackupLogs.length ? sqliteBackupLogs.join("\n") : "等待扫描..."}</pre>
+            {sqliteBackupMessage && <div className="inline-message">{sqliteBackupMessage}</div>}
           </div>
         </div>
       </>

@@ -4007,12 +4007,29 @@ button.cluster-capacity-row:focus-visible {
   padding-right: 12px;
 }
 
+.cleanup-inline-actions.sqlite-backup-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .sqlite-vacuum-panel {
   margin-top: 14px;
 }
 
 .sqlite-vacuum-panel .cleanup-image-row {
   border-top: 0;
+}
+
+.sqlite-backup-row {
+  cursor: pointer;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+}
+
+.sqlite-backup-row input {
+  accent-color: var(--primary);
+}
+
+.sqlite-backup-row:has(input:checked) {
+  background: #eef6ff;
 }
 
 @media (max-width: 560px) {

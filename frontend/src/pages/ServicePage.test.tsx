@@ -20,6 +20,8 @@ const apiMock = vi.hoisted(() => ({
   scanSpaceCleanup: vi.fn(),
   scanSqliteVacuum: vi.fn(),
   vacuumSqlite: vi.fn(),
+  scanSqliteBackups: vi.fn(),
+  deleteSqliteBackups: vi.fn(),
   localStorageUsage: vi.fn()
 }));
 
@@ -96,6 +98,22 @@ function mockServicePageBootstrap() {
       tasks: { retention_days: 30, delete_count: 2 }
     },
     message: "SQLite 当前大小 1024 B，预计可整理释放 1024 B。"
+  });
+  apiMock.scanSqliteBackups.mockResolvedValue({
+    ok: true,
+    items: [],
+    total_count: 0,
+    total_size: 0,
+    total_size_label: "0 B",
+    message: "发现 0 个 SQLite 数据库备份，可释放 0 B。"
+  });
+  apiMock.deleteSqliteBackups.mockResolvedValue({
+    ok: true,
+    deleted_count: 0,
+    space_reclaimed: 0,
+    space_reclaimed_label: "0 B",
+    logs: ["没有删除 SQLite 备份"],
+    message: "SQLite 备份清理完成，释放 0 B。"
   });
 }
 
@@ -232,6 +250,83 @@ describe("ServicePage migration overwrite mode", () => {
     expect(cleanupSection!.querySelector(".cleanup-log")).not.toBeNull();
     expect(sqliteSection!.querySelector(".cleanup-log")).not.toBeNull();
     expect(screen.queryByText("可清理空间")).not.toBeInTheDocument();
+  });
+
+  it("scans sqlite backups and deletes only selected backup files", async () => {
+    mockServicePageBootstrap();
+    apiMock.scanSpaceCleanup.mockResolvedValue({
+      ok: true,
+      items: [],
+      total_count: 0,
+      total_size: 0,
+      total_size_label: "0 B",
+      message: "没有可清理文件"
+    });
+    apiMock.scanSqliteBackups
+      .mockResolvedValueOnce({
+        ok: true,
+        items: [
+          {
+            filename: "sqlite-before-cleanup-20260607133053.db",
+            path: "/data/backups/sqlite-before-cleanup-20260607133053.db",
+            size: 33900000,
+            size_label: "33.9 MB",
+            modified_at: "2026-06-07T13:30:53+08:00"
+          },
+          {
+            filename: "smartx-before-drop-legacy-volume-items.db",
+            path: "/data/backups/smartx-before-drop-legacy-volume-items.db",
+            size: 71700000,
+            size_label: "71.7 MB",
+            modified_at: "2026-06-07T09:27:49+08:00"
+          }
+        ],
+        total_count: 2,
+        total_size: 105600000,
+        total_size_label: "105.6 MB",
+        message: "发现 2 个 SQLite 数据库备份，可释放 105.6 MB。"
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        items: [
+          {
+            filename: "smartx-before-drop-legacy-volume-items.db",
+            path: "/data/backups/smartx-before-drop-legacy-volume-items.db",
+            size: 71700000,
+            size_label: "71.7 MB"
+          }
+        ],
+        total_count: 1,
+        total_size: 71700000,
+        total_size_label: "71.7 MB",
+        message: "发现 1 个 SQLite 数据库备份，可释放 71.7 MB。"
+      });
+    apiMock.deleteSqliteBackups.mockResolvedValue({
+      ok: true,
+      deleted_count: 1,
+      space_reclaimed: 33900000,
+      space_reclaimed_label: "33.9 MB",
+      logs: ["sqlite-before-cleanup-20260607133053.db：删除，释放 33.9 MB"],
+      message: "SQLite 备份清理完成，释放 33.9 MB。"
+    });
+    const addTask = vi.fn();
+    const updateTask = vi.fn();
+    render(<ServicePage addTask={addTask} updateTask={updateTask} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "空间清理" }));
+    await waitFor(() => expect(screen.getByText("SQLite 备份清理")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "扫描备份" }));
+
+    expect(await screen.findByText("sqlite-before-cleanup-20260607133053.db")).toBeInTheDocument();
+    expect(screen.getByText("smartx-before-drop-legacy-volume-items.db")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(/sqlite-before-cleanup-20260607133053\.db/));
+    fireEvent.click(screen.getByRole("button", { name: "删除选中" }));
+
+    await waitFor(() => {
+      expect(apiMock.deleteSqliteBackups).toHaveBeenCalledWith(["sqlite-before-cleanup-20260607133053.db"]);
+    });
+    expect(addTask).toHaveBeenCalledWith(expect.objectContaining({ kind: "upgrade", title: "SQLite 备份清理" }));
+    expect(updateTask).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: "succeeded", detail: "SQLite 备份清理完成，释放 33.9 MB。" }));
   });
 
   it("uses the same header button sizing for migration actions", async () => {

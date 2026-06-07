@@ -183,6 +183,46 @@ class V2CleanupServiceTest(unittest.TestCase):
                 task_ids = {row["id"] for row in conn.execute("SELECT id FROM tasks").fetchall()}
             self.assertEqual(task_ids, {"new-report", "old-critical", "cleanup-sqlite-runtime"})
 
+    def test_sqlite_backup_cleanup_scans_db_backups_and_deletes_selected_files_only(self) -> None:
+        from app.v2.cleanup.service import CleanupService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="cleanup-secret")
+            database = V2Database(settings)
+            database.initialize()
+            settings.backups_dir.mkdir(parents=True, exist_ok=True)
+            first = settings.backups_dir / "sqlite-before-vacuum-20260607015411.db"
+            second = settings.backups_dir / "smartx-before-drop-legacy-volume-items.db"
+            ignored_tar = settings.backups_dir / "upgrade-v0.5.0-before-20260606085950.tar.gz"
+            nested = settings.backups_dir / "nested" / "sqlite-before-cleanup.db"
+            first.write_bytes(b"a" * 10)
+            second.write_bytes(b"b" * 20)
+            ignored_tar.write_bytes(b"tar")
+            nested.parent.mkdir()
+            nested.write_bytes(b"nested")
+
+            cleanup = CleanupService(settings, TaskService(database))
+            scan = cleanup.scan_sqlite_backups()
+
+            self.assertEqual(scan["total_count"], 2)
+            self.assertEqual(scan["total_size"], 30)
+            self.assertEqual({item["filename"] for item in scan["items"]}, {first.name, second.name})
+
+            result = cleanup.cleanup_sqlite_backups([first.name, "../smartx-before-drop-legacy-volume-items.db", "missing.db"])
+
+            self.assertEqual(result["deleted_count"], 2)
+            self.assertEqual(result["space_reclaimed"], 30)
+            self.assertFalse(first.exists())
+            self.assertFalse(second.exists())
+            self.assertTrue(ignored_tar.exists())
+            self.assertTrue(nested.exists())
+            task = TaskService(database).list_tasks()[0]
+            self.assertEqual(task["type"], "cleanup")
+            self.assertIn("SQLite 备份清理", task["title"])
+
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2CleanupApiTest(unittest.TestCase):
@@ -242,6 +282,16 @@ class V2CleanupApiTest(unittest.TestCase):
                     sqlite_vacuum = client.post("/api/admin/system/sqlite-vacuum", headers=headers)
                     self.assertEqual(sqlite_vacuum.status_code, 200)
                     self.assertTrue(Path(sqlite_vacuum.json()["backup_path"]).is_file())
+
+                    sqlite_backup = settings.backups_dir / "sqlite-before-cleanup-test.db"
+                    sqlite_backup.write_bytes(b"backup")
+                    sqlite_backup_scan = client.get("/api/admin/system/sqlite-backups/scan", headers=headers)
+                    self.assertEqual(sqlite_backup_scan.status_code, 200)
+                    self.assertIn(sqlite_backup.name, {item["filename"] for item in sqlite_backup_scan.json()["items"]})
+                    sqlite_backup_cleanup = client.post("/api/admin/system/sqlite-backups/delete", headers=headers, json={"filenames": [sqlite_backup.name]})
+                    self.assertEqual(sqlite_backup_cleanup.status_code, 200)
+                    self.assertEqual(sqlite_backup_cleanup.json()["deleted_count"], 1)
+                    self.assertFalse(sqlite_backup.exists())
 
                     restart = client.post("/api/admin/system/restart", headers=headers)
                     self.assertEqual(restart.status_code, 200)

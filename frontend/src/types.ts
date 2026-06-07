@@ -396,6 +396,32 @@ export interface SqliteVacuumResult {
   logs?: string[];
 }
 
+export interface SqliteBackupItem {
+  filename: string;
+  path: string;
+  size: number;
+  size_label: string;
+  modified_at?: string;
+}
+
+export interface SqliteBackupScanResult {
+  ok: boolean;
+  items: SqliteBackupItem[];
+  total_count: number;
+  total_size: number;
+  total_size_label: string;
+  message: string;
+}
+
+export interface SqliteBackupCleanupResult {
+  ok: boolean;
+  deleted_count: number;
+  space_reclaimed: number;
+  space_reclaimed_label: string;
+  logs: string[];
+  message: string;
+}
+
 export type AppTaskStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled";
 export type AppTaskKind = "upload" | "download" | "import" | "export" | "upgrade";
 export type AppTaskSeverity = "info" | "warning" | "critical";

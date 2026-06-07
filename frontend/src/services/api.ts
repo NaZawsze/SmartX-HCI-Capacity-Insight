@@ -11,6 +11,8 @@ import type {
   MigrationHealth,
   ReportBundleExport,
   ServerTask,
+  SqliteBackupCleanupResult,
+  SqliteBackupScanResult,
   SqliteVacuumResult,
   SqliteVacuumScan,
   SpaceCleanupResult,
@@ -527,6 +529,12 @@ export const api = {
   },
   async vacuumSqlite(): Promise<SqliteVacuumResult> {
     return request<SqliteVacuumResult>("/api/admin/system/sqlite-vacuum", { method: "POST" });
+  },
+  async scanSqliteBackups(): Promise<SqliteBackupScanResult> {
+    return request<SqliteBackupScanResult>("/api/admin/system/sqlite-backups/scan");
+  },
+  async deleteSqliteBackups(filenames: string[]): Promise<SqliteBackupCleanupResult> {
+    return request<SqliteBackupCleanupResult>("/api/admin/system/sqlite-backups/delete", { method: "POST", body: JSON.stringify({ filenames }) });
   },
   async upgradeVersion(): Promise<{ version: string }> {
     return request<{ version: string }>("/api/admin/upgrade/version");

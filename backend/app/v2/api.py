@@ -117,6 +117,10 @@ class TaskSeenRequest(BaseModel):
     task_ids: list[str] = Field(default_factory=list)
 
 
+class SqliteBackupDeleteRequest(BaseModel):
+    filenames: list[str] = Field(default_factory=list)
+
+
 def get_v2_settings() -> V2Settings:
     return settings_from_environment()
 
@@ -766,6 +770,23 @@ def sqlite_vacuum(
     cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
 ) -> dict:
     return cleanup.vacuum_sqlite()
+
+
+@router.get("/api/admin/system/sqlite-backups/scan")
+def scan_sqlite_backups(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
+) -> dict:
+    return cleanup.scan_sqlite_backups()
+
+
+@router.post("/api/admin/system/sqlite-backups/delete")
+def delete_sqlite_backups(
+    payload: SqliteBackupDeleteRequest,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
+) -> dict:
+    return cleanup.cleanup_sqlite_backups(payload.filenames)
 
 
 @router.post("/api/admin/system/cleanup-artifacts")
