@@ -82,7 +82,7 @@ class V2TaskServiceTest(unittest.TestCase):
 
             self.assertEqual(report["severity"], "info")
             self.assertTrue(report["unhandled"])
-            self.assertFalse(report["clearable"])
+            self.assertTrue(report["clearable"])
             self.assertEqual(cleanup["severity"], "warning")
             self.assertTrue(cleanup["unhandled"])
             self.assertFalse(cleanup["clearable"])
@@ -177,7 +177,6 @@ class V2TaskApiTest(unittest.TestCase):
                     service.create_task("cleanup-1", TaskType.CLEANUP, "空间清理", status=TaskStatus.FAILED, progress=100)
                     service.create_task("upgrade-1", TaskType.UPGRADE, "执行系统升级", status=TaskStatus.FAILED, progress=100)
 
-                    self.assertEqual(client.post("/api/tasks/seen", json={"task_ids": ["report-1", "cleanup-1", "upgrade-1"]}, headers=headers).json()["updated"], 1)
                     self.assertEqual(client.post("/api/tasks/cleanup-1/ack", headers=headers).json()["task_id"], "cleanup-1")
                     cleared = client.delete("/api/tasks/clearable", headers=headers)
                     self.assertEqual(cleared.status_code, 200)

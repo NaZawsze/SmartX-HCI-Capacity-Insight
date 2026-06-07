@@ -81,8 +81,8 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   const serviceFocus = activePage === "service";
   const shellStyle = { "--sidebar-width": `${sidebarWidth}px` } as CSSProperties;
   const unhandledTaskCount = tasks.filter((task) => task.unhandled).length;
-  const visibleTasks = [...tasks].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, 8);
-  const clearableTaskCount = tasks.filter((task) => task.clearable).length;
+  const visibleTasks = [...tasks].sort((left, right) => right.updatedAt - left.updatedAt);
+  const clearableTaskCount = tasks.filter(isClearableFromMenu).length;
 
   const resetWorkspaceScroll = useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -129,6 +129,13 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   function markVisibleInfoTasksSeen() {
     const taskIds = visibleTasks.filter((task) => task.severity === "info" && task.unhandled).map((task) => task.id);
     if (taskIds.length) onTasksSeen?.(taskIds);
+  }
+
+  function toggleTaskMenu() {
+    setTaskMenuOpen((open) => {
+      if (!open) markVisibleInfoTasksSeen();
+      return !open;
+    });
   }
 
   useEffect(() => {
@@ -267,7 +274,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
               <Bell size={18} />
             </button>
             <div className="task-menu-wrap" ref={taskMenuRef}>
-              <button className={taskMenuOpen ? "icon-button active" : "icon-button"} title="任务" type="button" onClick={() => setTaskMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={taskMenuOpen}>
+              <button className={taskMenuOpen ? "icon-button active" : "icon-button"} title="任务" type="button" onClick={toggleTaskMenu} aria-haspopup="menu" aria-expanded={taskMenuOpen}>
                 <ClipboardList size={18} />
                 {unhandledTaskCount > 0 && <span className="task-badge">{unhandledTaskCount}</span>}
               </button>
@@ -608,6 +615,12 @@ function isCancellableUpgradeTask(task: AppTask): boolean {
 
 function isActionableTask(task: AppTask): boolean {
   return isCancellableUpgradeTask(task) || task.status === "failed" || task.status === "cancelled";
+}
+
+function isClearableFromMenu(task: AppTask): boolean {
+  if (!["succeeded", "failed", "cancelled"].includes(task.status)) return false;
+  if ((task.severity || "info") === "info") return true;
+  return Boolean(task.clearable);
 }
 
 function stepStatusText(status: string): string {

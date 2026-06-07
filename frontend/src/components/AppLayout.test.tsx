@@ -246,6 +246,29 @@ describe("AppLayout menus", () => {
     expect(downloadButtons[1]).toHaveAttribute("title", "/data/backups/sqlite-before.tar.gz");
   });
 
+  it("shows all loaded tasks and enables clear for succeeded info tasks", () => {
+    const onClearTasks = vi.fn();
+    const tasks = Array.from({ length: 12 }, (_, index) => ({
+      ...succeededInfoTask(),
+      id: `task-info-${index}`,
+      title: `信息任务 ${index + 1}`,
+      unhandled: false,
+      clearable: index === 0,
+      updatedAt: Date.now() - index
+    }));
+    render(<AppLayout {...baseProps} tasks={tasks} onClearTasks={onClearTasks} />);
+
+    fireEvent.click(screen.getByTitle("任务"));
+
+    expect(screen.getByText("信息任务 1")).toBeInTheDocument();
+    expect(screen.getByText("信息任务 12")).toBeInTheDocument();
+
+    const clearButton = screen.getByRole("button", { name: "清空" });
+    expect(clearButton).not.toBeDisabled();
+    fireEvent.click(clearButton);
+    expect(onClearTasks).toHaveBeenCalledTimes(1);
+  });
+
   it("shows acknowledge and remove controls for failed warning or critical tasks", () => {
     const onTaskAck = vi.fn();
     const onTaskAction = vi.fn();

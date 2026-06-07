@@ -158,7 +158,7 @@ class TaskService:
                 DELETE FROM tasks
                 WHERE status IN (?, ?, ?)
                   AND (
-                    (severity = 'info' AND seen_at IS NOT NULL)
+                    severity = 'info'
                     OR (severity IN ('warning', 'critical') AND acknowledged_at IS NOT NULL)
                   )
                 """,
@@ -241,7 +241,7 @@ def _clearable(severity: str, status: str, seen_at: str | None, acknowledged_at:
     if status not in _FINISHED_STATUSES:
         return False
     if severity == "info":
-        return seen_at is not None
+        return True
     return acknowledged_at is not None
 
 

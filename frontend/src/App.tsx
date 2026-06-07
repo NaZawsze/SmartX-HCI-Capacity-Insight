@@ -54,7 +54,7 @@ export default function App() {
 
   const clearTasks = useCallback(() => {
     api.clearClearableTasks().catch(() => undefined);
-    setTasks((current) => current.filter((task) => !task.clearable));
+    setTasks((current) => current.filter((task) => !isLocallyClearableTask(task)));
   }, []);
 
   const markTasksSeen = useCallback((taskIds: string[]) => {
@@ -177,6 +177,12 @@ function isActiveTask(task: AppTask): boolean {
 
 function isCancellableUpgradeTask(task: AppTask): boolean {
   return task.kind === "upgrade" && task.status === "pending" && (task.title === "执行系统升级" || task.title === "执行组件升级");
+}
+
+function isLocallyClearableTask(task: AppTask): boolean {
+  if (!["succeeded", "failed", "cancelled"].includes(task.status)) return false;
+  if ((task.severity || "info") === "info") return true;
+  return Boolean(task.clearable);
 }
 
 function serverTaskToAppTask(task: ServerTask): AppTask {
