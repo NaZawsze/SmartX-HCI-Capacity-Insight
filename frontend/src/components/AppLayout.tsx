@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { AlertCircle, AlertTriangle, Bell, Building2, Check, ChevronDown, CircleCheck, ClipboardList, Database, HardDrive, Info, KeyRound, LayoutDashboard, LogOut, Save, Server, Settings, SlidersHorizontal, UserRound, View, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, Bell, Building2, Check, ChevronDown, CircleCheck, ClipboardList, Database, HardDrive, Info, KeyRound, LayoutDashboard, LogOut, RefreshCw, Save, Server, Settings, SlidersHorizontal, UserRound, View, X } from "lucide-react";
 import { api } from "../services/api";
 import type { AppTask, AppTaskLink, Cluster, DashboardScope, DashboardSummary, PageKey, Tower } from "../types";
 
@@ -81,6 +81,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   const serviceFocus = activePage === "service";
   const shellStyle = { "--sidebar-width": `${sidebarWidth}px` } as CSSProperties;
   const unhandledTaskCount = tasks.filter((task) => task.unhandled).length;
+  const hasActiveTask = tasks.some(isActiveTask);
   const visibleTasks = [...tasks].sort((left, right) => right.updatedAt - left.updatedAt);
   const clearableTaskCount = tasks.filter(isClearableFromMenu).length;
 
@@ -275,7 +276,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
             </button>
             <div className="task-menu-wrap" ref={taskMenuRef}>
               <button className={taskMenuOpen ? "icon-button active" : "icon-button"} title="任务" type="button" onClick={toggleTaskMenu} aria-haspopup="menu" aria-expanded={taskMenuOpen}>
-                <ClipboardList size={18} />
+                {hasActiveTask ? <RefreshCw className="task-running-icon" size={18} /> : <ClipboardList size={18} />}
                 {unhandledTaskCount > 0 && <span className="task-badge">{unhandledTaskCount}</span>}
               </button>
               {taskMenuOpen && (
@@ -615,6 +616,10 @@ function isCancellableUpgradeTask(task: AppTask): boolean {
 
 function isActionableTask(task: AppTask): boolean {
   return isCancellableUpgradeTask(task) || task.status === "failed" || task.status === "cancelled";
+}
+
+function isActiveTask(task: AppTask): boolean {
+  return task.status === "pending" || task.status === "running";
 }
 
 function isClearableFromMenu(task: AppTask): boolean {

@@ -214,6 +214,20 @@ describe("AppLayout menus", () => {
     });
   });
 
+  it("uses a refresh icon while any task is active and restores the task icon after completion", () => {
+    const { rerender } = render(<AppLayout {...baseProps} tasks={[runningTask()]} />);
+
+    const taskButton = screen.getByTitle("任务");
+    expect(taskButton.querySelector(".lucide-refresh-cw")).toBeInTheDocument();
+    expect(taskButton.querySelector(".task-running-icon")).toBeInTheDocument();
+    expect(taskButton.querySelector(".lucide-clipboard-list")).not.toBeInTheDocument();
+
+    rerender(<AppLayout {...baseProps} tasks={[succeededInfoTask()]} />);
+
+    expect(taskButton.querySelector(".lucide-clipboard-list")).toBeInTheDocument();
+    expect(taskButton.querySelector(".lucide-refresh-cw")).not.toBeInTheDocument();
+  });
+
   it("shows failed task step and error summary in the task menu", () => {
     render(<AppLayout {...baseProps} tasks={[failedTask()]} />);
 
