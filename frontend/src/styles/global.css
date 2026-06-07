@@ -3747,13 +3747,13 @@ button {
 
 .cleanup-inline-actions {
   align-items: center;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
-  justify-content: stretch;
 }
 
 .cleanup-inline-actions .service-header-button {
-  flex: 1 1 0;
+  width: 100%;
   min-width: 0;
   padding-left: 12px;
   padding-right: 12px;
