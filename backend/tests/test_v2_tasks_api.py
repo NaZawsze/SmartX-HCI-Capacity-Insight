@@ -106,6 +106,35 @@ class V2TaskServiceTest(unittest.TestCase):
             self.assertEqual(tasks.clear_clearable(), 2)
             self.assertEqual([task["id"] for task in tasks.list_tasks()], ["upgrade-1"])
 
+    def test_task_clear_handles_legacy_null_severity_rows(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.models import TaskStatus, TaskType
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=tmpdir, secret_key="tasks-secret")
+            database = V2Database(settings)
+            database.initialize()
+            tasks = TaskService(database)
+
+            tasks.create_task("legacy-report", TaskType.REPORT, "导出预测报表", status=TaskStatus.SUCCESS, progress=100)
+            tasks.create_task("legacy-cleanup", TaskType.CLEANUP, "空间清理", status=TaskStatus.SUCCESS, progress=100)
+            tasks.create_task("legacy-upgrade", TaskType.UPGRADE, "执行系统升级", status=TaskStatus.FAILED, progress=100)
+            with database.connection() as conn:
+                conn.execute("UPDATE tasks SET severity = NULL")
+
+            listed = {task["id"]: task for task in tasks.list_tasks()}
+            self.assertEqual(listed["legacy-report"]["severity"], "info")
+            self.assertEqual(listed["legacy-cleanup"]["severity"], "info")
+            self.assertEqual(listed["legacy-upgrade"]["severity"], "critical")
+            self.assertTrue(listed["legacy-report"]["clearable"])
+            self.assertTrue(listed["legacy-cleanup"]["clearable"])
+            self.assertFalse(listed["legacy-upgrade"]["clearable"])
+
+            self.assertEqual(tasks.clear_clearable(), 2)
+            self.assertEqual([task["id"] for task in tasks.list_tasks()], ["legacy-upgrade"])
+
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2TaskApiTest(unittest.TestCase):

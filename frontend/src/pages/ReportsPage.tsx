@@ -223,7 +223,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
               </button>
               <button className="primary-button" type="button" onClick={handleExportBundle} disabled={exporting}>
                 <Download size={15} />
-                {exporting ? "导出中" : "导出 Word 和 Excel"}
+                {exporting ? "导出中" : "导出"}
               </button>
             </div>
           </div>

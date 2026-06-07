@@ -127,7 +127,7 @@ class TaskService:
                 f"""
                 UPDATE tasks
                 SET seen_at = COALESCE(seen_at, ?), updated_at = ?
-                WHERE severity = ? AND seen_at IS NULL AND id IN ({placeholders})
+                WHERE {_effective_severity_sql()} = ? AND seen_at IS NULL AND id IN ({placeholders})
                 """,
                 (_now(), _now(), "info", *ids),
             )
@@ -142,10 +142,10 @@ class TaskService:
             return self.get_task(task_id) or {}
         with self.database.connection() as conn:
             conn.execute(
-                """
+                f"""
                 UPDATE tasks
                 SET acknowledged_at = COALESCE(acknowledged_at, ?), updated_at = ?
-                WHERE id = ? AND severity IN ('warning', 'critical')
+                WHERE id = ? AND {_effective_severity_sql()} IN ('warning', 'critical')
                 """,
                 (_now(), _now(), task_id),
             )
@@ -154,12 +154,12 @@ class TaskService:
     def clear_clearable(self) -> int:
         with self.database.connection() as conn:
             cursor = conn.execute(
-                """
+                f"""
                 DELETE FROM tasks
                 WHERE status IN (?, ?, ?)
                   AND (
-                    severity = 'info'
-                    OR (severity IN ('warning', 'critical') AND acknowledged_at IS NOT NULL)
+                    {_effective_severity_sql()} = 'info'
+                    OR ({_effective_severity_sql()} IN ('warning', 'critical') AND acknowledged_at IS NOT NULL)
                   )
                 """,
                 (TaskStatus.SUCCESS.value, TaskStatus.FAILED.value, TaskStatus.CANCELLED.value),
@@ -213,6 +213,21 @@ def _frontend_kind(task_type: str) -> str:
         TaskType.CLEANUP.value: "upgrade",
         TaskType.COLLECTION.value: "download",
     }.get(task_type, "download")
+
+
+def _effective_severity_sql() -> str:
+    return """
+    COALESCE(
+      severity,
+      CASE
+        WHEN status = 'success' THEN 'info'
+        WHEN status IN ('failed', 'cancelled')
+             AND (type = 'upgrade' OR lower(title) LIKE '%升级%' OR lower(title) LIKE '%重启%' OR lower(title) LIKE '%回滚%' OR lower(title) LIKE '%upgrade%' OR lower(title) LIKE '%restart%' OR lower(title) LIKE '%rollback%' OR lower(title) LIKE '%component%') THEN 'critical'
+        WHEN status IN ('failed', 'cancelled') THEN 'warning'
+        ELSE 'info'
+      END
+    )
+    """
 
 
 _FINISHED_STATUSES = {TaskStatus.SUCCESS.value, TaskStatus.FAILED.value, TaskStatus.CANCELLED.value}

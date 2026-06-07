@@ -1527,7 +1527,14 @@ button {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  flex-wrap: wrap;
+  align-items: stretch;
+}
+
+.export-dialog-actions .primary-button,
+.export-dialog-actions .secondary-button {
+  min-width: 116px;
+  min-height: 42px;
+  justify-content: center;
 }
 
 .cleanup-warning {

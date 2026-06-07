@@ -150,7 +150,8 @@ describe("ReportsPage", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "导出" }));
-    fireEvent.click(screen.getByRole("button", { name: "导出 Word 和 Excel" }));
+    const exportButtons = screen.getAllByRole("button", { name: "导出" });
+    fireEvent.click(exportButtons[exportButtons.length - 1]);
 
     await waitFor(() => expect(apiMock.exportReportBundle).toHaveBeenCalledTimes(1));
     expect(apiMock.exportReportBundle).toHaveBeenCalledWith(undefined, 30, expect.stringMatching(/^report-export-/));
