@@ -300,7 +300,20 @@ function normalizeCapacityRisk(value: unknown): DashboardSummary["capacity_risk"
           ? "容量需关注"
           : "容量风险正常";
   const topClusters: NonNullable<DashboardSummary["capacity_risk"]>["top_clusters"] = Array.isArray(raw.top_clusters)
-    ? (raw.top_clusters as NonNullable<DashboardSummary["capacity_risk"]>["top_clusters"])
+    ? (raw.top_clusters as Array<Record<string, unknown>>).map((cluster) => ({
+        ...(cluster as NonNullable<DashboardSummary["capacity_risk"]>["top_clusters"][number]),
+        top_growth_vms: Array.isArray(cluster.top_growth_vms)
+          ? (cluster.top_growth_vms as Array<Record<string, unknown>>).map((vm) => ({
+              tower_id: vm.tower_id != null ? String(vm.tower_id) : undefined,
+              cluster_id: vm.cluster_id != null ? String(vm.cluster_id) : undefined,
+              vm_id: vm.vm_id != null ? String(vm.vm_id) : undefined,
+              vm_name: vm.vm_name != null ? String(vm.vm_name) : undefined,
+              current_bytes: optionalNumber(vm.current_bytes),
+              growth_amount: optionalNumber(vm.growth_amount),
+              growth_ratio: optionalNumber(vm.growth_ratio)
+            }))
+          : []
+      }))
     : [];
   return {
     ...(raw as DashboardSummary["capacity_risk"]),

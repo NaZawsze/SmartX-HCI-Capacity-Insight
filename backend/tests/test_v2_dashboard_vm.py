@@ -98,6 +98,8 @@ class V2DashboardVmTest(unittest.TestCase):
             self.assertIn("Cluster A", summary["capacity_risk"]["message"])
             self.assertEqual(summary["capacity_risk"]["top_clusters"][0]["cluster"], "Cluster A")
             self.assertEqual(summary["capacity_risk"]["top_clusters"][0]["used_ratio"], 0.81)
+            self.assertEqual([vm["vm_id"] for vm in summary["capacity_risk"]["top_clusters"][0]["top_growth_vms"]], ["vm-1"])
+            self.assertEqual(summary["capacity_risk"]["top_clusters"][0]["top_growth_vms"][0]["vm_name"], "VM One Latest")
             self.assertEqual(summary["totals"], {"towers": 1, "clusters": 2, "vms": 2})
             self.assertEqual(summary["storage"]["used_bytes"], 91)
             self.assertEqual(summary["storage"]["total_bytes"], 200)

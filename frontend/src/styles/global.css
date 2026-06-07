@@ -1203,6 +1203,17 @@ button.cluster-capacity-row:focus-visible {
   transition: transform 0.16s ease, box-shadow 0.16s ease;
 }
 
+.risk-summary.danger,
+.risk-summary.warning {
+  place-items: stretch;
+  text-align: left;
+}
+
+.risk-summary.danger > svg,
+.risk-summary.warning > svg {
+  justify-self: start;
+}
+
 .risk-summary svg {
   width: 52px;
   height: 52px;
@@ -1222,6 +1233,11 @@ button.cluster-capacity-row:focus-visible {
   line-height: 1.55;
 }
 
+.risk-summary.danger > span,
+.risk-summary.warning > span {
+  max-width: none;
+}
+
 .risk-summary.normal svg {
   background: #eafaf2;
   color: var(--green);
@@ -1235,6 +1251,76 @@ button.cluster-capacity-row:focus-visible {
 .risk-summary.danger svg {
   background: #ffecec;
   color: #ef4444;
+}
+
+.risk-report-button {
+  justify-self: start;
+  margin-top: 2px;
+}
+
+.risk-growth-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.risk-growth-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.risk-growth-head strong {
+  font-size: 13px;
+}
+
+.risk-growth-head span,
+.risk-growth-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.risk-growth-list {
+  display: grid;
+  gap: 6px;
+}
+
+.risk-growth-row {
+  width: 100%;
+  min-height: 36px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbff;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.risk-growth-row:hover {
+  border-color: #b8d9ff;
+  background: #eef6ff;
+}
+
+.risk-growth-row span {
+  min-width: 0;
+  max-width: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.risk-growth-row strong {
+  color: var(--blue);
+  font-size: 12px;
 }
 
 .forecast-window strong {

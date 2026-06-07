@@ -2481,3 +2481,23 @@ TDD 记录：
 
 - 配置迁移包适合新机器快速恢复 Tower 纳管和集群配置；不保留趋势、日增长、月增长和预测历史。
 - 需要保留历史趋势和预测时继续使用完整迁移包，完整迁移包仍包含 SQLite 业务库和 Prometheus 历史 block。
+
+### 2026-06-07 Phase V2-15.3 首页风险链路增强
+
+状态：完成并通过目标测试
+
+实现：
+
+- Dashboard API `capacity_risk.top_clusters[]` 增加 `top_growth_vms`，复用已有日增长最快 VM 结果，不新增 Prometheus 查询。
+- 每个风险或关注集群最多返回 3 台主要增长 VM，字段包含 `tower_id`、`cluster_id`、`vm_id`、`vm_name`、`current_bytes`、`growth_amount`、`growth_ratio`。
+- 首页顶部“容量风险”小卡行为保持不变，继续跳转风险集群报表。
+- 首页底部“风险提示”从单个大按钮改为信息面板，展示风险摘要、查看风险报表入口和主要增长 VM。
+- 点击主要增长 VM 行复用 `onSelectVm(vm_id, vm_name)`，直接进入虚拟机页面。
+- 风险集群无增长 VM 时显示 `风险集群暂无明显 VM 增长来源`。
+
+验证：
+
+- 本地通过 `python3 -m py_compile backend/app/v2/dashboard/service.py backend/tests/test_v2_dashboard_vm.py`。
+- 本地通过 `git diff --check`。
+- `10.20.11.3` 后端容器内通过 `backend.tests.test_v2_dashboard_vm`，共 6 个测试通过。
+- `10.20.11.3` Node 容器内通过 `DashboardPage.test.tsx`，共 9 个测试通过。

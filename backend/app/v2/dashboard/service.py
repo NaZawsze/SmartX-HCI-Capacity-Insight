@@ -26,14 +26,15 @@ class DashboardService:
         enabled_scope = self._enabled_cluster_scope(tower_id=tower_id, cluster_id=cluster_id)
         clusters = self._cluster_capacity(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         vms = self._latest_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        day_fastest_growing_vms = self._day_fastest_growing_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         towers = InventoryService(self.database, self.settings).list_towers()
         return {
             "scope": {"tower_id": tower_id, "cluster_id": cluster_id},
-            "capacity_risk": self._capacity_risk(clusters),
+            "capacity_risk": self._capacity_risk(clusters, day_fastest_growing_vms),
             "totals": self._totals(tower_id=tower_id, cluster_id=cluster_id),
             "storage": self._storage(clusters),
             "collection": self._latest_collection(),
-            "day_fastest_growing_vms": self._day_fastest_growing_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope),
+            "day_fastest_growing_vms": day_fastest_growing_vms,
             "day_new_vms": self._day_new_vms(vms, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope),
             "clusters": clusters,
             "towers": [_tower_payload(tower) for tower in towers],
@@ -72,7 +73,7 @@ class DashboardService:
             values[key] = metric_value(row)
         return values
 
-    def _capacity_risk(self, clusters: list[dict[str, Any]]) -> dict[str, Any]:
+    def _capacity_risk(self, clusters: list[dict[str, Any]], day_fastest_growing_vms: list[dict[str, Any]]) -> dict[str, Any]:
         sorted_clusters = sorted(clusters, key=lambda cluster: float(cluster.get("used_ratio") or 0.0), reverse=True)
         top_clusters = [
             {
@@ -82,6 +83,7 @@ class DashboardService:
                 "used_bytes": cluster["used_bytes"],
                 "total_bytes": cluster["total_bytes"],
                 "used_ratio": cluster["used_ratio"],
+                "top_growth_vms": _top_growth_vms_for_cluster(day_fastest_growing_vms, int(cluster["tower_id"]), str(cluster["cluster_id"])),
             }
             for cluster in sorted_clusters[:5]
         ]
@@ -323,3 +325,20 @@ def _tower_payload(tower) -> dict[str, Any]:
 
 def _in_enabled_scope(key: tuple[int, str], enabled_scope: set[tuple[int, str]]) -> bool:
     return key in enabled_scope if enabled_scope else True
+
+
+def _top_growth_vms_for_cluster(vms: list[dict[str, Any]], tower_id: int, cluster_id: str) -> list[dict[str, Any]]:
+    items = [
+        {
+            "tower_id": int(vm["tower_id"]),
+            "cluster_id": str(vm["cluster_id"]),
+            "vm_id": str(vm["vm_id"]),
+            "vm_name": str(vm["vm_name"]),
+            "current_bytes": vm.get("current_bytes") or 0,
+            "growth_amount": vm.get("growth_amount") or 0,
+            "growth_ratio": vm.get("growth_ratio"),
+        }
+        for vm in vms
+        if int(vm.get("tower_id") or 0) == tower_id and str(vm.get("cluster_id") or "") == cluster_id
+    ]
+    return sorted(items, key=lambda item: (-float(item["growth_amount"] or 0), item["vm_name"]))[:3]

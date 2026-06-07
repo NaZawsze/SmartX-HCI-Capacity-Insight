@@ -71,6 +71,15 @@ export interface DashboardSummary {
       used_bytes?: number | null;
       total_bytes?: number | null;
       used_ratio?: number | null;
+      top_growth_vms?: Array<{
+        tower_id?: number | string | null;
+        cluster_id?: string | null;
+        vm_id?: string | null;
+        vm_name?: string | null;
+        current_bytes?: number | null;
+        growth_amount?: number | null;
+        growth_ratio?: number | null;
+      }>;
     }>;
   };
   latest_run?: {

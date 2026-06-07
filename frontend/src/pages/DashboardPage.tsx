@@ -63,6 +63,7 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRis
   const risk = capacityRisk(summary?.capacity_risk, kpis?.used_ratio);
   const riskReportScope = reportScopeForRisk(summary?.capacity_risk);
   const clusterCapacityItems = clusterCapacityRows(summary?.clusters || []);
+  const riskGrowthVms = riskTopGrowthVms(summary?.capacity_risk);
 
   function openRiskReport() {
     onOpenRiskReport?.(riskReportScope);
@@ -198,11 +199,36 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRis
       </Card>
 
       <Card title="风险提示">
-        <button className={`risk-summary clickable-risk-summary ${risk.tone}`} type="button" onClick={openRiskReport}>
+        <div className={`risk-summary ${risk.tone}`}>
           {risk.tone === "normal" ? <CircleCheck size={38} /> : <AlertTriangle size={38} />}
           <strong>{risk.title}</strong>
           <span>{risk.description}</span>
-        </button>
+          {risk.tone !== "normal" && (
+            <>
+              <button className="secondary-button compact risk-report-button" type="button" onClick={openRiskReport}>
+                查看风险报表
+              </button>
+              <div className="risk-growth-panel">
+                <div className="risk-growth-head">
+                  <strong>主要增长 VM</strong>
+                  <span>最近 24 小时</span>
+                </div>
+                {riskGrowthVms.length ? (
+                  <div className="risk-growth-list">
+                    {riskGrowthVms.map((vm) => (
+                      <button className="risk-growth-row" type="button" key={`${vm.tower_id || "tower"}-${vm.cluster_id || "cluster"}-${vm.vm_id}`} onClick={() => onSelectVm(String(vm.vm_id), vm.vm_name || String(vm.vm_id))}>
+                        <span>{vm.vm_name || vm.vm_id}</span>
+                        <strong>{formatBytes(vm.growth_amount ?? 0)}/天</strong>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="risk-growth-empty">风险集群暂无明显 VM 增长来源</div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </Card>
     </div>
   );
@@ -330,4 +356,17 @@ function reportScopeForRisk(clusterRisk?: DashboardSummary["capacity_risk"]): Da
     return { type: "cluster", towerId, clusterId };
   }
   return { type: "all" };
+}
+
+function riskTopGrowthVms(clusterRisk?: DashboardSummary["capacity_risk"]) {
+  if (!clusterRisk || clusterRisk.level === "normal") return [];
+  const result = [];
+  for (const cluster of clusterRisk.top_clusters || []) {
+    for (const vm of cluster.top_growth_vms || []) {
+      if (!vm.vm_id) continue;
+      result.push(vm);
+      if (result.length >= 3) return result;
+    }
+  }
+  return result;
 }
