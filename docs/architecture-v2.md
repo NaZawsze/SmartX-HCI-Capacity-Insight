@@ -156,7 +156,7 @@ VM 名称只做展示，不作为历史数据绑定身份。
 
 ### 迁移流
 
-1. 迁出读取 SQLite 必要数据和 Prometheus 历史 block。
+1. 迁出读取 SQLite 中的 Tower/集群配置和 Prometheus 历史 block。
 2. 生成迁移包和 manifest。
 3. 迁入前先备份当前 SQLite 和 Prometheus。
 4. merge 或 overwrite 写入业务数据。

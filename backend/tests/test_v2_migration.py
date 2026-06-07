@@ -103,7 +103,7 @@ class V2MigrationServiceTest(unittest.TestCase):
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM clusters").fetchone()[0], 1)
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM vm_latest").fetchone()[0], 0)
 
-    def test_export_archive_includes_sqlite_and_prometheus_history_and_saves_task(self) -> None:
+    def test_export_archive_includes_config_sqlite_and_prometheus_history_and_saves_task(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
         from app.v2.inventory.models import ClusterInput, TowerInput
@@ -118,6 +118,8 @@ class V2MigrationServiceTest(unittest.TestCase):
             inventory = InventoryService(database, settings)
             tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
             inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="cluster-a", name="Cluster A")])
+            with database.connection() as conn:
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (?, ?, ?, ?, ?)", (tower.id, "cluster-a", "vm-1", "VM 1", 1024))
             block = settings.prometheus_data_dir / "01ABC"
             block.mkdir(parents=True)
             (block / "meta.json").write_text("{}", encoding="utf-8")
@@ -143,7 +145,20 @@ class V2MigrationServiceTest(unittest.TestCase):
             self.assertNotIn("prometheus/wal/runtime", names)
             self.assertIn("files", manifest)
             self.assertIn("app/smartx.db", manifest["files"])
+            self.assertEqual(manifest["migration_scope"], "full")
+            self.assertEqual(manifest["sqlite_scope"], "config")
+            self.assertTrue(manifest["contains"]["prometheus"])
             self.assertEqual(manifest["files"]["app/smartx.db"]["sha256"], __import__("hashlib").sha256(archived_db).hexdigest())
+            exported_db = Path(tmpdir) / "exported-full-config.db"
+            exported_db.write_bytes(archived_db)
+            with sqlite3.connect(exported_db) as conn:
+                tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM towers").fetchone()[0], 1)
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM clusters").fetchone()[0], 1)
+            self.assertNotIn("vm_latest", tables)
+            self.assertNotIn("vm_volumes", tables)
+            self.assertNotIn("collection_runs", tables)
+            self.assertNotIn("metric_snapshots", tables)
             tasks = TaskService(database).list_tasks()
             self.assertEqual(tasks[0]["type"], "migration_export")
             self.assertEqual(tasks[0]["links"][0]["url"], download_url)

@@ -46,36 +46,39 @@ class MigrationService:
     def build_export_archive(self, *, record_task: bool = True, task_id: str | None = None, steps: list[dict[str, Any]] | None = None) -> tuple[bytes, str, Path, str]:
         generated_at = _now()
         filename = f"smartx-capacity-insight-migration-{generated_at.strftime('%Y%m%d%H%M%S')}-{token_hex(4)}.tar.gz"
-        candidate_files = _export_candidate_files(self.settings.sqlite_path, self.settings.prometheus_data_dir)
-        total_bytes = sum(path.stat().st_size for path, _ in candidate_files if path.is_file())
-        files = {archive_name: _file_manifest(path) for path, archive_name in candidate_files if path.is_file()}
-        manifest = {
-            "format": "smartx-capacity-insight-v2-migration",
-            "version": 1,
-            "generated_at": generated_at.isoformat(),
-            "contains": {
-                "sqlite": self.settings.sqlite_path.exists(),
-                "prometheus": self.settings.prometheus_data_dir.exists(),
-            },
-            "files": files,
-        }
         buffer = io.BytesIO()
-        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
-            _add_json(archive, MANIFEST_NAME, manifest, generated_at)
-            processed_bytes = 0
-            logs = []
-            for path, archive_name in candidate_files:
-                archive.add(path, arcname=archive_name, recursive=False)
-                processed_bytes += path.stat().st_size
-                logs.append(f"当前文件：{archive_name} ({_size_label(processed_bytes)}/{_size_label(total_bytes)})")
-                if task_id and steps:
-                    self.tasks.update_task(
-                        task_id,
-                        progress=10 + int((processed_bytes / total_bytes) * 70) if total_bytes else 80,
-                        message=f"正在打包：{archive_name}",
-                        logs=logs[-6:],
-                        steps=_replace_step(steps, "archive", "running", f"{_size_label(processed_bytes)}/{_size_label(total_bytes)}"),
-                    )
+        with tempfile_sqlite_copy(self.settings.sqlite_path) as config_db:
+            candidate_files = _export_candidate_files(config_db, self.settings.prometheus_data_dir)
+            total_bytes = sum(path.stat().st_size for path, _ in candidate_files if path.is_file())
+            files = {archive_name: _file_manifest(path) for path, archive_name in candidate_files if path.is_file()}
+            manifest = {
+                "format": "smartx-capacity-insight-v2-migration",
+                "version": 1,
+                "migration_scope": FULL_SCOPE,
+                "sqlite_scope": CONFIG_SCOPE,
+                "generated_at": generated_at.isoformat(),
+                "contains": {
+                    "sqlite": config_db.is_file(),
+                    "prometheus": self.settings.prometheus_data_dir.exists(),
+                },
+                "files": files,
+            }
+            with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+                _add_json(archive, MANIFEST_NAME, manifest, generated_at)
+                processed_bytes = 0
+                logs = []
+                for path, archive_name in candidate_files:
+                    archive.add(path, arcname=archive_name, recursive=False)
+                    processed_bytes += path.stat().st_size
+                    logs.append(f"当前文件：{archive_name} ({_size_label(processed_bytes)}/{_size_label(total_bytes)})")
+                    if task_id and steps:
+                        self.tasks.update_task(
+                            task_id,
+                            progress=10 + int((processed_bytes / total_bytes) * 70) if total_bytes else 80,
+                            message=f"正在打包：{archive_name}",
+                            logs=logs[-6:],
+                            steps=_replace_step(steps, "archive", "running", f"{_size_label(processed_bytes)}/{_size_label(total_bytes)}"),
+                        )
         content = buffer.getvalue()
         self.settings.migrations_dir.mkdir(parents=True, exist_ok=True)
         path = self.settings.migrations_dir / filename
@@ -176,8 +179,9 @@ class MigrationService:
         return _migration_import_task(task)
 
     def _run_export_task(self, task_id: str, steps: list[dict[str, Any]]) -> dict[str, Any]:
-        candidate_files = _export_candidate_files(self.settings.sqlite_path, self.settings.prometheus_data_dir)
-        total_bytes = sum(path.stat().st_size for path, _ in candidate_files if path.is_file())
+        with tempfile_sqlite_copy(self.settings.sqlite_path) as config_db:
+            candidate_files = _export_candidate_files(config_db, self.settings.prometheus_data_dir)
+            total_bytes = sum(path.stat().st_size for path, _ in candidate_files if path.is_file())
         logs = [f"扫描完成：{len(candidate_files)} 个文件，约 {_size_label(total_bytes)}"]
         steps = _replace_step(steps, "scan", "succeeded", f"{len(candidate_files)} 个文件")
         steps = _replace_step(steps, "archive", "running")
