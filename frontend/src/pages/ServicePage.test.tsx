@@ -194,7 +194,7 @@ describe("ServicePage migration overwrite mode", () => {
     expect(updateTask).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: "succeeded", detail: "smartx-config-migration-20260607120000.tar.gz" }));
   });
 
-  it("renders artifact cleanup and sqlite cleanup as separate cleanup modules", async () => {
+  it("renders artifact cleanup and sqlite cleanup with matching result and log panels", async () => {
     mockServicePageBootstrap();
     apiMock.scanSpaceCleanup.mockResolvedValue({
       ok: true,
@@ -219,7 +219,22 @@ describe("ServicePage migration overwrite mode", () => {
     expect(cleanupSection).toContainElement(screen.getByRole("button", { name: "一键清理" }));
     expect(sqliteSection).toContainElement(screen.getByRole("button", { name: "扫描 SQLite" }));
     expect(sqliteSection).toContainElement(screen.getByRole("button", { name: "整理 SQLite" }));
+    expect(cleanupSection!.querySelector(".cleanup-result-panel")).not.toBeNull();
+    expect(sqliteSection!.querySelector(".cleanup-result-panel")).not.toBeNull();
+    expect(cleanupSection!.querySelector(".cleanup-log")).not.toBeNull();
+    expect(sqliteSection!.querySelector(".cleanup-log")).not.toBeNull();
     expect(screen.queryByText("可清理空间")).not.toBeInTheDocument();
+  });
+
+  it("uses the same header button sizing for migration actions", async () => {
+    mockServicePageBootstrap();
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "数据迁移" }));
+
+    expect(await screen.findByRole("button", { name: "健康检查" })).toHaveClass("service-header-button");
+    expect(screen.getByRole("button", { name: "导出配置迁移包" })).toHaveClass("service-header-button");
+    expect(screen.getByRole("button", { name: "导出迁移包" })).toHaveClass("service-header-button");
   });
 
   it("loads local host storage usage on the space cleanup page and warns when free space is low", async () => {

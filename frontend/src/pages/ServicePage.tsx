@@ -907,16 +907,16 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     return (
       <>
         <PageHeader eyebrow="系统运维" title="数据迁移" action={(
-          <div className="service-header-actions">
-            <button className="secondary-button" type="button" onClick={checkMigrationHealth} disabled={migrationBusy}>
+          <div className="service-header-actions service-migration-actions">
+            <button className="secondary-button service-header-button" type="button" onClick={checkMigrationHealth} disabled={migrationBusy}>
               <Info size={16} />
               健康检查
             </button>
-            <button className="secondary-button" type="button" onClick={exportConfigMigration} disabled={migrationBusy}>
+            <button className="secondary-button service-header-button" type="button" onClick={exportConfigMigration} disabled={migrationBusy}>
               <Download size={16} />
               导出配置迁移包
             </button>
-            <button className="primary-button" type="button" onClick={exportMigration} disabled={migrationBusy}>
+            <button className="primary-button service-header-button" type="button" onClick={exportMigration} disabled={migrationBusy}>
               <Download size={16} />
               导出迁移包
             </button>
@@ -959,7 +959,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                 我确认覆盖当前系统数据
               </label>
             )}
-            <button className={migrationMode === "overwrite" ? "secondary-button danger-button" : "secondary-button"} type="button" onClick={importMigration} disabled={migrationBusy || !migrationFile || (migrationMode === "overwrite" && !migrationConfirmed)}>
+            <button className={migrationMode === "overwrite" ? "secondary-button danger-button service-header-button" : "secondary-button service-header-button"} type="button" onClick={importMigration} disabled={migrationBusy || !migrationFile || (migrationMode === "overwrite" && !migrationConfirmed)}>
               <Upload size={15} />
               导入迁移包
             </button>
@@ -1041,7 +1041,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
               <Info size={16} />
               一键清理会删除已上传升级包、数据迁移导出包和报表导出文件；需要保留的文件请先下载到本地。
             </div>
-            <div className="cleanup-image-list space-cleanup-list auto-scrollbar">
+            <div className="cleanup-result-panel cleanup-image-list space-cleanup-list auto-scrollbar">
               {spaceCleanupItems.length ? (
                 spaceCleanupItems.map((item) => (
                   <div className="cleanup-image-row" key={item.key}>
@@ -1082,13 +1082,16 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                 </div>
               </div>
             </div>
-            <div className="cleanup-image-row">
-              <div>
-                <strong>{sqliteVacuumScan?.path || "smartx.db"}</strong>
-                <small>{sqliteVacuumScan ? `空闲页 ${sqliteVacuumScan.freelist_count} / 总页 ${sqliteVacuumScan.page_count}` : "点击扫描后显示 SQLite 文件大小和可整理空间。"}</small>
+            <div className="cleanup-result-panel cleanup-image-list auto-scrollbar">
+              <div className="cleanup-image-row">
+                <div>
+                  <strong>{sqliteVacuumScan?.path || "smartx.db"}</strong>
+                  <small>{sqliteVacuumScan ? `空闲页 ${sqliteVacuumScan.freelist_count} / 总页 ${sqliteVacuumScan.page_count}` : "点击扫描后显示 SQLite 文件大小和可整理空间。"}</small>
+                </div>
+                <span>{sqliteVacuumScan ? `预计释放 ${sqliteVacuumScan.estimated_reclaimable_label}` : "待扫描"}</span>
               </div>
             </div>
-            {sqliteVacuumLogs.length > 0 && <pre className="cleanup-log auto-scrollbar">{sqliteVacuumLogs.join("\n")}</pre>}
+            <pre className="cleanup-log auto-scrollbar">{sqliteVacuumLogs.length ? sqliteVacuumLogs.join("\n") : "等待扫描..."}</pre>
             {sqliteVacuumMessage && <div className="inline-message">{sqliteVacuumMessage}</div>}
           </div>
         </div>

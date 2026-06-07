@@ -3731,6 +3731,16 @@ button {
   justify-content: flex-end;
 }
 
+.service-migration-actions .service-header-button {
+  width: 168px;
+  min-width: 168px;
+}
+
+.service-migration-import .service-header-button {
+  width: 168px;
+  min-width: 168px;
+}
+
 .cleanup-summary.compact {
   min-width: 150px;
   padding: 10px 12px;
@@ -3742,6 +3752,13 @@ button {
 
 .space-cleanup-list .cleanup-image-row span {
   min-width: 120px;
+}
+
+.cleanup-result-panel {
+  min-height: 64px;
+  border: 1px solid #dce6f2;
+  border-radius: 8px;
+  background: #f8fbff;
 }
 
 .cleanup-module {
@@ -3795,4 +3812,11 @@ button {
 
 .sqlite-vacuum-panel .cleanup-image-row {
   border-top: 0;
+}
+
+@media (max-width: 560px) {
+  .service-migration-actions,
+  .service-migration-actions .service-header-button {
+    width: 100%;
+  }
 }
