@@ -372,12 +372,10 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     setSpaceCleanupLogs(["开始扫描升级包、数据迁移导出和报表导出..."]);
     try {
       await refreshLocalStorageUsage();
-      const [result, sqliteScan] = await Promise.all([api.scanSpaceCleanup(), api.scanSqliteVacuum()]);
+      const result = await api.scanSpaceCleanup();
       setSpaceCleanupItems(result.items);
       setSpaceCleanupTotal(result.total_size_label);
-      setSqliteVacuumScan(sqliteScan);
-      setSqliteVacuumLogs([sqliteScan.message]);
-      setSpaceCleanupLogs((current) => [...current, result.message, sqliteScan.message]);
+      setSpaceCleanupLogs((current) => [...current, result.message]);
       setSpaceCleanupMessage(result.message);
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "空间扫描失败";
@@ -385,6 +383,22 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
       setSpaceCleanupMessage(message);
     } finally {
       setSpaceCleanupScanBusy(false);
+    }
+  }
+
+  async function scanSqliteVacuum() {
+    setSqliteVacuumMessage("");
+    setSqliteVacuumLogs(["开始扫描 SQLite 数据库..."]);
+    try {
+      const result = await api.scanSqliteVacuum();
+      setSqliteVacuumScan(result);
+      setSqliteVacuumLogs([result.message]);
+      setSqliteVacuumMessage(result.message);
+      await refreshLocalStorageUsage();
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "SQLite 扫描失败";
+      setSqliteVacuumLogs((current) => [...current, message]);
+      setSqliteVacuumMessage(message);
     }
   }
 
@@ -965,62 +979,71 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     const totalCount = spaceCleanupItems.reduce((total, item) => total + item.count, 0);
     return (
       <>
-        <PageHeader
-          eyebrow="系统运维"
-          title="空间清理"
-          action={(
-            <div className="service-header-actions">
-              <button className="primary-button service-header-button" type="button" onClick={scanSpaceCleanup} disabled={spaceCleanupBusy || spaceCleanupScanBusy}>
-                <RefreshCw size={16} />
-                {spaceCleanupScanBusy ? "扫描中" : "扫描"}
-              </button>
-              <button className="secondary-button danger-button service-header-button" type="button" onClick={cleanupSpaceArtifacts} disabled={spaceCleanupBusy || spaceCleanupScanBusy || totalCount === 0}>
-                <Trash2 size={16} />
-                {spaceCleanupBusy ? "清理中" : "一键清理"}
-              </button>
-            </div>
-          )}
-        />
+        <PageHeader eyebrow="系统运维" title="空间清理" />
         <div className="service-operation-card">
           <LocalStorageUsageCard usage={localStorage} message={localStorageMessage} />
-          <div className="service-operation-head">
-            <div>
-              <strong>可清理空间</strong>
-              <span>扫描升级包、数据迁移导出和报表导出留档；不会删除业务库、Prometheus 历史指标或升级前自动备份。</span>
-            </div>
-            <div className="cleanup-summary compact">
-              <strong>{totalCount} 项</strong>
-              <span>预计可释放 {spaceCleanupTotal}</span>
-            </div>
-          </div>
-          <div className="cleanup-warning">
-            <Info size={16} />
-            一键清理会删除已上传升级包、数据迁移导出包和报表导出文件；需要保留的文件请先下载到本地。
-          </div>
-          <div className="cleanup-image-list space-cleanup-list auto-scrollbar">
-            {spaceCleanupItems.length ? (
-              spaceCleanupItems.map((item) => (
-                <div className="cleanup-image-row" key={item.key}>
-                  <div>
-                    <strong>{item.label}</strong>
-                    <small>{item.description} · {item.path}</small>
-                  </div>
-                  <span>{item.count} 项 · {item.size_label}</span>
+          <div className="cleanup-module">
+            <div className="service-operation-head">
+              <div>
+                <strong>运行产物清理</strong>
+                <span>扫描升级包、数据迁移导出和报表导出留档；不会删除业务库、Prometheus 历史指标或升级前自动备份。</span>
+              </div>
+              <div className="cleanup-module-actions">
+                <div className="cleanup-summary compact">
+                  <strong>{totalCount} 项</strong>
+                  <span>预计可释放 {spaceCleanupTotal}</span>
                 </div>
-              ))
-            ) : (
-              <div className="cleanup-image-empty">点击“扫描”查看可清理文件。</div>
-            )}
+                <button className="primary-button service-header-button" type="button" onClick={scanSpaceCleanup} disabled={spaceCleanupBusy || spaceCleanupScanBusy}>
+                  <RefreshCw size={16} />
+                  {spaceCleanupScanBusy ? "扫描中" : "扫描"}
+                </button>
+                <button className="secondary-button danger-button service-header-button" type="button" onClick={cleanupSpaceArtifacts} disabled={spaceCleanupBusy || spaceCleanupScanBusy || totalCount === 0}>
+                  <Trash2 size={16} />
+                  {spaceCleanupBusy ? "清理中" : "一键清理"}
+                </button>
+              </div>
+            </div>
+            <div className="cleanup-warning">
+              <Info size={16} />
+              一键清理会删除已上传升级包、数据迁移导出包和报表导出文件；需要保留的文件请先下载到本地。
+            </div>
+            <div className="cleanup-image-list space-cleanup-list auto-scrollbar">
+              {spaceCleanupItems.length ? (
+                spaceCleanupItems.map((item) => (
+                  <div className="cleanup-image-row" key={item.key}>
+                    <div>
+                      <strong>{item.label}</strong>
+                      <small>{item.description} · {item.path}</small>
+                    </div>
+                    <span>{item.count} 项 · {item.size_label}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="cleanup-image-empty">点击“扫描”查看可清理文件。</div>
+              )}
+            </div>
+            <pre className="cleanup-log auto-scrollbar">{spaceCleanupLogs.length ? spaceCleanupLogs.join("\n") : "等待扫描..."}</pre>
+            {spaceCleanupMessage && <div className="inline-message">{spaceCleanupMessage}</div>}
           </div>
-          <div className="sqlite-vacuum-panel">
+          <div className="cleanup-module sqlite-vacuum-panel">
             <div className="service-operation-head">
               <div>
                 <strong>SQLite 空间整理</strong>
                 <span>删除旧虚拟卷 payload 后，可先备份业务库再执行 VACUUM 释放数据库空闲页。</span>
               </div>
-              <div className="cleanup-summary compact">
-                <strong>{sqliteVacuumScan?.size_label || "待扫描"}</strong>
-                <span>预计释放 {sqliteVacuumScan?.estimated_reclaimable_label || "0 B"}</span>
+              <div className="cleanup-module-actions">
+                <div className="cleanup-summary compact">
+                  <strong>{sqliteVacuumScan?.size_label || "待扫描"}</strong>
+                  <span>预计释放 {sqliteVacuumScan?.estimated_reclaimable_label || "0 B"}</span>
+                </div>
+                <button className="primary-button service-header-button" type="button" onClick={scanSqliteVacuum} disabled={sqliteVacuumBusy || spaceCleanupScanBusy}>
+                  <RefreshCw size={16} />
+                  扫描 SQLite
+                </button>
+                <button className="secondary-button danger-button service-header-button" type="button" onClick={vacuumSqlite} disabled={sqliteVacuumBusy || spaceCleanupScanBusy || !sqliteVacuumScan}>
+                  <RefreshCw size={16} />
+                  {sqliteVacuumBusy ? "整理中" : "整理 SQLite"}
+                </button>
               </div>
             </div>
             <div className="cleanup-image-row">
@@ -1028,16 +1051,10 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                 <strong>{sqliteVacuumScan?.path || "smartx.db"}</strong>
                 <small>{sqliteVacuumScan ? `空闲页 ${sqliteVacuumScan.freelist_count} / 总页 ${sqliteVacuumScan.page_count}` : "点击扫描后显示 SQLite 文件大小和可整理空间。"}</small>
               </div>
-              <button className="secondary-button service-header-button" type="button" onClick={vacuumSqlite} disabled={sqliteVacuumBusy || spaceCleanupScanBusy || !sqliteVacuumScan}>
-                <RefreshCw size={16} />
-                {sqliteVacuumBusy ? "整理中" : "整理 SQLite"}
-              </button>
             </div>
             {sqliteVacuumLogs.length > 0 && <pre className="cleanup-log auto-scrollbar">{sqliteVacuumLogs.join("\n")}</pre>}
             {sqliteVacuumMessage && <div className="inline-message">{sqliteVacuumMessage}</div>}
           </div>
-          <pre className="cleanup-log auto-scrollbar">{spaceCleanupLogs.length ? spaceCleanupLogs.join("\n") : "等待扫描..."}</pre>
-          {spaceCleanupMessage && <div className="inline-message">{spaceCleanupMessage}</div>}
         </div>
       </>
     );

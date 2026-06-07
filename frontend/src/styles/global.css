@@ -3714,10 +3714,25 @@ button {
   min-width: 120px;
 }
 
-.sqlite-vacuum-panel {
-  border-top: 1px solid var(--border);
+.cleanup-module {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
   margin-top: 14px;
-  padding-top: 14px;
+  padding: 14px;
+}
+
+.cleanup-module-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.sqlite-vacuum-panel {
+  margin-top: 14px;
 }
 
 .sqlite-vacuum-panel .cleanup-image-row {

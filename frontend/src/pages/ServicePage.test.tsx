@@ -166,7 +166,7 @@ describe("ServicePage migration overwrite mode", () => {
     expect(addTask).toHaveBeenCalledWith(expect.objectContaining({ kind: "import", title: "导入迁移包" }));
   });
 
-  it("uses primary scan and danger cleanup buttons with matching header sizing", async () => {
+  it("renders artifact cleanup and sqlite cleanup as separate cleanup modules", async () => {
     mockServicePageBootstrap();
     apiMock.scanSpaceCleanup.mockResolvedValue({
       ok: true,
@@ -180,13 +180,18 @@ describe("ServicePage migration overwrite mode", () => {
     render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "空间清理" }));
-    await waitFor(() => expect(screen.getByText("可清理空间")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("运行产物清理")).toBeInTheDocument());
 
-    const scanButton = screen.getByRole("button", { name: "扫描" });
-    const cleanupButton = screen.getByRole("button", { name: "一键清理" });
+    const cleanupSection = screen.getByText("运行产物清理").closest(".cleanup-module");
+    const sqliteSection = screen.getByText("SQLite 空间整理").closest(".cleanup-module");
 
-    expect(scanButton).toHaveClass("primary-button", "service-header-button");
-    expect(cleanupButton).toHaveClass("danger-button", "service-header-button");
+    expect(cleanupSection).not.toBeNull();
+    expect(sqliteSection).not.toBeNull();
+    expect(cleanupSection).toContainElement(screen.getByRole("button", { name: "扫描" }));
+    expect(cleanupSection).toContainElement(screen.getByRole("button", { name: "一键清理" }));
+    expect(sqliteSection).toContainElement(screen.getByRole("button", { name: "扫描 SQLite" }));
+    expect(sqliteSection).toContainElement(screen.getByRole("button", { name: "整理 SQLite" }));
+    expect(screen.queryByText("可清理空间")).not.toBeInTheDocument();
   });
 
   it("loads local host storage usage on the space cleanup page and warns when free space is low", async () => {
