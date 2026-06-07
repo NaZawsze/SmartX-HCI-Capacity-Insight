@@ -1,7 +1,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { AlertCircle, AlertTriangle, Bell, Building2, Check, ChevronDown, CircleCheck, ClipboardList, Database, HardDrive, Info, KeyRound, LayoutDashboard, LogOut, Save, Server, Settings, SlidersHorizontal, UserRound, View, X } from "lucide-react";
 import { api } from "../services/api";
-import type { AppTask, Cluster, DashboardScope, DashboardSummary, PageKey, Tower } from "../types";
+import type { AppTask, AppTaskLink, Cluster, DashboardScope, DashboardSummary, PageKey, Tower } from "../types";
 
 interface AppLayoutProps {
   activePage: PageKey;
@@ -312,7 +312,7 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
                               <div className="task-link-row">
                                 {task.links.map((link) => (
                                   <button key={`${task.id}-${link.url}-${link.label}`} type="button" title={link.path || link.filename || link.label} onClick={() => downloadTaskLink(link.url, link.filename || link.label)}>
-                                    下载
+                                    {taskLinkButtonLabel(task, link)}
                                   </button>
                                 ))}
                               </div>
@@ -621,6 +621,13 @@ function isClearableFromMenu(task: AppTask): boolean {
   if (!["succeeded", "failed", "cancelled"].includes(task.status)) return false;
   if ((task.severity || "info") === "info") return true;
   return Boolean(task.clearable);
+}
+
+function taskLinkButtonLabel(task: AppTask, link: AppTaskLink): string {
+  if (task.title === "导出预测报表" && ["Word", "Excel"].includes(link.label)) {
+    return link.label;
+  }
+  return "下载";
 }
 
 function stepStatusText(status: string): string {

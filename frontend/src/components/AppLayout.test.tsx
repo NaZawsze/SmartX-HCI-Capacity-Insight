@@ -110,6 +110,26 @@ function succeededDownloadTask(): AppTask {
   };
 }
 
+function succeededReportDownloadTask(): AppTask {
+  return {
+    id: "task-report-download",
+    kind: "export",
+    title: "导出预测报表",
+    detail: "Word 和 Excel 报表已生成",
+    status: "succeeded",
+    severity: "info",
+    unhandled: true,
+    clearable: false,
+    progress: 100,
+    links: [
+      { label: "Word", filename: "storage-forecast.docx", url: "/api/admin/exports/reports/storage-forecast.docx", path: "/data/exports/reports/storage-forecast.docx" },
+      { label: "Excel", filename: "storage-forecast.xlsx", url: "/api/admin/exports/reports/storage-forecast.xlsx", path: "/data/exports/reports/storage-forecast.xlsx" }
+    ],
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+}
+
 function pendingUpgradeTask(): AppTask {
   return {
     id: "upgrade-pending",
@@ -244,6 +264,16 @@ describe("AppLayout menus", () => {
     expect(downloadButtons).toHaveLength(2);
     expect(downloadButtons[0]).toHaveAttribute("title", "/data/exports/migrations/migration.tar.gz");
     expect(downloadButtons[1]).toHaveAttribute("title", "/data/backups/sqlite-before.tar.gz");
+  });
+
+  it("keeps Word and Excel labels for report export download links", () => {
+    render(<AppLayout {...baseProps} tasks={[succeededReportDownloadTask()]} />);
+
+    fireEvent.click(screen.getByTitle("任务"));
+
+    expect(screen.getByRole("button", { name: "Word" })).toHaveAttribute("title", "/data/exports/reports/storage-forecast.docx");
+    expect(screen.getByRole("button", { name: "Excel" })).toHaveAttribute("title", "/data/exports/reports/storage-forecast.xlsx");
+    expect(screen.queryByRole("button", { name: "下载" })).not.toBeInTheDocument();
   });
 
   it("shows all loaded tasks and enables clear for succeeded info tasks", () => {
