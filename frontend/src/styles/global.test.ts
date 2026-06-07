@@ -73,4 +73,12 @@ describe("global responsive styles", () => {
     expect(serviceMain).toContain("padding-left: 16px");
     expect(serviceMain).toContain("padding-right: 16px");
   });
+
+  it("allows long runtime image names to wrap instead of truncating", () => {
+    const runtimeImageCell = blockFor(".upgrade-runtime-image");
+
+    expect(runtimeImageCell).toContain("white-space: normal");
+    expect(runtimeImageCell).toContain("overflow-wrap: anywhere");
+    expect(runtimeImageCell).not.toContain("text-overflow: ellipsis");
+  });
 });

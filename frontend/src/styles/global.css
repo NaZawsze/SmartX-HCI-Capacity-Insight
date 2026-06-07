@@ -3055,6 +3055,14 @@ button {
   white-space: nowrap;
 }
 
+.upgrade-runtime-row .upgrade-runtime-image {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
 .runtime-ok,
 .runtime-bad {
   display: inline-flex;

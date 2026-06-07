@@ -1240,7 +1240,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             <div className="upgrade-runtime-row" key={item.service}>
               <span>{item.service}</span>
               <span className={item.running ? "runtime-ok" : "runtime-bad"}>{item.running ? "运行中" : item.status || "未运行"}</span>
-              <span title={item.image}>{item.image}</span>
+              <span className="upgrade-runtime-image" title={item.image}>{item.image}</span>
               <span>{formatVersionForDisplay(item.app_version)}</span>
               <span>{formatTime(item.started_at || undefined)}</span>
             </div>
