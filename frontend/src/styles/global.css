@@ -3733,17 +3733,30 @@ button {
   min-width: 0;
 }
 
+.cleanup-control-stack {
+  align-items: stretch;
+  display: grid;
+  gap: 8px;
+  justify-items: stretch;
+  min-width: 286px;
+}
+
+.cleanup-control-stack .cleanup-summary.compact {
+  min-width: 0;
+}
+
 .cleanup-inline-actions {
   align-items: center;
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  justify-content: flex-start;
-  margin-top: 4px;
+  gap: 8px;
+  justify-content: stretch;
 }
 
 .cleanup-inline-actions .service-header-button {
-  min-width: 132px;
+  flex: 1 1 0;
+  min-width: 0;
+  padding-left: 12px;
+  padding-right: 12px;
 }
 
 .sqlite-vacuum-panel {

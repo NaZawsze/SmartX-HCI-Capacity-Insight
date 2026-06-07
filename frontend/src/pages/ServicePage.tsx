@@ -987,6 +987,12 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
               <div className="cleanup-module-title">
                 <strong>运行产物清理</strong>
                 <span>扫描升级包、数据迁移导出和报表导出留档；不会删除业务库、Prometheus 历史指标或升级前自动备份。</span>
+              </div>
+              <div className="cleanup-control-stack">
+                <div className="cleanup-summary compact">
+                  <strong>{totalCount} 项</strong>
+                  <span>预计可释放 {spaceCleanupTotal}</span>
+                </div>
                 <div className="cleanup-inline-actions">
                   <button className="primary-button service-header-button" type="button" onClick={scanSpaceCleanup} disabled={spaceCleanupBusy || spaceCleanupScanBusy}>
                     <RefreshCw size={16} />
@@ -997,10 +1003,6 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                     {spaceCleanupBusy ? "清理中" : "一键清理"}
                   </button>
                 </div>
-              </div>
-              <div className="cleanup-summary compact">
-                <strong>{totalCount} 项</strong>
-                <span>预计可释放 {spaceCleanupTotal}</span>
               </div>
             </div>
             <div className="cleanup-warning">
@@ -1030,6 +1032,12 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
               <div className="cleanup-module-title">
                 <strong>SQLite 空间整理</strong>
                 <span>删除旧虚拟卷 payload 后，可先备份业务库再执行 VACUUM 释放数据库空闲页。</span>
+              </div>
+              <div className="cleanup-control-stack">
+                <div className="cleanup-summary compact">
+                  <strong>{sqliteVacuumScan?.size_label || "待扫描"}</strong>
+                  <span>预计释放 {sqliteVacuumScan?.estimated_reclaimable_label || "0 B"}</span>
+                </div>
                 <div className="cleanup-inline-actions">
                   <button className="primary-button service-header-button" type="button" onClick={scanSqliteVacuum} disabled={sqliteVacuumBusy || spaceCleanupScanBusy}>
                     <RefreshCw size={16} />
@@ -1040,10 +1048,6 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                     {sqliteVacuumBusy ? "整理中" : "整理 SQLite"}
                   </button>
                 </div>
-              </div>
-              <div className="cleanup-summary compact">
-                <strong>{sqliteVacuumScan?.size_label || "待扫描"}</strong>
-                <span>预计释放 {sqliteVacuumScan?.estimated_reclaimable_label || "0 B"}</span>
               </div>
             </div>
             <div className="cleanup-image-row">
