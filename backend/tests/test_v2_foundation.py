@@ -238,6 +238,63 @@ class V2FoundationTest(unittest.TestCase):
             self.assertIsNone(legacy_table)
             self.assertIsNotNone(migration)
 
+    def test_database_initialization_migrates_and_drops_legacy_volume_items(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="compat-secret")
+            settings.sqlite_dir.mkdir(parents=True, exist_ok=True)
+            with sqlite3.connect(settings.sqlite_path) as conn:
+                conn.executescript(
+                    """
+                    CREATE TABLE latest_vm_volume_items (
+                        tower_id INTEGER NOT NULL,
+                        cluster_id TEXT NOT NULL,
+                        vm_id TEXT NOT NULL,
+                        volume_id TEXT NOT NULL,
+                        name TEXT,
+                        path TEXT,
+                        type TEXT,
+                        size INTEGER,
+                        used_size INTEGER,
+                        unique_size INTEGER,
+                        unique_logical_size INTEGER,
+                        guest_used_size INTEGER,
+                        used_size_usage REAL,
+                        guest_size_usage REAL,
+                        storage_policy TEXT,
+                        replica_num INTEGER,
+                        thin_provision INTEGER,
+                        ec_k INTEGER,
+                        ec_m INTEGER,
+                        collected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (tower_id, cluster_id, vm_id, volume_id)
+                    );
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO latest_vm_volume_items (
+                        tower_id, cluster_id, vm_id, volume_id, name, path, size, used_size,
+                        storage_policy, replica_num, thin_provision, ec_k, ec_m, collected_at
+                    )
+                    VALUES (1, 'cluster-a', 'vm-1', 'vol-1', 'Root', '/root', 1000, 450, 'Replica-2', 2, 1, 4, 2, '2026-06-01T00:00:00Z')
+                    """
+                )
+
+            V2Database(settings).initialize()
+
+            with sqlite3.connect(settings.sqlite_path) as conn:
+                volume = conn.execute(
+                    "SELECT volume_id, name, path, size_bytes, used_bytes, storage_policy, replica_num, thin_provision, ec_k, ec_m, updated_at FROM vm_volumes"
+                ).fetchone()
+                legacy_table = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'latest_vm_volume_items'").fetchone()
+                migration = conn.execute("SELECT name FROM schema_migrations WHERE name = 'drop_legacy_latest_vm_volume_items'").fetchone()
+            self.assertEqual(volume, ("vol-1", "Root", "/root", 1000, 450, "Replica-2", 2, 1, 4, 2, "2026-06-01T00:00:00Z"))
+            self.assertIsNone(legacy_table)
+            self.assertIsNotNone(migration)
+
     def test_health_check_reports_database_and_directories(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.database import V2Database

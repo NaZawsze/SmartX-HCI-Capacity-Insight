@@ -143,6 +143,7 @@ class V2Database:
             _ensure_column(conn, "tasks", "seen_at", "TEXT")
             _ensure_column(conn, "tasks", "acknowledged_at", "TEXT")
             _backfill_v1_latest_vm_payloads(conn)
+            _backfill_legacy_volume_items(conn)
             self._ensure_admin(conn)
 
     def _ensure_admin(self, conn: sqlite3.Connection) -> None:
@@ -203,6 +204,40 @@ def _backfill_v1_latest_vm_payloads(conn: sqlite3.Connection) -> None:
             )
     conn.execute("DROP TABLE latest_vm_volumes")
     conn.execute("INSERT OR IGNORE INTO schema_migrations (name) VALUES ('drop_legacy_latest_vm_volumes')")
+
+
+def _backfill_legacy_volume_items(conn: sqlite3.Connection) -> None:
+    if not _table_exists(conn, "latest_vm_volume_items"):
+        return
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(latest_vm_volume_items)").fetchall()}
+    required = {"tower_id", "cluster_id", "vm_id", "volume_id"}
+    if required.issubset(columns):
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO vm_volumes (
+                tower_id, cluster_id, vm_id, volume_id, name, path, size_bytes, used_bytes,
+                storage_policy, replica_num, thin_provision, ec_k, ec_m, updated_at
+            )
+            SELECT
+                tower_id,
+                cluster_id,
+                vm_id,
+                volume_id,
+                name,
+                path,
+                size,
+                used_size,
+                storage_policy,
+                replica_num,
+                thin_provision,
+                ec_k,
+                ec_m,
+                COALESCE(collected_at, CURRENT_TIMESTAMP)
+            FROM latest_vm_volume_items
+            """
+        )
+    conn.execute("DROP TABLE latest_vm_volume_items")
+    conn.execute("INSERT OR IGNORE INTO schema_migrations (name) VALUES ('drop_legacy_latest_vm_volume_items')")
 
 
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:

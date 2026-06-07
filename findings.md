@@ -181,7 +181,7 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 
 ## SQLite 存储体积发现
 
-`10.20.11.3` 当前 SQLite 文件 `/data/smartx-capacity-insight-data/app/smartx.db` 约 135M，其中估算实际使用约 90M、空闲页约 45M。主要空间来自 `latest_vm_volumes`：
+`10.20.11.3` 曾发现 SQLite 文件 `/data/smartx-capacity-insight-data/app/smartx.db` 约 135M，其中估算实际使用约 90M、空闲页约 45M。主要空间来自 `latest_vm_volumes`：
 
 - `latest_vm_volumes` 约 94M，523 行。
 - `payload_json` 合计约 93M。
@@ -189,6 +189,14 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 每个卷对象包含 Tower 返回的较完整原始字段，例如 `cluster`、`lun`、`vm_disks`、`path`、`labels`、storage policy、size、used_size 等。
 
 后续应优化 `latest_vm_volumes` 存储结构：只保存页面、报表、导出和分析真正需要的字段。旧版本迁移包导入时必须兼容旧 `payload_json`，从旧 JSON 抽取所需字段写入新结构，其他 Tower 原始字段直接丢弃。
+
+2026-06-07 v2 继续瘦身结果：
+
+- 旧 `latest_vm_volumes.payload_json` 已由 v2 初始化逻辑抽取到 `vm_volumes` 并删除。
+- 现场又发现 `latest_vm_volume_items` 与 `vm_volumes` 重复保存结构化虚拟卷明细，各有 89530 行。
+- v2 正式数据源是 `vm_volumes`；`latest_vm_volume_items` 属于旧结构遗留表。
+- 已新增初始化迁移：若发现 `latest_vm_volume_items`，先把必要字段写入 `vm_volumes`，再删除旧表，并记录 `drop_legacy_latest_vm_volume_items`。
+- `10.20.11.3` 执行迁移和 `VACUUM` 后，SQLite 文件从约 `68.34MB` 降到 `32.29MB`，释放约 `36MB`。
 
 ## Git 规则
 
