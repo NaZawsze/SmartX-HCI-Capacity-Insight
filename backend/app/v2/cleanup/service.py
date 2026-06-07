@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import shutil
+import sqlite3
 import json
 import os
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -93,6 +95,91 @@ class CleanupService:
             "space_reclaimed_label": scan["total_size_label"],
             "logs": logs,
             "message": f"清理完成，释放 {scan['total_size_label']}。",
+        }
+
+    def scan_sqlite_vacuum(self) -> dict[str, Any]:
+        path = self.settings.sqlite_path
+        if not path.exists():
+            return {
+                "ok": True,
+                "path": str(path),
+                "size": 0,
+                "size_label": _size_label(0),
+                "page_count": 0,
+                "freelist_count": 0,
+                "page_size": 0,
+                "estimated_reclaimable": 0,
+                "estimated_reclaimable_label": _size_label(0),
+                "message": "SQLite 数据库尚不存在，无需整理。",
+            }
+        with sqlite3.connect(path) as conn:
+            page_count = int(conn.execute("PRAGMA page_count").fetchone()[0] or 0)
+            freelist_count = int(conn.execute("PRAGMA freelist_count").fetchone()[0] or 0)
+            page_size = int(conn.execute("PRAGMA page_size").fetchone()[0] or 0)
+        size = path.stat().st_size
+        estimated = max(0, freelist_count * page_size)
+        return {
+            "ok": True,
+            "path": str(path),
+            "size": size,
+            "size_label": _size_label(size),
+            "page_count": page_count,
+            "freelist_count": freelist_count,
+            "page_size": page_size,
+            "estimated_reclaimable": estimated,
+            "estimated_reclaimable_label": _size_label(estimated),
+            "message": f"SQLite 当前大小 {_size_label(size)}，预计可整理释放 {_size_label(estimated)}。",
+        }
+
+    def vacuum_sqlite(self) -> dict[str, Any]:
+        scan = self.scan_sqlite_vacuum()
+        path = self.settings.sqlite_path
+        if not path.exists():
+            return {
+                "ok": True,
+                "backup_path": "",
+                "before_size": 0,
+                "after_size": 0,
+                "space_reclaimed": 0,
+                "space_reclaimed_label": _size_label(0),
+                "message": "SQLite 数据库尚不存在，无需整理。",
+            }
+        self.settings.backups_dir.mkdir(parents=True, exist_ok=True)
+        backup_path = self.settings.backups_dir / f"sqlite-before-vacuum-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}.db"
+        shutil.copy2(path, backup_path)
+        before_size = path.stat().st_size
+        with sqlite3.connect(path) as conn:
+            conn.execute("VACUUM")
+        after_size = path.stat().st_size
+        reclaimed = max(0, before_size - after_size)
+        logs = [
+            scan["message"],
+            f"整理前备份：{backup_path}",
+            f"整理前：{_size_label(before_size)}",
+            f"整理后：{_size_label(after_size)}",
+            f"释放：{_size_label(reclaimed)}",
+        ]
+        self.tasks.create_task(
+            f"cleanup-sqlite-vacuum-{int(before_size)}-{int(after_size)}",
+            TaskType.CLEANUP,
+            "SQLite 空间整理",
+            status=TaskStatus.SUCCESS,
+            progress=100,
+            message=f"SQLite 整理完成，释放 {_size_label(reclaimed)}",
+            logs=logs,
+            links=[{"label": "整理前备份", "filename": backup_path.name, "url": "", "path": str(backup_path)}],
+        )
+        return {
+            "ok": True,
+            "backup_path": str(backup_path),
+            "before_size": before_size,
+            "after_size": after_size,
+            "before_size_label": _size_label(before_size),
+            "after_size_label": _size_label(after_size),
+            "space_reclaimed": reclaimed,
+            "space_reclaimed_label": _size_label(reclaimed),
+            "message": f"SQLite 整理完成，释放 {_size_label(reclaimed)}。",
+            "logs": logs,
         }
 
     def scan_unused_images(self) -> dict[str, Any]:

@@ -2,7 +2,7 @@ import { Check, Circle, Download, FileArchive, History, Info, ListChecks, Loader
 import { useEffect, useRef, useState } from "react";
 import { api } from "../services/api";
 import type { TransferProgress } from "../services/api";
-import type { AppTask, LocalStorageUsage, MigrationExportTask, SpaceCleanupScanItem, UpgradeTask, UpgradeVerification } from "../types";
+import type { AppTask, LocalStorageUsage, MigrationExportTask, MigrationImportTask, SpaceCleanupScanItem, SqliteVacuumScan, UpgradeTask, UpgradeVerification } from "../types";
 
 type ServiceSection = "migration" | "restart" | "space-cleanup" | "platform-upgrade" | "component-upgrade" | "history";
 type CleanupScanImage = { id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string; reclaimable_size?: number; reclaimable_size_label?: string; created_at?: number };
@@ -103,6 +103,10 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
   const [spaceCleanupLogs, setSpaceCleanupLogs] = useState<string[]>([]);
   const [localStorage, setLocalStorage] = useState<LocalStorageUsage | null>(null);
   const [localStorageMessage, setLocalStorageMessage] = useState("");
+  const [sqliteVacuumScan, setSqliteVacuumScan] = useState<SqliteVacuumScan | null>(null);
+  const [sqliteVacuumBusy, setSqliteVacuumBusy] = useState(false);
+  const [sqliteVacuumMessage, setSqliteVacuumMessage] = useState("");
+  const [sqliteVacuumLogs, setSqliteVacuumLogs] = useState<string[]>([]);
   const [migrationMessage, setMigrationMessage] = useState("");
   const [migrationBusy, setMigrationBusy] = useState(false);
   const [migrationFile, setMigrationFile] = useState<File | null>(null);
@@ -271,11 +275,21 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     const id = taskId("migration-import");
     addTask({ id, kind: "import", title: "导入迁移包", detail: migrationFile.name, status: "running", progress: 0 });
     try {
-      const result = await api.importMigration(migrationFile, migrationMode, migrationConfirmed, (progress) => updateTask(id, uploadProgressTaskPatch(progress)));
-      const backupLog = result.backup_path ? `导入前备份：${result.backup_path}` : "";
-      const healthLog = result.summary?.health?.message || "";
-      updateTask(id, { status: "succeeded", progress: 100, detail: healthLog || result.message, logs: [result.message, backupLog, healthLog].filter(Boolean) });
-      setMigrationMessage([result.message, backupLog, healthLog].filter(Boolean).join(" "));
+      let task = await api.startMigrationImport(migrationFile, migrationMode, migrationConfirmed, (progress) => updateTask(id, uploadProgressTaskPatch(progress)));
+      const backendTaskId = task.task_id || id;
+      updateTask(id, migrationImportTaskPatch(task));
+      while (task.status === "pending" || task.status === "running") {
+        await sleep(1000);
+        task = await api.migrationImportStatus(backendTaskId);
+        updateTask(id, migrationImportTaskPatch(task));
+      }
+      if (task.status === "failed") {
+        throw new Error(task.detail || "导入失败");
+      }
+      const backupLog = task.backup_path ? `导入前备份：${task.backup_path}` : "";
+      const healthLog = task.summary?.health?.message || "";
+      updateTask(id, { ...migrationImportTaskPatch(task), status: "succeeded", progress: 100, detail: healthLog || "数据迁移导入完成" });
+      setMigrationMessage(["数据迁移导入完成", backupLog, healthLog].filter(Boolean).join(" "));
       setMigrationFile(null);
       if (migrationFileInputRef.current) migrationFileInputRef.current.value = "";
       setMigrationMode("merge");
@@ -318,10 +332,12 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     setSpaceCleanupLogs(["开始扫描升级包、数据迁移导出和报表导出..."]);
     try {
       await refreshLocalStorageUsage();
-      const result = await api.scanSpaceCleanup();
+      const [result, sqliteScan] = await Promise.all([api.scanSpaceCleanup(), api.scanSqliteVacuum()]);
       setSpaceCleanupItems(result.items);
       setSpaceCleanupTotal(result.total_size_label);
-      setSpaceCleanupLogs((current) => [...current, result.message]);
+      setSqliteVacuumScan(sqliteScan);
+      setSqliteVacuumLogs([sqliteScan.message]);
+      setSpaceCleanupLogs((current) => [...current, result.message, sqliteScan.message]);
       setSpaceCleanupMessage(result.message);
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "空间扫描失败";
@@ -362,6 +378,35 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
       await refreshLocalStorageUsage();
     } finally {
       setSpaceCleanupBusy(false);
+    }
+  }
+
+  async function vacuumSqlite() {
+    setSqliteVacuumBusy(true);
+    setSqliteVacuumMessage("");
+    const id = taskId("sqlite-vacuum");
+    addTask({ id, kind: "upgrade", title: "SQLite 空间整理", detail: "正在备份并整理业务库", status: "running", progress: 35, logs: ["开始 SQLite 空间整理"] });
+    try {
+      const result = await api.vacuumSqlite();
+      setSqliteVacuumLogs(result.logs || [result.message]);
+      setSqliteVacuumMessage(result.backup_path ? `${result.message} 整理前备份：${result.backup_path}` : result.message);
+      updateTask(id, {
+        status: "succeeded",
+        progress: 100,
+        detail: result.message,
+        logs: result.logs,
+        links: result.backup_path ? [{ label: "整理前备份", filename: result.backup_path.split("/").pop(), url: "", path: result.backup_path }] : undefined
+      });
+      const scan = await api.scanSqliteVacuum();
+      setSqliteVacuumScan(scan);
+      await refreshLocalStorageUsage();
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "SQLite 空间整理失败";
+      setSqliteVacuumLogs((current) => [...current, message]);
+      setSqliteVacuumMessage(message);
+      updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["SQLite 空间整理失败", message] });
+    } finally {
+      setSqliteVacuumBusy(false);
     }
   }
 
@@ -924,6 +969,30 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             ) : (
               <div className="cleanup-image-empty">点击“扫描”查看可清理文件。</div>
             )}
+          </div>
+          <div className="sqlite-vacuum-panel">
+            <div className="service-operation-head">
+              <div>
+                <strong>SQLite 空间整理</strong>
+                <span>删除旧虚拟卷 payload 后，可先备份业务库再执行 VACUUM 释放数据库空闲页。</span>
+              </div>
+              <div className="cleanup-summary compact">
+                <strong>{sqliteVacuumScan?.size_label || "待扫描"}</strong>
+                <span>预计释放 {sqliteVacuumScan?.estimated_reclaimable_label || "0 B"}</span>
+              </div>
+            </div>
+            <div className="cleanup-image-row">
+              <div>
+                <strong>{sqliteVacuumScan?.path || "smartx.db"}</strong>
+                <small>{sqliteVacuumScan ? `空闲页 ${sqliteVacuumScan.freelist_count} / 总页 ${sqliteVacuumScan.page_count}` : "点击扫描后显示 SQLite 文件大小和可整理空间。"}</small>
+              </div>
+              <button className="secondary-button service-header-button" type="button" onClick={vacuumSqlite} disabled={sqliteVacuumBusy || spaceCleanupScanBusy || !sqliteVacuumScan}>
+                <RefreshCw size={16} />
+                {sqliteVacuumBusy ? "整理中" : "整理 SQLite"}
+              </button>
+            </div>
+            {sqliteVacuumLogs.length > 0 && <pre className="cleanup-log auto-scrollbar">{sqliteVacuumLogs.join("\n")}</pre>}
+            {sqliteVacuumMessage && <div className="inline-message">{sqliteVacuumMessage}</div>}
           </div>
           <pre className="cleanup-log auto-scrollbar">{spaceCleanupLogs.length ? spaceCleanupLogs.join("\n") : "等待扫描..."}</pre>
           {spaceCleanupMessage && <div className="inline-message">{spaceCleanupMessage}</div>}
@@ -1559,6 +1628,28 @@ function migrationExportStatusText(status: MigrationExportTask["status"]): strin
     running: "正在生成迁移包",
     succeeded: "迁移包已生成",
     failed: "导出失败"
+  };
+  return labels[status];
+}
+
+function migrationImportTaskPatch(task: MigrationImportTask): Partial<Omit<AppTask, "id" | "createdAt">> {
+  const backupLog = task.backup_path ? [`导入前备份：${task.backup_path}`] : [];
+  return {
+    status: task.status === "failed" ? "failed" : task.status === "succeeded" ? "succeeded" : "running",
+    progress: Math.max(0, Math.min(100, task.progress || 0)),
+    detail: task.detail || migrationImportStatusText(task.status),
+    logs: [...(task.logs || []), ...backupLog],
+    steps: task.steps,
+    links: task.backup_path ? [{ label: "导入前备份", filename: task.backup_path.split("/").pop(), url: "", path: task.backup_path }] : task.links
+  };
+}
+
+function migrationImportStatusText(status: MigrationImportTask["status"]): string {
+  const labels: Record<MigrationImportTask["status"], string> = {
+    pending: "等待开始导入",
+    running: "正在导入迁移包",
+    succeeded: "数据迁移导入完成",
+    failed: "导入失败"
   };
   return labels[status];
 }

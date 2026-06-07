@@ -102,6 +102,37 @@ class V2CleanupServiceTest(unittest.TestCase):
             self.assertGreaterEqual(usage["free_ratio"], 0)
             self.assertLessEqual(usage["used_ratio"], 1)
 
+    def test_sqlite_vacuum_scan_and_cleanup_creates_backup_before_vacuum(self) -> None:
+        from app.v2.cleanup.service import CleanupService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="cleanup-secret")
+            database = V2Database(settings)
+            database.initialize()
+            with database.connection() as conn:
+                conn.execute("CREATE TABLE bloat (value TEXT)")
+                conn.executemany("INSERT INTO bloat (value) VALUES (?)", [("x" * 1024,) for _ in range(200)])
+                conn.execute("DELETE FROM bloat")
+
+            cleanup = CleanupService(settings, TaskService(database))
+            scan = cleanup.scan_sqlite_vacuum()
+            self.assertTrue(scan["ok"])
+            self.assertEqual(scan["path"], str(settings.sqlite_path))
+            self.assertGreater(scan["size"], 0)
+            self.assertIn("estimated_reclaimable", scan)
+
+            result = cleanup.vacuum_sqlite()
+            self.assertTrue(result["ok"])
+            self.assertTrue(Path(result["backup_path"]).is_file())
+            self.assertGreater(result["before_size"], 0)
+            self.assertGreater(result["after_size"], 0)
+            task = TaskService(database).list_tasks()[0]
+            self.assertEqual(task["type"], "cleanup")
+            self.assertIn("SQLite", task["title"])
+
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2CleanupApiTest(unittest.TestCase):
@@ -153,6 +184,14 @@ class V2CleanupApiTest(unittest.TestCase):
                     self.assertEqual(local_storage.status_code, 200)
                     self.assertEqual(local_storage.json()["path"], str(settings.data_root))
                     self.assertIn("free_ratio", local_storage.json())
+
+                    sqlite_scan = client.get("/api/admin/system/sqlite-vacuum/scan", headers=headers)
+                    self.assertEqual(sqlite_scan.status_code, 200)
+                    self.assertIn("estimated_reclaimable", sqlite_scan.json())
+
+                    sqlite_vacuum = client.post("/api/admin/system/sqlite-vacuum", headers=headers)
+                    self.assertEqual(sqlite_vacuum.status_code, 200)
+                    self.assertTrue(Path(sqlite_vacuum.json()["backup_path"]).is_file())
 
                     restart = client.post("/api/admin/system/restart", headers=headers)
                     self.assertEqual(restart.status_code, 200)

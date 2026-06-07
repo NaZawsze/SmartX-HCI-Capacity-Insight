@@ -12,7 +12,11 @@ const apiMock = vi.hoisted(() => ({
   precheckUpgrade: vi.fn(),
   startUpgrade: vi.fn(),
   importMigration: vi.fn(),
+  startMigrationImport: vi.fn(),
+  migrationImportStatus: vi.fn(),
   scanSpaceCleanup: vi.fn(),
+  scanSqliteVacuum: vi.fn(),
+  vacuumSqlite: vi.fn(),
   localStorageUsage: vi.fn()
 }));
 
@@ -44,6 +48,18 @@ function mockServicePageBootstrap() {
     total_label: "1000 B",
     used_label: "850 B",
     free_label: "150 B"
+  });
+  apiMock.scanSqliteVacuum.mockResolvedValue({
+    ok: true,
+    path: "/data/smartx.db",
+    size: 1024,
+    size_label: "1024 B",
+    page_count: 10,
+    freelist_count: 1,
+    page_size: 1024,
+    estimated_reclaimable: 1024,
+    estimated_reclaimable_label: "1024 B",
+    message: "SQLite 当前大小 1024 B，预计可整理释放 1024 B。"
   });
 }
 
@@ -91,10 +107,14 @@ describe("ServicePage migration overwrite mode", () => {
 
   it("requires explicit confirmation before overwrite import can start", async () => {
     mockServicePageBootstrap();
-    apiMock.importMigration.mockResolvedValue({
-      ok: true,
-      restored: ["smartx_db"],
-      message: "导入完成"
+    apiMock.startMigrationImport.mockResolvedValue({
+      task_id: "migration-import-1",
+      status: "succeeded",
+      progress: 100,
+      detail: "数据迁移导入完成",
+      backup_path: "/data/backups/import-before-test.tar.gz",
+      logs: ["导入完成"],
+      steps: []
     });
     const addTask = vi.fn();
     const updateTask = vi.fn();
@@ -111,14 +131,14 @@ describe("ServicePage migration overwrite mode", () => {
     fireEvent.click(screen.getByRole("button", { name: "覆盖导入" }));
     const importButton = screen.getByRole("button", { name: /导入迁移包/ });
     expect(importButton).toBeDisabled();
-    expect(apiMock.importMigration).not.toHaveBeenCalled();
+    expect(apiMock.startMigrationImport).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByLabelText("我确认覆盖当前系统数据"));
     expect(importButton).not.toBeDisabled();
     fireEvent.click(importButton);
 
     await waitFor(() => {
-      expect(apiMock.importMigration).toHaveBeenCalledWith(file, "overwrite", true, expect.any(Function));
+      expect(apiMock.startMigrationImport).toHaveBeenCalledWith(file, "overwrite", true, expect.any(Function));
     });
     expect(addTask).toHaveBeenCalledWith(expect.objectContaining({ kind: "import", title: "导入迁移包" }));
   });
@@ -164,7 +184,7 @@ describe("ServicePage migration overwrite mode", () => {
     expect(await screen.findByText("本机空间使用量")).toBeInTheDocument();
     expect(apiMock.localStorageUsage).toHaveBeenCalled();
     expect(screen.getByText("已用 850 B / 总量 1000 B")).toBeInTheDocument();
-    expect(screen.getByText("剩余 150 B")).toBeInTheDocument();
+    expect(screen.getAllByText("剩余 150 B").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByLabelText("本机空间使用率 85.0%")).toHaveClass("danger");
   });
 });

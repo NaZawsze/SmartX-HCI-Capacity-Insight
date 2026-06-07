@@ -157,6 +157,46 @@ class V2MigrationServiceTest(unittest.TestCase):
                 ).fetchone()
             self.assertEqual(tuple(volume), ("vol-1", "System", "/vm/system", 1000, 450, "Replica-2", 2, 1))
 
+    def test_start_import_task_reports_backup_merge_prometheus_and_health_progress(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+        from app.v2.migration.service import MigrationService
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as source_tmp, tempfile.TemporaryDirectory() as target_tmp:
+            source_settings = V2Settings(data_root=Path(source_tmp), secret_key="source-secret")
+            source_db = V2Database(source_settings)
+            source_db.initialize()
+            source_inventory = InventoryService(source_db, source_settings)
+            source_tower = source_inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            source_inventory.sync_clusters(source_tower.id, [ClusterInput(cluster_id="cluster-a", name="Incoming Cluster")])
+            block = source_settings.prometheus_data_dir / "01SOURCE"
+            block.mkdir(parents=True)
+            (block / "meta.json").write_text("{}", encoding="utf-8")
+            archive_content, _, _, _ = MigrationService(source_db, source_settings, TaskService(source_db)).build_export_archive(record_task=False)
+
+            target_settings = V2Settings(data_root=Path(target_tmp), secret_key="target-secret")
+            target_db = V2Database(target_settings)
+            target_db.initialize()
+            service = MigrationService(target_db, target_settings, TaskService(target_db))
+
+            result = service.start_import_task(archive_content, filename="migration.tar.gz", mode="merge", confirmed=False)
+            status = service.import_task_status(result["task_id"])
+
+            self.assertEqual(result["status"], "succeeded")
+            self.assertEqual(status["progress"], 100)
+            self.assertTrue(Path(status["backup_path"]).is_file())
+            self.assertTrue(Path(status["saved_path"]).is_file())
+            self.assertEqual(status["summary"]["sqlite"]["inserted"], 2)
+            self.assertEqual(status["summary"]["sqlite"]["tables"]["towers"], 1)
+            self.assertEqual(status["summary"]["sqlite"]["tables"]["clusters"], 1)
+            self.assertEqual(status["summary"]["prometheus"]["copied"], 1)
+            self.assertEqual(status["summary"]["health"]["complete"], True)
+            self.assertTrue(any(step["key"] == "backup" and step["status"] == "succeeded" for step in status["steps"]))
+            self.assertTrue(any("Prometheus" in line for line in status["logs"]))
+
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2MigrationApiTest(unittest.TestCase):
@@ -214,6 +254,28 @@ class V2MigrationApiTest(unittest.TestCase):
                     payload = imported.json()
                     self.assertTrue(payload["ok"])
                     self.assertTrue(Path(payload["backup_path"]).is_file())
+
+                    import_task = client.post(
+                        "/api/admin/migration/import/start",
+                        data={"mode": "merge", "confirmed": "false"},
+                        files={"file": ("migration.tar.gz", exported.content, "application/gzip")},
+                        headers=headers,
+                    )
+                    self.assertEqual(import_task.status_code, 200)
+                    import_payload = import_task.json()
+                    self.assertIn(import_payload["status"], {"running", "succeeded"})
+                    self.assertIn("steps", import_payload)
+                    for _ in range(20):
+                        import_status = client.get(f"/api/admin/migration/import/status/{import_payload['task_id']}", headers=headers)
+                        self.assertEqual(import_status.status_code, 200)
+                        status_json = import_status.json()
+                        if status_json["status"] == "succeeded":
+                            break
+                        __import__("time").sleep(0.1)
+                    self.assertEqual(status_json["task_id"], import_payload["task_id"])
+                    self.assertEqual(status_json["status"], "succeeded")
+                    self.assertIn("backup_path", status_json)
+                    self.assertIn("summary", status_json)
 
                     overwrite_without_confirm = client.post(
                         "/api/admin/migration/import",

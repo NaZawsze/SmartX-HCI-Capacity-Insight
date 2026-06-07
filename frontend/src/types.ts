@@ -305,6 +305,30 @@ export interface MigrationExportTask {
   finished_at?: string;
 }
 
+export interface MigrationImportTask {
+  task_id: string;
+  status: "pending" | "running" | "succeeded" | "failed";
+  progress: number;
+  detail?: string;
+  logs?: string[];
+  steps?: AppTaskStep[];
+  backup_path?: string;
+  saved_path?: string;
+  summary?: {
+    sqlite?: Record<string, unknown>;
+    prometheus?: Record<string, unknown>;
+    health?: {
+      complete?: boolean;
+      message?: string;
+      checks?: Record<string, boolean>;
+    };
+  };
+  links?: AppTaskLink[];
+  created_at?: string;
+  updated_at?: string;
+  finished_at?: string;
+}
+
 export interface MigrationHealth {
   checks: Record<string, boolean>;
   message: string;
@@ -321,6 +345,32 @@ export interface MigrationHealth {
     blocks?: string[];
     runtime_entries_skipped?: string[];
   };
+}
+
+export interface SqliteVacuumScan {
+  ok: boolean;
+  path: string;
+  size: number;
+  size_label: string;
+  page_count: number;
+  freelist_count: number;
+  page_size: number;
+  estimated_reclaimable: number;
+  estimated_reclaimable_label: string;
+  message: string;
+}
+
+export interface SqliteVacuumResult {
+  ok: boolean;
+  backup_path: string;
+  before_size: number;
+  after_size: number;
+  before_size_label?: string;
+  after_size_label?: string;
+  space_reclaimed: number;
+  space_reclaimed_label: string;
+  message: string;
+  logs?: string[];
 }
 
 export type AppTaskStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled";

@@ -231,8 +231,12 @@ class V2FoundationTest(unittest.TestCase):
             with sqlite3.connect(settings.sqlite_path) as conn:
                 latest = conn.execute("SELECT tower_id, cluster_id, vm_id, name, used_bytes FROM vm_latest").fetchone()
                 volume = conn.execute("SELECT volume_id, name, path, size_bytes, used_bytes, storage_policy, replica_num, thin_provision FROM vm_volumes").fetchone()
+                legacy_table = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'latest_vm_volumes'").fetchone()
+                migration = conn.execute("SELECT name FROM schema_migrations WHERE name = 'drop_legacy_latest_vm_volumes'").fetchone()
             self.assertEqual(latest, (3, "cluster-a", "vm-1", "vm-1", 450))
             self.assertEqual(volume, ("vol-1", "Root", "/root", 1000, 450, "Replica-2", 2, 1))
+            self.assertIsNone(legacy_table)
+            self.assertIsNotNone(migration)
 
     def test_health_check_reports_database_and_directories(self) -> None:
         from app.v2.config import V2Settings

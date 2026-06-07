@@ -161,8 +161,6 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition
 def _backfill_v1_latest_vm_payloads(conn: sqlite3.Connection) -> None:
     if not _table_exists(conn, "latest_vm_volumes"):
         return
-    if conn.execute("SELECT 1 FROM vm_latest LIMIT 1").fetchone():
-        return
     rows = conn.execute("SELECT tower_id, cluster_id, vm_id, payload_json, collected_at FROM latest_vm_volumes").fetchall()
     for row in rows:
         volumes = _loads_volume_payload(row["payload_json"])
@@ -200,6 +198,8 @@ def _backfill_v1_latest_vm_payloads(conn: sqlite3.Connection) -> None:
                     row["collected_at"],
                 ),
             )
+    conn.execute("DROP TABLE latest_vm_volumes")
+    conn.execute("INSERT OR IGNORE INTO schema_migrations (name) VALUES ('drop_legacy_latest_vm_volumes')")
 
 
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:

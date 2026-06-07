@@ -435,4 +435,6 @@ Phase V2-0 细化文档：
 
 - Dashboard 风险卡片点击跳转到具体集群报表或 VM 增长来源。
 - 报表图表风格和自然语言摘要继续产品化。
-- 大规模现场数据迁移导出/导入进度继续细化。
+- [已解决] 大规模现场数据迁移导出/导入进度继续细化：迁出任务记录扫描、打包、保存、下载链接；迁入改为后台任务，展示上传保存、解压校验、导入前备份、SQLite、Prometheus 和健康检查步骤。
+- [已解决] SQLite / 虚拟卷存储结构瘦身：v2 正式使用 `vm_volumes`，旧 `latest_vm_volumes.payload_json` 抽取后删除并记录 schema migration；空间清理新增 SQLite VACUUM 扫描和整理能力。
+- [已解决] 升级中心 v2 后续增强文档补齐：`docs/v2-upgrade-center-design.md` 已补 manifest 组件声明、执行边界、组合升级顺序、Prometheus 回归和失败恢复策略。

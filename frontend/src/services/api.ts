@@ -6,9 +6,12 @@ import type {
   LoginResponse,
   MetricItem,
   MigrationExportTask,
+  MigrationImportTask,
   MigrationHealth,
   ReportBundleExport,
   ServerTask,
+  SqliteVacuumResult,
+  SqliteVacuumScan,
   SpaceCleanupResult,
   SpaceCleanupScanResult,
   Tower,
@@ -464,6 +467,16 @@ export const api = {
   async migrationExportStatus(taskId: string): Promise<MigrationExportTask> {
     return request<MigrationExportTask>(`/api/admin/migration/export/status/${taskId}`);
   },
+  async startMigrationImport(file: File, mode: "merge" | "overwrite", confirmed: boolean, onProgress?: ProgressCallback): Promise<MigrationImportTask> {
+    const formData = new FormData();
+    formData.set("file", file);
+    formData.set("mode", mode);
+    formData.set("confirmed", String(confirmed));
+    return upload<MigrationImportTask>("/api/admin/migration/import/start", formData, onProgress);
+  },
+  async migrationImportStatus(taskId: string): Promise<MigrationImportTask> {
+    return request<MigrationImportTask>(`/api/admin/migration/import/status/${taskId}`);
+  },
   async migrationHealth(): Promise<MigrationHealth> {
     return request<MigrationHealth>("/api/admin/migration/health");
   },
@@ -494,6 +507,12 @@ export const api = {
   },
   async localStorageUsage(): Promise<LocalStorageUsage> {
     return request<LocalStorageUsage>("/api/admin/system/local-storage");
+  },
+  async scanSqliteVacuum(): Promise<SqliteVacuumScan> {
+    return request<SqliteVacuumScan>("/api/admin/system/sqlite-vacuum/scan");
+  },
+  async vacuumSqlite(): Promise<SqliteVacuumResult> {
+    return request<SqliteVacuumResult>("/api/admin/system/sqlite-vacuum", { method: "POST" });
   },
   async upgradeVersion(): Promise<{ version: string }> {
     return request<{ version: string }>("/api/admin/upgrade/version");

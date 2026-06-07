@@ -6,6 +6,7 @@ import hashlib
 import shutil
 import sqlite3
 import tarfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from secrets import token_hex
@@ -126,6 +127,12 @@ class MigrationService:
             raise HTTPException(status_code=404, detail="迁移导出任务不存在。")
         return _migration_export_task(task)
 
+    def import_task_status(self, task_id: str) -> dict[str, Any]:
+        task = self.tasks.get_task(task_id)
+        if task is None or task["type"] != TaskType.MIGRATION_IMPORT.value:
+            raise HTTPException(status_code=404, detail="迁移导入任务不存在。")
+        return _migration_import_task(task)
+
     def _run_export_task(self, task_id: str, steps: list[dict[str, Any]]) -> dict[str, Any]:
         candidate_files = _export_candidate_files(self.settings.sqlite_path, self.settings.prometheus_data_dir)
         total_bytes = sum(path.stat().st_size for path, _ in candidate_files if path.is_file())
@@ -160,6 +167,9 @@ class MigrationService:
         return self.restore_archive_bytes(content, filename=upload.filename or "migration.tar.gz", mode=mode, confirmed=confirmed)
 
     def restore_archive_bytes(self, content: bytes, *, filename: str, mode: str = MERGE_MODE, confirmed: bool = False) -> dict[str, Any]:
+        return self.start_import_task(content, filename=filename, mode=mode, confirmed=confirmed, legacy_response=True)
+
+    def start_import_task(self, content: bytes, *, filename: str, mode: str = MERGE_MODE, confirmed: bool = False, legacy_response: bool = False, run_inline: bool = True) -> dict[str, Any]:
         normalized_mode = mode if mode in {MERGE_MODE, OVERWRITE_MODE} else MERGE_MODE
         if normalized_mode == OVERWRITE_MODE and not confirmed:
             raise HTTPException(status_code=400, detail="覆盖导入会清空当前系统数据，请先确认。")
@@ -167,12 +177,47 @@ class MigrationService:
             raise HTTPException(status_code=400, detail="导入文件为空。")
 
         task_id = f"migration-import-{token_hex(8)}"
-        self.tasks.create_task(task_id, TaskType.MIGRATION_IMPORT, "导入迁移包", status=TaskStatus.RUNNING, progress=5, message=Path(filename).name)
+        steps = [
+            _step("upload", "保存上传包", "running", Path(filename).name),
+            _step("extract", "解压并校验迁移包", "pending"),
+            _step("backup", "生成导入前备份", "pending"),
+            _step("sqlite", "导入业务库", "pending"),
+            _step("prometheus", "导入 Prometheus 历史指标", "pending"),
+            _step("health", "执行导入后健康检查", "pending"),
+        ]
+        logs = [f"保存上传包：{Path(filename).name}"]
+        self.tasks.create_task(task_id, TaskType.MIGRATION_IMPORT, "导入迁移包", status=TaskStatus.RUNNING, progress=5, message=Path(filename).name, logs=logs, steps=steps)
         package_dir = self.settings.imports_dir / task_id / "package"
         upload_path = self.settings.imports_dir / task_id / Path(filename).name
         upload_path.parent.mkdir(parents=True, exist_ok=True)
         upload_path.write_bytes(content)
+        self.tasks.update_task(task_id, links=[{"label": "上传包", "filename": upload_path.name, "url": "", "path": str(upload_path), "saved_path": str(upload_path)}])
+        if not run_inline:
+            worker = threading.Thread(
+                target=self._run_import_task,
+                args=(task_id, upload_path, package_dir, normalized_mode, steps, logs),
+                daemon=True,
+            )
+            worker.start()
+            return _migration_import_task(self.tasks.get_task(task_id) or {})
+        return self._run_import_task(task_id, upload_path, package_dir, normalized_mode, steps, logs, legacy_response=legacy_response)
+
+    def _run_import_task(
+        self,
+        task_id: str,
+        upload_path: Path,
+        package_dir: Path,
+        normalized_mode: str,
+        steps: list[dict[str, Any]],
+        logs: list[str],
+        *,
+        legacy_response: bool = False,
+    ) -> dict[str, Any]:
+        content = upload_path.read_bytes()
         try:
+            steps = _replace_step(steps, "upload", "succeeded", str(upload_path))
+            steps = _replace_step(steps, "extract", "running")
+            self.tasks.update_task(task_id, progress=15, message="正在解压并校验迁移包", logs=logs, steps=steps)
             package_dir.mkdir(parents=True, exist_ok=True)
             with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
                 _validate_members(archive)
@@ -180,18 +225,52 @@ class MigrationService:
             manifest = _read_manifest(package_dir / MANIFEST_NAME)
             if manifest.get("format") not in {"smartx-capacity-insight-v2-migration", "smartx-storage-forecast-migration"}:
                 raise HTTPException(status_code=400, detail="导入包格式不正确。")
-            self.tasks.update_task(task_id, progress=30, message="正在生成导入前备份")
+            logs.append(f"迁移包格式：{manifest.get('format')}")
+            steps = _replace_step(steps, "extract", "succeeded", "manifest 校验通过")
+            steps = _replace_step(steps, "backup", "running")
+            self.tasks.update_task(task_id, progress=30, message="正在生成导入前备份", logs=logs, steps=steps)
             backup_path = self._create_import_backup(task_id)
-            self.tasks.update_task(task_id, progress=55, message="导入前备份已生成", logs=[f"导入前备份：{backup_path}"])
-            restored = self._restore_package(package_dir, normalized_mode)
+            logs.append(f"导入前备份：{backup_path}")
+            steps = _replace_step(steps, "backup", "succeeded", str(backup_path))
+            steps = _replace_step(steps, "sqlite", "running")
+            self.tasks.update_task(task_id, progress=55, message="正在导入业务库", logs=logs, steps=steps)
+            restore_result = self._restore_package(package_dir, normalized_mode)
+            logs.extend(restore_result["logs"])
+            steps = _replace_step(steps, "sqlite", "succeeded", _summary_label(restore_result["summary"].get("sqlite", {})))
+            steps = _replace_step(steps, "prometheus", "succeeded", _summary_label(restore_result["summary"].get("prometheus", {})))
+            steps = _replace_step(steps, "health", "running")
+            self.tasks.update_task(task_id, progress=85, message="正在执行导入后健康检查", logs=logs[-12:], steps=steps)
             health = self.health_check()
-            self.tasks.update_task(task_id, status=TaskStatus.SUCCESS, progress=100, message="数据迁移导入完成")
-            return {"ok": True, "mode": normalized_mode, "restored": restored, "backup_path": str(backup_path), "task_id": task_id, "saved_path": str(upload_path), "health": health}
+            summary = dict(restore_result["summary"])
+            summary["health"] = health
+            logs.append(f"健康检查：{health['message']}")
+            steps = _replace_step(steps, "health", "succeeded", health["message"])
+            links = [
+                {"label": "上传包", "filename": upload_path.name, "url": "", "path": str(upload_path), "saved_path": str(upload_path)},
+                {"label": "导入前备份", "filename": backup_path.name, "url": "", "path": str(backup_path), "backup_path": str(backup_path)},
+                {"label": "导入摘要", "url": "", "path": "", "summary": summary},
+            ]
+            self.tasks.update_task(task_id, status=TaskStatus.SUCCESS, progress=100, message="数据迁移导入完成", links=links, logs=logs[-20:], steps=steps)
+            result = {
+                "ok": True,
+                "mode": normalized_mode,
+                "restored": restore_result["restored"],
+                "backup_path": str(backup_path),
+                "task_id": task_id,
+                "saved_path": str(upload_path),
+                "summary": summary,
+                "health": health,
+            }
+            if legacy_response:
+                return result
+            task = _migration_import_task(self.tasks.get_task(task_id) or {})
+            task.update(result)
+            return task
         except HTTPException:
-            self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message="数据迁移导入失败")
+            self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message="数据迁移导入失败", logs=logs, steps=_fail_running_step(steps, "数据迁移导入失败"))
             raise
         except Exception as exc:
-            self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message=str(exc))
+            self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message=str(exc), logs=logs + [str(exc)], steps=_fail_running_step(steps, str(exc)))
             raise
 
     def _create_import_backup(self, task_id: str) -> Path:
@@ -211,42 +290,53 @@ class MigrationService:
             _add_directory(archive, self.settings.prometheus_data_dir, PROMETHEUS_DIR, skip_names=PROMETHEUS_RUNTIME_ENTRIES)
         return path
 
-    def _restore_package(self, package_dir: Path, mode: str) -> list[str]:
+    def _restore_package(self, package_dir: Path, mode: str) -> dict[str, Any]:
         restored: list[str] = []
+        logs: list[str] = []
+        summary: dict[str, Any] = {"sqlite": {"inserted": 0}, "prometheus": {"copied": 0, "skipped": 0}}
         source_db = _first_existing(package_dir / APP_DIR / DB_FILENAME, package_dir / V1_APP_DIR / DB_FILENAME)
         source_prometheus = _first_existing(package_dir / PROMETHEUS_DIR, package_dir / V1_PROMETHEUS_DIR)
         if mode == OVERWRITE_MODE:
             if source_db and source_db.exists():
                 self.settings.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_db, self.settings.sqlite_path)
+                self.database.initialize()
                 restored.append("smartx_db")
+                summary["sqlite"]["inserted"] = _count_sqlite_rows(self.settings.sqlite_path)
+                logs.append(f"SQLite：覆盖导入 {summary['sqlite']['inserted']} 条记录")
             if source_prometheus and source_prometheus.exists():
                 _replace_directory(source_prometheus, self.settings.prometheus_data_dir)
                 restored.append("prometheus")
-            return restored
+                summary["prometheus"] = _prometheus_summary(source_prometheus)
+                logs.append(f"Prometheus：覆盖导入 {summary['prometheus']['copied']} 个 block")
+            return {"restored": restored, "summary": summary, "logs": logs}
         if source_db and source_db.exists():
-            self._merge_sqlite(source_db)
+            summary["sqlite"] = self._merge_sqlite(source_db)
             restored.append("smartx_db")
+            logs.append(f"SQLite：合并导入 {summary['sqlite']['inserted']} 条记录")
         if source_prometheus and source_prometheus.exists():
-            _copy_missing_tree(source_prometheus, self.settings.prometheus_data_dir, skip_names=PROMETHEUS_RUNTIME_ENTRIES)
+            summary["prometheus"] = _copy_missing_tree(source_prometheus, self.settings.prometheus_data_dir, skip_names=PROMETHEUS_RUNTIME_ENTRIES)
             restored.append("prometheus")
-        return restored
+            logs.append(f"Prometheus：复制 {summary['prometheus']['copied']} 个 block，跳过 {summary['prometheus']['skipped']} 个 block")
+        return {"restored": restored, "summary": summary, "logs": logs}
 
-    def _merge_sqlite(self, source_db: Path) -> None:
+    def _merge_sqlite(self, source_db: Path) -> dict[str, Any]:
         self.database.initialize()
         with sqlite3.connect(self.settings.sqlite_path) as target:
             target.row_factory = sqlite3.Row
             target.execute("PRAGMA foreign_keys = ON")
             target.execute("ATTACH DATABASE ? AS incoming", (str(source_db),))
             try:
-                _merge_towers(target)
-                _merge_clusters(target)
-                _merge_vm_latest(target)
-                _merge_vm_volumes(target)
-                _merge_v1_latest_vm_volume_payloads(target)
-                _merge_collection_runs(target)
-                _merge_metric_snapshot(target)
+                counts = {
+                    "towers": _merge_towers(target),
+                    "clusters": _merge_clusters(target),
+                    "vm_latest": _merge_vm_latest(target),
+                    "vm_volumes": _merge_vm_volumes(target) + _merge_v1_latest_vm_volume_payloads(target),
+                    "collection_runs": _merge_collection_runs(target),
+                    "metric_snapshots": _merge_metric_snapshot(target),
+                }
                 target.commit()
+                return {"inserted": sum(counts.values()), "tables": counts}
             finally:
                 target.execute("DETACH DATABASE incoming")
 
@@ -254,19 +344,21 @@ class MigrationService:
         sqlite_exists = self.settings.sqlite_path.is_file()
         prometheus_exists = self.settings.prometheus_data_dir.exists()
         prometheus_blocks = [path.name for path in self.settings.prometheus_data_dir.iterdir() if path.is_dir() and (path / "meta.json").is_file()] if prometheus_exists else []
+        tables = _sqlite_table_counts(self.settings.sqlite_path) if sqlite_exists else {}
         return {
-            "sqlite": {"exists": sqlite_exists, "path": str(self.settings.sqlite_path)},
+            "sqlite": {"exists": sqlite_exists, "path": str(self.settings.sqlite_path), "size_bytes": self.settings.sqlite_path.stat().st_size if sqlite_exists else 0, "tables": tables},
             "prometheus": {"exists": prometheus_exists, "path": str(self.settings.prometheus_data_dir), "block_count": len(prometheus_blocks), "blocks": prometheus_blocks[:20]},
             "complete": bool(sqlite_exists and prometheus_blocks),
             "message": "业务库和 Prometheus 历史指标完整" if sqlite_exists and prometheus_blocks else "迁移结果不完整，请确认迁移包是否包含 Prometheus 历史指标。",
         }
 
 
-def _merge_towers(conn: sqlite3.Connection) -> None:
+def _merge_towers(conn: sqlite3.Connection) -> int:
     if not _incoming_table_exists(conn, "towers"):
-        return
+        return 0
+    inserted = 0
     for row in conn.execute("SELECT * FROM incoming.towers ORDER BY id").fetchall():
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT OR IGNORE INTO towers (id, name, base_url, username, password_encrypted, api_token_encrypted, verify_tls, enabled, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
@@ -284,39 +376,48 @@ def _merge_towers(conn: sqlite3.Connection) -> None:
                 row["updated_at"] if "updated_at" in row.keys() else None,
             ),
         )
+        inserted += int(cursor.rowcount or 0)
+    return inserted
 
 
-def _merge_clusters(conn: sqlite3.Connection) -> None:
+def _merge_clusters(conn: sqlite3.Connection) -> int:
     if not _incoming_table_exists(conn, "clusters"):
-        return
+        return 0
+    inserted = 0
     for row in conn.execute("SELECT * FROM incoming.clusters ORDER BY id").fetchall():
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT OR IGNORE INTO clusters (tower_id, cluster_id, name, enabled, updated_at)
             VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
             """,
             (row["tower_id"], row["cluster_id"], row["name"], row["enabled"] if "enabled" in row.keys() else 1, row["updated_at"] if "updated_at" in row.keys() else None),
         )
+        inserted += int(cursor.rowcount or 0)
+    return inserted
 
 
-def _merge_vm_latest(conn: sqlite3.Connection) -> None:
+def _merge_vm_latest(conn: sqlite3.Connection) -> int:
     if not _incoming_table_exists(conn, "vm_latest"):
-        return
+        return 0
+    inserted = 0
     for row in conn.execute("SELECT * FROM incoming.vm_latest").fetchall():
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT OR IGNORE INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes, updated_at)
             VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
             """,
             (row["tower_id"], row["cluster_id"], row["vm_id"], row["name"], row["used_bytes"], row["updated_at"] if "updated_at" in row.keys() else None),
         )
+        inserted += int(cursor.rowcount or 0)
+    return inserted
 
 
-def _merge_vm_volumes(conn: sqlite3.Connection) -> None:
+def _merge_vm_volumes(conn: sqlite3.Connection) -> int:
     if not _incoming_table_exists(conn, "vm_volumes"):
-        return
+        return 0
+    inserted = 0
     for row in conn.execute("SELECT * FROM incoming.vm_volumes").fetchall():
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT OR IGNORE INTO vm_volumes (
                 tower_id, cluster_id, vm_id, volume_id, name, path, size_bytes, used_bytes,
@@ -341,16 +442,19 @@ def _merge_vm_volumes(conn: sqlite3.Connection) -> None:
                 row["updated_at"] if "updated_at" in row.keys() else None,
             ),
         )
+        inserted += int(cursor.rowcount or 0)
+    return inserted
 
 
-def _merge_v1_latest_vm_volume_payloads(conn: sqlite3.Connection) -> None:
+def _merge_v1_latest_vm_volume_payloads(conn: sqlite3.Connection) -> int:
     if not _incoming_table_exists(conn, "latest_vm_volumes"):
-        return
+        return 0
+    inserted = 0
     for row in conn.execute("SELECT * FROM incoming.latest_vm_volumes").fetchall():
         volumes = _loads_json_list(row["payload_json"])
         for index, volume in enumerate(volumes):
             normalized = _v1_volume_to_v2(volume, index)
-            conn.execute(
+            cursor = conn.execute(
                 """
                 INSERT OR IGNORE INTO vm_volumes (
                     tower_id, cluster_id, vm_id, volume_id, name, path, size_bytes, used_bytes,
@@ -375,26 +479,34 @@ def _merge_v1_latest_vm_volume_payloads(conn: sqlite3.Connection) -> None:
                     row["collected_at"] if "collected_at" in row.keys() else None,
                 ),
             )
+            inserted += int(cursor.rowcount or 0)
+    return inserted
 
 
-def _merge_collection_runs(conn: sqlite3.Connection) -> None:
+def _merge_collection_runs(conn: sqlite3.Connection) -> int:
     if not _incoming_table_exists(conn, "collection_runs"):
-        return
+        return 0
+    inserted = 0
     for row in conn.execute("SELECT * FROM incoming.collection_runs").fetchall():
-        conn.execute(
+        cursor = conn.execute(
             "INSERT OR IGNORE INTO collection_runs (id, status, message, started_at, finished_at) VALUES (?, ?, ?, ?, ?)",
             (row["id"], row["status"], row["message"], row["started_at"], row["finished_at"]),
         )
+        inserted += int(cursor.rowcount or 0)
+    return inserted
 
 
-def _merge_metric_snapshot(conn: sqlite3.Connection) -> None:
+def _merge_metric_snapshot(conn: sqlite3.Connection) -> int:
     if not _incoming_table_exists(conn, "metric_snapshots"):
-        return
+        return 0
+    inserted = 0
     for row in conn.execute("SELECT * FROM incoming.metric_snapshots").fetchall():
-        conn.execute(
+        cursor = conn.execute(
             "INSERT OR IGNORE INTO metric_snapshots (id, metrics_text, updated_at) VALUES (?, ?, ?)",
             (row["id"], row["metrics_text"], row["updated_at"]),
         )
+        inserted += int(cursor.rowcount or 0)
+    return inserted
 
 
 def _incoming_table_exists(conn: sqlite3.Connection, table: str) -> bool:
@@ -453,8 +565,11 @@ def _read_manifest(path: Path) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="manifest.json 格式不正确。") from exc
 
 
-def _copy_missing_tree(source: Path, target: Path, *, skip_names: set[str]) -> None:
+def _copy_missing_tree(source: Path, target: Path, *, skip_names: set[str]) -> dict[str, int]:
     target.mkdir(parents=True, exist_ok=True)
+    copied_blocks = 0
+    skipped_blocks = 0
+    seen_blocks: set[str] = set()
     for path in sorted(source.rglob("*")):
         relative = path.relative_to(source)
         if any(part in skip_names for part in relative.parts):
@@ -465,12 +580,71 @@ def _copy_missing_tree(source: Path, target: Path, *, skip_names: set[str]) -> N
         elif not destination.exists():
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, destination)
+            if relative.parts:
+                block = relative.parts[0]
+                if block not in seen_blocks and (source / block / "meta.json").is_file():
+                    copied_blocks += 1
+                    seen_blocks.add(block)
+        elif relative.parts and relative.parts[0] not in seen_blocks and (source / relative.parts[0] / "meta.json").is_file():
+            skipped_blocks += 1
+            seen_blocks.add(relative.parts[0])
+    return {"copied": copied_blocks, "skipped": skipped_blocks}
 
 
 def _replace_directory(source: Path, target: Path) -> None:
     if target.exists():
         shutil.rmtree(target)
     shutil.copytree(source, target)
+
+
+def _prometheus_summary(source: Path) -> dict[str, int]:
+    blocks = [path for path in source.iterdir() if path.is_dir() and (path / "meta.json").is_file()] if source.exists() else []
+    return {"copied": len(blocks), "skipped": 0}
+
+
+def _count_sqlite_rows(path: Path) -> int:
+    if not path.exists():
+        return 0
+    with sqlite3.connect(path) as conn:
+        total = 0
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall():
+            name = row[0]
+            if name.startswith("sqlite_"):
+                continue
+            try:
+                total += int(conn.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0])
+            except sqlite3.Error:
+                continue
+        return total
+
+
+def _sqlite_table_counts(path: Path) -> dict[str, int]:
+    if not path.exists():
+        return {}
+    with sqlite3.connect(path) as conn:
+        tables: dict[str, int] = {}
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").fetchall():
+            name = str(row[0])
+            if name.startswith("sqlite_"):
+                continue
+            try:
+                tables[name] = int(conn.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0])
+            except sqlite3.Error:
+                tables[name] = 0
+        return tables
+
+
+def _summary_label(summary: dict[str, Any]) -> str:
+    if not summary:
+        return "无数据"
+    parts = []
+    if "inserted" in summary:
+        parts.append(f"写入 {summary['inserted']} 条")
+    if "copied" in summary:
+        parts.append(f"复制 {summary['copied']} 个")
+    if "skipped" in summary:
+        parts.append(f"跳过 {summary['skipped']} 个")
+    return "，".join(parts) or "完成"
 
 
 def _now() -> datetime:
@@ -595,6 +769,40 @@ def _migration_export_task(task: dict[str, Any], *, processed_bytes: int | None 
         "updated_at": task.get("updated_at"),
         "finished_at": task.get("finished_at"),
     }
+
+
+def _migration_import_task(task: dict[str, Any]) -> dict[str, Any]:
+    links = task.get("links") or []
+    upload_link = next((link for link in links if link.get("saved_path") or link.get("label") == "上传包"), {})
+    backup_link = next((link for link in links if link.get("backup_path") or link.get("label") == "导入前备份"), {})
+    summary_link = next((link for link in links if isinstance(link.get("summary"), dict)), {})
+    return {
+        "task_id": task["id"],
+        "status": "succeeded" if task["status"] == TaskStatus.SUCCESS.value else "failed" if task["status"] == TaskStatus.FAILED.value else task["status"],
+        "progress": task.get("progress", 0),
+        "detail": task.get("message") or "",
+        "logs": task.get("logs") or [],
+        "steps": task.get("steps") or [],
+        "backup_path": backup_link.get("backup_path") or backup_link.get("path"),
+        "saved_path": upload_link.get("saved_path") or upload_link.get("path"),
+        "summary": summary_link.get("summary") or {},
+        "links": links,
+        "created_at": task.get("created_at"),
+        "updated_at": task.get("updated_at"),
+        "finished_at": task.get("finished_at"),
+    }
+
+
+def _fail_running_step(steps: list[dict[str, Any]], message: str) -> list[dict[str, Any]]:
+    failed_key = None
+    for step in steps:
+        if step.get("status") == "running":
+            failed_key = step.get("key")
+            break
+    if failed_key is None:
+        running_candidates = [step.get("key") for step in steps if step.get("status") != "succeeded"]
+        failed_key = running_candidates[0] if running_candidates else (steps[-1].get("key") if steps else "")
+    return _replace_step(steps, str(failed_key), "failed", message) if failed_key else steps
 
 
 def _size_label(size: int) -> str:

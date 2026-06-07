@@ -3664,3 +3664,13 @@ button {
 .space-cleanup-list .cleanup-image-row span {
   min-width: 120px;
 }
+
+.sqlite-vacuum-panel {
+  border-top: 1px solid var(--border);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.sqlite-vacuum-panel .cleanup-image-row {
+  border-top: 0;
+}

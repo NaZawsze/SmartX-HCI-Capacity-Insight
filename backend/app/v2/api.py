@@ -617,6 +617,27 @@ def migration_export_status(
     return migration.export_task_status(task_id)
 
 
+@router.post("/api/admin/migration/import/start")
+async def start_migration_import(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    migration: Annotated[MigrationService, Depends(get_migration_service)],
+    mode: str = Form("merge"),
+    confirmed: bool = Form(False),
+    file: UploadFile = File(...),
+) -> dict:
+    content = await file.read()
+    return migration.start_import_task(content, filename=file.filename or "migration.tar.gz", mode=mode, confirmed=confirmed, run_inline=False)
+
+
+@router.get("/api/admin/migration/import/status/{task_id}")
+def migration_import_status(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    migration: Annotated[MigrationService, Depends(get_migration_service)],
+) -> dict:
+    return migration.import_task_status(task_id)
+
+
 @router.post("/api/admin/migration/import")
 async def import_migration(
     _: Annotated[CurrentUser, Depends(require_user)],
@@ -626,6 +647,24 @@ async def import_migration(
     file: UploadFile = File(...),
 ) -> dict:
     return await migration.restore_upload(file, mode=mode, confirmed=confirmed)
+
+
+@router.get("/api/admin/migration/health")
+def migration_health(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    migration: Annotated[MigrationService, Depends(get_migration_service)],
+) -> dict:
+    health = migration.health_check()
+    return {
+        "checks": {
+            "sqlite": bool(health["sqlite"]["exists"]),
+            "prometheus": bool(health["prometheus"]["exists"]),
+            "prometheus_history": bool(health["prometheus"]["block_count"]),
+        },
+        "message": health["message"],
+        "sqlite": health["sqlite"],
+        "prometheus": health["prometheus"],
+    }
 
 
 @router.get("/api/tasks")
@@ -669,6 +708,22 @@ def local_storage_usage(
     cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
 ) -> dict:
     return cleanup.local_storage_usage()
+
+
+@router.get("/api/admin/system/sqlite-vacuum/scan")
+def scan_sqlite_vacuum(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
+) -> dict:
+    return cleanup.scan_sqlite_vacuum()
+
+
+@router.post("/api/admin/system/sqlite-vacuum")
+def sqlite_vacuum(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
+) -> dict:
+    return cleanup.vacuum_sqlite()
 
 
 @router.post("/api/admin/system/cleanup-artifacts")

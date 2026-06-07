@@ -147,6 +147,14 @@ v2 只抽取：
 - 报表导出能读取 VM/卷必要字段。
 - SQLite 文件不会因为完整 payload 继续膨胀。
 
+v2 正式库处理规则：
+
+- `vm_volumes` 是虚拟卷明细的正式数据源。
+- 如果导入包或旧库存在 `latest_vm_volumes.payload_json`，初始化/导入时只抽取必要字段写入 `vm_volumes`。
+- 抽取完成后删除旧 `latest_vm_volumes` 表，并在 `schema_migrations` 中记录 `drop_legacy_latest_vm_volumes`。
+- 数据迁移导出只导出 v2 所需表，不再导出旧 `latest_vm_volumes`。
+- 如需释放 SQLite 文件空间，可在服务管理的空间清理页执行“SQLite 空间整理”；执行前会备份 `smartx.db`。
+
 ## 7. Prometheus 历史指标兼容
 
 Prometheus 是趋势和增长的核心数据源。

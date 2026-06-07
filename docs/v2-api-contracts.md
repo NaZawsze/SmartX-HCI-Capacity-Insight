@@ -202,37 +202,81 @@
 
 ## 8. 数据迁移
 
-### `POST /api/migration/export`
+### `POST /api/admin/migration/export/start`
 
 创建迁出任务。
 
 响应：
 
 ```json
-{"task_id": "migration-export-..."}
+{
+  "task_id": "migration-export-...",
+  "status": "running",
+  "progress": 10,
+  "processed_bytes": 0,
+  "total_bytes": 123456,
+  "steps": [],
+  "logs": []
+}
 ```
 
-### `POST /api/migration/import/upload`
+任务状态：
 
-上传迁移包，保存到 `/data/exports/imports`。
+- `GET /api/admin/migration/export/status/{task_id}`
+- 成功后返回 `download_url`、`saved_path`、`filename`
+- 任务中心提供迁移包下载链接
 
-### `POST /api/migration/import/start`
+### `POST /api/admin/migration/import/start`
 
-请求：
+上传迁移包并启动后台导入任务。
 
-```json
-{"package_id": "pkg-...", "mode": "merge"}
-```
+表单字段：
+
+- `file`：`.tar.gz` 或 `.tgz` 迁移包
+- `mode`：`merge` 或 `overwrite`
+- `confirmed`：覆盖导入时必须为 `true`
 
 响应：
 
 ```json
-{"task_id": "migration-import-..."}
+{
+  "task_id": "migration-import-...",
+  "status": "running",
+  "progress": 5,
+  "saved_path": "/data/exports/imports/migration-import-.../package.tar.gz",
+  "steps": []
+}
 ```
 
-### `GET /api/migration/health`
+任务步骤：
+
+1. 保存上传包。
+2. 解压并校验迁移包。
+3. 生成导入前备份。
+4. 导入 SQLite。
+5. 导入 Prometheus 历史 block。
+6. 执行导入后健康检查。
+
+任务状态：
+
+- `GET /api/admin/migration/import/status/{task_id}`
+- 成功后返回 `backup_path`、`saved_path`、`summary`
+
+旧同步接口 `/api/admin/migration/import` 仅作兼容，前端默认不再使用。
+
+### `GET /api/admin/migration/health`
 
 返回迁移后健康验证结果。
+
+### `GET /api/admin/system/sqlite-vacuum/scan`
+
+扫描 SQLite 当前大小、总页数、空闲页和预计可释放空间。
+
+### `POST /api/admin/system/sqlite-vacuum`
+
+执行 SQLite 空间整理。
+
+执行前必须备份 `smartx.db` 到 `/data/backups/sqlite-before-vacuum-*.db`。
 
 ## 9. 升级中心
 

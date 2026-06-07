@@ -2334,3 +2334,79 @@ TDD 记录：
 
 - 本次直接清理只删除任务中心记录，未删除业务库数据、升级包目录、Prometheus 历史指标或备份。
 - 后续如果用户没有明确要求，不要直接 `DELETE FROM tasks`；优先使用页面 X 或 API。
+
+### 2026-06-07 Phase 19 数据迁移进度、SQLite 瘦身与升级文档增强
+
+状态：完成第一版并已在 `10.20.11.3` 验证
+
+目标：
+
+- 执行 v2 待办 3、5、4，顺序为数据迁移大数据量进度优化、SQLite/虚拟卷存储结构瘦身、升级中心 v2 后续增强文档补齐。
+
+实现：
+
+- 数据迁移导入新增后台任务接口：
+  - `POST /api/admin/migration/import/start`
+  - `GET /api/admin/migration/import/status/{task_id}`
+  - 前端数据迁移页默认使用后台任务，任务中心展示上传保存、解压校验、导入前备份、SQLite 导入、Prometheus 历史指标导入、健康检查。
+- 数据迁移导出继续使用后台任务，并保留扫描、打包、保存、下载链接和服务器留档路径。
+- 迁入上传包保存到 `/data/exports/imports/<task_id>/`。
+- 导入前备份保存到 `/data/backups/import-before-*.tar.gz`，备份成功后才继续写入业务库和 Prometheus 历史 block。
+- 导入健康检查返回 SQLite 表计数、数据库大小和 Prometheus block 摘要。
+- v2 正式数据源只使用 `vm_volumes`：
+  - 初始化旧库时从 `latest_vm_volumes.payload_json` 抽取必要字段写入 `vm_volumes`。
+  - 抽取完成后删除旧 `latest_vm_volumes` 表。
+  - `schema_migrations` 记录 `drop_legacy_latest_vm_volumes`。
+  - 覆盖导入旧库后也会执行 v2 初始化迁移。
+- 空间清理新增 SQLite 空间整理：
+  - `GET /api/admin/system/sqlite-vacuum/scan`
+  - `POST /api/admin/system/sqlite-vacuum`
+  - 执行前备份 `smartx.db` 到 `/data/backups/sqlite-before-vacuum-*.db`。
+- 升级中心文档增强：
+  - `docs/v2-upgrade-center-design.md` 补充 manifest 组件声明、执行边界、组合升级顺序、Prometheus 历史指标回归、失败恢复和 v2 兼容边界。
+  - `docs/v2-api-contracts.md` 补充迁移后台任务和 SQLite VACUUM API。
+  - `docs/v1-data-compatibility.md` 补充旧 VM 卷 payload 抽取后删除规则。
+
+本地验证：
+
+- `python3 -m py_compile backend/app/v2/migration/service.py backend/app/v2/database.py backend/app/v2/cleanup/service.py backend/app/v2/api.py` 通过。
+- 本地 `PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_migration backend.tests.test_v2_foundation backend.tests.test_v2_cleanup` 因本机不安装依赖，仍停在缺少 `fastapi/httpx`，需在 `10.20.11.3` 容器内完成完整验证。
+
+远端验证：
+
+- `10.20.11.3:/opt/smartx-storage-forecast-v2` 后端容器内测试通过：
+  - `backend.tests.test_v2_migration`
+  - `backend.tests.test_v2_foundation`
+  - `backend.tests.test_v2_cleanup`
+  - 共 22 个测试通过。
+- 远端 `node:22-alpine` 容器内前端测试通过：
+  - `ServicePage.test.tsx` 共 10 个测试通过。
+- 远端 `docker compose --project-name smartx-storage-forecast build web-api frontend` 通过。
+- 重建 `web-api` 和 `frontend` 后：
+  - `/api/system/health` 返回 `ok=true`、`version=v0.5.0`、`runner_version=v0.3.0`。
+  - `8080` 返回 `HTTP/1.1 200 OK`。
+  - Prometheus `/-/healthy` 返回 healthy。
+- API 轻量真实验证通过：
+  - 迁移导出后台任务 `status=succeeded`、`progress=100`，且返回下载链接。
+  - SQLite VACUUM scan 返回 `size=141012992`、`estimated_reclaimable=67407872`。
+  - 迁移健康检查返回“业务库和 Prometheus 历史指标完整”，Prometheus block 数 `9`，SQLite 表数 `13`。
+
+注意：
+
+- 本轮真实验证只执行 SQLite VACUUM 扫描，没有执行真实 VACUUM，避免无必要改动现场业务库；VACUUM 代码路径已由后端单测覆盖备份后整理。
+
+### 2026-06-07 v2 升级包类型文档补齐
+
+状态：文档完成
+
+处理：
+
+- `docs/v2-upgrade-center-design.md` 将升级包结构拆分为三类：
+  - 平台升级包：`web-api`、`collector-worker`、`frontend`，执行者为 `upgrade-runner`。
+  - 升级中心组件包：`upgrade-runner`，执行者为 `web-api`。
+  - 观测组件包：Prometheus，执行者为 `upgrade-runner`。
+- 文档分别写明三类包的树形目录、是否允许 `project/`、是否需要迁移脚本、版本独立性和执行流程。
+
+验证：
+
+- 本轮只修改文档。
