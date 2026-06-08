@@ -63,6 +63,17 @@ export interface DashboardSummary {
     cluster_count: number;
     warning_count: number;
     danger_count: number;
+    risk_clusters?: Array<{
+      tower_id?: string | number | null;
+      cluster_id?: string | null;
+      cluster?: string | null;
+      used_bytes?: number | null;
+      total_bytes?: number | null;
+      used_ratio?: number | null;
+      forecast_90d?: number | null;
+      exhaustion_days?: number | null;
+      risk_level?: "high" | "warning" | "danger" | "normal" | string | null;
+    }>;
     top_clusters: Array<{
       tower_id?: string | null;
       tower?: string | null;

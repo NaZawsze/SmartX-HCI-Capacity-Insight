@@ -31,7 +31,14 @@ describe("ReportsPage", () => {
       clusters: [
         {
           labels: { tower_id: "1", cluster_id: "cluster-a", cluster: "Cluster A" },
-          forecast: { status: "ok", slope_per_day: 10, current: 190, forecast_90d: 1090, exhaustion_days: null },
+          forecast: { status: "ok", slope_per_day: 10, current: 190, forecast_90d: 1090, exhaustion_days: 8 },
+          points: [],
+          total: 1000,
+          warning: 900
+        },
+        {
+          labels: { tower_id: "1", cluster_id: "cluster-b", cluster: "Cluster B" },
+          forecast: { status: "ok", slope_per_day: 0, current: 100, forecast_90d: 100, exhaustion_days: null },
           points: [],
           total: 1000,
           warning: 900
@@ -93,6 +100,8 @@ describe("ReportsPage", () => {
 
     await waitFor(() => expect(apiMock.report).toHaveBeenCalledWith(undefined, undefined, 365));
     expect(await screen.findByText("Cluster A")).toBeInTheDocument();
+    expect(screen.getByText("8 天")).toHaveClass("exhaustion-days-risk");
+    expect(screen.getByText("未触发")).not.toHaveClass("exhaustion-days-risk");
     expect(screen.getByText("90 天后 1090 B")).toBeInTheDocument();
     expect(screen.getByText("日增长最快 VM")).toBeInTheDocument();
     expect(screen.getByText("月增长最快 VM")).toBeInTheDocument();
@@ -101,6 +110,65 @@ describe("ReportsPage", () => {
 
     fireEvent.click(screen.getByText("Month VM"));
     expect(onSelectVm).toHaveBeenCalledWith("vm-month", "Month VM");
+  });
+
+  it("marks day and month growth vm rows as alerts using the export report threshold", async () => {
+    apiMock.report.mockResolvedValue({
+      clusters: [],
+      fastest_growing_vms: [],
+      day_fastest_growing_vms: [
+        {
+          labels: { tower_id: "1", cluster_id: "cluster-a", vm_id: "vm-alert-day", vm: "Alert Day VM" },
+          forecast: { status: "ok", slope_per_day: 0, current: 1024 },
+          growth_amount: 120 * 1024 ** 3,
+          growth_ratio: 0.25
+        },
+        {
+          labels: { tower_id: "1", cluster_id: "cluster-a", vm_id: "vm-normal-day", vm: "Normal Day VM" },
+          forecast: { status: "ok", slope_per_day: 0, current: 1024 },
+          growth_amount: 99 * 1024 ** 3,
+          growth_ratio: 0.25
+        }
+      ],
+      month_fastest_growing_vms: [
+        {
+          labels: { tower_id: "1", cluster_id: "cluster-a", vm_id: "vm-alert-month", vm: "Alert Month VM" },
+          forecast: { status: "ok", slope_per_day: 0, current: 1024 },
+          growth_amount: 160 * 1024 ** 3,
+          growth_ratio: 0.3
+        }
+      ],
+      day_new_vms: [],
+      month_new_vms: [],
+      cluster_growth_rate: { per_day: 0, per_month: 0, per_quarter: 0 },
+      window_days: 30,
+      chart_days: 365,
+      growth_rate_window_days: 7,
+      forecast_days: 90
+    });
+
+    render(
+      <ReportsPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 1, vm_count: 3, used_bytes: 0, total_bytes: 0, used_ratio: 0 },
+          top_vms: [],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSelectVm={vi.fn()}
+        addTask={vi.fn()}
+        updateTask={vi.fn()}
+      />
+    );
+
+    const alertDay = await screen.findByRole("button", { name: "Alert Day VM 128849018880 B/天" });
+    const normalDay = screen.getByRole("button", { name: "Normal Day VM 106300440576 B/天" });
+    const alertMonth = screen.getByRole("button", { name: "Alert Month VM 171798691840 B/月" });
+
+    expect(alertDay).toHaveClass("growth-alert-row");
+    expect(alertMonth).toHaveClass("growth-alert-row");
+    expect(normalDay).not.toHaveClass("growth-alert-row");
   });
 
   it("exports word and excel through one bundle task", async () => {

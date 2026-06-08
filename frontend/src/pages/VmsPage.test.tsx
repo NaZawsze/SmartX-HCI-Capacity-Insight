@@ -135,7 +135,8 @@ describe("VmsPage", () => {
     render(<VmsPage scope={{ type: "cluster", towerId: 1, clusterId: "cluster-a" }} selectedVmId="vm-1" />);
 
     await waitFor(() => expect(apiMock.vmVolumesAll).toHaveBeenCalledWith({ type: "cluster", towerId: 1, clusterId: "cluster-a" }));
-    const allVolumes = await screen.findByLabelText("所有虚拟卷");
+    const allVolumes = await screen.findByLabelText("当前集群虚拟卷");
+    expect(screen.getByRole("heading", { name: "当前集群虚拟卷" })).toBeInTheDocument();
     expect(within(allVolumes).getByText("Small")).toBeInTheDocument();
     expect(within(allVolumes).getByText("Large")).toBeInTheDocument();
 
@@ -157,6 +158,108 @@ describe("VmsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "按VM降序排序" }));
     const namesAfterVmDesc = within(allVolumes).getAllByTestId("volume-name").map((node) => node.textContent);
     expect(namesAfterVmDesc).toEqual(["Large", "Small"]);
+  });
+
+  it("opens the matching vm trend when clicking a vm in all volumes", async () => {
+    apiMock.vms.mockResolvedValue([
+      {
+        metric: { tower_id: "1", cluster_id: "cluster-a", vm_id: "vm-1", vm: "VM One", cluster: "Cluster A" },
+        value: 70
+      },
+      {
+        metric: { tower_id: "1", cluster_id: "cluster-a", vm_id: "vm-2", vm: "VM Two", cluster: "Cluster A" },
+        value: 85
+      }
+    ]);
+    apiMock.vmDetail.mockImplementation((vmId: string) =>
+      Promise.resolve({ tower_id: 1, cluster_id: "cluster-a", vm_id: vmId, vm_name: vmId === "vm-2" ? "VM Two" : "VM One", used_bytes: vmId === "vm-2" ? 85 : 70 })
+    );
+    apiMock.vmTrend.mockResolvedValue({ vm_id: "vm-1", metric: "used", points: [] });
+    apiMock.vmVolumes.mockResolvedValue({ vm_id: "vm-1", volumes: [] });
+    apiMock.vmVolumesAll.mockResolvedValue([
+      { tower_id: 1, cluster_id: "cluster-a", cluster_name: "Cluster A", vm_id: "vm-1", vm_name: "VM One", volumes: [{ volume_id: "vol-1", name: "Root", used_bytes: 70, size_bytes: 100 }] },
+      { tower_id: 1, cluster_id: "cluster-a", cluster_name: "Cluster A", vm_id: "vm-2", vm_name: "VM Two", volumes: [{ volume_id: "vol-2", name: "Data", used_bytes: 85, size_bytes: 100 }] }
+    ]);
+
+    render(<VmsPage scope={{ type: "cluster", towerId: 1, clusterId: "cluster-a" }} selectedVmId="vm-1" />);
+
+    const allVolumes = await screen.findByLabelText("当前集群虚拟卷");
+    fireEvent.click(within(allVolumes).getByRole("button", { name: "VM Two" }));
+
+    await waitFor(() => expect(apiMock.vmDetail).toHaveBeenLastCalledWith("vm-2", { type: "cluster", towerId: 1, clusterId: "cluster-a" }));
+    expect(screen.getByRole("heading", { name: "VM Two" })).toBeInTheDocument();
+  });
+
+  it("renders tower and cluster selector cards plus vm summary cards", async () => {
+    apiMock.vms.mockResolvedValue([
+      {
+        metric: { tower_id: "1", cluster_id: "cluster-a", vm_id: "vm-1", vm: "VM One", cluster: "Cluster A" },
+        value: 70
+      }
+    ]);
+    apiMock.vmDetail.mockResolvedValue({
+      tower_id: 1,
+      cluster_id: "cluster-a",
+      vm_id: "vm-1",
+      vm_name: "VM One",
+      used_bytes: 70
+    });
+    apiMock.vmTrend.mockResolvedValue({ vm_id: "vm-1", metric: "used", points: [] });
+    apiMock.vmVolumes.mockResolvedValue({ vm_id: "vm-1", volumes: [] });
+
+    render(
+      <VmsPage
+        scope={{ type: "all" }}
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 2, vm_count: 177, used_bytes: 192.88 * 1024 ** 4, total_bytes: 219.18 * 1024 ** 4, used_ratio: 0.88 },
+          capacity_risk: { level: "normal", title: "正常", description: "正常", cluster_count: 2, warning_count: 0, danger_count: 0, top_clusters: [] },
+          top_vms: [],
+          clusters: [],
+          towers: [
+            {
+              id: 1,
+              name: "Tower A",
+              base_url: "https://tower-a",
+              verify_tls: true,
+              enabled: true,
+              collection_hour: 2,
+              collection_minute: 10,
+              clusters: [
+                { cluster_id: "cluster-a", name: "Cluster A", enabled: true },
+                { cluster_id: "cluster-b", name: "Cluster B", enabled: true }
+              ]
+            }
+          ]
+        }}
+      />
+    );
+
+    const summaryCards = await screen.findByLabelText("虚拟机页筛选与概览");
+    expect(summaryCards).not.toHaveClass("dashboard-metrics-row");
+    expect(within(summaryCards).getByText("Tower")).toBeInTheDocument();
+    expect(within(summaryCards).getByLabelText("Tower图标")).toBeInTheDocument();
+    expect(screen.getByLabelText("虚拟机页Tower")).toHaveValue("all");
+    expect(within(summaryCards).getByText("集群")).toBeInTheDocument();
+    expect(within(summaryCards).getByLabelText("集群图标")).toBeInTheDocument();
+    expect(screen.getByLabelText("虚拟机页集群")).toHaveValue("all");
+    expect(within(summaryCards).getByText("虚拟机")).toBeInTheDocument();
+    expect(within(summaryCards).getByText("容量使用率")).toBeInTheDocument();
+    expect(within(summaryCards).getByText("88.00%")).toBeInTheDocument();
+    expect(summaryCards.querySelectorAll(".vm-metric-copy")).toHaveLength(0);
+
+    fireEvent.change(screen.getByLabelText("虚拟机页Tower"), { target: { value: "1" } });
+    expect(screen.getByLabelText("虚拟机页Tower")).toHaveValue("1");
+    expect(screen.getByLabelText("虚拟机页集群")).toHaveValue("all");
+    await waitFor(() => expect(apiMock.vms).toHaveBeenLastCalledWith({ type: "tower", towerId: 1 }));
+
+    fireEvent.change(screen.getByLabelText("虚拟机页集群"), { target: { value: "1:cluster-a" } });
+    await waitFor(() => expect(apiMock.vms).toHaveBeenLastCalledWith({ type: "cluster", towerId: 1, clusterId: "cluster-a" }));
+
+    fireEvent.change(screen.getByLabelText("虚拟机页集群"), { target: { value: "all" } });
+    expect(screen.getByLabelText("虚拟机页Tower")).toHaveValue("1");
+    expect(screen.getByLabelText("虚拟机页集群")).toHaveValue("all");
+    await waitFor(() => expect(apiMock.vms).toHaveBeenLastCalledWith({ type: "tower", towerId: 1 }));
+    expect(apiMock.vms).toHaveBeenCalledWith({ type: "all" });
   });
 
   it("shows usage percentage for every vm from all volume data and highlights over 80 percent", async () => {

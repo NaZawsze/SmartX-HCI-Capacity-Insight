@@ -98,6 +98,94 @@ describe("DashboardPage", () => {
     expect(cards[1]).not.toHaveTextContent("集群");
   });
 
+  it("marks the first-row capacity risk card as danger when cluster risk is high", () => {
+    const { container } = render(
+      <DashboardPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 1, vm_count: 3, used_bytes: 88, total_bytes: 100, used_ratio: 0.88 },
+          capacity_risk: {
+            level: "high",
+            title: "容量高风险",
+            description: "风险集群 使用率超过 80%，容量风险较高。",
+            cluster_count: 1,
+            warning_count: 0,
+            danger_count: 1,
+            top_clusters: [{ tower_id: "1", cluster_id: "cluster-risk", cluster: "风险集群", used_ratio: 0.88 }]
+          },
+          top_vms: [],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSummary={vi.fn()}
+        onSelectVm={vi.fn()}
+      />
+    );
+
+    const riskCard = container.querySelector(".capacity-risk-mini");
+    expect(riskCard).toHaveClass("danger");
+    expect(riskCard).not.toHaveClass("warning");
+  });
+
+  it("places risk summary below SmartX ZBS and pairs collection/growth cards with their detail cards", () => {
+    const { container } = render(
+      <DashboardPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 1, vm_count: 2, used_bytes: 88, total_bytes: 100, used_ratio: 0.88 },
+          capacity_risk: {
+            level: "high",
+            title: "容量高风险",
+            description: "风险集群 使用率超过 80%，容量风险较高。",
+            cluster_count: 1,
+            warning_count: 0,
+            danger_count: 1,
+            top_clusters: []
+          },
+          top_vms: [],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSummary={vi.fn()}
+        onSelectVm={vi.fn()}
+      />
+    );
+
+    const cardTitles = Array.from(container.querySelectorAll(".dashboard-grid > .card .card-title h2")).map((item) => item.textContent);
+    expect(cardTitles).toEqual(["SmartX ZBS", "风险提示", "采集状态", "日增长最快 VM", "集群容量", "本日新建 VM"]);
+    expect(screen.getByText("风险提示").closest("section")).toHaveClass("risk-wide-card");
+  });
+
+  it("keeps normal risk summary aligned with the icon instead of centered", () => {
+    const { container } = render(
+      <DashboardPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 1, vm_count: 2, used_bytes: 40, total_bytes: 100, used_ratio: 0.4 },
+          capacity_risk: {
+            level: "normal",
+            title: "容量风险正常",
+            description: "当前所有集群暂无明显容量风险",
+            cluster_count: 1,
+            warning_count: 0,
+            danger_count: 0,
+            top_clusters: []
+          },
+          top_vms: [],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSummary={vi.fn()}
+        onSelectVm={vi.fn()}
+      />
+    );
+
+    const riskSection = screen.getByRole("heading", { name: "风险提示" }).closest("section")!;
+    expect(riskSection.querySelector(".risk-summary-main")).toHaveClass("normal");
+    expect(container.querySelector(".risk-summary")).toHaveClass("normal");
+    expect(within(riskSection).queryByRole("button", { name: "查看风险报表" })).not.toBeInTheDocument();
+  });
+
   it("renders v2 day growth and day new vm as separate cards", () => {
     render(
       <DashboardPage
@@ -165,8 +253,9 @@ describe("DashboardPage", () => {
     expect(onOpenRiskReport).toHaveBeenCalledWith({ type: "cluster", towerId: 7, clusterId: "cluster-risk" });
   });
 
-  it("shows top growth vms in the risk panel and opens vm detail while keeping the top risk card report link", () => {
+  it("shows risk clusters instead of vms in the risk panel and opens the selected cluster vm details", () => {
     const onOpenRiskReport = vi.fn();
+    const onOpenRiskVms = vi.fn();
     const onSelectVm = vi.fn();
     render(
       <DashboardPage
@@ -177,25 +266,38 @@ describe("DashboardPage", () => {
             title: "容量高风险",
             description: "风险集群 使用率超过 80%，容量风险较高。",
             cluster_count: 2,
-            warning_count: 0,
+            warning_count: 1,
             danger_count: 1,
+            risk_clusters: [
+              {
+                tower_id: "7",
+                cluster_id: "cluster-risk",
+                cluster: "风险集群",
+                risk_level: "high",
+                used_bytes: 880,
+                total_bytes: 1000,
+                used_ratio: 0.88,
+                forecast_90d: 1080,
+                exhaustion_days: 24
+              },
+              {
+                tower_id: "8",
+                cluster_id: "cluster-warning",
+                cluster: "关注集群",
+                risk_level: "warning",
+                used_bytes: 760,
+                total_bytes: 1000,
+                used_ratio: 0.76,
+                forecast_90d: 930,
+                exhaustion_days: 72
+              }
+            ],
             top_clusters: [
               {
                 tower_id: "7",
                 cluster_id: "cluster-risk",
                 cluster: "风险集群",
-                used_ratio: 0.82,
-                top_growth_vms: [
-                  {
-                    tower_id: 7,
-                    cluster_id: "cluster-risk",
-                    vm_id: "vm-risk-1",
-                    vm_name: "风险增长 VM",
-                    current_bytes: 120,
-                    growth_amount: 20,
-                    growth_ratio: 0.2
-                  }
-                ]
+                used_ratio: 0.88
               }
             ]
           },
@@ -207,20 +309,33 @@ describe("DashboardPage", () => {
         onSummary={vi.fn()}
         onSelectVm={onSelectVm}
         onOpenRiskReport={onOpenRiskReport}
+        onOpenRiskVms={onOpenRiskVms}
       />
     );
 
     fireEvent.click(screen.getAllByRole("button", { name: /容量高风险/ })[0]);
     expect(onOpenRiskReport).toHaveBeenCalledWith({ type: "cluster", towerId: 7, clusterId: "cluster-risk" });
 
-    const riskPanel = screen.getByText("主要增长 VM").closest("section")!;
-    expect(within(riskPanel).getByText("风险增长 VM")).toBeInTheDocument();
-    fireEvent.click(within(riskPanel).getByRole("button", { name: /风险增长 VM/ }));
+    const riskPanel = screen.getByRole("heading", { name: "风险提示" }).closest("section")!;
+    expect(within(riskPanel).queryByText("主要增长 VM")).not.toBeInTheDocument();
+    expect(within(riskPanel).getAllByText("风险集群").length).toBeGreaterThan(0);
+    expect(within(riskPanel).getByText("1 个高风险，1 个需关注")).toBeInTheDocument();
+    expect(within(riskPanel).getByText("容量高风险")).toBeInTheDocument();
+    expect(within(riskPanel).queryByText(/当前/)).not.toBeInTheDocument();
+    expect(within(riskPanel).queryByText(/90 天后/)).not.toBeInTheDocument();
+    expect(within(riskPanel).getAllByText("预计存储耗尽").length).toBeGreaterThan(0);
+    expect(within(riskPanel).getByText("24 天")).toHaveClass("exhaustion-days-risk");
+    expect(within(riskPanel).getByText("72 天")).toHaveClass("exhaustion-days-risk");
+    expect(within(riskPanel).getByText("关注集群")).toBeInTheDocument();
+    expect(riskPanel.querySelector(".risk-cluster-action-icon")).not.toBeInTheDocument();
 
-    expect(onSelectVm).toHaveBeenCalledWith("vm-risk-1", "风险增长 VM");
+    fireEvent.click(within(riskPanel).getAllByRole("button", { name: "查看详情" })[1]);
+    expect(onOpenRiskVms).toHaveBeenCalledWith({ type: "cluster", towerId: 8, clusterId: "cluster-warning" });
+    expect(onOpenRiskReport).toHaveBeenCalledTimes(1);
+    expect(onSelectVm).not.toHaveBeenCalled();
   });
 
-  it("shows an empty top growth source message when risky clusters have no growing vms", () => {
+  it("falls back to top clusters when risk cluster rows are not provided", () => {
     render(
       <DashboardPage
         summary={{
@@ -244,7 +359,11 @@ describe("DashboardPage", () => {
       />
     );
 
-    expect(screen.getByText("风险集群暂无明显 VM 增长来源")).toBeInTheDocument();
+    const riskPanel = screen.getByRole("heading", { name: "风险提示" }).closest("section")!;
+    expect(within(riskPanel).getByText("1 个高风险")).toBeInTheDocument();
+    expect(within(riskPanel).getAllByText("风险集群").length).toBeGreaterThan(0);
+    expect(within(riskPanel).getByText("容量高风险 · 90.0%")).toBeInTheDocument();
+    expect(within(riskPanel).getByRole("button", { name: "查看详情" })).toBeInTheDocument();
   });
 
   it("renders cluster capacity details inside the SmartX ZBS card sorted by usage", () => {

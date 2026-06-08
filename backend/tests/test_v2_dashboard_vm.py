@@ -30,6 +30,13 @@ class FakePrometheus:
 
     def range(self, query: str, *, start: int, end: int, step: str):
         self.range_calls.append({"query": query, "start": start, "end": end, "step": step})
+        if end - start >= 2_500_000:
+            return [
+                {"metric": {"tower_id": "9", "cluster_id": "orphan-cluster", "vm_id": "vm-orphan", "vm_name": "Orphan VM"}, "values": [[start, "1"], [end, "999"]]},
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-1", "vm_name": "VM One Old"}, "values": [[start, "50"], [end, "70"]]},
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-2", "vm_name": "VM Two"}, "values": [[start, "10"], [end, "100"]]},
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-b", "vm_id": "vm-b", "vm_name": "Cluster B VM"}, "values": [[start, "1"], [end, "500"]]},
+            ]
         if 'vm_id="vm-1"' in query:
             return [{"metric": {"vm_id": "vm-1"}, "values": [[start, "50"], [end, "70"]]}]
         if 'vm_id="vm-2"' in query:
@@ -44,6 +51,45 @@ class FakePrometheus:
 class EmptyPrometheus(FakePrometheus):
     def instant(self, query: str):
         self.instant_queries.append(query)
+        return []
+
+
+class MultiRiskPrometheus(FakePrometheus):
+    def instant(self, query: str):
+        self.instant_queries.append(query)
+        if query == "smartx_cluster_storage_used_bytes":
+            return [
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a"}, "value": [100, str(880)]},
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-b"}, "value": [100, str(760)]},
+            ]
+        if query == "smartx_cluster_storage_total_bytes":
+            return [
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a"}, "value": [100, str(1000)]},
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-b"}, "value": [100, str(1000)]},
+            ]
+        if query.startswith("smartx_vm_storage_used_bytes"):
+            return []
+        return []
+
+    def range(self, query: str, *, start: int, end: int, step: str):
+        self.range_calls.append({"query": query, "start": start, "end": end, "step": step})
+        if query == "smartx_cluster_storage_used_bytes":
+            return [
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a"}, "values": [[start, str(700)], [end, str(880)]]},
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-b"}, "values": [[start, str(680)], [end, str(760)]]},
+            ]
+        return []
+
+
+class SplitClusterSeriesPrometheus(MultiRiskPrometheus):
+    def range(self, query: str, *, start: int, end: int, step: str):
+        self.range_calls.append({"query": query, "start": start, "end": end, "step": step})
+        if query == "smartx_cluster_storage_used_bytes":
+            return [
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "source": "usable"}, "values": [[start, str(700)], [end, str(880)]]},
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "source": "duplicate-tail"}, "values": [[start + 1, str(900)], [end, str(879)]]},
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-b"}, "values": [[start, str(680)], [end, str(760)]]},
+            ]
         return []
 
 
@@ -98,14 +144,46 @@ class V2DashboardVmTest(unittest.TestCase):
             self.assertIn("Cluster A", summary["capacity_risk"]["message"])
             self.assertEqual(summary["capacity_risk"]["top_clusters"][0]["cluster"], "Cluster A")
             self.assertEqual(summary["capacity_risk"]["top_clusters"][0]["used_ratio"], 0.81)
-            self.assertEqual([vm["vm_id"] for vm in summary["capacity_risk"]["top_clusters"][0]["top_growth_vms"]], ["vm-1"])
-            self.assertEqual(summary["capacity_risk"]["top_clusters"][0]["top_growth_vms"][0]["vm_name"], "VM One Latest")
+            self.assertEqual(summary["capacity_risk"]["risk_clusters"][0]["cluster"], "Cluster A")
+            self.assertEqual(summary["capacity_risk"]["risk_clusters"][0]["risk_level"], "high")
+            self.assertEqual([vm["vm_id"] for vm in summary["capacity_risk"]["top_clusters"][0]["top_growth_vms"]], ["vm-2", "vm-1"])
+            self.assertEqual(summary["capacity_risk"]["top_clusters"][0]["top_growth_vms"][0]["growth_amount"], 90)
+            self.assertEqual(summary["capacity_risk"]["top_clusters"][0]["top_growth_vms"][1]["vm_name"], "VM One Latest")
             self.assertEqual(summary["totals"], {"towers": 1, "clusters": 2, "vms": 2})
             self.assertEqual(summary["storage"]["used_bytes"], 91)
             self.assertEqual(summary["storage"]["total_bytes"], 200)
             self.assertEqual(summary["day_fastest_growing_vms"][0]["vm_name"], "VM One Latest")
             self.assertEqual(summary["day_fastest_growing_vms"][0]["growth_amount"], 20)
             self.assertEqual(summary["day_new_vms"], [{"tower_id": 1, "cluster_id": "cluster-a", "vm_id": "vm-2", "vm_name": "VM Two", "current_bytes": 10}])
+
+    def test_dashboard_capacity_risk_summarizes_multiple_risk_clusters(self) -> None:
+        from app.v2.dashboard.service import DashboardService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            summary = DashboardService(db, settings, prometheus=MultiRiskPrometheus(), now_ts=30 * 86400).summary()
+
+            risk = summary["capacity_risk"]
+            self.assertEqual(risk["level"], "high")
+            self.assertEqual(risk["danger_count"], 1)
+            self.assertEqual(risk["warning_count"], 1)
+            self.assertIn("1 个集群高风险，1 个集群需关注", risk["message"])
+            self.assertIn("最短 20 天后存储耗尽", risk["message"])
+            self.assertEqual([cluster["cluster"] for cluster in risk["risk_clusters"]], ["Cluster A", "Cluster B"])
+            self.assertEqual(risk["risk_clusters"][0]["risk_level"], "high")
+            self.assertEqual(round(risk["risk_clusters"][0]["exhaustion_days"]), 20)
+            self.assertEqual(risk["risk_clusters"][1]["risk_level"], "warning")
+
+    def test_dashboard_capacity_risk_uses_merged_cluster_series_for_exhaustion_days(self) -> None:
+        from app.v2.dashboard.service import DashboardService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            summary = DashboardService(db, settings, prometheus=SplitClusterSeriesPrometheus(), now_ts=30 * 86400).summary()
+
+            risk = summary["capacity_risk"]
+            self.assertIn("天后存储耗尽", risk["message"])
+            self.assertIsNotNone(risk["risk_clusters"][0]["exhaustion_days"])
 
     def test_dashboard_and_vm_list_ignore_metrics_outside_enabled_clusters_by_default(self) -> None:
         from app.v2.dashboard.service import DashboardService

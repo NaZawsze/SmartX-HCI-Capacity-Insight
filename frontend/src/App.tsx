@@ -143,13 +143,21 @@ export default function App() {
     setActivePage("reports");
   }
 
+  function openRiskVms(vmScope: DashboardScope) {
+    setScope(vmScope);
+    setSelectedVmId("");
+    setSelectedVmName("");
+    setActivePage("vms");
+  }
+
   return (
     <AppLayout activePage={activePage} onNavigate={setActivePage} onLogout={logout} summary={summary} scope={scope} onScopeChange={setScope} onSummary={handleSummary} tasks={tasks} onClearTasks={clearTasks} onTasksSeen={markTasksSeen} onTaskAck={acknowledgeTask} onTaskAction={handleTaskAction}>
-      {activePage === "dashboard" && <DashboardPage summary={summary} scope={scope} onSummary={handleSummary} onSelectVm={openVm} onOpenRiskReport={openRiskReport} />}
+      {activePage === "dashboard" && <DashboardPage summary={summary} scope={scope} onSummary={handleSummary} onSelectVm={openVm} onOpenRiskReport={openRiskReport} onOpenRiskVms={openRiskVms} />}
       {activePage === "vms" && (
         <VmsPage
           refreshKey={dataRefreshKey}
           scope={scope}
+          summary={summary}
           selectedVmId={selectedVmId}
           selectedVmName={selectedVmName}
           onSelectedVmChange={(vmId) => {

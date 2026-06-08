@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
 from app.v2.config import V2Settings
@@ -7,12 +8,14 @@ from app.v2.database import V2Database, row_to_dict
 from app.v2.inventory.service import InventoryService
 from app.v2.metrics.prometheus import PrometheusService
 from app.v2.metrics.series import labels_match, metric_value, range_values, scoped_query
+from app.v2.reports.service import forecast_series
 
 
 CLUSTER_USED_METRIC = "smartx_cluster_storage_used_bytes"
 CLUSTER_TOTAL_METRIC = "smartx_cluster_storage_total_bytes"
 VM_USED_METRIC = "smartx_vm_storage_used_bytes"
 NORMAL_RISK_MESSAGE = "当前所有集群暂无明显容量风险"
+SECONDS_PER_DAY = 86_400
 
 
 class DashboardService:
@@ -25,12 +28,14 @@ class DashboardService:
     def summary(self, tower_id: int | None = None, cluster_id: str | None = None) -> dict[str, Any]:
         enabled_scope = self._enabled_cluster_scope(tower_id=tower_id, cluster_id=cluster_id)
         clusters = self._cluster_capacity(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        cluster_forecasts = self._cluster_forecasts(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         vms = self._latest_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         day_fastest_growing_vms = self._day_fastest_growing_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        month_fastest_growing_vms = self._period_fastest_growing_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, days=30, limit=100)
         towers = InventoryService(self.database, self.settings).list_towers()
         return {
             "scope": {"tower_id": tower_id, "cluster_id": cluster_id},
-            "capacity_risk": self._capacity_risk(clusters, day_fastest_growing_vms),
+            "capacity_risk": self._capacity_risk(clusters, month_fastest_growing_vms, cluster_forecasts),
             "totals": self._totals(tower_id=tower_id, cluster_id=cluster_id),
             "storage": self._storage(clusters),
             "collection": self._latest_collection(),
@@ -73,7 +78,28 @@ class DashboardService:
             values[key] = metric_value(row)
         return values
 
-    def _capacity_risk(self, clusters: list[dict[str, Any]], day_fastest_growing_vms: list[dict[str, Any]]) -> dict[str, Any]:
+    def _cluster_forecasts(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> dict[tuple[int, str], dict[str, Any]]:
+        totals = self._cluster_metric_map(CLUSTER_TOTAL_METRIC, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        grouped: dict[tuple[int, str], dict[int, float]] = {}
+        forecasts: dict[tuple[int, str], dict[str, Any]] = {}
+        start = self.now_ts - 30 * SECONDS_PER_DAY
+        for series in self.prometheus.range(scoped_query(CLUSTER_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step="1d"):
+            metric = series.get("metric", {})
+            if not labels_match(metric, tower_id=tower_id, cluster_id=cluster_id):
+                continue
+            key = (int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""))
+            if not _in_enabled_scope(key, enabled_scope):
+                continue
+            points = grouped.setdefault(key, {})
+            for timestamp, value in range_values(series):
+                points[int(timestamp)] = float(value)
+        for key, values in grouped.items():
+            points = sorted(values.items())
+            forecast = forecast_series(points, totals.get(key))
+            forecasts[key] = asdict(forecast)
+        return forecasts
+
+    def _capacity_risk(self, clusters: list[dict[str, Any]], month_fastest_growing_vms: list[dict[str, Any]], cluster_forecasts: dict[tuple[int, str], dict[str, Any]]) -> dict[str, Any]:
         sorted_clusters = sorted(clusters, key=lambda cluster: float(cluster.get("used_ratio") or 0.0), reverse=True)
         top_clusters = [
             {
@@ -83,10 +109,11 @@ class DashboardService:
                 "used_bytes": cluster["used_bytes"],
                 "total_bytes": cluster["total_bytes"],
                 "used_ratio": cluster["used_ratio"],
-                "top_growth_vms": _top_growth_vms_for_cluster(day_fastest_growing_vms, int(cluster["tower_id"]), str(cluster["cluster_id"])),
+                "top_growth_vms": _top_growth_vms_for_cluster(month_fastest_growing_vms, int(cluster["tower_id"]), str(cluster["cluster_id"])),
             }
             for cluster in sorted_clusters[:5]
         ]
+        risk_clusters = _risk_clusters(sorted_clusters, cluster_forecasts)
         if not clusters:
             return {
                 "level": "normal",
@@ -97,25 +124,25 @@ class DashboardService:
                 "warning_count": 0,
                 "danger_count": 0,
                 "top_clusters": [],
+                "risk_clusters": [],
             }
         high = [cluster for cluster in clusters if float(cluster["used_ratio"]) >= 0.8]
+        warning = [cluster for cluster in clusters if 0.75 <= float(cluster["used_ratio"]) < 0.8]
         if high:
-            names = "、".join(cluster["name"] for cluster in high[:3])
-            message = f"{names} 使用率超过 80%，容量风险较高。"
+            message = _risk_message(risk_clusters, high_count=len(high), warning_count=len(warning), high=True)
             return {
                 "level": "high",
                 "title": "容量高风险",
                 "message": message,
                 "description": message,
                 "cluster_count": len(clusters),
-                "warning_count": 0,
+                "warning_count": len(warning),
                 "danger_count": len(high),
                 "top_clusters": top_clusters,
+                "risk_clusters": risk_clusters,
             }
-        warning = [cluster for cluster in clusters if float(cluster["used_ratio"]) >= 0.75]
         if warning:
-            names = "、".join(cluster["name"] for cluster in warning[:3])
-            message = f"{names} 使用率超过 75%，需要关注容量增长。"
+            message = _risk_message(risk_clusters, high_count=0, warning_count=len(warning), high=False)
             return {
                 "level": "warning",
                 "title": "容量需关注",
@@ -125,6 +152,7 @@ class DashboardService:
                 "warning_count": len(warning),
                 "danger_count": 0,
                 "top_clusters": top_clusters,
+                "risk_clusters": risk_clusters,
             }
         return {
             "level": "normal",
@@ -135,6 +163,7 @@ class DashboardService:
             "warning_count": 0,
             "danger_count": 0,
             "top_clusters": top_clusters,
+            "risk_clusters": [],
         }
 
     def _totals(self, *, tower_id: int | None, cluster_id: str | None) -> dict[str, int]:
@@ -208,10 +237,14 @@ class DashboardService:
         return vms
 
     def _day_fastest_growing_vms(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
+        return self._period_fastest_growing_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, days=1, limit=100)
+
+    def _period_fastest_growing_vms(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]], days: int, limit: int) -> list[dict[str, Any]]:
         names = self._latest_vm_names()
         result: list[dict[str, Any]] = []
-        start = self.now_ts - 86400
-        for series in self.prometheus.range(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step="1h"):
+        start = self.now_ts - days * 86400
+        step = "1h" if days <= 1 else "1d"
+        for series in self.prometheus.range(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step=step):
             points = range_values(series)
             if len(points) < 2:
                 continue
@@ -234,7 +267,7 @@ class DashboardService:
                     "growth_ratio": growth / points[0][1] if points[0][1] > 0 else None,
                 }
             )
-        return sorted(result, key=lambda item: (-float(item["growth_amount"]), item["vm_name"]))[:100]
+        return sorted(result, key=lambda item: (-float(item["growth_amount"]), item["vm_name"]))[:limit]
 
     def _day_new_vms(self, vms: list[dict[str, Any]], *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
         existing_keys = set()
@@ -327,6 +360,59 @@ def _in_enabled_scope(key: tuple[int, str], enabled_scope: set[tuple[int, str]])
     return key in enabled_scope if enabled_scope else True
 
 
+def _risk_clusters(clusters: list[dict[str, Any]], forecasts: dict[tuple[int, str], dict[str, Any]]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for cluster in clusters:
+        used_ratio = float(cluster.get("used_ratio") or 0.0)
+        if used_ratio < 0.75:
+            continue
+        key = (int(cluster["tower_id"]), str(cluster["cluster_id"]))
+        forecast = forecasts.get(key, {})
+        risk_level = "high" if used_ratio >= 0.8 else "warning"
+        items.append(
+            {
+                "tower_id": cluster["tower_id"],
+                "cluster_id": cluster["cluster_id"],
+                "cluster": cluster["name"],
+                "used_bytes": cluster["used_bytes"],
+                "total_bytes": cluster["total_bytes"],
+                "used_ratio": used_ratio,
+                "forecast_90d": forecast.get("forecast_90d"),
+                "exhaustion_days": forecast.get("exhaustion_days"),
+                "risk_level": risk_level,
+            }
+        )
+    return sorted(items, key=_risk_cluster_sort_key)
+
+
+def _risk_cluster_sort_key(cluster: dict[str, Any]) -> tuple[int, float, float]:
+    level_rank = 0 if cluster.get("risk_level") == "high" else 1
+    exhaustion = cluster.get("exhaustion_days")
+    exhaustion_rank = float(exhaustion) if isinstance(exhaustion, (int, float)) else float("inf")
+    return (level_rank, exhaustion_rank, -float(cluster.get("used_ratio") or 0.0))
+
+
+def _risk_message(risk_clusters: list[dict[str, Any]], *, high_count: int, warning_count: int, high: bool) -> str:
+    if high_count and warning_count:
+        prefix = f"{high_count} 个集群高风险，{warning_count} 个集群需关注"
+    elif high_count:
+        prefix = f"{high_count} 个集群容量高风险"
+    else:
+        prefix = f"{warning_count} 个集群需关注"
+    first = risk_clusters[0] if risk_clusters else None
+    exhaustion = first.get("exhaustion_days") if first else None
+    if isinstance(exhaustion, (int, float)):
+        suffix = f"最短 {round(exhaustion)} 天后存储耗尽"
+    elif high:
+        suffix = "使用率超过 80%，容量风险较高"
+    else:
+        suffix = "90 天预测接近容量阈值，建议跟踪增长趋势"
+    names = "、".join(str(item.get("cluster") or item.get("cluster_id")) for item in risk_clusters[:3])
+    if names:
+        return f"{prefix}，{suffix}，建议优先处理 {names}。"
+    return f"{prefix}，{suffix}。"
+
+
 def _top_growth_vms_for_cluster(vms: list[dict[str, Any]], tower_id: int, cluster_id: str) -> list[dict[str, Any]]:
     items = [
         {
@@ -341,4 +427,4 @@ def _top_growth_vms_for_cluster(vms: list[dict[str, Any]], tower_id: int, cluste
         for vm in vms
         if int(vm.get("tower_id") or 0) == tower_id and str(vm.get("cluster_id") or "") == cluster_id
     ]
-    return sorted(items, key=lambda item: (-float(item["growth_amount"] or 0), item["vm_name"]))[:3]
+    return sorted(items, key=lambda item: (-float(item["growth_amount"] or 0), item["vm_name"]))[:10]

@@ -1,10 +1,11 @@
-import { ArrowDown, ArrowDownWideNarrow, ArrowUp, Search } from "lucide-react";
+import { ArrowDown, ArrowDownWideNarrow, ArrowUp, Building2, HardDrive, Search, Server, TrendingUp } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "../components/Card";
+import { MetricCard } from "../components/MetricCard";
 import { TrendChart } from "../components/TrendChart";
 import { api, formatBytes } from "../services/api";
-import type { DashboardScope, MetricItem, VmDetail, VmTrend, VmVolume } from "../types";
+import type { DashboardScope, DashboardSummary, MetricItem, VmDetail, VmTrend, VmVolume } from "../types";
 
 const trendRanges = [7, 14, 30, 90, 180] as const;
 type TrendRange = (typeof trendRanges)[number];
@@ -22,14 +23,16 @@ type DisplayVolume = VmVolume & {
 interface VmsPageProps {
   refreshKey?: number;
   scope: DashboardScope;
+  summary?: DashboardSummary | null;
   selectedVmId?: string;
   selectedVmName?: string;
   onSelectedVmChange?: (vmId: string) => void;
 }
 
-export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmName = "", onSelectedVmChange }: VmsPageProps) {
+export function VmsPage({ refreshKey = 0, scope, summary, selectedVmId = "", selectedVmName = "", onSelectedVmChange }: VmsPageProps) {
   const [items, setItems] = useState<MetricItem[]>([]);
   const [selectedVm, setSelectedVm] = useState("");
+  const [localScope, setLocalScope] = useState<DashboardScope | null>(null);
   const [query, setQuery] = useState("");
   const [trendDays, setTrendDays] = useState<TrendRange>(30);
   const [sortMode, setSortMode] = useState<SortMode>("size");
@@ -41,9 +44,12 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const selectedItemRef = useRef<HTMLButtonElement | null>(null);
   const lastOpenedVmNameRef = useRef("");
+  const effectiveScope = localScope ?? scope;
+  const towerOptions = useMemo(() => vmTowerOptions(summary), [summary]);
+  const clusterOptions = useMemo(() => vmClusterOptions(summary, effectiveScope), [effectiveScope, summary]);
 
   useEffect(() => {
-    api.vms(scope).then((result) => {
+    api.vms(effectiveScope).then((result) => {
       setItems(result);
       setSelectedVm((current) => {
         if (selectedVmId && result.some((item) => item.metric.vm_id === selectedVmId)) return selectedVmId;
@@ -51,7 +57,7 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
         return result[0]?.metric.vm_id || "";
       });
     });
-  }, [refreshKey, scope, selectedVmId]);
+  }, [effectiveScope, refreshKey, selectedVmId]);
 
   useEffect(() => {
     if (!selectedVm) {
@@ -61,7 +67,7 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
       return;
     }
     const selectedItem = items.find((item) => item.metric.vm_id === selectedVm);
-    const requestScope = selectedItem ? scopeForVm(selectedItem) ?? (scope.type === "cluster" ? scope : undefined) : scope.type === "cluster" ? scope : undefined;
+    const requestScope = selectedItem ? scopeForVm(selectedItem) ?? (effectiveScope.type === "cluster" ? effectiveScope : undefined) : effectiveScope.type === "cluster" ? effectiveScope : undefined;
     if (!requestScope) {
       setTrend(null);
       setDetail(null);
@@ -71,15 +77,19 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
     api.vmTrend(selectedVm, "used", trendDays, requestScope).then(setTrend).catch(() => setTrend(null));
     api.vmDetail(selectedVm, requestScope).then(setDetail).catch(() => setDetail(null));
     api.vmVolumes(selectedVm, requestScope).then((result) => setCurrentVmVolumes(result.volumes || [])).catch(() => setCurrentVmVolumes([]));
-  }, [items, refreshKey, scope, selectedVm, trendDays]);
+  }, [effectiveScope, items, refreshKey, selectedVm, trendDays]);
 
   useEffect(() => {
-    api.vmVolumesAll(scope)
+    api.vmVolumesAll(effectiveScope)
       .then((sets) => {
         setAllVolumeSets(flattenVolumeSets(sets));
       })
       .catch(() => setAllVolumeSets([]));
-  }, [refreshKey, scope]);
+  }, [effectiveScope, refreshKey]);
+
+  useEffect(() => {
+    setLocalScope(null);
+  }, [scope]);
 
   useEffect(() => {
     if (selectedVmName) {
@@ -125,9 +135,78 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
   const current = filtered.find((item) => item.metric.vm_id === selectedVm) ?? items.find((item) => item.metric.vm_id === selectedVm);
   const selectedItemVisible = filtered.some((item) => item.metric.vm_id === selectedVm);
   const sortedAllVolumes = useMemo(() => sortVolumes(allVolumeSets, volumeSort), [allVolumeSets, volumeSort]);
+  const towerSelectValue = towerValue(effectiveScope);
+  const clusterSelectValue = scopeValue(effectiveScope);
+  const allVolumesTitle = effectiveScope.type === "cluster" ? "当前集群虚拟卷" : "所有虚拟卷";
+  const allVolumesSubtitle = effectiveScope.type === "cluster" ? "当前集群内全部虚拟机卷" : "当前范围内全部虚拟机卷";
+
+  function selectVmFromVolume(volume: DisplayVolume) {
+    const vmId = String(volume.vm_id || "");
+    if (!vmId) return;
+    setSelectedVm(vmId);
+    setQuery("");
+  }
+
+  function changeTowerScope(value: string) {
+    setSelectedVm("");
+    setQuery("");
+    if (value === "all") {
+      setLocalScope(null);
+      return;
+    }
+    const towerId = Number(value);
+    setLocalScope({ type: "tower", towerId });
+  }
+
+  function changeClusterScope(value: string) {
+    setSelectedVm("");
+    setQuery("");
+    if (value === "all") {
+      if (effectiveScope.type === "tower" || effectiveScope.type === "cluster") {
+        setLocalScope({ type: "tower", towerId: effectiveScope.towerId });
+        return;
+      }
+      setLocalScope(null);
+      return;
+    }
+    setLocalScope(scopeFromValue(value));
+  }
 
   return (
     <div className="vm-page-grid">
+      <div className="vm-summary-grid" aria-label="虚拟机页筛选与概览">
+        <label className="metric-card vm-filter-card">
+          <span className="metric-icon"><Building2 size={19} aria-label="Tower图标" /></span>
+          <div className="vm-filter-copy">
+            <span className="metric-label">Tower</span>
+            <select aria-label="虚拟机页Tower" value={towerSelectValue} onChange={(event) => changeTowerScope(event.target.value)}>
+              <option value="all">全部 Tower</option>
+              {towerOptions.map((option) => (
+                <option value={option.value} key={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </label>
+        <label className="metric-card vm-filter-card green">
+          <span className="metric-icon"><HardDrive size={19} aria-label="集群图标" /></span>
+          <div className="vm-filter-copy">
+            <span className="metric-label">集群</span>
+            <select aria-label="虚拟机页集群" value={clusterSelectValue} onChange={(event) => changeClusterScope(event.target.value)}>
+            <option value="all">全部集群</option>
+            {clusterOptions.map((option) => (
+              <option value={option.value} key={option.value}>
+                {option.label}
+              </option>
+            ))}
+            </select>
+          </div>
+        </label>
+        <MetricCard label="虚拟机" value={`${summary?.kpis.vm_count ?? items.length}`} hint="最近样本" icon={Server} />
+        <MetricCard label="容量使用率" value={`${((summary?.kpis.used_ratio ?? 0) * 100).toFixed(2)}%`} hint={formatBytes(summary?.kpis.used_bytes)} icon={TrendingUp} tone="orange" />
+      </div>
+
       <Card title="虚拟机" className="vm-list-card">
         <div className="vm-toolbar">
           <div className="sort-tabs" aria-label="虚拟机排序">
@@ -194,7 +273,7 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
         </VolumeTable>
       </Card>
 
-      <Card title="所有虚拟卷" subtitle="当前范围内全部虚拟机卷" className="volume-card all-volume-card">
+      <Card title={allVolumesTitle} subtitle={allVolumesSubtitle} className="volume-card all-volume-card">
         <VolumeTable
           variant="all"
           sort={volumeSort}
@@ -205,8 +284,8 @@ export function VmsPage({ refreshKey = 0, scope, selectedVmId = "", selectedVmNa
             }));
           }}
         >
-          <div aria-label="所有虚拟卷">
-            {sortedAllVolumes.length ? sortedAllVolumes.map(renderAllVolumeRow) : <div className="empty-state">暂无虚拟卷数据</div>}
+          <div aria-label={allVolumesTitle}>
+            {sortedAllVolumes.length ? sortedAllVolumes.map((volume, index) => renderAllVolumeRow(volume, index, selectVmFromVolume)) : <div className="empty-state">暂无虚拟卷数据</div>}
           </div>
         </VolumeTable>
       </Card>
@@ -275,14 +354,21 @@ function renderVolumeRow(volume: VmVolume, index?: number) {
   );
 }
 
-function renderAllVolumeRow(volume: DisplayVolume, index?: number) {
+function renderAllVolumeRow(volume: DisplayVolume, index?: number, onSelectVm?: (volume: DisplayVolume) => void) {
   const key = `${volume.tower_id ?? ""}-${volume.cluster_id ?? ""}-${volume.vm_id ?? ""}-${volume.volume_id ?? volume.id ?? index}`;
   const actualUsed = readVolumeUsed(volume);
   const provisioned = readSize(volume, ["provisioned_size", "provisioned_size_bytes", "size", "size_bytes", "capacity", "capacity_bytes"]);
   const actualOccupied = getOccupiedSize(volume, actualUsed);
+  const vmName = volume.vm_name || volume.vm_id || "-";
   return (
     <div className="volume-table-row" key={key}>
-      <span title={volume.vm_name || volume.vm_id || "-"}>{volume.vm_name || volume.vm_id || "-"}</span>
+      {volume.vm_id && onSelectVm ? (
+        <button className="volume-vm-link" type="button" title={vmName} onClick={() => onSelectVm(volume)}>
+          {vmName}
+        </button>
+      ) : (
+        <span title={vmName}>{vmName}</span>
+      )}
       <span title={volume.cluster_name || volume.cluster_id || "-"}>{volume.cluster_name || volume.cluster_id || "-"}</span>
       <span data-testid="volume-name" title={readVolumeName(volume)}>{readVolumeName(volume)}</span>
       <strong>{formatBytes(actualUsed)}</strong>
@@ -291,6 +377,44 @@ function renderAllVolumeRow(volume: DisplayVolume, index?: number) {
       <strong>{formatBytes(actualOccupied)}</strong>
     </div>
   );
+}
+
+function vmTowerOptions(summary?: DashboardSummary | null): Array<{ value: string; label: string }> {
+  return (summary?.towers || [])
+    .filter((tower) => tower.enabled)
+    .map((tower) => ({ value: String(tower.id), label: tower.name }));
+}
+
+function vmClusterOptions(summary?: DashboardSummary | null, scope?: DashboardScope): Array<{ value: string; label: string }> {
+  return (summary?.towers || [])
+    .filter((tower) => scope?.type === "tower" || scope?.type === "cluster" ? tower.id === scope.towerId : true)
+    .flatMap((tower) =>
+      tower.clusters
+        .filter((cluster) => cluster.enabled)
+        .map((cluster) => ({
+          value: `${tower.id}:${cluster.cluster_id}`,
+          label: `${tower.name} / ${cluster.name || cluster.cluster_id}`,
+        }))
+    );
+}
+
+function towerValue(scope: DashboardScope): string {
+  if (scope.type === "tower" || scope.type === "cluster") return String(scope.towerId);
+  return "all";
+}
+
+function scopeValue(scope: DashboardScope): string {
+  if (scope.type === "cluster") return `${scope.towerId}:${scope.clusterId}`;
+  return "all";
+}
+
+function scopeFromValue(value: string): DashboardScope | null {
+  if (value === "all") return null;
+  const separator = value.indexOf(":");
+  const towerId = Number(value.slice(0, separator));
+  const clusterId = value.slice(separator + 1);
+  if (!Number.isFinite(towerId) || !clusterId) return null;
+  return { type: "cluster", towerId, clusterId };
 }
 
 function getOccupiedSize(volume: VmVolume, actualUsed: number | null): number | null {

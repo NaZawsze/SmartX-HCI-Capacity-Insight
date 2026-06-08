@@ -5,6 +5,9 @@ import { ClusterCapacityChart } from "../components/ClusterCapacityChart";
 import { api, formatBytes } from "../services/api";
 import type { AppTask, DashboardScope, DashboardSummary, ForecastPayload, GrowthVmReport } from "../types";
 
+const VM_ALERT_RATIO = 0.2;
+const VM_ALERT_BYTES = 100 * 1024 ** 3;
+
 interface ReportsPageProps {
   summary?: DashboardSummary | null;
   scope: DashboardScope;
@@ -164,7 +167,9 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
                     <span>当前 {formatBytes(item.forecast.current)}</span>
                     <span>90 天后 {formatForecast(item.forecast.forecast_90d)}</span>
                     <span>预计存储耗尽</span>
-                    <strong>{formatExhaustionDays(item.forecast.exhaustion_days)}</strong>
+                    <strong className={isQuarterRiskExhaustion(item.forecast.exhaustion_days) ? "exhaustion-days-risk" : undefined}>
+                      {formatExhaustionDays(item.forecast.exhaustion_days)}
+                    </strong>
                   </div>
                 </div>
               ))
@@ -241,7 +246,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
           <div className="list-table growth-scroll auto-scrollbar">
             {dayTopVms.map((item) => (
               <button
-                className="table-row clickable"
+                className={isAlertGrowthVm(item) ? "table-row clickable growth-alert-row" : "table-row clickable"}
                 key={item.labels.vm_id}
                 type="button"
                 onClick={() => onSelectVm(item.labels.vm_id, item.labels.vm || item.labels.vm_id)}
@@ -262,7 +267,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
           <div className="list-table growth-scroll auto-scrollbar">
             {monthTopVms.map((item) => (
               <button
-                className="table-row clickable"
+                className={isAlertGrowthVm(item) ? "table-row clickable growth-alert-row" : "table-row clickable"}
                 key={item.labels.vm_id}
                 type="button"
                 onClick={() => onSelectVm(item.labels.vm_id, item.labels.vm || item.labels.vm_id)}
@@ -384,9 +389,17 @@ function formatGrowthValue(item: GrowthVmReport, mode: GrowthSortMode, unit: str
   return `${formatBytes(item.growth_amount ?? (unit === "月" ? monthlyGrowth(item.forecast.slope_per_day) : item.forecast.slope_per_day))}/${unit}`;
 }
 
+function isAlertGrowthVm(item: GrowthVmReport): boolean {
+  return (item.growth_ratio ?? 0) > VM_ALERT_RATIO && (item.growth_amount ?? 0) > VM_ALERT_BYTES;
+}
+
 function formatExhaustionDays(value?: number | null): string {
   if (value == null || !Number.isFinite(value)) return "未触发";
   return `${Math.round(value)} 天`;
+}
+
+function isQuarterRiskExhaustion(value?: number | null): boolean {
+  return value != null && Number.isFinite(value) && value < 90;
 }
 
 function formatPercent(value?: number | null): string {
