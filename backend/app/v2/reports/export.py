@@ -578,6 +578,23 @@ def _top_vms(vms: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
     return sorted(vms, key=key, reverse=True)[:100]
 
 
+def _merge_growth_candidates(primary: list[dict[str, Any]], secondary: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for vm in [*primary, *secondary]:
+        labels = vm.get("labels") or {}
+        key = (
+            str(labels.get("tower_id") or ""),
+            str(labels.get("cluster_id") or ""),
+            str(labels.get("vm_id") or labels.get("vm") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(vm)
+    return merged
+
+
 def _float_or_none(value: Any) -> float | None:
     try:
         return float(value)
@@ -1004,21 +1021,22 @@ def build_report_docx(report: dict[str, Any], settings: V2Settings, *, period_da
         vms = vms_by_cluster.get(_cluster_key(labels), [])
         window_cluster_vms = window_vms_by_cluster.get(_cluster_key(labels), [])
         day_cluster_vms = day_vms_by_cluster.get(_cluster_key(labels), [])
+        top100_vms = _merge_growth_candidates(window_cluster_vms, vms)
         _v1_start_section(document, context, _v1_cluster_footer_label(labels))
         _v1_add_bookmarked_heading(document, f"2.{index} {_v1_cluster_title(labels)}", _v1_cluster_bookmark(index), level=1, bookmark_id=index)
-        _v1_add_cluster_customer_summary(document, cluster, len(vms))
+        _v1_add_cluster_customer_summary(document, cluster, len(top100_vms))
         fallback_vms = window_cluster_vms or day_cluster_vms
-        _v1_add_single_cluster_charts(document, cluster, vms or fallback_vms, vm_chart_title="Top 10 VM 增长量" if vms else "本次统计窗口 Top 10 VM 增长量")
+        _v1_add_single_cluster_charts(document, cluster, top100_vms or day_cluster_vms, vm_chart_title="Top 10 VM 增长量")
         if not vms and fallback_vms:
             document.add_paragraph(f"{_vm_growth_bucket_label(report)}；{EMPTY_MONTH_VM_TEXT}。以下补充展示本次统计窗口内增长最快 VM。")
             _v1_add_vm_window_note(document, context, fallback_vms)
             _v1_add_vm_table(document, _top_vms(fallback_vms, "amount"), "amount")
         document.add_heading("增长量 TOP100 虚拟机（按增长量降序）", level=2)
-        _v1_add_vm_window_note(document, context, vms)
-        _v1_add_vm_table(document, _top_vms(vms, "amount"), "amount", empty_text=EMPTY_MONTH_VM_TEXT)
+        _v1_add_vm_window_note(document, context, top100_vms)
+        _v1_add_vm_table(document, _top_vms(top100_vms, "amount"), "amount", empty_text=EMPTY_MONTH_VM_TEXT)
         document.add_heading("增长率 TOP100 虚拟机（按增长率降序）", level=2)
-        _v1_add_vm_window_note(document, context, vms)
-        _v1_add_vm_table(document, _top_vms(vms, "ratio"), "ratio", empty_text=EMPTY_MONTH_VM_TEXT)
+        _v1_add_vm_window_note(document, context, top100_vms)
+        _v1_add_vm_table(document, _top_vms(top100_vms, "ratio"), "ratio", empty_text=EMPTY_MONTH_VM_TEXT)
 
     content = _docx_bytes(document)
     return _persist_report(content, settings, context["filename"])
@@ -1232,28 +1250,45 @@ def _v1_add_report_overview(document: Document, context: dict[str, Any]) -> None
         run.bold = True
         run.font.size = Pt(13)
         run.font.color.rgb = RGBColor(23, 54, 93)
+    _v1_add_callout(document, "容量风险摘要", _capacity_risk_summary(context["report"]))
     _v1_add_callout(document, "结论摘要", _overview_sentence(clusters))
 
 
 def _v1_add_cluster_directory(document: Document, clusters: list[dict[str, Any]]) -> None:
     document.add_heading("目录", level=1)
+    entries: list[tuple[str, str, str, str | None]] = [
+        ("1", "报告摘要", "1", None),
+        ("2", "集群容量增长概览", "1.1", None),
+        ("3", "本次统计窗口增长 VM", "1.2", None),
+    ]
+    for index, cluster in enumerate(clusters, start=1):
+        labels = cluster.get("labels", {})
+        cluster_title = _v1_cluster_title(labels)
+        entries.extend(
+            [
+                (str(len(entries) + 1), cluster_title, f"2.{index}", _v1_cluster_bookmark(index)),
+                (str(len(entries) + 1), f"{cluster_title} - Top 10 VM 增长量", f"2.{index}.1", _v1_cluster_bookmark(index)),
+                (str(len(entries) + 1), f"{cluster_title} - 增长量 TOP100 虚拟机", f"2.{index}.2", _v1_cluster_bookmark(index)),
+                (str(len(entries) + 1), f"{cluster_title} - 增长率 TOP100 虚拟机", f"2.{index}.3", _v1_cluster_bookmark(index)),
+            ]
+        )
     if not clusters:
-        document.add_paragraph("当前导出范围内暂无集群。")
-        document.add_page_break()
-        return
+        entries.append(("4", "当前导出范围内暂无集群", "-", None))
 
     table = document.add_table(rows=1, cols=3)
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     _v1_set_table_width(table, [900, 4300, 2500])
-    _v1_set_docx_headers(table.rows[0].cells, ["序号", "集群", "章节"])
+    _v1_set_docx_headers(table.rows[0].cells, ["序号", "内容", "章节"])
     _v1_set_table_borders(table, BORDER)
-    for index, cluster in enumerate(clusters, start=1):
-        labels = cluster.get("labels", {})
+    for row_index, (order, title, chapter, bookmark) in enumerate(entries, start=1):
         row = table.add_row().cells
-        _v1_set_docx_row(row, [str(index), "", f"2.{index}"])
-        _v1_add_internal_link(row[1].paragraphs[0], _v1_cluster_bookmark(index), _v1_cluster_title(labels))
-        if index % 2 == 0:
+        _v1_set_docx_row(row, [order, "", chapter])
+        if bookmark:
+            _v1_add_internal_link(row[1].paragraphs[0], bookmark, title)
+        else:
+            _v1_set_cell(row[1], title)
+        if row_index % 2 == 0:
             _v1_shade_row(row, "FAFCFF")
     _v1_add_callout(document, "定位说明", "可通过本目录快速确认集群章节编号；Word 打开后也可使用导航窗格按标题跳转。")
     document.add_page_break()
@@ -1504,9 +1539,9 @@ def _v1_vm_headers(include_cluster: bool, sort_mode: str) -> list[str]:
         headers.extend(["Tower", "集群"])
     headers.extend(["VM", "当前容量", "期初容量", "增长量", "增长率"])
     if sort_mode == "ratio":
-        headers[-1] = "增长率（排序）"
+        headers[-1] = "增长率 ↓"
     else:
-        headers[-2] = "增长量（排序）"
+        headers[-2] = "增长量 ↓"
     return headers
 
 

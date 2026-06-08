@@ -14,8 +14,9 @@ except ModuleNotFoundError:  # pragma: no cover - local host may not have web de
 
 
 class FakeReportService:
-    def __init__(self, *, month_vms: Optional[list[dict]] = None) -> None:
+    def __init__(self, *, month_vms: Optional[list[dict]] = None, window_vms: Optional[list[dict]] = None) -> None:
         self.month_vms = month_vms
+        self.window_vms = window_vms
 
     def latest_report(self, tower_id=None, cluster_id=None, period_days=30, chart_days=365):
         return {
@@ -56,6 +57,28 @@ class FakeReportService:
                     "previous_value": 232 * 1024**3,
                     "growth_ratio": 0.03,
                 }
+            ],
+            "window_fastest_growing_vms": self.window_vms
+            if self.window_vms is not None
+            else [
+                {
+                    "labels": {"tower_id": "1", "tower": "Tower A", "cluster_id": "cluster-a", "cluster": "Cluster A", "vm_id": "vm-window-1", "vm": "Window VM One"},
+                    "forecast": {"status": "ok", "slope_per_day": 4, "current": 240 * 1024**3},
+                    "growth_amount": 20 * 1024**3,
+                    "previous_value": 220 * 1024**3,
+                    "growth_ratio": 0.09,
+                    "window_start_at": "2026-05-22T13:00:00+00:00",
+                    "window_end_at": "2026-06-06T19:00:00+00:00",
+                },
+                {
+                    "labels": {"tower_id": "1", "tower": "Tower A", "cluster_id": "cluster-a", "cluster": "Cluster A", "vm_id": "vm-window-2", "vm": "Window VM Two"},
+                    "forecast": {"status": "ok", "slope_per_day": 3, "current": 140 * 1024**3},
+                    "growth_amount": 12 * 1024**3,
+                    "previous_value": 128 * 1024**3,
+                    "growth_ratio": 0.09,
+                    "window_start_at": "2026-05-22T13:00:00+00:00",
+                    "window_end_at": "2026-06-06T19:00:00+00:00",
+                },
             ],
             "month_fastest_growing_vms": self.month_vms
             if self.month_vms is not None
@@ -109,9 +132,22 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("SmartX HCI Capacity Insight", word_xml)
             self.assertIn("Storage Capacity Forecast Report", word_xml)
             self.assertIn("定位说明", word_xml)
+            self.assertIn("报告摘要", word_xml)
+            self.assertIn("集群容量增长概览", word_xml)
+            self.assertIn("本次统计窗口增长 VM", word_xml)
+            self.assertIn("增长量 TOP100 虚拟机", word_xml)
+            self.assertIn("增长率 TOP100 虚拟机", word_xml)
+            self.assertIn("当前已用", word_xml)
+            self.assertIn("较上月增加", word_xml)
+            self.assertIn("容量关注集群", word_xml)
+            self.assertIn("容量风险摘要", word_xml)
+            self.assertIn("Cluster A 使用率超过 80%，容量风险较高", word_xml)
             self.assertIn("1. 集群容量增长概览", word_xml)
             self.assertIn("2.1 Tower A - Cluster A", word_xml)
+            self.assertIn("建议：当前容量已达到关注阈值", word_xml)
             self.assertIn("Top 10 VM 增长量", word_xml)
+            self.assertIn("增长量 ↓", word_xml)
+            self.assertIn("增长率 ↓", word_xml)
 
     def test_docx_keeps_day_growth_data_when_month_growth_is_empty(self) -> None:
         from app.v2.config import V2Settings
@@ -125,6 +161,31 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("日增长最快 VM", word_xml)
             self.assertIn("Day VM", word_xml)
             self.assertIn("当前样本跨度区间暂无 VM 增长数据", word_xml)
+
+    def test_docx_cluster_top100_uses_window_growth_when_month_growth_is_sparse(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="reports-docx-secret")
+            content, _, _, _ = build_report_docx(FakeReportService(month_vms=[]).latest_report(period_days=14), settings, period_days=14)
+            word_xml, _ = _docx_xml(content)
+            self.assertIn("Window VM One", word_xml)
+            self.assertIn("Window VM Two", word_xml)
+            self.assertIn("本次统计窗口内增长最快 VM", word_xml)
+
+    def test_docx_cluster_top100_merges_window_and_month_growth(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="reports-docx-secret")
+            content, _, _, _ = build_report_docx(FakeReportService().latest_report(period_days=30), settings, period_days=30)
+            word_xml, _ = _docx_xml(content)
+            self.assertIn("Window VM One", word_xml)
+            self.assertIn("Window VM Two", word_xml)
+            self.assertIn("VM One", word_xml)
+            self.assertIn('w:fill="F4CCCC"', word_xml)
 
     def test_docx_vm_top_uses_actual_sample_window_not_requested_period(self) -> None:
         from app.v2.config import V2Settings
@@ -143,7 +204,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = V2Settings(data_root=Path(tmpdir), secret_key="reports-docx-secret")
-            report = FakeReportService(month_vms=month_vms).latest_report(period_days=365)
+            report = FakeReportService(month_vms=month_vms, window_vms=[]).latest_report(period_days=365)
             content, _, _, _ = build_report_docx(report, settings, period_days=365)
             word_xml, _ = _docx_xml(content)
             self.assertIn("统计窗口：2026-06-06 - 2026-06-06", word_xml)

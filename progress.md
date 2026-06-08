@@ -2501,3 +2501,38 @@ TDD 记录：
 - 本地通过 `git diff --check`。
 - `10.20.11.3` 后端容器内通过 `backend.tests.test_v2_dashboard_vm`，共 6 个测试通过。
 - `10.20.11.3` Node 容器内通过 `DashboardPage.test.tsx`，共 9 个测试通过。
+
+### 2026-06-08 Phase 14 Word 报表产品化优化
+
+状态：完成并已在 `10.20.11.3` 验证
+
+实现：
+
+- v2 Word 导出继续使用 v2 `latest_report()` 数据口径和现有导出 API，不回退 v1 查询逻辑。
+- Word 报表恢复接近 v1 的客户交付版式：封面品牌条、英文副标题、蓝色分隔线、报告说明卡片、页眉页脚、目录表格和集群书签。
+- 报告摘要增加 v1 风格 KPI 卡片，并前置“容量风险摘要”，正常/高风险文案按当前集群容量口径生成。
+- 集群章节保留客户化 KPI 网格、风险建议、容量趋势图、Top 10 VM 增长量图、增长量 TOP100 和增长率 TOP100。
+- 月增长为空时继续展示日增长数据和明确空状态文案，避免 Word 看起来像导出失败。
+- Word VM 表格排序列使用箭头标识：`增长量 ↓`、`增长率 ↓`。
+- 集群章节 TOP100 候选改为合并“本次统计窗口增长 VM”和“月增长 VM”，按 `tower_id + cluster_id + vm_id` 去重，避免 7/14/30 天导出时 TOP100 不全。
+- Word 目录补充小标题，包含报告摘要、集群容量增长概览、本次统计窗口增长 VM、每个集群的 Top 10 VM 增长量、增长量 TOP100 和增长率 TOP100。
+
+验证：
+
+- 本地通过 `python3 -m py_compile backend/app/v2/reports/export.py backend/tests/test_v2_report_exports.py`。
+- 本地通过 `git diff --check`。
+- `10.20.11.3` 后端容器内通过 `backend.tests.test_v2_report_exports`，共 7 个测试通过。
+- `10.20.11.3` 完成 `docker compose --project-name smartx-storage-forecast build web-api` 和 `web-api` recreate。
+- `10.20.11.3` `/api/system/health` 返回 `ok=true`、`version=v0.5.0`、`runner_version=v0.3.0`。
+- 真实调用 `/api/reports/export/bundle?period_days=30` 成功，任务中心只生成 1 个“导出预测报表”任务，links 为 `Word`、`Excel`。
+- 抽取生成的 Word XML，确认包含 `SmartX HCI Capacity Insight`、`Storage Capacity Forecast Report`、`容量风险摘要`、`报告摘要`、`Top 10 VM 增长量`、`增长量 ↓`、`增长率 ↓`、`本次统计窗口增长 VM`、`增长量 TOP100 虚拟机` 和 `增长率 TOP100 虚拟机`。
+
+### 2026-06-08 预计存储耗尽算法增强待办
+
+状态：已记录，代码待实施
+
+结论：
+
+- 当前预计存储耗尽基于最近窗口的线性趋势：`(总容量 - 当前已用) / slope_per_day`。
+- 如果某天发生一次性大数据量写入，线性趋势会被拉陡，第二天预计耗尽天数可能突然变短。
+- 已在 Phase 15 后续增强中新增待办：后续需要区分长期趋势预测和单日大数据量冲击，建议展示 30/90 天平滑趋势、近 24 小时异常增长提示，以及排除单日突增后的稳健预测口径。
