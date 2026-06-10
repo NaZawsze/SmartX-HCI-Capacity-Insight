@@ -2973,3 +2973,52 @@ TDD 记录：
 - 真实 Word XML 验证：`2.3` 区段包含 `当前使用率`、`90 天预测使用率`、`容量阈值`、`容量安全边际`、`█/░` 文本块、深蓝 `1A3C6E` 和亮蓝 `007ACC` 文字颜色；不包含旧 `Top 10 集群容量使用率`。
 - 已将真实导出的 Word 拉回本机渲染为 PNG，确认 `2.3` 视觉为纯文本块进度条，10.16% 显示 10 个深色块，右侧紧跟容量阈值。
 - 字体继续使用开源 `Noto Serif` / `Noto Serif CJK SC`，不使用 `微软雅黑`。
+
+### 2026-06-10 Excel 客户模板固化
+
+状态：已同步 `10.20.11.3`，容器回归验证完成
+
+- 已以用户修改的 `storage-forecast-optimized_1.xlsx` 重建并净化仓库 Excel 模板。
+- 已清除模板中的 Tower、集群、VM 和容量数据，保留列宽、行高、样式、合并范围和冻结窗格。
+- 已增加隐藏集群模板 Sheet，实际导出按集群复制，输出文件不保留模板 Sheet。
+- 已新增精确布局回归测试，覆盖固定 Sheet 顺序、关键列宽、关键行高、合并范围和字体。
+- 本地 `backend.tests.test_v2_report_exports` 20 个测试通过，2 个因本机缺 FastAPI 依赖跳过。
+- 已同步到 `10.20.11.3:/opt/smartx-storage-forecast-v2`，重建并 recreate `web-api`。
+- 测试机容器内 `backend.tests.test_v2_report_exports backend.tests.test_v2_reports` 共 26 个测试通过。
+- `/api/system/health` 返回 `ok=true`，数据库和 Prometheus 检查正常。
+- 测试机真实数据导出：`/data/exports/reports/storage-forecast-all-20260610-193153-14d.xlsx`。
+- 真实导出包含 7 个固定 Sheet 和 `SMARTX-TT-WW` 集群 Sheet；TOP100 为 101 行，关键列宽与用户模板一致，全部字体为 `Noto Sans CJK SC`，输出中不包含隐藏模板 Sheet。
+
+### 2026-06-10 Excel 摘要与增长详情补充
+
+状态：测试机真实数据验证完成
+
+- 执行摘要 KPI 表第 4、6 行全部改为黑色粗体。
+- `日增长详情` 标题合并为 `A1:I1`，避免标题文字显示不全。
+- 在 `日增长详情` 后新增 `月增长详情`，使用 `month_fastest_growing_vms`，列结构和布局与日增长详情一致。
+- 本地目标测试完成 RED/GREEN 验证；完整 `backend.tests.test_v2_report_exports` 共 21 个测试通过，2 个因本机缺 FastAPI 依赖跳过。
+- 已同步到 `10.20.11.3`，重建并 recreate `web-api`；容器内报表测试共 27 个通过。
+- 真实导出：`/data/exports/reports/storage-forecast-all-20260610-201601-14d.xlsx`。
+- 真实文件确认摘要第 4、6 行均为黑色粗体，日/月增长标题均合并 `A1:I1`，`月增长详情` 位于 `日增长详情` 后，全部字体为 `Noto Sans CJK SC`。
+- 当前现场历史窗口不足 30 天，因此月增长详情保留 Sheet 并显示明确空状态；满 30 天后按既有月增长口径填充 VM。
+
+### 2026-06-10 Excel TOP100 初始视口修复
+
+状态：测试机真实数据验证完成
+
+- 根因是客户模板的 `VM增长TOP100` Sheet 保存了 `topLeftCell=C1` 和活动单元格 `H15`，导出文件继承后默认从 C 列打开。
+- 导出时保留 `A5` 冻结窗格，同时强制将初始视口重置为 `A1`，活动单元格重置为 `A5`。
+- 新增回归断言，确保后续模板更新不会再次把默认视口带回 C 列。
+- 本地 `backend.tests.test_v2_report_exports` 共 21 个测试通过，2 个因本机缺 FastAPI 依赖跳过；`py_compile` 与 `git diff --check` 通过。
+- 已同步到 `10.20.11.3`，容器内报表测试共 27 个通过，并重建、recreate `web-api`；健康检查返回 `ok=true`。
+- 真实导出：`/data/exports/reports/storage-forecast-all-20260610-203302-14d.xlsx`，确认 `VM增长TOP100` 的 `topLeftCell=A1`、冻结窗格 `A5`、活动单元格 `A5`。
+
+### 2026-06-10 Excel 日增长标签色清理
+
+状态：测试机真实数据验证完成
+
+- 清除 `日增长详情` Sheet 从客户模板继承的紫色标签色，表格内容、字体、列宽和内部配色保持不变。
+- 导出代码显式设置 `日增长详情.sheet_properties.tabColor=None`，避免后续替换模板时再次带回标签颜色。
+- 新增回归断言；本地完整报表测试 21 个通过、2 个因本机缺 FastAPI 依赖跳过，`py_compile` 与 `git diff --check` 通过。
+- 已同步到 `10.20.11.3`，容器内报表测试 27 个通过，重建并 recreate `web-api`，健康检查返回 `ok=true`。
+- 真实导出：`/data/exports/reports/storage-forecast-all-20260610-223344-14d.xlsx`，确认 `日增长详情` 的 `tabColor=None`。

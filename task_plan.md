@@ -536,3 +536,15 @@ Phase V2-0 细化文档：
 - [已解决] SQLite 运行态缓存治理第一版：`metric_snapshots` 最多保留 1 条，`collection_runs` 保留最近 7 天，`tasks` 保留最近 30 天且未确认告警/严重告警继续保留；SQLite 清理前备份并执行 VACUUM；导出文件被清理后任务中心下载链接显示“已失效”。
 - [已解决] SQLite 备份清理第一版：空间清理页在“SQLite 清理并整理”下方新增独立框体，可扫描 `/data/backups` 顶层 SQLite 数据库备份，勾选后删除；不会清理升级前备份、导入前备份、Prometheus 备份或 `.tar.gz` 文件。
 - [已解决] 升级中心 v2 后续增强文档补齐：`docs/v2-upgrade-center-design.md` 已补 manifest 组件声明、执行边界、组合升级顺序、Prometheus 回归和失败恢复策略。
+
+### Phase 18 - Excel 客户模板固化
+
+状态：已同步测试机并通过回归验证
+
+- 以用户确认的 `storage-forecast-optimized_1.xlsx` 为唯一 Excel 版式基准。
+- 固化 Sheet 顺序、列宽、行高、合并范围、冻结窗格和开源字体。
+- 模板文件不得保存现场 Tower、集群、VM 或容量数据；运行时只填充实时数据。
+- 每个集群 Sheet 从统一集群模板生成，避免多集群导出时格式漂移。
+- [已完成] 摘要 KPI 表第 1、3 行改为黑色粗体。
+- [已完成] 日增长详情标题合并 `A1:I1`。
+- [已完成] 新增独立月增长详情 Sheet，复用日增长详情布局并读取月增长 VM 数据。

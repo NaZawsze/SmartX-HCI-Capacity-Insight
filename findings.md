@@ -315,3 +315,10 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 已落地：`critical` 用于服务重启失败、平台升级失败、组件升级失败、回滚失败等重要任务失败，需要确认或删除才消除角标。
 - 已落地：一键清空只能清除已读信息任务和已确认告警/严重告警任务，不能清除未确认告警。
 - 已新增 API：`POST /api/tasks/seen`、`POST /api/tasks/{task_id}/ack`、`DELETE /api/tasks/clearable`。
+
+## Excel 客户模板发现
+
+- 用户修改版不只是字号调整，已重新定义各 Sheet 的列宽、行高和信息密度。
+- 仓库旧模板只有 5 个 Sheet，用户确认版包含 7 个固定 Sheet 和 1 个集群样式 Sheet。
+- 正式模板应净化为无业务数据的二进制模板，并将集群样式 Sheet 隐藏；导出时按实际集群复制并填数。
+- Excel 全部字体继续使用开源 `Noto Sans CJK SC`，不能在导出后统一叠加字号，否则会破坏模板尺寸。

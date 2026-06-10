@@ -190,7 +190,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
                 "end_at": "2026-06-06T23:59:59+08:00",
             }
             content, _, _, _ = build_report_docx(report, settings, period_days=365)
-            word_xml, _ = _docx_xml(content)
+            word_xml, footer_xml = _docx_xml(content)
             self.assertIn("近 365 天样本增长", word_xml)
             self.assertIn("采集历史不足对应天数时显示数据不足", word_xml)
             self.assertIn("2026-05-22 - 2026-06-06", word_xml)
@@ -224,7 +224,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             ]
             content, _, path, _ = build_report_docx(FakeReportService(clusters=clusters).latest_report(period_days=30), settings, period_days=30)
             self.assertTrue(path.is_file())
-            word_xml, _ = _docx_xml(content)
+            word_xml, footer_xml = _docx_xml(content)
             self.assertIn("存储容量预测平台", word_xml)
             self.assertIn("SMARTX超融合存储容量分析报告", word_xml)
             self.assertIn("SMARTX HCI Storage Capacity Analysis Report", word_xml)
@@ -245,10 +245,10 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("五  全集群汇总报告", word_xml)
             self.assertIn("2.1  范围基本信息", word_xml)
             self.assertIn(">Tower<", word_xml)
-            self.assertIn("三.1  Tower A / Cluster A", word_xml)
-            self.assertIn("三.2  Tower A / Cluster B", word_xml)
-            self.assertIn("四.1  Tower A / Cluster A", word_xml)
-            self.assertIn("四.2  Tower A / Cluster B", word_xml)
+            self.assertIn("3.1  Tower A / Cluster A", word_xml)
+            self.assertIn("3.2  Tower A / Cluster B", word_xml)
+            self.assertIn("4.1  Tower A / Cluster A", word_xml)
+            self.assertIn("4.2  Tower A / Cluster B", word_xml)
             self.assertIn("Top 10 VM 增长量", word_xml)
             self.assertIn("增长 VM 样本数", word_xml)
             self.assertIn("当前使用率", word_xml)
@@ -258,7 +258,9 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             usage_section = word_xml.split("2.3  容量使用率可视化", 1)[1].split("三  集群虚拟机增长分析", 1)[0]
             self.assertIn("█", usage_section)
             self.assertIn("░", usage_section)
-            self.assertIn("████████████", usage_section)
+            self.assertIn(f"{'█' * 6}{'░' * 44}", usage_section)
+            self.assertIn(f"{'█' * 15}{'░' * 35}", usage_section)
+            self.assertNotIn(f"{'█' * 12}{'░' * 38}", usage_section)
             self.assertIn('w:color w:val="1A3C6E"', usage_section)
             self.assertIn('w:color w:val="007ACC"', usage_section)
             self.assertNotIn("w:tbl", usage_section)
@@ -280,6 +282,19 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("<w:tblHeader", word_xml)
             self.assertIn("<w:cantSplit", word_xml)
             self.assertIn('<w:br w:type="page"/>', word_xml)
+
+            vm_header_row = _docx_row_containing(word_xml, "排名")
+            self.assertIn("<w:keepNext", vm_header_row)
+
+            self.assertIn("PAGE", footer_xml)
+            self.assertIn("NUMPAGES", footer_xml)
+            self.assertIn("第 ", footer_xml)
+            self.assertIn(" 页 / 共 ", footer_xml)
+
+            summary_section = word_xml.split("一  摘要", 1)[1].split("二  集群容量概览", 1)[0]
+            self.assertEqual(summary_section.count("当前已用容量"), 2)
+            self.assertIn("Tower A / Cluster A", summary_section)
+            self.assertIn("Tower A / Cluster B", summary_section)
 
     def test_docx_cover_shows_requested_report_window_separately_from_effective_data_window(self) -> None:
         from app.v2.config import V2Settings
@@ -313,11 +328,51 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             content, _, _, _ = build_report_docx(FakeReportService().latest_report(period_days=30), settings, period_days=30)
             word_xml, _ = _docx_xml(content)
             self.assertLess(word_xml.index("目录"), word_xml.index("一  摘要"))
-            self.assertIn("三.1  Tower A / Cluster A", word_xml)
-            self.assertIn("三.2  Tower A / Cluster B", word_xml)
-            self.assertIn("四.1  Tower A / Cluster A", word_xml)
-            self.assertIn("四.2  Tower A / Cluster B", word_xml)
+            self.assertIn("3.1  Tower A / Cluster A", word_xml)
+            self.assertIn("3.2  Tower A / Cluster B", word_xml)
+            self.assertIn("4.1  Tower A / Cluster A", word_xml)
+            self.assertIn("4.2  Tower A / Cluster B", word_xml)
             self.assertIn("五  全集群汇总报告", word_xml)
+
+    def test_docx_multi_cluster_summary_orders_risk_tables_and_single_cluster_stays_compact(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_docx
+
+        normal_cluster = {
+            "labels": {"tower_id": "1", "tower": "Tower A", "cluster_id": "normal", "cluster": "Normal Cluster"},
+            "forecast": {"status": "ok", "current": 40, "forecast_90d": 45, "exhaustion_days": None},
+            "points": [[1764547200, 38], [1764633600, 40]],
+            "total": 100,
+            "warning": 75,
+        }
+        high_cluster = {
+            "labels": {"tower_id": "2", "tower": "Tower B", "cluster_id": "high", "cluster": "High Cluster"},
+            "forecast": {"status": "ok", "current": 88, "forecast_90d": 95, "exhaustion_days": 64},
+            "points": [[1764547200, 84], [1764633600, 88]],
+            "total": 100,
+            "warning": 75,
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="reports-docx-secret")
+            multi_content, _, _, _ = build_report_docx(
+                FakeReportService(clusters=[normal_cluster, high_cluster]).latest_report(period_days=30),
+                settings,
+                period_days=30,
+            )
+            multi_xml, _ = _docx_xml(multi_content)
+            summary = multi_xml.split("一  摘要", 1)[1].split("二  集群容量概览", 1)[0]
+            self.assertEqual(summary.count("当前已用容量"), 2)
+            self.assertLess(summary.index("Tower B / High Cluster"), summary.index("Tower A / Normal Cluster"))
+
+            single_content, _, _, _ = build_report_docx(
+                FakeReportService(clusters=[normal_cluster]).latest_report(period_days=30),
+                settings,
+                period_days=30,
+            )
+            single_xml, _ = _docx_xml(single_content)
+            single_summary = single_xml.split("一  摘要", 1)[1].split("二  集群容量概览", 1)[0]
+            self.assertEqual(single_summary.count("当前已用容量"), 1)
 
     def test_docx_uses_native_toc_and_real_heading_styles(self) -> None:
         from app.v2.config import V2Settings
@@ -342,7 +397,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
                 paragraph_xml = _docx_paragraph_containing(word_xml, title)
                 self.assertIn('w:pStyle w:val="Heading1"', paragraph_xml)
 
-            for title in ["三.1  Tower A / Cluster A", "三.2  Tower A / Cluster B", "四.1  Tower A / Cluster A", "四.2  Tower A / Cluster B"]:
+            for title in ["3.1  Tower A / Cluster A", "3.2  Tower A / Cluster B", "4.1  Tower A / Cluster A", "4.2  Tower A / Cluster B"]:
                 paragraph_xml = _docx_paragraph_containing(word_xml, title)
                 self.assertIn('w:pStyle w:val="Heading2"', paragraph_xml)
 
@@ -375,8 +430,8 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             report = FakeReportService(window_vms=window_vms, month_vms=[]).latest_report(period_days=30)
             content, _, _, _ = build_report_docx(report, settings, period_days=30)
             word_xml, _ = _docx_xml(content)
-            cluster_a_section = word_xml.split("三.1  Tower A / Cluster A", 1)[1].split("三.2  Tower A / Cluster B", 1)[0]
-            cluster_b_section = word_xml.split("三.2  Tower A / Cluster B", 1)[1].split("四  集群容量趋势图表", 1)[0]
+            cluster_a_section = word_xml.split("3.1  Tower A / Cluster A", 1)[1].split("3.2  Tower A / Cluster B", 1)[0]
+            cluster_b_section = word_xml.split("3.2  Tower A / Cluster B", 1)[1].split("四  集群容量趋势图表", 1)[0]
             self.assertIn("Cluster A Only VM", cluster_a_section)
             self.assertNotIn("Cluster B Only VM", cluster_a_section)
             self.assertIn("Cluster B Only VM", cluster_b_section)
@@ -602,6 +657,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("容量趋势", workbook.sheetnames)
             self.assertIn("VM增长TOP100", workbook.sheetnames)
             self.assertIn("日增长详情", workbook.sheetnames)
+            self.assertIn("月增长详情", workbook.sheetnames)
             self.assertIn("本日新建VM", workbook.sheetnames)
             self.assertIn("本月新建VM", workbook.sheetnames)
             self.assertIn("Cluster A", workbook.sheetnames)
@@ -636,7 +692,10 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("TOP100", str(top_sheet["I1"].value))
             self.assertGreaterEqual(top_sheet.column_dimensions["B"].width, 36)
             self.assertGreaterEqual(top_sheet.column_dimensions["C"].width, 16)
-            self.assertGreaterEqual(top_sheet.column_dimensions["E"].width, 16)
+            self.assertEqual(top_sheet.column_dimensions["E"].width, 13)
+            self.assertIn(f"H1:H{top_sheet.max_row}", {str(item) for item in top_sheet.merged_cells.ranges})
+            self.assertIsNone(top_sheet["H1"].fill.fill_type)
+            self.assertEqual(top_sheet.column_dimensions["H"].width, 10)
 
             cluster_sheet = workbook["Cluster A"]
             cluster_values = [cell for row in cluster_sheet.iter_rows(values_only=True) for cell in row if cell is not None]
@@ -651,13 +710,182 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertGreaterEqual(cluster_sheet.column_dimensions["A"].width, 36)
             self.assertGreaterEqual(cluster_sheet.column_dimensions["B"].width, 16)
             self.assertGreaterEqual(cluster_sheet.column_dimensions["D"].width, 16)
-            self.assertIsInstance(cluster_sheet["B2"].value, str)
-            self.assertNotIsInstance(cluster_sheet["B2"].value, (int, float))
+            self.assertEqual(
+                [cluster_sheet.cell(row=2, column=column).value for column in range(1, 10)],
+                ["Tower", "集群", "当前容量", "近 14 天样本增长", "风险", "90 天预测容量", "总容量", "使用率", "预计耗尽天数"],
+            )
+            self.assertEqual(cluster_sheet["A3"].value, "Tower A")
+            self.assertEqual(cluster_sheet["B3"].value, "Cluster A")
+            self.assertEqual(cluster_sheet["C3"].value, "810.00 GiB")
+            self.assertEqual(cluster_sheet["I3"].value, "64 天")
+            vm_header_rows = [
+                row_index
+                for row_index in range(1, cluster_sheet.max_row + 1)
+                if cluster_sheet.cell(row=row_index, column=1).value == "VM"
+                and cluster_sheet.cell(row=row_index, column=2).value == "当前容量"
+            ]
+            self.assertEqual(len(vm_header_rows), 2)
+            for header_row in vm_header_rows:
+                self.assertNotEqual(cluster_sheet.cell(row=header_row + 1, column=1).value, "VM")
 
             cover = workbook["封面"]
             self.assertEqual(cover["B8"].value, "SMARTX超融合存储容量分析报告")
             self.assertEqual(cover["B9"].value, "SMARTX HCI Storage Capacity Analysis Report")
             self.assertEqual(cover["B8"].font.color.rgb[-6:], "1A3C6E")
+            self.assertEqual(cover["B8"].font.name, "Noto Sans CJK SC")
+            self.assertEqual(cover["B8"].font.sz, 26)
+            self.assertEqual(cover.row_dimensions[8].height, 40)
+
+            for sheet in workbook.worksheets:
+                for row in sheet.iter_rows():
+                    for cell in row:
+                        if cell.value is None:
+                            continue
+                        self.assertEqual(cell.font.name, "Noto Sans CJK SC", f"{sheet.title}!{cell.coordinate}")
+                        self.assertGreater(cell.font.sz or 0, 0, f"{sheet.title}!{cell.coordinate}")
+
+    def test_xlsx_matches_optimized_customer_template_layout(self) -> None:
+        from openpyxl import load_workbook
+
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_xlsx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="reports-xlsx-layout-secret")
+            report = FakeReportService().latest_report(period_days=14)
+            content, _, _, _ = build_report_xlsx(report, settings, period_days=14)
+            workbook = load_workbook(io.BytesIO(content), data_only=True)
+
+        self.assertEqual(
+            workbook.sheetnames,
+            [
+                "封面",
+                "执行摘要",
+                "容量趋势",
+                "VM增长TOP100",
+                "日增长详情",
+                "月增长详情",
+                "本日新建VM",
+                "本月新建VM",
+                "Cluster A",
+                "Cluster B",
+            ],
+        )
+
+        cover = workbook["封面"]
+        self.assertEqual(cover.row_dimensions[8].height, 40)
+        self.assertEqual(cover.column_dimensions["A"].width, 8)
+        self.assertEqual(cover.column_dimensions["B"].width, 50)
+        self.assertEqual(cover.column_dimensions["C"].width, 8)
+        self.assertEqual(cover.column_dimensions["D"].width, 20)
+        self.assertEqual(cover["B8"].font.sz, 26)
+
+        summary = workbook["执行摘要"]
+        self.assertEqual(summary.column_dimensions["A"].width, 50)
+        self.assertEqual(summary.column_dimensions["B"].width, 20.5)
+        self.assertEqual(summary.column_dimensions["C"].width, 18)
+        self.assertAlmostEqual(summary.column_dimensions["D"].width, 38.83203125)
+        self.assertEqual(summary.row_dimensions[2].height, 38)
+        self.assertEqual(summary["A5"].font.sz, 18)
+
+        trend = workbook["容量趋势"]
+        self.assertEqual(trend.freeze_panes, "A4")
+        self.assertEqual(trend.column_dimensions["A"].width, 50)
+        self.assertAlmostEqual(trend.column_dimensions["B"].width, 25.83203125)
+        self.assertAlmostEqual(trend.column_dimensions["C"].width, 16.83203125)
+        self.assertEqual(trend.row_dimensions[2].height, 51)
+        self.assertEqual(trend.row_dimensions[4].height, 30)
+
+        top = workbook["VM增长TOP100"]
+        self.assertEqual(top.freeze_panes, "A5")
+        self.assertEqual(top.sheet_view.topLeftCell, "A1")
+        self.assertEqual(top.sheet_view.selection[0].activeCell, "A5")
+        self.assertEqual(top.sheet_view.selection[0].sqref, "A5")
+        self.assertAlmostEqual(top.column_dimensions["A"].width, 15.83203125)
+        self.assertEqual(top.column_dimensions["B"].width, 50)
+        self.assertEqual(top.column_dimensions["H"].width, 10)
+        self.assertAlmostEqual(top.column_dimensions["I"].width, 15.83203125)
+        self.assertEqual(top.column_dimensions["J"].width, 50)
+        self.assertEqual(top.row_dimensions[1].height, 34)
+        self.assertEqual(top.row_dimensions[3].height, 34)
+        self.assertEqual(top.row_dimensions[4].height, 28)
+        self.assertIn(f"H1:H{top.max_row}", {str(item) for item in top.merged_cells.ranges})
+        self.assertEqual(top["A4"].font.sz, 11)
+        self.assertEqual(top["A5"].font.sz, 11)
+
+        day_growth = workbook["日增长详情"]
+        self.assertEqual(day_growth.column_dimensions["A"].width, 15.83203125)
+        self.assertEqual(day_growth.column_dimensions["B"].width, 44.5)
+        self.assertAlmostEqual(day_growth.column_dimensions["C"].width, 25.83203125)
+        self.assertEqual(day_growth.row_dimensions[4].height, 30)
+
+        day_new = workbook["本日新建VM"]
+        self.assertEqual(day_new.column_dimensions["A"].width, 17.5)
+        self.assertEqual(day_new.column_dimensions["B"].width, 18)
+        self.assertEqual(day_new.column_dimensions["C"].width, 36)
+        self.assertEqual(day_new.row_dimensions[1].height, 22)
+
+        cluster = workbook["Cluster A"]
+        self.assertAlmostEqual(cluster.column_dimensions["A"].width, 36.83203125)
+        self.assertEqual(cluster.column_dimensions["B"].width, 39.5)
+        self.assertAlmostEqual(cluster.column_dimensions["C"].width, 22.6640625)
+        self.assertAlmostEqual(cluster.column_dimensions["D"].width, 19.6640625)
+        self.assertEqual(cluster.column_dimensions["E"].width, 15)
+        self.assertEqual(cluster.row_dimensions[1].height, 32)
+        self.assertEqual(cluster.row_dimensions[2].height, 24)
+        self.assertEqual(cluster.row_dimensions[3].height, 24)
+        self.assertEqual(cluster.row_dimensions[4].height, 32)
+        self.assertEqual(cluster["A1"].font.sz, 23)
+        self.assertEqual(cluster["A3"].font.sz, 12)
+        self.assertEqual(cluster["A6"].font.sz, 14)
+
+        for sheet in workbook.worksheets:
+            for row in sheet.iter_rows():
+                for cell in row:
+                    if cell.value is not None:
+                        self.assertEqual(cell.font.name, "Noto Sans CJK SC", f"{sheet.title}!{cell.coordinate}")
+
+    def test_xlsx_summary_and_growth_detail_sheets_follow_customer_layout(self) -> None:
+        from openpyxl import load_workbook
+
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_xlsx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="reports-xlsx-growth-detail-secret")
+            report = FakeReportService().latest_report(period_days=14)
+            content, _, _, _ = build_report_xlsx(report, settings, period_days=14)
+            workbook = load_workbook(io.BytesIO(content), data_only=True)
+
+        summary = workbook["执行摘要"]
+        for row_index in [4, 6]:
+            for column_index in range(1, 5):
+                cell = summary.cell(row=row_index, column=column_index)
+                self.assertTrue(cell.font.bold, cell.coordinate)
+                self.assertEqual(cell.font.color.type, "rgb", cell.coordinate)
+                self.assertEqual(cell.font.color.rgb[-6:], "000000", cell.coordinate)
+
+        day_sheet = workbook["日增长详情"]
+        self.assertIn("A1:I1", {str(item) for item in day_sheet.merged_cells.ranges})
+        self.assertIn("日增长最快虚拟机", str(day_sheet["A1"].value))
+        self.assertIsNone(day_sheet.sheet_properties.tabColor)
+
+        self.assertEqual(
+            workbook.sheetnames[4:7],
+            ["日增长详情", "月增长详情", "本日新建VM"],
+        )
+        month_sheet = workbook["月增长详情"]
+        self.assertIn("A1:I1", {str(item) for item in month_sheet.merged_cells.ranges})
+        self.assertIn("月增长最快虚拟机", str(month_sheet["A1"].value))
+        self.assertEqual(month_sheet["G3"].value, "月增长量")
+        month_text = "\n".join(
+            str(cell)
+            for row in month_sheet.iter_rows(values_only=True)
+            for cell in row
+            if cell is not None
+        )
+        self.assertIn("VM One", month_text)
+        self.assertNotIn("Day VM", month_text)
 
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
@@ -788,10 +1016,10 @@ class V2ReportExportApiTest(unittest.TestCase):
                     self.assertIn("四  集群容量趋势图表", word_xml)
                     self.assertIn("五  全集群汇总报告", word_xml)
                     self.assertIn("2.1  范围基本信息", word_xml)
-                    self.assertIn("三.1  Tower A / Cluster A", word_xml)
-                    self.assertIn("三.2  Tower A / Cluster B", word_xml)
-                    self.assertIn("四.1  Tower A / Cluster A", word_xml)
-                    self.assertIn("四.2  Tower A / Cluster B", word_xml)
+                    self.assertIn("3.1  Tower A / Cluster A", word_xml)
+                    self.assertIn("3.2  Tower A / Cluster B", word_xml)
+                    self.assertIn("4.1  Tower A / Cluster A", word_xml)
+                    self.assertIn("4.2  Tower A / Cluster B", word_xml)
                     self.assertIn("Top 10 VM 增长量", word_xml)
                     self.assertIn("增长 VM 样本数", word_xml)
                     self.assertNotIn("虚拟机所属人", word_xml)
@@ -845,6 +1073,14 @@ def _docx_paragraph_containing(document_xml: str, text: str) -> str:
         if text in paragraph:
             return paragraph
     raise AssertionError(f"DOCX paragraph not found: {text}")
+
+
+def _docx_row_containing(document_xml: str, text: str) -> str:
+    for row in document_xml.split("<w:tr")[1:]:
+        row_xml = "<w:tr" + row.split("</w:tr>", 1)[0] + "</w:tr>"
+        if text in row_xml:
+            return row_xml
+    raise AssertionError(f"DOCX table row not found: {text}")
 
 
 def _xlsx_values(content: bytes) -> list[str]:

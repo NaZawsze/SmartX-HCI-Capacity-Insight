@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from copy import copy
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
@@ -40,6 +41,8 @@ REPORT_PRODUCT_NAME = "存储容量预测平台"
 REPORT_COVER_TITLE = "SMARTX超融合存储容量分析报告"
 REPORT_COVER_SUBTITLE = "SMARTX HCI Storage Capacity Analysis Report"
 XLSX_TEMPLATE_PATH = Path(__file__).with_name("templates") / "customer_report.xlsx"
+XLSX_FONT_NAME = "Noto Sans CJK SC"
+XLSX_CLUSTER_TEMPLATE_SHEET = "__CLUSTER_TEMPLATE__"
 ACCENT = "1A3C6E"
 ACCENT_DARK = "1A3C6E"
 ACCENT_LIGHT = "F0F4FA"
@@ -201,19 +204,39 @@ def build_report_xlsx(report: dict[str, Any], settings: V2Settings, *, period_da
     _write_xlsx_template_cover(workbook["封面"], report, context, settings)
     _write_xlsx_template_summary(workbook["执行摘要"], report, context, clusters, settings, profile)
     _write_xlsx_template_capacity_trend(workbook["容量趋势"], report, context, clusters, profile)
-    top_sheet = workbook["VM增长TOP20"] if "VM增长TOP20" in workbook.sheetnames else _replace_sheet(workbook, "VM增长TOP100")
+    top_sheet = workbook["VM增长TOP20"] if "VM增长TOP20" in workbook.sheetnames else _get_or_create_sheet(workbook, "VM增长TOP100")
     top_sheet.title = "VM增长TOP100"
     _write_xlsx_template_vm_top100(top_sheet, _customer_growth_vms(report), report, profile)
-    _write_xlsx_template_day_growth(workbook["日增长详情"], report.get("day_fastest_growing_vms") or [], report)
+    day_growth_sheet = workbook["日增长详情"]
+    day_growth_sheet.sheet_properties.tabColor = None
+    _write_xlsx_template_growth_detail(
+        day_growth_sheet,
+        report.get("day_fastest_growing_vms") or [],
+        report,
+        title="日增长最快虚拟机",
+        growth_header="日增长量",
+    )
+    month_growth_sheet = _get_or_create_sheet_after(workbook, "月增长详情", after="日增长详情")
+    _write_xlsx_template_growth_detail(
+        month_growth_sheet,
+        report.get("month_fastest_growing_vms") or [],
+        report,
+        title="月增长最快虚拟机",
+        growth_header="月增长量",
+    )
 
-    _write_simple_vm_sheet(_replace_sheet(workbook, "本日新建VM"), report.get("day_new_vms") or [], "暂无本日新建 VM", include_growth=False)
-    _write_simple_vm_sheet(_replace_sheet(workbook, "本月新建VM"), report.get("month_new_vms") or [], "暂无本月新建 VM", include_growth=False)
+    _write_simple_vm_sheet(_get_or_create_sheet(workbook, "本日新建VM"), report.get("day_new_vms") or [], "暂无本日新建 VM", include_growth=False)
+    _write_simple_vm_sheet(_get_or_create_sheet(workbook, "本月新建VM"), report.get("month_new_vms") or [], "暂无本月新建 VM", include_growth=False)
     vms_by_cluster = _vms_by_cluster(month_vms)
     for cluster in clusters:
         labels = cluster.get("labels", {})
-        sheet = _replace_sheet(workbook, _safe_sheet_name(labels.get("cluster") or labels.get("cluster_id") or "集群"))
+        sheet = _clone_cluster_template_sheet(
+            workbook,
+            _safe_sheet_name(labels.get("cluster") or labels.get("cluster_id") or "集群"),
+        )
         _write_cluster_vm_sheet(sheet, cluster, vms_by_cluster.get(_cluster_key(labels), []), report, profile)
-    _remove_sheets(workbook, ["目录", "范围明细", "集群汇总", "VM_TOP100_汇总", "汇总"])
+    _remove_sheets(workbook, ["目录", "范围明细", "集群汇总", "VM_TOP100_汇总", "汇总", XLSX_CLUSTER_TEMPLATE_SHEET])
+    _normalize_xlsx_fonts(workbook)
 
     output = BytesIO()
     workbook.save(output)
@@ -1023,11 +1046,30 @@ def _load_customer_xlsx_template() -> Workbook:
     return workbook
 
 
-def _replace_sheet(workbook: Workbook, name: str):
+def _get_or_create_sheet(workbook: Workbook, name: str):
+    return workbook[name] if name in workbook.sheetnames else workbook.create_sheet(name)
+
+
+def _get_or_create_sheet_after(workbook: Workbook, name: str, *, after: str):
     if name in workbook.sheetnames:
-        index = workbook.sheetnames.index(name)
+        sheet = workbook[name]
+        current_index = workbook._sheets.index(sheet)
+        target_index = workbook.sheetnames.index(after) + 1
+        if current_index != target_index:
+            workbook._sheets.pop(current_index)
+            workbook._sheets.insert(target_index, sheet)
+        return sheet
+    return workbook.create_sheet(name, workbook.sheetnames.index(after) + 1)
+
+
+def _clone_cluster_template_sheet(workbook: Workbook, name: str):
+    if name in workbook.sheetnames:
         workbook.remove(workbook[name])
-        return workbook.create_sheet(name, index)
+    if XLSX_CLUSTER_TEMPLATE_SHEET in workbook.sheetnames:
+        sheet = workbook.copy_worksheet(workbook[XLSX_CLUSTER_TEMPLATE_SHEET])
+        sheet.title = name
+        sheet.sheet_state = "visible"
+        return sheet
     return workbook.create_sheet(name)
 
 
@@ -1042,6 +1084,11 @@ def _clear_xlsx_sheet(sheet) -> None:
         for cell in row:
             if not isinstance(cell, MergedCell):
                 cell.value = None
+
+
+def _clear_xlsx_tables(sheet) -> None:
+    for name in list(sheet.tables.keys()):
+        del sheet.tables[name]
 
 
 def _reset_xlsx_sheet_rows(sheet) -> None:
@@ -1067,16 +1114,14 @@ def _set_xlsx_cell(sheet, coordinate: str, value: Any, *, size: float | None = N
 def _write_xlsx_template_cover(sheet, report: dict[str, Any], context: dict[str, Any], settings: V2Settings) -> None:
     clusters = report.get("clusters") or []
     _clear_xlsx_sheet(sheet)
-    _set_xlsx_cell(sheet, "B7", REPORT_PRODUCT_NAME, size=13, color=GROWTH_BLUE, align="center")
+    _set_xlsx_cell(sheet, "B7", REPORT_PRODUCT_NAME, size=14, color=GROWTH_BLUE, align="center")
     _set_xlsx_cell(sheet, "B8", REPORT_COVER_TITLE, size=26, bold=True, color=ACCENT_DARK, align="center")
     _set_xlsx_cell(sheet, "B9", REPORT_COVER_SUBTITLE, size=12, color=TEXT_MUTED, align="center")
     _set_xlsx_cell(sheet, "B11", "───────────────────────────────────────────────────────", size=7, color="CCCCCC", align="center")
-    _set_xlsx_cell(sheet, "B13", "客户名称：", size=11, color="555555", align="center")
-    _set_xlsx_cell(sheet, "B14", f"Tower范围：{_tower_scope_label(clusters, context['scope_label'])}", size=11, color="555555", align="center")
-    _set_xlsx_cell(sheet, "B15", f"集群范围：{_cluster_scope_label(clusters, context['scope_label'])}", size=11, color="555555", align="center")
-    _set_xlsx_cell(sheet, "B16", f"统计窗口：{_period_window_label(report)}", size=11, color="555555", align="center")
-    _set_xlsx_cell(sheet, "B17", f"预测窗口：{report.get('forecast_days', 90)} 天", size=11, color="555555", align="center")
-    _set_xlsx_cell(sheet, "B20", f"本报告由 {REPORT_PRODUCT_NAME} {settings.app_version} 生成", size=9, color=TEXT_MUTED, align="center")
+    _set_xlsx_cell(sheet, "B13", "客户名称：", size=12, color="555555", align="center")
+    _set_xlsx_cell(sheet, "B14", f"Tower范围：{_tower_scope_label(clusters, context['scope_label'])}", size=12, color="555555", align="center")
+    _set_xlsx_cell(sheet, "B15", f"集群范围：{_cluster_scope_label(clusters, context['scope_label'])}", size=12, color="555555", align="center")
+    _set_xlsx_cell(sheet, "B16", f"统计窗口：{_period_window_label(report)}", size=12, color="555555", align="center")
 
 
 def _write_xlsx_template_summary(
@@ -1102,7 +1147,7 @@ def _write_xlsx_template_summary(
         sheet,
         "A2",
         f"报告周期：{_period_window_label(report)}  |  Tower：{_tower_scope_label(clusters, context['scope_label'])}  |  集群：{_cluster_scope_label(clusters, context['scope_label'])}  |  统计口径：{profile.window_growth_label}",
-        size=9,
+        size=10,
         color=TEXT_MUTED,
     )
     headers = ["当前已用容量", profile.window_growth_label, "90 天预测容量", "风险状态"]
@@ -1114,28 +1159,43 @@ def _write_xlsx_template_summary(
             cell.fill = PatternFill(fill_type="solid", fgColor=ACCENT_LIGHT)
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         sheet.cell(row=4, column=column).value = header
-        sheet.cell(row=4, column=column).font = Font(name="Noto Sans CJK SC", size=9, color=TEXT_MUTED)
+        sheet.cell(row=4, column=column).font = Font(name=XLSX_FONT_NAME, size=10, bold=True, color="000000")
         sheet.cell(row=5, column=column).value = value
-        sheet.cell(row=5, column=column).font = Font(name="Noto Sans CJK SC", size=18, bold=True, color=RATIO_RED if risk_status == "高风险" and column == 4 else ACCENT_DARK)
+        sheet.cell(row=5, column=column).font = Font(name=XLSX_FONT_NAME, size=18, bold=True, color=RATIO_RED if risk_status == "高风险" and column == 4 else ACCENT_DARK)
         sheet.cell(row=6, column=column).value = subtitle
-        sheet.cell(row=6, column=column).font = Font(name="Noto Sans CJK SC", size=8, color=TEXT_MUTED)
+        sheet.cell(row=6, column=column).font = Font(name=XLSX_FONT_NAME, size=10, bold=True, color="000000")
 
-    _set_xlsx_cell(sheet, "A8", "关键发现", size=13, bold=True, color=ACCENT_DARK)
+    _set_xlsx_cell(sheet, "A8", "关键发现", size=14, bold=True, color=ACCENT_DARK)
     findings = _customer_key_findings(clusters, _customer_growth_vms(report), risk_note, context)
     for offset, finding in enumerate(findings[:4], start=9):
-        _set_xlsx_cell(sheet, f"A{offset}", finding, size=10, color=TEXT_DARK)
-    _set_xlsx_cell(sheet, "A13", "容量风险摘要", size=13, bold=True, color=ACCENT_DARK)
-    _set_xlsx_cell(sheet, "A14", _capacity_risk_summary(report), size=10, color=TEXT_DARK)
-    _set_xlsx_cell(sheet, "A15", f"当前软件版本：{settings.app_version}", size=9, color=TEXT_MUTED)
-    _set_xlsx_cell(sheet, "A16", _profile_sample_notice(report, profile), size=9, color=TEXT_MUTED)
+        _set_xlsx_cell(sheet, f"A{offset}", finding, size=11, color=TEXT_DARK)
+    _set_xlsx_cell(sheet, "A13", "容量风险摘要", size=14, bold=True, color=ACCENT_DARK)
+    _set_xlsx_cell(sheet, "A14", _capacity_risk_summary(report), size=11, color=TEXT_DARK)
+    _set_xlsx_cell(sheet, "A15", f"当前软件版本：{settings.app_version}", size=10, color=TEXT_MUTED)
+    _set_xlsx_cell(sheet, "A16", _profile_sample_notice(report, profile), size=10, color=TEXT_MUTED)
     for row in [1, 2, 8, 9, 10, 11, 12, 13, 14, 15, 16]:
         _merge_title_row(sheet, row, 1, 6)
-    for row in [2, 9, 10, 11, 12, 16]:
-        sheet.row_dimensions[row].height = 38
-    _autosize(sheet)
-    sheet.column_dimensions["A"].width = max(sheet.column_dimensions["A"].width or 0, 42)
-    for column in ["B", "C", "D", "E", "F"]:
-        sheet.column_dimensions[column].width = max(sheet.column_dimensions[column].width or 0, 16)
+    for column, width in {"A": 50, "B": 20.5, "C": 18, "D": 38.83203125, "E": 16}.items():
+        sheet.column_dimensions[column].width = width
+    for row, height in {
+        1: 30,
+        2: 38,
+        3: 15,
+        4: 24,
+        5: 36,
+        6: 28,
+        7: 15,
+        8: 30,
+        9: 38,
+        10: 38,
+        11: 38,
+        12: 38,
+        13: 15,
+        14: 15,
+        15: 15,
+        16: 38,
+    }.items():
+        sheet.row_dimensions[row].height = height
 
 
 def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: dict[str, Any], clusters: list[dict[str, Any]], profile: ReportPeriodProfile) -> None:
@@ -1166,6 +1226,22 @@ def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: 
     _style_customer_xlsx_table(sheet, title_rows={1, 2}, header_rows={3})
     sheet.freeze_panes = "A4"
     sheet.auto_filter.ref = f"A3:{get_column_letter(len(headers))}{sheet.max_row}"
+    for column, width in {
+        "A": 50,
+        "B": 25.83203125,
+        "C": 16.83203125,
+        "D": 20.83203125,
+        "E": 16.83203125,
+        "F": 14.83203125,
+        "G": 16.83203125,
+        "I": 14.83203125,
+    }.items():
+        sheet.column_dimensions[column].width = width
+    sheet.row_dimensions[1].height = 30
+    sheet.row_dimensions[2].height = 51
+    sheet.row_dimensions[3].height = 16
+    for row_index in range(4, sheet.max_row + 1):
+        sheet.row_dimensions[row_index].height = 30
 
 
 def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dict[str, Any], profile: ReportPeriodProfile) -> None:
@@ -1193,13 +1269,24 @@ def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dic
     _style_customer_xlsx_table(sheet, title_rows={1, 3}, header_rows={4})
     _apply_vm_top100_layout(sheet, left_header_row=4, right_header_row=4)
     sheet.freeze_panes = "A5"
+    sheet.sheet_view.topLeftCell = "A1"
+    for selection in sheet.sheet_view.selection:
+        selection.activeCell = "A5"
+        selection.sqref = "A5"
 
 
-def _write_xlsx_template_day_growth(sheet, vms: list[dict[str, Any]], report: dict[str, Any]) -> None:
+def _write_xlsx_template_growth_detail(
+    sheet,
+    vms: list[dict[str, Any]],
+    report: dict[str, Any],
+    *,
+    title: str,
+    growth_header: str,
+) -> None:
     _reset_xlsx_sheet_rows(sheet)
-    sheet.append([f"日增长最快虚拟机（{_period_window_label(report)}）"])
+    sheet.append([f"{title}（{_period_window_label(report)}）"])
     sheet.append([])
-    headers = ["排名", "虚拟机名称", "Tower", "集群", "当前容量", "期初容量", "日增长量", "增长率", "风险"]
+    headers = ["排名", "虚拟机名称", "Tower", "集群", "当前容量", "期初容量", growth_header, "增长率", "风险"]
     sheet.append(headers)
     if not vms:
         sheet.append(["暂无日增长 VM 数据"])
@@ -1208,8 +1295,23 @@ def _write_xlsx_template_day_growth(sheet, vms: list[dict[str, Any]], report: di
         labels = vm.get("labels") or {}
         sheet.append([row[0], row[1], labels.get("tower") or labels.get("tower_id") or "", labels.get("cluster") or labels.get("cluster_id") or "", *row[2:]])
     _style_customer_xlsx_table(sheet, title_rows={1}, header_rows={3})
+    _merge_title_row(sheet, 1, 1, 9)
+    sheet["A1"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     sheet.freeze_panes = "A4"
     sheet.auto_filter.ref = f"A3:{get_column_letter(len(headers))}{sheet.max_row}"
+    for column, width in {
+        "A": 15.83203125,
+        "B": 44.5,
+        "C": 25.83203125,
+        "E": 14.83203125,
+        "H": 10.83203125,
+        "I": 10,
+    }.items():
+        sheet.column_dimensions[column].width = width
+    sheet.row_dimensions[1].height = 30
+    sheet.row_dimensions[3].height = 16
+    for row_index in range(4, sheet.max_row + 1):
+        sheet.row_dimensions[row_index].height = 30
 
 
 def _write_scope_detail_sheet(sheet, clusters: list[dict[str, Any]]) -> None:
@@ -1266,16 +1368,15 @@ def _style_customer_xlsx_table(sheet, *, title_rows: set[int] | None = None, hea
             if isinstance(cell, MergedCell):
                 continue
             cell.alignment = Alignment(vertical="center", wrap_text=True)
-            cell.font = Font(name="Noto Sans CJK SC", size=10, color=TEXT_DARK)
+            cell.font = Font(name=XLSX_FONT_NAME, size=11, color=TEXT_DARK)
             if cell.row in title_rows:
-                cell.font = Font(name="Noto Sans CJK SC", size=16 if cell.row == 1 else 11, bold=True, color=ACCENT_DARK)
+                cell.font = Font(name=XLSX_FONT_NAME, size=16 if cell.row == 1 else 12, bold=True, color=ACCENT_DARK)
             if cell.row in header_rows:
-                cell.font = Font(name="Noto Sans CJK SC", size=10, bold=True, color="FFFFFF")
+                cell.font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="FFFFFF")
                 cell.fill = PatternFill(fill_type="solid", fgColor=ACCENT_DARK)
                 cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             elif cell.row not in title_rows and cell.row % 2 == 0:
                 cell.fill = PatternFill(fill_type="solid", fgColor=ACCENT_SOFT)
-    _autosize(sheet)
 
 
 def _merge_title_row(sheet, row: int, start_col: int, end_col: int) -> None:
@@ -1290,27 +1391,25 @@ def _merge_title_row(sheet, row: int, start_col: int, end_col: int) -> None:
 
 def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: int | None = None) -> None:
     widths = {
-        "A": 10,
-        "B": 36,
+        "A": 15.83203125,
+        "B": 50,
         "C": 16,
-        "D": 16,
-        "E": 16,
         "F": 12,
-        "G": 12,
-        "I": 10,
-        "J": 36,
+        "H": 10,
+        "I": 15.83203125,
+        "J": 50,
         "K": 16,
-        "L": 16,
-        "M": 16,
         "N": 12,
     }
     for column, width in widths.items():
-        sheet.column_dimensions[column].width = max(sheet.column_dimensions[column].width or 0, width)
+        sheet.column_dimensions[column].width = width
     for row_index in range(1, sheet.max_row + 1):
-        if row_index in {1, 3} or str(sheet.cell(row=row_index, column=1).value or "").endswith("TOP100"):
+        if row_index in {1, 3}:
             sheet.row_dimensions[row_index].height = 34
         elif row_index in {left_header_row, right_header_row}:
-            sheet.row_dimensions[row_index].height = 24
+            sheet.row_dimensions[row_index].height = 28
+        else:
+            sheet.row_dimensions[row_index].height = 15
     _merge_title_row(sheet, 1, 1, 7)
     if sheet.cell(row=1, column=9).value:
         _merge_title_row(sheet, 1, 9, 14)
@@ -1318,6 +1417,12 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
         _merge_title_row(sheet, 3, 1, 7)
     if sheet.cell(row=3, column=9).value:
         _merge_title_row(sheet, 3, 9, 14)
+    if sheet.max_row >= 1:
+        sheet.merge_cells(start_row=1, start_column=8, end_row=sheet.max_row, end_column=8)
+        separator = sheet.cell(row=1, column=8)
+        separator.value = None
+        separator.fill = PatternFill(fill_type=None)
+        sheet.column_dimensions["H"].width = 10
 
 
 def _xlsx_vm_display_row(vm: dict[str, Any], rank: int, *, include_risk: bool) -> list[Any]:
@@ -1437,7 +1542,9 @@ def _write_vm_top_sheet(sheet, vms: list[dict[str, Any]], report: dict[str, Any]
     amount_end = sheet.max_row
     sheet.append([])
     sheet.append([f"{profile.vm_growth_title} 增长率 TOP100（按增长率降序，统计窗口：{window_label}）"])
+    ratio_title_row = sheet.max_row
     sheet.append(headers)
+    ratio_header_row = sheet.max_row
     ratio_start = sheet.max_row + 1
     if not vms:
         sheet.append([profile.vm_empty_text])
@@ -1453,16 +1560,19 @@ def _write_vm_top_sheet(sheet, vms: list[dict[str, Any]], report: dict[str, Any]
 
 
 def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *, include_growth: bool) -> None:
+    _clear_xlsx_sheet(sheet)
+    _clear_xlsx_tables(sheet)
     headers = ["Tower", "集群", "VM", "当前容量"]
     if include_growth:
         headers.extend(["期初容量", "增长量", "增长率"])
     else:
         headers.append("首次出现时间")
-    sheet.append([sheet.title])
-    sheet.append(headers)
+    sheet.cell(row=1, column=1).value = sheet.title
+    for column, header in enumerate(headers, start=1):
+        sheet.cell(row=2, column=column).value = header
     if not vms:
-        sheet.append([empty_text])
-    for vm in vms[:100]:
+        sheet.cell(row=3, column=1).value = empty_text
+    for row_index, vm in enumerate(vms[:100], start=3):
         labels = vm.get("labels", {})
         row = [
             labels.get("tower") or labels.get("tower_id") or "",
@@ -1478,43 +1588,37 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
             ])
         else:
             row.append(vm.get("first_seen_at") or "")
-        sheet.append(row)
+        for column, value in enumerate(row, start=1):
+            sheet.cell(row=row_index, column=column).value = value
     _style_customer_xlsx_table(sheet, title_rows={1}, header_rows={2})
     sheet.freeze_panes = "A3"
     sheet.auto_filter.ref = f"A2:{get_column_letter(len(headers))}{sheet.max_row}"
-    for column, width in {"A": 16, "B": 18, "C": 36, "D": 16, "E": 16, "F": 16, "G": 12}.items():
-        sheet.column_dimensions[column].width = max(sheet.column_dimensions[column].width or 0, width)
+    for column, width in {"A": 17.5, "B": 18, "C": 36, "D": 16, "G": 13}.items():
+        sheet.column_dimensions[column].width = width
+    sheet.row_dimensions[1].height = 22
+    sheet.row_dimensions[2].height = 16
+    for row_index in range(3, sheet.max_row + 1):
+        sheet.row_dimensions[row_index].height = 15
 
 
 def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, Any]], report: dict[str, Any], profile: ReportPeriodProfile) -> None:
+    _clear_xlsx_tables(sheet)
     _reset_xlsx_sheet_rows(sheet)
     forecast = cluster.get("forecast") or {}
     risk, _ = _risk_level(cluster)
     labels = cluster.get("labels") or {}
     sheet.append([_cluster_full_name(cluster)])
+    sheet.append(["Tower", "集群", "当前容量", profile.window_growth_label, "风险", "90 天预测容量", "总容量", "使用率", "预计耗尽天数"])
     sheet.append(
         [
-            "Tower",
             labels.get("tower") or labels.get("tower_id") or "",
-            "集群",
             labels.get("cluster") or labels.get("cluster_id") or "",
-            "当前容量",
             _xlsx_bytes_label(forecast.get("current")),
-            profile.window_growth_label,
             _xlsx_signed_bytes_label(_cluster_period_growth(cluster, profile.days)),
-            "风险",
             risk,
-        ]
-    )
-    sheet.append(
-        [
-            "90 天预测容量",
             _xlsx_bytes_label(forecast.get("forecast_90d")),
-            "总容量",
             _xlsx_bytes_label(cluster.get("total")),
-            "使用率",
             _percent_label(_cluster_used_ratio(cluster)),
-            "预计耗尽天数",
             _days_label(forecast.get("exhaustion_days")),
         ]
     )
@@ -1533,7 +1637,9 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
     amount_end = sheet.max_row
     sheet.append([])
     sheet.append([f"{profile.vm_growth_title} 增长率 TOP100（按增长率降序，统计窗口：{window_label}）"])
+    ratio_title_row = sheet.max_row
     sheet.append(headers)
+    ratio_header_row = sheet.max_row
     ratio_start = sheet.max_row + 1
     if not vms:
         sheet.append([profile.vm_empty_text])
@@ -1541,38 +1647,80 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
         for vm in _top_vms(vms, "ratio"):
             sheet.append(_vm_xlsx_row(vm, include_cluster=False))
     ratio_end = sheet.max_row
-    _style_customer_xlsx_table(sheet, title_rows={1, 4, 6, ratio_start - 1}, header_rows={2, 3, 7, ratio_start})
+    _style_customer_xlsx_table(sheet, title_rows={1, 4, 6, ratio_title_row}, header_rows={2, 7, ratio_header_row})
     _style_vm_rows(sheet, amount_start, amount_end, 5)
     _style_vm_rows(sheet, ratio_start, ratio_end, 5)
-    _merge_title_row(sheet, 1, 1, 10)
-    _merge_title_row(sheet, 4, 1, 10)
+    _merge_title_row(sheet, 1, 1, 9)
+    _merge_title_row(sheet, 4, 1, 9)
     _merge_title_row(sheet, 6, 1, 5)
-    _merge_title_row(sheet, ratio_start - 1, 1, 5)
-    _apply_cluster_sheet_layout(sheet, amount_header_row=7, ratio_header_row=ratio_start)
+    _merge_title_row(sheet, ratio_title_row, 1, 5)
+    _apply_cluster_sheet_layout(sheet, amount_header_row=7, ratio_header_row=ratio_header_row)
     sheet.freeze_panes = "A7"
     _add_excel_table(sheet, _table_safe_name(sheet.title, "Amount"), 7, amount_end, len(headers))
-    _add_excel_table(sheet, _table_safe_name(sheet.title, "Ratio"), ratio_start, ratio_end, len(headers))
+    _add_excel_table(sheet, _table_safe_name(sheet.title, "Ratio"), ratio_header_row, ratio_end, len(headers))
 
 
 def _apply_cluster_sheet_layout(sheet, *, amount_header_row: int, ratio_header_row: int) -> None:
     widths = {
-        "A": 36,
-        "B": 16,
-        "C": 16,
-        "D": 16,
-        "E": 12,
+        "A": 36.83203125,
+        "B": 39.5,
+        "C": 22.6640625,
+        "D": 19.6640625,
+        "E": 15,
         "F": 16,
-        "G": 16,
-        "H": 16,
         "I": 12,
-        "J": 12,
+        "J": 8.83203125,
     }
     for column, width in widths.items():
-        sheet.column_dimensions[column].width = max(sheet.column_dimensions[column].width or 0, width)
-    for row_index in [1, 4, 6, ratio_header_row - 1]:
-        sheet.row_dimensions[row_index].height = 32
-    for row_index in [2, 3, amount_header_row, ratio_header_row]:
-        sheet.row_dimensions[row_index].height = 24
+        sheet.column_dimensions[column].width = width
+
+    amount_start = amount_header_row + 1
+    amount_end = ratio_header_row - 2
+    ratio_start = ratio_header_row + 1
+    sheet.row_dimensions[1].height = 32
+    sheet.row_dimensions[2].height = 24
+    sheet.row_dimensions[3].height = 24
+    sheet.row_dimensions[4].height = 32
+    sheet.row_dimensions[6].height = 32
+    sheet.row_dimensions[amount_header_row].height = 24
+    sheet.row_dimensions[ratio_header_row - 1].height = 32
+    sheet.row_dimensions[ratio_header_row].height = 24
+    for row_index in range(amount_start, amount_end + 1):
+        sheet.row_dimensions[row_index].height = 17
+    for row_index in range(ratio_start, sheet.max_row + 1):
+        sheet.row_dimensions[row_index].height = 17
+
+    for cell in sheet[1]:
+        if not isinstance(cell, MergedCell):
+            cell.font = Font(name=XLSX_FONT_NAME, size=23, bold=True, color=ACCENT_DARK)
+    for cell in sheet[3]:
+        if not isinstance(cell, MergedCell):
+            cell.font = Font(name=XLSX_FONT_NAME, size=12, color=TEXT_DARK)
+    for cell in sheet[4]:
+        if not isinstance(cell, MergedCell):
+            cell.font = Font(name=XLSX_FONT_NAME, size=18, color=ACCENT_DARK)
+    for row_index in [6, ratio_header_row - 1]:
+        for cell in sheet[row_index]:
+            if not isinstance(cell, MergedCell):
+                cell.font = Font(name=XLSX_FONT_NAME, size=14, color=ACCENT_DARK)
+    for row_index in [*range(amount_start, amount_end + 1), *range(ratio_start, sheet.max_row + 1)]:
+        for cell in sheet[row_index]:
+            if not isinstance(cell, MergedCell):
+                cell.font = Font(name=XLSX_FONT_NAME, size=12, color=TEXT_DARK)
+                cell.fill = PatternFill(fill_type=None)
+
+
+def _normalize_xlsx_fonts(workbook: Workbook) -> None:
+    for sheet in workbook.worksheets:
+        for row in sheet.iter_rows():
+            for cell in row:
+                if isinstance(cell, MergedCell) or cell.value is None:
+                    continue
+                font = copy(cell.font)
+                font.name = XLSX_FONT_NAME
+                font.sz = float(font.sz or 11)
+                font.scheme = None
+                cell.font = font
 
 
 def _vm_xlsx_row(vm: dict[str, Any], *, include_cluster: bool) -> list[Any]:
@@ -1914,6 +2062,7 @@ def _customer_setup_document(document: Document) -> None:
     section.bottom_margin = Inches(0.72)
     _v1_clear_paragraph(section.header.paragraphs[0])
     _v1_clear_paragraph(section.footer.paragraphs[0])
+    _customer_add_page_number_footer(section)
     for style_name in ["Normal", "Heading 1", "Heading 2", "Heading 3"]:
         style = document.styles[style_name]
         _v1_apply_style_font(style)
@@ -1996,6 +2145,53 @@ def _customer_append_toc_field(paragraph: Any) -> None:
         paragraph._p.append(run)
 
 
+def _customer_add_page_number_footer(section: Any) -> None:
+    paragraph = section.footer.paragraphs[0]
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _customer_footer_text(paragraph, "第 ")
+    _customer_append_field(paragraph, "PAGE", "1")
+    _customer_footer_text(paragraph, " 页 / 共 ")
+    _customer_append_field(paragraph, "NUMPAGES", "1")
+    _customer_footer_text(paragraph, " 页")
+
+
+def _customer_footer_text(paragraph: Any, text: str) -> None:
+    run = paragraph.add_run(text)
+    _v1_apply_run_font(run)
+    run.font.size = Pt(8)
+    run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
+
+
+def _customer_append_field(paragraph: Any, instruction_text: str, placeholder_text: str) -> None:
+    begin_run = paragraph.add_run()
+    begin = OxmlElement("w:fldChar")
+    begin.set(qn("w:fldCharType"), "begin")
+    begin_run._r.append(begin)
+
+    instruction_run = paragraph.add_run()
+    instruction = OxmlElement("w:instrText")
+    instruction.set(qn("xml:space"), "preserve")
+    instruction.text = instruction_text
+    instruction_run._r.append(instruction)
+
+    separate_run = paragraph.add_run()
+    separate = OxmlElement("w:fldChar")
+    separate.set(qn("w:fldCharType"), "separate")
+    separate_run._r.append(separate)
+
+    _customer_footer_text(paragraph, placeholder_text)
+
+    end_run = paragraph.add_run()
+    end = OxmlElement("w:fldChar")
+    end.set(qn("w:fldCharType"), "end")
+    end_run._r.append(end)
+
+    for run in [begin_run, instruction_run, separate_run, end_run]:
+        _v1_apply_run_font(run)
+        run.font.size = Pt(8)
+        run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
+
+
 def _customer_enable_update_fields(document: Document) -> None:
     settings = document.settings.element
     update_fields = settings.find(qn("w:updateFields"))
@@ -2047,7 +2243,7 @@ def _customer_add_vm_growth_analysis(document: Document, context: dict[str, Any]
             document.add_page_break()
         labels = cluster.get("labels") or {}
         cluster_vms = grouped.get(_cluster_key(labels), [])
-        _customer_subtitle(document, f"三.{index}  {_cluster_full_name(cluster)}")
+        _customer_subtitle(document, f"3.{index}  {_cluster_full_name(cluster)}")
         _customer_subtitle(document, f"{profile.vm_growth_title}（增长量 Top 20）", level=3)
         top_amount_vms = _top_vms(cluster_vms, "amount")[:20]
         _customer_vm_window_note(document, context, top_amount_vms, "单位：GB")
@@ -2071,7 +2267,7 @@ def _customer_add_chart_section(document: Document, context: dict[str, Any], clu
             document.add_page_break()
         labels = cluster.get("labels") or {}
         cluster_vms = grouped.get(_cluster_key(labels), [])
-        _customer_subtitle(document, f"四.{index}  {_cluster_full_name(cluster)}")
+        _customer_subtitle(document, f"4.{index}  {_cluster_full_name(cluster)}")
         trend_chart = _cluster_trend_line_chart(cluster, f"{_cluster_full_name(cluster)} 容量使用趋势")
         if trend_chart is not None:
             _customer_add_figure(document, trend_chart, f"图：{_cluster_full_name(cluster)} 容量使用趋势", width=5.9)
@@ -2218,6 +2414,31 @@ def _customer_summary_text(context: dict[str, Any], clusters: list[dict[str, Any
 
 
 def _customer_kpi_strip(document: Document, context: dict[str, Any], clusters: list[dict[str, Any]]) -> None:
+    if len(clusters) <= 1:
+        _customer_kpi_table(document, context, clusters)
+        return
+
+    risk_priority = {"高风险": 2, "需关注": 1, "正常": 0, "数据不足": -1}
+    ordered = sorted(
+        clusters,
+        key=lambda cluster: (risk_priority.get(_overall_risk_status([cluster])[0], -1), _cluster_used_ratio(cluster)),
+        reverse=True,
+    )
+    for index, cluster in enumerate(ordered):
+        title = document.add_paragraph()
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        title.paragraph_format.space_before = Pt(8 if index else 0)
+        title.paragraph_format.space_after = Pt(5)
+        title.paragraph_format.keep_with_next = True
+        run = title.add_run(_cluster_full_name(cluster))
+        _v1_apply_run_font(run)
+        run.bold = True
+        run.font.size = Pt(11)
+        run.font.color.rgb = RGBColor.from_string(TEXT_DARK)
+        _customer_kpi_table(document, context, [cluster])
+
+
+def _customer_kpi_table(document: Document, context: dict[str, Any], clusters: list[dict[str, Any]]) -> None:
     profile = context["profile"]
     total_current = sum(float((cluster.get("forecast") or {}).get("current") or 0) for cluster in clusters)
     total_window = sum(_cluster_period_growth(cluster, _customer_window_days(context["report"])) for cluster in clusters)
@@ -2236,6 +2457,7 @@ def _customer_kpi_strip(document: Document, context: dict[str, Any], clusters: l
     table.style = "Table Grid"
     _v1_set_table_width(table, [2050, 2050, 2050, 2050])
     _v1_set_table_borders(table, "FFFFFF")
+    _prevent_row_split(table.rows[0])
     for cell, (label, value, note) in zip(table.rows[0].cells, values):
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
         _shade_cell(cell, ACCENT_LIGHT)
@@ -2408,7 +2630,7 @@ def _customer_usage_bar(document: Document, label: str, ratio: float, color: str
     bar.paragraph_format.keep_with_next = True
     normalized = max(0.0, min(ratio, 1.0))
     width = 50
-    used = max(0, min(width, round(normalized * 100)))
+    used = max(0, min(width, round(normalized * width)))
     blocks = "█" * used + "░" * (width - used)
     bar_run = bar.add_run(f"  {blocks}")
     _v1_apply_run_font(bar_run)
@@ -2479,6 +2701,8 @@ def _customer_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode:
 def _customer_set_blue_headers(cells: Any, headers: list[str]) -> None:
     for cell, header in zip(cells, headers):
         _v1_set_cell(cell, header, fill=ACCENT, color="FFFFFF", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, font_size=9)
+        for paragraph in cell.paragraphs:
+            paragraph.paragraph_format.keep_with_next = True
 
 
 def _customer_table_note(document: Document, text: str) -> None:
