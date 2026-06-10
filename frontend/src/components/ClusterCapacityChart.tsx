@@ -190,6 +190,19 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
     model.total,
     model.warning
   ]);
+  const chartKey = useMemo(
+    () =>
+      [
+        rangeDays,
+        title,
+        actualPoints.map(([label]) => label).join(","),
+        actualPoints.map(([, value]) => value).join(","),
+        model.total ?? "",
+        model.warning ?? "",
+        model.slopePerDay
+      ].join("|"),
+    [actualPoints, model.slopePerDay, model.total, model.warning, rangeDays, title]
+  );
 
   const option = {
     color: ["#0f9fbf", "#8792a2", "#29354d", "#f59e0b", "#ef4444"],
@@ -280,7 +293,7 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
   return (
     <div className="cluster-chart-shell">
       <ClusterChartToolbar title={model.title} status={model.status} rangeDays={rangeDays} onRangeDaysChange={onRangeDaysChange} />
-      <ReactECharts option={option} style={{ height }} notMerge />
+      <ReactECharts key={chartKey} option={option} style={{ height }} notMerge />
     </div>
   );
 }

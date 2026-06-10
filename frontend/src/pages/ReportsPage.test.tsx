@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ReportsPage } from "./ReportsPage";
 
@@ -14,6 +14,62 @@ vi.mock("../services/api", async () => ({
   formatBytes: (value: number | null | undefined) => `${value ?? 0} B`
 }));
 
+vi.mock("../components/ClusterCapacityChart", () => ({
+  ClusterCapacityChart: ({
+    clusters,
+    rangeDays,
+    onRangeDaysChange
+  }: {
+    clusters: Array<{ labels?: Record<string, string> }>;
+    rangeDays: number;
+    onRangeDaysChange: (days: 7 | 30 | 90 | 365 | 720) => void;
+  }) => (
+    <div data-testid="cluster-capacity-chart">
+      <span data-testid="chart-range">{rangeDays}</span>
+      <span data-testid="chart-cluster-name">chart:{clusters[0]?.labels?.cluster || "empty"}</span>
+      {[7, 30, 90, 365, 720].map((days) => (
+        <button key={days} type="button" onClick={() => onRangeDaysChange(days as 7 | 30 | 90 | 365 | 720)}>
+          {days}天
+        </button>
+      ))}
+    </div>
+  )
+}));
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
+function reportWithCluster(clusterName: string, chartDays: number) {
+  return {
+    clusters: [
+      {
+        labels: { tower_id: "1", cluster_id: "cluster-a", cluster: clusterName },
+        forecast: { status: "ok", slope_per_day: 1, current: 100, forecast_90d: 190, exhaustion_days: null },
+        points: [[1764547200, 100]],
+        total: 1000,
+        warning: 900
+      }
+    ],
+    fastest_growing_vms: [],
+    day_fastest_growing_vms: [],
+    month_fastest_growing_vms: [],
+    day_new_vms: [],
+    month_new_vms: [],
+    cluster_growth_rate: { per_day: 1, per_month: 30, per_quarter: 90 },
+    window_days: 30,
+    chart_days: chartDays,
+    growth_rate_window_days: 7,
+    forecast_days: 90
+  };
+}
+
 describe("ReportsPage", () => {
   beforeEach(() => {
     apiMock.report.mockReset();
@@ -23,6 +79,55 @@ describe("ReportsPage", () => {
     URL.createObjectURL = vi.fn(() => "blob:report");
     URL.revokeObjectURL = vi.fn();
     HTMLAnchorElement.prototype.click = vi.fn();
+  });
+
+  it("ignores stale chart range responses when switching from 30 days to 7 days quickly", async () => {
+    const initial = deferred<ReturnType<typeof reportWithCluster>>();
+    const thirtyDays = deferred<ReturnType<typeof reportWithCluster>>();
+    const sevenDays = deferred<ReturnType<typeof reportWithCluster>>();
+    apiMock.report.mockImplementation((_scope, _periodDays, chartDays) => {
+      if (chartDays === 365) return initial.promise;
+      if (chartDays === 30) return thirtyDays.promise;
+      if (chartDays === 7) return sevenDays.promise;
+      return Promise.resolve(reportWithCluster(`${chartDays}天趋势`, chartDays));
+    });
+
+    render(
+      <ReportsPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 1, vm_count: 0, used_bytes: 0, total_bytes: 0, used_ratio: 0 },
+          top_vms: [],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSelectVm={vi.fn()}
+        addTask={vi.fn()}
+        updateTask={vi.fn()}
+      />
+    );
+
+    await waitFor(() => expect(apiMock.report).toHaveBeenCalledWith(undefined, undefined, 365));
+    fireEvent.click(screen.getByRole("button", { name: "30天" }));
+    await waitFor(() => expect(apiMock.report).toHaveBeenCalledWith(undefined, undefined, 30));
+    fireEvent.click(screen.getByRole("button", { name: "7天" }));
+    await waitFor(() => expect(apiMock.report).toHaveBeenCalledWith(undefined, undefined, 7));
+
+    await act(async () => {
+      sevenDays.resolve(reportWithCluster("7天趋势", 7));
+    });
+    expect(screen.getByTestId("chart-range")).toHaveTextContent("7");
+    expect(screen.getByTestId("chart-cluster-name")).toHaveTextContent("chart:7天趋势");
+
+    await act(async () => {
+      thirtyDays.resolve(reportWithCluster("30天趋势", 30));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("chart-range")).toHaveTextContent("7");
+      expect(screen.getByTestId("chart-cluster-name")).toHaveTextContent("chart:7天趋势");
+    });
+    expect(screen.queryByText("chart:30天趋势")).not.toBeInTheDocument();
   });
 
   it("renders v2 report contract and lets vm rows jump to the vm page", async () => {

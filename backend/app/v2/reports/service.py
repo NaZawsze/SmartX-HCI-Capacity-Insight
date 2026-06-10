@@ -208,11 +208,15 @@ def forecast_series(points: list[tuple[int, float]], capacity: float | None = No
         return ForecastResult("insufficient_data", 0.0, current, None, None, None, None)
     filtered = _drop_outliers(cleaned)
     slope, intercept = _linear_regression(filtered)
-    current_ts, current = filtered[-1]
-    forecast_30 = max(0.0, intercept + slope * ((current_ts + 30 * SECONDS_PER_DAY) / SECONDS_PER_DAY))
-    forecast_60 = max(0.0, intercept + slope * ((current_ts + 60 * SECONDS_PER_DAY) / SECONDS_PER_DAY))
-    forecast_90 = max(0.0, intercept + slope * ((current_ts + 90 * SECONDS_PER_DAY) / SECONDS_PER_DAY))
-    forecast_180 = max(0.0, intercept + slope * ((current_ts + 180 * SECONDS_PER_DAY) / SECONDS_PER_DAY))
+    _, current = cleaned[-1]
+    raw_elapsed_days = max((cleaned[-1][0] - cleaned[0][0]) / SECONDS_PER_DAY, 1)
+    raw_slope = max(0.0, (cleaned[-1][1] - cleaned[0][1]) / raw_elapsed_days)
+    if slope <= 0 and raw_slope > 0:
+        slope = raw_slope
+    forecast_30 = max(0.0, current + slope * 30)
+    forecast_60 = max(0.0, current + slope * 60)
+    forecast_90 = max(0.0, current + slope * 90)
+    forecast_180 = max(0.0, current + slope * 180)
     exhaustion_days = (capacity - current) / slope if capacity and slope > 0 and current < capacity else None
     return ForecastResult("ok", slope, current, forecast_30, forecast_60, forecast_90, forecast_180, exhaustion_days)
 

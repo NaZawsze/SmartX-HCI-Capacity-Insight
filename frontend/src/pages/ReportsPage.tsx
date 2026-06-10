@@ -1,5 +1,5 @@
 import { CalendarClock, Download, TrendingUp } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "../components/Card";
 import { ClusterCapacityChart } from "../components/ClusterCapacityChart";
 import { api, formatBytes } from "../services/api";
@@ -58,6 +58,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
   const [exportPeriodDays, setExportPeriodDays] = useState(30);
   const [chartDays, setChartDays] = useState<ChartRangeDays>(365);
   const [exportError, setExportError] = useState("");
+  const reportRequestSeq = useRef(0);
   const clusterOptions = useMemo(
     () =>
       (summary?.towers || []).flatMap((tower) =>
@@ -83,7 +84,20 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
   }, [scope]);
 
   useEffect(() => {
-    api.report(reportScope, undefined, chartDays).then(setReport).catch(() => setReport(null));
+    const requestSeq = reportRequestSeq.current + 1;
+    reportRequestSeq.current = requestSeq;
+    api
+      .report(reportScope, undefined, chartDays)
+      .then((payload) => {
+        if (reportRequestSeq.current === requestSeq) {
+          setReport(payload);
+        }
+      })
+      .catch(() => {
+        if (reportRequestSeq.current === requestSeq) {
+          setReport(null);
+        }
+      });
   }, [chartDays, refreshKey, reportScope]);
 
   async function handleExportBundle() {

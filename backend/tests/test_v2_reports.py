@@ -248,6 +248,18 @@ class V2ReportsTest(unittest.TestCase):
             self.assertEqual(vm["growth_amount"], 200.0)
             self.assertAlmostEqual(vm["sample_span_days"], 16.0)
 
+    def test_forecast_preserves_observed_current_when_latest_point_is_filtered_for_trend(self) -> None:
+        from app.v2.reports.service import SECONDS_PER_DAY, forecast_series
+
+        points = [(index * SECONDS_PER_DAY, 100.0 + index) for index in range(10)]
+        points.append((10 * SECONDS_PER_DAY, 200.0))
+
+        forecast = forecast_series(points, capacity=1000.0)
+
+        self.assertEqual(forecast.current, 200.0)
+        self.assertGreater(forecast.slope_per_day, 0)
+        self.assertGreater(forecast.forecast_90d or 0, 200.0)
+
 
 if __name__ == "__main__":
     unittest.main()

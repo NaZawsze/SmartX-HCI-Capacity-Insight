@@ -2510,6 +2510,10 @@ TDD 记录：
 
 - v2 Word 导出继续使用 v2 `latest_report()` 数据口径和现有导出 API，不回退 v1 查询逻辑。
 - Word 报表恢复接近 v1 的客户交付版式：封面品牌条、英文副标题、蓝色分隔线、报告说明卡片、页眉页脚、目录表格和集群书签。
+- 参考客户版模板补充执行摘要、关键发现、容量风险评估矩阵和短/中/长期运维建议。
+- Word 表格不再沿用旧红底高风险行风格，改为直接参考客户版模板：深蓝表头、浅色摘要/斑马纹、增长量蓝色、增长率橙/红色。
+- 保留 v2 生成的趋势图、Top 10 VM 增长图、TOP100 数据口径，并在摘要和集群汇总/章节中增加虚拟机数量。
+- 运维建议不依赖 AI 服务，使用本地规则模板生成：按集群使用率、预计耗尽天数、Top 增长 VM、单 VM 容量和增长率输出确定性建议。
 - 报告摘要增加 v1 风格 KPI 卡片，并前置“容量风险摘要”，正常/高风险文案按当前集群容量口径生成。
 - 集群章节保留客户化 KPI 网格、风险建议、容量趋势图、Top 10 VM 增长量图、增长量 TOP100 和增长率 TOP100。
 - 月增长为空时继续展示日增长数据和明确空状态文案，避免 Word 看起来像导出失败。
@@ -2521,11 +2525,43 @@ TDD 记录：
 
 - 本地通过 `python3 -m py_compile backend/app/v2/reports/export.py backend/tests/test_v2_report_exports.py`。
 - 本地通过 `git diff --check`。
-- `10.20.11.3` 后端容器内通过 `backend.tests.test_v2_report_exports`，共 7 个测试通过。
+- `10.20.11.3` 后端容器内通过 `backend.tests.test_v2_report_exports`，共 8 个测试通过。
 - `10.20.11.3` 完成 `docker compose --project-name smartx-storage-forecast build web-api` 和 `web-api` recreate。
 - `10.20.11.3` `/api/system/health` 返回 `ok=true`、`version=v0.5.0`、`runner_version=v0.3.0`。
 - 真实调用 `/api/reports/export/bundle?period_days=30` 成功，任务中心只生成 1 个“导出预测报表”任务，links 为 `Word`、`Excel`。
-- 抽取生成的 Word XML，确认包含 `SmartX HCI Capacity Insight`、`Storage Capacity Forecast Report`、`容量风险摘要`、`报告摘要`、`Top 10 VM 增长量`、`增长量 ↓`、`增长率 ↓`、`本次统计窗口增长 VM`、`增长量 TOP100 虚拟机` 和 `增长率 TOP100 虚拟机`。
+- 抽取生成的 Word XML，确认包含客户模板色值 `1A3C6E` / `F0F4FA` / `007ACC`、`Storage Capacity Forecast Report`、`执行摘要`、`报告摘要`、`关键发现`、`风险评估与建议`、`容量风险评估矩阵`、`短期（本月）`、`中期（1-3 个月）`、`长期（3 个月以上）`、`增长量 TOP100 虚拟机` 和 `增长率 TOP100 虚拟机`；旧版曾包含 `SmartX 超融合平台`，二次优化后已要求移除该官方平台表述。
+- 抽取生成的 Word 包含 `word/media/*` 4 个图表资源，确认 v2 图表仍保留。
+
+### 2026-06-08 Phase 14 Word 客户版模板二次优化
+
+状态：完成并已在 `10.20.11.3` 验证
+
+实现：
+
+- 封面品牌名统一为 `存储容量预测平台`，不再使用 `SmartX 超融合平台` 作为项目名。
+- DOCX 字体统一使用开源 `Noto Serif` / `Noto Serif CJK SC`，不依赖 `微软雅黑` / `Microsoft YaHei`。
+- 封面元信息改为 `Tower范围`、`集群范围`；单 Tower/集群显示具体名称，多 Tower/多集群显示 `全部 Tower（N 个）`、`全部集群（N 个）`。
+- 统计窗口改为选择窗口与实际采集窗口的交集；选择窗口超过采集历史时，Word 显示实际样本窗口。
+- 关键发现和运维建议改为 run 级重点强调：VM 名称、Tower/集群、容量值、增长值、百分比和天数前后保留空格，并加粗放大。
+- `2.2` 容量增长趋势表新增 `Tower` 列，避免多 Tower 场景只显示集群名。
+- `2.3` 容量使用率可视化改为 Top 10 集群容量使用率图表说明和图表，风格向 Top 10 VM 增长图靠齐；图表生成失败时仍保留明确说明。
+
+本地验证：
+
+- `python3 -m py_compile backend/app/v2/reports/export.py backend/tests/test_v2_report_exports.py` 通过。
+- `PYTHONPATH=backend /Users/nazawsze/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -m unittest backend.tests.test_v2_report_exports` 通过，8 个测试中 2 个按原条件跳过。
+- `git diff --check` 通过。
+
+远端验证：
+
+- `10.20.11.3:/opt/smartx-storage-forecast-v2` 已同步本轮修改并重建 `web-api`。
+- `docker compose --project-name smartx-storage-forecast build web-api` 通过，随后 `web-api` recreate 成功。
+- `/api/system/health` 返回 `ok=true`、`version=v0.5.0`、`runner_version=v0.3.0`。
+- 容器内 `PYTHONPATH=backend python -m unittest backend.tests.test_v2_report_exports` 通过，共 8 个测试。
+- 发现并修复图表字体细节：DOCX 正文使用 `Noto Serif CJK SC`；matplotlib 对保留的 `NotoSerifCJK-Regular.ttc` 识别为 `Noto Serif CJK JP`，因此图表字体使用同一个开源 TTC 的 `Noto Serif CJK JP` family，避免中文图表掉字。
+- 真实数据导出 14 天和 365 天 Word 均成功；选择窗口超过采集历史时，两个文件都显示实际样本窗口 `2026-05-25 - 2026-06-08`。
+- 已用 Documents 渲染工具把真实 Word 渲染为 PNG 检查：封面、执行摘要、2.2、2.3、5.2 页面无明显空白或错位；2.2 包含 Tower 列，2.3 为 Top 10 集群容量使用率图表，5.2 重点值加粗放大。
+- 抽取 14 天和 365 天 Word XML 确认：包含 `存储容量预测平台`、`Tower范围`、`集群范围`、`Top 10 集群容量使用率`；不包含 `SmartX 超融合平台`、`微软雅黑`、`Microsoft YaHei`；包内均包含 3 个图表媒体资源。
 
 ### 2026-06-08 预计存储耗尽算法增强待办
 
@@ -2536,3 +2572,404 @@ TDD 记录：
 - 当前预计存储耗尽基于最近窗口的线性趋势：`(总容量 - 当前已用) / slope_per_day`。
 - 如果某天发生一次性大数据量写入，线性趋势会被拉陡，第二天预计耗尽天数可能突然变短。
 - 已在 Phase 15 后续增强中新增待办：后续需要区分长期趋势预测和单日大数据量冲击，建议展示 30/90 天平滑趋势、近 24 小时异常增长提示，以及排除单日突增后的稳健预测口径。
+
+### 2026-06-08 Word 客户版模板细节纠正
+
+状态：完成并已在 `10.20.11.3` 验证
+
+实现：
+
+- 封面在 `Tower范围` 上方新增空白 `客户名称` 字段，避免把 Tower 名称误当客户名称。
+- 关键发现和运维建议的重点强调规则调整：VM 名称前后只加 1 个空格并加粗放大；容量、增长量、百分比和天数只加粗放大，不额外插入左右空格。
+- 风险矩阵去掉 `单 VM 容量异常`，改为更中性的 `重点 VM 容量`。
+
+本地验证：
+
+- `python3 -m py_compile backend/app/v2/reports/export.py backend/tests/test_v2_report_exports.py` 通过。
+- `PYTHONPATH=backend /Users/nazawsze/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -m unittest backend.tests.test_v2_report_exports` 通过，8 个测试中 2 个按原条件跳过。
+- `git diff --check` 通过。
+
+远端验证：
+
+- `10.20.11.3:/opt/smartx-storage-forecast-v2` 已同步本轮修改。
+- 容器内 `PYTHONPATH=backend python -m unittest backend.tests.test_v2_report_exports` 通过，共 8 个测试。
+- 已重建并 recreate `web-api`，`/api/system/health` 返回 `ok=true`、`version=v0.5.0`、`runner_version=v0.3.0`。
+- 真实数据导出 14 天和 365 天 Word 均成功，统计窗口显示实际样本窗口 `2026-05-22 - 2026-06-08`。
+- 抽取真实 Word XML 确认：包含 `客户名称`、`重点 VM 容量`、`存储容量预测平台`；不包含 `单 VM 容量异常`、`SmartX 超融合平台`；容量值/增长值没有左右双空格。
+- 已用 Documents 渲染工具检查 14 天 Word：封面客户名称为空且位于 `Tower范围` 上方；风险矩阵和运维建议页无明显错位，VM 名称加粗放大并有单空格视觉分隔，数据值只加粗放大。
+
+### 2026-06-08 Word 客户版增长口径与范围信息修正
+
+状态：完成并已在 `10.20.11.3` 验证
+
+实现：
+
+- 执行摘要和 KPI 卡片不再使用 `较上月增长`，改为 `统计窗口增长`，并显示实际统计窗口。
+- `2.2 容量增长趋势` 表头改为 `统计窗口增长`、`近 90 天样本增长`、`近 365 天样本增长`、`90 天预测`，避免把短采集窗口误读为自然月/季度/年度环比。
+- `2.1 范围基本信息` 增加 `Tower范围`、`Tower数量`，多 Tower/多集群时显示聚合范围摘要。
+- 执行摘要、关键发现和运维建议正文中的 Tower/集群名称加粗放大。
+
+本地验证：
+
+- `python3 -m py_compile backend/app/v2/reports/export.py backend/tests/test_v2_report_exports.py` 通过。
+- `PYTHONPATH=backend /Users/nazawsze/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -m unittest backend.tests.test_v2_report_exports` 通过，9 个测试中 2 个按原条件跳过。
+- `git diff --check` 通过。
+
+远端验证：
+
+- `10.20.11.3:/opt/smartx-storage-forecast-v2` 已同步本轮修改。
+- 容器内 `PYTHONPATH=backend python -m unittest backend.tests.test_v2_report_exports` 通过，共 9 个测试。
+- 已重建并 recreate `web-api`，`/api/system/health` 返回 `ok=true`、`version=v0.5.0`、`runner_version=v0.3.0`。
+- 真实数据导出 14 天和 365 天 Word 均成功，统计窗口显示实际样本窗口 `2026-05-22 - 2026-06-08`。
+- 抽取真实 Word XML 确认：包含 `统计窗口增长`、`近 90 天样本增长`、`近 365 天样本增长`、`Tower数量`；不包含 `较上月`、`较上季度`、`较上一年`。
+- 已用 Documents 渲染工具检查 14 天 Word：执行摘要 KPI 显示 `统计窗口增长` 并附实际窗口，`2.1` 范围基本信息包含 Tower 范围/数量和集群范围/数量，`2.2` 表头改为统计窗口与近 90/365 天口径。
+
+### 2026-06-08 Word 客户版自查与预测 current 修复
+
+状态：完成并已在 `10.20.11.3` 验证
+
+自查结论：
+
+- 14 天真实导出显示统计窗口 `2026-05-25 - 2026-06-08`，符合选择 14 天窗口。
+- 365 天真实导出显示统计窗口 `2026-05-22 - 2026-06-08`，符合“选择窗口超过采集历史时，以实际采集窗口为准”。
+- 封面和执行摘要中的 `Tower范围`、`集群范围` 与真实数据一致；多 Tower/多集群逻辑继续使用聚合范围摘要。
+- 真实 Word XML 不包含 `较上月`、`较上季度`、`较上一年`、`SmartX 超融合平台`。
+
+发现并修复：
+
+- `forecast_series()` 原先用去离群后的最后一个点作为 `current`。当最新真实增长点被趋势过滤视为离群点时，365 天导出的 `当前已用容量` 和 `90 天容量` 会回退到旧值，出现“统计窗口增长有 1.39 TB，但 90 天预测仍等于当前容量”的不合理现象。
+- 修复后 `current` 固定使用最新原始观测点；趋势斜率仍优先使用去离群样本，并在斜率为 0 但原始窗口存在正增长时使用原始窗口斜率兜底。
+- `2.2 容量增长趋势` 表头进一步改为 `近 90 天样本增长`、`近 365 天样本增长`，并增加说明：采集历史不足 90/365 天时按可用样本窗口计算，避免刚部署环境误读。
+
+验证：
+
+- 本地 `py_compile` 通过。
+- 本地 `backend.tests.test_v2_report_exports` 通过，9 个测试中 2 个按原条件跳过。
+- 本地 `git diff --check` 通过。
+- 远端容器内 `backend.tests.test_v2_reports backend.tests.test_v2_report_exports` 通过，共 15 个测试。
+- 远端已重建并 recreate `web-api`，`/api/system/health` 返回 `ok=true`。
+- 远端真实 365 天导出：`current=24507238580224.0`、`forecast_90d=32623814971151.06`、统计窗口 `2026-05-22 - 2026-06-08`；Word 文本显示 `90 天容量29.67 TB`、`统计窗口：2026-05-22 - 2026-06-08`。
+
+### 2026-06-08 报表导出 6 种时间区间 Profile 化计划记录
+
+状态：完成第一版，并已在 `10.20.11.3` 验证
+
+结论：
+
+- 用户提出导出报表有 `7/14/30/90/180/365` 六种时间区间，希望降低不同窗口下文案和口径出错概率。
+- 对比后选择“1 套客户版渲染系统 + 6 个时间区间 Profile”，不做 6 份完整模板，也不做 6 套替换脚本。
+- Profile 已统一驱动 Word 和 Excel 的窗口名称、增长指标标题、VM 榜单标题、样本不足说明和运维建议语气。
+- 前端 6 个按钮和 API 入参 `period_days` 保持不变；后端新增内部 Profile 层完成。
+
+实现：
+
+- 新增 `ReportPeriodProfile` 和 `report_period_profile()`。
+- 六个 Profile 固定为 `7/14/30/90/180/365`，分别对应短期突增、近两周、月度、季度、中长期和年度巡检语义。
+- Word 客户版 KPI、关键发现、VM 增长章节、Top 10 VM 图表、集群增长表和运维建议短期标题均读取 Profile。
+- Excel 汇总、`VM_TOP100_汇总` 和各集群 Sheet 均读取同一个 Profile。
+- 选择窗口大于实际采集历史时，样本说明显示 `已按当前可用样本窗口计算`，统计窗口继续使用选择窗口与实际采集窗口的交集。
+
+验证：
+
+- 本地 `py_compile` 通过。
+- 本地 `backend.tests.test_v2_report_exports` 通过，12 个测试中 2 个按原条件跳过。
+- 本地 `git diff --check` 通过。
+- 本地 `backend.tests.test_v2_reports` 因本机未安装 `httpx` 无法运行；按约束未在本机安装依赖，改在远端容器验证。
+- `10.20.11.3` 容器内 `backend.tests.test_v2_report_exports backend.tests.test_v2_reports` 通过，共 18 个测试。
+- `10.20.11.3` 已重建并 recreate `web-api`，`/api/system/health` 返回 `ok=true`、`version=v0.5.0`、`runner_version=v0.3.0`。
+- 真实数据导出 `7d/30d/365d` Word 和 Excel 均成功；三组文件都确认包含对应 Profile 标题和 VM 榜单标题。
+- 真实 `365d` 导出在采集历史不足一年时，仍按实际数据窗口生成说明和统计窗口。
+
+### 2026-06-09 Word 客户版封面标题与渲染细节修正
+
+状态：完成并已在 `10.20.11.3` 验证
+
+实现：
+
+- Word 客户版封面标题改为 `SMARTX超融合存储容量分析报告`。
+- 英文副标题改为 `SMARTX HCI Storage Capacity Analysis Report`。
+- 旧标题 `存储容量预测分析报告` 和旧英文副标题 `Storage Capacity Forecast Report` 不再出现在 Word 正文 XML。
+- 客户版封面适当减少空段落，降低封面后出现异常大空白的概率。
+- 运维建议第三段标题从 `长期（3 个月以上）` 调整为 `三个月以上`，规避 LibreOffice 渲染时特定中文字符在蓝色加粗小标题中被裁切的问题；含义保持为三个月以上的长期治理建议。
+- 运维建议分组标题统一使用轻量项目符号样式，和正文区分更清楚。
+- VM Top 20 表格增加分页控制：标题和统计窗口跟随表格，表头跨页重复，数据行禁止跨页拆分。
+- `3.2` 增长率 Top 20 表格前主动分页，避免出现表头留在上一页、数据行从下一页开始的断裂。
+
+验证：
+
+- 本地 `py_compile` 通过。
+- 本地 `backend.tests.test_v2_report_exports` 通过，12 个测试中 2 个按原条件跳过。
+- 本地 `git diff --check` 通过。
+- `10.20.11.3` 容器内 `backend.tests.test_v2_report_exports backend.tests.test_v2_reports` 通过，共 18 个测试。
+- `10.20.11.3` 已重建并 recreate `web-api`，`/api/system/health` 返回 `ok=true`、`version=v0.5.0`、`runner_version=v0.3.0`。
+- 真实数据导出 14 天 Word 成功，最新验证文件路径：`/data/exports/reports/storage-forecast-all-20260609-113141-14d.docx`。
+- 抽取真实 Word XML 确认：包含新封面标题和新英文副标题，不包含旧标题；统计窗口包含 `2026-05-26 - 2026-06-09`；包含 `三个月以上`。
+- 抽取真实 Word XML 确认：包含 `w:tblHeader`、`w:cantSplit` 和分页符；不包含 `Hyperconverged`。
+- 已用 Documents 渲染工具检查真实 14 天 Word：封面标题显示正常，运维建议页 `短期（两周内）`、`中期（1-3 个月）`、`三个月以上` 均完整显示，无明显空白页或错位；`3.2` 增长率 Top 20 表格标题、统计窗口、表头和数据行位于同一页。
+
+### 2026-06-09 Excel 客户版模板化计划记录
+
+状态：完成第一版，并已在 `10.20.11.3` 验证
+
+结论：
+
+- 用户提供 `存储容量预测分析报表_客户版.xlsx`，希望 v2 Excel 直接学习该模板，最好以模板为母版填充真实数据，并注意容量单位。
+- 已检查模板结构：包含 `封面`、`执行摘要`、`容量趋势`、`VM增长TOP20`、`日增长详情`；其中 `VM增长TOP20` 和 `日增长详情` 已有冻结窗格，整体适合作为客户版 Excel 样式基底。
+- 已将模板纳入 `backend/app/v2/reports/templates/customer_report.xlsx`，`build_report_xlsx()` 加载模板后填充 v2 数据；保留现有 Excel 导出 API、bundle 任务和下载路径。
+- 模板内硬编码内容需要清理：`SmartX 超融合平台`、错误客户名、固定 Tower/集群、固定统计窗口和样例容量数据都不能进入真实导出。
+- Excel 多 Tower/多集群展示规则已落地：封面显示范围摘要，正文新增 `范围明细` Sheet，每行一个 `Tower + 集群`；容量趋势、集群汇总和每集群 Sheet 保留 Tower 归属。
+
+实现：
+
+- `封面`、`执行摘要`、`容量趋势`、`VM增长TOP20`、`日增长详情` 复用客户版模板结构和基础样式。
+- 新增/保留 `目录`、`范围明细`、`集群汇总`、`VM_TOP100_汇总`、`本日新建VM`、`本月新建VM` 和每集群独立 Sheet。
+- Excel 客户可读 Sheet 使用格式化容量单位；完整 Top100 Sheet 继续保留筛选/排序结构。
+
+验证：
+
+- TDD RED：新增 `test_xlsx_uses_customer_template_with_v2_scope_and_units` 后，旧实现因缺少模板 Sheet 失败。
+- 本地 `backend.tests.test_v2_report_exports` 通过，13 个测试中 2 个按原条件跳过。
+- 本地 `py_compile` 和 `git diff --check` 通过。
+- 本地 `backend.tests.test_v2_reports` 因本机缺少 `httpx` 无法运行；按用户约束未在本机安装依赖，改在远端容器验证。
+- `10.20.11.3` 容器内 `backend.tests.test_v2_report_exports backend.tests.test_v2_reports` 通过，共 19 个测试。
+- `10.20.11.3` 已重建并 recreate `web-api`，`/api/system/health` 返回 `ok=true`、`version=v0.5.0`、`runner_version=v0.3.0`。
+- 真实接口导出 14 天 bundle 成功，Excel 文件：`/data/exports/reports/storage-forecast-all-20260609-133224-14d.xlsx`。
+- 真实 Excel 验证通过：包含 `封面`、`执行摘要`、`容量趋势`、`VM增长TOP20`、`日增长详情`、`目录`、`范围明细`、`集群汇总`、`VM_TOP100_汇总`、`本日新建VM`、`本月新建VM` 和现场集群 Sheet；包含新封面标题、HCI 英文副标题、`近 14 天样本增长` 和容量单位；不包含 `SmartX 超融合平台`。
+
+### 2026-06-09 清理测试注入的 Prometheus 异常容量点
+
+状态：完成现场清理，未改代码
+
+现象：
+
+- 用户发现 7 天 Word 报表中 `当前已用容量 22.27 TB`、`近 7 天样本增长 569.98 GB`，但 `90 天预测容量` 被算成 `945.41 TB`，使用率 `431.35%`。
+- 排查确认该值来自 `forecast_series()` 对集群历史点做线性趋势预测；不是由 `近 7 天样本增长` 直接外推。
+
+根因：
+
+- `10.20.11.3` Prometheus 中存在测试注入异常点：
+  - metric：`smartx_cluster_storage_used_bytes`
+  - labels：`tower_id="3"`、`cluster_id="cm551tvrv029a0858up57q8qu"`
+  - 异常值：`212069600408371` bytes
+  - 异常时间范围约：`1780894329 - 1780903929`
+- 该异常点把线性回归斜率拉到约 `10.26 TB/天`，导致 90 天预测被拉高到约 `945 TB`。
+
+处理：
+
+- 临时使用 compose override 给 Prometheus 增加 `--web.enable-admin-api`，重启 Prometheus。
+- 通过 `delete_series` 删除该 metric 在 `1780893600 - 1780904600` 的测试样本。
+- 执行 `clean_tombstones`。
+- 恢复原 compose 启动参数并 recreate Prometheus，确认 `web.enable-admin-api=false`。
+
+验证：
+
+- 重新查询 report：异常点数量为 `0`。
+- `current=22.27 TB`，`period_growth_7=569.98 GB`。
+- `forecast_90d` 从约 `945 TB` 恢复为约 `32.03 TB`。
+- `slope_per_day` 恢复为约 `111.08 GB/天`。
+- 真实导出 7 天 bundle 成功，Word `/data/exports/reports/storage-forecast-all-20260609-141020-7d.docx` 不再包含 `945.41` 或 `431.35`，包含约 `32.03` 的 90 天预测值。
+
+### 2026-06-09 Word 章节重排计划记录
+
+状态：已记录计划，尚未实施代码
+
+用户要求：
+
+- `执行摘要` 改成 `摘要`。
+- `三`、`四` 开始按照集群分开汇报。
+- `五` 进行所有集群汇总报告。
+- 报告第二页插入目录，且 `三`、`四` 要按集群分目录项。
+
+计划结论：
+
+- Word 结构调整为：封面、目录、`一  摘要`、`二  集群容量概览`、`三  集群虚拟机增长分析`、`四  集群容量趋势图表`、`五  全集群汇总报告`。
+- `三` 按集群拆分 Top 20 增长量 VM 和 Top 20 增长率 VM。
+- `四` 按集群拆分容量趋势图和 Top 10 VM 增长图。
+- `五` 只放全局风险矩阵、全局建议和声明。
+- 目录页必须紧跟封面，并按每个集群生成 `三.x`、`四.x` 目录项。
+
+未执行：
+
+- 本轮只更新计划文件，没有修改 `backend/app/v2/reports/export.py`，没有同步远端，也没有重建容器。
+
+### 2026-06-09 Word 封面统计窗口与 2.2 增长周期修复
+
+状态：本地实现并通过本地目标测试，待远端验证
+
+用户要求：
+
+- 封面 `统计窗口` 下方新增 `本报表统计窗口`。
+- Word 章节 `2.2 容量增长趋势` 不再展示 `近 365 天样本增长`。
+- `2.2` 固定展示 `近 14 天样本增长`、`近 30 天样本增长`、`近 90 天样本增长`。
+- 对 14/30/90 天周期，如果采集历史不足对应天数则显示 `数据不足`，避免把短历史样本误当完整周期增长。
+
+实现：
+
+- `backend/app/v2/reports/export.py`：
+  - `_customer_cover_meta()` 新增 `本报表统计窗口`。
+  - `_customer_cluster_growth_table()` 表头改为 14/30/90 天样本增长和 90 天预测容量。
+  - 新增 `_cluster_growth_window_label()` / `_cluster_period_growth_with_min_span()`，采集跨度不足目标周期时返回 `数据不足`。
+  - 2.2 表格说明更新为 14/30/90 天口径。
+- `backend/tests/test_v2_report_exports.py`：
+  - 覆盖封面新增 `本报表统计窗口`。
+  - 覆盖 2.2 不再包含 `近 365 天样本增长`。
+  - 覆盖短历史场景下 30/90 天显示 `数据不足`。
+
+本地验证：
+
+- `backend.tests.test_v2_report_exports`：14 个测试通过，2 个因本机缺 FastAPI 依赖跳过。
+- `py_compile backend/app/v2/reports/export.py backend/tests/test_v2_report_exports.py` 通过。
+- `git diff --check` 通过。
+
+远端验证：
+
+- 已同步 `backend/app/v2/reports/export.py` 和 `backend/tests/test_v2_report_exports.py` 到 `10.20.11.3:/opt/smartx-storage-forecast-v2`。
+- 容器内 `backend.tests.test_v2_report_exports backend.tests.test_v2_reports` 通过，共 20 个测试。
+- 已重建并 recreate `web-api`。
+- `/api/system/health` 返回 `ok=true`、`version=v0.5.0`、`runner_version=v0.3.0`。
+- 真实导出 90 天 Word：`/data/exports/reports/storage-forecast-all-20260609-143412-90d.docx`。
+- 真实 Word XML 验证：包含 `本报表统计窗口`、`近 14 天样本增长`、`近 30 天样本增长`、`近 90 天样本增长`、`数据不足`，不包含 `近 365 天样本增长`。
+
+### 2026-06-09 Word 目录、章节重排与报表窗口拆分实施
+
+状态：已在 `10.20.11.3` 验证完成
+
+用户要求：
+
+- `执行摘要` 改成 `摘要`。
+- 报告第二页插入目录，并且 `三`、`四` 要按集群分目录项。
+- `三`、`四` 开始按照集群分开汇报。
+- `五` 进行所有集群汇总报告。
+- `本报表统计窗口` 应显示用户选择的 7/14/30/90/180/365 天窗口；`统计窗口` 继续显示真实有效采集窗口。
+
+实现：
+
+- `backend/app/v2/reports/export.py`：
+  - Word 构建顺序调整为封面、目录、`一  摘要`、`二  集群容量概览`、`三  集群虚拟机增长分析`、`四  集群容量趋势图表`、`五  全集群汇总报告`。
+  - 新增 `_customer_add_directory()`，用可见目录表格列出 `2.1/2.2/2.3`、每个集群的 `三.x`、每个集群的 `四.x` 和第五章。
+  - `三` 章按集群拆分增长量 Top 20 和增长率 Top 20，VM 数据只来自该集群。
+  - `四` 章按集群拆分容量趋势图和 Top 10 VM 增长量图；图表不可生成时写完整空态标题。
+  - 新增 `_requested_report_window_label()`，`本报表统计窗口` 使用用户选择窗口，`统计窗口` 使用实际有效采集窗口。
+- `backend/tests/test_v2_report_exports.py`：
+  - 增加/更新 Word XML 测试，覆盖目录顺序、集群章节拆分、报表窗口拆分和旧章节名移除。
+
+本地验证：
+
+- `backend.tests.test_v2_report_exports`：17 个测试通过，2 个因本机缺 FastAPI 依赖跳过。
+- `py_compile backend/app/v2/reports/export.py backend/tests/test_v2_report_exports.py` 通过。
+- `git diff --check` 通过。
+- `backend.tests.test_v2_reports` 在本机因缺 `httpx` 无法导入 Prometheus 客户端，需在 `10.20.11.3` 容器内验证。
+
+远端验证：
+
+- 已同步本轮文件到 `10.20.11.3:/opt/smartx-storage-forecast-v2`，远端原文件备份为 `/tmp/smartx-v2-report-files-20260609150430.tar.gz`。
+- 容器内执行 `backend.tests.test_v2_report_exports backend.tests.test_v2_reports`，23 个测试通过。
+- 已重建并 recreate `web-api`。
+- `/api/system/health` 返回 `ok=true`、`version=v0.5.0`、`runner_version=v0.3.0`。
+- 真实导出 90 天 Word：`/data/exports/reports/storage-forecast-all-20260609-151000-90d.docx`。
+- 真实 Word XML 验证：包含 `目录`、`一  摘要`、`三  集群虚拟机增长分析`、`四  集群容量趋势图表`、`五  全集群汇总报告`、`本报表统计窗口` 和 `近 90 天（`；不包含旧章节 `一  执行摘要`、`三  虚拟机增长分析`、`四  容量趋势图表`、`五  风险评估与建议`。
+
+### 2026-06-09 Excel Sheet 精简与单元格显示修复
+
+状态：已在 `10.20.11.3` 验证完成
+
+用户要求：
+
+- 检查真实导出的 Excel，修复单元格文字/数值显示不全。
+- 删除 `目录`、`范围明细`、`集群汇总`、`VM_TOP100_汇总`。
+- 将 `VM增长TOP20` 改为 `VM增长TOP100`。
+- 每个集群独立 Sheet 模仿 TOP100 表格式，并避免容量 bytes 原始值导致 `########` 或科学计数法。
+
+实现：
+
+- `backend/app/v2/reports/export.py`：
+  - `build_report_xlsx()` 不再创建四个冗余 Sheet，并在导出前兜底删除。
+  - 模板 Sheet `VM增长TOP20` 在导出时重命名为 `VM增长TOP100`，左右表均输出 TOP100。
+  - 每集群 Sheet 顶部概览改为 Tower、集群、当前容量、统计窗口增长、90 天预测容量、总容量、使用率、预计耗尽天数和风险。
+  - VM 表、日增长和新建 VM Sheet 均使用 `GiB/TiB/%/天` 可读文本，不再输出原始 bytes。
+  - 增加固定列宽、标题合并、换行和行高，保证 VM 名称、容量和说明文本可读。
+- `backend/tests/test_v2_report_exports.py`：
+  - 覆盖 Sheet 列表、`VM增长TOP100`、集群 Sheet 可读容量、关键列宽和冗余 Sheet 移除。
+
+验证：
+
+- 本地 `backend.tests.test_v2_report_exports`：17 个测试通过，2 个因本机缺 FastAPI 依赖跳过。
+- 本地 `py_compile backend/app/v2/reports/export.py backend/tests/test_v2_report_exports.py` 通过。
+- 本地 `git diff --check` 通过。
+- 已同步 `backend/app/v2/reports/export.py` 和 `backend/tests/test_v2_report_exports.py` 到 `10.20.11.3:/opt/smartx-storage-forecast-v2`，远端原文件备份为 `/tmp/smartx-v2-excel-report-files-20260609155444.tar.gz`。
+- 容器内执行 `backend.tests.test_v2_report_exports backend.tests.test_v2_reports`，23 个测试通过。
+- 已重建并 recreate `web-api`，`/api/system/health` 返回 `ok=true`。
+- 真实导出 14 天 Excel：`/data/exports/reports/storage-forecast-all-20260609-160108-14d.xlsx`。
+- 真实 Excel 验证：Sheet 为 `封面`、`执行摘要`、`容量趋势`、`VM增长TOP100`、`日增长详情`、`本日新建VM`、`本月新建VM`、`SMARTX-TT-WW`；没有 `目录`、`范围明细`、`集群汇总`、`VM_TOP100_汇总`、`VM增长TOP20`；未发现大整数容量值。
+
+### 2026-06-09 Word 原生目录与标题样式修复
+
+状态：已在 `10.20.11.3` 验证完成
+
+用户要求：
+
+- Word 不再手写目录表格，应使用真实标题样式和 Word 普通目录。
+- 五个主章节使用标题一；集群章节使用标题二；小标题可进入标题三。
+- 文档打开时应自动更新目录。
+
+实现：
+
+- `backend/app/v2/reports/export.py`：
+  - 将客户版 Word 目录页从 `_customer_add_directory()` 手写表格改为 `_customer_add_native_toc()` 原生 TOC 字段。
+  - TOC 字段使用 `TOC \\o "1-3" \\h \\z \\u`，覆盖 `Heading 1/2/3`。
+  - 在 `settings.xml` 写入 `w:updateFields=true`，让 Word/WPS 打开文件时更新目录。
+  - `一/二/三/四/五` 主章节改为真实 `Heading 1`。
+  - `2.1/2.2/2.3`、`三.x`、`四.x`、`5.1/5.2` 改为真实 `Heading 2`。
+  - 集群内 `增长量 Top 20` / `增长率 Top 20` 表标题改为真实 `Heading 3`，可进入三级目录。
+- `backend/tests/test_v2_report_exports.py`：
+  - 新增 `test_docx_uses_native_toc_and_real_heading_styles`，覆盖 TOC 字段、`updateFields`、移除旧目录表头、主章节 `Heading1` 和集群章节 `Heading2`。
+
+本地验证：
+
+- RED：新增测试在旧实现上失败，原因是 DOCX XML 不包含 `TOC`，且目录仍是 `章节/内容` 手写表格。
+- GREEN：实现后该测试通过。
+- `backend.tests.test_v2_report_exports`：18 个测试通过，2 个因本机缺 FastAPI 依赖跳过。
+
+远端验证：
+
+- 已同步本轮文件到 `10.20.11.3:/opt/smartx-storage-forecast-v2`。
+- 容器内执行 `backend.tests.test_v2_report_exports backend.tests.test_v2_reports`，24 个测试通过。
+- 已重建并 recreate `web-api`。
+- `/api/system/health` 返回 `ok=true`、`version=v0.5.0`、`runner_version=v0.3.0`。
+- 真实导出 14 天 Word：`/data/exports/reports/storage-forecast-all-20260609-163003-14d.docx`。
+- 真实 Word XML 验证：包含 `TOC` 和 `1-3`、`w:updateFields w:val="true"`、`Heading1`、`Heading2`、`Heading3`；不包含旧手写目录表头 `章节` / `内容`。
+
+### 2026-06-09 Word 2.3 容量使用率可视化纯文本块化
+
+状态：已在 `10.20.11.3` 验证完成
+
+用户要求：
+
+- 参考客户版截图和用户补充代码，`2.3 容量使用率可视化` 使用 DOCX 纯文本块实现，不再用图片型 Top10 集群容量使用率图。
+
+实现：
+
+- `backend/app/v2/reports/export.py`：
+  - `2.3` 从 `_customer_usage_chart()` 改为 `_customer_usage_bars()`。
+  - 多集群范围默认选择当前使用率最高的集群，并在说明中写明 Tower/集群名称。
+  - 展示两条 DOCX 原生进度条：`当前使用率` 和 `90 天预测使用率`。
+  - 进度条使用 `█/░` 纯文本块：`█` 表示已用比例，`░` 补足剩余比例，当前使用率为深蓝，90 天预测为亮蓝。
+  - 每条进度条右侧展示 `容量阈值` 和阈值容量。
+  - 下方补充容量安全边际说明，高风险时写明安全边际不足。
+- `backend/tests/test_v2_report_exports.py`：
+  - 扩展 Word XML 测试，覆盖 `当前使用率`、`90 天预测使用率`、`容量阈值`、`容量安全边际`、`█/░` 文本块和深蓝/亮蓝文字颜色，并断言 `2.3` 区段不再出现旧 `Top 10 集群容量使用率`。
+
+验证：
+
+- RED：新增测试在旧实现上失败，原因是 `2.3` 仍为旧 Top10 图表，缺少 `90 天预测使用率`。
+- GREEN：实现后目标测试通过。
+- 本地 `backend.tests.test_v2_report_exports`：18 个测试通过，2 个因本机缺 FastAPI 依赖跳过。
+- 本地 `py_compile backend/app/v2/reports/export.py backend/tests/test_v2_report_exports.py` 通过。
+- 本地 `git diff --check` 通过。
+- 已同步本轮文件到 `10.20.11.3:/opt/smartx-storage-forecast-v2`，远端原文件备份为 `/tmp/smartx-v2-docx-text-bars-before-*.tar.gz`。
+- 容器内执行 `backend.tests.test_v2_report_exports backend.tests.test_v2_reports`，24 个测试通过。
+- 已重建并 recreate `web-api`，`/api/system/health` 返回 `ok=true`。
+- 真实导出 14 天 Word：`/data/exports/reports/storage-forecast-all-20260609-171217-14d.docx`。
+- 真实 Word XML 验证：`2.3` 区段包含 `当前使用率`、`90 天预测使用率`、`容量阈值`、`容量安全边际`、`█/░` 文本块、深蓝 `1A3C6E` 和亮蓝 `007ACC` 文字颜色；不包含旧 `Top 10 集群容量使用率`。
+- 已将真实导出的 Word 拉回本机渲染为 PNG，确认 `2.3` 视觉为纯文本块进度条，10.16% 显示 10 个深色块，右侧紧跟容量阈值。
+- 字体继续使用开源 `Noto Serif` / `Noto Serif CJK SC`，不使用 `微软雅黑`。
