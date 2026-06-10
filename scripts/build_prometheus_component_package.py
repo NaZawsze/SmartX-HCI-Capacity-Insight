@@ -60,7 +60,16 @@ def build_package(version: str, min_version: str, output_dir: Path, pull_image: 
     run(["docker", "save", "-o", str(image_file), image])
 
     manifest = {
-        "schema_version": "2",
+        "schema_version": "3",
+        "minimum_runner_protocol": 1,
+        "required_capabilities": [
+            "backup.create",
+            "image.load",
+            "compose.override",
+            "compose.apply",
+            "health.prometheus",
+            "rollback.restore",
+        ],
         "product": PRODUCT,
         "package_id": f"{PRODUCT}-{version}",
         "component": COMPONENT,
@@ -95,10 +104,16 @@ def build_package(version: str, min_version: str, output_dir: Path, pull_image: 
         "- Historical data blocks are not packaged and are preserved in the mounted data directory.\n",
         encoding="utf-8",
     )
+    members = ["manifest.json", "release-notes.md", "images/prometheus.tar"]
+    (work / "checksums.sha256").write_text(
+        "\n".join(f"{sha256_file(work / member)}  {member}" for member in members) + "\n",
+        encoding="utf-8",
+    )
+    members.append("checksums.sha256")
     if package.exists():
         package.unlink()
     with tarfile.open(package, "w:gz", compresslevel=1) as archive:
-        for member in ["manifest.json", "release-notes.md", "images/prometheus.tar"]:
+        for member in members:
             archive.add(work / member, arcname=member)
     (output_dir / f"{package.name}.sha256").write_text(f"{sha256_file(package)}  {package.name}\n", encoding="utf-8")
     print(package)

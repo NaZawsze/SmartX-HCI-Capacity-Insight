@@ -1,48 +1,40 @@
 from __future__ import annotations
 
-import signal
-import time
 from pathlib import Path
 
 from app.v2.config import V2Settings, settings_from_environment
 from app.v2.database import V2Database
 from app.v2.tasks.service import TaskService
-from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService, _read_task_file
+from app.upgrade_runner.actions import CommandExecutor
+from app.upgrade_runner.actions import default_handlers
+from app.upgrade_runner.main import RunnerSettings, main, run_pending_once as run_standalone_pending_once
 
 
 def run_pending_once(
     settings: V2Settings,
     tasks: TaskService,
     *,
-    executor: UpgradeCommandExecutor | None = None,
+    executor: CommandExecutor | None = None,
     project_path: Path | None = None,
 ) -> int:
-    count = 0
-    for task_file in sorted(settings.upgrades_dir.glob("*/task.json"), key=lambda path: path.stat().st_mtime):
-        task = _read_task_file(task_file.parent)
-        if (task.get("status") != "pending" or not task.get("runner_requested")) and task.get("status") != "runner_restarting":
-            continue
-        UpgradeService(settings, tasks, executor=executor, project_path=project_path).execute_task(task)
-        count += 1
-    return count
-
-
-def main() -> None:
-    settings = settings_from_environment()
-    database = V2Database(settings)
-    database.initialize()
-    tasks = TaskService(database)
-    stop = False
-
-    def request_stop(*_: object) -> None:
-        nonlocal stop
-        stop = True
-
-    signal.signal(signal.SIGTERM, request_stop)
-    signal.signal(signal.SIGINT, request_stop)
-    while not stop:
-        run_pending_once(settings, tasks)
-        time.sleep(3)
+    runner_settings = RunnerSettings(
+        database_path=settings.sqlite_path,
+        upgrades_path=settings.upgrades_dir,
+        data_path=settings.sqlite_path.parent,
+        backups_path=settings.backups_dir,
+        compose_runtime_path=settings.compose_runtime_dir,
+        prometheus_path=settings.prometheus_data_dir,
+        project_path=project_path or Path("/opt/smartx-storage-forecast"),
+        compose_file=settings.compose_file,
+        compose_project=settings.compose_project_name,
+        runner_version=settings.runner_version,
+    )
+    handlers = None
+    if executor is not None:
+        handlers = default_handlers()
+        handlers["health.http"] = lambda _action, _context: {"status": 200, "checkpoint": {"healthy": True}}
+        handlers["health.prometheus"] = handlers["health.http"]
+    return run_standalone_pending_once(runner_settings, executor=executor, handlers=handlers)
 
 
 if __name__ == "__main__":

@@ -123,6 +123,7 @@ Recommended package structure:
 ```text
 smartx-capacity-insight-v0.5.0-upgrade.tar.gz
 ├── manifest.json
+├── checksums.sha256
 ├── release-notes.md                 # optional
 ├── images/
 │   ├── web-api.tar
@@ -145,7 +146,9 @@ Example fields:
 
 ```json
 {
-  "schema_version": "2",
+  "schema_version": "3",
+  "minimum_runner_protocol": 1,
+  "required_capabilities": ["backup.create", "image.load", "compose.apply", "health.http"],
   "product": "smartx-storage-forecast",
   "package_id": "smartx-capacity-insight-v0.5.0",
   "version": "v0.5.0",
@@ -175,15 +178,44 @@ For normal platform upgrades, do not restart `upgrade-runner` in the same packag
 
 Component upgrade packages for `upgrade-runner` are separate and use the runner component version, for example `v0.3.0`, not the platform version.
 
+```text
+smartx-upgrade-runner-v0.3.0.tar.gz
+├── manifest.json
+├── checksums.sha256
+├── release-notes.md
+└── images/
+    └── upgrade-runner.tar
+```
+
+The old `web-api` updates Runner directly; Runner never updates itself. A normal platform package does not require a Runner upgrade when its protocol and capability requirements are already satisfied.
+
 Prometheus is upgraded as an `observability` component package. It is separate from normal platform packages and contains only the Prometheus image:
 
 ```text
 smartx-prometheus-v2.55.1.tar.gz
 ├── manifest.json
+├── checksums.sha256
 ├── release-notes.md
 └── images/
     └── prometheus.tar
 ```
+
+Platform and Prometheus can also be delivered as one bundle:
+
+```text
+smartx-capacity-insight-bundle-v0.6.0.tar.gz
+├── manifest.json
+├── checksums.sha256
+├── release-notes.md
+├── platform/
+│   ├── images/
+│   ├── project/
+│   └── migrations/
+└── observability/
+    └── images/
+```
+
+Build it with `python scripts/build_bundle_upgrade_package.py --platform-version v0.6.0`. Bundle packages do not contain Runner by default.
 
 ### Recommended Migration Path: Fresh Install + CLI Data Export
 

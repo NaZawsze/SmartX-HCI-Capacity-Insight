@@ -258,9 +258,9 @@
 - `frontend/src/pages/ServicePage.tsx`
 - `frontend/src/components/AppLayout.tsx`
 - `frontend/src/styles/global.css`
-- `backend/app/services/system_control.py`
-- `backend/app/services/upgrade.py`
-- `backend/app/api/routes.py`
+- `backend/app/v2/system/control.py`
+- `backend/app/v2/upgrade/service.py`
+- `backend/app/v2/api.py`
 
 常见问题：
 - 服务管理和集群选择无关，切换页面时左侧集群栏需要收起或居中
@@ -280,6 +280,8 @@
 - 预检查
 - 备份 `/data/backups/upgrade-版本-before-时间.tar.gz`
 - `upgrade-runner` 执行升级
+- manifest schema 3 协议与 capability 预检查
+- `task.json` 原子检查点、Runner 心跳、任务租约与跨重启恢复
 - `docker load`
 - 写入 `docker-compose.upgrade.yml`
 - 执行可选迁移脚本
@@ -288,8 +290,10 @@
 - 升级历史和升级后核验
 
 相关文件：
-- `backend/app/services/upgrade.py`
-- `backend/app/upgrade/runner.py`
+- `backend/app/v2/upgrade/service.py`
+- `backend/app/v2/upgrade/compiler.py`
+- `backend/app/upgrade_protocol/`
+- `backend/app/upgrade_runner/`
 - `scripts/build_upgrade_package.py`
 - `docker-compose.upgrade.yml`
 - `docs/upgrade-runner-lifecycle.md`
@@ -299,12 +303,26 @@
 
 ```text
 manifest.json
+checksums.sha256
 release-notes.md
 images/web-api.tar
 images/collector-worker.tar
 images/frontend.tar
 scripts/migrate.sh
 ```
+
+组合升级包结构：
+
+```text
+manifest.json
+checksums.sha256
+platform/images/
+platform/project/
+platform/migrations/
+observability/images/prometheus.tar
+```
+
+平台包、Prometheus 包和组合包由 Runner 执行；Runner 组件包由旧 web-api 直接执行。组合包默认不包含 Runner。
 
 常见问题：
 - 旧 runner 无法升级自己
@@ -321,14 +339,14 @@ scripts/migrate.sh
 主要内容：
 - 组件升级包上传
 - 组件预检查
-- 只允许升级 `upgrade-runner`
+- 支持升级中心组件 `upgrade-runner` 和观测组件 Prometheus
 - runner 当前版本显示
 - runner 手动升级流程
 - 平台升级包一般不包含 runner
 
 相关文件：
-- `backend/app/services/upgrade.py`
-- `backend/app/upgrade/runner.py`
+- `backend/app/v2/upgrade/service.py`
+- `backend/app/upgrade_runner/`
 - `backend/Dockerfile.upgrade`
 - `docs/upgrade-runner-lifecycle.md`
 - `frontend/src/pages/ServicePage.tsx`
@@ -338,6 +356,8 @@ scripts/migrate.sh
 - runner 是否需要显示平台版本
 - [已解决] v2 runner-only 组件升级由 web-api 直接执行，不依赖旧 web-api 写只读 `/opt`，也不提交给 runner 自己重启自己。
 - runner 被重建时正在执行的升级任务如何恢复
+- [已解决] Runner v0.3.0 使用 action checkpoint、revision、心跳和租约恢复安全动作；结果不明确的迁移进入 `recovery_required`。
+- [已解决] 健康检查失败只自动回滚一次，恢复项目文件、删除新增文件、移除升级 override 并 recreate 原版本服务。
 - [已解决] Prometheus 作为 `observability` 组件独立升级，由 manifest 自动识别，不作为普通平台三件套默认升级内容。
 
 ## 12. 版本、发布与升级包生成

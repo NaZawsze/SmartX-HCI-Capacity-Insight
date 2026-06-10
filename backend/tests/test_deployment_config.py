@@ -91,12 +91,28 @@ def test_platform_upgrade_package_excludes_runner() -> None:
     assert '("upgrade-runner",' not in text
 
 
-def test_upgrade_runner_uses_v2_runner_entrypoint() -> None:
+def test_upgrade_runner_uses_standalone_runner_entrypoint() -> None:
     root = Path(__file__).resolve().parents[2]
     for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml", "backend/Dockerfile.upgrade"):
         text = (root / name).read_text(encoding="utf-8")
-        assert "app.v2.upgrade.runner" in text
-        assert "app.upgrade.runner" not in text
+        assert "app.upgrade_runner.main" in text
+    runner = (root / "backend/app/upgrade_runner/main.py").read_text(encoding="utf-8")
+    assert "app.v2.upgrade.service" not in runner
+    dockerfile = (root / "backend/Dockerfile.upgrade").read_text(encoding="utf-8")
+    assert "COPY backend/app/upgrade_runner ./app/upgrade_runner" in dockerfile
+    assert "COPY backend/app/upgrade_protocol ./app/upgrade_protocol" in dockerfile
+    assert "COPY backend/app ./app" not in dockerfile
+
+
+def test_upgrade_runner_receives_host_paths_for_sandbox_mounts() -> None:
+    root = Path(__file__).resolve().parents[2]
+    for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+        text = (root / name).read_text(encoding="utf-8")
+        runner_section = text.split("  upgrade-runner:\n", 1)[1].split("  prometheus:\n", 1)[0]
+        assert "SMARTX_HOST_DATA_PATH: /data/smartx-capacity-insight-data/app" in runner_section
+        assert "SMARTX_HOST_PROMETHEUS_DATA_PATH: /data/smartx-capacity-insight-data/prometheus" in runner_section
+        assert "SMARTX_HOST_BACKUPS_PATH: /data/backups" in runner_section
+        assert "SMARTX_HOST_COMPOSE_RUNTIME_PATH: /data/compose-runtime" in runner_section
 
 
 def test_upgrade_runner_dependencies_do_not_pull_web_api_stack() -> None:

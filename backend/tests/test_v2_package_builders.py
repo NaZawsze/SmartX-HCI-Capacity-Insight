@@ -49,7 +49,9 @@ class V2PackageBuilderTest(unittest.TestCase):
                 names = set(archive.getnames())
                 manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
 
-        self.assertEqual(manifest["schema_version"], "2")
+        self.assertEqual(manifest["schema_version"], "3")
+        self.assertEqual(manifest["minimum_runner_protocol"], 1)
+        self.assertIn("backup.create", manifest["required_capabilities"])
         self.assertEqual(manifest["package_id"], "smartx-capacity-insight-v0.5.0")
         self.assertEqual(manifest["version"], "v0.5.0")
         self.assertEqual(manifest["compatibility"]["min_platform_version"], "v0.5.0")
@@ -64,6 +66,7 @@ class V2PackageBuilderTest(unittest.TestCase):
             {"images/web-api.tar", "images/collector-worker.tar", "images/frontend.tar"},
         )
         self.assertNotIn("images/upgrade-runner.tar", names)
+        self.assertIn("checksums.sha256", names)
         self.assertFalse(any(name.startswith("project/.env") or name.endswith("smartx.db") for name in names))
 
     def test_runner_component_builder_emits_v2_manifest_with_runner_component(self) -> None:
@@ -74,9 +77,12 @@ class V2PackageBuilderTest(unittest.TestCase):
             package = builder.build_package("v0.3.0", "v0.2.1", Path(tmpdir), build_image=False)
 
             with tarfile.open(package, mode="r:gz") as archive:
+                names = set(archive.getnames())
                 manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
 
-        self.assertEqual(manifest["schema_version"], "2")
+        self.assertEqual(manifest["schema_version"], "3")
+        self.assertEqual(manifest["minimum_runner_protocol"], 1)
+        self.assertEqual(manifest["required_capabilities"], [])
         self.assertEqual(manifest["package_id"], "smartx-upgrade-runner-v0.3.0")
         self.assertEqual(manifest["version"], "v0.3.0")
         self.assertEqual(manifest["compatibility"]["min_runner_version"], "v0.2.1")
@@ -87,6 +93,7 @@ class V2PackageBuilderTest(unittest.TestCase):
         self.assertEqual(runner["services"], ["upgrade-runner"])
         self.assertEqual(runner["images"][0]["archive"], "images/upgrade-runner.tar")
         self.assertEqual(runner["images"][0]["image"], "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0")
+        self.assertIn("checksums.sha256", names)
 
     def test_prometheus_component_builder_emits_observability_manifest(self) -> None:
         builder = _load_script("build_prometheus_component_package.py")
@@ -99,7 +106,9 @@ class V2PackageBuilderTest(unittest.TestCase):
                 names = set(archive.getnames())
                 manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
 
-        self.assertEqual(manifest["schema_version"], "2")
+        self.assertEqual(manifest["schema_version"], "3")
+        self.assertEqual(manifest["minimum_runner_protocol"], 1)
+        self.assertIn("health.prometheus", manifest["required_capabilities"])
         self.assertEqual(manifest["package_id"], "smartx-prometheus-v2.55.1")
         self.assertEqual(manifest["version"], "v2.55.1")
         self.assertEqual(manifest["compatibility"]["min_prometheus_version"], "v2.55.1")
@@ -111,5 +120,48 @@ class V2PackageBuilderTest(unittest.TestCase):
         self.assertEqual(observability["images"][0]["archive"], "images/prometheus.tar")
         self.assertEqual(observability["images"][0]["image"], "prom/prometheus:v2.55.1")
         self.assertIn("images/prometheus.tar", names)
+        self.assertIn("checksums.sha256", names)
         self.assertNotIn("images/web-api.tar", names)
         self.assertNotIn("images/upgrade-runner.tar", names)
+
+    def test_bundle_builder_combines_platform_and_observability_without_runner(self) -> None:
+        builder = _load_script("build_bundle_upgrade_package.py")
+        platform_builder = _load_script("build_upgrade_package.py")
+        prometheus_builder = _load_script("build_prometheus_component_package.py")
+        platform_builder.run = _fake_docker_run
+        prometheus_builder.run = _fake_docker_run
+        builder.load_platform_builder = lambda: platform_builder
+        builder.load_prometheus_builder = lambda: prometheus_builder
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            package = builder.build_package(
+                platform_version="v0.5.0",
+                prometheus_version="v2.55.1",
+                min_platform_version="v0.5.0",
+                min_prometheus_version="v2.55.1",
+                output_dir=Path(tmpdir),
+                build_platform_images=False,
+                include_frontend_build=False,
+                pull_prometheus=False,
+            )
+
+            with tarfile.open(package, mode="r:gz") as archive:
+                names = set(archive.getnames())
+                manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
+
+        self.assertEqual(manifest["schema_version"], "3")
+        self.assertEqual(manifest["package_type"], "bundle")
+        self.assertEqual([component["type"] for component in manifest["components"]], ["platform", "observability"])
+        self.assertEqual(manifest["project_source"], "platform/project")
+        self.assertEqual(manifest["migration"]["script"], "platform/migrations/migrate.sh")
+        self.assertIn("platform/images/web-api.tar", names)
+        self.assertIn("observability/images/prometheus.tar", names)
+        self.assertIn("platform/project/docker-compose.offline.yml", names)
+        self.assertIn("checksums.sha256", names)
+        self.assertNotIn("images/upgrade-runner.tar", names)
+        self.assertNotIn("runner", {component["type"] for component in manifest["components"]})
+        from app.v2.upgrade.compiler import compile_execution_plan
+
+        plan = compile_execution_plan(manifest).to_dict()
+        sync_action = next(action for action in plan["actions"] if action["type"] == "files.sync")
+        self.assertEqual(sync_action["params"]["source"], "platform/project")

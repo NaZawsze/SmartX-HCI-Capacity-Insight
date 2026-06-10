@@ -37,6 +37,7 @@ frontend
 
 ```text
 manifest.json
+checksums.sha256
 release-notes.md
 images/
   upgrade-runner.tar
@@ -84,3 +85,18 @@ restart_services: upgrade-runner
 - 如果不需要 runner 能力变化，只制作平台升级包。
 - 如果需要 runner 能力变化，先制作并验证组件升级包，再制作平台升级包。
 - 不要为了让版本号一致而强制升级 `upgrade-runner`；runner 是升级执行组件，不是每个业务版本都必须同步更新的业务服务。
+
+## v0.3.0 稳定执行协议
+
+正式发布前的 `upgrade-runner v0.3.0` 一次性提供以下稳定能力：
+
+- 原子任务文件、revision、Action checkpoint。
+- Runner 心跳和 SQLite 任务租约。
+- 备份、镜像加载、白名单文件同步、Compose override/apply。
+- 无网络、只读根文件系统、无 Docker Socket 的迁移脚本沙箱。
+- HTTP 与 Prometheus 健康检查。
+- 自动回滚一次和人工恢复操作。
+
+后续平台升级包通过 `minimum_runner_protocol` 和 `required_capabilities` 判断兼容性。只要 v0.3.0 已具备升级包要求的能力，就不需要先升级 Runner。
+
+Runner 组件包由旧 `web-api` 直接加载镜像、写入 `/data/compose-runtime/docker-compose.runner-upgrade.yml` 并 recreate Runner。Runner 不执行自己的升级。

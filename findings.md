@@ -322,3 +322,24 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 仓库旧模板只有 5 个 Sheet，用户确认版包含 7 个固定 Sheet 和 1 个集群样式 Sheet。
 - 正式模板应净化为无业务数据的二进制模板，并将集群样式 Sheet 隐藏；导出时按实际集群复制并填数。
 - Excel 全部字体继续使用开源 `Noto Sans CJK SC`，不能在导出后统一叠加字号，否则会破坏模板尺寸。
+
+## Phase 22 升级任务恢复决策
+
+- Phase 18 任务中心状态机、Phase 19 分级通知、Phase 20 配置迁移包和 Phase 21 Excel 客户模板均已完成；当前最高优先级为 Phase 22。
+- 当前 runner 只会接管 `pending + runner_requested` 和 `runner_restarting`，普通 `running` 任务在进程重启后缺少通用恢复路径。
+- 当前 `execute_task()` 每次都会重新初始化步骤列表，因此不能直接把任意 `running` 任务重新送入该函数，否则可能重复执行备份、项目文件覆盖或服务重启。
+- Phase 22 必须采用检查点和幂等恢复，而不是简单地把 `running` 状态重新改成 `pending`。
+- `runner v0.3.0` 尚未正式发布，因此不再增加 `v0.3.1` 引导版本；直接在 v0.3.0 中补齐 Phase 22 并重建测试环境镜像。
+- 长期目标是让 runner 成为协议驱动的稳定执行器，而不是平台 `UpgradeService` 的镜像副本。普通平台升级只声明通用动作，不应要求 runner 跟随平台更新。
+- 平台包与 runner 通过 `protocol_version + required_capabilities` 协商兼容性；只有新增原子能力、底层 Docker/Compose 变化、安全修复或容器拓扑变化才需要升级 runner。
+- 对无法确认结果的非幂等步骤默认进入 `recovery_required` 等待人工选择，这是比自动重试更稳妥的默认策略。
+- Phase 22 实现采用独立 `app.upgrade_runner` 和 `app.upgrade_protocol`；Runner 镜像不再复制完整 `backend/app`。
+- `task.json` 使用临时文件、fsync、原子替换和 revision，SQLite 只保存心跳、租约及任务中心投影。
+- Runner 自升级仍由 web-api 直执行；平台和 Prometheus 才编译为通用 execution plan 交给 Runner。
+- Runner 容器内的 `/data` 与 `/prometheus-data` 不是 Docker daemon 应直接复用的宿主机路径；沙箱挂载通过 `SMARTX_HOST_DATA_PATH` 和 `SMARTX_HOST_PROMETHEUS_DATA_PATH` 转换。
+- 项目文件回滚除了恢复旧文件，还必须依据文件 journal 删除升级前不存在的新文件，并在移除 override 后 recreate 受影响服务。
+- 平台与 Prometheus 组合包由 `scripts/build_bundle_upgrade_package.py` 生成，默认不包含 Runner。
+- SQLite 处于 WAL 模式时不能直接归档 `smartx.db`；Runner 备份必须先用 SQLite Backup API 生成一致性快照。
+- Runner 宿主机路径映射需要优先匹配 `/data/backups`、`/data/compose-runtime` 等具体挂载，不能先被通用 `/data` 吞掉；`/data/exports` 和 `/data/upgrades` 禁止挂入迁移沙箱。
+- `compose up -d` 后服务可能尚未 ready，健康检查需要有限重试；只有重试耗尽才触发一次自动回滚。
+- web-api 恢复命令与 Runner 检查点写入可能并发，必须用 task revision 拒绝陈旧写入，并在成功保存后回写新 revision。

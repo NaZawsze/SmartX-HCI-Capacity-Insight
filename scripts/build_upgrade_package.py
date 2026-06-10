@@ -273,8 +273,20 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
         shutil.copy2(ROOT / rel, target)
 
     write_migrate_script(work / "scripts/migrate.sh", version)
+    migration_path = work / "scripts/migrate.sh"
     manifest = {
-        "schema_version": "2",
+        "schema_version": "3",
+        "minimum_runner_protocol": 1,
+        "required_capabilities": [
+            "backup.create",
+            "image.load",
+            "files.sync",
+            "compose.override",
+            "script.sandbox.v1",
+            "compose.apply",
+            "health.http",
+            "rollback.restore",
+        ],
         "product": PRODUCT,
         "package_id": f"smartx-capacity-insight-{version}",
         "version": version,
@@ -290,7 +302,17 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
         ],
         "project_files": True,
         "project_file_list": project_files,
-        "migration": {"required": True, "script": "scripts/migrate.sh"},
+        "migration": {
+            "required": True,
+            "script": "scripts/migrate.sh",
+            "sha256": sha256_file(migration_path),
+            "image_service": "web-api",
+            "timeout_seconds": 900,
+            "mounts": [
+                {"source": "/data", "target": "/data", "mode": "rw"},
+                {"source": "/data/backups", "target": "/data/backups", "mode": "rw"},
+            ],
+        },
         "restart_services": ["web-api", "collector-worker", "frontend"],
         "compatibility": {"min_platform_version": min_version},
         "notes": "release-notes.md",
@@ -315,6 +337,9 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
         "scripts/migrate.sh",
         *[f"project/{rel}" for rel in project_files],
     ]
+    checksum_lines = [f"{sha256_file(work / member)}  {member}" for member in members]
+    (work / "checksums.sha256").write_text("\n".join(checksum_lines) + "\n", encoding="utf-8")
+    members.append("checksums.sha256")
     assert_safe_members(members)
     if package.exists():
         package.unlink()

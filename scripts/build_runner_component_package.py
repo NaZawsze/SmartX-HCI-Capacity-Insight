@@ -68,7 +68,9 @@ def build_package(version: str, min_version: str, output_dir: Path, build_image:
     run(['docker', 'save', '-o', str(image_file), image])
 
     manifest = {
-        'schema_version': '2',
+        'schema_version': '3',
+        'minimum_runner_protocol': 1,
+        'required_capabilities': [],
         'product': PRODUCT,
         'package_id': f'{PRODUCT}-{version}',
         'component': COMPONENT,
@@ -103,10 +105,16 @@ def build_package(version: str, min_version: str, output_dir: Path, build_image:
         '- Compose execution rewrites relative bind mounts for Docker socket host paths.\n',
         encoding='utf-8',
     )
+    members = ['manifest.json', 'release-notes.md', 'images/upgrade-runner.tar']
+    (work / 'checksums.sha256').write_text(
+        '\n'.join(f'{sha256_file(work / member)}  {member}' for member in members) + '\n',
+        encoding='utf-8',
+    )
+    members.append('checksums.sha256')
     if package.exists():
         package.unlink()
     with tarfile.open(package, 'w:gz', compresslevel=1) as archive:
-        for member in ['manifest.json', 'release-notes.md', 'images/upgrade-runner.tar']:
+        for member in members:
             archive.add(work / member, arcname=member)
     (output_dir / f'{package.name}.sha256').write_text(f'{sha256_file(package)}  {package.name}\n', encoding='utf-8')
     print(package)

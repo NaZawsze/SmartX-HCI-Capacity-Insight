@@ -255,6 +255,19 @@ docker compose build web-api collector-worker
 docker compose up -d web-api collector-worker
 ```
 
+The v2 upgrade center uses manifest schema 3 and a stable Runner protocol. Platform and Prometheus packages are compiled by `web-api` into an atomic `task.json` execution plan; `upgrade-runner v0.3.0` executes generic actions and can recover after restart. Runner self-upgrade is executed directly by the old `web-api`.
+
+Package builders:
+
+```bash
+python scripts/build_upgrade_package.py
+python scripts/build_runner_component_package.py --version v0.3.0
+python scripts/build_prometheus_component_package.py --version v2.55.1
+python scripts/build_bundle_upgrade_package.py --platform-version v0.6.0 --prometheus-version v2.55.1
+```
+
+Every package requires `manifest.json` and `checksums.sha256`. Bundle packages contain `platform/` and `observability/` sections and do not contain Runner by default. Never package `.env`, SQLite databases, Prometheus data blocks, backups, exports, credentials, or tokens.
+
 ## 11. Security Checklist
 
 - Do not commit `.env`.

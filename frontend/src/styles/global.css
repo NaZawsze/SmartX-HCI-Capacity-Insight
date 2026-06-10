@@ -3513,6 +3513,35 @@ button.risk-cluster-row:hover {
   gap: 16px;
 }
 
+.upgrade-recovery-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 16px;
+  border: 1px solid #f0b429;
+  border-radius: 8px;
+  background: #fff9e8;
+}
+
+.upgrade-recovery-panel strong {
+  color: #8a5200;
+  font-size: 15px;
+}
+
+.upgrade-recovery-panel p {
+  margin: 5px 0 0;
+  color: #765a2d;
+  line-height: 1.5;
+}
+
+.upgrade-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .upgrade-package-section {
   display: grid;
   gap: 14px;

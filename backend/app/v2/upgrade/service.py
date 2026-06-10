@@ -27,6 +27,10 @@ except ModuleNotFoundError:  # pragma: no cover - covered by runner image import
 from app.v2.config import V2Settings
 from app.v2.tasks.models import TaskStatus, TaskType
 from app.v2.tasks.service import TaskService
+from app.upgrade_protocol.constants import RUNNER_CAPABILITIES, RUNNER_PROTOCOL_VERSION, TASK_SCHEMA_VERSION
+from app.upgrade_protocol.validation import ProtocolValidationError, validate_manifest_compatibility
+from app.upgrade_runner.store import RevisionConflict, TaskStore
+from app.v2.upgrade.compiler import UpgradeCompilationError, compile_execution_plan
 
 
 MANIFEST_NAME = "manifest.json"
@@ -72,7 +76,7 @@ class UpgradeService:
         try:
             with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
                 _validate_members(archive)
-                archive.extractall(package_path)
+                archive.extractall(package_path, filter="data")
         except (tarfile.TarError, OSError) as exc:
             shutil.rmtree(task_dir, ignore_errors=True)
             raise HTTPException(status_code=400, detail=f"无法读取升级包：{exc}") from exc
@@ -102,9 +106,10 @@ class UpgradeService:
         checks = [
             _check_manifest(manifest),
             {"name": "paths", "ok": True, "message": "包内路径安全"},
-            _check_images(package_path, manifest),
-            _check_project_files(package_path, manifest),
         ]
+        if manifest.get("schema_version") == "3":
+            checks.extend([_check_protocol(manifest), _check_package_checksums(package_path)])
+        checks.extend([_check_images(package_path, manifest), _check_project_files(package_path, manifest)])
         if _observability_services(manifest):
             checks.append(_check_prometheus_permissions(self.settings.prometheus_data_dir))
         task["checks"] = checks
@@ -128,8 +133,14 @@ class UpgradeService:
         if task.get("status") != "precheck_passed":
             raise HTTPException(status_code=400, detail="预检查通过后才能开始升级。")
         if submit_to_runner:
+            try:
+                execution_plan = compile_execution_plan(task["manifest"])
+            except (UpgradeCompilationError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             task["status"] = "pending"
             task["runner_requested"] = True
+            task["task_schema_version"] = TASK_SCHEMA_VERSION
+            task["execution_plan"] = execution_plan.to_dict()
             task["updated_at"] = _now().isoformat()
             _save_task_file(task_dir, task)
             self.tasks.create_task(task_id, TaskType.UPGRADE, "执行系统升级", status=TaskStatus.PENDING, progress=1, message="升级任务已提交，等待 upgrade-runner 执行")
@@ -182,6 +193,13 @@ class UpgradeService:
     def component_catalog(self) -> dict[str, Any]:
         prometheus_status = self._inspect_service_by_name("prometheus")
         prometheus_version = _version_from_service_status(prometheus_status) or "-"
+        runner_state = self._runner_state()
+        runner_capabilities = runner_state.get("capabilities", []) if runner_state else []
+        compatible = bool(
+            runner_state
+            and int(runner_state.get("protocol_version") or 0) >= RUNNER_PROTOCOL_VERSION
+            and RUNNER_CAPABILITIES <= set(runner_capabilities)
+        )
         return {
             "components": [
                 {
@@ -189,6 +207,10 @@ class UpgradeService:
                     "display_name": "升级中心组件",
                     "service": "upgrade-runner",
                     "version": self.settings.runner_version,
+                    "protocol_version": runner_state.get("protocol_version") if runner_state else None,
+                    "capabilities": runner_capabilities,
+                    "heartbeat_at": runner_state.get("heartbeat_at") if runner_state else None,
+                    "compatible": compatible,
                     "executor": "web-api",
                     "upgradeable": True,
                     "status_message": "由 web-api 执行自升级，不修改业务库和历史指标。",
@@ -204,6 +226,53 @@ class UpgradeService:
                 },
             ]
         }
+
+    def recovery_continue(self, task_id: str) -> dict[str, Any]:
+        return self._set_recovery_command(task_id, "continue", "已请求 upgrade-runner 继续执行")
+
+    def recovery_rollback(self, task_id: str) -> dict[str, Any]:
+        return self._set_recovery_command(task_id, "rollback", "已请求 upgrade-runner 执行回滚")
+
+    def recovery_fail(self, task_id: str) -> dict[str, Any]:
+        task_dir = self.settings.upgrades_dir / task_id
+        task = _read_task_file(task_dir)
+        if task.get("status") != "recovery_required":
+            raise HTTPException(status_code=400, detail="只有等待恢复的升级任务可以标记失败。")
+        task["status"] = "failed"
+        task["recovery_status"] = "failed"
+        task["recovery_command"] = "fail"
+        task["available_recovery_actions"] = []
+        task["error"] = task.get("error") or "管理员已将恢复任务标记为失败。"
+        task["updated_at"] = _now().isoformat()
+        _save_task_file(task_dir, task)
+        self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message=task["error"])
+        return self._public_task(task)
+
+    def _set_recovery_command(self, task_id: str, command: str, message: str) -> dict[str, Any]:
+        task_dir = self.settings.upgrades_dir / task_id
+        task = _read_task_file(task_dir)
+        if task.get("status") != "recovery_required":
+            raise HTTPException(status_code=400, detail="当前升级任务不需要恢复处理。")
+        if command not in set(task.get("available_recovery_actions") or []):
+            raise HTTPException(status_code=400, detail="当前恢复操作不可用。")
+        task["recovery_command"] = command
+        task["runner_requested"] = True
+        task["updated_at"] = _now().isoformat()
+        _save_task_file(task_dir, task)
+        self.tasks.update_task(task_id, status=TaskStatus.RUNNING, progress=50, message=message)
+        return self._public_task(task)
+
+    def _runner_state(self) -> dict[str, Any] | None:
+        with self.tasks.database.connection() as conn:
+            row = conn.execute("SELECT * FROM upgrade_runner_state WHERE id = 1").fetchone()
+        if not row:
+            return None
+        payload = dict(row)
+        try:
+            payload["capabilities"] = json.loads(payload.pop("capabilities_json"))
+        except (json.JSONDecodeError, TypeError):
+            payload["capabilities"] = []
+        return payload
 
     def verification(self) -> dict[str, Any]:
         success_packages = [task for task in self.history() if task.get("status") == "succeeded"]
@@ -461,6 +530,8 @@ class UpgradeService:
         public = dict(task)
         public["task_id"] = str(task.get("task_id") or "")
         public["status"] = _public_status(str(task.get("status") or ""))
+        if task.get("status") == "recovery_required" and task.get("recovery_command") in {"continue", "rollback"}:
+            public["status"] = "running"
         public["package_filename"] = task.get("filename") or task.get("package_filename")
         public["uploaded_at"] = task.get("created_at") or task.get("uploaded_at")
         checks = task.get("checks") or []
@@ -584,8 +655,8 @@ def _read_manifest(path: Path) -> dict[str, Any]:
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=400, detail="manifest.json 格式不正确。") from exc
-    if manifest.get("schema_version") != "2":
-        raise HTTPException(status_code=400, detail="升级包 schema_version 必须为 2。")
+    if manifest.get("schema_version") not in {"2", "3"}:
+        raise HTTPException(status_code=400, detail="升级包 schema_version 必须为 2 或 3。")
     return manifest
 
 
@@ -596,6 +667,35 @@ def _component_types(manifest: dict[str, Any]) -> list[str]:
 def _check_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     ok = bool(manifest.get("version")) and isinstance(manifest.get("components"), list)
     return {"name": "manifest", "ok": ok, "message": "manifest 格式正确" if ok else "manifest 缺少 version 或 components"}
+
+
+def _check_protocol(manifest: dict[str, Any]) -> dict[str, Any]:
+    try:
+        validate_manifest_compatibility(manifest, RUNNER_PROTOCOL_VERSION, RUNNER_CAPABILITIES)
+    except (ProtocolValidationError, TypeError, ValueError) as exc:
+        return {"name": "runner_protocol", "ok": False, "message": str(exc)}
+    return {"name": "runner_protocol", "ok": True, "message": "Runner 协议与能力满足升级包要求"}
+
+
+def _check_package_checksums(package_path: Path) -> dict[str, Any]:
+    checksum_file = package_path / "checksums.sha256"
+    if not checksum_file.is_file():
+        return {"name": "checksums", "ok": False, "message": "schema 3 升级包缺少 checksums.sha256"}
+    try:
+        entries = [line.strip().split(maxsplit=1) for line in checksum_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+        for digest, relative_value in entries:
+            relative = Path(relative_value.strip())
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ValueError(f"校验路径不安全：{relative_value}")
+            target = package_path / relative
+            if not target.is_file():
+                raise ValueError(f"校验文件不存在：{relative_value}")
+            actual = hashlib.sha256(target.read_bytes()).hexdigest()
+            if actual != digest:
+                raise ValueError(f"文件校验失败：{relative_value}")
+    except (OSError, ValueError) as exc:
+        return {"name": "checksums", "ok": False, "message": str(exc)}
+    return {"name": "checksums", "ok": True, "message": f"升级包文件校验通过，共 {len(entries)} 项"}
 
 
 def _check_images(package_path: Path, manifest: dict[str, Any]) -> dict[str, Any]:
@@ -798,15 +898,19 @@ def _add_directory(archive: tarfile.TarFile, source: Path, arcname: str, *, skip
 
 
 def _save_task_file(task_dir: Path, task: dict[str, Any]) -> None:
-    task_dir.mkdir(parents=True, exist_ok=True)
-    (task_dir / "task.json").write_text(json.dumps(task, ensure_ascii=False, indent=2), encoding="utf-8")
+    expected_revision = int(task.get("revision") or 0) if (task_dir / "task.json").is_file() else None
+    try:
+        saved = TaskStore(task_dir).save(task, expected_revision=expected_revision)
+        task["revision"] = saved["revision"]
+    except RevisionConflict as exc:
+        raise HTTPException(status_code=409, detail="升级任务状态已变化，请刷新后重试。") from exc
 
 
 def _read_task_file(task_dir: Path) -> dict[str, Any]:
     path = task_dir / "task.json"
     if not path.is_file():
         raise HTTPException(status_code=404, detail="升级任务不存在。")
-    return json.loads(path.read_text(encoding="utf-8"))
+    return TaskStore(task_dir).load()
 
 
 def _public_status(status: str) -> str:
@@ -817,6 +921,9 @@ def _public_status(status: str) -> str:
         "pending": "pending",
         "running": "running",
         "runner_restarting": "running",
+        "recovery_required": "recovery_required",
+        "rollback_running": "running",
+        "rollback_failed": "failed",
         "success": "succeeded",
         "failed": "failed",
         "cancelled": "cancelled",

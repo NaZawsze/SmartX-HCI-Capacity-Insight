@@ -120,11 +120,12 @@ Prometheus: http://<server-ip>:9090
 
 兼容范围：`v0.5.0` 升级包仅面向 v2 升级流程，不支持从 v1 或 `v0.4.x` 原地升级；这些旧系统通过数据迁移兼容。对于较早的 v1 安装，推荐直接重新安装最新版本，然后按 README 中的命令从旧系统导出迁移包并导入新系统。
 
-推荐目录结构：
+平台升级包目录结构：
 
 ```text
 smartx-capacity-insight-v0.5.0-upgrade.tar.gz
 ├── manifest.json
+├── checksums.sha256
 ├── release-notes.md                 # 可选
 ├── images/
 │   ├── web-api.tar
@@ -147,7 +148,9 @@ smartx-capacity-insight-v0.5.0-upgrade.tar.gz
 
 ```json
 {
-  "schema_version": "2",
+  "schema_version": "3",
+  "minimum_runner_protocol": 1,
+  "required_capabilities": ["backup.create", "image.load", "files.sync", "compose.apply", "rollback.restore"],
   "product": "smartx-storage-forecast",
   "package_id": "smartx-capacity-insight-v0.5.0",
   "version": "v0.5.0",
@@ -177,15 +180,48 @@ smartx-capacity-insight-v0.5.0-upgrade.tar.gz
 
 `upgrade-runner` 组件升级包独立于平台升级包，使用 runner 组件版本，例如 `v0.3.0`，不使用平台版本号。
 
+```text
+smartx-upgrade-runner-v0.3.0.tar.gz
+├── manifest.json
+├── checksums.sha256
+├── release-notes.md
+└── images/
+    └── upgrade-runner.tar
+```
+
+Runner 包由旧 `web-api` 直接执行，Runner 不负责更新自己。普通平台包只要声明的协议和能力能被现有 Runner 满足，就不需要先升级 Runner。
+
 Prometheus 作为 `observability` 组件单独升级，不放入普通平台升级包。Prometheus 组件包只包含 Prometheus 镜像：
 
 ```text
 smartx-prometheus-v2.55.1.tar.gz
 ├── manifest.json
+├── checksums.sha256
 ├── release-notes.md
 └── images/
     └── prometheus.tar
 ```
+
+Prometheus 包由 Runner 执行，升级前强制备份历史数据，完成后执行健康检查与历史指标回归。
+
+平台和 Prometheus 需要在同一维护窗口升级时，可生成组合包：
+
+```text
+smartx-capacity-insight-bundle-v0.6.0.tar.gz
+├── manifest.json
+├── checksums.sha256
+├── release-notes.md
+├── platform/
+│   ├── images/
+│   ├── project/
+│   └── migrations/
+└── observability/
+    └── images/
+```
+
+组合包由 Runner 按“备份、加载镜像、同步项目文件、沙箱迁移、分组件 recreate、健康检查”执行，默认不包含 Runner。构建命令为 `python scripts/build_bundle_upgrade_package.py --platform-version v0.6.0`。
+
+所有升级包都禁止包含 `.env`、`smartx.db`、Prometheus 历史数据目录、备份、导出文件、Tower 凭据、token 或其他现场数据。
 
 ### 推荐迁移方式：新装后从旧系统命令导出数据
 

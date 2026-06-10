@@ -572,6 +572,15 @@ export const api = {
   async rollbackUpgrade(taskId: string): Promise<UpgradeTask> {
     return request<UpgradeTask>(`/api/admin/upgrade/rollback/${taskId}`, { method: "POST" });
   },
+  async continueUpgradeRecovery(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/upgrade/recovery/${taskId}/continue`, { method: "POST" });
+  },
+  async rollbackUpgradeRecovery(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/upgrade/recovery/${taskId}/rollback`, { method: "POST" });
+  },
+  async failUpgradeRecovery(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/upgrade/recovery/${taskId}/fail`, { method: "POST" });
+  },
   async cancelUpgrade(taskId: string): Promise<UpgradeTask> {
     return request<UpgradeTask>(`/api/admin/upgrade/cancel/${taskId}`, { method: "POST" });
   },

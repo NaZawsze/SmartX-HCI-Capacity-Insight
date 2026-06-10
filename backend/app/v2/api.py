@@ -857,6 +857,33 @@ def rollback_upgrade_package(
     return upgrade.rollback(task_id)
 
 
+@router.post("/api/admin/upgrade/recovery/{task_id}/continue")
+def continue_upgrade_recovery(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.recovery_continue(task_id)
+
+
+@router.post("/api/admin/upgrade/recovery/{task_id}/rollback")
+def rollback_upgrade_recovery(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.recovery_rollback(task_id)
+
+
+@router.post("/api/admin/upgrade/recovery/{task_id}/fail")
+def fail_upgrade_recovery(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.recovery_fail(task_id)
+
+
 @router.post("/api/admin/upgrade/cancel/{task_id}")
 def cancel_upgrade_package(
     task_id: str,

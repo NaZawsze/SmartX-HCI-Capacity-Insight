@@ -47,6 +47,7 @@ SMARTX_RUNNER_IMAGE_TAG   # upgrade-runner tag，例如 v0.3.0
 
 ```text
 manifest.json
+checksums.sha256
 release-notes.md
 images/web-api.tar
 images/collector-worker.tar
@@ -61,6 +62,7 @@ project/**
 
 ```text
 manifest.json
+checksums.sha256
 release-notes.md
 images/upgrade-runner.tar
 ```
@@ -69,9 +71,12 @@ Prometheus/observability 组件升级包由 `scripts/build_prometheus_component_
 
 ```text
 manifest.json
+checksums.sha256
 release-notes.md
 images/prometheus.tar
 ```
+
+所有新升级包使用 manifest schema 3，声明 `minimum_runner_protocol` 与 `required_capabilities`。平台版本号不再机械绑定 Runner 版本；只有能力不满足时才要求先升级 Runner。
 
 ## 发版检查清单
 

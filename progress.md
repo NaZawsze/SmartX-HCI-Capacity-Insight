@@ -3022,3 +3022,39 @@ TDD 记录：
 - 新增回归断言；本地完整报表测试 21 个通过、2 个因本机缺 FastAPI 依赖跳过，`py_compile` 与 `git diff --check` 通过。
 - 已同步到 `10.20.11.3`，容器内报表测试 27 个通过，重建并 recreate `web-api`，健康检查返回 `ok=true`。
 - 真实导出：`/data/exports/reports/storage-forecast-all-20260610-223344-14d.xlsx`，确认 `日增长详情` 的 `tabColor=None`。
+
+### 2026-06-10 Phase 编号与优先级整理
+
+状态：计划文档已更新
+
+- 将重复的 `Phase 18 - Excel 客户模板固化` 统一编号为 `Phase 21`。
+- Phase 18 任务中心状态机、Phase 19 分级通知、Phase 20 配置迁移包和 Phase 21 Excel 客户模板均保持已完成状态。
+- 新增 `Phase 22 - 升级任务跨重启恢复`，状态为待实施，优先级为当前最高 `P0`。
+- 最初记录了 `runner v0.3.1` 两阶段引导方案；用户确认 v0.3.0 尚未正式发布后，已撤销该方案。
+- Phase 22 改为直接完善并重新构建同版本 `runner v0.3.0`，正式发布后普通平台升级尽量不再要求先升级 runner。
+- 新兼容策略使用 `protocol_version + required_capabilities`，不再把平台升级与 runner 具体版本机械绑定。
+- 记录恢复设计边界：检查点、心跳与租约、SQLite/task.json 对账、幂等恢复、人工接管和回滚。
+
+### 2026-06-10 Phase 22 升级协议与 Runner 恢复实现
+
+状态：已完成并通过 `10.20.11.3` 故障注入验证
+
+- 新增独立升级协议、manifest 编译器、原子任务存储和 SQLite Runner 租约。
+- Runner v0.3.0 拆分为独立 main、engine、actions、store、sandbox、lease，不再依赖平台 UpgradeService。
+- 新增标准升级 Action、受控迁移脚本沙箱、分级恢复和健康检查失败后自动回滚一次。
+- 新增恢复 API 与前端继续、回滚、标记失败控制面。
+- 平台、Runner、Prometheus 构建器升级到 schema 3，并生成 `checksums.sha256`。
+- 升级文档补充平台包、Runner 包、Prometheus 包和组合包组成、执行者、流程及禁入内容。
+- 新增平台与 Prometheus 组合包构建器，组合包默认不包含 Runner。
+- 补齐沙箱宿主机路径映射、升级新增文件回滚删除和原版本服务 recreate。
+- 测试机已完成 Runner/web-api/frontend 重建，健康接口、Prometheus 和前端入口正常。
+- 测试机后端 Phase 22 相关测试 42 个通过，前端 `ServicePage` 15 个测试通过。
+- Runner 停止期间注入 `running` 安全动作，重启后自动接管成功，attempt 从 1 增加到 2，checkpoint 与 revision 正常递增。
+- 注入执行结果不明确的 `script.run_sandboxed` 后，Runner 保持 attempt=1 并进入 `recovery_required`，提供继续、回滚、标记失败。
+- 使用真实 `smartx-storage-forecast-web-api:local` 镜像执行受限沙箱脚本，`network=none`、只读根文件系统、宿主机数据路径映射、SHA256 和完成标记均生效。
+- Runner 状态表显示 `v0.3.0`、协议版本 1、完整 capability 列表和持续心跳；恢复任务正确投影为 `critical`。
+- 重建后的 `/api/system/health` 返回 `ok=true`，前端返回 200，Prometheus `/-/healthy` 正常；故障注入任务和文件已清理。
+- SQLite 备份改用 Backup API，回归覆盖 WAL 未 checkpoint 数据；自动回滚按 `platform/observability/bundle` 作用域恢复 SQLite 和 Prometheus 数据。
+- 健康检查增加最多 30 次、每次间隔 2 秒的默认等待窗口；回滚完成后必须再次通过健康检查，否则进入 `rollback_failed` 严重告警。
+- Runner 进程 `instance_id` 在多轮扫描中保持不变，测试机两次心跳查询 owner 一致、时间持续更新。
+- 最终镜像重建后再次执行真实受限沙箱任务，状态为 `success`，完成标记存在，测试任务和文件已清理。

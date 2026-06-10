@@ -537,7 +537,7 @@ Phase V2-0 细化文档：
 - [已解决] SQLite 备份清理第一版：空间清理页在“SQLite 清理并整理”下方新增独立框体，可扫描 `/data/backups` 顶层 SQLite 数据库备份，勾选后删除；不会清理升级前备份、导入前备份、Prometheus 备份或 `.tar.gz` 文件。
 - [已解决] 升级中心 v2 后续增强文档补齐：`docs/v2-upgrade-center-design.md` 已补 manifest 组件声明、执行边界、组合升级顺序、Prometheus 回归和失败恢复策略。
 
-### Phase 18 - Excel 客户模板固化
+### Phase 21 - Excel 客户模板固化
 
 状态：已同步测试机并通过回归验证
 
@@ -548,3 +548,67 @@ Phase V2-0 细化文档：
 - [已完成] 摘要 KPI 表第 1、3 行改为黑色粗体。
 - [已完成] 日增长详情标题合并 `A1:I1`。
 - [已完成] 新增独立月增长详情 Sheet，复用日增长详情布局并读取月增长 VM 数据。
+
+### Phase 22 - 升级任务跨重启恢复
+
+状态：已完成，测试机故障注入验证通过
+
+优先级：P0
+
+目标：
+
+- 平台升级、Prometheus 升级和 runner 组件升级在 `web-api`、`upgrade-runner` 或宿主机意外重启后，不再永久停留在 `pending/running`。
+- 升级步骤具备持久化检查点、执行器心跳、任务租约、幂等恢复、人工接管和回滚能力。
+- 在 `runner v0.3.0` 正式发布前一次性补齐 Phase 22 和通用升级协议；当前测试环境直接重建同版本 runner，不增加 `v0.3.1` 引导版本。
+- 普通平台代码、镜像、Compose 配置和常规迁移升级不要求先升级 runner；只有升级包需要 runner 未提供的新能力时，才要求先升级 runner。
+
+实施边界：
+
+- Phase 18、Phase 19、Phase 20、Phase 21 均为已完成项，不再阻塞 Phase 22。
+- Phase 22 第一版只治理升级中心任务，不扩展到报表导出、数据迁移或空间清理任务。
+- 对结果不明确且重复执行可能产生风险的步骤，默认暂停并等待人工选择“继续执行 / 执行回滚 / 标记失败”，不盲目自动重试。
+- runner 与平台升级业务解耦：runner 不再直接依赖平台 `UpgradeService` 的具体步骤实现，只执行稳定、版本化的升级任务协议。
+
+核心设计：
+
+- `task.json` 持久化每个步骤的 `status`、`attempt`、`started_at`、`finished_at`、`checkpoint`、`result` 和错误信息。
+- runner 持久化 `executor_id`、`lease_owner`、`lease_expires_at`、`heartbeat_at`，避免多个 runner 重复接管同一任务。
+- runner 启动时扫描 `pending/running/runner_restarting/recovery_required` 任务，并与 SQLite `tasks` 表进行对账。
+- 已确认成功的步骤直接跳过；备份、镜像加载、override 写入和健康检查按幂等规则恢复。
+- 服务重启步骤通过实际镜像、容器创建时间、运行状态、版本接口和健康检查判断结果，不仅依赖进程退出码。
+- 项目文件迁移、数据库迁移等无法可靠判断结果的步骤进入 `recovery_required`，由任务中心提供人工恢复操作。
+- 恢复失败或健康检查失败时生成 `critical` 严重告警，并允许使用升级前备份与旧 override 执行回滚。
+- runner 暴露稳定的 `protocol_version` 和 `capabilities`，例如备份、镜像加载、白名单文件同步、Compose override、服务重建、HTTP/Prometheus 健康检查、受控迁移脚本、回滚和断点恢复。
+- 平台升级包声明 `minimum_runner_protocol` 和 `required_capabilities`；预检查按能力匹配，不因普通平台版本变化而要求升级 runner。
+- 升级步骤由平台升级包和 manifest 描述，runner 只提供通用原子动作、状态机和安全边界，避免每次增加平台步骤都重建 runner。
+
+runner v0.3.0 发布策略：
+
+1. 直接在当前未正式发布的 `runner v0.3.0` 代码和镜像中实现通用协议、能力协商、检查点、租约和恢复状态机。
+2. 在 `10.20.11.3` 直接重建并替换测试环境的 `runner v0.3.0`，完成故障注入和平台升级回归。
+3. 正式发布后的常规平台升级继续使用同一个 `runner v0.3.0`，不要求先执行组件升级。
+4. 只有未来出现 v0.3.0 无法表达的新原子能力、Docker/Compose 接口变化、安全修复或容器拓扑变化时，才发布新的 runner 组件版本。
+5. 新 runner 必须保持旧协议兼容；平台包在确实需要新能力时才通过 `required_capabilities` 阻止旧 runner 执行。
+
+计划测试：
+
+- 在备份、镜像加载、项目文件同步、override 写入、服务重启和健康检查各阶段分别强制重启 runner，验证恢复结果。
+- 在平台服务重启期间重启 `web-api`，确认任务中心状态、日志、进度和告警不会丢失或重复。
+- 模拟两个 runner 同时发现同一任务，验证任务租约只允许一个执行器获得所有权。
+- 模拟 SQLite 与 `task.json` 状态不一致，验证对账规则不会把已失败任务重新执行。
+- 验证当前测试环境直接替换完善后的同版本 `runner v0.3.0`，随后可执行 Phase 22 平台升级。
+- 使用多个后续平台模拟版本验证均无需升级 runner；仅当升级包声明未知 capability 时才阻止执行并提示升级 runner。
+- 验证 Phase 22 平台失败后仍可回滚到上一平台版本，且完善后的 `runner v0.3.0` 继续兼容旧平台。
+
+当前实施进度：
+
+- [已实现] 独立 `upgrade_protocol` 与 `upgrade_runner`，Runner 不再导入平台 `UpgradeService`。
+- [已实现] schema 3、协议版本、能力协商、包内 checksums 校验和 manifest 编译器。
+- [已实现] task.json 原子写入、revision、Runner 心跳、SQLite 租约与安全接管。
+- [已实现] 标准 Action、迁移脚本沙箱、分级恢复、人工继续/回滚/失败 API 和自动回滚一次。
+- [已实现] 前端恢复控制面和 Runner 协议/能力/心跳展示。
+- [已实现] 平台、Runner、Prometheus 与平台+观测组合包构建器，统一 schema 3 和 `checksums.sha256`。
+- [已实现] 沙箱宿主机路径映射；回滚删除升级新增文件并 recreate 原版本服务。
+- [已实现] SQLite WAL 一致性快照、按作用域恢复 SQLite/Prometheus、回滚后健康复检和健康检查重试窗口。
+- [已实现] web-api 与 Runner 对 `task.json` 使用 revision 乐观并发控制，陈旧恢复操作返回 409。
+- [已验证] `10.20.11.3` 完成容器构建、Runner 重启接管、安全动作恢复、脚本中断受控暂停、实际沙箱执行、自动回滚单测和恢复界面回归。

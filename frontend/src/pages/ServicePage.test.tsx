@@ -12,6 +12,9 @@ const apiMock = vi.hoisted(() => ({
   upgradeVerification: vi.fn(),
   precheckUpgrade: vi.fn(),
   startUpgrade: vi.fn(),
+  continueUpgradeRecovery: vi.fn(),
+  rollbackUpgradeRecovery: vi.fn(),
+  failUpgradeRecovery: vi.fn(),
   importMigration: vi.fn(),
   startMigrationImport: vi.fn(),
   migrationImportStatus: vi.fn(),
@@ -463,5 +466,27 @@ describe("ServicePage upgrade center", () => {
     await waitFor(() => expect(apiMock.startUpgrade).toHaveBeenCalledWith("upgrade-1"));
     expect(addTask).toHaveBeenCalledWith(expect.objectContaining({ id: "upgrade-1", kind: "upgrade", title: "执行系统升级" }));
     expect(updateTask).toHaveBeenCalledWith("upgrade-1", expect.objectContaining({ progress: expect.any(Number) }));
+  });
+
+  it("shows recovery controls and submits the selected recovery command", async () => {
+    mockServicePageBootstrap();
+    const recoveryTask = {
+      ...uploadedPlatformTask(),
+      status: "recovery_required",
+      started_at: "2026-06-10T10:00:00Z",
+      recovery_reason: "迁移脚本结果无法自动确认",
+      available_recovery_actions: ["continue", "rollback", "fail"]
+    };
+    apiMock.upgradeHistory.mockResolvedValue([recoveryTask]);
+    apiMock.continueUpgradeRecovery.mockResolvedValue({ ...recoveryTask, recovery_command: "continue" });
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "升级历史" }));
+    fireEvent.click(await screen.findByRole("button", { name: /平台升级.*v0\.4\.2/s }));
+
+    expect(await screen.findByText("需要恢复处理")).toBeInTheDocument();
+    expect(screen.getByText("迁移脚本结果无法自动确认")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "继续执行" }));
+    await waitFor(() => expect(apiMock.continueUpgradeRecovery).toHaveBeenCalledWith("upgrade-1"));
   });
 });

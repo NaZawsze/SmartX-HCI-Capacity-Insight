@@ -248,6 +248,11 @@ export interface UpgradeTask {
   restart_services?: string[];
   precheck_ok?: boolean;
   manifest?: Record<string, unknown>;
+  task_schema_version?: number;
+  recovery_status?: string;
+  recovery_reason?: string;
+  recovery_command?: string | null;
+  available_recovery_actions?: Array<"continue" | "rollback" | "fail">;
   checks: Array<{ name: string; ok: boolean; message: string; detail?: unknown }>;
   steps: Array<{ key: string; title: string; status: string; started_at?: string; finished_at?: string; message?: string }>;
   logs: string[];
@@ -290,6 +295,10 @@ export interface ComponentInfo {
   executor: string;
   upgradeable: boolean;
   status_message?: string | null;
+  protocol_version?: number | null;
+  capabilities?: string[];
+  heartbeat_at?: string | null;
+  compatible?: boolean;
 }
 
 

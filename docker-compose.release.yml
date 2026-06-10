@@ -63,7 +63,7 @@ services:
 
   upgrade-runner:
     image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-upgrade-runner:${SMARTX_RUNNER_IMAGE_TAG:-v0.3.0}
-    command: ["python", "-m", "app.v2.upgrade.runner"]
+    command: ["python", "-m", "app.upgrade_runner.main"]
     env_file:
       - .env
     environment:
@@ -73,6 +73,11 @@ services:
       SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast
       SMARTX_DB_PATH: /data/smartx.db
       SMARTX_PROMETHEUS_DATA_PATH: /prometheus-data
+      SMARTX_HOST_DATA_PATH: /data/smartx-capacity-insight-data/app
+      SMARTX_HOST_BACKUPS_PATH: /data/backups
+      SMARTX_HOST_COMPOSE_RUNTIME_PATH: /data/compose-runtime
+      SMARTX_HOST_PROMETHEUS_DATA_PATH: /data/smartx-capacity-insight-data/prometheus
+      SMARTX_HOST_PROJECT_PATH: ${SMARTX_HOST_PROJECT_PATH:-${PWD}}
     volumes:
       - .:/opt/smartx-storage-forecast
       - /data/smartx-capacity-insight-data/app:/data

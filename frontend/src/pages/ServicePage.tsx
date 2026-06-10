@@ -738,6 +738,32 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     }
   }
 
+  async function handleUpgradeRecovery(action: "continue" | "rollback" | "fail") {
+    if (!upgradeTask) return;
+    setUpgradeBusy(true);
+    setUpgradeMessage("");
+    try {
+      const result = action === "continue"
+        ? await api.continueUpgradeRecovery(upgradeTask.task_id)
+        : action === "rollback"
+          ? await api.rollbackUpgradeRecovery(upgradeTask.task_id)
+          : await api.failUpgradeRecovery(upgradeTask.task_id);
+      const next = action === "fail" ? result : { ...result, status: "running" };
+      setUpgradeTask(next);
+      if (action !== "fail") {
+        upgradeRunTaskRef.current[result.task_id] = result.task_id;
+        setUpgradeMessage(action === "continue" ? "已请求 upgrade-runner 继续执行。" : "已请求 upgrade-runner 执行回滚。");
+      } else {
+        setUpgradeMessage("升级任务已标记为失败。");
+      }
+      await reloadUpgradeHistory();
+    } catch (exc) {
+      setUpgradeMessage(exc instanceof Error ? exc.message : "提交恢复操作失败");
+    } finally {
+      setUpgradeBusy(false);
+    }
+  }
+
   async function uploadComponentUpgrade(file?: File | null) {
     const selectedFile = file ?? componentFile;
     setComponentMessage("");
@@ -1250,6 +1276,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
 
   function renderUpgrade() {
     const isRunning = Boolean(upgradeTask && runningUpgradeStatuses.has(upgradeTask.status));
+    const needsRecovery = upgradeTask?.status === "recovery_required";
     const availablePackages = upgradeHistory.filter((task) => !task.started_at);
     const packageInfo = upgradeVerification?.package;
     return (
@@ -1346,23 +1373,23 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
         {upgradeTask && (
           <>
             <div className="service-upgrade-actions">
-              <button className="secondary-button" type="button" onClick={precheckUpgrade} disabled={upgradeBusy || isRunning}>
+              <button className="secondary-button" type="button" onClick={precheckUpgrade} disabled={upgradeBusy || isRunning || needsRecovery}>
                 <ListChecks size={16} />
                 预检查
               </button>
-              <button className="primary-button" type="button" onClick={startUpgrade} disabled={upgradeBusy || !upgradeTask.precheck_ok || isRunning}>
+              <button className="primary-button" type="button" onClick={startUpgrade} disabled={upgradeBusy || !upgradeTask.precheck_ok || isRunning || needsRecovery}>
                 <Upload size={16} />
                 开始升级
               </button>
-              <button className="secondary-button" type="button" onClick={cancelSelectedUpgradePackage} disabled={upgradeBusy || isRunning}>
+              <button className="secondary-button" type="button" onClick={cancelSelectedUpgradePackage} disabled={upgradeBusy || isRunning || needsRecovery}>
                 <X size={16} />
                 取消选择
               </button>
-              <button className="secondary-button danger-button" type="button" onClick={deleteSelectedUpgradePackage} disabled={upgradeBusy || isRunning || Boolean(upgradeTask.started_at)}>
+              <button className="secondary-button danger-button" type="button" onClick={deleteSelectedUpgradePackage} disabled={upgradeBusy || isRunning || needsRecovery || Boolean(upgradeTask.started_at)}>
                 <X size={16} />
                 删除
               </button>
-              <button className="secondary-button danger-button" type="button" onClick={rollbackUpgrade} disabled={upgradeBusy || isRunning || !upgradeTask.started_at}>
+              <button className="secondary-button danger-button" type="button" onClick={rollbackUpgrade} disabled={upgradeBusy || isRunning || needsRecovery || !upgradeTask.started_at}>
                 <RotateCcw size={16} />
                 手动回滚
               </button>
@@ -1514,6 +1541,9 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
         <div className="service-upgrade-status-grid">
           <InfoRow label="组件名称" value={`${selectedComponent.display_name} / ${selectedComponent.service}`} />
           <InfoRow label="当前版本" value={formatVersionForDisplay(selectedComponent.version || (selectedComponent.service === "upgrade-runner" ? runnerVersion : "-"))} />
+          {selectedComponent.service === "upgrade-runner" && <InfoRow label="执行协议" value={selectedComponent.protocol_version ? `v${selectedComponent.protocol_version}` : "未上报"} />}
+          {selectedComponent.service === "upgrade-runner" && <InfoRow label="能力状态" value={selectedComponent.compatible ? "兼容" : "未就绪"} />}
+          {selectedComponent.service === "upgrade-runner" && <InfoRow label="最后心跳" value={formatTime(selectedComponent.heartbeat_at || undefined)} />}
           <InfoRow label="执行者" value={selectedComponent.executor || "-"} />
           <InfoRow label="目标版本" value={formatVersionForDisplay(componentTask?.component === selectedComponent.service ? componentTask?.target_version : undefined)} />
           <InfoRow label="已选升级包" value={componentTask?.component === selectedComponent.service ? componentTask?.package_filename ?? "未选择" : "未选择"} />
@@ -1591,6 +1621,19 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     const isComponent = Boolean(options?.componentMode);
     return (
       <div className="service-upgrade-detail">
+        {task.status === "recovery_required" && (
+          <section className="upgrade-recovery-panel" aria-label="升级恢复处理">
+            <div>
+              <strong>需要恢复处理</strong>
+              <p>{task.recovery_reason || "升级动作的执行结果无法自动确认，请选择恢复方式。"}</p>
+            </div>
+            <div className="upgrade-recovery-actions">
+              {task.available_recovery_actions?.includes("continue") && <button className="primary-button" type="button" disabled={upgradeBusy} onClick={() => handleUpgradeRecovery("continue")}>继续执行</button>}
+              {task.available_recovery_actions?.includes("rollback") && <button className="secondary-button" type="button" disabled={upgradeBusy} onClick={() => handleUpgradeRecovery("rollback")}>执行回滚</button>}
+              {task.available_recovery_actions?.includes("fail") && <button className="secondary-button danger-button" type="button" disabled={upgradeBusy} onClick={() => handleUpgradeRecovery("fail")}>标记失败</button>}
+            </div>
+          </section>
+        )}
         <div className="service-info-table">
           <InfoRow label="升级包" value={task.package_filename ?? currentFile?.name ?? "-"} />
           {isComponent && <InfoRow label="组件" value={task.component || "upgrade-runner"} />}
@@ -1798,7 +1841,8 @@ function upgradeStatusText(status: string): string {
     rollback_pending: "等待回滚",
     rollback_running: "回滚中",
     rolled_back: "已回滚",
-    rollback_failed: "回滚失败"
+    rollback_failed: "回滚失败",
+    recovery_required: "需要恢复处理"
   };
   return labels[status] ?? status;
 }

@@ -132,6 +132,24 @@ class V2Database:
                     name TEXT PRIMARY KEY,
                     applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+
+                CREATE TABLE IF NOT EXISTS upgrade_runner_state (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    instance_id TEXT NOT NULL,
+                    runner_version TEXT NOT NULL,
+                    protocol_version INTEGER NOT NULL,
+                    capabilities_json TEXT NOT NULL,
+                    heartbeat_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS upgrade_task_leases (
+                    task_id TEXT PRIMARY KEY,
+                    lease_owner TEXT NOT NULL,
+                    lease_expires_at TEXT NOT NULL,
+                    heartbeat_at TEXT NOT NULL,
+                    revision INTEGER NOT NULL DEFAULT 0
+                );
                 """
             )
             _ensure_column(conn, "users", "updated_at", "TEXT")
