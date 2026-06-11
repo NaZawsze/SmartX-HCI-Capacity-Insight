@@ -610,6 +610,7 @@ runner v0.3.0 发布策略：
 - [已实现] 平台、Runner、Prometheus 与平台+观测组合包构建器，统一 schema 3 和 `checksums.sha256`。
 - [已实现] Prometheus 组件包默认轻量化，不导出历史指标，不强制包含 `prometheus.tar`；离线环境才通过 `--offline-image` 携带镜像 tar。
 - [已明确] 平台/组件升级只做升级前本机备份用于回滚；Prometheus 历史数据导出/导入只属于完整数据迁移包。
+- [已完成] 升级相关 Markdown 统一更新：README 中英文、架构、部署、功能模块、版本治理和升级问题文档均对齐平台 `v0.5.0`、Runner `v0.3.0`、schema 3、四类升级包树形结构和 Prometheus 数据边界。
 - [已实现] 沙箱宿主机路径映射；回滚删除升级新增文件并 recreate 原版本服务。
 - [已实现] SQLite WAL 一致性快照、按作用域恢复 SQLite/Prometheus、回滚后健康复检和健康检查重试窗口。
 - [已实现] web-api 与 Runner 对 `task.json` 使用 revision 乐观并发控制，陈旧恢复操作返回 409。

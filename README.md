@@ -207,7 +207,7 @@ For offline environments, build the package with `--offline-image`; only then do
 Platform and Prometheus can also be delivered as one bundle:
 
 ```text
-smartx-capacity-insight-bundle-v0.6.0.tar.gz
+smartx-capacity-insight-bundle-v0.5.0.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md
@@ -221,7 +221,7 @@ smartx-capacity-insight-bundle-v0.6.0.tar.gz
     └── images/                         # optional, only for offline Prometheus image packages
 ```
 
-Build it with `python scripts/build_bundle_upgrade_package.py --platform-version v0.6.0`. Bundle packages do not contain Runner by default. They also do not contain Prometheus historical data; upgrade-time Prometheus backups stay on the server under `/data/backups/...` for rollback. Prometheus historical blocks are exported only by full data migration packages.
+Build it with `python scripts/build_bundle_upgrade_package.py --platform-version v0.5.0 --prometheus-version v2.55.1`. Bundle packages are a delivery shape for the current platform version; they do not change the platform version number, do not contain Runner by default, and do not contain Prometheus historical data. Upgrade-time Prometheus backups stay on the server under `/data/backups/...` for rollback. Prometheus historical blocks are exported only by full data migration packages.
 
 ### Recommended Migration Path: Fresh Install + CLI Data Export
 

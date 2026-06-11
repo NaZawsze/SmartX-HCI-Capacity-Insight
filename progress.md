@@ -1939,6 +1939,7 @@ TDD 记录：
 - `upgrade-runner` 组件版本统一为 `v0.3.0`，根目录 `RUNNER_VERSION`、compose `SMARTX_RUNNER_IMAGE_TAG`、runner 组件包脚本和测试断言同步更新。
 - 明确 `v0.5.0` 平台升级包只面向 v2 同架构后续升级；v1/v0.4.x 不走原地升级，只通过“新装 v2 + 数据迁移包导入”兼容。
 - README 中升级包结构更新为 v2 manifest：`schema_version=2`、`components`、`project_files`、`scripts/migrate.sh`、`project/**`。
+- 当前口径补充：Phase 22 后升级包规范已升级为 manifest schema 3，并使用 `minimum_runner_protocol`、`required_capabilities` 和 `checksums.sha256` 做能力与完整性校验；README 当前示例以 schema 3 为准。
 - 三个后端 Dockerfile 增加 `PIP_DEFAULT_TIMEOUT=120` 和 `PIP_RETRIES=10`，缓解现场 pip 下载超时导致构建失败。
 - 远端 `10.20.11.3` 已删除旧平台、runner 和 Prometheus 容器/镜像后重新构建 v2。
 
@@ -2035,6 +2036,7 @@ TDD 记录：
 
 - 新增 `scripts/build_prometheus_component_package.py`，用于生成 Prometheus/observability 组件升级包。
 - Prometheus 组件包 manifest 使用 `schema_version=2`，组件类型为 `observability`，服务只包含 `prometheus`，镜像只包含 `images/prometheus.tar`。
+- 当前口径补充：Phase 22 后 Prometheus 组件包使用 schema 3；默认轻量包只包含 manifest、配置和健康检查，离线环境才通过 `--offline-image` 包含 `images/prometheus.tar`。
 - 修复升级任务公开字段：`components=["observability"]` 时返回 `kind=component`、`component=prometheus`。
 - 修复组件升级启动逻辑：只有 runner-only 包由 web-api 直接执行；Prometheus/observability 组件包提交给 upgrade-runner 执行。
 
@@ -2051,6 +2053,7 @@ TDD 记录：
 - 包大小：`121243325` bytes。
 - SHA256：`c01bd4d9753751b2e1e75acb7f171055c8740770c05c034f8a9cf43bd24801db`。
 - 包结构检查：只包含 `manifest.json`、`release-notes.md`、`images/prometheus.tar`；不包含平台镜像或 runner 镜像。
+- 当前口径补充：这是 2026-06-06 的历史包结构；当前 Prometheus 包还包含 `checksums.sha256`、`config/prometheus.yml` 和 `health/queries.json`，且默认不包含 `images/prometheus.tar`。
 - 首次真实执行 Prometheus 组件包任务 `upgrade-8e38afe4ac520146` 成功，验证 Prometheus 重启后 healthy，历史 `query_range` 返回 175 条 series。
 - 修复分类/执行者后，再次真实执行 Prometheus 组件包任务 `upgrade-91593ac4799312d2` 成功：
   - upload 返回 `kind=component`、`component=prometheus`、`components=["observability"]`。
@@ -3068,3 +3071,12 @@ TDD 记录：
 - 只有离线环境使用 `--offline-image` 时，Prometheus 组件包或组合包才包含 `images/prometheus.tar`。
 - 升级前的 Prometheus 数据目录备份只保存在服务器 `/data/backups/...`，用于失败回滚或人工恢复，不进入升级包。
 - Prometheus 历史 block 的导出/导入边界收敛到完整数据迁移包；配置迁移包仍只迁移 Tower/Cluster 配置。
+
+### 2026-06-11 升级文档统一更新
+
+状态：文档更新完成，待提交
+
+- README 中英文、`docs/v2-upgrade-center-design.md`、`docs/architecture.md`、`docs/deployment.md`、`docs/functional-modules.md`、`docs/version-governance.md` 和 `docs/upgrade-issues.md` 已统一到当前升级口径。
+- 平台版本固定为 `v0.5.0`，Runner 组件版本固定为 `v0.3.0`，组合包示例改为当前平台版本语境，避免误解为 `v0.6.0`。
+- 四类升级包树形结构已统一：平台包、Runner 组件包、Prometheus 轻量/离线组件包、平台+观测组合包。
+- 历史 `schema_version=2` 和早期 Prometheus tar 包记录保留为历史事实，并在旁边补充当前 schema 3 与轻量包口径。

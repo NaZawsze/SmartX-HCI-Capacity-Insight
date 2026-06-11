@@ -341,6 +341,7 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 平台与 Prometheus 组合包由 `scripts/build_bundle_upgrade_package.py` 生成，默认不包含 Runner。
 - Prometheus/observability 组件升级包默认是轻量包：只包含 manifest、配置和健康检查，镜像通过仓库 tag 引用；离线环境才使用 `--offline-image` 放入 `images/prometheus.tar`。
 - 平台升级、Prometheus 组件升级和组合升级都不导出 Prometheus 历史数据；升级前 Prometheus 备份只作为服务器本机回滚材料，历史 block 导出/导入只属于完整数据迁移包。
+- 升级包树形结构需要在 README 与设计文档中保持同一口径：组合包示例使用当前平台 `v0.5.0`，表示交付形态，不表示新增平台版本；历史 progress/changelog 中的旧包结构只作为当时事实保留。
 - SQLite 处于 WAL 模式时不能直接归档 `smartx.db`；Runner 备份必须先用 SQLite Backup API 生成一致性快照。
 - Runner 宿主机路径映射需要优先匹配 `/data/backups`、`/data/compose-runtime` 等具体挂载，不能先被通用 `/data` 吞掉；`/data/exports` 和 `/data/upgrades` 禁止挂入迁移沙箱。
 - `compose up -d` 后服务可能尚未 ready，健康检查需要有限重试；只有重试耗尽才触发一次自动回滚。

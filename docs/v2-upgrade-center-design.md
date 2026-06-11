@@ -268,7 +268,7 @@ Tower credentials
 ### 3.3 组合包
 
 ```text
-bundle-v0.6.0.tar.gz
+smartx-capacity-insight-bundle-v0.5.0.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── platform/

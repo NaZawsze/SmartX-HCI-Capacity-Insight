@@ -209,7 +209,7 @@ smartx-prometheus-v2.55.1.tar.gz
 平台和 Prometheus 需要在同一维护窗口升级时，可生成组合包：
 
 ```text
-smartx-capacity-insight-bundle-v0.6.0.tar.gz
+smartx-capacity-insight-bundle-v0.5.0.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md
@@ -223,7 +223,7 @@ smartx-capacity-insight-bundle-v0.6.0.tar.gz
     └── images/                         # 可选，仅离线 Prometheus 镜像包包含
 ```
 
-组合包由 Runner 按“备份、按需加载镜像、同步项目文件、沙箱迁移、分组件 recreate、健康检查”执行，默认不包含 Runner，也不包含 Prometheus 历史数据。构建命令为 `python scripts/build_bundle_upgrade_package.py --platform-version v0.6.0`。
+组合包由 Runner 按“备份、按需加载镜像、同步项目文件、沙箱迁移、分组件 recreate、健康检查”执行。组合包只是当前平台版本的一种交付形态，不改变平台版本号；默认不包含 Runner，也不包含 Prometheus 历史数据。构建命令为 `python scripts/build_bundle_upgrade_package.py --platform-version v0.5.0 --prometheus-version v2.55.1`。
 
 所有升级包都禁止包含 `.env`、`smartx.db`、Prometheus 历史数据目录、备份、导出文件、Tower 凭据、token 或其他现场数据。
 

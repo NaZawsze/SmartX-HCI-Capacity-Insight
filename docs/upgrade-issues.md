@@ -282,9 +282,9 @@ name '_write_upgrade_backup_archive' is not defined
 
 修复：
 - 新增 `scripts/build_prometheus_component_package.py`。
-- Prometheus 组件包 manifest 使用 `components[0].type = observability`，只包含 `images/prometheus.tar`。
+- Prometheus 组件包 manifest 使用 `components[0].type = observability`。当前 schema 3 默认生成轻量包，只包含 manifest、配置和健康检查；离线环境才通过 `--offline-image` 包含 `images/prometheus.tar`。
 - component-upgrade 上传后返回 `kind=component`、`component=prometheus`。
-- Prometheus/observability 组件包提交给 `upgrade-runner` 执行，runner 负责备份、加载镜像、写 override、重启 Prometheus 和健康检查。
+- Prometheus/observability 组件包提交给 `upgrade-runner` 执行，runner 负责升级前本机备份、按需加载离线镜像、写 override、重启 Prometheus 和健康检查。
 - 默认平台升级仍不包含 Prometheus，避免误动历史指标。
 
 验证记录：
