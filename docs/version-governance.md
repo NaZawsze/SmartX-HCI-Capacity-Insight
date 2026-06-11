@@ -67,14 +67,17 @@ release-notes.md
 images/upgrade-runner.tar
 ```
 
-Prometheus/observability 组件升级包由 `scripts/build_prometheus_component_package.py` 生成，包含：
+Prometheus/observability 组件升级包由 `scripts/build_prometheus_component_package.py` 生成。默认生成轻量包，镜像通过 manifest 中的 `image` 引用仓库 tag，包内包含：
 
 ```text
 manifest.json
 checksums.sha256
 release-notes.md
-images/prometheus.tar
+config/prometheus.yml
+health/queries.json
 ```
+
+离线环境使用 `--offline-image` 时才额外包含 `images/prometheus.tar`，并在 manifest 中声明 `archive` 和 `sha256`。Prometheus 历史指标数据不进入升级包；升级前备份留在服务器用于回滚，历史指标导出只属于完整数据迁移包。
 
 所有新升级包使用 manifest schema 3，声明 `minimum_runner_protocol` 与 `required_capabilities`。平台版本号不再机械绑定 Runner 版本；只有能力不满足时才要求先升级 Runner。
 

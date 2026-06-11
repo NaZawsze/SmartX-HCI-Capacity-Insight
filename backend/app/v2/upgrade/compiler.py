@@ -47,6 +47,8 @@ def compile_execution_plan(manifest: dict[str, Any]) -> ExecutionPlan:
         )
     )
     for index, image in enumerate(images, start=1):
+        if not image.get("archive"):
+            continue
         actions.append(
             ExecutionAction(
                 id=f"load-image-{index}",
@@ -68,6 +70,19 @@ def compile_execution_plan(manifest: dict[str, Any]) -> ExecutionPlan:
                 params={
                     "source": str(manifest.get("project_source") or "project"),
                     "files": list(manifest.get("project_file_list") or []),
+                },
+            )
+        )
+    for index, file_set in enumerate(manifest.get("file_sets") or [], start=1):
+        actions.append(
+            ExecutionAction(
+                id=f"sync-file-set-{index}",
+                type="files.sync",
+                params={
+                    "source": str(file_set.get("source") or ""),
+                    "target": str(file_set.get("target") or ""),
+                    "files": list(file_set.get("files") or []),
+                    "checksums": dict(file_set.get("checksums") or {}),
                 },
             )
         )

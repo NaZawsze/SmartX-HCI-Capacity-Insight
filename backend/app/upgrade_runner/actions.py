@@ -131,6 +131,13 @@ def _safe_relative(value: str) -> Path:
     return path
 
 
+def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
+    try:
+        archive.extractall(destination, filter="data")
+    except TypeError:  # Python < 3.12 has no extraction filter argument.
+        archive.extractall(destination)
+
+
 def backup_create(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:
     context = _context(context_payload)
     scope = str(action.get("params", {}).get("scope") or "platform")
@@ -180,6 +187,9 @@ def files_sync(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[
     context = _context(context_payload)
     params = action.get("params", {})
     source_root = context.package_path / _safe_relative(str(params.get("source") or "project"))
+    target_root_value = str(params.get("target") or "")
+    target_root = _safe_relative(target_root_value) if target_root_value else Path("")
+    checksums = {str(key): str(value) for key, value in (params.get("checksums") or {}).items()}
     declared = [str(item) for item in params.get("files") or []]
     if not declared:
         declared = [str(path.relative_to(source_root)) for path in sorted(source_root.rglob("*")) if path.is_file()]
@@ -193,14 +203,18 @@ def files_sync(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[
         source = source_root / relative
         if not source.is_file():
             raise FileNotFoundError(f"项目文件不存在：{relative}")
-        target = context.project_path / relative
-        backup = backup_root / relative
+        expected = checksums.get(str(relative))
+        if expected and _sha256(source) != expected:
+            raise ValueError(f"项目文件校验失败：{relative}")
+        target_relative = target_root / relative
+        target = context.project_path / target_relative
+        backup = backup_root / target_relative
         if target.exists():
             backup.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(target, backup)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
-        journal.append({"path": str(relative), "sha256": _sha256(target), "backup": str(backup) if backup.exists() else None})
+        journal.append({"path": str(target_relative), "sha256": _sha256(target), "backup": str(backup) if backup.exists() else None})
         _persist_checkpoint(context_payload, {"files": journal})
     return {"backup_path": str(backup_root), "checkpoint": {"files": journal, "completed": True}}
 
@@ -298,7 +312,7 @@ def rollback_restore(action: dict[str, Any], context_payload: dict[str, Any]) ->
                     relative = Path(member.name)
                     if relative.is_absolute() or ".." in relative.parts:
                         raise ValueError(f"回滚备份包含不安全路径：{member.name}")
-                archive.extractall(extracted, filter="data")
+                _safe_extract(archive, extracted)
             database = extracted / "app" / "smartx.db"
             if backup_scope in {"platform", "bundle"} and database.is_file():
                 context.data_path.mkdir(parents=True, exist_ok=True)

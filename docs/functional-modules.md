@@ -319,7 +319,9 @@ checksums.sha256
 platform/images/
 platform/project/
 platform/migrations/
-observability/images/prometheus.tar
+observability/config/prometheus.yml
+observability/health/queries.json
+observability/images/prometheus.tar  # 可选，仅离线镜像包包含
 ```
 
 平台包、Prometheus 包和组合包由 Runner 执行；Runner 组件包由旧 web-api 直接执行。组合包默认不包含 Runner。

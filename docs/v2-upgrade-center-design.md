@@ -116,21 +116,35 @@ smartx-capacity-insight-component-upgrade-prometheus-v2.xx.x.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md
-└── images/
-    └── prometheus.tar
+├── config/
+│   └── prometheus.yml
+└── health/
+    └── queries.json
 ```
 
-如果 Prometheus 配置也需要更新，可以包含：
+默认包不包含 Prometheus 镜像 tar，只在 manifest 中声明镜像仓库和 tag。如果现场无法访问镜像仓库，离线包可以额外包含：
 
 ```text
 smartx-capacity-insight-component-upgrade-prometheus-v2.xx.x.tar.gz
 ├── manifest.json
+├── checksums.sha256
 ├── release-notes.md
-├── images/
-│   └── prometheus.tar
-└── project/
-    └── prometheus/
-        └── prometheus.yml
+├── config/
+│   └── prometheus.yml
+├── health/
+│   └── queries.json
+└── images/
+    └── prometheus.tar
+```
+
+如果 Prometheus 配置需要更新，使用 `file_sets` 白名单同步：
+
+```text
+file_sets:
+  source: config
+  target: prometheus
+  files:
+    - prometheus.yml
 ```
 
 说明：
@@ -138,7 +152,9 @@ smartx-capacity-insight-component-upgrade-prometheus-v2.xx.x.tar.gz
 - Prometheus 属于 `observability`，不属于平台三件套。
 - Prometheus 版本独立于平台版本和 runner 版本。
 - 观测组件包不包含 `web-api.tar`、`collector-worker.tar`、`frontend.tar` 或 `upgrade-runner.tar`。
-- 如果包含 `project/prometheus/prometheus.yml`，只能同步 Prometheus 配置白名单文件。
+- 观测组件包不包含 Prometheus 历史数据；升级前备份是服务器本机回滚材料，不是升级包内容。
+- Prometheus 历史指标导出只属于完整数据迁移包，不属于平台升级或组件升级。
+- 默认包只引用镜像仓库 tag；离线包才包含 `images/prometheus.tar`。
 
 执行者：`upgrade-runner`。
 
@@ -148,10 +164,10 @@ smartx-capacity-insight-component-upgrade-prometheus-v2.xx.x.tar.gz
 2. `web-api` 解包并解析 `manifest.json`，确认 `type=observability`、`service=prometheus`。
 3. `web-api` 执行预检查并创建升级任务。
 4. `web-api` 将任务提交给 `upgrade-runner`。
-5. `upgrade-runner` 强制备份 Prometheus 历史指标目录。
+5. `upgrade-runner` 强制备份 Prometheus 历史指标目录到 `/data/backups/...`，用于失败回滚。
 6. `upgrade-runner` 检查 Prometheus 数据目录权限和磁盘空间。
-7. `upgrade-runner` 加载 `prometheus.tar`。
-8. 如包内包含 `project/prometheus/prometheus.yml`，`upgrade-runner` 先备份再同步配置。
+7. 如果离线包包含 `images/prometheus.tar`，`upgrade-runner` 加载镜像；否则使用 manifest 中声明的仓库镜像。
+8. 如果 manifest 声明 `file_sets`，`upgrade-runner` 先备份再同步配置白名单文件。
 9. `upgrade-runner` 写入 `/data/compose-runtime/docker-compose.prometheus-upgrade.yml`。
 10. `upgrade-runner` 重启 Prometheus。
 11. `upgrade-runner` 检查 `/-/healthy` 或 `/-/ready`。
@@ -216,10 +232,29 @@ Tower credentials
 - 平台版本和 runner 版本分开。
 - 平台包不默认包含 runner。
 - Prometheus 作为 `observability` 组件声明。
-- 镜像名、tag、archive、sha256 必须闭环。
+- 镜像必须声明 `service` 和 `image`；离线镜像 tar 还必须声明 `archive` 和 `sha256`。
 - `project_files=true` 时必须包含 `project/` 白名单文件。
 - schema 3 必须包含 `checksums.sha256`，并通过完整包内文件校验。
 - `minimum_runner_protocol` 与 `required_capabilities` 用于能力协商；普通平台版本变化不要求同步升级 runner。
+
+### 3.1 组件声明规则
+
+`components[]` 是升级中心识别升级对象的唯一来源。
+
+组件类型：
+
+- `platform`：平台三件套，只允许包含 `web-api`、`collector-worker`、`frontend`。
+- `runner`：升级中心执行器，只允许包含 `upgrade-runner`。
+- `observability`：观测组件，当前只允许包含 `prometheus`。
+- `bundle`：组合包，不是具体服务；必须展开为上述具体组件。
+
+校验规则：
+
+- manifest 中声明的组件才允许执行升级；未声明组件不能因为 compose 中存在而被重启。
+- 每个 image 必须声明 `service`、`image`；离线 image archive 必须额外声明 `archive`、`sha256`。
+- `image` 的仓库名、服务名和 tag 必须与目标 compose/override 规则一致。
+- Prometheus 版本不跟随平台版本；runner 版本不跟随平台版本。
+- 组合包必须给出组件升级顺序和每个组件的健康检查规则。
 
 ### 3.2 Phase 22 执行协议
 
@@ -242,32 +277,19 @@ bundle-v0.6.0.tar.gz
 │   ├── overrides/
 │   └── migrations/
 └── observability/
-    ├── images/
     ├── config/
-    ├── overrides/
-    └── health/
+    ├── health/
+    └── images/        # 可选，仅离线 Prometheus 镜像包包含
 ```
 
-组合包默认不包含 `upgrade-runner`。只有 manifest 声明了当前 Runner 不具备的能力时，才先使用独立 Runner 组件包。
+组合包默认不包含 `upgrade-runner`，也不包含 Prometheus 历史数据。只有 manifest 声明了当前 Runner 不具备的能力时，才先使用独立 Runner 组件包。
 
-### 3.1 组件声明规则
+### 3.4 数据与备份边界
 
-`components[]` 是升级中心识别升级对象的唯一来源。
-
-组件类型：
-
-- `platform`：平台三件套，只允许包含 `web-api`、`collector-worker`、`frontend`。
-- `runner`：升级中心执行器，只允许包含 `upgrade-runner`。
-- `observability`：观测组件，当前只允许包含 `prometheus`。
-- `bundle`：组合包，不是具体服务；必须展开为上述具体组件。
-
-校验规则：
-
-- manifest 中声明的组件才允许执行升级；未声明组件不能因为 compose 中存在而被重启。
-- 每个 image 必须声明 `service`、`image`、`archive`、`sha256`。
-- `image` 的仓库名、服务名和 tag 必须与目标 compose/override 规则一致。
-- Prometheus 版本不跟随平台版本；runner 版本不跟随平台版本。
-- 组合包必须给出组件升级顺序和每个组件的健康检查规则。
+- 平台升级、Prometheus 组件升级和组合升级都不导出 Prometheus 历史数据。
+- 升级前 Prometheus 备份只保存在服务器 `/data/backups/...`，用于失败回滚或人工恢复。
+- Prometheus 历史 block 的导出/导入只属于完整数据迁移包。
+- 配置迁移包只迁移 Tower/Cluster 配置，不包含 Prometheus 历史指标。
 
 ## 4. 状态机
 

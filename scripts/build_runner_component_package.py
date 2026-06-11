@@ -50,6 +50,19 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def verify_runner_image(image: str) -> None:
+    run([
+        'docker',
+        'run',
+        '--rm',
+        '--entrypoint',
+        'python',
+        image,
+        '-c',
+        'import app.upgrade_runner.main; import app.upgrade_protocol.models',
+    ])
+
+
 def build_package(version: str, min_version: str, output_dir: Path, build_image: bool) -> Path:
     image = f'{RELEASE_IMAGE_REPO}:{version}'
     if build_image:
@@ -57,6 +70,7 @@ def build_package(version: str, min_version: str, output_dir: Path, build_image:
         run(['docker', 'tag', LOCAL_IMAGE, image])
     else:
         run(['docker', 'image', 'inspect', image])
+    verify_runner_image(image)
 
     work = output_dir / f'smartx-upgrade-runner-{version}'
     package = output_dir / f'smartx-upgrade-runner-{version}.tar.gz'

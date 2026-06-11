@@ -189,16 +189,20 @@ smartx-upgrade-runner-v0.3.0.tar.gz
 
 The old `web-api` updates Runner directly; Runner never updates itself. A normal platform package does not require a Runner upgrade when its protocol and capability requirements are already satisfied.
 
-Prometheus is upgraded as an `observability` component package. It is separate from normal platform packages and contains only the Prometheus image:
+Prometheus is upgraded as an `observability` component package. It is separate from normal platform packages. By default, the package is lightweight: it references the Prometheus image tag and contains only the manifest, release notes, Prometheus configuration, and health-check queries. It does not export or package Prometheus historical data.
 
 ```text
 smartx-prometheus-v2.55.1.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md
-└── images/
-    └── prometheus.tar
+├── config/
+│   └── prometheus.yml
+└── health/
+    └── queries.json
 ```
+
+For offline environments, build the package with `--offline-image`; only then does it include `images/prometheus.tar`.
 
 Platform and Prometheus can also be delivered as one bundle:
 
@@ -212,10 +216,12 @@ smartx-capacity-insight-bundle-v0.6.0.tar.gz
 │   ├── project/
 │   └── migrations/
 └── observability/
-    └── images/
+    ├── config/
+    ├── health/
+    └── images/                         # optional, only for offline Prometheus image packages
 ```
 
-Build it with `python scripts/build_bundle_upgrade_package.py --platform-version v0.6.0`. Bundle packages do not contain Runner by default.
+Build it with `python scripts/build_bundle_upgrade_package.py --platform-version v0.6.0`. Bundle packages do not contain Runner by default. They also do not contain Prometheus historical data; upgrade-time Prometheus backups stay on the server under `/data/backups/...` for rollback. Prometheus historical blocks are exported only by full data migration packages.
 
 ### Recommended Migration Path: Fresh Install + CLI Data Export
 

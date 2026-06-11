@@ -415,12 +415,10 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertEqual(executor.restart_calls, 1)
 
     def test_upload_rejects_sensitive_paths(self) -> None:
-        from fastapi import HTTPException
-
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
         from app.v2.tasks.service import TaskService
-        from app.v2.upgrade.service import UpgradeService
+        from app.v2.upgrade.service import HTTPException, UpgradeService
 
         manifest = {"schema_version": "2", "version": "v2.0.0", "components": []}
         with tempfile.TemporaryDirectory() as tmpdir:

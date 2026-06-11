@@ -191,18 +191,20 @@ smartx-upgrade-runner-v0.3.0.tar.gz
 
 Runner 包由旧 `web-api` 直接执行，Runner 不负责更新自己。普通平台包只要声明的协议和能力能被现有 Runner 满足，就不需要先升级 Runner。
 
-Prometheus 作为 `observability` 组件单独升级，不放入普通平台升级包。Prometheus 组件包只包含 Prometheus 镜像：
+Prometheus 作为 `observability` 组件单独升级，不放入普通平台升级包。Prometheus 组件包默认是轻量包：manifest 声明镜像 tag，包内只包含配置和健康检查，不导出、不打包 Prometheus 历史数据。
 
 ```text
 smartx-prometheus-v2.55.1.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md
-└── images/
-    └── prometheus.tar
+├── config/
+│   └── prometheus.yml
+└── health/
+    └── queries.json
 ```
 
-Prometheus 包由 Runner 执行，升级前强制备份历史数据，完成后执行健康检查与历史指标回归。
+离线环境需要镜像 tar 时，使用 `--offline-image` 构建；只有这种模式才包含 `images/prometheus.tar`。Prometheus 包由 Runner 执行，升级前强制在本机备份历史数据用于回滚，完成后执行健康检查与历史指标回归。Prometheus 历史指标导出只属于完整数据迁移包，不属于平台或组件升级包。
 
 平台和 Prometheus 需要在同一维护窗口升级时，可生成组合包：
 
@@ -216,10 +218,12 @@ smartx-capacity-insight-bundle-v0.6.0.tar.gz
 │   ├── project/
 │   └── migrations/
 └── observability/
-    └── images/
+    ├── config/
+    ├── health/
+    └── images/                         # 可选，仅离线 Prometheus 镜像包包含
 ```
 
-组合包由 Runner 按“备份、加载镜像、同步项目文件、沙箱迁移、分组件 recreate、健康检查”执行，默认不包含 Runner。构建命令为 `python scripts/build_bundle_upgrade_package.py --platform-version v0.6.0`。
+组合包由 Runner 按“备份、按需加载镜像、同步项目文件、沙箱迁移、分组件 recreate、健康检查”执行，默认不包含 Runner，也不包含 Prometheus 历史数据。构建命令为 `python scripts/build_bundle_upgrade_package.py --platform-version v0.6.0`。
 
 所有升级包都禁止包含 `.env`、`smartx.db`、Prometheus 历史数据目录、备份、导出文件、Tower 凭据、token 或其他现场数据。
 

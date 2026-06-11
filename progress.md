@@ -3058,3 +3058,13 @@ TDD 记录：
 - 健康检查增加最多 30 次、每次间隔 2 秒的默认等待窗口；回滚完成后必须再次通过健康检查，否则进入 `rollback_failed` 严重告警。
 - Runner 进程 `instance_id` 在多轮扫描中保持不变，测试机两次心跳查询 owner 一致、时间持续更新。
 - 最终镜像重建后再次执行真实受限沙箱任务，状态为 `success`，完成标记存在，测试任务和文件已清理。
+
+### 2026-06-11 Phase 22 Prometheus 升级包边界修正
+
+状态：文档和构建器口径已统一，待最终提交
+
+- 明确平台升级、Prometheus/observability 组件升级和组合升级都不导出 Prometheus 历史数据。
+- Prometheus 组件包默认改为轻量包：包含 `manifest.json`、`checksums.sha256`、`release-notes.md`、`config/prometheus.yml` 和 `health/queries.json`，镜像使用仓库 tag 引用。
+- 只有离线环境使用 `--offline-image` 时，Prometheus 组件包或组合包才包含 `images/prometheus.tar`。
+- 升级前的 Prometheus 数据目录备份只保存在服务器 `/data/backups/...`，用于失败回滚或人工恢复，不进入升级包。
+- Prometheus 历史 block 的导出/导入边界收敛到完整数据迁移包；配置迁移包仍只迁移 Tower/Cluster 配置。

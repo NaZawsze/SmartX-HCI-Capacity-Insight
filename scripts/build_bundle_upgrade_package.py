@@ -49,7 +49,10 @@ def _extract(package: Path, destination: Path) -> None:
             relative = Path(member.name)
             if relative.is_absolute() or ".." in relative.parts:
                 raise RuntimeError(f"升级包包含不安全路径：{member.name}")
-        archive.extractall(destination, filter="data")
+        try:
+            archive.extractall(destination, filter="data")
+        except TypeError:  # Python < 3.12 has no extraction filter argument.
+            archive.extractall(destination)
 
 
 def _copy_tree(source: Path, destination: Path) -> None:
@@ -61,10 +64,13 @@ def _prefixed_components(components: list[dict], prefix: str) -> list[dict]:
     result: list[dict] = []
     for component in components:
         copied = {**component}
-        copied["images"] = [
-            {**image, "archive": f"{prefix}/{image['archive']}"}
-            for image in component.get("images") or []
-        ]
+        images = []
+        for image in component.get("images") or []:
+            copied_image = {**image}
+            if copied_image.get("archive"):
+                copied_image["archive"] = f"{prefix}/{copied_image['archive']}"
+            images.append(copied_image)
+        copied["images"] = images
         result.append(copied)
     return result
 
@@ -79,6 +85,7 @@ def build_package(
     build_platform_images: bool,
     include_frontend_build: bool,
     pull_prometheus: bool,
+    offline_prometheus_image: bool = False,
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     platform_builder = load_platform_builder()
@@ -98,21 +105,32 @@ def build_package(
             min_prometheus_version,
             temporary,
             pull_image=pull_prometheus,
+            offline_image=offline_prometheus_image,
         )
         platform_source = temporary / "platform-source"
         prometheus_source = temporary / "prometheus-source"
         _extract(platform_package, platform_source)
         _extract(prometheus_package, prometheus_source)
 
+        platform_manifest = json.loads((platform_source / "manifest.json").read_text(encoding="utf-8"))
+        prometheus_manifest = json.loads((prometheus_source / "manifest.json").read_text(encoding="utf-8"))
+
         work = temporary / f"smartx-capacity-insight-bundle-{platform_version}"
         _copy_tree(platform_source / "images", work / "platform" / "images")
         _copy_tree(platform_source / "project", work / "platform" / "project")
         (work / "platform" / "migrations").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(platform_source / "scripts" / "migrate.sh", work / "platform" / "migrations" / "migrate.sh")
+        platform_migration = dict(platform_manifest.get("migration") or {})
+        migration_script = Path(str(platform_migration.get("script") or "scripts/migrate.sh"))
+        if migration_script.is_absolute() or ".." in migration_script.parts:
+            raise RuntimeError(f"平台迁移脚本路径不安全：{migration_script}")
+        migration_source = platform_source / migration_script
+        if not migration_source.is_file():
+            raise RuntimeError(f"平台包缺少迁移脚本：{migration_script}")
+        shutil.copy2(migration_source, work / "platform" / "migrations" / "migrate.sh")
         _copy_tree(prometheus_source / "images", work / "observability" / "images")
+        _copy_tree(prometheus_source / "config", work / "observability" / "config")
+        _copy_tree(prometheus_source / "health", work / "observability" / "health")
 
-        platform_manifest = json.loads((platform_source / "manifest.json").read_text(encoding="utf-8"))
-        prometheus_manifest = json.loads((prometheus_source / "manifest.json").read_text(encoding="utf-8"))
         components = [
             *_prefixed_components(platform_manifest.get("components") or [], "platform"),
             *_prefixed_components(prometheus_manifest.get("components") or [], "observability"),
@@ -143,6 +161,13 @@ def build_package(
             "project_files": True,
             "project_source": "platform/project",
             "project_file_list": list(platform_manifest.get("project_file_list") or []),
+            "file_sets": [
+                {
+                    **file_set,
+                    "source": f"observability/{file_set.get('source')}",
+                }
+                for file_set in prometheus_manifest.get("file_sets") or []
+            ],
             "migration": migration,
             "restart_services": list(platform_manifest.get("restart_services") or [])
             + list(prometheus_manifest.get("restart_services") or []),
@@ -196,6 +221,7 @@ def main() -> None:
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--skip-frontend-build", action="store_true")
     parser.add_argument("--no-pull-prometheus", action="store_true")
+    parser.add_argument("--offline-prometheus-image", action="store_true", help="Include observability/images/prometheus.tar in the bundle.")
     args = parser.parse_args()
     package = build_package(
         platform_version=args.platform_version,
@@ -206,6 +232,7 @@ def main() -> None:
         build_platform_images=not args.no_build,
         include_frontend_build=not args.skip_frontend_build,
         pull_prometheus=not args.no_pull_prometheus,
+        offline_prometheus_image=args.offline_prometheus_image,
     )
     print(package)
     print(sha256_file(package))

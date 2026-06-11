@@ -38,6 +38,13 @@ class UpgradeLeaseTest(unittest.TestCase):
             self.assertEqual(state["protocol_version"], 1)
             self.assertIn("backup.create", state["capabilities"])
 
+
+def _safe_extract_for_test(archive: tarfile.TarFile, destination: Path) -> None:
+    try:
+        archive.extractall(destination, filter="data")
+    except TypeError:
+        archive.extractall(destination)
+
     def test_runner_executes_requested_recovery_rollback(self) -> None:
         from app.upgrade_runner.main import RunnerSettings, run_pending_once
         from app.upgrade_runner.store import TaskStore
@@ -298,7 +305,7 @@ class UpgradeActionTest(unittest.TestCase):
             extracted = root / "extracted"
             extracted.mkdir()
             with tarfile.open(result["path"], mode="r:gz") as archive:
-                archive.extractall(extracted, filter="data")
+                _safe_extract_for_test(archive, extracted)
             with sqlite3.connect(extracted / "app" / "smartx.db") as backup:
                 value = backup.execute("SELECT value FROM sample").fetchone()[0]
             connection.close()
@@ -364,6 +371,29 @@ class UpgradeActionTest(unittest.TestCase):
                     {"params": {"source": "project", "files": ["../.env"]}, "checkpoint": {}},
                     context.as_dict(),
                 )
+
+    def test_files_sync_can_target_project_subdirectory(self) -> None:
+        from app.upgrade_runner.actions import ActionContext, files_sync
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            context = ActionContext.minimal(root)
+            source = context.package_path / "config"
+            source.mkdir(parents=True)
+            (source / "prometheus.yml").write_text("global:\n  scrape_interval: 15s\n", encoding="utf-8")
+
+            result = files_sync(
+                {
+                    "id": "sync-prometheus-config",
+                    "type": "files.sync",
+                    "params": {"source": "config", "target": "prometheus", "files": ["prometheus.yml"]},
+                    "checkpoint": {},
+                },
+                context.as_dict(),
+            )
+
+            self.assertEqual((context.project_path / "prometheus" / "prometheus.yml").read_text(encoding="utf-8"), "global:\n  scrape_interval: 15s\n")
+            self.assertEqual(result["checkpoint"]["files"][0]["path"], "prometheus/prometheus.yml")
 
     def test_files_sync_persists_each_file_checkpoint_before_next_copy(self) -> None:
         from app.upgrade_runner.actions import ActionContext, files_sync

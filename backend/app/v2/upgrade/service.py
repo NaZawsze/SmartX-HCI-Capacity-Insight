@@ -41,6 +41,13 @@ OBSERVABILITY_SERVICES = {"prometheus"}
 RUNNER_SERVICES = {"upgrade-runner"}
 
 
+def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
+    try:
+        archive.extractall(destination, filter="data")
+    except TypeError:  # Python < 3.12 has no extraction filter argument.
+        archive.extractall(destination)
+
+
 class UpgradeCommandExecutor:
     def run(self, command: list[str], *, cwd: Path | None = None) -> None:
         if os.environ.get("SMARTX_UPGRADE_DRY_RUN") == "1":
@@ -76,7 +83,7 @@ class UpgradeService:
         try:
             with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
                 _validate_members(archive)
-                archive.extractall(package_path, filter="data")
+                _safe_extract(archive, package_path)
         except (tarfile.TarError, OSError) as exc:
             shutil.rmtree(task_dir, ignore_errors=True)
             raise HTTPException(status_code=400, detail=f"无法读取升级包：{exc}") from exc
@@ -445,13 +452,14 @@ class UpgradeService:
 
             package_path = Path(task["package_path"])
             images = _task_images(task["manifest"])
+            image_archives = [image for image in images if image.get("archive")]
             steps = _replace_step(steps, "load_images", "running", f"{len(images)} 个镜像")
             self.tasks.update_task(task_id, progress=35, message="正在加载升级镜像", logs=logs, steps=steps)
-            for image in images:
+            for image in image_archives:
                 archive_path = package_path / str(image["archive"])
                 self.executor.run(["docker", "load", "-i", str(archive_path)])
                 logs.append(f"已加载镜像：{image['image']}")
-            steps = _replace_step(steps, "load_images", "succeeded")
+            steps = _replace_step(steps, "load_images", "succeeded", f"已加载 {len(image_archives)} 个镜像；其余镜像使用仓库引用")
 
             steps = _replace_step(steps, "project_files", "running")
             self.tasks.update_task(task_id, progress=55, message="正在同步项目文件", logs=logs[-8:], steps=steps)
@@ -703,15 +711,19 @@ def _check_images(package_path: Path, manifest: dict[str, Any]) -> dict[str, Any
         for image in component.get("images") or []:
             archive_name = image.get("archive")
             sha256 = image.get("sha256")
+            if not image.get("image"):
+                return {"name": "images", "ok": False, "message": "镜像声明缺少 image"}
+            if not archive_name and not sha256:
+                continue
             if not archive_name or not sha256:
-                return {"name": "images", "ok": False, "message": "镜像声明缺少 archive 或 sha256"}
+                return {"name": "images", "ok": False, "message": "离线镜像声明缺少 archive 或 sha256"}
             image_path = package_path / str(archive_name)
             if not image_path.is_file():
                 return {"name": "images", "ok": False, "message": f"镜像文件不存在：{archive_name}"}
             actual = hashlib.sha256(image_path.read_bytes()).hexdigest()
             if actual != sha256:
                 return {"name": "images", "ok": False, "message": f"镜像 sha256 不匹配：{archive_name}"}
-    return {"name": "images", "ok": True, "message": "镜像文件和 sha256 校验通过"}
+    return {"name": "images", "ok": True, "message": "镜像声明校验通过；无 archive 的镜像使用仓库引用"}
 
 
 def _check_project_files(package_path: Path, manifest: dict[str, Any]) -> dict[str, Any]:

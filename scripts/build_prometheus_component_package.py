@@ -43,11 +43,11 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build_package(version: str, min_version: str, output_dir: Path, pull_image: bool) -> Path:
+def build_package(version: str, min_version: str, output_dir: Path, pull_image: bool, offline_image: bool = False) -> Path:
     image = f"{IMAGE_REPO}:{version}"
-    if pull_image:
+    if offline_image and pull_image:
         run(["docker", "pull", image])
-    else:
+    elif offline_image:
         run(["docker", "image", "inspect", image])
 
     work = output_dir / f"{PRODUCT}-{version}"
@@ -55,16 +55,45 @@ def build_package(version: str, min_version: str, output_dir: Path, pull_image: 
     if work.exists():
         shutil.rmtree(work)
     work.mkdir(parents=True, exist_ok=True)
-    (work / "images").mkdir()
     image_file = work / "images" / "prometheus.tar"
-    run(["docker", "save", "-o", str(image_file), image])
+    image_manifest = {
+        "service": COMPONENT,
+        "image": image,
+    }
+    if offline_image:
+        (work / "images").mkdir()
+        run(["docker", "save", "-o", str(image_file), image])
+        image_manifest.update({"archive": "images/prometheus.tar", "sha256": sha256_file(image_file)})
+    (work / "config").mkdir()
+    (work / "health").mkdir()
+    config_file = work / "config" / "prometheus.yml"
+    shutil.copy2(ROOT / "prometheus" / "prometheus.yml", config_file)
+    queries_file = work / "health" / "queries.json"
+    queries_file.write_text(
+        json.dumps(
+            {
+                "instant": [{"query": "up", "require_data": True}],
+                "historical": [
+                    {
+                        "query": "smartx_vm_storage_used_bytes",
+                        "range_seconds": 86400,
+                        "step_seconds": 300,
+                        "require_data": True,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     manifest = {
         "schema_version": "3",
         "minimum_runner_protocol": 1,
         "required_capabilities": [
             "backup.create",
-            "image.load",
             "compose.override",
             "compose.apply",
             "health.prometheus",
@@ -80,22 +109,38 @@ def build_package(version: str, min_version: str, output_dir: Path, pull_image: 
             {
                 "type": "observability",
                 "services": [COMPONENT],
-                "images": [
-                    {
-                        "service": COMPONENT,
-                        "image": image,
-                        "archive": "images/prometheus.tar",
-                        "sha256": sha256_file(image_file),
-                    }
-                ],
+                "images": [image_manifest],
             }
         ],
+        "file_sets": [
+            {
+                "id": "prometheus-config",
+                "source": "config",
+                "target": "prometheus",
+                "files": ["prometheus.yml"],
+                "checksums": {"prometheus.yml": sha256_file(config_file)},
+            }
+        ],
+        "health": {
+            "queries": "health/queries.json",
+            "instant": [{"query": "up", "require_data": True}],
+            "historical": [
+                {
+                    "query": "smartx_vm_storage_used_bytes",
+                    "range_seconds": 86400,
+                    "step_seconds": 300,
+                    "require_data": True,
+                }
+            ],
+        },
         "project_files": False,
         "restart_services": [COMPONENT],
         "compatibility": {"min_prometheus_version": min_version},
         "notes": "release-notes.md",
         "release_notes": f"Prometheus {version}: observability component package with data-directory precheck.",
     }
+    if offline_image:
+        manifest["required_capabilities"].insert(1, "image.load")
     (work / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (work / "release-notes.md").write_text(
         f"# Prometheus {version}\n\n"
@@ -104,7 +149,9 @@ def build_package(version: str, min_version: str, output_dir: Path, pull_image: 
         "- Historical data blocks are not packaged and are preserved in the mounted data directory.\n",
         encoding="utf-8",
     )
-    members = ["manifest.json", "release-notes.md", "images/prometheus.tar"]
+    members = ["manifest.json", "release-notes.md", "config/prometheus.yml", "health/queries.json"]
+    if offline_image:
+        members.append("images/prometheus.tar")
     (work / "checksums.sha256").write_text(
         "\n".join(f"{sha256_file(work / member)}  {member}" for member in members) + "\n",
         encoding="utf-8",
@@ -126,12 +173,13 @@ def main() -> None:
     parser.add_argument("--version", default=DEFAULT_VERSION)
     parser.add_argument("--min-version", default=DEFAULT_MIN_VERSION)
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
-    parser.add_argument("--no-pull", action="store_true")
+    parser.add_argument("--no-pull", action="store_true", help="Do not pull the Prometheus image when building an offline image package.")
+    parser.add_argument("--offline-image", action="store_true", help="Include images/prometheus.tar for offline environments. Default packages reference the image only.")
     args = parser.parse_args()
     version = normalize_version(args.version)
     min_version = normalize_version(args.min_version)
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    build_package(version, min_version, args.output_dir, pull_image=not args.no_pull)
+    build_package(version, min_version, args.output_dir, pull_image=not args.no_pull, offline_image=args.offline_image)
 
 
 if __name__ == "__main__":

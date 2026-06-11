@@ -608,6 +608,8 @@ runner v0.3.0 发布策略：
 - [已实现] 标准 Action、迁移脚本沙箱、分级恢复、人工继续/回滚/失败 API 和自动回滚一次。
 - [已实现] 前端恢复控制面和 Runner 协议/能力/心跳展示。
 - [已实现] 平台、Runner、Prometheus 与平台+观测组合包构建器，统一 schema 3 和 `checksums.sha256`。
+- [已实现] Prometheus 组件包默认轻量化，不导出历史指标，不强制包含 `prometheus.tar`；离线环境才通过 `--offline-image` 携带镜像 tar。
+- [已明确] 平台/组件升级只做升级前本机备份用于回滚；Prometheus 历史数据导出/导入只属于完整数据迁移包。
 - [已实现] 沙箱宿主机路径映射；回滚删除升级新增文件并 recreate 原版本服务。
 - [已实现] SQLite WAL 一致性快照、按作用域恢复 SQLite/Prometheus、回滚后健康复检和健康检查重试窗口。
 - [已实现] web-api 与 Runner 对 `task.json` 使用 revision 乐观并发控制，陈旧恢复操作返回 409。
