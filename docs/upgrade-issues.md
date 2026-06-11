@@ -386,7 +386,7 @@ compose_command docker compose -p smartx-capacity-insight -f /data/compose-runti
 - `pre_install.sh` 创建并授权上述目录。
 - runner override 写入路径改为 `SMARTX_RUNTIME_PATH`，默认 `/data/compose-runtime`。
 - 后续平台升级以 v2 当前 `upgrade-runner v0.3.0` 为基线，不再在平台升级包里自动整理旧 `app/upgrades/backups/exports/compose-runtime` 目录。
-- `scripts/migrate.sh` 只负责白名单项目文件同步和平台服务镜像 override 写入。
+- 当前平台包不再默认携带 `scripts/migrate.sh`；需要 SQLite schema 迁移时才由打包器生成 `migrations/run_migrations.py`，并通过 manifest 的 `migration_steps` 累计执行。
 
 目录归属：
 

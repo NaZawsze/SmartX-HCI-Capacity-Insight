@@ -114,9 +114,9 @@ Change the password after the first login from the admin avatar menu: `Set Passw
 
 ## Offline Upgrade Package
 
-The platform supports offline `.tar.gz` upgrade packages uploaded from the service management page. An upgrade package replaces service images and can optionally run a migration script. It must not include runtime data, `.env`, SQLite databases, Prometheus data, Tower credentials, or other secrets.
+The platform supports offline `.tar.gz` upgrade packages uploaded from the service management page. An upgrade package replaces service images and runs SQLite migrations only when the package manifest selects cumulative migration steps. It must not include runtime data, `.env`, SQLite databases, Prometheus data, Tower credentials, or other secrets.
 
-Compatibility: the `v0.5.0` upgrade package targets the v2 upgrade flow only. It is not an in-place upgrade path from v1 or `v0.4.x`; those older systems are supported through data migration instead. For older v1 installations, install the latest version fresh, then export a migration package from the old system with the README command and import it into the new system.
+Compatibility: the `v0.5.0` upgrade package targets the v2 upgrade flow only. It is not an in-place upgrade path from v1 or `v0.4.x`; those older systems are supported through data migration instead. Within the v2 architecture, direct cross-version upgrades are supported from the minimum supported source version to the target version, for example `v0.5.0 -> v0.5.3`; the package contains every registered SQLite migration whose version is greater than the source version and less than or equal to the target version.
 
 Recommended package structure:
 
@@ -129,8 +129,6 @@ smartx-capacity-insight-v0.5.0-upgrade.tar.gz
 │   ├── web-api.tar
 │   ├── frontend.tar
 │   └── collector-worker.tar
-├── scripts/
-│   └── migrate.sh
 └── project/
     ├── docker-compose.yml
     ├── docker-compose.offline.yml
@@ -140,7 +138,14 @@ smartx-capacity-insight-v0.5.0-upgrade.tar.gz
     └── docs/
 ```
 
-`manifest.json` should describe the target version, minimum compatible version, component list, image SHA256 checksums, project file sync, migration script, services to restart, and package type.
+If SQLite schema changes exist between the source and target versions, the package additionally contains:
+
+```text
+migrations/
+└── run_migrations.py
+```
+
+`manifest.json` should describe the target version, minimum compatible version, component list, image SHA256 checksums, project file sync, selected migration steps, services to restart, and package type.
 
 Example fields:
 
@@ -155,7 +160,7 @@ Example fields:
   "min_version": "v0.5.0",
   "package_type": "platform",
   "project_files": true,
-  "migration": {"required": true, "script": "scripts/migrate.sh"},
+  "database_migration": false,
   "restart_services": ["web-api", "collector-worker", "frontend"],
   "components": [
     {
@@ -173,6 +178,8 @@ Example fields:
   ]
 }
 ```
+
+Packages with no selected migration steps, such as `v0.5.0 -> v0.5.0`, do not contain `migration`, `migration_steps`, or `script.sandbox.v1`. Packages that cross a schema version, such as `v0.5.0 -> v0.5.3` when `v0.5.2` changed SQLite schema, include `migration_steps[]` plus the legacy `migration.script = migrations/run_migrations.py` field for `upgrade-runner v0.3.0` compatibility. The runner still executes one sandbox script; the script applies all selected steps in version order and records them in `schema_migrations`.
 
 For normal platform upgrades, do not restart `upgrade-runner` in the same package that is executing the upgrade. Use a component upgrade package when `upgrade-runner` itself needs to be replaced.
 
@@ -214,7 +221,7 @@ smartx-capacity-insight-bundle-v0.5.0.tar.gz
 ├── platform/
 │   ├── images/
 │   ├── project/
-│   └── migrations/
+│   └── migrations/                    # optional, only when migration_steps is non-empty
 └── observability/
     ├── config/
     ├── health/

@@ -37,19 +37,18 @@ const componentStepDefaults = [
 ];
 const platformPrecheckStepDefaults = [
   { key: "manifest", title: "校验升级包结构", checks: ["manifest"] },
-  { key: "version", title: "校验版本兼容性", checks: ["version", "services"] },
-  { key: "images", title: "校验镜像名、Tag 与 SHA256", checks: ["sha256", "image-names"] },
-  { key: "docker", title: "检查 Docker 与升级执行器", checks: ["docker", "upgrade-runner"] },
-  { key: "compose", title: "检查 compose、数据卷与网络", checks: ["volumes", "network", "compose-tag"] },
-  { key: "project", title: "检查项目文件与敏感路径", checks: ["project-files"] },
-  { key: "resources", title: "检查磁盘空间与迁移脚本", checks: ["disk", "migration"] },
+  { key: "paths", title: "检查项目文件与敏感路径", checks: ["paths", "project_files"] },
+  { key: "runner_protocol", title: "校验版本兼容性与升级执行器", checks: ["runner_protocol"] },
+  { key: "images", title: "校验镜像名、Tag 与 SHA256", checks: ["checksums", "images"] },
+  { key: "observability", title: "检查观测组件数据权限", checks: ["prometheus_permissions"] },
   { key: "summary", title: "生成预检查结果", checks: [] }
 ] satisfies PrecheckStepDefinition[];
 const componentPrecheckStepDefaults = [
   { key: "manifest", title: "校验组件包结构", checks: ["manifest"] },
-  { key: "version", title: "校验组件版本兼容性", checks: ["version", "platform-upgrade"] },
-  { key: "images", title: "校验组件镜像与 SHA256", checks: ["sha256"] },
-  { key: "environment", title: "检查 Docker、CLI 与磁盘空间", checks: ["docker", "docker-cli", "disk"] },
+  { key: "paths", title: "检查组件包路径安全", checks: ["paths"] },
+  { key: "runner_protocol", title: "校验组件版本兼容性与执行器", checks: ["runner_protocol"] },
+  { key: "images", title: "校验组件镜像与 SHA256", checks: ["checksums", "images"] },
+  { key: "observability", title: "检查观测组件数据权限", checks: ["prometheus_permissions"] },
   { key: "summary", title: "生成组件预检查结果", checks: [] }
 ] satisfies PrecheckStepDefinition[];
 const defaultComponentInfos: ComponentInfo[] = [
@@ -1883,15 +1882,16 @@ function displayPrecheckSteps(task: UpgradeTask, isComponent: boolean, running: 
   if (task.checks.length) {
     const checksByName = new Map(task.checks.map((check) => [check.name, check]));
     const failed = task.checks.some((check) => !check.ok);
-    return defaults.map((item, index) => {
-      const isLast = index === defaults.length - 1;
+    const applicableDefaults = defaults.filter((item, index) => index === defaults.length - 1 || item.checks.some((name) => checksByName.has(name)));
+    return applicableDefaults.map((item, index) => {
+      const isLast = index === applicableDefaults.length - 1;
       if (!isLast) {
         const relatedChecks = item.checks.map((name) => checksByName.get(name)).filter((check): check is UpgradeCheck => Boolean(check));
         const relatedFailed = relatedChecks.filter((check) => !check.ok);
         return {
           key: item.key,
           title: item.title,
-          status: relatedFailed.length ? "failed" : relatedChecks.length === item.checks.length ? "succeeded" : "pending",
+          status: relatedFailed.length ? "failed" : relatedChecks.length > 0 ? "succeeded" : "pending",
           message: relatedFailed.length ? formatCheckMessages(relatedFailed) : formatCheckMessages(relatedChecks)
         };
       }

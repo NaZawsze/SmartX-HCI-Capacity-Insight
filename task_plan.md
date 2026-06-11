@@ -615,3 +615,49 @@ runner v0.3.0 发布策略：
 - [已实现] SQLite WAL 一致性快照、按作用域恢复 SQLite/Prometheus、回滚后健康复检和健康检查重试窗口。
 - [已实现] web-api 与 Runner 对 `task.json` 使用 revision 乐观并发控制，陈旧恢复操作返回 409。
 - [已验证] `10.20.11.3` 完成容器构建、Runner 重启接管、安全动作恢复、脚本中断受控暂停、实际沙箱执行、自动回滚单测和恢复界面回归。
+
+### Phase 23 - v0.5.0 稳定化收敛
+
+状态：已完成
+
+优先级：P0
+
+目标：
+
+- 冻结 `v0.5.0` 功能面，不再插入新的升级能力或大 UI 需求，只处理发布阻塞问题。
+- 把升级中心从“功能继续扩张”切换到“主路径稳定验收”，确保测试机和正式包都能稳定完成部署、升级、回滚和任务中心展示。
+- 用户继续提出业务需求；架构与版本节奏由 Codex 收束到明确 Phase，避免需求直接打穿当前发布线。
+
+版本边界：
+
+- `v0.5.0`：稳定首发版，目标是可部署、可升级、可导出、可迁移。
+- `v0.5.1`：只允许升级中心稳定性补丁，例如任务状态一致性、runner 自升级收尾和验收脚本。
+- `v0.5.2`：报表交付质量补丁，例如 Word/Excel 模板、目录、分页和图表。
+- `v0.5.3`：数据迁移与清理增强，例如配置迁移包、Prometheus 历史迁移和 SQLite 运行态缓存治理。
+
+实施边界：
+
+- 不新增 Runner capability。
+- 不改变升级包 schema 3 的外部兼容口径。
+- 不触碰 `10.20.11.12`；只在 `10.20.11.3` 做测试机验证。
+- 不把历史 Prometheus 数据放入平台/组件升级包。
+- 不为了清理显示问题手工修改业务库作为长期方案；允许用一次性脚本整理测试机历史故障注入数据，但必须记录并可复现。
+
+待修复问题：
+
+- [已完成] Runner 自升级完成后，`task.json` 顶层已为 `success`，但 `steps.restart` 仍为 `running`、`steps.healthcheck` 仍为 `pending`，导致前端看起来像任务 hang 住。
+- [已完成] 统一升级任务状态投影第一步：`task.json` 是执行权威，runner-only 无 execution plan 任务投影时使用 task 自带 steps，避免 SQLite 与 task file 步骤不一致。
+- [已完成] 为 runner 自升级恢复收尾增加回归测试，覆盖 `runner_restarting + runner_resume_pending + no execution_plan`。
+- [已完成] 增加 `v0.5.0` 升级中心固定验收脚本，覆盖版本健康、Runner 心跳/能力、成功任务 steps 一致性和 `v0.5.0` 平台包无迁移 payload。
+- [已完成] 用固定验收脚本驱动平台包、Runner 组件包、Prometheus 轻量包三条真实升级主路径回归。
+- [已完成] 修复 Runner 组件升级 runtime override 未显式覆盖旧入口的问题，避免新镜像仍按 `app.upgrade.runner` 旧模块启动失败。
+- [已完成] Runner/web-api 成功终态统一写入 `finished_at`，避免 `task.json` 作为权威记录缺少完成时间。
+- [已完成] 使用产品 API 标记信息类任务已读并清空 clearable 历史任务，隔离 `10.20.11.3` 历史故障注入任务对任务中心的干扰。
+
+验收标准：
+
+- 平台升级、Runner 组件升级、Prometheus 轻量组件升级三条主路径均能结束为一致的 `success/failed/recovery_required` 状态。
+- 任何 `success` 升级任务的 steps 不得存在 `running/pending`。
+- 任务中心角标与未处理通知一致，确认告警不改变排序位置。
+- `/api/system/health` 返回 `version=v0.5.0`、`runner_version=v0.3.0`，前端 8080 与 Prometheus healthy 返回 200。
+- 固定验收脚本和目标单测通过后，才允许提交并推送 `feature/upgrade-v2`。

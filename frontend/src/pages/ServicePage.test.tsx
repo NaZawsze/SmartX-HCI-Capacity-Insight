@@ -452,6 +452,33 @@ describe("ServicePage upgrade center", () => {
     await waitFor(() => expect(apiMock.precheckUpgrade).toHaveBeenCalledWith("upgrade-1"));
   });
 
+  it("keeps completed platform precheck steps completed with current backend check names", async () => {
+    mockServicePageBootstrap();
+    apiMock.upgradeHistory.mockResolvedValue([uploadedPlatformTask()]);
+    apiMock.precheckUpgrade.mockResolvedValue({
+      ...uploadedPlatformTask(),
+      status: "prechecked",
+      precheck_ok: true,
+      checks: [
+        { name: "manifest", ok: true, message: "manifest 格式正确" },
+        { name: "paths", ok: true, message: "包内路径安全" },
+        { name: "runner_protocol", ok: true, message: "Runner 协议与能力满足升级包要求" },
+        { name: "checksums", ok: true, message: "升级包文件校验通过，共 39 项" },
+        { name: "images", ok: true, message: "镜像声明校验通过" },
+        { name: "project_files", ok: true, message: "项目文件同步包完整" }
+      ]
+    });
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText("v0.4.2"));
+    fireEvent.click(screen.getByRole("button", { name: "预检查" }));
+
+    await waitFor(() => expect(apiMock.precheckUpgrade).toHaveBeenCalledWith("upgrade-1"));
+    expect(await screen.findByText("预检查通过")).toBeInTheDocument();
+    expect(screen.queryByText("未执行")).not.toBeInTheDocument();
+    expect(screen.queryByText("检查观测组件数据权限")).not.toBeInTheDocument();
+  });
+
   it("uses the backend upgrade task id for the task center start task", async () => {
     mockServicePageBootstrap();
     apiMock.upgradeHistory.mockResolvedValue([{ ...uploadedPlatformTask(), status: "prechecked", precheck_ok: true }]);

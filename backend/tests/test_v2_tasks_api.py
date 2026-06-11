@@ -11,6 +11,20 @@ except ModuleNotFoundError:  # pragma: no cover - local host may not have web de
 
 
 class V2TaskServiceTest(unittest.TestCase):
+    def test_database_initializes_versioned_schema_migrations_table(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=tmpdir, secret_key="tasks-secret")
+            database = V2Database(settings)
+            database.initialize()
+
+            with database.connection() as conn:
+                columns = {row["name"] for row in conn.execute("PRAGMA table_info(schema_migrations)").fetchall()}
+
+            self.assertTrue({"id", "version", "description", "script_sha256", "applied_at"}.issubset(columns))
+
     def test_task_service_persists_lists_updates_and_clears_finished_tasks(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
@@ -106,6 +120,40 @@ class V2TaskServiceTest(unittest.TestCase):
 
             self.assertEqual(tasks.clear_clearable(), 2)
             self.assertEqual([task["id"] for task in tasks.list_tasks()], ["upgrade-1"])
+
+    def test_acknowledge_warning_task_does_not_change_sort_timestamp(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.models import TaskStatus, TaskType
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=tmpdir, secret_key="tasks-secret")
+            database = V2Database(settings)
+            database.initialize()
+            tasks = TaskService(database)
+
+            tasks.create_task("older-warning", TaskType.CLEANUP, "空间清理", status=TaskStatus.FAILED, progress=100)
+            tasks.create_task("newer-report", TaskType.REPORT, "导出预测报表", status=TaskStatus.SUCCESS, progress=100)
+            with database.connection() as conn:
+                conn.execute(
+                    "UPDATE tasks SET updated_at = ? WHERE id = ?",
+                    ("2026-06-01T00:00:00+00:00", "older-warning"),
+                )
+                conn.execute(
+                    "UPDATE tasks SET updated_at = ? WHERE id = ?",
+                    ("2026-06-02T00:00:00+00:00", "newer-report"),
+                )
+
+            before = tasks.get_task("older-warning")
+            acknowledged = tasks.acknowledge("older-warning")
+            listed_ids = [task["id"] for task in tasks.list_tasks()]
+
+            self.assertEqual(acknowledged["updated_at"], before["updated_at"])
+            self.assertIsNotNone(acknowledged["acknowledged_at"])
+            self.assertFalse(acknowledged["unhandled"])
+            self.assertTrue(acknowledged["clearable"])
+            self.assertEqual(listed_ids, ["newer-report", "older-warning"])
 
     def test_task_clear_handles_legacy_null_severity_rows(self) -> None:
         from app.v2.config import V2Settings

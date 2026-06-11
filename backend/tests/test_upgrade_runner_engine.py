@@ -138,6 +138,7 @@ class UpgradeEngineTest(unittest.TestCase):
             result = UpgradeEngine(store, handlers={"image.load": handler}).run()
 
             self.assertEqual(result["status"], "success")
+            self.assertTrue(result.get("finished_at"))
             self.assertEqual(calls, ["load"])
             self.assertEqual(result["execution_plan"]["actions"][1]["attempt"], 2)
 

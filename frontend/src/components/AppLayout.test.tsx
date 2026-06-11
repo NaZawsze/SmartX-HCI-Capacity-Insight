@@ -381,6 +381,31 @@ describe("AppLayout menus", () => {
     expect(onTaskAction).toHaveBeenCalledWith(task);
   });
 
+  it("keeps the task list scroll position when acknowledging a warning", () => {
+    const onTaskAck = vi.fn();
+    const tasks = Array.from({ length: 16 }, (_, index) => ({
+      ...failedTask(),
+      id: `task-failed-${index}`,
+      title: `失败任务 ${index + 1}`,
+      updatedAt: Date.now() - index
+    }));
+    const { rerender } = render(<AppLayout {...baseProps} tasks={tasks} onTaskAck={onTaskAck} />);
+
+    fireEvent.click(screen.getByTitle("任务"));
+    const taskList = document.querySelector<HTMLElement>(".task-menu-list");
+    expect(taskList).toBeTruthy();
+    taskList!.scrollTop = 180;
+    fireEvent.scroll(taskList!);
+    fireEvent.click(screen.getAllByTitle("确认任务告警")[5]);
+
+    const acknowledgedTasks = tasks.map((task, index) =>
+      index === 5 ? { ...task, unhandled: false, clearable: true, acknowledgedAt: "2026-06-11T00:00:00Z" } : task
+    );
+    rerender(<AppLayout {...baseProps} tasks={acknowledgedTasks} onTaskAck={onTaskAck} />);
+
+    expect(document.querySelector<HTMLElement>(".task-menu-list")?.scrollTop).toBe(180);
+  });
+
   it("only reveals auto scrollbars while the user is scrolling", () => {
     vi.useFakeTimers();
     render(<AppLayout {...baseProps} />);

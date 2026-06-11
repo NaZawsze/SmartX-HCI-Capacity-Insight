@@ -232,7 +232,7 @@ class V2FoundationTest(unittest.TestCase):
                 latest = conn.execute("SELECT tower_id, cluster_id, vm_id, name, used_bytes FROM vm_latest").fetchone()
                 volume = conn.execute("SELECT volume_id, name, path, size_bytes, used_bytes, storage_policy, replica_num, thin_provision FROM vm_volumes").fetchone()
                 legacy_table = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'latest_vm_volumes'").fetchone()
-                migration = conn.execute("SELECT name FROM schema_migrations WHERE name = 'drop_legacy_latest_vm_volumes'").fetchone()
+                migration = conn.execute("SELECT id FROM schema_migrations WHERE id = 'drop_legacy_latest_vm_volumes'").fetchone()
             self.assertEqual(latest, (3, "cluster-a", "vm-1", "vm-1", 450))
             self.assertEqual(volume, ("vol-1", "Root", "/root", 1000, 450, "Replica-2", 2, 1))
             self.assertIsNone(legacy_table)
@@ -290,7 +290,7 @@ class V2FoundationTest(unittest.TestCase):
                     "SELECT volume_id, name, path, size_bytes, used_bytes, storage_policy, replica_num, thin_provision, ec_k, ec_m, updated_at FROM vm_volumes"
                 ).fetchone()
                 legacy_table = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'latest_vm_volume_items'").fetchone()
-                migration = conn.execute("SELECT name FROM schema_migrations WHERE name = 'drop_legacy_latest_vm_volume_items'").fetchone()
+                migration = conn.execute("SELECT id FROM schema_migrations WHERE id = 'drop_legacy_latest_vm_volume_items'").fetchone()
             self.assertEqual(volume, ("vol-1", "Root", "/root", 1000, 450, "Replica-2", 2, 1, 4, 2, "2026-06-01T00:00:00Z"))
             self.assertIsNone(legacy_table)
             self.assertIsNotNone(migration)

@@ -65,6 +65,52 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _replace_step(steps: list[dict[str, Any]], key: str, status: str, message: str = "") -> list[dict[str, Any]]:
+    replaced = False
+    next_steps: list[dict[str, Any]] = []
+    for step in steps:
+        if step.get("key") == key:
+            copied = dict(step)
+            copied["status"] = status
+            copied["message"] = message
+            next_steps.append(copied)
+            replaced = True
+        else:
+            next_steps.append(dict(step))
+    if not replaced:
+        next_steps.append({"key": key, "title": key, "status": status, "message": message})
+    return next_steps
+
+
+def _has_unfinished_steps(task: dict[str, Any]) -> bool:
+    return any(step.get("status") in {"pending", "running"} for step in task.get("steps") or [])
+
+
+def _is_runner_component_task(task: dict[str, Any]) -> bool:
+    components = {str(component) for component in task.get("components") or []}
+    if components:
+        return components <= {"runner"}
+    manifest_components = {str(component.get("type")) for component in (task.get("manifest") or {}).get("components") or []}
+    return bool(manifest_components) and manifest_components <= {"runner"}
+
+
+def _finish_runner_component_steps(task: dict[str, Any], message: str) -> dict[str, Any]:
+    steps = list(task.get("steps") or [])
+    steps = _replace_step(steps, "restart", "succeeded", "upgrade-runner 已重新启动")
+    steps = _replace_step(steps, "healthcheck", "succeeded", "组件升级健康检查通过")
+    updated_at = _now()
+    task["status"] = "success"
+    task["runner_resume_pending"] = False
+    task["updated_at"] = updated_at
+    task["finished_at"] = task.get("finished_at") or updated_at
+    task["steps"] = steps
+    logs = list(task.get("logs") or [])
+    if message not in logs:
+        logs.append(message)
+    task["logs"] = logs
+    return task
+
+
 def _project_task(database_path: Path, task: dict[str, Any]) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     status_map = {
@@ -86,15 +132,18 @@ def _project_task(database_path: Path, task: dict[str, Any]) -> None:
         "failed": str(task.get("error") or "升级执行失败"),
     }.get(str(task.get("status")), "正在执行升级任务")
     actions = task.get("execution_plan", {}).get("actions") or []
-    steps = [
-        {
-            "key": action.get("id"),
-            "title": action.get("type"),
-            "status": action.get("status"),
-            "message": action.get("error") or "",
-        }
-        for action in actions
-    ]
+    if actions:
+        steps = [
+            {
+                "key": action.get("id"),
+                "title": action.get("type"),
+                "status": action.get("status"),
+                "message": action.get("error") or "",
+            }
+            for action in actions
+        ]
+    else:
+        steps = list(task.get("steps") or [])
     with sqlite3.connect(database_path) as connection:
         connection.execute(
             """
@@ -149,13 +198,16 @@ def run_pending_once(
         store = TaskStore(task_file.parent)
         task = store.load()
         status = str(task.get("status") or "")
+        if status == "success" and _is_runner_component_task(task) and _has_unfinished_steps(task):
+            task = _finish_runner_component_steps(task, "upgrade-runner v0.3.0 已重新启动，组件升级完成。")
+            result = store.save(task, expected_revision=int(task.get("revision") or 0))
+            _project_task(settings.database_path, result)
+            executed += 1
+            continue
         if status not in {"pending", "running", "runner_restarting", "recovery_required"}:
             continue
         if status == "runner_restarting" and task.get("runner_resume_pending") and not task.get("execution_plan"):
-            task["status"] = "success"
-            task["runner_resume_pending"] = False
-            task["updated_at"] = _now()
-            task["logs"] = [*task.get("logs", []), "upgrade-runner 已重新启动，组件升级完成。"]
+            task = _finish_runner_component_steps(task, "upgrade-runner 已重新启动，组件升级完成。")
             result = store.save(task, expected_revision=int(task.get("revision") or 0))
             _project_task(settings.database_path, result)
             executed += 1

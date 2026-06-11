@@ -116,9 +116,9 @@ Prometheus: http://<server-ip>:9090
 
 ## 离线升级包结构
 
-平台支持在服务管理页面上传离线 `.tar.gz` 升级包。升级包用于替换服务镜像，也可以按需执行迁移脚本。升级包不应包含运行数据、`.env`、SQLite 数据库、Prometheus 数据、Tower 账号密码或其他敏感信息。
+平台支持在服务管理页面上传离线 `.tar.gz` 升级包。升级包用于替换服务镜像，只有 manifest 选中了累计 SQLite 迁移步骤时才执行迁移脚本。升级包不应包含运行数据、`.env`、SQLite 数据库、Prometheus 数据、Tower 账号密码或其他敏感信息。
 
-兼容范围：`v0.5.0` 升级包仅面向 v2 升级流程，不支持从 v1 或 `v0.4.x` 原地升级；这些旧系统通过数据迁移兼容。对于较早的 v1 安装，推荐直接重新安装最新版本，然后按 README 中的命令从旧系统导出迁移包并导入新系统。
+兼容范围：`v0.5.0` 升级包仅面向 v2 升级流程，不支持从 v1 或 `v0.4.x` 原地升级；这些旧系统通过数据迁移兼容。在 v2 同架构内支持跨版本直升，例如 `v0.5.0 -> v0.5.3`；升级包会自动包含来源版本到目标版本之间所有已登记的 SQLite 迁移步骤。
 
 平台升级包目录结构：
 
@@ -131,8 +131,6 @@ smartx-capacity-insight-v0.5.0-upgrade.tar.gz
 │   ├── web-api.tar
 │   ├── frontend.tar
 │   └── collector-worker.tar
-├── scripts/
-│   └── migrate.sh
 └── project/
     ├── docker-compose.yml
     ├── docker-compose.offline.yml
@@ -142,7 +140,14 @@ smartx-capacity-insight-v0.5.0-upgrade.tar.gz
     └── docs/
 ```
 
-`manifest.json` 用于描述目标版本、最低兼容版本、组件列表、镜像 SHA256 校验、项目文件同步、迁移脚本、需要重启的服务和升级包类型。
+如果来源版本和目标版本之间存在 SQLite schema 变化，升级包会额外包含：
+
+```text
+migrations/
+└── run_migrations.py
+```
+
+`manifest.json` 用于描述目标版本、最低兼容版本、组件列表、镜像 SHA256 校验、项目文件同步、选中的迁移步骤、需要重启的服务和升级包类型。
 
 字段示例：
 
@@ -157,7 +162,7 @@ smartx-capacity-insight-v0.5.0-upgrade.tar.gz
   "min_version": "v0.5.0",
   "package_type": "platform",
   "project_files": true,
-  "migration": {"required": true, "script": "scripts/migrate.sh"},
+  "database_migration": false,
   "restart_services": ["web-api", "collector-worker", "frontend"],
   "components": [
     {
@@ -175,6 +180,8 @@ smartx-capacity-insight-v0.5.0-upgrade.tar.gz
   ]
 }
 ```
+
+没有选中迁移步骤的升级包，例如 `v0.5.0 -> v0.5.0`，不包含 `migration`、`migration_steps` 或 `script.sandbox.v1`。如果跨过了 schema 变化版本，例如 `v0.5.0 -> v0.5.3` 且 `v0.5.2` 修改了 SQLite schema，则包内包含 `migration_steps[]`，并为了兼容 `upgrade-runner v0.3.0` 保留 legacy `migration.script = migrations/run_migrations.py`。Runner 仍只执行一个沙箱脚本，由脚本按版本顺序执行所有命中的迁移步骤并写入 `schema_migrations`。
 
 普通平台升级包不建议在同一次升级任务中重启 `upgrade-runner`，避免中断正在执行升级的服务。如需替换 `upgrade-runner`，请使用组件升级包。
 
@@ -216,7 +223,7 @@ smartx-capacity-insight-bundle-v0.5.0.tar.gz
 ├── platform/
 │   ├── images/
 │   ├── project/
-│   └── migrations/
+│   └── migrations/                    # 可选，仅 migration_steps 非空时包含
 └── observability/
     ├── config/
     ├── health/

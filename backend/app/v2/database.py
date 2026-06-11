@@ -129,7 +129,10 @@ class V2Database:
                 );
 
                 CREATE TABLE IF NOT EXISTS schema_migrations (
-                    name TEXT PRIMARY KEY,
+                    id TEXT PRIMARY KEY,
+                    version TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    script_sha256 TEXT NOT NULL,
                     applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
 
@@ -160,6 +163,7 @@ class V2Database:
             _ensure_column(conn, "tasks", "severity", "TEXT")
             _ensure_column(conn, "tasks", "seen_at", "TEXT")
             _ensure_column(conn, "tasks", "acknowledged_at", "TEXT")
+            _ensure_schema_migrations_table(conn)
             _backfill_v1_latest_vm_payloads(conn)
             _backfill_legacy_volume_items(conn)
             self._ensure_admin(conn)
@@ -178,6 +182,38 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition
     columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     if column not in columns:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _ensure_schema_migrations_table(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(schema_migrations)").fetchall()}
+    if {"id", "version", "description", "script_sha256", "applied_at"}.issubset(columns):
+        return
+    legacy_rows = []
+    if "name" in columns:
+        legacy_rows = conn.execute("SELECT name, applied_at FROM schema_migrations").fetchall()
+        conn.execute("ALTER TABLE schema_migrations RENAME TO schema_migrations_legacy")
+    else:
+        conn.execute("DROP TABLE IF EXISTS schema_migrations")
+    conn.execute(
+        """
+        CREATE TABLE schema_migrations (
+            id TEXT PRIMARY KEY,
+            version TEXT NOT NULL,
+            description TEXT NOT NULL,
+            script_sha256 TEXT NOT NULL,
+            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    for row in legacy_rows:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations (id, version, description, script_sha256, applied_at)
+            VALUES (?, 'legacy', ?, '', COALESCE(?, CURRENT_TIMESTAMP))
+            """,
+            (row["name"], row["name"], row["applied_at"]),
+        )
+    conn.execute("DROP TABLE IF EXISTS schema_migrations_legacy")
 
 
 def _backfill_v1_latest_vm_payloads(conn: sqlite3.Connection) -> None:
@@ -221,7 +257,12 @@ def _backfill_v1_latest_vm_payloads(conn: sqlite3.Connection) -> None:
                 ),
             )
     conn.execute("DROP TABLE latest_vm_volumes")
-    conn.execute("INSERT OR IGNORE INTO schema_migrations (name) VALUES ('drop_legacy_latest_vm_volumes')")
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO schema_migrations (id, version, description, script_sha256)
+        VALUES ('drop_legacy_latest_vm_volumes', 'legacy', 'drop_legacy_latest_vm_volumes', '')
+        """
+    )
 
 
 def _backfill_legacy_volume_items(conn: sqlite3.Connection) -> None:
@@ -255,7 +296,12 @@ def _backfill_legacy_volume_items(conn: sqlite3.Connection) -> None:
             """
         )
     conn.execute("DROP TABLE latest_vm_volume_items")
-    conn.execute("INSERT OR IGNORE INTO schema_migrations (name) VALUES ('drop_legacy_latest_vm_volume_items')")
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO schema_migrations (id, version, description, script_sha256)
+        VALUES ('drop_legacy_latest_vm_volume_items', 'legacy', 'drop_legacy_latest_vm_volume_items', '')
+        """
+    )
 
 
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:

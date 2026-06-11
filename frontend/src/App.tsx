@@ -64,7 +64,8 @@ export default function App() {
   }, []);
 
   const acknowledgeTask = useCallback(async (task: AppTask) => {
-    setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, detail: item.detail || "任务告警已确认", updatedAt: Date.now() } : item)));
+    const acknowledgedAt = new Date().toISOString();
+    setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, detail: item.detail || "任务告警已确认", acknowledgedAt, unhandled: false, clearable: true } : item)));
     try {
       const updated = await api.acknowledgeTask(task.id);
       const mapped = serverTaskToAppTask(updated);

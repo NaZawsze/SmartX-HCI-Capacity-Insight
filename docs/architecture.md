@@ -121,9 +121,11 @@ smartx-capacity-insight-v0.5.0-upgrade.tar.gz
 │   ├── prometheus/
 │   ├── docs/
 │   └── scripts/
-└── scripts/
-    └── migrate.sh
+└── migrations/
+    └── run_migrations.py  # 可选，仅 migration_steps 非空时包含
 ```
+
+平台包默认不带迁移脚本。若来源版本到目标版本之间存在 SQLite schema migration，manifest 会包含 `migration_steps[]`，包内只生成一个兼容 Runner v0.3.0 的 `migrations/run_migrations.py` 编排脚本。
 
 Runner 组件包：
 
@@ -165,7 +167,7 @@ smartx-capacity-insight-bundle-v0.5.0.tar.gz
 ├── platform/
 │   ├── images/
 │   ├── project/
-│   └── migrations/
+│   └── migrations/  # 可选，仅 migration_steps 非空时包含
 └── observability/
     ├── config/
     ├── health/

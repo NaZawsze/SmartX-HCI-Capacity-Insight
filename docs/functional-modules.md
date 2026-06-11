@@ -308,8 +308,10 @@ release-notes.md
 images/web-api.tar
 images/collector-worker.tar
 images/frontend.tar
-scripts/migrate.sh
+migrations/run_migrations.py  # 可选，仅 migration_steps 非空时包含
 ```
+
+无 SQLite schema 变化的升级包不包含迁移脚本；跨版本升级包按 `source_version < step.version <= target_version` 累计选择 `migration_steps`。
 
 组合升级包结构：
 
@@ -318,7 +320,7 @@ manifest.json
 checksums.sha256
 platform/images/
 platform/project/
-platform/migrations/
+platform/migrations/                 # 可选，仅 migration_steps 非空时包含
 observability/config/prometheus.yml
 observability/health/queries.json
 observability/images/prometheus.tar  # 可选，仅离线镜像包包含

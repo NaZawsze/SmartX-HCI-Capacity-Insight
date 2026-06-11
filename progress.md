@@ -3080,3 +3080,125 @@ TDD 记录：
 - 平台版本固定为 `v0.5.0`，Runner 组件版本固定为 `v0.3.0`，组合包示例改为当前平台版本语境，避免误解为 `v0.6.0`。
 - 四类升级包树形结构已统一：平台包、Runner 组件包、Prometheus 轻量/离线组件包、平台+观测组合包。
 - 历史 `schema_version=2` 和早期 Prometheus tar 包记录保留为历史事实，并在旁边补充当前 schema 3 与轻量包口径。
+
+
+### 2026-06-11 v0.5.0 跨版本升级累计迁移支持
+
+状态：已完成并通过本地与 `10.20.11.3` 验证
+
+- 平台升级包构建器新增 SQLite migration registry，按 `source_version < step.version <= target_version` 选择累计迁移步骤。
+- 用户确认当前正式版本仍使用 `v0.5.0`，不发布 `v0.5.1`；当前 `v0.5.0` 正式包无 schema 迁移时不包含 `migration`、`migration_steps`、`script.sandbox.v1` 或迁移脚本。
+- 当未来目标版本跨过 schema 变化版本时，打包器生成单文件 `migrations/run_migrations.py`，Runner 仍只执行一个沙箱脚本，脚本内部按版本顺序执行并记录所有命中步骤。
+- registry step 支持声明幂等 `sql` 列表和 `add_column_if_missing` 操作，生成的迁移脚本会先执行迁移动作，再写入 `schema_migrations`；单步失败不会写成功记录。
+- registry 校验收紧：`sql` 必须是字符串数组，`database` 当前只允许 `sqlite`，重复 step id、未知 operation 或缺少加列参数都会在打包阶段失败。
+- SQLite `schema_migrations` 表升级为 `id/version/description/script_sha256/applied_at`，保留旧 `name/applied_at` 表的兼容迁移。
+- 组合包透传平台包的 `database_migration`、`migration_steps` 和迁移脚本，且保留 `run_migrations.py` 文件名；schema 3 包不再默认 fallback 到旧 `scripts/migrate.sh`。
+- 本地目标测试 15 个通过，`scripts/build_upgrade_package.py --check-version --no-build` 返回 `Version metadata OK: v0.5.0`，`git diff --check` 通过。
+- `10.20.11.3` 已重建并 recreate `web-api`、`collector-worker`、`frontend`；`/api/system/health` 返回 `version=v0.5.0`、`runner_version=v0.3.0`，前端 8080 和 Prometheus healthy 均返回 200。
+- `10.20.11.3` 目标测试 15 个通过，最终检查包 `smartx-capacity-insight-upgrade-v0.5.0.tar.gz` 的 manifest 确认 `database_migration=false`，不包含 `migration`、`migration_steps`、`script.sandbox.v1`、`migrations/` 或 `scripts/migrate.sh`。
+
+### 2026-06-11 v0.5.0 稳定化收敛决策
+
+状态：计划已建立，待实施
+
+- 用户确认后续继续以需求提出为主，由 Codex 负责整体架构、版本节奏和稳定性方案把控。
+- 版本节奏收束为“一版一个主目标”：`v0.5.0` 稳定首发，`v0.5.1` 升级中心稳定性补丁，`v0.5.2` 报表交付质量，`v0.5.3` 数据迁移与清理增强。
+- 新增 `Phase 23 - v0.5.0 稳定化收敛`，冻结当前功能面，优先修发布阻塞和升级中心主路径稳定性。
+- 在 `10.20.11.3` 排查 runner 组件升级“hang 住”问题：真实执行已完成，Runner 心跳与版本正常，任务顶层状态与 SQLite 投影多为 `success`。
+- 发现伪 hang 根因：runner 自升级恢复收尾后 `task.json` 顶层已为 `success`，但 `steps.restart` 仍为 `running`、`steps.healthcheck` 仍为 `pending`，前端可能据此显示仍在等待新进程确认。
+- 真实业务库路径确认：宿主机 `/data/smartx-capacity-insight-data/app/smartx.db` 映射到容器内 `/data/smartx.db`；宿主机 `/data/smartx.db` 是 0 字节误导文件。
+- Phase 23 后续修复方向：统一 `task.json` 到 SQLite 任务中心的状态投影，runner 自升级收尾必须同步 steps，增加固定验收脚本覆盖平台、Runner、Prometheus 三条升级主路径。
+
+### 2026-06-11 Phase 23 Runner 自升级伪 hang 修复
+
+状态：本地实现完成，待 `10.20.11.3` 验证
+
+- 按 TDD 增加回归断言：runner-only 组件升级从 `runner_restarting` 恢复后，`task.json` 与 SQLite 投影中的 `restart`、`healthcheck` steps 都必须为 `succeeded`。
+- RED：新增断言后，`backend.tests.test_v2_upgrade.V2UpgradeServiceTest.test_runner_component_upgrade_writes_runtime_override_and_only_restarts_runner` 失败，实际 `restart=running`。
+- GREEN：`app.upgrade_runner.main` 新增 steps 替换 helper；`runner_restarting + runner_resume_pending + no execution_plan` 恢复分支同步收尾 `restart` 和 `healthcheck`，并写入 `finished_at`。
+- `_project_task()` 在没有 `execution_plan.actions` 时投影 `task.steps`，确保 runner 自升级这类 web-api 直执行任务不会丢失步骤状态。
+- 本地单测通过：目标回归测试 1 个通过；升级中心相关测试 `backend.tests.test_v2_upgrade backend.tests.test_upgrade_runner_engine backend.tests.test_upgrade_protocol backend.tests.test_v2_package_builders` 共 51 个通过、1 个跳过。
+
+### 2026-06-11 Phase 23 Runner 自升级远端验证
+
+状态：`10.20.11.3` 验证通过
+
+- 增加历史自愈回归测试：旧版遗留的 `status=success` runner 组件升级任务，如果 `steps.restart=running` 或 `steps.healthcheck=pending`，新 Runner 启动扫描时会归一化为 `succeeded` 并重新投影到 SQLite。
+- 本地升级中心相关测试更新为 52 个通过、1 个跳过。
+- 已同步到 `10.20.11.3:/opt/smartx-storage-forecast-v2`，远端升级中心相关测试 52 个通过、1 个跳过。
+- 已重建并 recreate `upgrade-runner`；健康接口返回 `ok=true`、`version=v0.5.0`、`runner_version=v0.3.0`。
+- 新增固定验收脚本 `scripts/verify_upgrade_center_v050.py` 并在测试机通过：
+  - Runner 心跳存在，能力数 10。
+  - 22 条成功升级任务 SQLite 投影无 `running/pending` steps。
+  - 13 个成功 `task.json` 无 `running/pending` steps。
+  - `smartx-capacity-insight-upgrade-v0.5.0.tar.gz` 确认无 `migration`、无 `migration_steps`、不要求 `script.sandbox.v1`，且包含平台三件套镜像。
+
+### 2026-06-11 Phase 23 主路径稳定化收尾
+
+状态：`10.20.11.3` 三条真实升级主路径验证通过，待提交
+
+- 继续排查真实 Prometheus 轻量包升级时发现任务 `upgrade-3e8f1399ffd3cb33` 停在 `pending`，原因是 `upgrade-runner` 容器在 runner 组件升级后持续重启。
+- Runner 日志显示旧入口错误：`No module named 'app.upgrade'`；确认 runtime override 只覆盖 image，未覆盖 command，导致新 runner 镜像仍按旧模块名启动。
+- 按 TDD 增加 runner 组件升级 override 回归断言：必须包含 `app.upgrade_runner.main`，且不得包含 `app.upgrade.runner`；RED 失败后修复 `_write_override()`。
+- 按 TDD 增加 runner 组件升级成功时 `task.json.finished_at` 回归断言；同时为 Runner engine 成功终态写入 `finished_at`，确保平台/Prometheus 任务文件也完整落盘。
+- 本地升级中心相关测试通过：`backend.tests.test_v2_upgrade backend.tests.test_upgrade_runner_engine backend.tests.test_upgrade_protocol backend.tests.test_v2_package_builders` 共 53 个通过、1 个跳过。
+- 已同步到 `10.20.11.3`，远端同组测试 53 个通过、1 个跳过；重建并 recreate `web-api`、`upgrade-runner`，重新生成 runner 组件包。
+- 真实 runner 组件升级再次执行成功：`upgrade-5703b1c5fe62f710`，`status=success`，`finished_at` 有值，`restart/healthcheck` 均为 `succeeded`。
+- 真实 Prometheus 组件升级再次执行成功：`upgrade-28b02dbdd78e4502`，`status=success`，`finished_at` 有值，所有 actions 均为 `succeeded`。
+- 固定验收脚本在测试机通过：健康版本 `platform=v0.5.0`、`runner=v0.3.0`，27 条 SQLite 成功升级任务和 18 个成功 `task.json` 均无 `running/pending` steps，v0.5.0 平台包无迁移 payload。
+- 远端健康检查通过：`/api/system/health` 返回 `ok=true`，前端 8080 返回 200，Prometheus `/-/healthy` 返回 200。
+- 追加验证真正的 Prometheus 轻量包：在 `/data/upgrade-packages/components-light/` 重新生成默认包，tar 成员只有 `manifest.json`、`release-notes.md`、`config/prometheus.yml`、`health/queries.json`、`checksums.sha256`，不包含 `images/prometheus.tar`。
+- 真实轻量 Prometheus 组件升级 `upgrade-73ac11cad1f299da` 通过 API 上传、预检查、启动和轮询，最终公开状态 `succeeded`，`finished_at=2026-06-11T15:52:29.756938+00:00`。
+- 再次运行固定验收脚本通过：28 条 SQLite 成功升级任务和 19 个成功 `task.json` 均无 `running/pending` steps，系统健康、前端 8080 和 Prometheus healthy 正常。
+
+### 2026-06-11 v0.5.1 任务中心确认滚动稳定性
+
+状态：已实现并部署到 `10.20.11.3`，待提交
+
+- 用户此前指出：任务中心点击失败历史任务的“确认”后会回到任务中心顶部，希望确认告警不改变当前浏览位置。
+- 后端已有回归测试覆盖 `acknowledge()` 不更新排序用的 `updated_at`，本轮补前端滚动稳定性。
+- `AppLayout` 任务列表增加滚动位置保存与 `useLayoutEffect` 恢复；确认告警或刷新任务数据后，任务菜单列表保持原 `scrollTop`。
+- 增加前端回归测试：滚动任务中心列表后确认第 6 个告警，rerender 为已确认任务，`.task-menu-list.scrollTop` 保持 180。
+- 在 `10.20.11.3` 使用临时 Node 容器和 `phase22-node-modules` volume 运行 `AppLayout.test.tsx`，17 个测试通过。
+- 已重建 frontend 镜像并 recreate 容器；运行容器 image 为 `smartx-storage-forecast-frontend:local`，创建时间 `2026-06-11T15:59:12Z`，`8080` 返回 200，`/api/system/health` 正常。
+
+### 2026-06-11 Phase 23 测试机任务中心历史整理
+
+状态：已完成
+
+- 使用 `/api/tasks` 审计 `10.20.11.3` 任务中心：共有 30 条可见任务，其中 7 条成功信息任务未读，3 条 critical 历史任务已确认且 clearable，无未确认告警。
+- 没有手工改 SQLite；通过公开 API 调用 `/api/tasks/seen` 标记 7 条信息任务已读，再调用 `DELETE /api/tasks/clearable` 清空 clearable 历史任务。
+- 清理后 `/api/tasks` 返回 0 条，历史故障注入任务不再干扰任务中心观感。
+- Phase 23 状态更新为已完成。
+
+### 2026-06-11 v0.5.0 / v0.5.1 升级中心完成审计
+
+状态：目标完成，待用户决定提交/推送
+
+完成证据：
+
+- v0.5.0 稳定基线：`10.20.11.3` `/api/system/health` 返回 `version=v0.5.0`、`runner_version=v0.3.0`，frontend 8080 与 Prometheus `/-/healthy` 均返回 200。
+- v0.5.0 平台包边界：固定验收脚本确认 `smartx-capacity-insight-upgrade-v0.5.0.tar.gz` 无 `migration`、无 `migration_steps`、不要求 `script.sandbox.v1`，且包含平台三件套镜像。
+- Runner 组件升级：真实任务 `upgrade-5703b1c5fe62f710` 成功，`restart/healthcheck` 均为 `succeeded`，`finished_at` 有值；runtime override 固定为 `app.upgrade_runner.main`。
+- Prometheus 轻量组件升级：真实任务 `upgrade-73ac11cad1f299da` 成功，默认轻量包不含 `images/prometheus.tar`，`finished_at` 有值。
+- 任务中心：测试机历史故障注入任务已通过产品 API 清理，`/api/tasks` 返回 0 条、未处理通知 0；确认告警不更新后端排序时间，前端确认后保持任务列表滚动位置。
+- 固定验收脚本：远端通过，19 个成功 `task.json` 无 `running/pending` steps；清理任务中心后 SQLite 任务投影为空，符合测试机整理后的状态。
+- 本地回归：`python3 -m py_compile ...`、升级中心/任务中心相关单测共 61 个通过、3 个跳过，`git diff --check` 通过。
+- 远端前端回归：`AppLayout.test.tsx` 17 个测试通过；frontend 已重建并 recreate。
+
+剩余事项不属于当前目标完成条件：
+
+- 当前工作树仍有未提交改动和新增文件，等待用户明确提交/推送指令。
+- v0.5.2 报表质量和 v0.5.3 数据迁移/清理增强按用户要求降级为后续低优先级，不阻塞升级中心稳定线。
+
+### 2026-06-12 v0.5.0u1 测试升级包
+
+状态：已生成，待用户测试启动
+
+- 用户要求打包一个 `v0.5.0u1` 版本升级包，仅用于测试升级。
+- 未修改本地仓库 `VERSION`；在 `10.20.11.3` 创建临时副本 `/tmp/smartx-v050u1-build`，只在临时副本中替换平台版本、compose 默认 tag 和 `docker-compose.upgrade.yml` 镜像 tag 为 `v0.5.0u1`。
+- 生成路径：`/data/upgrade-packages/v050u1-test/smartx-capacity-insight-upgrade-v0.5.0u1.tar.gz`。
+- SHA256：`fb5f1cc49590d2a4e36502befd3230379d7dac21f3b14d9d8b28c7a49bf26d86`。
+- 包校验通过：manifest `schema_version=3`、`version=v0.5.0u1`、`min_version=v0.5.0`、`database_migration=false`，不包含 `migration` 或 `migration_steps`。
+- 包成员 40 个，无 `.env`、SQLite、Prometheus 历史数据、`/data`、`backups`、`upgrades`、`migrations/` 或 `scripts/migrate.sh`。
+- 已通过升级中心上传和预检查，但未启动升级；预检查任务 id：`upgrade-7d9a438ee431b1f4`，状态 `precheck_passed`。

@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import tarfile
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION_FILE = ROOT / "VERSION"
@@ -33,6 +33,7 @@ PROJECT_FILES = [
     "README.zh-CN.md",
 ]
 PROJECT_DIRS = ["docs", "scripts"]
+MIGRATION_REGISTRY = ROOT / "backend/app/v2/upgrade/migrations/registry.json"
 SENSITIVE_PATTERNS = (
     re.compile(r"(^|/)\.env($|[./])", re.I),
     re.compile(r"smartx\.db", re.I),
@@ -114,6 +115,218 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _version_tuple(value: str) -> tuple[int, int, int, str]:
+    version = value.strip()
+    if version.startswith("v"):
+        version = version[1:]
+    match = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([0-9]+)(.*)", version)
+    if not match:
+        raise SystemExit(f"Invalid version value: {value!r}")
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)), match.group(4) or "")
+
+
+def _load_migration_registry(path: Path = MIGRATION_REGISTRY) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        raise SystemExit(f"Migration registry must be a list: {path}")
+    result: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for item in payload:
+        if not isinstance(item, dict):
+            raise SystemExit(f"Migration registry item must be an object: {path}")
+        step_id = str(item.get("id") or "").strip()
+        version = str(item.get("version") or "").strip()
+        description = str(item.get("description") or "").strip()
+        if not step_id or not version or not description:
+            raise SystemExit(f"Migration step requires id, version and description: {item!r}")
+        _version_tuple(version)
+        if step_id in seen_ids:
+            raise SystemExit(f"Duplicate migration step id: {step_id}")
+        seen_ids.add(step_id)
+        database = str(item.get("database") or "sqlite").strip()
+        if database != "sqlite":
+            raise SystemExit(f"Unsupported migration database for {step_id}: {database}")
+        sql = item.get("sql") or []
+        if not isinstance(sql, list) or not all(isinstance(statement, str) for statement in sql):
+            raise SystemExit(f"Migration step sql must be a string array: {step_id}")
+        operations = item.get("operations") or []
+        if not isinstance(operations, list):
+            raise SystemExit(f"Migration step operations must be an array: {step_id}")
+        for operation in operations:
+            if not isinstance(operation, dict):
+                raise SystemExit(f"Migration operation must be an object: {step_id}")
+            action = str(operation.get("action") or "").strip()
+            if action != "add_column_if_missing":
+                raise SystemExit(f"Unsupported migration operation for {step_id}: {action}")
+            table = str(operation.get("table") or "").strip()
+            column = str(operation.get("column") or "").strip()
+            definition = str(operation.get("definition") or "").strip()
+            if not table or not column or not definition:
+                raise SystemExit(f"add_column_if_missing requires table, column and definition: {step_id}")
+        result.append(
+            {
+                "id": step_id,
+                "version": version,
+                "description": description,
+                "database": database,
+                "sql": sql,
+                "operations": operations,
+            }
+        )
+    return sorted(result, key=lambda step: _version_tuple(str(step["version"])))
+
+
+def _selected_migration_steps(registry: list[dict[str, Any]], *, min_version: str, target_version: str) -> list[dict[str, Any]]:
+    source = _version_tuple(min_version)
+    target = _version_tuple(target_version)
+    return [
+        dict(step)
+        for step in registry
+        if source < _version_tuple(str(step["version"])) <= target
+    ]
+
+
+def _migration_runner_source(steps: list[dict[str, Any]]) -> str:
+    payload = json.dumps(steps, ensure_ascii=False, sort_keys=True, indent=2)
+    return f'''#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import os
+import hashlib
+import sqlite3
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+STEPS = json.loads({payload!r})
+DB_PATH = Path(os.environ.get("SMARTX_DB_PATH") or "/data/smartx.db")
+SCRIPT_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+def ensure_schema_migrations(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            id TEXT PRIMARY KEY,
+            version TEXT NOT NULL,
+            description TEXT NOT NULL,
+            script_sha256 TEXT NOT NULL,
+            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    columns = {{row[1] for row in conn.execute("PRAGMA table_info(schema_migrations)").fetchall()}}
+    if "id" not in columns and "name" in columns:
+        rows = conn.execute("SELECT name, applied_at FROM schema_migrations").fetchall()
+        conn.execute("ALTER TABLE schema_migrations RENAME TO schema_migrations_legacy")
+        conn.execute(
+            """
+            CREATE TABLE schema_migrations (
+                id TEXT PRIMARY KEY,
+                version TEXT NOT NULL,
+                description TEXT NOT NULL,
+                script_sha256 TEXT NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        for name, applied_at in rows:
+            conn.execute(
+                "INSERT OR IGNORE INTO schema_migrations (id, version, description, script_sha256, applied_at) VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))",
+                (name, "legacy", name, "", applied_at),
+            )
+        conn.execute("DROP TABLE schema_migrations_legacy")
+
+
+def already_applied(conn: sqlite3.Connection, step_id: str) -> bool:
+    row = conn.execute("SELECT 1 FROM schema_migrations WHERE id = ?", (step_id,)).fetchone()
+    return row is not None
+
+
+def quote_identifier(value: str) -> str:
+    cleaned = str(value)
+    if not cleaned:
+        raise ValueError("empty identifier")
+    return '"' + cleaned.replace('"', '""') + '"'
+
+
+def has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({{quote_identifier(table)}})").fetchall()
+    return any(str(row[1]) == column for row in rows)
+
+
+def apply_operation(conn: sqlite3.Connection, operation: dict) -> None:
+    action = str(operation.get("action") or "")
+    if action == "add_column_if_missing":
+        table = str(operation["table"])
+        column = str(operation["column"])
+        definition = str(operation["definition"])
+        if not has_column(conn, table, column):
+            conn.execute(f"ALTER TABLE {{quote_identifier(table)}} ADD COLUMN {{quote_identifier(column)}} {{definition}}")
+        return
+    raise ValueError(f"Unsupported migration operation: {{action}}")
+
+
+def apply_step(conn: sqlite3.Connection, step: dict) -> None:
+    step_id = str(step["id"])
+    if already_applied(conn, step_id):
+        print(f"skip {{step_id}}")
+        return
+    for statement in step.get("sql") or []:
+        sql = str(statement).strip()
+        if sql:
+            conn.execute(sql)
+    for operation in step.get("operations") or []:
+        apply_operation(conn, operation)
+    conn.execute(
+        "INSERT INTO schema_migrations (id, version, description, script_sha256, applied_at) VALUES (?, ?, ?, ?, ?)",
+        (
+            step_id,
+            str(step["version"]),
+            str(step["description"]),
+            str(step.get("script_sha256") or SCRIPT_SHA256),
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    print(f"applied {{step_id}}")
+
+
+def main() -> None:
+    if not DB_PATH.exists():
+        raise SystemExit(f"SQLite database not found: {{DB_PATH}}")
+    with sqlite3.connect(DB_PATH) as conn:
+        ensure_schema_migrations(conn)
+        for step in STEPS:
+            apply_step(conn, step)
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def write_migration_runner(path: Path, steps: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    source = _migration_runner_source(steps)
+    path.write_text(source, encoding="utf-8")
+    path.chmod(0o755)
+    digest = sha256_file(path)
+    public_steps = []
+    for step in steps:
+        public_steps.append(
+            {
+                "id": step["id"],
+                "version": step["version"],
+                "description": step["description"],
+                "script_sha256": digest,
+            }
+        )
+    return digest, public_steps
 
 
 def write_migrate_script(path: Path, version: str) -> None:
@@ -207,7 +420,7 @@ def assert_safe_members(members: Iterable[str]) -> None:
         raise SystemExit("Sensitive paths refused in package: " + ", ".join(bad))
 
 
-def collect_project_files(version: str) -> list[str]:
+def collect_project_files(version: str, *, check_version_metadata: bool = True) -> list[str]:
     files: set[str] = set(PROJECT_FILES)
     for directory in PROJECT_DIRS:
         root = ROOT / directory
@@ -230,16 +443,27 @@ def collect_project_files(version: str) -> list[str]:
             raise SystemExit(f"Project file missing: {rel}")
         if rel.endswith((".pyc", ".pyo")) or "__pycache__" in Path(rel).parts:
             raise SystemExit(f"Compiled cache refused in project package: {rel}")
-    offline_text = (ROOT / "docker-compose.offline.yml").read_text(encoding="utf-8")
-    if f"SMARTX_IMAGE_TAG:-{version}" not in offline_text:
-        raise SystemExit("docker-compose.offline.yml default tag does not match VERSION.")
-    if "SMARTX_IMAGE_TAG:-latest" in offline_text:
-        raise SystemExit("docker-compose.offline.yml must not default to latest.")
+    if check_version_metadata:
+        offline_text = (ROOT / "docker-compose.offline.yml").read_text(encoding="utf-8")
+        if f"SMARTX_IMAGE_TAG:-{version}" not in offline_text:
+            raise SystemExit("docker-compose.offline.yml default tag does not match VERSION.")
+        if "SMARTX_IMAGE_TAG:-latest" in offline_text:
+            raise SystemExit("docker-compose.offline.yml must not default to latest.")
     return result
 
 
-def build_package(version: str, *, min_version: str, output_dir: Path, build_images: bool, include_frontend_build: bool) -> Path:
-    check_versions(version)
+def build_package(
+    version: str,
+    *,
+    min_version: str,
+    output_dir: Path,
+    build_images: bool,
+    include_frontend_build: bool,
+    migration_registry: Path | None = None,
+    check_version_metadata: bool = True,
+) -> Path:
+    if check_version_metadata:
+        check_versions(version)
     if build_images:
         docker_build(version, include_frontend=include_frontend_build)
 
@@ -249,7 +473,6 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
         shutil.rmtree(work)
     work.mkdir(parents=True, exist_ok=True)
     (work / "images").mkdir()
-    (work / "scripts").mkdir()
 
     manifest_images = []
     for service, _, release_repository, rel_path, restart in PLATFORM_IMAGES:
@@ -266,14 +489,19 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
             item["restart"] = False
         manifest_images.append(item)
 
-    project_files = collect_project_files(version)
+    project_files = collect_project_files(version, check_version_metadata=check_version_metadata)
     for rel in project_files:
         target = work / "project" / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / rel, target)
 
-    write_migrate_script(work / "scripts/migrate.sh", version)
-    migration_path = work / "scripts/migrate.sh"
+    selected_migrations = _selected_migration_steps(_load_migration_registry(migration_registry or MIGRATION_REGISTRY), min_version=min_version, target_version=version)
+    migration_runner = work / "migrations" / "run_migrations.py"
+    migration_sha = ""
+    migration_steps: list[dict[str, Any]] = []
+    if selected_migrations:
+        migration_sha, migration_steps = write_migration_runner(migration_runner, selected_migrations)
+
     manifest = {
         "schema_version": "3",
         "minimum_runner_protocol": 1,
@@ -282,7 +510,6 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
             "image.load",
             "files.sync",
             "compose.override",
-            "script.sandbox.v1",
             "compose.apply",
             "health.http",
             "rollback.restore",
@@ -292,7 +519,7 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
         "version": version,
         "min_version": min_version,
         "package_type": "platform",
-        "database_migration": True,
+        "database_migration": bool(selected_migrations),
         "components": [
             {
                 "type": "platform",
@@ -302,22 +529,25 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
         ],
         "project_files": True,
         "project_file_list": project_files,
-        "migration": {
+        "restart_services": ["web-api", "collector-worker", "frontend"],
+        "compatibility": {"min_platform_version": min_version},
+        "notes": "release-notes.md",
+        "release_notes": f"{version} platform upgrade package.",
+    }
+    if selected_migrations:
+        manifest["required_capabilities"].append("script.sandbox.v1")
+        manifest["migration_steps"] = migration_steps
+        manifest["migration"] = {
             "required": True,
-            "script": "scripts/migrate.sh",
-            "sha256": sha256_file(migration_path),
+            "script": "migrations/run_migrations.py",
+            "sha256": migration_sha,
             "image_service": "web-api",
             "timeout_seconds": 900,
             "mounts": [
                 {"source": "/data", "target": "/data", "mode": "rw"},
                 {"source": "/data/backups", "target": "/data/backups", "mode": "rw"},
             ],
-        },
-        "restart_services": ["web-api", "collector-worker", "frontend"],
-        "compatibility": {"min_platform_version": min_version},
-        "notes": "release-notes.md",
-        "release_notes": f"{version} platform upgrade package.",
-    }
+        }
     (work / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (work / "release-notes.md").write_text(
         f"# {version}\n\n"
@@ -334,9 +564,10 @@ def build_package(version: str, *, min_version: str, output_dir: Path, build_ima
         "images/web-api.tar",
         "images/collector-worker.tar",
         "images/frontend.tar",
-        "scripts/migrate.sh",
         *[f"project/{rel}" for rel in project_files],
     ]
+    if selected_migrations:
+        members.append("migrations/run_migrations.py")
     checksum_lines = [f"{sha256_file(work / member)}  {member}" for member in members]
     (work / "checksums.sha256").write_text("\n".join(checksum_lines) + "\n", encoding="utf-8")
     members.append("checksums.sha256")

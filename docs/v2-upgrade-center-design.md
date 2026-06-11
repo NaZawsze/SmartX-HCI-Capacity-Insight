@@ -42,15 +42,17 @@ smartx-capacity-insight-platform-upgrade-v0.5.x.tar.gz
 │   │   └── ...
 │   └── scripts/
 │       └── ...
-└── scripts/
-    └── migrate.sh
+└── migrations/                         # 可选，仅 migration_steps 非空时包含
+    └── run_migrations.py
 ```
 
 说明：
 
 - `images/` 中只包含平台三件套镜像。
 - `project/` 包含允许同步到项目目录的白名单文件。
-- `scripts/migrate.sh` 仅在需要数据库或配置迁移时执行。
+- `migrations/run_migrations.py` 仅在来源版本到目标版本之间存在已登记 SQLite 迁移步骤时包含并执行。
+- 无 schema 变化的当前正式包或小修复包不包含迁移脚本，例如 `v0.5.0 -> v0.5.0`。
+- 跨版本升级包必须是累计迁移包，例如 `v0.5.0 -> v0.5.3` 会包含并执行 `v0.5.2` 的 schema 迁移。
 - 平台升级包不默认包含 `upgrade-runner.tar` 或 `prometheus.tar`。
 
 执行者：`upgrade-runner`。
@@ -65,7 +67,7 @@ smartx-capacity-insight-platform-upgrade-v0.5.x.tar.gz
 6. `upgrade-runner` 加载平台三件套镜像。
 7. `upgrade-runner` 同步 `project/` 白名单项目文件。
 8. `upgrade-runner` 写入 `/data/compose-runtime/docker-compose.upgrade.yml`。
-9. `upgrade-runner` 执行 `scripts/migrate.sh`。
+9. 如 manifest 中 `database_migration=true`，`upgrade-runner` 执行 `migrations/run_migrations.py`，脚本内部按版本顺序执行所有命中的迁移步骤。
 10. `upgrade-runner` 重启 `web-api`、`collector-worker`、`frontend`。
 11. `upgrade-runner` 执行健康检查。
 12. `web-api` 展示任务状态、日志和历史。
@@ -220,7 +222,7 @@ Tower credentials
     }
   ],
   "project_files": true,
-  "migration": {"required": false, "script": "scripts/migrate.sh"},
+  "database_migration": false,
   "restart_services": ["web-api", "collector-worker", "frontend"],
   "compatibility": {"min_platform_version": "v2.0.0"},
   "notes": "release-notes.md"
@@ -236,6 +238,9 @@ Tower credentials
 - `project_files=true` 时必须包含 `project/` 白名单文件。
 - schema 3 必须包含 `checksums.sha256`，并通过完整包内文件校验。
 - `minimum_runner_protocol` 与 `required_capabilities` 用于能力协商；普通平台版本变化不要求同步升级 runner。
+- 平台升级包默认不包含 `migration`；只有 `migration_steps` 非空时才设置 `database_migration=true`、追加 `script.sandbox.v1` 并声明 legacy `migration.script=migrations/run_migrations.py`。
+- 迁移选择规则为 `source_version < migration_steps[].version <= target_version`；已存在于 SQLite `schema_migrations` 表的步骤必须跳过。
+- `schema_migrations` 字段为 `id`、`version`、`description`、`script_sha256`、`applied_at`，所有未来 SQLite schema 变化必须新增 migration step，不能只改初始化逻辑；普通 schema 变化可在 registry step 中声明幂等 `sql` 列表。
 
 ### 3.1 组件声明规则
 
@@ -275,7 +280,7 @@ smartx-capacity-insight-bundle-v0.5.0.tar.gz
 │   ├── images/
 │   ├── project/
 │   ├── overrides/
-│   └── migrations/
+│   └── migrations/                    # 可选，仅 migration_steps 非空时包含
 └── observability/
     ├── config/
     ├── health/

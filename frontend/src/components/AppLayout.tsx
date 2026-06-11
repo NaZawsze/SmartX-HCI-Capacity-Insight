@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { AlertCircle, AlertTriangle, Bell, Building2, Check, ChevronDown, CircleCheck, ClipboardList, Database, HardDrive, Info, KeyRound, LayoutDashboard, LogOut, RefreshCw, Save, Server, Settings, SlidersHorizontal, UserRound, View, X } from "lucide-react";
 import { api } from "../services/api";
 import type { AppTask, AppTaskLink, Cluster, DashboardScope, DashboardSummary, PageKey, Tower } from "../types";
@@ -77,13 +77,15 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   const [editingCluster, setEditingCluster] = useState<{ towerId: number; clusterId: string; name: string } | null>(null);
   const shellBodyRef = useRef<HTMLDivElement | null>(null);
   const taskMenuRef = useRef<HTMLDivElement | null>(null);
+  const taskMenuListRef = useRef<HTMLDivElement | null>(null);
+  const taskMenuScrollTopRef = useRef(0);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const selectedScopeKey = scopeKey(scope);
   const serviceFocus = activePage === "service";
   const shellStyle = { "--sidebar-width": `${sidebarWidth}px` } as CSSProperties;
   const unhandledTaskCount = tasks.filter((task) => task.unhandled).length;
   const hasActiveTask = tasks.some(isActiveTask);
-  const visibleTasks = [...tasks].sort((left, right) => right.updatedAt - left.updatedAt);
+  const visibleTasks = useMemo(() => [...tasks].sort((left, right) => right.updatedAt - left.updatedAt), [tasks]);
   const clearableTaskCount = tasks.filter(isClearableFromMenu).length;
 
   const resetWorkspaceScroll = useCallback(() => {
@@ -110,6 +112,11 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
     document.addEventListener("scroll", handleScroll, true);
     return () => document.removeEventListener("scroll", handleScroll, true);
   }, []);
+
+  useLayoutEffect(() => {
+    if (!taskMenuOpen || !taskMenuListRef.current) return;
+    taskMenuListRef.current.scrollTop = taskMenuScrollTopRef.current;
+  }, [taskMenuOpen, visibleTasks]);
 
   useEffect(() => {
     if (!taskMenuOpen && !accountMenuOpen) return undefined;
@@ -292,7 +299,13 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
                     <button type="button" onClick={onClearTasks} disabled={!clearableTaskCount}>清空</button>
                   </div>
                   {visibleTasks.length ? (
-                    <div className="task-menu-list auto-scrollbar">
+                    <div
+                      className="task-menu-list auto-scrollbar"
+                      ref={taskMenuListRef}
+                      onScroll={(event) => {
+                        taskMenuScrollTopRef.current = event.currentTarget.scrollTop;
+                      }}
+                    >
                       {visibleTasks.map((task) => (
                         <div className={`task-menu-item ${task.status}`} key={task.id}>
                           <span className={`task-state-icon ${task.severity || "info"}`}>{taskStateIcon(task)}</span>

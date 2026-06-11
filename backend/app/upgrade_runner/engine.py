@@ -106,6 +106,7 @@ class UpgradeEngine:
         task["status"] = "success"
         task["recovery_status"] = "none"
         task["available_recovery_actions"] = []
+        task["finished_at"] = _now()
         return self.store.save(task, expected_revision=int(task["revision"]))
 
     def _automatic_rollback(self, task: dict[str, Any], cause: Exception, failed_health_action: dict[str, Any]) -> dict[str, Any]:

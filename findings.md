@@ -127,10 +127,12 @@ panic: Unable to create mmap-ed active query log
 
 - `manifest.json`
 - `images/*.tar`
-- 可选 `scripts/migrate.sh`
+- 可选 `migrations/run_migrations.py`，仅当 `migration_steps` 非空时包含
 - 可选 `release-notes.md`
 
 平台升级和 Prometheus/observability 升级由 `upgrade-runner` 执行。`upgrade-runner` 不能可靠地执行“重启自己”的任务，因为 Docker 停掉旧 runner 后，正在执行 compose 的进程也可能被杀掉，导致新 runner 只创建不启动、任务停在 `restart running`。v2 当前策略是：runner-only 组件升级由 `web-api` 直接执行 Docker 操作，平台升级仍提交给 `upgrade-runner`。
+
+跨版本升级采用累计迁移包规则：平台包构建时读取 `backend/app/v2/upgrade/migrations/registry.json`，选择 `source_version < step.version <= target_version` 的 SQLite 迁移步骤。当前 `v0.5.0` 正式包无 schema 变化时不带迁移脚本；未来如果 `v0.5.2` 改 schema，`v0.5.0 -> v0.5.3` 的包必须包含并执行 `v0.5.2` 的迁移。迁移成功后写入 `schema_migrations(id, version, description, script_sha256, applied_at)`，脚本必须幂等。
 
 后续已引入“组件升级”概念：
 
@@ -346,3 +348,20 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - Runner 宿主机路径映射需要优先匹配 `/data/backups`、`/data/compose-runtime` 等具体挂载，不能先被通用 `/data` 吞掉；`/data/exports` 和 `/data/upgrades` 禁止挂入迁移沙箱。
 - `compose up -d` 后服务可能尚未 ready，健康检查需要有限重试；只有重试耗尽才触发一次自动回滚。
 - web-api 恢复命令与 Runner 检查点写入可能并发，必须用 task revision 拒绝陈旧写入，并在成功保存后回写新 revision。
+
+## Phase 23 稳定化收敛发现
+
+- `10.20.11.3` 宿主机真实业务库是 `/data/smartx-capacity-insight-data/app/smartx.db`，容器内映射为 `/data/smartx.db`；宿主机 `/data/smartx.db` 是 0 字节误导文件，排查任务中心时必须使用真实挂载源。
+- Runner 组件升级历史任务显示：`task.json` 顶层已是 `status=success`、`runner_resume_pending=false`，日志包含“upgrade-runner v0.3.0 已重新启动，组件升级完成。”。
+- 同一批 runner 组件升级任务的 `steps` 仍保留 `restart=running`、`healthcheck=pending`，前端因此可能展示为“已提交重启，等待新进程确认版本”，形成伪 hang。
+- SQLite `tasks` 投影中这些任务多已是 `status=success`、`progress=100`、`message=升级执行完成`，说明执行已完成，问题集中在步骤状态投影和前端展示一致性。
+- 根因方向：`app.upgrade_runner.main` 中处理 `runner_restarting + runner_resume_pending + no execution_plan` 的恢复分支只更新顶层状态和日志，没有同步替换 `steps.restart` 与 `steps.healthcheck`；`app.v2.upgrade.service._resume_runner_upgrade()` 有类似但更完整的步骤收尾逻辑，两边应统一。
+
+## Phase 23 Runtime Override 回归发现
+
+- 真实 Prometheus 轻量组件升级停在 `pending` 的直接原因不是 Prometheus 包执行失败，而是 `upgrade-runner` 容器在 runner 组件升级后进入重启循环。
+- Runner 日志显示：`ModuleNotFoundError: No module named 'app.upgrade'`，说明容器仍按旧入口 `python -m app.upgrade.runner` 启动。
+- 根因：runner 组件升级写出的 `/data/compose-runtime/docker-compose.runner-upgrade.yml` 只覆盖 image，没有显式覆盖 command；当环境里存在旧 compose/override 入口时，新镜像仍继承旧命令。
+- 修复策略：runner 组件 override 固定写入 `command: ["python", "-m", "app.upgrade_runner.main"]`，并增加回归测试断言不能包含 `app.upgrade.runner`。
+- 另一个状态质量问题：web-api 直执行 runner 自升级成功路径和 Runner engine 成功路径此前没有统一写入 `finished_at`；这不会阻止执行完成，但会让 `task.json` 作为权威记录不完整。
+- 修复后新 runner 组件升级任务 `upgrade-5703b1c5fe62f710` 和新 Prometheus 组件升级任务 `upgrade-28b02dbdd78e4502` 均为 `success`，steps/actions 全部完成，且 `finished_at` 有值。

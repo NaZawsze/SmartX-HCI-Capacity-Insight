@@ -145,10 +145,10 @@ class TaskService:
             conn.execute(
                 f"""
                 UPDATE tasks
-                SET acknowledged_at = COALESCE(acknowledged_at, ?), updated_at = ?
+                SET acknowledged_at = COALESCE(acknowledged_at, ?)
                 WHERE id = ? AND {_effective_severity_sql()} IN ('warning', 'critical')
                 """,
-                (_now(), _now(), task_id),
+                (_now(), task_id),
             )
         return self.get_task(task_id) or {}
 

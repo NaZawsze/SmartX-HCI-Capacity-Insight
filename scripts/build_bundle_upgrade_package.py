@@ -118,15 +118,25 @@ def build_package(
         work = temporary / f"smartx-capacity-insight-bundle-{platform_version}"
         _copy_tree(platform_source / "images", work / "platform" / "images")
         _copy_tree(platform_source / "project", work / "platform" / "project")
-        (work / "platform" / "migrations").mkdir(parents=True, exist_ok=True)
         platform_migration = dict(platform_manifest.get("migration") or {})
-        migration_script = Path(str(platform_migration.get("script") or "scripts/migrate.sh"))
-        if migration_script.is_absolute() or ".." in migration_script.parts:
-            raise RuntimeError(f"平台迁移脚本路径不安全：{migration_script}")
-        migration_source = platform_source / migration_script
-        if not migration_source.is_file():
-            raise RuntimeError(f"平台包缺少迁移脚本：{migration_script}")
-        shutil.copy2(migration_source, work / "platform" / "migrations" / "migrate.sh")
+        migration: dict | None = None
+        if platform_migration.get("required"):
+            (work / "platform" / "migrations").mkdir(parents=True, exist_ok=True)
+            if not platform_migration.get("script"):
+                raise RuntimeError("平台迁移已声明 required=true，但 manifest 缺少 migration.script")
+            migration_script = Path(str(platform_migration.get("script")))
+            if migration_script.is_absolute() or ".." in migration_script.parts:
+                raise RuntimeError(f"平台迁移脚本路径不安全：{migration_script}")
+            migration_source = platform_source / migration_script
+            if not migration_source.is_file():
+                raise RuntimeError(f"平台包缺少迁移脚本：{migration_script}")
+            bundled_script = work / "platform" / "migrations" / migration_script.name
+            shutil.copy2(migration_source, bundled_script)
+            migration = {
+                **platform_migration,
+                "script": f"platform/migrations/{migration_script.name}",
+                "sha256": sha256_file(bundled_script),
+            }
         _copy_tree(prometheus_source / "images", work / "observability" / "images")
         _copy_tree(prometheus_source / "config", work / "observability" / "config")
         _copy_tree(prometheus_source / "health", work / "observability" / "health")
@@ -135,11 +145,6 @@ def build_package(
             *_prefixed_components(platform_manifest.get("components") or [], "platform"),
             *_prefixed_components(prometheus_manifest.get("components") or [], "observability"),
         ]
-        migration = {
-            **(platform_manifest.get("migration") or {}),
-            "script": "platform/migrations/migrate.sh",
-            "sha256": sha256_file(work / "platform" / "migrations" / "migrate.sh"),
-        }
         required_capabilities = sorted(
             {
                 *platform_manifest.get("required_capabilities", []),
@@ -161,6 +166,7 @@ def build_package(
             "project_files": True,
             "project_source": "platform/project",
             "project_file_list": list(platform_manifest.get("project_file_list") or []),
+            "database_migration": bool(platform_manifest.get("database_migration")),
             "file_sets": [
                 {
                     **file_set,
@@ -168,7 +174,6 @@ def build_package(
                 }
                 for file_set in prometheus_manifest.get("file_sets") or []
             ],
-            "migration": migration,
             "restart_services": list(platform_manifest.get("restart_services") or [])
             + list(prometheus_manifest.get("restart_services") or []),
             "compatibility": {
@@ -177,6 +182,9 @@ def build_package(
             },
             "notes": "release-notes.md",
         }
+        if migration:
+            manifest["migration"] = migration
+            manifest["migration_steps"] = list(platform_manifest.get("migration_steps") or [])
         work.mkdir(parents=True, exist_ok=True)
         (work / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         (work / "release-notes.md").write_text(

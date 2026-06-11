@@ -52,11 +52,15 @@ release-notes.md
 images/web-api.tar
 images/collector-worker.tar
 images/frontend.tar
-scripts/migrate.sh
 project/**
+migrations/run_migrations.py  # 可选，仅 migration_steps 非空时包含
 ```
 
 `v0.5.0` 起的平台升级包只面向 v2 同架构后续升级，不声明兼容 v1 或 `v0.4.x` 原地升级。v1/v0.4.x 现场数据兼容通过“新装 v2 + 数据迁移包导入”完成，迁移包兼容 SQLite 业务数据、Prometheus 历史指标和旧 VM 卷 payload。
+
+平台升级支持 v2 同架构跨版本直升。打包器读取 `backend/app/v2/upgrade/migrations/registry.json`，按 `source_version < step.version <= target_version` 选择累计 SQLite 迁移步骤。没有选中迁移步骤时，manifest 必须为 `database_migration=false`，且不包含 `migration`、`migration_steps` 或 `script.sandbox.v1`。有迁移步骤时，包内生成单文件 `migrations/run_migrations.py`，manifest 同时写入 `migration_steps[]` 和 legacy `migration.script`，以兼容 `upgrade-runner v0.3.0`。
+
+所有未来 SQLite schema 变化必须新增 migration step，不能只改 `database.initialize()`。迁移执行成功后记录到 SQLite `schema_migrations(id, version, description, script_sha256, applied_at)`；迁移脚本必须幂等，已存在 schema 或已记录 step 时跳过或补记录。普通 schema 变化可在 registry step 中声明 `sql` 字符串数组；SQLite 加列必须使用 `add_column_if_missing` 操作，避免重复执行 `ALTER TABLE ADD COLUMN` 失败。
 
 组件升级包由 `scripts/build_runner_component_package.py` 生成，包含：
 

@@ -264,6 +264,50 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertEqual(final["status"], "success")
             self.assertTrue(any(command[:2] == ["docker", "load"] for command in executor.commands))
 
+    def test_status_normalizes_runner_completed_actions_with_stale_top_level_status(self) -> None:
+        from app.upgrade_runner.store import TaskStore
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.models import TaskStatus, TaskType
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            task_service = TaskService(database)
+            task_id = "upgrade-stale-success"
+            task_service.create_task(task_id, TaskType.UPGRADE, "升级预检查", status=TaskStatus.SUCCESS, progress=100, message="预检查通过")
+            TaskStore(settings.upgrades_dir / task_id).save(
+                {
+                    "task_id": task_id,
+                    "status": "precheck_passed",
+                    "target_version": "v0.5.0u1",
+                    "components": ["platform"],
+                    "checks": [{"name": "manifest", "ok": True, "message": "manifest 格式正确"}],
+                    "execution_plan": {
+                        "actions": [
+                            {"id": "backup", "type": "backup.create", "status": "succeeded"},
+                            {"id": "health-platform", "type": "health.http", "status": "succeeded"},
+                        ]
+                    },
+                }
+            )
+
+            service = UpgradeService(settings, task_service, project_path=Path(tmpdir) / "project")
+            status = service.status(task_id)
+
+            self.assertEqual(status["status"], "succeeded")
+            final = TaskStore(settings.upgrades_dir / task_id).load()
+            self.assertEqual(final["status"], "success")
+            self.assertTrue(final.get("finished_at"))
+            projected = task_service.get_task(task_id)
+            self.assertEqual(projected["status"], "success")
+            self.assertEqual(projected["title"], "执行系统升级")
+            self.assertEqual(projected["message"], "升级执行完成")
+            self.assertEqual(projected["progress"], 100)
+
     def test_observability_upgrade_only_restarts_prometheus_and_checks_permissions(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
@@ -402,6 +446,8 @@ class V2UpgradeServiceTest(unittest.TestCase):
             override = (settings.compose_runtime_dir / "docker-compose.runner-upgrade.yml").read_text(encoding="utf-8")
             self.assertIn("upgrade-runner:", override)
             self.assertIn("repo/upgrade-runner:v0.3.0", override)
+            self.assertIn("app.upgrade_runner.main", override)
+            self.assertNotIn("app.upgrade.runner", override)
             self.assertNotIn("web-api:", override)
             self.assertFalse((settings.compose_runtime_dir / "docker-compose.upgrade.yml").exists())
             compose_commands = [command for command in executor.commands if command[:3] == ["docker", "compose", "-f"]]
@@ -412,7 +458,97 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertEqual(resumed, 1)
             final = json.loads((settings.upgrades_dir / task["task_id"] / "task.json").read_text(encoding="utf-8"))
             self.assertEqual(final["status"], "success")
+            final_steps = {step["key"]: step["status"] for step in final["steps"]}
+            self.assertEqual(final_steps["restart"], "succeeded")
+            self.assertEqual(final_steps["healthcheck"], "succeeded")
+            projected = TaskService(database).get_task(task["task_id"])
+            self.assertEqual(projected["status"], "success")
+            projected_steps = {step["key"]: step["status"] for step in projected["steps"]}
+            self.assertEqual(projected_steps["restart"], "succeeded")
+            self.assertEqual(projected_steps["healthcheck"], "succeeded")
             self.assertEqual(executor.restart_calls, 1)
+
+    def test_runner_component_upgrade_records_finished_at_when_compose_returns(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def run(self, command: list[str], *, cwd: Path | None = None) -> None:
+                return None
+
+        runner_image = b"runner-image"
+        manifest = {
+            "schema_version": "2",
+            "version": "v0.3.0",
+            "components": [
+                {
+                    "type": "runner",
+                    "services": ["upgrade-runner"],
+                    "images": [{"service": "upgrade-runner", "image": "repo/upgrade-runner:v0.3.0", "archive": "images/upgrade-runner.tar", "sha256": hashlib.sha256(runner_image).hexdigest()}],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            service = UpgradeService(settings, TaskService(database), executor=FakeExecutor(), project_path=Path(tmpdir) / "project")
+            task = service.upload_package_bytes(self._package(manifest, {"images/upgrade-runner.tar": runner_image}), filename="runner.tar.gz")
+
+            service.precheck(task["task_id"])
+            started = service.start(task["task_id"])
+
+            self.assertEqual(started["status"], "succeeded")
+            final = json.loads((settings.upgrades_dir / task["task_id"] / "task.json").read_text(encoding="utf-8"))
+            self.assertEqual(final["status"], "success")
+            self.assertTrue(final.get("finished_at"))
+
+    def test_runner_normalizes_legacy_success_component_upgrade_steps(self) -> None:
+        from app.upgrade_runner.store import TaskStore
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.runner import run_pending_once
+        from app.v2.upgrade.service import UpgradeCommandExecutor
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def run(self, command: list[str], *, cwd: Path | None = None) -> None:
+                raise AssertionError(f"legacy success normalization must not run commands: {command}")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            task_id = "upgrade-runner-legacy-success"
+            TaskStore(settings.upgrades_dir / task_id).save(
+                {
+                    "task_id": task_id,
+                    "status": "success",
+                    "components": ["runner"],
+                    "runner_resume_pending": False,
+                    "logs": ["upgrade-runner v0.3.0 已重新启动，组件升级完成。"],
+                    "steps": [
+                        {"key": "backup", "title": "生成升级前数据备份", "status": "succeeded", "message": "/data/backups/example.tar.gz"},
+                        {"key": "restart", "title": "重启升级服务", "status": "running", "message": ""},
+                        {"key": "healthcheck", "title": "执行服务健康检查", "status": "pending", "message": ""},
+                    ],
+                }
+            )
+
+            normalized = run_pending_once(settings, TaskService(database), executor=FakeExecutor(), project_path=Path(tmpdir) / "project")
+
+            self.assertEqual(normalized, 1)
+            final = TaskStore(settings.upgrades_dir / task_id).load()
+            final_steps = {step["key"]: step["status"] for step in final["steps"]}
+            self.assertEqual(final_steps["restart"], "succeeded")
+            self.assertEqual(final_steps["healthcheck"], "succeeded")
+            projected = TaskService(database).get_task(task_id)
+            projected_steps = {step["key"]: step["status"] for step in projected["steps"]}
+            self.assertEqual(projected["status"], "success")
+            self.assertEqual(projected_steps["restart"], "succeeded")
+            self.assertEqual(projected_steps["healthcheck"], "succeeded")
 
     def test_upload_rejects_sensitive_paths(self) -> None:
         from app.v2.config import V2Settings

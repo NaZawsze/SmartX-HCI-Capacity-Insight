@@ -155,12 +155,14 @@ class UpgradeService:
         return self.execute_task(task)
 
     def status(self, task_id: str) -> dict[str, Any]:
-        return self._public_task(_read_task_file(self.settings.upgrades_dir / task_id))
+        task_dir = self.settings.upgrades_dir / task_id
+        task = self._normalize_completed_runner_task(task_dir, _read_task_file(task_dir))
+        return self._public_task(task)
 
     def history(self, *, component_type: str | None = None) -> list[dict[str, Any]]:
         tasks: list[dict[str, Any]] = []
         for task_file in sorted(self.settings.upgrades_dir.glob("*/task.json"), key=lambda path: path.stat().st_mtime, reverse=True):
-            task = _read_task_file(task_file.parent)
+            task = self._normalize_completed_runner_task(task_file.parent, _read_task_file(task_file.parent))
             if component_type and component_type not in set(task.get("components") or []):
                 continue
             tasks.append(self._public_task(task))
@@ -504,6 +506,7 @@ class UpgradeService:
             task["steps"] = steps
             task["logs"] = logs
             task["updated_at"] = _now().isoformat()
+            task["finished_at"] = task["updated_at"]
             _save_task_file(task_dir, task)
             self.tasks.update_task(task_id, status=TaskStatus.SUCCESS, progress=100, message="升级执行完成", logs=logs, steps=steps)
         except Exception as exc:
@@ -530,9 +533,50 @@ class UpgradeService:
         task["steps"] = steps
         task["logs"] = logs
         task["updated_at"] = _now().isoformat()
+        task["finished_at"] = task["updated_at"]
         _save_task_file(task_dir, task)
         self.tasks.update_task(task_id, status=TaskStatus.SUCCESS, progress=100, message="组件升级执行完成", logs=logs, steps=steps)
         return self._public_task(task)
+
+    def _normalize_completed_runner_task(self, task_dir: Path, task: dict[str, Any]) -> dict[str, Any]:
+        actions = task.get("execution_plan", {}).get("actions") or []
+        if not actions:
+            return task
+        if str(task.get("status") or "") in {"success", "failed", "rollback_failed", "rolled_back", "recovery_required", "cancelled"}:
+            return task
+        if not all(str(action.get("status") or "") in {"succeeded", "skipped"} for action in actions):
+            return task
+        updated_at = _now().isoformat()
+        task["status"] = "success"
+        task["recovery_status"] = "none"
+        task["available_recovery_actions"] = []
+        task["updated_at"] = updated_at
+        task["finished_at"] = task.get("finished_at") or updated_at
+        _save_task_file(task_dir, task)
+        self._project_runner_task(task)
+        return task
+
+    def _project_runner_task(self, task: dict[str, Any]) -> None:
+        actions = task.get("execution_plan", {}).get("actions") or []
+        steps = [
+            {
+                "key": action.get("id"),
+                "title": action.get("type"),
+                "status": action.get("status"),
+                "message": action.get("error") or "",
+            }
+            for action in actions
+        ]
+        self.tasks.create_task(
+            str(task["task_id"]),
+            TaskType.UPGRADE,
+            "执行系统升级",
+            status=TaskStatus.SUCCESS,
+            progress=100,
+            message="升级执行完成",
+            logs=list(task.get("logs") or []),
+            steps=steps,
+        )
 
     def _public_task(self, task: dict[str, Any]) -> dict[str, Any]:
         public = dict(task)
@@ -642,6 +686,8 @@ class UpgradeService:
         for image in images:
             service = str(image["service"])
             lines.extend([f"  {service}:", f"    image: {image['image']}"])
+            if service == "upgrade-runner":
+                lines.append('    command: ["python", "-m", "app.upgrade_runner.main"]')
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return path
 

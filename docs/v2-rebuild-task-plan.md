@@ -846,7 +846,7 @@ Phase V2-0 先细写设计文档，再进入代码重建。该阶段目标是把
 
 - 统一升级入口：上传一个 `.tar.gz` 包，由 `manifest.json` 自动识别升级内容。
 - 支持组件：platform、runner、observability。
-- 升级包结构：`manifest.json`、`images/*.tar`、`project/**`、`scripts/migrate.sh`、`release-notes.md`。
+- 升级包结构：`manifest.json`、`images/*.tar`、`project/**`、`release-notes.md`；只有 `migration_steps` 非空时才包含 `migrations/run_migrations.py`。
 - manifest 字段：包类型、目标组件、版本、镜像、sha256、重启服务、项目文件、迁移要求、兼容版本。
 - 状态机：uploaded、parsed、prechecked、backup_running、images_loaded、project_synced、migration_running、services_restarting、health_checking、success、failed、rollback_ready。
 - 预检查：镜像名/tag/sha256、Docker、compose、网络、volume、项目文件敏感路径、磁盘空间、Prometheus 权限。
