@@ -8,15 +8,15 @@
 
 - 主要开发与验证机器：`10.20.11.3`
 - v2 远端项目路径：`/opt/smartx-storage-forecast-v2`
-- v2 当前工作分支：`feature/upgrade-v2`
+- v2 当前工作分支：`dev2`
 - v2 平台版本：`v0.5.0`
 - v2 runner 组件版本：`v0.3.0`
-- v2 提交策略：当前重建工作只提交并推送到 `feature/upgrade-v2`；不要同步 `dev/main` 或打 tag，除非用户明确要求。
+- v2 提交策略：当前重建工作只提交并推送到 `dev2`；不要同步 `dev/main` 或打 tag，除非用户明确要求。
 - v1/dev 维护策略：如果用户明确要求继续修 v1 小版本，再切回 `dev` 并按用户指令处理。
 
 ## 当前未提交变更
 
-当前本地 `feature/upgrade-v2` 工作区应保持干净。继续前先执行：
+当前本地 `dev2` 工作区应保持干净。继续前先执行：
 
 ```bash
 git status --short --branch
@@ -73,7 +73,7 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 
 ## 注意事项
 
-- v2 实现可以先在本地 worktree 修改，再推送 `feature/upgrade-v2`，最后在 `10.20.11.3` 拉取并验证。
+- v2 实现可以先在本地 worktree 修改，再推送 `dev2`，最后在 `10.20.11.3` 拉取并验证。
 - 不要在本机运行应用验证，除非用户明确要求。
 - 不要回滚用户或其他会话留下的未提交改动。
 - 修改文档时不要写入密码、私钥、token。
@@ -103,7 +103,7 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 - [已完成] 文档增加 DockerHub 错误 tag 清理方法。
 - [已完成] 后端镜像内置 `VERSION` 和 `RUNNER_VERSION`，运行时优先读取镜像内版本文件。
 - [已完成] 部署文档修正离线部署默认 tag，不再描述为 `latest`。
-- [已完成] 本地验证后提交并推送到 `feature/upgrade-v2`。
+- [已完成] 本地验证后提交并推送到 `dev2`。
 
 ### Phase 6 - 清理空间显示 0B 修复
 
@@ -478,19 +478,19 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 
 - 已新增 `docs/architecture.md` 作为项目架构总览入口。
 - 文档明确 5 容器职责、后端模块边界、SQLite/Prometheus/`/data` 职责、任务模型、升级包结构、迁移包结构和安全边界。
-- 文档记录当前版本边界：平台 `v0.5.0`、runner `v0.3.0`、Prometheus `v2.55.1`、分支 `feature/upgrade-v2`。
+- 文档记录当前版本边界：平台 `v0.5.0`、runner `v0.3.0`、Prometheus `v2.55.1`、分支 `dev2`。
 
-### Phase 17 - feature/upgrade-v2 受控重建
+### Phase 17 - dev2 受控重建
 
 状态：完成第一版
 
 目标：
 
-- 在 `feature/upgrade-v2` 上进行 v2 全新重写，但保留 v1 信息架构和核心功能口径。
+- 在 `dev2` 上进行 v2 全新重写，但保留 v1 信息架构和核心功能口径。
 - v2 不兼容旧升级路径；升级中心、组件升级和 Prometheus 升级重新设计。
 - v2 必须兼容 v1 现场数据迁入，尤其是 SQLite 业务数据、Prometheus 历史指标和旧 VM 卷 payload。
 - 控制部署复杂度，默认保持 5 个容器：`frontend`、`web-api`、`collector-worker`、`prometheus`、`upgrade-runner`。
-- v2 后续构建、部署和现场验证可以使用 `10.20.11.3`，远端仓库必须切换到 `feature/upgrade-v2` 分支。
+- v2 后续构建、部署和现场验证可以使用 `10.20.11.3`，远端仓库必须切换到 `dev2` 分支。
 - v2 前端风格必须和 v1 保持一致，保留现有蓝白业务风格、导航结构、主要操作位置和客户交付感。
 
 已产出：
@@ -513,14 +513,14 @@ Phase V2-0 细化文档：
 执行原则：
 
 - 先补齐 v2 架构、v1 数据兼容和 v2 升级中心设计文档，再开始代码层面重建。
-- 只在 `feature/upgrade-v2` 上推进，不影响 `dev/main`。
-- 在 `10.20.11.3` 执行 v2 验证前，先确认远端仓库位于 `feature/upgrade-v2`。
+- 只在 `dev2` 上推进，不影响 `dev/main`。
+- 在 `10.20.11.3` 执行 v2 验证前，先确认远端仓库位于 `dev2`。
 - 不提交 `.env`、SQLite、Prometheus 数据、Tower 凭据、升级包、迁移包、备份包。
 
 最新验证摘要：
 
 - 平台版本已切换为 `v0.5.0`，runner 组件版本已切换为 `v0.3.0`。
-- `10.20.11.3:/opt/smartx-storage-forecast-v2` 已在 `feature/upgrade-v2` 构建并启动五个容器。
+- `10.20.11.3:/opt/smartx-storage-forecast-v2` 已在 `dev2` 构建并启动五个容器。
 - 健康接口返回 `version=v0.5.0`、`runner_version=v0.3.0`。
 - 平台升级包仅面向 v2 同架构后续升级；v1/v0.4.x 只通过数据迁移包兼容。
 - `10.20.11.3` 远端 `test_v2_*` 后端测试 65 个通过。
@@ -660,7 +660,7 @@ runner v0.3.0 发布策略：
 - 任何 `success` 升级任务的 steps 不得存在 `running/pending`。
 - 任务中心角标与未处理通知一致，确认告警不改变排序位置。
 - `/api/system/health` 返回 `version=v0.5.0`、`runner_version=v0.3.0`，前端 8080 与 Prometheus healthy 返回 200。
-- 固定验收脚本和目标单测通过后，才允许提交并推送 `feature/upgrade-v2`。
+- 固定验收脚本和目标单测通过后，才允许提交并推送 `dev2`。
 
 测试升级包记录：
 

@@ -432,7 +432,7 @@ compose_command docker compose -p smartx-capacity-insight -f /data/compose-runti
 
 ## v2 升级中心规避策略
 
-v2 不继续兼容旧升级路径，而是在 `feature/upgrade-v2` 上重新设计升级中心。历史问题在 v2 中按下面方式规避。
+v2 不继续兼容旧升级路径，而是在 `dev2` 上重新设计升级中心。历史问题在 v2 中按下面方式规避。
 
 | 历史问题 | v2 规避策略 | 设计文档 |
 | --- | --- | --- |

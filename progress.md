@@ -3215,3 +3215,11 @@ TDD 记录：
   - `/data/upgrade-packages/smartx-capacity-insight-upgrade-v0.5.5.tar.gz`
   - SHA256：`4623fc7c39c053e5e717806bd44c294c49ac77c4720cb252cd3a7f035c17f295`
 - 两个测试包均来自临时构建目录，不修改仓库 `VERSION`；包校验通过：`schema_version=3`、`min_version=v0.5.0`、`database_migration=false`，不包含 `migration`、`migration_steps` 或 `migrations/`。
+
+### 2026-06-12 dev2 分支收口准备
+
+状态：执行中
+
+- 用户确认 `dev` 分支废弃，`dev2` 作为 v2 当前开发与发布分支。
+- 已将当前规划与设计文档中的现行分支口径从 `feature/upgrade-v2` 更新为 `dev2`；历史流水记录只作为历史事实保留。
+- 下一步：将 `dev2` 当前内容推送到 `main`，创建并推送 `v0.5.0` tag，然后删除远端废弃 `dev` 分支。

@@ -250,8 +250,8 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 
 ## Git 规则
 
-- 当前 v2 受控重建默认分支：`feature/upgrade-v2`。
-- v2 工作默认提交并推送到 `feature/upgrade-v2`。
+- 当前 v2 受控重建默认分支：`dev2`。
+- v2 工作默认提交并推送到 `dev2`。
 - 不要把 v2 工作同步到 `dev/main` 或打 tag，除非用户明确要求。
 - 如果用户明确要求继续维护 v1 小版本，再切回 `dev` 并按用户指令处理。
 - 推送 `main` 和 tag 前，要再次确认用户要求的 tag 名，避免版本号和分支再次漂移。
