@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { formatVersionForDisplay } from "./ServicePage";
+import { displayUpgradeSteps, formatVersionForDisplay } from "./ServicePage";
 import { ServicePage } from "./ServicePage";
 
 const apiMock = vi.hoisted(() => ({
@@ -367,6 +367,22 @@ describe("ServicePage migration overwrite mode", () => {
 });
 
 describe("ServicePage upgrade center", () => {
+  it("uses runner action steps without appending stale default upgrade rows", () => {
+    const steps = displayUpgradeSteps({
+      ...uploadedPlatformTask(),
+      status: "running",
+      steps: [
+        { key: "backup", title: "生成升级前数据备份", status: "succeeded" },
+        { key: "load_images", title: "加载升级镜像", status: "running", message: "已完成 1/3" },
+        { key: "restart", title: "重启升级服务", status: "pending" }
+      ]
+    });
+
+    expect(steps.map((step) => step.key)).toEqual(["backup", "load_images", "restart"]);
+    expect(steps.some((step) => step.key === "migration")).toBe(false);
+    expect(steps[1].message).toBe("已完成 1/3");
+  });
+
   it("shows platform status and runtime verification in one section", async () => {
     mockServicePageBootstrap();
     apiMock.upgradeVerification.mockResolvedValue({

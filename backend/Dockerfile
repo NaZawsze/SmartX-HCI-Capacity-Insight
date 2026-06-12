@@ -18,7 +18,9 @@ COPY RUNNER_VERSION ./RUNNER_VERSION
 COPY backend/requirements*.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
     && find /usr/local/lib/python3.12/site-packages -type d \( -name __pycache__ -o -name tests -o -name test \) -prune -exec rm -rf '{}' + \
+    && find /usr/local/lib/python3.12/site-packages -type d \( -name docs -o -name doc -o -name examples -o -name example \) -prune -exec rm -rf '{}' + \
     && find /usr/local/lib/python3.12/site-packages -type f -name '*.pyc' -delete \
+    && (find /usr/local/lib/python3.12/site-packages -type f -name '*.so' -print0 | xargs -0 -r strip --strip-unneeded 2>/dev/null || true) \
     && rm -rf /root/.cache/pip
 
 COPY backend/app ./app

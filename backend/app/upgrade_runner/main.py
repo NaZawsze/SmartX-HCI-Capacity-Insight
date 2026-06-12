@@ -111,6 +111,109 @@ def _finish_runner_component_steps(task: dict[str, Any], message: str) -> dict[s
     return task
 
 
+ACTION_STEP_DEFINITIONS = [
+    ("backup", "生成升级前数据备份", {"backup.create"}),
+    ("load_images", "加载升级镜像", {"image.load"}),
+    ("project_files", "同步项目文件", {"files.sync"}),
+    ("write_override", "写入服务镜像覆盖配置", {"compose.override"}),
+    ("migration", "执行数据库迁移脚本", {"script.run_sandboxed"}),
+    ("restart", "重启升级服务", {"compose.apply"}),
+    ("healthcheck", "执行服务健康检查", {"health.http", "health.prometheus"}),
+    ("rollback", "执行自动回滚", {"rollback.restore"}),
+]
+
+
+def _step_status(actions: list[dict[str, Any]]) -> str:
+    statuses = {str(action.get("status") or "pending") for action in actions}
+    if statuses & {"failed", "recovery_required"}:
+        return "failed"
+    if "running" in statuses:
+        return "running"
+    if actions and statuses <= {"succeeded", "skipped"}:
+        return "succeeded"
+    return "pending"
+
+
+def _step_message(actions: list[dict[str, Any]]) -> str:
+    failed = next((action for action in actions if action.get("error")), None)
+    if failed:
+        return str(failed.get("error") or "")
+    total = len(actions)
+    if total <= 1:
+        action = actions[0] if actions else {}
+        result = action.get("result") or {}
+        params = action.get("params") or {}
+        return str(result.get("path") or result.get("message") or params.get("image") or "")
+    done = sum(1 for action in actions if str(action.get("status") or "") in {"succeeded", "skipped"})
+    running = next((action for action in actions if action.get("status") == "running"), None)
+    suffix = ""
+    if running:
+        params = running.get("params") or {}
+        suffix = f"：{params.get('image')}" if params.get("image") else ""
+    return f"已完成 {done}/{total}{suffix}"
+
+
+def _action_steps(task: dict[str, Any]) -> list[dict[str, Any]]:
+    actions = task.get("execution_plan", {}).get("actions") or []
+    if not actions:
+        return list(task.get("steps") or [])
+    steps: list[dict[str, Any]] = []
+    for key, title, types in ACTION_STEP_DEFINITIONS:
+        related = [action for action in actions if action.get("type") in types]
+        if not related:
+            continue
+        steps.append(
+            {
+                "key": key,
+                "title": title,
+                "status": _step_status(related),
+                "message": _step_message(related),
+            }
+        )
+    known_types = {action_type for _, _, action_types in ACTION_STEP_DEFINITIONS for action_type in action_types}
+    for action in actions:
+        if action.get("type") in known_types:
+            continue
+        steps.append(
+            {
+                "key": action.get("id"),
+                "title": action.get("type"),
+                "status": action.get("status") or "pending",
+                "message": action.get("error") or "",
+            }
+        )
+    return steps
+
+
+def _action_progress(task: dict[str, Any], status: str) -> int:
+    if status in {"success", "failed", "cancelled"}:
+        return 100
+    actions = task.get("execution_plan", {}).get("actions") or []
+    if not actions:
+        return 50 if status == "running" else 1
+    finished = sum(1 for action in actions if str(action.get("status") or "") in {"succeeded", "skipped"})
+    running = 0.5 if any(str(action.get("status") or "") == "running" for action in actions) else 0
+    return min(95, max(1, round(((finished + running) / len(actions)) * 100)))
+
+
+def _task_message(task: dict[str, Any]) -> str:
+    status = str(task.get("status") or "")
+    if status == "success":
+        return "升级执行完成"
+    if status == "rolled_back":
+        return "升级失败，已自动回滚"
+    if status == "recovery_required":
+        return "升级需要人工恢复处理"
+    if status == "rollback_failed":
+        return "升级自动回滚失败"
+    if status == "failed":
+        return str(task.get("error") or "升级执行失败")
+    running = next((step for step in _action_steps(task) if step.get("status") == "running"), None)
+    if running:
+        return str(running.get("title") or "正在执行升级任务")
+    return "正在执行升级任务"
+
+
 def _project_task(database_path: Path, task: dict[str, Any]) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     status_map = {
@@ -123,27 +226,9 @@ def _project_task(database_path: Path, task: dict[str, Any]) -> None:
         "pending": "pending",
     }
     status = status_map.get(str(task.get("status")), str(task.get("status")))
-    progress = 100 if status in {"success", "failed", "cancelled"} else 50 if status == "running" else 1
-    message = {
-        "success": "升级执行完成",
-        "rolled_back": "升级失败，已自动回滚",
-        "recovery_required": "升级需要人工恢复处理",
-        "rollback_failed": "升级自动回滚失败",
-        "failed": str(task.get("error") or "升级执行失败"),
-    }.get(str(task.get("status")), "正在执行升级任务")
-    actions = task.get("execution_plan", {}).get("actions") or []
-    if actions:
-        steps = [
-            {
-                "key": action.get("id"),
-                "title": action.get("type"),
-                "status": action.get("status"),
-                "message": action.get("error") or "",
-            }
-            for action in actions
-        ]
-    else:
-        steps = list(task.get("steps") or [])
+    progress = _action_progress(task, status)
+    message = _task_message(task)
+    steps = _action_steps(task)
     with sqlite3.connect(database_path) as connection:
         connection.execute(
             """
@@ -324,10 +409,14 @@ def run_pending_once(
         )
         heartbeat.start()
         try:
+            def project_update(updated: dict[str, Any]) -> None:
+                _project_task(settings.database_path, updated)
+
             result = UpgradeEngine(
                 store,
                 handlers=handlers or default_handlers(),
-                context=action_context.as_dict(),
+                context={**action_context.as_dict(), "database_path": str(settings.database_path)},
+                on_update=project_update,
             ).run()
             _project_task(settings.database_path, result)
             executed += 1

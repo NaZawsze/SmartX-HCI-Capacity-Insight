@@ -118,7 +118,9 @@ Prometheus: http://<server-ip>:9090
 
 平台支持在服务管理页面上传离线 `.tar.gz` 升级包。升级包用于替换服务镜像，只有 manifest 选中了累计 SQLite 迁移步骤时才执行迁移脚本。升级包不应包含运行数据、`.env`、SQLite 数据库、Prometheus 数据、Tower 账号密码或其他敏感信息。
 
-兼容范围：`v0.5.0` 升级包仅面向 v2 升级流程，不支持从 v1 或 `v0.4.x` 原地升级；这些旧系统通过数据迁移兼容。在 v2 同架构内支持跨版本直升，例如 `v0.5.0 -> v0.5.3`；升级包会自动包含来源版本到目标版本之间所有已登记的 SQLite 迁移步骤。
+版本口径：当前正式平台版本、源码版本、文档版本和常规镜像 tag 统一为 `v0.5.0`。临时测试升级包的目标版本只用于验证升级链路；除非同步更新 `VERSION`、发布说明和对外文档，否则不代表正式平台版本变化。
+
+兼容范围：`v0.5.0` 升级包仅面向 v2 升级流程，不支持从 v1 或 `v0.4.x` 原地升级；这些旧系统通过数据迁移兼容。在 v2 同架构内支持从最低受支持来源版本直升到后续受支持目标版本；升级包会自动包含来源版本到目标版本之间所有已登记的 SQLite 迁移步骤。
 
 平台升级包目录结构：
 
@@ -181,7 +183,7 @@ migrations/
 }
 ```
 
-没有选中迁移步骤的升级包，例如 `v0.5.0 -> v0.5.0`，不包含 `migration`、`migration_steps` 或 `script.sandbox.v1`。如果跨过了 schema 变化版本，例如 `v0.5.0 -> v0.5.3` 且 `v0.5.2` 修改了 SQLite schema，则包内包含 `migration_steps[]`，并为了兼容 `upgrade-runner v0.3.0` 保留 legacy `migration.script = migrations/run_migrations.py`。Runner 仍只执行一个沙箱脚本，由脚本按版本顺序执行所有命中的迁移步骤并写入 `schema_migrations`。
+没有选中迁移步骤的升级包，例如当前 `v0.5.0` 包，不包含 `migration`、`migration_steps` 或 `script.sandbox.v1`。如果跨过了未来 schema 变化版本，则包内包含 `migration_steps[]`，并为了兼容 `upgrade-runner v0.3.0` 保留 legacy `migration.script = migrations/run_migrations.py`。Runner 仍只执行一个沙箱脚本，由脚本按版本顺序执行所有命中的迁移步骤并写入 `schema_migrations`。
 
 普通平台升级包不建议在同一次升级任务中重启 `upgrade-runner`，避免中断正在执行升级的服务。如需替换 `upgrade-runner`，请使用组件升级包。
 

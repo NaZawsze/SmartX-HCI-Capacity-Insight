@@ -1863,7 +1863,8 @@ function stepIcon(status: string) {
   return <Circle size={14} />;
 }
 
-function displayUpgradeSteps(task: UpgradeTask) {
+export function displayUpgradeSteps(task: UpgradeTask) {
+  if (task.steps.length > 0) return task.steps;
   const defaults = task.status.startsWith("rollback") || task.status === "rolled_back" ? rollbackStepDefaults : upgradeStepDefaults;
   const existing = new Map(task.steps.map((step) => [step.key, step]));
   const merged = defaults.map((item) => ({ ...item, status: "pending", ...existing.get(item.key) }));

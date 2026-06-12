@@ -8,6 +8,7 @@ from app.upgrade_runner.store import TaskStore
 
 
 ActionHandler = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
+TaskUpdateCallback = Callable[[dict[str, Any]], None]
 SAFE_RESUME_ACTIONS = {
     "backup.create",
     "image.load",
@@ -32,10 +33,18 @@ class UpgradeEngine:
         *,
         handlers: dict[str, ActionHandler],
         context: dict[str, Any] | None = None,
+        on_update: TaskUpdateCallback | None = None,
     ) -> None:
         self.store = store
         self.handlers = handlers
         self.context = context or {}
+        self.on_update = on_update
+
+    def _save(self, task: dict[str, Any]) -> dict[str, Any]:
+        saved = self.store.save(task, expected_revision=int(task["revision"]))
+        if self.on_update is not None:
+            self.on_update(saved)
+        return saved
 
     def run(self) -> dict[str, Any]:
         task = self.store.load()
@@ -43,6 +52,8 @@ class UpgradeEngine:
         task.setdefault("recovery_status", "none")
         task.setdefault("logs", [])
         task = self.store.save(task, expected_revision=int(task.get("revision") or 0))
+        if self.on_update is not None:
+            self.on_update(task)
 
         actions = task.get("execution_plan", {}).get("actions") or []
         for index, action in enumerate(actions):
@@ -56,7 +67,7 @@ class UpgradeEngine:
                 task["recovery_status"] = "recovery_required"
                 task["recovery_reason"] = f"动作 {action.get('id')} 的执行结果无法自动确认。"
                 task["available_recovery_actions"] = ["continue", "rollback", "fail"]
-                return self.store.save(task, expected_revision=int(task["revision"]))
+                return self._save(task)
 
             action["status"] = "running"
             action["attempt"] = int(action.get("attempt") or 0) + 1
@@ -64,7 +75,7 @@ class UpgradeEngine:
             action["finished_at"] = None
             action.setdefault("checkpoint", {})
             action.setdefault("result", {})
-            task = self.store.save(task, expected_revision=int(task["revision"]))
+            task = self._save(task)
             action = task["execution_plan"]["actions"][index]
             handler = self.handlers.get(str(action.get("type")))
             if handler is None:
@@ -75,12 +86,12 @@ class UpgradeEngine:
                 task["status"] = "failed"
                 task["error"] = message
                 task["logs"] = [*task.get("logs", []), message]
-                return self.store.save(task, expected_revision=int(task["revision"]))
+                return self._save(task)
 
             def checkpoint_writer(checkpoint: dict[str, Any]) -> None:
                 nonlocal task
                 task["execution_plan"]["actions"][index]["checkpoint"] = checkpoint
-                task = self.store.save(task, expected_revision=int(task["revision"]))
+                task = self._save(task)
 
             try:
                 result = handler(action, {**self.context, "checkpoint_writer": checkpoint_writer}) or {}
@@ -94,27 +105,27 @@ class UpgradeEngine:
                 task["status"] = "failed"
                 task["error"] = str(exc)
                 task["logs"] = [*task.get("logs", []), str(exc)]
-                return self.store.save(task, expected_revision=int(task["revision"]))
+                return self._save(task)
             action = task["execution_plan"]["actions"][index]
             action["status"] = "succeeded"
             action["result"] = result
             action["finished_at"] = _now()
             if result.get("checkpoint"):
                 action["checkpoint"] = result["checkpoint"]
-            task = self.store.save(task, expected_revision=int(task["revision"]))
+            task = self._save(task)
 
         task["status"] = "success"
         task["recovery_status"] = "none"
         task["available_recovery_actions"] = []
         task["finished_at"] = _now()
-        return self.store.save(task, expected_revision=int(task["revision"]))
+        return self._save(task)
 
     def _automatic_rollback(self, task: dict[str, Any], cause: Exception, failed_health_action: dict[str, Any]) -> dict[str, Any]:
         task["rollback_attempts"] = int(task.get("rollback_attempts") or 0) + 1
         task["status"] = "rollback_running"
         task["recovery_status"] = "rolling_back"
         task["logs"] = [*task.get("logs", []), f"健康检查失败，开始自动回滚：{cause}"]
-        task = self.store.save(task, expected_revision=int(task["revision"]))
+        task = self._save(task)
         project_backup_path = None
         project_files: list[dict[str, Any]] = []
         override_path = None
@@ -155,7 +166,7 @@ class UpgradeEngine:
             task["recovery_status"] = "recovery_required"
             task["error"] = "Runner 不支持 rollback.restore"
             task["available_recovery_actions"] = ["rollback", "fail"]
-            return self.store.save(task, expected_revision=int(task["revision"]))
+            return self._save(task)
         try:
             rollback_action["result"] = handler(rollback_action, self.context) or {}
             rollback_action["status"] = "succeeded"
@@ -167,7 +178,7 @@ class UpgradeEngine:
             task["error"] = str(exc)
             task["available_recovery_actions"] = ["rollback", "fail"]
             task["automatic_rollback"] = rollback_action
-            return self.store.save(task, expected_revision=int(task["revision"]))
+            return self._save(task)
         health_handler = self.handlers.get(str(failed_health_action.get("type") or ""))
         if health_handler is None:
             task["status"] = "rollback_failed"
@@ -175,7 +186,7 @@ class UpgradeEngine:
             task["error"] = "回滚后缺少健康检查处理器"
             task["available_recovery_actions"] = ["rollback", "fail"]
             task["automatic_rollback"] = rollback_action
-            return self.store.save(task, expected_revision=int(task["revision"]))
+            return self._save(task)
         try:
             rollback_action["post_rollback_health"] = health_handler(failed_health_action, self.context) or {}
         except Exception as exc:
@@ -184,13 +195,13 @@ class UpgradeEngine:
             task["error"] = f"回滚后健康检查失败：{exc}"
             task["available_recovery_actions"] = ["rollback", "fail"]
             task["automatic_rollback"] = rollback_action
-            return self.store.save(task, expected_revision=int(task["revision"]))
+            return self._save(task)
         task["automatic_rollback"] = rollback_action
         task["status"] = "rolled_back"
         task["recovery_status"] = "rolled_back"
         task["available_recovery_actions"] = []
         task["logs"] = [*task.get("logs", []), "自动回滚完成。"]
-        return self.store.save(task, expected_revision=int(task["revision"]))
+        return self._save(task)
 
     def _can_resume(self, action: dict[str, Any]) -> bool:
         action_type = str(action.get("type") or "")

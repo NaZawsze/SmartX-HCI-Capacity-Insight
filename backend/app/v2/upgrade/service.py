@@ -29,6 +29,7 @@ from app.v2.tasks.models import TaskStatus, TaskType
 from app.v2.tasks.service import TaskService
 from app.upgrade_protocol.constants import RUNNER_CAPABILITIES, RUNNER_PROTOCOL_VERSION, TASK_SCHEMA_VERSION
 from app.upgrade_protocol.validation import ProtocolValidationError, validate_manifest_compatibility
+from app.upgrade_runner.main import _action_steps as _runner_action_steps
 from app.upgrade_runner.store import RevisionConflict, TaskStore
 from app.v2.upgrade.compiler import UpgradeCompilationError, compile_execution_plan
 
@@ -310,10 +311,12 @@ class UpgradeService:
         }
 
     def _runtime_services(self) -> tuple[list[dict[str, Any]], str | None]:
+        compose_error: Exception | None = None
         try:
             output = self.executor.output(["docker", "compose", "-f", self.settings.compose_file, "--project-name", self.settings.compose_project_name, "ps", "--format", "json"], cwd=self.project_path)
         except Exception as exc:
-            return [], f"Docker 状态读取失败：{exc}"
+            compose_error = exc
+            output = ""
         services: list[dict[str, Any]] = []
         for raw_line in output.splitlines():
             line = raw_line.strip()
@@ -328,7 +331,47 @@ class UpgradeService:
             if not service:
                 continue
             services.append(self._inspect_container(service, container, fallback_status=str(item.get("State") or item.get("Status") or "")))
+        if services:
+            return services, None
+        fallback_services = self._runtime_services_from_docker_ps()
+        if fallback_services:
+            return fallback_services, None
+        if compose_error is not None:
+            return [], f"Docker 状态读取失败：{compose_error}"
         return services, None
+
+    def _runtime_services_from_docker_ps(self) -> list[dict[str, Any]]:
+        try:
+            output = self.executor.output(
+                [
+                    "docker",
+                    "ps",
+                    "-a",
+                    "--filter",
+                    f"label=com.docker.compose.project={self.settings.compose_project_name}",
+                    "--format",
+                    "{{json .}}",
+                ],
+                cwd=self.project_path,
+            )
+        except Exception:
+            return []
+        services: list[dict[str, Any]] = []
+        for raw_line in output.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            service = _service_from_docker_ps_item(item)
+            container = str(item.get("Names") or item.get("Name") or item.get("Container") or service)
+            if not service or not container:
+                continue
+            services.append(self._inspect_container(service, container, fallback_status=str(item.get("State") or item.get("Status") or "")))
+        order = {service: index for index, service in enumerate(["web-api", "collector-worker", "frontend", "prometheus", "upgrade-runner"])}
+        return sorted(services, key=lambda item: order.get(str(item.get("service")), 99))
 
     def _inspect_service_by_name(self, service: str) -> dict[str, Any]:
         container = f"{self.settings.compose_project_name}-{service}-1"
@@ -557,16 +600,7 @@ class UpgradeService:
         return task
 
     def _project_runner_task(self, task: dict[str, Any]) -> None:
-        actions = task.get("execution_plan", {}).get("actions") or []
-        steps = [
-            {
-                "key": action.get("id"),
-                "title": action.get("type"),
-                "status": action.get("status"),
-                "message": action.get("error") or "",
-            }
-            for action in actions
-        ]
+        steps = _runner_action_steps(task)
         self.tasks.create_task(
             str(task["task_id"]),
             TaskType.UPGRADE,
@@ -589,7 +623,7 @@ class UpgradeService:
         checks = task.get("checks") or []
         public["precheck_ok"] = task.get("status") == "precheck_passed" or (bool(checks) and all(check.get("ok") for check in checks))
         public["checks"] = task.get("checks") or []
-        public["steps"] = task.get("steps") or []
+        public["steps"] = _runner_action_steps(task) if task.get("execution_plan") else task.get("steps") or []
         public["logs"] = task.get("logs") or []
         components = set(task.get("components") or [])
         if components <= {"runner"}:
@@ -917,6 +951,24 @@ def _version_from_service_status(service: dict[str, Any]) -> str | None:
     if isinstance(image, str):
         return _version_from_image(image)
     return None
+
+
+def _service_from_docker_ps_item(item: dict[str, Any]) -> str:
+    label = item.get("Label")
+    if isinstance(label, str) and label.strip():
+        return label.strip()
+    labels = item.get("Labels")
+    if isinstance(labels, str):
+        for part in labels.split(","):
+            key, separator, value = part.partition("=")
+            if separator and key.strip() == "com.docker.compose.service" and value.strip():
+                return value.strip()
+    names = str(item.get("Names") or item.get("Name") or "")
+    prefix = "smartx-storage-forecast-"
+    suffix = "-1"
+    if names.startswith(prefix) and names.endswith(suffix):
+        return names[len(prefix) : -len(suffix)]
+    return ""
 
 
 def _step(key: str, title: str, status: str, message: str = "") -> dict[str, str]:

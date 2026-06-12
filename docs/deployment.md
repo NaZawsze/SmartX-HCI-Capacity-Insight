@@ -266,6 +266,8 @@ python scripts/build_prometheus_component_package.py --version v2.55.1
 python scripts/build_bundle_upgrade_package.py --platform-version v0.5.0 --prometheus-version v2.55.1
 ```
 
+The official platform version for this release line is `v0.5.0`. Temporary package target versions used in a test environment do not change the release version documented here.
+
 Every package requires `manifest.json` and `checksums.sha256`. Bundle packages contain `platform/` and `observability/` sections and do not contain Runner by default. Prometheus component and bundle packages do not export Prometheus historical data; they may reference a repository image tag, and include `prometheus.tar` only when explicitly built for offline image delivery. Never package `.env`, SQLite databases, Prometheus data blocks, backups, exports, credentials, or tokens.
 
 ## 11. Security Checklist

@@ -116,7 +116,9 @@ Change the password after the first login from the admin avatar menu: `Set Passw
 
 The platform supports offline `.tar.gz` upgrade packages uploaded from the service management page. An upgrade package replaces service images and runs SQLite migrations only when the package manifest selects cumulative migration steps. It must not include runtime data, `.env`, SQLite databases, Prometheus data, Tower credentials, or other secrets.
 
-Compatibility: the `v0.5.0` upgrade package targets the v2 upgrade flow only. It is not an in-place upgrade path from v1 or `v0.4.x`; those older systems are supported through data migration instead. Within the v2 architecture, direct cross-version upgrades are supported from the minimum supported source version to the target version, for example `v0.5.0 -> v0.5.3`; the package contains every registered SQLite migration whose version is greater than the source version and less than or equal to the target version.
+Version scope: the current official platform version, source version, documentation version, and normal image tag are all `v0.5.0`. Temporary test upgrade package target versions are only used to verify the upgrade path; they do not change the official platform version unless `VERSION`, release notes, and the public documentation are updated together.
+
+Compatibility: the `v0.5.0` upgrade package targets the v2 upgrade flow only. It is not an in-place upgrade path from v1 or `v0.4.x`; those older systems are supported through data migration instead. Within the v2 architecture, direct cross-version upgrades are supported from the minimum supported source version to a later supported target version. The package contains every registered SQLite migration whose version is greater than the source version and less than or equal to the target version.
 
 Recommended package structure:
 
@@ -179,7 +181,7 @@ Example fields:
 }
 ```
 
-Packages with no selected migration steps, such as `v0.5.0 -> v0.5.0`, do not contain `migration`, `migration_steps`, or `script.sandbox.v1`. Packages that cross a schema version, such as `v0.5.0 -> v0.5.3` when `v0.5.2` changed SQLite schema, include `migration_steps[]` plus the legacy `migration.script = migrations/run_migrations.py` field for `upgrade-runner v0.3.0` compatibility. The runner still executes one sandbox script; the script applies all selected steps in version order and records them in `schema_migrations`.
+Packages with no selected migration steps, such as the current `v0.5.0` package, do not contain `migration`, `migration_steps`, or `script.sandbox.v1`. Packages that cross a future schema-changing version include `migration_steps[]` plus the legacy `migration.script = migrations/run_migrations.py` field for `upgrade-runner v0.3.0` compatibility. The runner still executes one sandbox script; the script applies all selected steps in version order and records them in `schema_migrations`.
 
 For normal platform upgrades, do not restart `upgrade-runner` in the same package that is executing the upgrade. Use a component upgrade package when `upgrade-runner` itself needs to be replaced.
 

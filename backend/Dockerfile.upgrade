@@ -13,11 +13,12 @@ RUN apt-get update \
 
 COPY VERSION ./VERSION
 COPY RUNNER_VERSION ./RUNNER_VERSION
-COPY backend/requirements*.txt .
-RUN pip install --no-cache-dir -r requirements-upgrade.txt
 
 COPY backend/app/__init__.py ./app/__init__.py
 COPY backend/app/upgrade_protocol ./app/upgrade_protocol
 COPY backend/app/upgrade_runner ./app/upgrade_runner
+RUN find ./app -type d -name __pycache__ -prune -exec rm -rf '{}' + \
+    && find ./app -type f -name '*.pyc' -delete \
+    && rm -rf /root/.cache/pip
 
 CMD ["python", "-m", "app.upgrade_runner.main"]

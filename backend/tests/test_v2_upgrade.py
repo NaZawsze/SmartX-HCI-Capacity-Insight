@@ -646,6 +646,89 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertEqual(verification["services"][0]["app_version"], "v0.5.0")
             self.assertEqual(verification["services"][1]["app_version"], "v2.55.1")
 
+    def test_verification_falls_back_to_docker_ps_when_compose_json_fails(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def output(self, command: list[str], *, cwd: Path | None = None) -> str:
+                if command[:4] == ["docker", "compose", "-f", "docker-compose.offline.yml"]:
+                    raise RuntimeError("compose ps failed")
+                if command[:2] == ["docker", "ps"]:
+                    return "\n".join(
+                        [
+                            json.dumps({"Names": "smartx-web-api-1", "Label": "web-api", "State": "running", "Status": "Up 1 minute"}),
+                            json.dumps({"Names": "smartx-prometheus-1", "Label": "prometheus", "State": "running", "Status": "Up 1 minute"}),
+                        ]
+                    )
+                if command[:2] == ["docker", "inspect"] and command[-1] == "smartx-web-api-1":
+                    return json.dumps([
+                        {
+                            "Config": {"Image": "repo/web-api:v0.5.0", "Env": ["SMARTX_APP_VERSION=v0.5.0"]},
+                            "Image": "sha256:webapi",
+                            "State": {"Status": "running", "Running": True, "StartedAt": "2026-06-07T01:00:00Z"},
+                        }
+                    ])
+                if command[:2] == ["docker", "inspect"] and command[-1] == "smartx-prometheus-1":
+                    return json.dumps([
+                        {
+                            "Config": {"Image": "prom/prometheus:v2.55.1", "Env": []},
+                            "Image": "sha256:prom",
+                            "State": {"Status": "running", "Running": True, "StartedAt": "2026-06-07T01:01:00Z"},
+                        }
+                    ])
+                return ""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret", compose_file="docker-compose.offline.yml", compose_project_name="smartx-test")
+            database = V2Database(settings)
+            database.initialize()
+            service = UpgradeService(settings, TaskService(database), executor=FakeExecutor(), project_path=Path(tmpdir) / "project")
+
+            verification = service.verification()
+
+            self.assertIsNone(verification["service_status_error"])
+            self.assertEqual([item["service"] for item in verification["services"]], ["web-api", "prometheus"])
+
+    def test_runner_task_public_steps_are_grouped_from_execution_actions(self) -> None:
+        from app.upgrade_runner.store import TaskStore
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            task_dir = settings.upgrades_dir / "upgrade-1"
+            TaskStore(task_dir).save(
+                {
+                    "task_id": "upgrade-1",
+                    "status": "running",
+                    "target_version": "v0.5.2",
+                    "components": ["platform"],
+                    "execution_plan": {
+                        "actions": [
+                            {"id": "backup", "type": "backup.create", "status": "succeeded", "result": {"path": "/data/backups/before.tar.gz"}},
+                            {"id": "load-image-1", "type": "image.load", "status": "succeeded", "params": {"image": "repo/web-api:v0.5.2"}},
+                            {"id": "load-image-2", "type": "image.load", "status": "running", "params": {"image": "repo/frontend:v0.5.2"}},
+                            {"id": "apply-compose", "type": "compose.apply", "status": "pending", "params": {"services": ["web-api", "frontend"]}},
+                        ]
+                    },
+                }
+            )
+            service = UpgradeService(settings, TaskService(database), project_path=Path(tmpdir) / "project")
+
+            public = service.status("upgrade-1")
+
+            self.assertEqual([step["key"] for step in public["steps"]], ["backup", "load_images", "restart"])
+            self.assertEqual(public["steps"][0]["status"], "succeeded")
+            self.assertEqual(public["steps"][1]["status"], "running")
+            self.assertEqual(public["steps"][1]["title"], "加载升级镜像")
+
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2UpgradeApiTest(unittest.TestCase):

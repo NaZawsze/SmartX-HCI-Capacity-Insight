@@ -3087,7 +3087,7 @@ TDD 记录：
 状态：已完成并通过本地与 `10.20.11.3` 验证
 
 - 平台升级包构建器新增 SQLite migration registry，按 `source_version < step.version <= target_version` 选择累计迁移步骤。
-- 用户确认当前正式版本仍使用 `v0.5.0`，不发布 `v0.5.1`；当前 `v0.5.0` 正式包无 schema 迁移时不包含 `migration`、`migration_steps`、`script.sandbox.v1` 或迁移脚本。
+- 用户确认当前正式版本仍使用 `v0.5.0`，不因测试升级包目标版本发布新的正式版本；当前 `v0.5.0` 正式包无 schema 迁移时不包含 `migration`、`migration_steps`、`script.sandbox.v1` 或迁移脚本。
 - 当未来目标版本跨过 schema 变化版本时，打包器生成单文件 `migrations/run_migrations.py`，Runner 仍只执行一个沙箱脚本，脚本内部按版本顺序执行并记录所有命中步骤。
 - registry step 支持声明幂等 `sql` 列表和 `add_column_if_missing` 操作，生成的迁移脚本会先执行迁移动作，再写入 `schema_migrations`；单步失败不会写成功记录。
 - registry 校验收紧：`sql` 必须是字符串数组，`database` 当前只允许 `sqlite`，重复 step id、未知 operation 或缺少加列参数都会在打包阶段失败。
@@ -3102,7 +3102,7 @@ TDD 记录：
 状态：计划已建立，待实施
 
 - 用户确认后续继续以需求提出为主，由 Codex 负责整体架构、版本节奏和稳定性方案把控。
-- 版本节奏收束为“一版一个主目标”：`v0.5.0` 稳定首发，`v0.5.1` 升级中心稳定性补丁，`v0.5.2` 报表交付质量，`v0.5.3` 数据迁移与清理增强。
+- 版本节奏收束为“一版一个主目标”：当前只固定 `v0.5.0` 稳定线，后续升级中心、报表质量、数据迁移与清理增强进入独立 Phase，正式版本号发布前统一决定。
 - 新增 `Phase 23 - v0.5.0 稳定化收敛`，冻结当前功能面，优先修发布阻塞和升级中心主路径稳定性。
 - 在 `10.20.11.3` 排查 runner 组件升级“hang 住”问题：真实执行已完成，Runner 心跳与版本正常，任务顶层状态与 SQLite 投影多为 `success`。
 - 发现伪 hang 根因：runner 自升级恢复收尾后 `task.json` 顶层已为 `success`，但 `steps.restart` 仍为 `running`、`steps.healthcheck` 仍为 `pending`，前端可能据此显示仍在等待新进程确认。
@@ -3151,7 +3151,7 @@ TDD 记录：
 - 真实轻量 Prometheus 组件升级 `upgrade-73ac11cad1f299da` 通过 API 上传、预检查、启动和轮询，最终公开状态 `succeeded`，`finished_at=2026-06-11T15:52:29.756938+00:00`。
 - 再次运行固定验收脚本通过：28 条 SQLite 成功升级任务和 19 个成功 `task.json` 均无 `running/pending` steps，系统健康、前端 8080 和 Prometheus healthy 正常。
 
-### 2026-06-11 v0.5.1 任务中心确认滚动稳定性
+### 2026-06-11 v0.5.0 稳定线任务中心确认滚动稳定性
 
 状态：已实现并部署到 `10.20.11.3`，待提交
 
@@ -3171,7 +3171,7 @@ TDD 记录：
 - 清理后 `/api/tasks` 返回 0 条，历史故障注入任务不再干扰任务中心观感。
 - Phase 23 状态更新为已完成。
 
-### 2026-06-11 v0.5.0 / v0.5.1 升级中心完成审计
+### 2026-06-11 v0.5.0 升级中心完成审计
 
 状态：目标完成，待用户决定提交/推送
 
@@ -3189,7 +3189,7 @@ TDD 记录：
 剩余事项不属于当前目标完成条件：
 
 - 当前工作树仍有未提交改动和新增文件，等待用户明确提交/推送指令。
-- v0.5.2 报表质量和 v0.5.3 数据迁移/清理增强按用户要求降级为后续低优先级，不阻塞升级中心稳定线。
+- 报表质量、数据迁移和清理增强按用户要求降级为后续低优先级，不阻塞当前 `v0.5.0` 稳定线。
 
 ### 2026-06-12 v0.5.0u1 测试升级包
 
@@ -3202,3 +3202,16 @@ TDD 记录：
 - 包校验通过：manifest `schema_version=3`、`version=v0.5.0u1`、`min_version=v0.5.0`、`database_migration=false`，不包含 `migration` 或 `migration_steps`。
 - 包成员 40 个，无 `.env`、SQLite、Prometheus 历史数据、`/data`、`backups`、`upgrades`、`migrations/` 或 `scripts/migrate.sh`。
 - 已通过升级中心上传和预检查，但未启动升级；预检查任务 id：`upgrade-7d9a438ee431b1f4`，状态 `precheck_passed`。
+
+### 2026-06-12 测试升级包版本口径统一
+
+状态：文档已更新
+
+- 用户确认统一口径版本为 `v0.5.0`，`v0.5.4`、`v0.5.5` 只作为测试升级包目标版本，不作为正式版本发布。
+- 已在 README 中英文、部署文档、升级中心设计和版本治理中补充：当前正式平台版本、源码版本、文档版本和常规镜像 tag 均为 `v0.5.0`；临时测试包目标版本不能反向修改 `VERSION` 或正式文档。
+- `10.20.11.3` 已生成测试包：
+  - `/data/upgrade-packages/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`
+  - SHA256：`39cfeb283e0ab54d837de4f4d8f2a8e69ca2692e39255adcbf24ea28b92cf5d0`
+  - `/data/upgrade-packages/smartx-capacity-insight-upgrade-v0.5.5.tar.gz`
+  - SHA256：`4623fc7c39c053e5e717806bd44c294c49ac77c4720cb252cd3a7f035c17f295`
+- 两个测试包均来自临时构建目录，不修改仓库 `VERSION`；包校验通过：`schema_version=3`、`min_version=v0.5.0`、`database_migration=false`，不包含 `migration`、`migration_steps` 或 `migrations/`。

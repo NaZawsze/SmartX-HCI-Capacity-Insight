@@ -132,7 +132,7 @@ panic: Unable to create mmap-ed active query log
 
 平台升级和 Prometheus/observability 升级由 `upgrade-runner` 执行。`upgrade-runner` 不能可靠地执行“重启自己”的任务，因为 Docker 停掉旧 runner 后，正在执行 compose 的进程也可能被杀掉，导致新 runner 只创建不启动、任务停在 `restart running`。v2 当前策略是：runner-only 组件升级由 `web-api` 直接执行 Docker 操作，平台升级仍提交给 `upgrade-runner`。
 
-跨版本升级采用累计迁移包规则：平台包构建时读取 `backend/app/v2/upgrade/migrations/registry.json`，选择 `source_version < step.version <= target_version` 的 SQLite 迁移步骤。当前 `v0.5.0` 正式包无 schema 变化时不带迁移脚本；未来如果 `v0.5.2` 改 schema，`v0.5.0 -> v0.5.3` 的包必须包含并执行 `v0.5.2` 的迁移。迁移成功后写入 `schema_migrations(id, version, description, script_sha256, applied_at)`，脚本必须幂等。
+跨版本升级采用累计迁移包规则：平台包构建时读取 `backend/app/v2/upgrade/migrations/registry.json`，选择 `source_version < step.version <= target_version` 的 SQLite 迁移步骤。当前 `v0.5.0` 正式包无 schema 变化时不带迁移脚本；未来如果来源版本和目标版本之间存在任意 schema 变化，升级包必须包含并执行这些中间迁移。迁移成功后写入 `schema_migrations(id, version, description, script_sha256, applied_at)`，脚本必须幂等。
 
 后续已引入“组件升级”概念：
 
@@ -344,6 +344,7 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - Prometheus/observability 组件升级包默认是轻量包：只包含 manifest、配置和健康检查，镜像通过仓库 tag 引用；离线环境才使用 `--offline-image` 放入 `images/prometheus.tar`。
 - 平台升级、Prometheus 组件升级和组合升级都不导出 Prometheus 历史数据；升级前 Prometheus 备份只作为服务器本机回滚材料，历史 block 导出/导入只属于完整数据迁移包。
 - 升级包树形结构需要在 README 与设计文档中保持同一口径：组合包示例使用当前平台 `v0.5.0`，表示交付形态，不表示新增平台版本；历史 progress/changelog 中的旧包结构只作为当时事实保留。
+- 当前正式版本治理口径：平台正式版本仍为 `v0.5.0`，Runner 组件版本仍为 `v0.3.0`。临时 `v0.5.4`、`v0.5.5` 等测试升级包目标版本只用于验证升级链路，不代表源码、README 或正式发版版本变化。
 - SQLite 处于 WAL 模式时不能直接归档 `smartx.db`；Runner 备份必须先用 SQLite Backup API 生成一致性快照。
 - Runner 宿主机路径映射需要优先匹配 `/data/backups`、`/data/compose-runtime` 等具体挂载，不能先被通用 `/data` 吞掉；`/data/exports` 和 `/data/upgrades` 禁止挂入迁移沙箱。
 - `compose up -d` 后服务可能尚未 ready，健康检查需要有限重试；只有重试耗尽才触发一次自动回滚。

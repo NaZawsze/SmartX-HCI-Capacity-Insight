@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 import hashlib
+import json
 import tarfile
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -141,6 +142,56 @@ class UpgradeEngineTest(unittest.TestCase):
             self.assertTrue(result.get("finished_at"))
             self.assertEqual(calls, ["load"])
             self.assertEqual(result["execution_plan"]["actions"][1]["attempt"], 2)
+
+    def test_runner_projects_action_progress_while_task_is_running(self) -> None:
+        from app.upgrade_runner.main import RunnerSettings, run_pending_once
+        from app.upgrade_runner.store import TaskStore
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+
+        observed_steps: list[list[dict]] = []
+
+        def backup(_action, _context):
+            return {"ok": True}
+
+        def load_image(_action, context):
+            database_path = Path(context["database_path"])
+            with sqlite3.connect(database_path) as connection:
+                row = connection.execute("SELECT progress, steps_json FROM tasks WHERE id = 'upgrade-1'").fetchone()
+            self.assertIsNotNone(row)
+            observed_steps.append(json.loads(row[1]))
+            return {"ok": True}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            v2_settings = V2Settings(data_root=root, secret_key="runner-progress")
+            V2Database(v2_settings).initialize()
+            task_dir = root / "upgrades" / "upgrade-1"
+            TaskStore(task_dir).save(
+                self._task(
+                    [
+                        {"id": "backup", "type": "backup.create", "status": "pending", "checkpoint": {}, "result": {}},
+                        {"id": "load-image-1", "type": "image.load", "status": "pending", "checkpoint": {}, "result": {}},
+                    ]
+                )
+                | {"package_path": str(root / "package")}
+            )
+            settings = RunnerSettings(
+                database_path=v2_settings.sqlite_path,
+                upgrades_path=root / "upgrades",
+                data_path=root,
+                backups_path=root / "backups",
+                compose_runtime_path=root / "runtime",
+                prometheus_path=root / "prometheus",
+                project_path=root / "project",
+                compose_file="docker-compose.offline.yml",
+                compose_project="test",
+            )
+
+            run_pending_once(settings, handlers={"backup.create": backup, "image.load": load_image}, owner="runner-a")
+
+            self.assertEqual(observed_steps[0][0]["status"], "succeeded")
+            self.assertEqual(observed_steps[0][1]["status"], "running")
 
     def test_interrupted_sandbox_action_requires_operator_recovery(self) -> None:
         from app.upgrade_runner.engine import UpgradeEngine
