@@ -25,6 +25,8 @@ const apiMock = vi.hoisted(() => ({
   vacuumSqlite: vi.fn(),
   scanSqliteBackups: vi.fn(),
   deleteSqliteBackups: vi.fn(),
+  scanUnusedImages: vi.fn(),
+  cleanupUnusedImages: vi.fn(),
   localStorageUsage: vi.fn()
 }));
 
@@ -255,6 +257,40 @@ describe("ServicePage migration overwrite mode", () => {
     expect(screen.queryByText("可清理空间")).not.toBeInTheDocument();
   });
 
+  it("renders old image cleanup scan when Docker returns string created_at", async () => {
+    mockServicePageBootstrap();
+    apiMock.scanUnusedImages.mockResolvedValue({
+      ok: true,
+      images: [
+        {
+          id: "sha256:deadbeefcafebabe",
+          short_id: "deadbeefcafe",
+          repo_tags: [],
+          display_name: "<none>:<none>",
+          size: 1024,
+          size_label: "1 KiB",
+          reclaimable_size: 1024,
+          reclaimable_size_label: "1 KiB",
+          created_at: "2026-06-12 16:57:45 +0800 CST"
+        }
+      ],
+      image_count: 1,
+      space_reclaimable: 1024,
+      space_reclaimable_label: "1 KiB",
+      message: "发现 1 个未使用镜像，可释放 1 KiB。"
+    });
+
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText("平台状态")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "清理旧版本" }));
+    fireEvent.click(screen.getByRole("button", { name: "扫描" }));
+
+    expect(await screen.findByText("<none>:<none>")).toBeInTheDocument();
+    expect(screen.getByText(/deadbeefcafe/)).toBeInTheDocument();
+    expect(screen.getByText("候选逻辑大小 1 KiB")).toBeInTheDocument();
+  });
+
   it("scans sqlite backups and deletes only selected backup files", async () => {
     mockServicePageBootstrap();
     apiMock.scanSpaceCleanup.mockResolvedValue({
@@ -460,7 +496,7 @@ describe("ServicePage upgrade center", () => {
     fireEvent.click(screen.getByRole("button", { name: "预检查" }));
 
     expect(await screen.findByText("校验升级包结构")).toBeInTheDocument();
-    expect(screen.getByText("检查 Docker 与升级执行器")).toBeInTheDocument();
+    expect(screen.getByText("校验版本兼容性与升级执行器")).toBeInTheDocument();
     expect(screen.getByText("生成预检查结果")).toBeInTheDocument();
     expect(screen.getByText("执行中")).toBeInTheDocument();
     expect(screen.getAllByText("未执行").length).toBeGreaterThan(0);

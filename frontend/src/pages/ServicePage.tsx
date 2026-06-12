@@ -5,7 +5,7 @@ import type { TransferProgress } from "../services/api";
 import type { AppTask, ComponentInfo, LocalStorageUsage, MigrationExportTask, MigrationImportTask, SpaceCleanupScanItem, SqliteBackupScanResult, SqliteVacuumScan, UpgradeTask, UpgradeVerification } from "../types";
 
 type ServiceSection = "migration" | "restart" | "space-cleanup" | "platform-upgrade" | "component-upgrade" | "history";
-type CleanupScanImage = { id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string; reclaimable_size?: number; reclaimable_size_label?: string; created_at?: number };
+type CleanupScanImage = { id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string; reclaimable_size?: number; reclaimable_size_label?: string; created_at?: number | string };
 type UpgradeCheck = UpgradeTask["checks"][number];
 type PrecheckStepDefinition = { key: string; title: string; checks: string[] };
 type DisplayStep = { key: string; title: string; status: string; message?: string };
@@ -1980,9 +1980,10 @@ function formatTime(value?: string): string {
   return date.toLocaleString("zh-CN", { hour12: false });
 }
 
-function formatUnixTime(value?: number): string {
+function formatUnixTime(value?: number | string): string {
   if (!value) return "-";
-  return formatTime(new Date(value * 1000).toISOString());
+  if (typeof value === "number") return formatTime(new Date(value * 1000).toISOString());
+  return formatTime(value);
 }
 
 function formatBytes(value?: number): string {
