@@ -257,15 +257,17 @@ export interface DataQuality {
 }
 
 export interface GrowthVmReport {
-    labels: Record<string, string>;
-    forecast: ForecastResult;
-    growth_amount?: number | null;
-    previous_value?: number | null;
-    growth_ratio?: number | null;
-    period_days?: number | null;
-    first_seen_at?: string | null;
-    age_days?: number | null;
-    sample_span_days?: number | null;
+  labels: Record<string, string>;
+  vm_id?: string;
+  vm_name?: string;
+  forecast: ForecastResult;
+  growth_amount?: number | null;
+  previous_value?: number | null;
+  growth_ratio?: number | null;
+  period_days?: number | null;
+  first_seen_at?: string | null;
+  age_days?: number | null;
+  sample_span_days?: number | null;
 }
 
 export interface ForecastResult {

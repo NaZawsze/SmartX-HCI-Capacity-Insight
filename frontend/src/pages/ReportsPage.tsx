@@ -274,11 +274,11 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
             {dayTopVms.map((item) => (
               <button
                 className={isAlertGrowthVm(item) ? "table-row clickable growth-alert-row" : "table-row clickable"}
-                key={item.labels.vm_id}
+                key={growthVmId(item)}
                 type="button"
-                onClick={() => onSelectVm(item.labels.vm_id, item.labels.vm || item.labels.vm_id)}
+                onClick={() => onSelectVm(growthVmId(item), growthVmName(item))}
               >
-                <span>{item.labels.vm || item.labels.vm_id}</span>
+                <span>{growthVmName(item)}</span>
                 <strong className="growth-strong">
                   <ArrowUpRight size={14} />
                   {formatGrowthValue(item, dayGrowthSort, "天")}
@@ -303,11 +303,11 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
             {monthTopVms.map((item) => (
               <button
                 className={isAlertGrowthVm(item) ? "table-row clickable growth-alert-row" : "table-row clickable"}
-                key={item.labels.vm_id}
+                key={growthVmId(item)}
                 type="button"
-                onClick={() => onSelectVm(item.labels.vm_id, item.labels.vm || item.labels.vm_id)}
+                onClick={() => onSelectVm(growthVmId(item), growthVmName(item))}
               >
-                <span>{item.labels.vm || item.labels.vm_id}</span>
+                <span>{growthVmName(item)}</span>
                 <strong className="growth-strong">
                   <ArrowUpRight size={14} />
                   {formatGrowthValue(item, monthGrowthSort, "月")}
@@ -473,6 +473,14 @@ function sortGrowthReports(items: GrowthVmReport[], mode: GrowthSortMode): Growt
   return [...items].sort((left, right) => growthSortValue(right, mode) - growthSortValue(left, mode));
 }
 
+function growthVmId(item: GrowthVmReport): string {
+  return item.vm_id || item.labels.vm_id || "";
+}
+
+function growthVmName(item: GrowthVmReport): string {
+  return item.vm_name || item.labels.vm || item.labels.vm_name || growthVmId(item);
+}
+
 function hasSampleSpan(item: GrowthVmReport, minDays: number): boolean {
   return item.sample_span_days == null || item.sample_span_days >= minDays;
 }
@@ -498,11 +506,11 @@ function VmListCard({
         {items.map((item) => (
           <button
             className="table-row clickable"
-            key={`${item.labels.tower_id || ""}-${item.labels.cluster_id || ""}-${item.labels.vm_id}`}
+            key={`${item.labels.tower_id || ""}-${item.labels.cluster_id || ""}-${growthVmId(item)}`}
             type="button"
-            onClick={() => onSelectVm(item.labels.vm_id, item.labels.vm || item.labels.vm_id)}
+            onClick={() => onSelectVm(growthVmId(item), growthVmName(item))}
           >
-            <span>{item.labels.vm || item.labels.vm_id}</span>
+            <span>{growthVmName(item)}</span>
             <strong>{renderValue(item)}</strong>
           </button>
         ))}

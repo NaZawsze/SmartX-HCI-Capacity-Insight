@@ -246,6 +246,52 @@ describe("ReportsPage", () => {
     expect(onSelectVm).toHaveBeenCalledWith("vm-month", "Month VM");
   });
 
+  it("renders vm names from the v0.5.1 top-level growth fields", async () => {
+    const onSelectVm = vi.fn();
+    apiMock.report.mockResolvedValue({
+      clusters: [],
+      fastest_growing_vms: [],
+      day_fastest_growing_vms: [
+        {
+          labels: { tower_id: "1", cluster_id: "cluster-a" },
+          vm_id: "vm-day-top-level",
+          vm_name: "Top Level Day VM",
+          forecast: { status: "ok", slope_per_day: 0, current: 1024 },
+          growth_amount: 20,
+          growth_ratio: 0.2
+        }
+      ],
+      month_fastest_growing_vms: [],
+      day_new_vms: [],
+      month_new_vms: [],
+      cluster_growth_rate: { per_day: 0, per_month: 0, per_quarter: 0 },
+      window_days: 30,
+      chart_days: 365,
+      growth_rate_window_days: 7,
+      forecast_days: 90
+    });
+
+    render(
+      <ReportsPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 1, vm_count: 1, used_bytes: 0, total_bytes: 0, used_ratio: 0 },
+          top_vms: [],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSelectVm={onSelectVm}
+        addTask={vi.fn()}
+        updateTask={vi.fn()}
+      />
+    );
+
+    const row = await screen.findByRole("button", { name: "Top Level Day VM 20 B/天" });
+    fireEvent.click(row);
+    expect(onSelectVm).toHaveBeenCalledWith("vm-day-top-level", "Top Level Day VM");
+    expect(screen.queryByText("vm-day-top-level")).not.toBeInTheDocument();
+  });
+
   it("keeps report page usable when data quality is absent", async () => {
     apiMock.report.mockResolvedValue(reportWithCluster("Cluster A", 365));
 
