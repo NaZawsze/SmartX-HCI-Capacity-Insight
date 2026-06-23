@@ -3223,3 +3223,403 @@ TDD 记录：
 - 用户确认 `dev` 分支废弃，`dev2` 作为 v2 当前开发与发布分支。
 - 已将当前规划与设计文档中的现行分支口径从 `feature/upgrade-v2` 更新为 `dev2`；历史流水记录只作为历史事实保留。
 - 下一步：将 `dev2` 当前内容推送到 `main`，创建并推送 `v0.5.0` tag，然后删除远端废弃 `dev` 分支。
+
+### 2026-06-13 Phase 24 采集重试与趋势缺采标记
+
+状态：已实现并部署到 `10.20.11.3`，待用户体验验证
+
+- 按用户确认计划开始实现采集重试、部分成功写入 Prometheus 和 VM 趋势缺采提示。
+- 已补后端回归测试：部分失败只发布成功目标 metrics、失败目标脱敏并生成 `Tower/集群采集异常` warning；Tower 重试配置旧库默认回填；retry 可只采上次失败目标；VM trend 返回缺采元数据。
+- 已实现后端核心：目标级采集、`partial_failed`、`collection_runs` 目标 JSON 字段、TaskService 采集告警、worker 有限重试、VM trend freshness/gap 元数据。
+- 已实现前端核心：Tower 表单显示采集失败重试配置；VM 趋势卡显示 `非最新`、最近成功采集时间和缺采日期；TrendChart 用 null 断点避免跨缺采日连线。
+- 本地验证：`git diff --check` 通过；`python3 -m py_compile` 通过；`backend.tests.test_v2_collection`、`backend.tests.test_v2_worker`、`backend.tests.test_v2_dashboard_vm`、`backend.tests.test_v2_collection_runs_api` 共 18 个测试通过，2 个因本地缺依赖跳过。
+- 已同步到 `10.20.11.3:/opt/smartx-storage-forecast-v2`，重建并 recreate `web-api`、`collector-worker`、`frontend`。
+- 远端容器内后端目标测试通过：`backend.tests.test_v2_collection`、`backend.tests.test_v2_worker`、`backend.tests.test_v2_dashboard_vm`、`backend.tests.test_v2_collection_runs_api` 共 18 个通过。
+- 远端前端目标测试通过：`SettingsPage.test.tsx`、`VmsPage.test.tsx` 共 9 个测试通过；`npm run build` 通过，仅有 chunk size 警告。
+- 远端健康检查通过：`/api/system/health` 返回 `ok=true`、`version=v0.5.0`、`runner_version=v0.3.0`；frontend 8080 返回 200；Prometheus `/-/healthy` 返回 200。
+- 远端 API 功能抽检通过：
+  - 登录成功。
+  - `/api/towers` 返回重试配置字段，现有 Tower 默认值为 `true/15/3`。
+  - `/api/tasks` 可访问。
+  - 空间清理相关扫描接口可访问：本地存储、运行产物扫描、SQLite 扫描、镜像扫描。
+  - `/api/vms/{vm_id}/trend` 返回 `latest_success_at`、`latest_collection_status`、`has_collection_gap`、`data_freshness` 字段。
+  - `/api/reports/export/bundle?period_days=7` 成功生成 Word 和 Excel，两个导出文件路径均存在。
+- 远端 UI 功能抽检通过：
+  - 浏览器登录 `http://10.20.11.3:8080/` 成功，首页显示概览数据。
+  - 服务管理 > 空间清理页中，运行产物“扫描”、SQLite“扫描 SQLite”、SQLite 备份“扫描备份”三个按钮均可点击并返回页面结果；未执行任何删除/清理动作。
+  - 报表页点击“导出”可打开导出弹窗，点击弹窗“导出”后任务中心后端记录生成 `导出预测报表` 成功任务，Word/Excel 两个链接文件均存在。
+
+### 2026-06-13 Phase 25 平台自检与升级后验收规划
+
+状态：已记录后续优化方向
+
+- 用户询问项目还有哪些优化空间；判断当前最值得做的是“平台自检与升级后验收”，优先提升生产可诊断能力，而不是继续堆叠大功能。
+- 已将 Phase 24 从“实施中”更新为“已实现，待用户体验验证”，并记录远端前端 build、目标测试、健康检查、空间清理按钮和报表导出 UI 抽检已完成。
+- 新增 Phase 25：平台自检与升级后验收。
+- Phase 25 目标包括：
+  - 后端统一自检 API。
+  - CLI 验证脚本 `scripts/verify_platform.py`。
+  - 升级后复用同一套验收。
+  - 服务管理页升级为运维控制台第一版。
+  - 覆盖服务、SQLite、采集、Prometheus、VM 趋势、任务中心、空间清理扫描和报表导出。
+- 规划边界：以只读检查为主；空间清理只 scan，不自动删除；报表导出只在深度验收中生成验证文件；不写入虚假 Prometheus 样本。
+- 使用 planning-with-files 的 session catchup 时，插件缓存路径下未找到 `scripts/session-catchup.py`，命令返回 `No such file or directory`；已记录该工具路径异常，继续使用现有 `task_plan.md`、`findings.md`、`progress.md` 作为当前上下文来源。
+
+### 2026-06-13 Phase 25 self-check implementation progress
+- Added backend self-check RED/GREEN unit tests for quick structure, Prometheus critical, collection partial_failed warning, missing SQLite table critical, and deep report bundle verification.
+- Added backend self-check service skeleton and FastAPI GET/POST routes.
+- Added CLI tests and scripts/verify_platform.py using the self-check API only.
+- Local Python lacks fastapi/python-docx, so API TestClient is skipped locally and real API/docx verification must run in container/remote.
+
+### 2026-06-13 Phase 25 implementation update
+- Implemented SelfCheckService, API routes, CLI script, upgrade post-success self-check recording, ServicePage self-check UI, and docs updates.
+- Local verification so far: py_compile passed; targeted backend self-check/CLI/upgrade tests passed with 1 FastAPI TestClient skip due local dependency.
+- Frontend npm tests cannot run locally because npm is not installed in this host shell; must run in remote/container Node environment.
+
+### 2026-06-13 Phase 25 local verification
+- Fixed CLI test stdout capture after local verification exposed JSON read bug.
+- Local command passed: python3 -m py_compile backend/app/v2/self_check/service.py backend/app/v2/api.py backend/app/v2/upgrade/service.py backend/tests/test_v2_self_check.py backend/tests/test_verify_platform_cli.py backend/tests/test_v2_upgrade.py scripts/verify_platform.py.
+- Local command passed: PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_self_check backend.tests.test_verify_platform_cli backend.tests.test_v2_upgrade.V2UpgradeServiceTest.test_successful_upgrade_records_post_upgrade_self_check_and_alerts_on_critical (11 tests OK, 1 skipped for missing FastAPI TestClient).
+- git diff --check passed.
+
+### 2026-06-13 Phase 25 remote API validation
+- Synced code to 10.20.11.3 using tar over SSH after fixing remote project ownership; rsync was unavailable on remote.
+- Rebuilt images with correct repository prefix `nazawsze/...:v0.5.0` after initially building a typo tag `nazwawsze/...`.
+- Recreated web-api and frontend.
+- Remote health passed: `/api/system/health` ok=true version v0.5.0 runner v0.3.0; frontend 8080 returned 200; Prometheus healthy returned 200.
+- Remote self-check API passed: quick healthy 20 checks; deep healthy 21 checks; deep with report export healthy 21 checks and produced Word/Excel links.
+
+### 2026-06-13 Phase 25 remote UI and target test validation
+- Remote backend target tests passed on `10.20.11.3`: `backend.tests.test_v2_self_check`, `backend.tests.test_verify_platform_cli`, and the upgrade self-check integration test ran 11 tests OK with 1 local dependency skip.
+- Remote frontend target test passed in a Node container: `ServicePage.test.tsx` ran 19 tests OK.
+- Browser UI validation passed for the service management self-check card: the card renders, quick self-check button enters loading state, and the result refreshes with a new timestamp.
+- The live `10.20.11.3` environment currently reports `critical` through self-check because the latest scheduled collection failed with `Tower requires either an API token or username/password`; Prometheus current sample counts are therefore insufficient and VM trend freshness is partial.
+- This live critical result is treated as expected self-check behavior rather than a UI/API failure: the platform services are reachable, but self-check correctly marks the data plane as not trustworthy until Tower credentials and collection recover.
+
+### 2026-06-15 Phase 26 P1 数据正确性实施进展
+
+状态：已实现并在 `10.20.11.3` 验证
+
+- 已新增 `backend/app/v2/data_quality/service.py`，提供统一 `DataQualityService.evaluate()` 和 `evaluate_and_alert()`。
+- 已接入采集完成后的后台一致性检查，`critical` 生成或更新 `数据一致性异常`，`warning` 生成或更新 `数据质量需关注`。
+- 已将平台自检指标检查升级为 `data_quality.consistency`，摘要展示 SQLite/Prometheus VM 数、不完整集群数、缺采日期数和最新 Prometheus 样本时间。
+- 已在 `latest_report()` 返回 `data_quality` 字段，报表页显示数据质量状态、实际采集窗口、缺采天数、样本是否足够和不完整集群数量；缺少字段时按未知状态兼容。
+- 已在 Word 客户版“一 摘要”中新增“数据质量说明”，解释本报表统计窗口、实际采集窗口、样本是否足够、缺采天数、数据不完整集群和 SQLite/Prometheus 数量。
+- 已在 Excel 导出新增固定 Sheet `数据质量说明`，位于 `执行摘要` 后，继续移除 `目录`、`范围明细`、`集群汇总`、`VM_TOP100_汇总` 等冗余 Sheet。
+- 已更新 `docs/v2-api-contracts.md`、`README.md`、`README.zh-CN.md`、`task_plan.md` 和 `findings.md`，记录 P1 数据正确性口径。
+- 用户要求所有测试和验证都在 `10.20.11.3` 执行；本地只做代码阅读和补丁编辑，不把本地测试作为验收依据。
+- 远端后端目标测试通过：在 `10.20.11.3` 使用 `nazawsze/smartx-hci-capacity-insight-web-api:v0.5.0` 临时容器挂载 `/opt/smartx-storage-forecast-v2/backend`，运行 `tests.test_v2_data_quality tests.test_v2_self_check tests.test_v2_reports tests.test_v2_report_exports tests.test_v2_worker` 共 46 个测试通过。
+- 远端前端目标测试通过：在 `10.20.11.3` 使用 `node:22-alpine` 挂载 `/opt/smartx-storage-forecast-v2/frontend`，运行 `npm test -- ServicePage.test.tsx ReportsPage.test.tsx`，2 个测试文件、25 个测试通过。
+- 远端构建通过：`docker compose -p smartx-storage-forecast build web-api collector-worker frontend` 成功，frontend build 仅保留既有 Vite 大 chunk 提示。
+- 已在 `10.20.11.3` recreate `web-api`、`collector-worker`、`frontend`；运行容器镜像为 `smartx-storage-forecast-*:local`。
+- 远端健康检查通过：`/api/system/health` 返回 `ok=true`、`version=v0.5.0`、`runner_version=v0.3.0`；frontend `8080` 返回 200；Prometheus `/-/healthy` 返回 healthy。
+- 远端真实报表 API 返回 `data_quality.status=critical`，原因是当前测试机 SQLite 有 177 台 VM，但 Prometheus 当前 VM series 为 0；缺采日期为 `2026-06-06`、`2026-06-13`，不完整集群为 `CHINATOWER / SMARTX-TT-WW`。该结果符合当前测试机数据面异常现状。
+- 远端真实导出通过：`/api/reports/export/bundle?period_days=14` 生成 Word `/data/exports/reports/storage-forecast-all-20260615-160141-14d.docx` 和 Excel `/data/exports/reports/storage-forecast-all-20260615-160148-14d.xlsx`。
+- Word XML 已确认包含 `数据质量说明` 和异常提示；Excel 已用 openpyxl 确认 Sheet 顺序包含 `数据质量说明` 且位于 `执行摘要` 后，并包含 `SQLite 当前 VM 数`、`Prometheus 当前 VM series 数`、缺采天数和不完整集群字段。
+
+### 2026-06-15 任务中心告警日期补充
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户反馈任务中心告警没有告警日期。
+- 根因：后端任务已有 `created_at/updated_at`，前端也映射为 `createdAt/updatedAt`，但任务中心告警卡片只展示标题、详情、进度和操作按钮，没有展示告警发生日期。
+- 已在 `frontend/src/components/AppLayout.tsx` 中为 `warning/critical` 告警任务增加 `告警日期：YYYY/MM/DD HH:mm:ss`，使用 `createdAt` 作为原始告警发生时间，避免确认告警时受 `updatedAt` 变化影响。
+- 告警日期按 `Asia/Shanghai` 固定格式化，避免测试容器或浏览器时区导致时间漂移。
+- 已补 `frontend/src/components/AppLayout.test.tsx` 用例，覆盖 warning/critical 任务显示原始告警日期。
+- 远端 `10.20.11.3` 前端目标测试通过：`AppLayout.test.tsx`，18 个测试通过。
+- 已在 `10.20.11.3` 重建并 recreate `frontend`，最终 `http://127.0.0.1:8080` 返回 `HTTP/1.1 200 OK`。
+
+### 2026-06-16 任务中心操作按钮标题行对齐
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户反馈 `确认` 和 `X` 仍未与任务标题同排，截图中按钮位于右侧列顶部但低于标题基线。
+- 根因：按钮仍挂在 `.task-menu-actions` 右侧进度列内，即使顶部对齐也只能相对右侧列布局，无法和标题自然同一行。
+- 已将任务卡片标题区域改为 `.task-menu-title-row`，标题左侧省略显示，`确认` 和 `X` 放入标题行右侧 `.task-menu-title-actions`。
+- 右侧 `.task-menu-actions` 现在只保留进度百分比和两行日期时间，避免按钮与百分比/日期互相挤压。
+- 已补前端测试覆盖：`确认任务告警` 和 `从任务中心移除` 必须位于 `.task-menu-title-row` 内；先同步新测试到远端验证旧布局失败，再完成实现后通过。
+- 远端 `10.20.11.3` 前端目标测试通过：`AppLayout.test.tsx`，19 个测试通过。
+- 已在 `10.20.11.3` 重建并 recreate `frontend`，最终 `http://127.0.0.1:8080` 返回 `HTTP/1.1 200 OK`。
+
+### 2026-06-16 任务中心右上/右下四格结构修正
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户通过截图标注说明：上一版只是加宽后的旧排版，`确认/X` 仍混在左侧标题区域，未形成真正四格。
+- 根因：按钮仍属于 `.task-menu-header-row`，导致右上区域并不是独立控件区；右侧进度/时间也未与按钮共享同一右侧列。
+- 已将任务卡片网格改为 `header controls / body actions`：
+  - 左上 `header`：状态图标 + 标题。
+  - 右上 `controls`：`确认` + `X`。
+  - 左下 `body`：详情、步骤、日志、下载按钮和进度条。
+  - 右下 `actions`：`100%` 和日期时间。
+- 已补回归测试：`确认任务告警` 不允许再位于 `.task-menu-header-row` 或标题行内，必须在 `.task-menu-controls`；进度和日期必须在 `.task-menu-actions`。
+- 远端 `10.20.11.3` 前端目标测试通过：`AppLayout.test.tsx`，19 个测试通过。
+- 已在 `10.20.11.3` 重建并 recreate `frontend`，最终 `http://127.0.0.1:8080` 返回 `HTTP/1.1 200 OK`。
+
+### 2026-06-16 任务中心四块布局视觉校正
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户指出当前视觉仍不像标注的四个方框：左上/右上/左下/右下没有明显拉开，详情和进度条仍显得过窄。
+- 根因：虽然 DOM 已按 `header/meta/body/actions` 分区，但弹层整体宽度只有 420px，右侧列和间距占用后，左侧区域不足；同时 `.task-progress` 未明确 `display:block;width:100%`，视觉上没有铺满左下详情区。
+- 已将任务菜单宽度从 `420px` 提升到 `520px`，保持小屏时仍受 `calc(100vw - 32px)` 约束。
+- 已将右侧进度/日期列从 `86px` 收窄为 `72px`，减少对左侧四块主体区域的挤压。
+- 已让 `.task-progress` 明确 `display:block;width:100%`，使左下详情区的红色进度条贴合该区域宽度。
+- 远端 `10.20.11.3` 前端目标测试通过：`AppLayout.test.tsx`，19 个测试通过。
+- 已在 `10.20.11.3` 重建并 recreate `frontend`，最终 `http://127.0.0.1:8080` 返回 `HTTP/1.1 200 OK`。
+
+### 2026-06-16 任务中心 2x2 信息布局
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户指出四列布局仍会把详情区域挤窄，期望布局为：左上角标题、右上角 `确认/X`、左下角详情、右下角进度和时间。
+- 根因：独立按钮列处于整张卡片中间，会从标题和详情共同可用宽度中扣除，导致详情仍过早省略。
+- 已将任务卡片改为两列两行区域布局：`header/meta` + `body/actions`。
+- 左上 `header` 包含状态图标、标题和右侧操作按钮；右上 `meta` 只显示进度百分比；左下 `body` 显示详情、步骤、日志、下载和进度条；右下 `actions` 显示日期时间。
+- 详情区域保留完整 `title` 悬停提示，并且可用宽度不再被中间按钮列单独切开。
+- 已补前端测试覆盖：标题和 `确认/X` 必须在同一个 header 区，详情必须在 body 区，进度必须在 meta 区，日期必须在 actions 区。
+- 远端 `10.20.11.3` 前端目标测试通过：`AppLayout.test.tsx`，19 个测试通过。
+- 已在 `10.20.11.3` 重建并 recreate `frontend`，最终 `http://127.0.0.1:8080` 返回 `HTTP/1.1 200 OK`。
+
+### 2026-06-16 任务中心按钮独立列与进度时间保位
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户进一步澄清：进度百分比和日期时间位置不要动，`确认` 和 `X` 需要与标题同排，但不应挤占标题正文列。
+- 根因：上一版把按钮放进标题行内部，视觉上和标题同排，但正文列宽没有改善，空间结构仍不符合预期。
+- 已将任务卡片改为四列布局：状态图标、正文内容、操作按钮、进度日期。
+- `确认` 和 `X` 现在位于独立 `.task-menu-controls` 列，顶部与标题行对齐；`.task-menu-actions` 继续只承载 `100%` 和两行日期时间。
+- 已补前端测试覆盖：按钮必须在 `.task-menu-controls`，不得在标题行内部；进度必须保留在 `.task-menu-actions`，不得进入按钮列。
+- 远端 `10.20.11.3` 前端目标测试通过：`AppLayout.test.tsx`，19 个测试通过。
+- 已在 `10.20.11.3` 重建并 recreate `frontend`，最终 `http://127.0.0.1:8080` 返回 `HTTP/1.1 200 OK`。
+
+### 2026-06-16 Phase 27 任务中心四区布局与详情可读性收尾
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户最终确认本轮只做详情显示方案 1、2，并把前面任务中心卡片 UI 调整一并收敛：左上角标题，右上角 `确认/X`，左下角详情和进度条，右下角百分比和日期时间。
+- 红灯测试阶段：远端 `AppLayout.test.tsx` 先因详情缺少完整 `aria-label` 失败，证明测试覆盖到“悬停/无障碍保留完整详情”的要求。
+- 实现调整：
+  - `frontend/src/components/AppLayout.tsx` 保持 `.task-menu-header-row`、`.task-menu-controls`、`.task-menu-body`、`.task-menu-actions` 四个直接区域；`确认/X` 位于右上控件区，百分比和 `TaskDate` 位于右下动作区。
+  - 详情 `<small>` 增加 `task-menu-detail`、完整 `title` 和完整 `aria-label`。
+  - `frontend/src/styles/global.css` 将 `.task-menu-actions` 设为 `align-self: stretch`、`justify-content: flex-end`，让告警任务和普通信息任务的百分比/日期时间都落到真实右下角。
+  - `.task-menu-detail` 改为两行 line clamp、允许换行和任意位置断行，避免长采集异常详情只显示一行。
+- 远端验证：
+  - `10.20.11.3` Node 容器内运行 `src/components/AppLayout.test.tsx`，19 个测试通过。
+  - 已重建并 recreate `frontend`。
+  - `curl -fsSI http://127.0.0.1:8080` 返回 `HTTP/1.1 200 OK`。
+- 计划文件同步：`task_plan.md` Phase 27 已标记完成；`docs/superpowers/plans/2026-06-16-task-menu-four-zone-layout.md` 所有步骤已勾选。
+- 小错误记录：尝试用 `perl -0pi` 批量勾选计划文件时因临时文件创建受限失败，已改用 `apply_patch` 完成，没有影响源码。
+
+### 2026-06-16 任务中心步骤/日志提示与宽度收敛
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户反馈主详情悬停有 label，但下面框内步骤/日志显示不全且悬停没有完整 label；同时 UI 结构已经稳定，任务菜单宽度可以适当缩小。
+- 根因：主详情 `.task-menu-detail` 已有完整 `title/aria-label`，但 `task.steps` 和 `task.logs` 的内部 `<span>` 没有 `title/aria-label`；菜单宽度仍保留上一轮调大后的 520px。
+- 按 TDD 补远端红灯测试：要求步骤 `失败 校验镜像` 和日志 `镜像 sha256 不匹配：images/web-api.tar` 都能通过 `title` 找到并带有 `aria-label`；旧实现按预期失败。
+- 实现：
+  - `frontend/src/components/AppLayout.tsx` 给步骤行和日志行补完整 `title/aria-label`。
+  - `frontend/src/styles/global.css` 将 `.task-menu` 宽度从 `520px` 收敛到 `480px`，右侧列和四区布局不变。
+- 远端验证：
+  - `10.20.11.3` Node 容器内运行 `src/components/AppLayout.test.tsx`，19 个测试通过。
+  - 已重建并 recreate `frontend`。
+  - recreate 后首次 curl 遇到 nginx 刚启动的 `Recv failure: Connection reset by peer`，等待 3 秒复查返回 `HTTP/1.1 200 OK`。
+
+### 2026-06-16 撤销平台自检功能
+
+状态：已在 `10.20.11.3` 验证并重建
+
+- 用户明确要求去掉平台自检功能，原因是页面过重，并且采集失败会连带显示多个 critical/warning，现场观感复杂。
+- 移除范围：
+  - 后端 `/api/admin/system/self-check` GET/POST 路由。
+  - `backend/app/v2/self_check` 模块。
+  - `scripts/verify_platform.py` CLI。
+  - 升级成功后的 quick self-check 自动记录和 `升级后自检异常/升级后存在需关注项` 告警。
+  - 服务管理页 `平台自检` 卡片、快速自检/深度自检/报表验证按钮及样式。
+  - 对应后端、CLI、前端测试。
+- 保留范围：
+  - `DataQualityService` 和报表 `data_quality` 字段。
+  - 报表页、Word、Excel 的“数据质量说明”，用于解释报表可信度。
+  - 平台升级页已有的版本、服务状态、升级包和清理旧版本能力。
+- 文档收口：
+  - `task_plan.md` Phase 25 已改为撤销状态，不再把平台自检写成当前能力。
+  - README 中英文、部署文档、升级中心文档和 API 合同均说明自检面板/API/CLI 已移除。
+- 本地验证：
+  - `PYTHONPYCACHEPREFIX=/private/tmp/codex-pycache python3 -m py_compile backend/app/v2/api.py backend/app/v2/upgrade/service.py backend/app/v2/reports/export.py backend/tests/test_v2_upgrade.py` 通过。
+  - `git diff --check` 通过。
+  - 运行时代码残留扫描只剩 `ServicePage.test.tsx` 的负向断言。
+- 远端验证：
+  - 已同步到 `10.20.11.3:/opt/smartx-storage-forecast-v2`，并删除远端遗留的 `backend/app/v2/self_check`、`scripts/verify_platform.py`、`backend/tests/test_v2_self_check.py`、`backend/tests/test_verify_platform_cli.py`。
+  - 后端目标测试通过：使用 `nazawsze/smartx-hci-capacity-insight-web-api:v0.5.0` 挂载最新 `backend/app` 和 `backend/tests`，运行 `tests.test_v2_upgrade tests.test_v2_data_quality tests.test_v2_reports tests.test_v2_report_exports`，共 52 个测试通过。
+  - 前端目标测试通过：`src/pages/ServicePage.test.tsx src/pages/ReportsPage.test.tsx`，共 25 个测试通过。
+  - 已重建并 recreate `web-api`、`frontend`。
+  - `/api/system/health` 返回 `ok=true`、版本 `v0.5.0`、runner `v0.3.0`；frontend `8080` 返回 `HTTP/1.1 200 OK`。
+  - `/api/admin/system/self-check` 返回 `404 {"detail":"Not Found"}`。
+  - 重建后的 `web-api` 容器内不存在 `/app/app/v2/self_check`，且 `app.v2.self_check` 不可导入。
+
+### 2026-06-17 报表页顶部右侧紧凑信息栈实现
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 已将报表页顶部改为左侧 `集群预测报表` + 右侧紧凑信息栈。
+- 右侧信息栈包含 `历史样本窗口`、`容量增长速率`、`数据质量摘要` 三张卡片，不再被左侧报表卡片等高拉伸。
+- 已将数据质量摘要从左侧报表卡片移除，避免重复展示；右侧摘要只显示核心状态、实际窗口、缺采天数、样本状态和不完整集群。
+- 不完整集群按集群名显示，一行一个，不再显示 Tower 前缀。
+- 已更新 `ReportsPage.test.tsx` 覆盖：左侧不再包含数据质量摘要、右侧三张卡存在、缺少 `data_quality` 时显示未知状态。
+- 已清理旧左侧数据质量卡片 CSS 和未使用的 `dataQualitySampleHint`。
+- 本地轻量检查：`rg` 未发现旧类/未使用函数残留；`git diff --check` 通过。
+- 远端验证：
+  - 已同步 `ReportsPage.tsx`、`ReportsPage.test.tsx`、`global.css` 和计划文件到 `10.20.11.3:/opt/smartx-storage-forecast-v2`。
+  - 已在远端 Node 容器内运行 `src/pages/ReportsPage.test.tsx`，8 个测试通过。
+  - 已在远端重建并 recreate `frontend`。
+  - `http://10.20.11.3:8080` 返回 `HTTP/1.1 200 OK`。
+  - `http://10.20.11.3:8000/api/system/health` 返回 `ok=true`，版本为 `v0.5.0`，Runner 版本为 `v0.3.0`。
+- 视觉截图说明：本机缺少 `npx`，当前 Playwright CLI 包装器不可用；本轮未执行浏览器截图复核。
+
+### 2026-06-17 报表页右侧 KPI 卡两列修正
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户截图反馈右侧 `历史样本窗口` 和 `容量增长速率` 被竖向排列，未按预期各占一半。
+- 根因：`.report-side-stack` 只设置了 `display: grid`，没有定义两列，浏览器默认按单列布局。
+- 已将 `.report-side-stack` 改为 `repeat(2, minmax(0, 1fr))`，两张 KPI 卡位于同一行各占一半。
+- 已将 `.report-quality-summary-card` 设置为 `grid-column: 1 / -1`，数据质量摘要继续在下方跨两列。
+- 1280px 以下右侧栈保持两列；960px 以下沿用单列响应式。
+- 远端验证：
+  - `10.20.11.3` Node 容器内 `src/pages/ReportsPage.test.tsx` 8 个测试通过。
+  - 已重建并 recreate `frontend`。
+  - `http://10.20.11.3:8080` 返回 `HTTP/1.1 200 OK`。
+  - `/api/system/health` 返回 `ok=true`，版本为 `v0.5.0`。
+  - 线上 CSS 已确认包含 `.report-side-stack{grid-template-columns:repeat(2,minmax(0,1fr))}` 和 `.report-quality-summary-card{grid-column:1 / -1}`。
+
+### 2026-06-17 报表页预测卡等高与数据质量四窗口修正
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户截图反馈：
+  - `集群预测报表` 左侧卡片下方空白没有补齐到右侧 `数据质量摘要` 底线。
+  - `数据质量摘要` 需要按参考图拆成 4 个窗口，而不是标签流。
+- 已将 `.report-top-row` 改回 `align-items: stretch`，左侧预测报表卡随右侧区域等高拉伸。
+- 已将 `.report-forecast-card` 设置为纵向 flex 卡片，使空白自然留在卡片内部而不是页面外。
+- 已重构 `DataQualitySummary`：
+  - `实际采集窗口` 窗口：显示天数和起止日期。
+  - `缺采` 窗口：显示缺采天数和说明。
+  - `样本` 窗口：显示样本足够/不足和解释。
+  - `不完整集群` 窗口：显示不完整集群数量和集群名称，仍不显示 Tower 前缀。
+- 已更新 `ReportsPage.test.tsx`，断言数据质量摘要内存在 4 个 `.report-quality-window`。
+- 远端验证：
+  - `10.20.11.3` Node 容器内 `src/pages/ReportsPage.test.tsx` 8 个测试通过。
+  - 已重建并 recreate `frontend`。
+  - `http://10.20.11.3:8080` 返回 `HTTP/1.1 200 OK`。
+  - `/api/system/health` 返回 `ok=true`，版本为 `v0.5.0`。
+  - 线上 CSS 已确认包含 `.report-top-row{...align-items:stretch}`、`.report-quality-summary-grid{grid-template-columns:repeat(4,minmax(0,1fr))}` 和 `.report-quality-window{...}`。
+
+### 2026-06-17 数据质量摘要 2x2 窗口布局修正
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户反馈数据质量摘要内部 4 个窗口需要两两一行，每行两个窗口。
+- 已将 `.report-quality-summary-grid` 从 4 列改为 `repeat(2, minmax(0, 1fr))`。
+- 960px 以下继续保持两列，560px 以下降为单列。
+- `集群预测报表` 与右侧数据质量摘要底部齐平的规则保持不变：`.report-top-row` 仍为 `align-items: stretch`，`.report-forecast-card` 仍为纵向 flex。
+- 远端验证：
+  - `10.20.11.3` Node 容器内 `src/pages/ReportsPage.test.tsx` 8 个测试通过。
+  - 已重建并 recreate `frontend`。
+  - `http://10.20.11.3:8080` 返回 `HTTP/1.1 200 OK`。
+  - `/api/system/health` 返回 `ok=true`，版本为 `v0.5.0`。
+  - 线上 CSS 已确认包含 `.report-quality-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}`，且 `.report-top-row` 仍为 `align-items:stretch`。
+
+### 2026-06-17 数据质量状态标题口径修正
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户反馈右侧数据质量卡片不需要额外显示 `数据质量摘要` 标题，状态本身应作为卡片主标题。
+- 已移除报表页右侧数据质量卡片的外层 `Card title`，不再显示 `数据质量摘要`。
+- 已将数据质量状态文案统一为：`ok` 显示 `数据质量正常`，非 `ok` 或缺失数据质量字段统一显示 `数据质量需关注`。
+- 已更新 `ReportsPage.test.tsx`，先验证旧实现失败，再完成实现后在远端跑绿。
+- 远端验证：
+  - `10.20.11.3` Node 容器内 `src/pages/ReportsPage.test.tsx` 8 个测试通过。
+  - 已重建并 recreate `frontend`。
+  - `http://10.20.11.3:8080` 返回 `HTTP/1.1 200 OK`。
+  - `/api/system/health` 返回 `ok=true`，版本为 `v0.5.0`。
+
+### 2026-06-16 任务中心菜单宽度收敛与平台自检残留复查
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户反馈任务菜单仍有明显空白，截图中详情列和右侧百分比/日期列之间浪费空间。
+- 已将任务菜单宽度从 `480px` 收敛到 `420px`，移动端边距从 `32px` 收敛到 `24px`。
+- 已将任务卡片右侧状态列从 `112px` 收敛到 `78px`，列间距从 `16px` 收敛到 `8px`，左右 padding 从 `18px` 收敛到 `14px`。
+- 四区布局保持不变：左上标题、右上确认/X、左下详情和进度条、右下百分比和日期时间。
+- 已补前端测试守护任务菜单紧凑布局，避免后续又出现大块空白。
+- 本地验证：
+  - `git diff --check` 通过。
+  - 平台自检运行时代码残留扫描只剩 `ServicePage.test.tsx` 的负向断言。
+- 远端验证：
+  - `10.20.11.3` Node 容器内运行 `src/components/AppLayout.test.tsx src/pages/ServicePage.test.tsx`，共 39 个测试通过。
+  - 远端源码目录扫描平台自检残留，只剩服务管理页负向测试。
+  - 远端 `web-api` 容器内不存在 `/app/app/v2/self_check`，且 `app.v2.self_check` 不可导入。
+  - `/api/admin/system/self-check` 返回 `404 {"detail":"Not Found"}`。
+  - 已重建并 recreate `frontend`，最终 `http://127.0.0.1:8080` 返回 `HTTP/1.1 200 OK`。
+
+### 2026-06-15 任务中心日期位置优化
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户反馈告警日期放在详情正文里不容易看到，建议放到右下角，并且所有任务都需要显示日期。
+- 已将任务日期统一放到任务卡片右侧操作区底部：告警任务显示 `告警日期`，普通任务显示 `任务日期`。
+- 日期继续使用任务 `createdAt`，不受确认、已读或状态更新导致的 `updatedAt` 变化影响。
+- 已调整右侧操作区 CSS：上方显示进度/确认/移除按钮，下方右对齐显示日期。
+- 已补前端测试覆盖：告警日期位于 `.task-menu-actions`，普通成功任务也显示右下角任务日期。
+- 远端 `10.20.11.3` 前端目标测试通过：`AppLayout.test.tsx`，19 个测试通过。
+- 已在 `10.20.11.3` 重建并 recreate `frontend`，最终 `http://127.0.0.1:8080` 返回 `HTTP/1.1 200 OK`。
+
+### 2026-06-15 任务中心日期显示防截断优化
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户反馈右下角日期仍显示不全，并建议不要增加 `任务日期`、`告警日期` 字样。
+- 已将任务卡片右下角可见日期改为两行纯数字：第一行 `YYYY/M/D`，第二行 `HH:mm:ss`。
+- 已将 `任务日期/告警日期` 语义保留在 `title` 和 `aria-label`，不再占用可见宽度。
+- 已将日期块字体缩小到 9px、宽度收紧到 84px，减少与进度和操作按钮抢空间。
+- 远端 `10.20.11.3` 前端目标测试通过：`AppLayout.test.tsx`，19 个测试通过。
+- 已在 `10.20.11.3` 重建并 recreate `frontend`，最终 `http://127.0.0.1:8080` 返回 `HTTP/1.1 200 OK`。
+
+### 2026-06-15 任务中心标题行操作按钮优化
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户建议将告警任务的 `确认` 和 `X` 放到标题一行的最后，避免按钮挤占正文和日期区域。
+- 已将任务菜单标题行改为 `图标 + 标题 + 右侧按钮组`，`确认` 和 `X` 归入 `.task-menu-title-actions`。
+- 右侧区域现在只保留进度百分比和两行日期时间；标题过长时标题省略，按钮保持完整显示。
+- 已补前端测试覆盖：`确认任务告警` 和 `从任务中心移除` 按钮必须位于 `.task-menu-title-row` 内。
+- 远端 `10.20.11.3` 前端目标测试通过：`AppLayout.test.tsx`，19 个测试通过。
+- 已在 `10.20.11.3` 重建并 recreate `frontend`，最终 `http://127.0.0.1:8080` 返回 `HTTP/1.1 200 OK`。
+
+后续调整：
+
+- 用户进一步建议按钮放在 `100%` 上面更好；当前最新实现已采用右侧列布局，此标题行方案已被替代。
+
+### 2026-06-15 任务中心右侧列操作按钮优化
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户建议将 `确认` 和 `X` 放到右侧 `100%` 上方，形成更清楚的右侧操作列。
+- 已将任务菜单右侧改为自上而下：`确认 / X`、进度百分比、两行日期时间。
+- 标题行恢复只显示标题，减少右侧按钮对标题宽度的挤压。
+- 已补前端测试覆盖：`确认任务告警` 和 `从任务中心移除` 必须位于 `.task-menu-actions` 内，并且 DOM 顺序在 `100%` 前面。
+- 远端 `10.20.11.3` 前端目标测试通过：先用新测试验证旧标题行布局失败，再完成实现后 `AppLayout.test.tsx` 19 个测试通过。
+- 已在 `10.20.11.3` 重建并 recreate `frontend`，最终 `http://127.0.0.1:8080` 返回 `HTTP/1.1 200 OK`。
+
+### 2026-06-15 任务中心详情完整提示与按钮上移
+
+状态：已在 `10.20.11.3` 验证并重建前端
+
+- 用户反馈采集异常详情 `采集异常：重试 3/3 后仍有 1 个集群失败...` 显示不全，鼠标悬停也没有完整内容，并希望 `确认` 和 `X` 再往上放。
+- 根因：任务详情文本使用 ellipsis 省略，但详情节点没有完整 `title`；右侧操作列使用 `justify-content: flex-end`，导致按钮整体靠下。
+- 已将任务详情 `<small>` 增加 `task-menu-detail` class 和完整 `title`，鼠标悬停可看到完整失败说明。
+- 已将右侧 `.task-menu-actions` 改为顶部对齐，`确认 / X` 按钮贴近卡片顶部，下面依次显示 `100%` 和日期时间。
+- 已补前端测试覆盖：失败详情必须存在完整 `title`，并继续验证按钮位于右侧操作列且在 `100%` 前面。
+- 远端 `10.20.11.3` 前端目标测试通过：先用新测试验证旧实现失败，再完成实现后 `AppLayout.test.tsx` 19 个测试通过。
+- 已在 `10.20.11.3` 重建并 recreate `frontend`，最终 `http://127.0.0.1:8080` 返回 `HTTP/1.1 200 OK`。

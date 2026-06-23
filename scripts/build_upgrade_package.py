@@ -19,9 +19,9 @@ PRODUCT = "smartx-storage-forecast"
 DEFAULT_MIN_VERSION = "v0.5.0"
 RELEASE_NAMESPACE = "nazawsze"
 PLATFORM_IMAGES = [
-    ("web-api", "smartx-storage-forecast-web-api", "smartx-hci-capacity-insight-web-api", "images/web-api.tar", True),
-    ("collector-worker", "smartx-storage-forecast-collector-worker", "smartx-hci-capacity-insight-collector-worker", "images/collector-worker.tar", True),
-    ("frontend", "smartx-storage-forecast-frontend", "smartx-hci-capacity-insight-frontend", "images/frontend.tar", True),
+    ("web-api", "smartx-hci-capacity-insight-web-api", "images/web-api.tar", True),
+    ("collector-worker", "smartx-hci-capacity-insight-collector-worker", "images/collector-worker.tar", True),
+    ("frontend", "smartx-hci-capacity-insight-frontend", "images/frontend.tar", True),
 ]
 PROJECT_FILES = [
     "docker-compose.offline.yml",
@@ -89,7 +89,7 @@ def check_versions(version: str) -> None:
     if "smartx-hci-capacity-insight-upgrade-runner:${SMARTX_IMAGE_TAG" in offline_text:
         raise SystemExit("upgrade-runner must not use SMARTX_IMAGE_TAG.")
     upgrade_text = (ROOT / "docker-compose.upgrade.yml").read_text(encoding="utf-8")
-    for service, _, release_repository, _, _ in PLATFORM_IMAGES:
+    for service, release_repository, _, _ in PLATFORM_IMAGES:
         expected = release_image(release_repository, version)
         if expected not in upgrade_text:
             raise SystemExit(f"docker-compose.upgrade.yml missing {expected}.")
@@ -102,11 +102,23 @@ def release_image(repository: str, version: str) -> str:
 
 def docker_build(version: str, *, include_frontend: bool) -> None:
     services = ["web-api", "collector-worker"] + (["frontend"] if include_frontend else [])
-    run(["docker", "compose", "-f", "docker-compose.yml", "build", *services])
-    for service, local_repository, release_repository, _, _ in PLATFORM_IMAGES:
-        if service == "frontend" and not include_frontend:
-            continue
-        run(["docker", "tag", f"{local_repository}:local", release_image(release_repository, version)])
+    run(["docker", "compose", "-f", "docker-compose.yml", "build", *services], cwd=ROOT)
+
+
+def validate_release_images(version: str) -> None:
+    web_api_image = release_image("smartx-hci-capacity-insight-web-api", version)
+    marker = "SMARTX_V2_HEALTH_OK"
+    script = (
+        "from app.v2.main import app\n"
+        "paths={getattr(route, 'path', '') for route in app.routes}\n"
+        "import importlib.util\n"
+        "assert importlib.util.find_spec('app.v2.api') is not None, 'missing app.v2.api'\n"
+        "assert '/api/system/health' in paths, 'missing /api/system/health'\n"
+        f"print('{marker}')\n"
+    )
+    output = run(["docker", "run", "--rm", "--entrypoint", "python", web_api_image, "-c", script])
+    if marker not in output:
+        raise SystemExit(f"web-api image validation failed: {web_api_image} missing /api/system/health")
 
 
 def sha256_file(path: Path) -> str:
@@ -466,6 +478,7 @@ def build_package(
         check_versions(version)
     if build_images:
         docker_build(version, include_frontend=include_frontend_build)
+    validate_release_images(version)
 
     work = output_dir / f"smartx-capacity-insight-upgrade-{version}"
     package = output_dir / f"smartx-capacity-insight-upgrade-{version}.tar.gz"
@@ -475,7 +488,7 @@ def build_package(
     (work / "images").mkdir()
 
     manifest_images = []
-    for service, _, release_repository, rel_path, restart in PLATFORM_IMAGES:
+    for service, release_repository, rel_path, restart in PLATFORM_IMAGES:
         image = release_image(release_repository, version)
         target = work / rel_path
         run(["docker", "save", "-o", str(target), image])

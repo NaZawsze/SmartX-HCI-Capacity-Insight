@@ -15,7 +15,6 @@ RUNNER_VERSION_FILE = ROOT / 'RUNNER_VERSION'
 OUTPUT_DIR = Path('/data/upgrade-packages/components')
 PRODUCT = 'smartx-upgrade-runner'
 COMPONENT = 'upgrade-runner'
-LOCAL_IMAGE = 'smartx-storage-forecast-upgrade-runner:local'
 RELEASE_IMAGE_REPO = 'nazawsze/smartx-hci-capacity-insight-upgrade-runner'
 DEFAULT_MIN_VERSION = 'v0.1.0'
 
@@ -67,7 +66,6 @@ def build_package(version: str, min_version: str, output_dir: Path, build_image:
     image = f'{RELEASE_IMAGE_REPO}:{version}'
     if build_image:
         run(['docker', 'compose', '-f', 'docker-compose.yml', 'build', COMPONENT])
-        run(['docker', 'tag', LOCAL_IMAGE, image])
     else:
         run(['docker', 'image', 'inspect', image])
     verify_runner_image(image)

@@ -366,3 +366,42 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 修复策略：runner 组件 override 固定写入 `command: ["python", "-m", "app.upgrade_runner.main"]`，并增加回归测试断言不能包含 `app.upgrade.runner`。
 - 另一个状态质量问题：web-api 直执行 runner 自升级成功路径和 Runner engine 成功路径此前没有统一写入 `finished_at`；这不会阻止执行完成，但会让 `task.json` 作为权威记录不完整。
 - 修复后新 runner 组件升级任务 `upgrade-5703b1c5fe62f710` 和新 Prometheus 组件升级任务 `upgrade-28b02dbdd78e4502` 均为 `success`，steps/actions 全部完成，且 `finished_at` 有值。
+
+## Phase 24 采集重试与缺采标记发现
+
+- 当前采集失败默认没有自动重试；定时采集失败后只能等下一次定时或人工手动触发。
+- 旧采集服务是一处异常导致整轮失败，容易因为单个 Tower/集群失败而丢掉其他成功目标的数据。
+- 正确口径是目标级采集：成功目标立即更新 SQLite 当前态并进入本周期 Prometheus metrics；失败目标不写新样本、不把旧值伪装成本次采集结果。
+- 如果本周期只有部分目标成功，`collection_runs.status` 应为 `partial_failed`，任务中心按 warning 告警展示，标题为 `Tower/集群采集异常`。
+- 虚拟机趋势图来自 Prometheus `query_range`；失败目标没有当天新样本时，不能补 0 或复制前一天值，否则会误导为容量不变。
+- 趋势缺采判断应按 Tower/集群粒度，而不是全局状态；其他集群失败不能影响当前 VM 所属集群的趋势 freshness。
+- 前端趋势图需要用 null 断点断开缺采日连线，并显示 `非最新`、最近成功采集时间和缺采日期。
+
+## Phase 25 平台自检与升级后验收发现
+
+- 当前项目已经具备部署、采集、报表、迁移、升级和清理等核心能力，继续新增大功能前，更需要把“是否真的可用”变成可重复验证的产品能力。
+- 现有验收分散在手工 curl、Docker 命令、单测、页面点击和任务中心检查中；排障时容易遗漏某一层，例如 web-api 健康但 Prometheus 无新样本，或升级任务成功但报表导出失败。
+- 平台自检应同时覆盖服务健康、数据新鲜度、采集状态、Prometheus 样本、SQLite 当前态、任务中心、空间清理扫描和报表导出。
+- 自检需要区分轻量检查和深度检查：轻量检查只读、可频繁运行；深度检查允许生成一次测试报表或执行更多 Prometheus 查询，但仍不能删除数据或伪造样本。
+- 升级完成后的验收不应只看容器是否 running；应自动或手动触发同一套平台自检，并把结果记录到升级任务或系统状态里。
+- 服务管理页可以逐步演进为“运维控制台”：第一屏展示系统健康、数据新鲜度、最近采集和最近升级验收，具体清理/迁移/升级工具下沉到操作区。
+- 撤销决定：真实页面中平台自检把“最近采集失败”拆成采集 critical、数据一致性 critical、VM 趋势 warning、任务中心 warning，多处告警来自同一个根因，用户感知为功能过重。
+- 新口径：删除平台级自检面板/API/CLI/升级后自动记录；保留报表数据质量说明，因为它直接解释报表可信度，不作为全局运维告警面板。
+
+## Phase 26 P1 数据正确性发现
+
+- SQLite 保存当前态，Prometheus 保存历史趋势；如果 Prometheus 当前样本断裂，Dashboard、VM 趋势和报表仍可能读取到 SQLite 当前数据，从而让页面“看起来正常”，但趋势和预测结论已经不可信。
+- 单独检查 Prometheus 是否 healthy 不够，必须比较启用 Tower/集群范围内的 SQLite VM/集群数量与 Prometheus 当前 VM/集群 series 数。
+- 最近一次采集成功但 Prometheus 当前 VM 或集群样本为 0，应视为数据链路异常而不是普通缺采。
+- 报表需要主动解释数据可信度：实际采集窗口、缺采日期、样本是否足够、哪些集群数据不完整。否则客户容易把 14 天采集样本误读为完整 30/90/365 天窗口结论。
+- 数据质量说明只负责解释可信度和触发告警，不改变容量预测算法、增长榜算法，也不能补写或伪造 Prometheus 样本。
+- 当前实现采用 `DataQualityService` 聚合 SQLite 当前态、Prometheus 当前 series 和 `collection_runs` 采集记录，供报表 API、报表页、Word/Excel 导出复用。
+- 平台级 `SelfCheckService` 已撤销，升级流程不再自动触发 quick self-check，也不再生成 `升级后自检异常` 或 `升级后存在需关注项`。
+- 本机 Python 环境缺少 FastAPI 与 python-docx，API TestClient 和真实 DOCX/XLSX 导出需要放到远端容器验证；本地通过懒加载和 fake builder 保持单元测试轻量。
+
+## Phase 27 任务中心卡片 UI 发现
+
+- 用户最终确认任务中心卡片应按四区理解，而不是简单四列或按钮塞进标题行：左上图标+标题，右上确认/X，左下详情+进度条，右下百分比+日期时间。
+- 当前 `.task-menu-actions` 虽然位于右下 grid area，但 `justify-content:flex-start` 导致百分比和时间贴近右下区域顶部，视觉上不是右下角；普通信息任务也有同样问题。
+- 详情显示不全的直接原因是 `.task-menu-title-row strong, .task-menu-body small` 共用 `white-space: nowrap; overflow:hidden; text-overflow:ellipsis`，导致详情只能显示 1 行。
+- 合理收敛方案：详情默认显示 2 行，超出 line clamp；继续保留 `title` 和新增 `aria-label` 保存完整文本。不做展开/收起，避免任务中心高度变化和列表滚动再次复杂化。

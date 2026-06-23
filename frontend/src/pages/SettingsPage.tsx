@@ -13,7 +13,10 @@ const emptyForm = {
   verify_tls: true,
   enabled: true,
   collection_hour: 2,
-  collection_minute: 10
+  collection_minute: 10,
+  collection_retry_enabled: true,
+  collection_retry_interval_minutes: 15,
+  collection_retry_max_attempts: 3
 };
 
 export function SettingsPage() {
@@ -66,7 +69,10 @@ export function SettingsPage() {
       verify_tls: tower.verify_tls,
       enabled: tower.enabled,
       collection_hour: tower.collection_hour,
-      collection_minute: tower.collection_minute
+      collection_minute: tower.collection_minute,
+      collection_retry_enabled: tower.collection_retry_enabled ?? true,
+      collection_retry_interval_minutes: tower.collection_retry_interval_minutes ?? 15,
+      collection_retry_max_attempts: tower.collection_retry_max_attempts ?? 3
     });
     setMessage("");
   }
@@ -127,6 +133,7 @@ export function SettingsPage() {
             </label>
           </div>
           <div className="form-hint">按 24 小时制设置每天自动采集的触发时间，例如 02:10 表示每天凌晨 2 点 10 分执行。</div>
+          <RetryFields form={form} onChange={setForm} />
           <label className="checkbox-line">
             <input type="checkbox" checked={form.verify_tls} onChange={(event) => setForm({ ...form, verify_tls: event.target.checked })} />
             校验 TLS 证书
@@ -201,6 +208,7 @@ export function SettingsPage() {
                     </label>
                   </div>
                   <div className="form-hint">密码和 API Token 留空时保留原配置。采集时间按 24 小时制设置每天自动采集的触发时间。</div>
+                  <RetryFields form={editForm} onChange={setEditForm} />
                   <div className="tower-edit-options">
                     <label className="checkbox-line">
                       <input type="checkbox" checked={editForm.verify_tls} onChange={(event) => setEditForm({ ...editForm, verify_tls: event.target.checked })} />
@@ -265,7 +273,10 @@ function normalizeTowerUpdatePayload(payload: typeof emptyForm) {
     verify_tls: payload.verify_tls,
     enabled: payload.enabled,
     collection_hour: payload.collection_hour,
-    collection_minute: payload.collection_minute
+    collection_minute: payload.collection_minute,
+    collection_retry_enabled: payload.collection_retry_enabled,
+    collection_retry_interval_minutes: payload.collection_retry_interval_minutes,
+    collection_retry_max_attempts: payload.collection_retry_max_attempts
   };
   const password = cleanOptional(payload.password);
   const apiToken = cleanOptional(payload.api_token);
@@ -276,6 +287,42 @@ function normalizeTowerUpdatePayload(payload: typeof emptyForm) {
     next.api_token = apiToken;
   }
   return next;
+}
+
+function RetryFields({ form, onChange }: { form: typeof emptyForm; onChange: (form: typeof emptyForm) => void }) {
+  return (
+    <div className="collection-retry-fields">
+      <label className="checkbox-line">
+        <input type="checkbox" aria-label="启用采集失败重试" checked={form.collection_retry_enabled} onChange={(event) => onChange({ ...form, collection_retry_enabled: event.target.checked })} />
+        启用采集失败重试
+      </label>
+      <div className="form-pair">
+        <label>
+          重试间隔 - 分钟
+          <input
+            aria-label="重试间隔 - 分钟"
+            type="number"
+            min={1}
+            max={1440}
+            value={form.collection_retry_interval_minutes}
+            onChange={(event) => onChange({ ...form, collection_retry_interval_minutes: Number(event.target.value) })}
+          />
+        </label>
+        <label>
+          最大重试次数
+          <input
+            aria-label="最大重试次数"
+            type="number"
+            min={0}
+            max={10}
+            value={form.collection_retry_max_attempts}
+            onChange={(event) => onChange({ ...form, collection_retry_max_attempts: Number(event.target.value) })}
+          />
+        </label>
+      </div>
+      <div className="form-hint">定时采集失败时只重试失败 Tower/集群；默认每 15 分钟重试一次，最多重试 3 次。</div>
+    </div>
+  );
 }
 
 function cleanOptional(value: string): string | null {

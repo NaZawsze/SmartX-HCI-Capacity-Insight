@@ -153,7 +153,18 @@ export default function App() {
 
   return (
     <AppLayout activePage={activePage} onNavigate={setActivePage} onLogout={logout} summary={summary} scope={scope} onScopeChange={setScope} onSummary={handleSummary} tasks={tasks} onClearTasks={clearTasks} onTasksSeen={markTasksSeen} onTaskAck={acknowledgeTask} onTaskAction={handleTaskAction}>
-      {activePage === "dashboard" && <DashboardPage summary={summary} scope={scope} onSummary={handleSummary} onSelectVm={openVm} onOpenRiskReport={openRiskReport} onOpenRiskVms={openRiskVms} />}
+      {activePage === "dashboard" && (
+        <DashboardPage
+          summary={summary}
+          scope={scope}
+          onSummary={handleSummary}
+          onSelectVm={openVm}
+          onOpenRiskReport={openRiskReport}
+          onOpenRiskVms={openRiskVms}
+          addTask={addTask}
+          updateTask={updateTask}
+        />
+      )}
       {activePage === "vms" && (
         <VmsPage
           refreshKey={dataRefreshKey}

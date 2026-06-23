@@ -17,9 +17,11 @@ class InventoryService:
                 """
                 INSERT INTO towers (
                     name, base_url, username, password_encrypted, api_token_encrypted,
-                    verify_tls, enabled
+                    verify_tls, enabled, collection_hour, collection_minute,
+                    collection_retry_enabled, collection_retry_interval_minutes,
+                    collection_retry_max_attempts
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload.name,
@@ -29,6 +31,11 @@ class InventoryService:
                     encrypt_secret(payload.api_token, self.settings.secret_key),
                     int(payload.verify_tls),
                     int(payload.enabled),
+                    _clamp_int(payload.collection_hour, 0, 23, 2),
+                    _clamp_int(payload.collection_minute, 0, 59, 10),
+                    int(payload.collection_retry_enabled),
+                    _clamp_int(payload.collection_retry_interval_minutes, 1, 1440, 15),
+                    _clamp_int(payload.collection_retry_max_attempts, 0, 10, 3),
                 ),
             )
             tower_id = int(cursor.lastrowid)
@@ -71,9 +78,25 @@ class InventoryService:
             "username = ?",
             "verify_tls = ?",
             "enabled = ?",
+            "collection_hour = ?",
+            "collection_minute = ?",
+            "collection_retry_enabled = ?",
+            "collection_retry_interval_minutes = ?",
+            "collection_retry_max_attempts = ?",
             "updated_at = CURRENT_TIMESTAMP",
         ]
-        values: list[object] = [payload.name, payload.base_url, payload.username, int(payload.verify_tls), int(payload.enabled)]
+        values: list[object] = [
+            payload.name,
+            payload.base_url,
+            payload.username,
+            int(payload.verify_tls),
+            int(payload.enabled),
+            _clamp_int(payload.collection_hour, 0, 23, 2),
+            _clamp_int(payload.collection_minute, 0, 59, 10),
+            int(payload.collection_retry_enabled),
+            _clamp_int(payload.collection_retry_interval_minutes, 1, 1440, 15),
+            _clamp_int(payload.collection_retry_max_attempts, 0, 10, 3),
+        ]
         if payload.password:
             updates.append("password_encrypted = ?")
             values.append(encrypt_secret(payload.password, self.settings.secret_key))
@@ -167,6 +190,11 @@ class InventoryService:
             username=row["username"],
             verify_tls=bool(row["verify_tls"]),
             enabled=bool(row["enabled"]),
+            collection_hour=int(row["collection_hour"] if row["collection_hour"] is not None else 2),
+            collection_minute=int(row["collection_minute"] if row["collection_minute"] is not None else 10),
+            collection_retry_enabled=bool(row["collection_retry_enabled"] if row["collection_retry_enabled"] is not None else 1),
+            collection_retry_interval_minutes=int(row["collection_retry_interval_minutes"] if row["collection_retry_interval_minutes"] is not None else 15),
+            collection_retry_max_attempts=int(row["collection_retry_max_attempts"] if row["collection_retry_max_attempts"] is not None else 3),
             clusters=clusters,
         )
 
@@ -175,3 +203,11 @@ class InventoryService:
         if current:
             return current
         return decrypt_fernet_secret(value, self.settings.credential_key) or decrypt_fernet_secret(value, self.settings.secret_key)
+
+
+def _clamp_int(value: object, minimum: int, maximum: int, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return min(maximum, max(minimum, parsed))

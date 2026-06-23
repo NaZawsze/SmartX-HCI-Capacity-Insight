@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from app.v2.config import V2Settings
@@ -57,12 +58,14 @@ class VmService:
             for timestamp, value in range_values(series):
                 points.append({"timestamp": timestamp, "used_bytes": value})
         latest_names = self._latest_vm_names()
+        freshness = self._collection_freshness(tower_id=tower_id, cluster_id=cluster_id, start_ts=start, end_ts=end)
         return {
             "tower_id": tower_id,
             "cluster_id": cluster_id,
             "vm_id": vm_id,
             "vm_name": latest_names.get((tower_id, cluster_id, vm_id), vm_id),
             "points": points,
+            **freshness,
         }
 
     def detail(self, *, vm_id: str, tower_id: int, cluster_id: str) -> dict[str, Any]:
@@ -228,6 +231,43 @@ class VmService:
             rows = conn.execute(f"SELECT tower_id, cluster_id FROM clusters WHERE {' AND '.join(filters)}", params).fetchall()
         return {(int(row["tower_id"]), str(row["cluster_id"])) for row in rows}
 
+    def _collection_freshness(self, *, tower_id: int, cluster_id: str, start_ts: int, end_ts: int) -> dict[str, Any]:
+        with self.database.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT status, finished_at, started_at, success_targets_json, failed_targets_json
+                FROM collection_runs
+                WHERE COALESCE(finished_at, started_at) IS NOT NULL
+                ORDER BY COALESCE(finished_at, started_at) ASC, id ASC
+                """
+            ).fetchall()
+        latest_success_at: str | None = None
+        latest_status = "unknown"
+        gap_dates: list[str] = []
+        for row in rows:
+            event_at = row["finished_at"] or row["started_at"]
+            if _target_in_json(row["success_targets_json"], tower_id=tower_id, cluster_id=cluster_id):
+                latest_success_at = event_at
+                latest_status = "success"
+            if _target_in_json(row["failed_targets_json"], tower_id=tower_id, cluster_id=cluster_id):
+                latest_status = "failed"
+                date_label = _date_part(event_at)
+                if _timestamp_in_window(event_at, start_ts=start_ts, end_ts=end_ts) and date_label and date_label not in gap_dates:
+                    gap_dates.append(date_label)
+        if latest_status == "success":
+            freshness = "fresh"
+        elif latest_status == "failed":
+            freshness = "stale" if latest_success_at else "partial"
+        else:
+            freshness = "fresh"
+        return {
+            "latest_success_at": latest_success_at,
+            "latest_collection_status": latest_status,
+            "has_collection_gap": bool(gap_dates),
+            "gap_dates": gap_dates,
+            "data_freshness": freshness,
+        }
+
 
 def _vm_key(metric: dict[str, Any]) -> tuple[int, str, str]:
     return (int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""), str(metric.get("vm_id") or ""))
@@ -243,3 +283,44 @@ def _step_for_days(days: int) -> str:
     if days <= 30:
         return "6h"
     return "1d"
+
+
+def _target_in_json(value: str | None, *, tower_id: int, cluster_id: str) -> bool:
+    targets = _load_json(value)
+    return any(str(item.get("tower_id")) == str(tower_id) and str(item.get("cluster_id")) == cluster_id for item in targets)
+
+
+def _load_json(value: str | None) -> list[dict[str, Any]]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    return [item for item in parsed if isinstance(item, dict)] if isinstance(parsed, list) else []
+
+
+def _date_part(value: str | None) -> str | None:
+    if not value:
+        return None
+    return str(value).split("T", 1)[0].split(" ", 1)[0]
+
+
+def _timestamp_in_window(value: str | None, *, start_ts: int, end_ts: int) -> bool:
+    if not value:
+        return False
+    from datetime import datetime, timezone
+
+    text = str(value).replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        try:
+            parsed = datetime.strptime(str(value).split(".")[0], "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return True
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    start_date = datetime.fromtimestamp(start_ts, tz=timezone.utc).date()
+    end_date = datetime.fromtimestamp(end_ts, tz=timezone.utc).date()
+    return start_date <= parsed.date() <= end_date

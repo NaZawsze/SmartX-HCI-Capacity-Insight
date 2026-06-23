@@ -348,7 +348,12 @@ function normalizeVmTrend(payload: unknown, metric: string): VmTrend {
     points,
     tower_id: optionalNumber(raw.tower_id) ?? undefined,
     cluster_id: raw.cluster_id == null ? undefined : String(raw.cluster_id),
-    vm_name: raw.vm_name == null ? undefined : String(raw.vm_name)
+    vm_name: raw.vm_name == null ? undefined : String(raw.vm_name),
+    latest_success_at: raw.latest_success_at == null ? null : String(raw.latest_success_at),
+    latest_collection_status: raw.latest_collection_status == null ? "unknown" : String(raw.latest_collection_status),
+    has_collection_gap: Boolean(raw.has_collection_gap),
+    gap_dates: Array.isArray(raw.gap_dates) ? raw.gap_dates.map((item) => String(item)) : [],
+    data_freshness: raw.data_freshness == null ? "fresh" : String(raw.data_freshness)
   };
 }
 
@@ -415,8 +420,11 @@ export const api = {
       body: JSON.stringify(payload)
     });
   },
-  async runCollection(): Promise<{ run_id: number; status: string; message: string }> {
-    return request<{ run_id: number; status: string; message: string }>("/api/collection/run", { method: "POST" });
+  async runCollection(taskId?: string): Promise<{ run_id: number; status: string; message: string; task_id?: string }> {
+    return request<{ run_id: number; status: string; message: string; task_id?: string }>("/api/collection/run", {
+      method: "POST",
+      body: taskId ? JSON.stringify({ task_id: taskId }) : undefined
+    });
   },
   async vms(scope?: DashboardScope): Promise<MetricItem[]> {
     const params = scopedParams(scope);

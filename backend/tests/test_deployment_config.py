@@ -1,5 +1,6 @@
 from pathlib import Path
 import importlib.util
+import pytest
 
 
 def test_compose_mounts_runtime_artifacts_outside_app_data() -> None:
@@ -29,7 +30,7 @@ def test_upgrade_package_migrate_script_only_syncs_project_files(tmp_path) -> No
     spec.loader.exec_module(module)
 
     script_path = tmp_path / "migrate.sh"
-    module.write_migrate_script(script_path, "v0.5.0")
+    module.write_migrate_script(script_path, "v0.5.1")
     text = script_path.read_text(encoding="utf-8")
 
     assert "project_files = manifest.get(\"project_file_list\") or []" in text
@@ -42,14 +43,46 @@ def test_upgrade_package_migrate_script_only_syncs_project_files(tmp_path) -> No
     assert "copy_task_file_if_newer" not in text
 
 
+def test_platform_package_rejects_web_api_image_without_v2_health_route(tmp_path, monkeypatch) -> None:
+    root = Path(__file__).resolve().parents[2]
+    module_path = root / "scripts/build_upgrade_package.py"
+    spec = importlib.util.spec_from_file_location("build_upgrade_package", module_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def fake_run(command, cwd=module.ROOT):
+        if command[:2] == ["docker", "save"]:
+            output = Path(command[command.index("-o") + 1])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"fake image")
+            return ""
+        if command[:2] == ["docker", "run"]:
+            return "legacy app without v2 health"
+        return ""
+
+    monkeypatch.setattr(module, "run", fake_run)
+
+    with pytest.raises(SystemExit, match="/api/system/health"):
+        module.build_package(
+            "v0.5.1",
+            min_version="v0.5.1",
+            output_dir=tmp_path,
+            build_images=False,
+            include_frontend_build=False,
+            check_version_metadata=False,
+        )
+
+
 def test_compose_splits_platform_and_runner_versions() -> None:
     root = Path(__file__).resolve().parents[2]
-    for name in ("docker-compose.offline.yml", "docker-compose.release.yml"):
+    for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
         text = (root / name).read_text(encoding="utf-8")
-        assert "SMARTX_IMAGE_TAG:-v0.5.0" in text
+        assert "SMARTX_IMAGE_TAG:-v0.5.1" in text
         assert "SMARTX_RUNNER_IMAGE_TAG:-v0.3.0" in text
         assert "upgrade-runner:${SMARTX_IMAGE_TAG" not in text
         assert "SMARTX_IMAGE_TAG:-v0.4.0" not in text
+        assert ":local" not in text
 
 
 def test_compose_project_name_is_consistent_across_runtime_and_upgrade() -> None:
@@ -77,9 +110,9 @@ def test_deployment_docs_use_explicit_platform_and_runner_tags() -> None:
     assert "SMARTX_IMAGE_TAG=v0.3.1" not in text
     assert "nazawsze/smartx-hci-capacity-insight-web-api:latest" not in text
     assert "nazawsze/smartx-hci-capacity-insight-upgrade-runner:latest" not in text
-    assert "SMARTX_IMAGE_TAG=v0.5.0" in text
+    assert "SMARTX_IMAGE_TAG=v0.5.1" in text
     assert "SMARTX_RUNNER_IMAGE_TAG=v0.3.0" in text
-    assert "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.0" in text
+    assert "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.1" in text
     assert "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0" in text
 
 
@@ -154,9 +187,9 @@ def test_web_api_image_uses_slim_runtime_dependencies() -> None:
 def test_upgrade_override_uses_platform_release_images() -> None:
     root = Path(__file__).resolve().parents[2]
     text = (root / "docker-compose.upgrade.yml").read_text(encoding="utf-8")
-    assert "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.0" in text
-    assert "nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.0" in text
-    assert "nazawsze/smartx-hci-capacity-insight-frontend:v0.5.0" in text
+    assert "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.1" in text
+    assert "nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.1" in text
+    assert "nazawsze/smartx-hci-capacity-insight-frontend:v0.5.1" in text
     assert "smartx-storage-forecast-web-api:v0.4.0" not in text
 
 

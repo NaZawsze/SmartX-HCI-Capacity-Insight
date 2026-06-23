@@ -75,13 +75,17 @@ class V2UpgradeServiceTest(unittest.TestCase):
                 ),
                 filename="upgrade.tar.gz",
             )
+            expected_package_sha256 = hashlib.sha256((settings.upgrades_dir / task["task_id"] / "upgrade.tar.gz").read_bytes()).hexdigest()
 
             self.assertEqual(task["target_version"], "v2.0.0")
             self.assertEqual(task["components"], ["platform", "runner"])
             self.assertTrue(Path(task["package_path"]).is_dir())
+            self.assertEqual(task["package_sha256"], expected_package_sha256)
+            self.assertEqual(task["uploaded_sha256"], expected_package_sha256)
 
             precheck = service.precheck(task["task_id"])
             self.assertTrue(precheck["ok"])
+            self.assertEqual(precheck["package_sha256"], expected_package_sha256)
             self.assertEqual([check["name"] for check in precheck["checks"]], ["manifest", "paths", "images", "project_files"])
             self.assertTrue(all(check["ok"] for check in precheck["checks"]))
 
@@ -103,6 +107,10 @@ class V2UpgradeServiceTest(unittest.TestCase):
             stored_task = TaskService(database).get_task(task["task_id"])
             self.assertEqual(stored_task["status"], "success")
             self.assertTrue(stored_task["steps"])
+
+            verification = service.verification()
+            self.assertEqual(verification["package"]["sha256"], expected_package_sha256)
+            self.assertEqual(verification["package"]["filename"], "upgrade.tar.gz")
 
     def test_rollback_restores_project_files_and_removes_runtime_override(self) -> None:
         from app.v2.config import V2Settings

@@ -1,0 +1,10 @@
+# WithTask_DeleteNvmfNamespace_
+
+**Type:** object
+
+## Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `task_id` | string | No |  |
+| `data` | [DeleteNvmfNamespace](DeleteNvmfNamespace.md) | Yes |  |

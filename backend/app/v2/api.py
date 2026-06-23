@@ -5,7 +5,7 @@ from secrets import token_hex
 from typing import Annotated, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -75,6 +75,11 @@ class TowerPayload(BaseModel):
     api_token: Optional[str] = None
     verify_tls: bool = True
     enabled: bool = True
+    collection_hour: int = Field(default=2, ge=0, le=23)
+    collection_minute: int = Field(default=10, ge=0, le=59)
+    collection_retry_enabled: bool = True
+    collection_retry_interval_minutes: int = Field(default=15, ge=1, le=1440)
+    collection_retry_max_attempts: int = Field(default=3, ge=0, le=10)
 
 
 class ClusterResponse(BaseModel):
@@ -90,6 +95,11 @@ class TowerResponse(BaseModel):
     username: Optional[str]
     verify_tls: bool
     enabled: bool
+    collection_hour: int
+    collection_minute: int
+    collection_retry_enabled: bool
+    collection_retry_interval_minutes: int
+    collection_retry_max_attempts: int
     clusters: list[ClusterResponse]
 
 
@@ -103,6 +113,11 @@ class CollectionRunResponse(BaseModel):
     run_id: int
     status: str
     message: str
+    task_id: Optional[str] = None
+
+
+class CollectionRunRequest(BaseModel):
+    task_id: Optional[str] = None
 
 
 class VmTrendResponse(BaseModel):
@@ -111,6 +126,11 @@ class VmTrendResponse(BaseModel):
     vm_id: str
     vm_name: str
     points: list[dict]
+    latest_success_at: Optional[str] = None
+    latest_collection_status: str = "unknown"
+    has_collection_gap: bool = False
+    gap_dates: list[str] = []
+    data_freshness: str = "fresh"
 
 
 class TaskSeenRequest(BaseModel):
@@ -205,8 +225,9 @@ def get_collection_service(
     database: Annotated[V2Database, Depends(get_v2_database)],
     settings: Annotated[V2Settings, Depends(get_v2_settings)],
     cloudtower: Annotated[CloudTowerService, Depends(get_cloudtower_service)],
+    tasks: Annotated[TaskService, Depends(get_task_service)],
 ) -> CollectionService:
-    return CollectionService(database, settings, cloudtower_client=cloudtower)
+    return CollectionService(database, settings, cloudtower_client=cloudtower, tasks=tasks)
 
 
 def require_user(
@@ -229,6 +250,11 @@ def tower_response(tower) -> TowerResponse:
         username=tower.username,
         verify_tls=tower.verify_tls,
         enabled=tower.enabled,
+        collection_hour=tower.collection_hour,
+        collection_minute=tower.collection_minute,
+        collection_retry_enabled=tower.collection_retry_enabled,
+        collection_retry_interval_minutes=tower.collection_retry_interval_minutes,
+        collection_retry_max_attempts=tower.collection_retry_max_attempts,
         clusters=[ClusterResponse(cluster_id=cluster.cluster_id, name=cluster.name, enabled=cluster.enabled) for cluster in tower.clusters],
     )
 
@@ -298,6 +324,11 @@ def create_tower(
             api_token=payload.api_token,
             verify_tls=payload.verify_tls,
             enabled=payload.enabled,
+            collection_hour=payload.collection_hour,
+            collection_minute=payload.collection_minute,
+            collection_retry_enabled=payload.collection_retry_enabled,
+            collection_retry_interval_minutes=payload.collection_retry_interval_minutes,
+            collection_retry_max_attempts=payload.collection_retry_max_attempts,
         )
     )
     return tower_response(tower)
@@ -322,6 +353,11 @@ def update_tower(
                     api_token=payload.api_token,
                     verify_tls=payload.verify_tls,
                     enabled=payload.enabled,
+                    collection_hour=payload.collection_hour,
+                    collection_minute=payload.collection_minute,
+                    collection_retry_enabled=payload.collection_retry_enabled,
+                    collection_retry_interval_minutes=payload.collection_retry_interval_minutes,
+                    collection_retry_max_attempts=payload.collection_retry_max_attempts,
                 ),
             )
         )
@@ -394,9 +430,11 @@ def update_cluster(
 def run_collection(
     _: Annotated[CurrentUser, Depends(require_user)],
     collection: Annotated[CollectionService, Depends(get_collection_service)],
+    payload: Annotated[Optional[CollectionRunRequest], Body()] = None,
 ) -> CollectionRunResponse:
-    result = collection.run_manual_collection()
-    return CollectionRunResponse(run_id=result.run_id, status=result.status, message=result.message)
+    task_id = payload.task_id if payload else None
+    result = collection.run_manual_collection(task_id=task_id)
+    return CollectionRunResponse(run_id=result.run_id, status=result.status, message=result.message, task_id=task_id or f"collection-run-{result.run_id}")
 
 
 @router.get("/api/collection/runs")

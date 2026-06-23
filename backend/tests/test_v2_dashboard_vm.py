@@ -219,6 +219,62 @@ class V2DashboardVmTest(unittest.TestCase):
             self.assertIn('cluster_id="cluster-a"', prometheus.range_calls[-1]["query"])
             self.assertIn('vm_id="vm-1"', prometheus.range_calls[-1]["query"])
 
+    def test_vm_trend_marks_collection_gap_only_for_vm_cluster_scope(self) -> None:
+        from app.v2.vms.service import VmService
+
+        base_ts = 1_765_065_600  # 2025-12-07 00:00:00 UTC
+
+        class GapPrometheus(FakePrometheus):
+            def range(self, query: str, *, start: int, end: int, step: str):
+                self.range_calls.append({"query": query, "start": start, "end": end, "step": step})
+                return [{"metric": {"vm_id": "vm-1"}, "values": [[base_ts - 2 * 86400, "50"], [base_ts - 86400, "60"], [base_ts, "70"]]}]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            with db.connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO collection_runs (
+                        status, message, started_at, finished_at, trigger, success_targets_json, failed_targets_json
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "partial_failed",
+                        "cluster b failed",
+                        "2025-12-06 02:10:00",
+                        "2025-12-06 02:11:00",
+                        "scheduled",
+                        '[{"tower_id": 1, "tower_name": "Tower A", "cluster_id": "cluster-a", "cluster_name": "Cluster A"}]',
+                        '[{"tower_id": 1, "tower_name": "Tower A", "cluster_id": "cluster-b", "cluster_name": "Cluster B", "message": "failed"}]',
+                    ),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO collection_runs (
+                        status, message, started_at, finished_at, trigger, success_targets_json, failed_targets_json
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "partial_failed",
+                        "cluster a failed",
+                        "2025-12-07 02:10:00",
+                        "2025-12-07 02:11:00",
+                        "scheduled",
+                        '[{"tower_id": 1, "tower_name": "Tower A", "cluster_id": "cluster-b", "cluster_name": "Cluster B"}]',
+                        '[{"tower_id": 1, "tower_name": "Tower A", "cluster_id": "cluster-a", "cluster_name": "Cluster A", "message": "failed"}]',
+                    ),
+                )
+
+            trend = VmService(db, settings, prometheus=GapPrometheus(), now_ts=base_ts).trend(vm_id="vm-1", tower_id=1, cluster_id="cluster-a", days=7)
+
+            self.assertEqual(trend["latest_success_at"], "2025-12-06 02:11:00")
+            self.assertEqual(trend["latest_collection_status"], "failed")
+            self.assertEqual(trend["data_freshness"], "stale")
+            self.assertTrue(trend["has_collection_gap"])
+            self.assertEqual(trend["gap_dates"], ["2025-12-07"])
+
     def test_vm_list_and_dashboard_fall_back_to_sqlite_latest_when_prometheus_instant_is_empty(self) -> None:
         from app.v2.dashboard.service import DashboardService
         from app.v2.vms.service import VmService

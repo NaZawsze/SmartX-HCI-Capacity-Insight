@@ -5,6 +5,7 @@ interface TrendChartProps {
   points: [number, number][];
   referenceValue?: number;
   height?: number;
+  gapDates?: string[];
 }
 
 const gib = 1024 ** 3;
@@ -18,7 +19,7 @@ function dayLabel(timestampSeconds: number): string {
   return `${year}-${month}-${day}`;
 }
 
-function dailyPoints(points: [number, number][]): Array<[string, number]> {
+function dailyPoints(points: [number, number][], gapDates: string[] = []): Array<[string, number | null]> {
   const byDay = new Map<string, [number, number]>();
   for (const [timestamp, value] of points) {
     const label = dayLabel(timestamp);
@@ -27,9 +28,16 @@ function dailyPoints(points: [number, number][]): Array<[string, number]> {
       byDay.set(label, [timestamp, value]);
     }
   }
-  return [...byDay.entries()]
+  const values = [...byDay.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([label, [, value]]) => [label, value]);
+    .map(([label, [, value]]): [string, number | null] => [label, value]);
+  const knownLabels = new Set(values.map(([label]) => label));
+  for (const gapDate of gapDates) {
+    if (!knownLabels.has(gapDate)) {
+      values.push([gapDate, null]);
+    }
+  }
+  return values.sort(([left], [right]) => left.localeCompare(right));
 }
 
 function yAxisScale(values: number[], referenceValue = 0): { max: number; interval: number } {
@@ -59,16 +67,17 @@ function formatYAxisBytes(value: number): string {
   return `${Math.round(value / gib)} GiB`;
 }
 
-export function TrendChart({ points, referenceValue, height = 280 }: TrendChartProps) {
-  const data = dailyPoints(points);
-  const scale = yAxisScale(data.map(([, value]) => value), referenceValue);
+export function TrendChart({ points, referenceValue, height = 280, gapDates = [] }: TrendChartProps) {
+  const data = dailyPoints(points, gapDates);
+  const numericValues = data.map(([, value]) => value).filter((value): value is number => typeof value === "number");
+  const scale = yAxisScale(numericValues, referenceValue);
   const option = {
     grid: { left: 78, right: 24, top: 36, bottom: 42, containLabel: false },
     tooltip: {
       trigger: "axis",
       formatter(params: Array<{ axisValue: string; value: number }>) {
         const item = params[0];
-        return `${item.axisValue}<br/>${formatBytes(item.value)}`;
+        return item.value == null ? `${item.axisValue}<br/>采集缺失` : `${item.axisValue}<br/>${formatBytes(item.value)}`;
       }
     },
     xAxis: {
@@ -99,13 +108,14 @@ export function TrendChart({ points, referenceValue, height = 280 }: TrendChartP
         smooth: true,
         showSymbol: data.length <= 14,
         data: data.map(([, value]) => value),
+        connectNulls: false,
         areaStyle: { color: "rgba(22, 119, 255, 0.12)" },
         lineStyle: { color: "#1677ff", width: 2.5 }
       }
     ]
   };
 
-  if (!data.length) {
+  if (!numericValues.length) {
     return <div className="empty-chart">暂无趋势数据</div>;
   }
 

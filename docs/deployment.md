@@ -38,6 +38,8 @@ SMARTX_CORS_ORIGINS=*
 Production recommendations:
 
 - Change `SMARTX_SECRET_KEY`.
+- 定时采集失败时，平台按 Tower 配置只重试失败 Tower/集群；默认每 15 分钟重试一次，最多额外重试 3 次。
+- 部分 Tower/集群采集成功时，成功目标仍写入 SQLite 当前态和 Prometheus；失败目标不写新样本，虚拟机趋势图会显示缺采和 `非最新` 提示。
 - Change `SMARTX_CREDENTIAL_KEY`.
 - Change the platform password from the admin avatar menu after the first login.
 - Keep `.env` out of Git.
@@ -79,9 +81,9 @@ docker compose -f docker-compose.offline.yml --project-name smartx-storage-forec
 `docker-compose.offline.yml` sets `pull_policy: never` and uses explicit local version tags by default. Before starting, make sure these images exist on the target server:
 
 ```text
-nazawsze/smartx-hci-capacity-insight-web-api:v0.5.0
-nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.0
-nazawsze/smartx-hci-capacity-insight-frontend:v0.5.0
+nazawsze/smartx-hci-capacity-insight-web-api:v0.5.1
+nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.1
+nazawsze/smartx-hci-capacity-insight-frontend:v0.5.1
 nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0
 prom/prometheus:v2.55.1
 ```
@@ -99,7 +101,7 @@ Optional image variables for release or offline mode. Platform services and `upg
 
 ```text
 SMARTX_IMAGE_PREFIX=docker.io/nazawsze
-SMARTX_IMAGE_TAG=v0.5.0
+SMARTX_IMAGE_TAG=v0.5.1
 SMARTX_RUNNER_IMAGE_TAG=v0.3.0
 ```
 
@@ -200,6 +202,10 @@ After each successful collection:
 - Dashboard, VM trends, and reports can use the newest data.
 - Daily and monthly top-growing VM data is recalculated from the same growth logic.
 
+## 8.1 Operational Checks
+
+The previous heavyweight platform self-check panel and `scripts/verify_platform.py` CLI have been removed. After deployment or upgrade, use the service management page to check platform version, component version, container status, and cleanup scans. Report pages and exported Word/Excel files still include data quality notes based on the actual collection window, missing collection dates, and incomplete clusters.
+
 ## 9. Password Management
 
 Users can change their password in:
@@ -241,6 +247,13 @@ docker compose build
 docker compose up -d
 ```
 
+The default compose file builds and runs the same versioned image names used by
+upgrade packages. Platform services use `SMARTX_IMAGE_TAG` from `VERSION`
+(`v0.5.1` in this release), and `upgrade-runner` uses `SMARTX_RUNNER_IMAGE_TAG`
+from `RUNNER_VERSION` (`v0.3.0`). Do not switch runtime services back to
+`:local` tags, otherwise upgrade packages and the running compose state can
+drift.
+
 To rebuild only the frontend:
 
 ```bash
@@ -263,14 +276,27 @@ Package builders:
 python scripts/build_upgrade_package.py
 python scripts/build_runner_component_package.py --version v0.3.0
 python scripts/build_prometheus_component_package.py --version v2.55.1
-python scripts/build_bundle_upgrade_package.py --platform-version v0.5.0 --prometheus-version v2.55.1
+python scripts/build_bundle_upgrade_package.py --platform-version v0.5.1 --prometheus-version v2.55.1
 ```
 
-The official platform version for this release line is `v0.5.0`. Temporary package target versions used in a test environment do not change the release version documented here.
+The official platform version for this release line is `v0.5.1`. Temporary package target versions used in a test environment do not change the release version documented here.
 
 Every package requires `manifest.json` and `checksums.sha256`. Bundle packages contain `platform/` and `observability/` sections and do not contain Runner by default. Prometheus component and bundle packages do not export Prometheus historical data; they may reference a repository image tag, and include `prometheus.tar` only when explicitly built for offline image delivery. Never package `.env`, SQLite databases, Prometheus data blocks, backups, exports, credentials, or tokens.
 
-## 11. Security Checklist
+## 11. OVA Artifacts
+
+An OVA appliance image may be delivered for fresh deployment. The OVA is not an upgrade-center package and must not be uploaded to the service management upgrade page.
+
+Recommended OVA artifacts:
+
+```text
+smartx-capacity-insight-v0.5.1.ova
+smartx-capacity-insight-v0.5.1.ova.sha256
+```
+
+OVA exports must not contain production `.env`, SQLite databases, Prometheus data blocks, backups, exports, Tower credentials, tokens, or customer data. See [OVA 交付说明](ova-delivery.md) for the full checklist.
+
+## 12. Security Checklist
 
 - Do not commit `.env`.
 - Do not commit SQLite databases.

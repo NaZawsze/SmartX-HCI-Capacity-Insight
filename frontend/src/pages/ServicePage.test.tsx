@@ -27,7 +27,7 @@ const apiMock = vi.hoisted(() => ({
   deleteSqliteBackups: vi.fn(),
   scanUnusedImages: vi.fn(),
   cleanupUnusedImages: vi.fn(),
-  localStorageUsage: vi.fn()
+  localStorageUsage: vi.fn(),
 }));
 
 vi.mock("../services/api", async () => ({
@@ -128,6 +128,8 @@ function uploadedPlatformTask() {
     status: "uploaded",
     target_version: "v0.4.2",
     package_filename: "smartx-capacity-insight-upgrade-v0.4.2.tar.gz",
+    package_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    uploaded_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     restart_services: ["web-api", "collector-worker", "frontend"],
     database_migration: true,
     checks: [],
@@ -421,6 +423,7 @@ describe("ServicePage upgrade center", () => {
 
   it("shows platform status and runtime verification in one section", async () => {
     mockServicePageBootstrap();
+    apiMock.upgradeHistory.mockResolvedValue([uploadedPlatformTask()]);
     apiMock.upgradeVerification.mockResolvedValue({
       app_version: "v0.5.0",
       runner_version: "v0.3.0",
@@ -431,7 +434,7 @@ describe("ServicePage upgrade center", () => {
         task_id: "upgrade-ok",
         version: "v0.5.0",
         filename: "smartx-capacity-insight-upgrade-v0.5.0.tar.gz",
-        sha256: "abcdef1234567890abcdef"
+        sha256: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
       },
       services: [
         {
@@ -455,10 +458,26 @@ describe("ServicePage upgrade center", () => {
     expect(screen.getByText("观测组件版本")).toBeInTheDocument();
     expect(screen.getAllByText("v0.5.0").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("最近成功包")).toBeInTheDocument();
+    expect(screen.getByText("已选升级包 SHA256")).toBeInTheDocument();
+    expect(screen.getByText("0123456789ab...89abcdef")).toBeInTheDocument();
+    expect(screen.getByText("最近成功包 SHA256")).toBeInTheDocument();
+    expect(screen.getByText("abcdef123456...34567890")).toBeInTheDocument();
     expect(screen.getByText(/smartx-capacity-insight-upgrade-v0\.5\.0/)).toBeInTheDocument();
     expect(screen.getByText("web-api")).toBeInTheDocument();
     expect(screen.getByText("运行中")).toBeInTheDocument();
     expect(screen.queryByText("服务运行核验")).not.toBeInTheDocument();
+  });
+
+  it("does not render the removed platform self-check feature", async () => {
+    mockServicePageBootstrap();
+
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    expect(await screen.findByText("平台状态")).toBeInTheDocument();
+    expect(screen.queryByText("平台自检")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "快速自检" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "深度自检" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /深度自检并验证报表导出/ })).not.toBeInTheDocument();
   });
 
   it("renders component upgrade as selectable runner and prometheus component cards", async () => {

@@ -4,7 +4,7 @@
 
 **SmartX 超融合容量洞察平台**
 
-版本：`v0.5.0`
+版本：`v0.5.1`
 
 > 状态：本项目目前处于测试阶段，未经充分验证前不建议直接用于生产环境。
 
@@ -15,8 +15,9 @@ SmartX 超融合容量洞察平台面向 SmartX 超融合环境，用于采集 C
 ## 功能特性
 
 - 支持多 Tower、多集群容量概览。
-- 支持每日自动采集和手动触发采集。
+- 支持每日自动采集和手动触发采集；定时采集失败时可按 Tower 配置只重试失败 Tower/集群。
 - 虚拟机存储趋势支持 7 天、14 天、30 天、90 天、180 天和 365 天查看。
+- 虚拟机趋势可标记采集缺口和非最新数据，避免把缺采误判为容量不变。
 - 虚拟机列表支持按存储容量和虚拟机内部存储使用率排序。
 - 支持当前虚拟机卷明细和所有虚拟卷明细。
 - 支持日 Top 增长 VM、月 Top 增长 VM，并可按增长量或增长率排序。
@@ -24,6 +25,7 @@ SmartX 超融合容量洞察平台面向 SmartX 超融合环境，用于采集 C
 - 支持基于历史样本的集群容量预测报表，并联动展示集群容量趋势图。
 - 支持按全部、Tower 或单集群范围导出预测报表，自动生成 Word 和 Excel 文件。
 - 导出报表支持选择 7 天、14 天、30 天、90 天、180 天和 365 天历史窗口。
+- 报表页和 Word/Excel 客户版导出会显示数据质量说明，包括实际采集窗口、缺采天数、样本是否足够以及数据不完整集群。
 - 支持 Tower 级采集状态展示，平台密码可在管理员头像菜单中修改。
 
 ## 界面预览
@@ -114,18 +116,30 @@ Prometheus: http://<server-ip>:9090
 
 首次登录后建议点击右上角管理员头像，在 `设置密码` 中修改密码。
 
+## 数据质量
+
+较重的 `平台自检` 面板和 `scripts/verify_platform.py` 命令行工具已移除，服务管理页聚焦平台升级、组件升级、迁移和清理。平台升级页仍保留服务状态核验；报表页和 Word/Excel 导出继续保留更轻量的数据质量说明。
+
+数据质量检查会在报表上下文中比较 SQLite 当前态与 Prometheus 当前 series 数，识别最近采集成功但 Prometheus 无样本、启用集群缺少指标、VM series 数量差异过大等情况，并在报表 UI 和导出文件中展示实际采集窗口、缺采日期和数据不完整集群。
+
+## OVA 交付
+
+OVA 虚拟机模板可用于全新部署或演示环境交付。它与服务管理页的升级中心分开：升级中心只接受下面定义的 `.tar.gz` 升级包格式。
+
+OVA 文件名必须带正式平台版本，例如 `smartx-capacity-insight-v0.5.1.ova`，并同时提供 `.sha256` 校验文件。制品边界和安全检查见 [OVA 交付说明](docs/ova-delivery.md)。
+
 ## 离线升级包结构
 
 平台支持在服务管理页面上传离线 `.tar.gz` 升级包。升级包用于替换服务镜像，只有 manifest 选中了累计 SQLite 迁移步骤时才执行迁移脚本。升级包不应包含运行数据、`.env`、SQLite 数据库、Prometheus 数据、Tower 账号密码或其他敏感信息。
 
-版本口径：当前正式平台版本、源码版本、文档版本和常规镜像 tag 统一为 `v0.5.0`。临时测试升级包的目标版本只用于验证升级链路；除非同步更新 `VERSION`、发布说明和对外文档，否则不代表正式平台版本变化。
+版本口径：当前正式平台版本、源码版本、文档版本和常规镜像 tag 统一为 `v0.5.1`。临时测试升级包的目标版本只用于验证升级链路；除非同步更新 `VERSION`、发布说明和对外文档，否则不代表正式平台版本变化。
 
-兼容范围：`v0.5.0` 升级包仅面向 v2 升级流程，不支持从 v1 或 `v0.4.x` 原地升级；这些旧系统通过数据迁移兼容。在 v2 同架构内支持从最低受支持来源版本直升到后续受支持目标版本；升级包会自动包含来源版本到目标版本之间所有已登记的 SQLite 迁移步骤。
+兼容范围：`v0.5.1` 升级包仅面向 v2 升级流程，不支持从 v1 或 `v0.4.x` 原地升级；这些旧系统通过数据迁移兼容。在 v2 同架构内支持从最低受支持来源版本直升到后续受支持目标版本；升级包会自动包含来源版本到目标版本之间所有已登记的 SQLite 迁移步骤。
 
 平台升级包目录结构：
 
 ```text
-smartx-capacity-insight-v0.5.0-upgrade.tar.gz
+smartx-capacity-insight-v0.5.1-upgrade.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md                 # 可选
@@ -159,9 +173,9 @@ migrations/
   "minimum_runner_protocol": 1,
   "required_capabilities": ["backup.create", "image.load", "files.sync", "compose.apply", "rollback.restore"],
   "product": "smartx-storage-forecast",
-  "package_id": "smartx-capacity-insight-v0.5.0",
-  "version": "v0.5.0",
-  "min_version": "v0.5.0",
+  "package_id": "smartx-capacity-insight-v0.5.1",
+  "version": "v0.5.1",
+  "min_version": "v0.5.1",
   "package_type": "platform",
   "project_files": true,
   "database_migration": false,
@@ -174,7 +188,7 @@ migrations/
         {
           "service": "web-api",
           "archive": "images/web-api.tar",
-          "image": "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.0",
+          "image": "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.1",
           "sha256": "<sha256>"
         }
       ]
@@ -183,7 +197,7 @@ migrations/
 }
 ```
 
-没有选中迁移步骤的升级包，例如当前 `v0.5.0` 包，不包含 `migration`、`migration_steps` 或 `script.sandbox.v1`。如果跨过了未来 schema 变化版本，则包内包含 `migration_steps[]`，并为了兼容 `upgrade-runner v0.3.0` 保留 legacy `migration.script = migrations/run_migrations.py`。Runner 仍只执行一个沙箱脚本，由脚本按版本顺序执行所有命中的迁移步骤并写入 `schema_migrations`。
+没有选中迁移步骤的升级包，例如当前 `v0.5.1` 包，不包含 `migration`、`migration_steps` 或 `script.sandbox.v1`。如果跨过了未来 schema 变化版本，则包内包含 `migration_steps[]`，并为了兼容 `upgrade-runner v0.3.0` 保留 legacy `migration.script = migrations/run_migrations.py`。Runner 仍只执行一个沙箱脚本，由脚本按版本顺序执行所有命中的迁移步骤并写入 `schema_migrations`。
 
 普通平台升级包不建议在同一次升级任务中重启 `upgrade-runner`，避免中断正在执行升级的服务。如需替换 `upgrade-runner`，请使用组件升级包。
 
@@ -218,7 +232,7 @@ smartx-prometheus-v2.55.1.tar.gz
 平台和 Prometheus 需要在同一维护窗口升级时，可生成组合包：
 
 ```text
-smartx-capacity-insight-bundle-v0.5.0.tar.gz
+smartx-capacity-insight-bundle-v0.5.1.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md
@@ -232,7 +246,7 @@ smartx-capacity-insight-bundle-v0.5.0.tar.gz
     └── images/                         # 可选，仅离线 Prometheus 镜像包包含
 ```
 
-组合包由 Runner 按“备份、按需加载镜像、同步项目文件、沙箱迁移、分组件 recreate、健康检查”执行。组合包只是当前平台版本的一种交付形态，不改变平台版本号；默认不包含 Runner，也不包含 Prometheus 历史数据。构建命令为 `python scripts/build_bundle_upgrade_package.py --platform-version v0.5.0 --prometheus-version v2.55.1`。
+组合包由 Runner 按“备份、按需加载镜像、同步项目文件、沙箱迁移、分组件 recreate、健康检查”执行。组合包只是当前平台版本的一种交付形态，不改变平台版本号；默认不包含 Runner，也不包含 Prometheus 历史数据。构建命令为 `python scripts/build_bundle_upgrade_package.py --platform-version v0.5.1 --prometheus-version v2.55.1`。
 
 所有升级包都禁止包含 `.env`、`smartx.db`、Prometheus 历史数据目录、备份、导出文件、Tower 凭据、token 或其他现场数据。
 
@@ -275,6 +289,7 @@ sha256sum "$host_path"
 - [部署说明](docs/deployment.md)
 - [使用说明](docs/usage.md)
 - [API 参考](docs/api.md)
+- [OVA 交付说明](docs/ova-delivery.md)
 - [upgrade-runner 生命周期与组件升级策略](docs/upgrade-runner-lifecycle.md)
 - [版本治理说明](docs/version-governance.md)
 - [v0.2 更新说明](docs/releases/v0.2.md)

@@ -7,6 +7,7 @@ from statistics import median
 from typing import Any
 
 from app.v2.config import V2Settings
+from app.v2.data_quality.service import DataQualityService
 from app.v2.database import V2Database
 from app.v2.metrics.prometheus import PrometheusService
 from app.v2.metrics.series import labels_match, metric_value, range_values, scoped_query
@@ -110,6 +111,7 @@ class ReportService:
             "forecast_days": 90,
             "period_window": _period_window(self.now_ts, window_days),
             "data_window": _data_window_from_series(vm_series, cluster_series),
+            "data_quality": DataQualityService(self.database, self.settings, prometheus=self.prometheus, now_ts=self.now_ts).evaluate(tower_id=tower_id, cluster_id=cluster_id, period_days=window_days),
             "timezone": self.settings.timezone,
             "vm_growth_sample_bucket": {"min_days": 0, "max_days": window_days},
             "month_growth_min_sample_days": 0,

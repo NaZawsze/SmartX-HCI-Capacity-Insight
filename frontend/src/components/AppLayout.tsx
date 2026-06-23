@@ -308,47 +308,13 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
                     >
                       {visibleTasks.map((task) => (
                         <div className={`task-menu-item ${task.status}`} key={task.id}>
-                          <span className={`task-state-icon ${task.severity || "info"}`}>{taskStateIcon(task)}</span>
-                          <div>
-                            <strong>{task.title}</strong>
-                            <small>{task.detail || taskStatusText(task.status)}</small>
-                            {task.steps?.length ? (
-                              <div className="task-step-list">
-                                {task.steps.slice(0, 3).map((step) => (
-                                  <span className={`task-step ${step.status}`} key={`${task.id}-step-${step.key}`}>
-                                    {stepStatusText(step.status)} {step.title}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : null}
-                            {task.logs?.length ? (
-                              <div className="task-log-list">
-                                {task.logs.slice(-4).map((line, index) => (
-                                  <span key={`${task.id}-log-${index}`}>{line}</span>
-                                ))}
-                              </div>
-                            ) : null}
-                            {task.links?.length ? (
-                              <div className="task-link-row">
-                                {task.links.map((link) => {
-                                  const expired = isTaskLinkExpired(task, link, expiredTaskLinks);
-                                  return (
-                                    <span key={`${task.id}-${link.url}-${link.label}`} className="task-link-item">
-                                      <button type="button" title={link.path || link.filename || link.label} disabled={expired} onClick={() => downloadTaskLink(task, link)}>
-                                        {taskLinkButtonLabel(task, link)}
-                                      </button>
-                                      {expired ? <small>已失效</small> : null}
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            ) : null}
-                            <span className="task-progress" aria-label={`${task.progress}%`}>
-                              <span style={{ width: `${task.progress}%` }} />
-                            </span>
+                          <div className="task-menu-header-row">
+                            <span className={`task-state-icon ${task.severity || "info"}`}>{taskStateIcon(task)}</span>
+                            <div className="task-menu-title-row">
+                              <strong>{task.title}</strong>
+                            </div>
                           </div>
-                          <div className="task-menu-actions">
-                            <em>{Math.round(task.progress)}%</em>
+                          <div className="task-menu-controls">
                             {task.unhandled && task.severity !== "info" && onTaskAck ? (
                               <button
                                 className="task-ack-button"
@@ -375,6 +341,58 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
                                 <X size={18} strokeWidth={3} />
                               </button>
                             ) : null}
+                          </div>
+                          <div className="task-menu-body">
+                            <small
+                              className="task-menu-detail"
+                              title={task.detail || taskStatusText(task.status)}
+                              aria-label={task.detail || taskStatusText(task.status)}
+                            >
+                              {task.detail || taskStatusText(task.status)}
+                            </small>
+                            {task.steps?.length ? (
+                              <div className="task-step-list">
+                                {task.steps.slice(0, 3).map((step) => {
+                                  const stepLabel = `${stepStatusText(step.status)} ${step.title}`;
+                                  return (
+                                    <span className={`task-step ${step.status}`} key={`${task.id}-step-${step.key}`} title={stepLabel} aria-label={stepLabel}>
+                                      {stepLabel}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+                            {task.logs?.length ? (
+                              <div className="task-log-list">
+                                {task.logs.slice(-4).map((line, index) => (
+                                  <span key={`${task.id}-log-${index}`} title={line} aria-label={line}>
+                                    {line}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                            {task.links?.length ? (
+                              <div className="task-link-row">
+                                {task.links.map((link) => {
+                                  const expired = isTaskLinkExpired(task, link, expiredTaskLinks);
+                                  return (
+                                    <span key={`${task.id}-${link.url}-${link.label}`} className="task-link-item">
+                                      <button type="button" title={link.path || link.filename || link.label} disabled={expired} onClick={() => downloadTaskLink(task, link)}>
+                                        {taskLinkButtonLabel(task, link)}
+                                      </button>
+                                      {expired ? <small>已失效</small> : null}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+                            <span className="task-progress" aria-label={`${task.progress}%`}>
+                              <span style={{ width: `${task.progress}%` }} />
+                            </span>
+                          </div>
+                          <div className="task-menu-actions">
+                            <em>{Math.round(task.progress)}%</em>
+                            <TaskDate task={task} />
                           </div>
                         </div>
                       ))}
@@ -594,6 +612,21 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
   );
 }
 
+function TaskDate({ task }: { task: AppTask }) {
+  const taskTime = formatTaskTimeParts(task.createdAt);
+  const label = isAlertTask(task) ? "告警日期" : "任务日期";
+  return (
+    <small
+      className={isAlertTask(task) ? "task-date task-date-alert" : "task-date"}
+      title={`${label}：${taskTime.date} ${taskTime.time}`}
+      aria-label={`${label}：${taskTime.date} ${taskTime.time}`}
+    >
+      <span>{taskTime.date}</span>
+      <span>{taskTime.time}</span>
+    </small>
+  );
+}
+
 function taskStateIcon(task: AppTask) {
   if (task.status === "pending" || task.status === "running") return <ClipboardList size={14} />;
   if (task.severity === "critical") return <AlertCircle size={14} />;
@@ -653,8 +686,35 @@ function isClearableFromMenu(task: AppTask): boolean {
   return Boolean(task.clearable);
 }
 
+function isAlertTask(task: AppTask): boolean {
+  const severity = task.severity || "info";
+  return severity === "warning" || severity === "critical";
+}
+
 function isFinishedTask(task: AppTask): boolean {
   return task.status === "succeeded" || task.status === "failed" || task.status === "cancelled";
+}
+
+function formatTaskTimeParts(value: number): { date: string; time: string } {
+  const fallback = { date: "-", time: "-" };
+  if (!Number.isFinite(value)) return fallback;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Shanghai"
+  }).formatToParts(date);
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    date: `${byType.year}/${byType.month}/${byType.day}`,
+    time: `${byType.hour}:${byType.minute}:${byType.second}`
+  };
 }
 
 function taskLinkButtonLabel(task: AppTask, link: AppTaskLink): string {

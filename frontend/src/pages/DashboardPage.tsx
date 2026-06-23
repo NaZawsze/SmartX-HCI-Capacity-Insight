@@ -5,7 +5,7 @@ import { MetricCard } from "../components/MetricCard";
 import { StatusPill } from "../components/StatusPill";
 import { StorageBar } from "../components/StorageBar";
 import { api, formatBytes } from "../services/api";
-import type { DashboardScope, DashboardSummary, MetricItem } from "../types";
+import type { AppTask, DashboardScope, DashboardSummary, MetricItem } from "../types";
 
 interface DashboardPageProps {
   summary: DashboardSummary | null;
@@ -14,9 +14,11 @@ interface DashboardPageProps {
   onSelectVm: (vmId: string, vmName?: string) => void;
   onOpenRiskReport?: (scope: DashboardScope) => void;
   onOpenRiskVms?: (scope: DashboardScope) => void;
+  addTask?: (task: Omit<AppTask, "createdAt" | "updatedAt">) => void;
+  updateTask?: (id: string, patch: Partial<Omit<AppTask, "id" | "createdAt">>) => void;
 }
 
-export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRiskReport, onOpenRiskVms }: DashboardPageProps) {
+export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRiskReport, onOpenRiskVms, addTask, updateTask }: DashboardPageProps) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [growthSort, setGrowthSort] = useState<GrowthSortMode>("amount");
@@ -38,12 +40,46 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRis
   async function runCollection() {
     setLoading(true);
     setMessage("");
+    const localTaskId = `collection-run-local-${Date.now()}`;
+    addTask?.({
+      id: localTaskId,
+      kind: "download",
+      title: "执行采集",
+      detail: "正在采集 Tower/集群容量数据",
+      status: "running",
+      progress: 10,
+      severity: "info",
+      unhandled: false,
+      clearable: false,
+      links: [],
+      logs: ["开始采集启用 Tower/集群"],
+      steps: []
+    });
     try {
-      const result = await api.runCollection();
+      const result = await api.runCollection(localTaskId);
       setMessage(result.message);
+      updateTask?.(localTaskId, {
+        status: result.status === "success" ? "succeeded" : "failed",
+        progress: 100,
+        detail: result.message,
+        severity: result.status === "success" ? "info" : "warning",
+        unhandled: result.status !== "success",
+        clearable: true,
+        logs: [result.message]
+      });
       onSummary(await api.summary(scope));
     } catch (exc) {
-      setMessage(exc instanceof Error ? exc.message : "采集失败");
+      const errorMessage = exc instanceof Error ? exc.message : "采集失败";
+      setMessage(errorMessage);
+      updateTask?.(localTaskId, {
+        status: "failed",
+        progress: 100,
+        detail: errorMessage,
+        severity: "warning",
+        unhandled: true,
+        clearable: true,
+        logs: [errorMessage]
+      });
     } finally {
       setLoading(false);
     }

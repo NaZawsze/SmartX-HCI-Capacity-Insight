@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
-
 
 @dataclass(frozen=True)
 class PrometheusHealth:
@@ -16,7 +14,11 @@ class PrometheusService:
     def __init__(self, base_url: str, http_client: Any | None = None, timeout: float = 30.0) -> None:
         self.base_url = base_url.rstrip("/")
         self._owns_client = http_client is None
-        self._client = http_client or httpx.Client(base_url=self.base_url, timeout=timeout)
+        if http_client is None:
+            import httpx
+
+            http_client = httpx.Client(base_url=self.base_url, timeout=timeout)
+        self._client = http_client
 
     def close(self) -> None:
         if self._owns_client:

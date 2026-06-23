@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DashboardPage } from "./DashboardPage";
+import { api } from "../services/api";
 
 vi.mock("../services/api", async () => ({
   api: {
@@ -421,5 +422,55 @@ describe("DashboardPage", () => {
     const zbs = within(zbsCard);
     expect(zbs.getByText("容量未知集群")).toBeInTheDocument();
     expect(zbs.getByText("数据不足")).toBeInTheDocument();
+  });
+
+  it("adds and updates a task when manual collection runs", async () => {
+    vi.mocked(api.runCollection).mockResolvedValueOnce({ run_id: 88, status: "success", message: "采集完成：1 个集群，167 台虚拟机。" });
+    vi.mocked(api.summary).mockResolvedValueOnce({
+      kpis: { tower_count: 1, cluster_count: 1, vm_count: 167, used_bytes: 100, total_bytes: 200, used_ratio: 0.5 },
+      top_vms: [],
+      clusters: [],
+      towers: []
+    });
+    const addTask = vi.fn();
+    const updateTask = vi.fn();
+    render(
+      <DashboardPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 1, vm_count: 0, used_bytes: 0, total_bytes: 0, used_ratio: 0 },
+          top_vms: [],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSummary={vi.fn()}
+        onSelectVm={vi.fn()}
+        addTask={addTask}
+        updateTask={updateTask}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /立即采集/ }));
+
+    expect(addTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: expect.stringMatching(/^collection-run-local-/),
+        kind: "download",
+        title: "执行采集",
+        status: "running",
+        progress: 10,
+        detail: "正在采集 Tower/集群容量数据"
+      })
+    );
+    await waitFor(() => {
+      expect(updateTask).toHaveBeenCalledWith(
+        expect.stringMatching(/^collection-run-local-/),
+        expect.objectContaining({
+          status: "succeeded",
+          progress: 100,
+          detail: "采集完成：1 个集群，167 台虚拟机。"
+        })
+      );
+    });
   });
 });

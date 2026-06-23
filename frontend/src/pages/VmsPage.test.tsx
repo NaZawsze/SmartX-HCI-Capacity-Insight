@@ -15,6 +15,10 @@ vi.mock("../services/api", async () => ({
   formatBytes: (value: number | null | undefined) => `${value ?? 0} B`
 }));
 
+vi.mock("../components/TrendChart", () => ({
+  TrendChart: ({ gapDates = [] }: { gapDates?: string[] }) => <div data-testid="trend-chart" data-gap-dates={gapDates.join(",")} />
+}));
+
 describe("VmsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -52,6 +56,43 @@ describe("VmsPage", () => {
     expect(await screen.findByText("Root")).toBeInTheDocument();
     expect(screen.getAllByText("60 B").length).toBeGreaterThan(0);
     expect(screen.getByText("已使用 60.0%")).toBeInTheDocument();
+  });
+
+  it("shows stale collection warning and gap dates for vm trends", async () => {
+    apiMock.vms.mockResolvedValue([
+      {
+        metric: { tower_id: "1", cluster_id: "cluster-a", vm_id: "vm-1", vm: "VM One", cluster: "Cluster A" },
+        value: 70
+      }
+    ]);
+    apiMock.vmDetail.mockResolvedValue({
+      tower_id: 1,
+      cluster_id: "cluster-a",
+      vm_id: "vm-1",
+      vm_name: "VM One",
+      used_bytes: 70
+    });
+    apiMock.vmTrend.mockResolvedValue({
+      vm_id: "vm-1",
+      metric: "used",
+      latest_success_at: "2026-06-12 02:10:00",
+      latest_collection_status: "failed",
+      data_freshness: "stale",
+      has_collection_gap: true,
+      gap_dates: ["2026-06-13"],
+      points: [
+        [1765497600, 50],
+        [1765584000, 70]
+      ]
+    });
+    apiMock.vmVolumes.mockResolvedValue({ vm_id: "vm-1", volumes: [] });
+
+    render(<VmsPage scope={{ type: "cluster", towerId: 1, clusterId: "cluster-a" }} selectedVmId="vm-1" />);
+
+    expect(await screen.findByText("非最新")).toBeInTheDocument();
+    expect(screen.getByText(/当前集群最近一次成功采集：2026-06-12 02:10:00/)).toBeInTheDocument();
+    expect(screen.getByText(/缺采日期：2026-06-13/)).toBeInTheDocument();
+    expect(screen.getByTestId("trend-chart")).toHaveAttribute("data-gap-dates", "2026-06-13");
   });
 
   it("uses the selected vm metric scope when the page scope includes all clusters", async () => {
@@ -224,6 +265,9 @@ describe("VmsPage", () => {
               enabled: true,
               collection_hour: 2,
               collection_minute: 10,
+              collection_retry_enabled: true,
+              collection_retry_interval_minutes: 15,
+              collection_retry_max_attempts: 3,
               clusters: [
                 { cluster_id: "cluster-a", name: "Cluster A", enabled: true },
                 { cluster_id: "cluster-b", name: "Cluster B", enabled: true }

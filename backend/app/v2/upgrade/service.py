@@ -63,7 +63,14 @@ class UpgradeCommandExecutor:
 
 
 class UpgradeService:
-    def __init__(self, settings: V2Settings, tasks: TaskService, *, executor: UpgradeCommandExecutor | None = None, project_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        settings: V2Settings,
+        tasks: TaskService,
+        *,
+        executor: UpgradeCommandExecutor | None = None,
+        project_path: Path | None = None,
+    ) -> None:
         self.settings = settings
         self.tasks = tasks
         self.executor = executor or UpgradeCommandExecutor()
@@ -81,6 +88,7 @@ class UpgradeService:
         package_path.mkdir(parents=True, exist_ok=True)
         upload_path = task_dir / Path(filename).name
         upload_path.write_bytes(content)
+        uploaded_sha256 = _sha256_file(upload_path)
         try:
             with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
                 _validate_members(archive)
@@ -99,6 +107,8 @@ class UpgradeService:
             "filename": Path(filename).name,
             "package_path": str(package_path),
             "uploaded_path": str(upload_path),
+            "uploaded_sha256": uploaded_sha256,
+            "package_sha256": uploaded_sha256,
             "created_at": _now().isoformat(),
             "checks": [],
         }
@@ -301,6 +311,7 @@ class UpgradeService:
                 "task_id": latest_package.get("task_id"),
                 "version": latest_package.get("target_version"),
                 "filename": latest_package.get("package_filename"),
+                "sha256": latest_package.get("package_sha256") or latest_package.get("uploaded_sha256"),
                 "uploaded_at": latest_package.get("uploaded_at"),
                 "finished_at": latest_package.get("finished_at"),
             }
@@ -550,6 +561,7 @@ class UpgradeService:
             task["logs"] = logs
             task["updated_at"] = _now().isoformat()
             task["finished_at"] = task["updated_at"]
+            task["logs"] = logs
             _save_task_file(task_dir, task)
             self.tasks.update_task(task_id, status=TaskStatus.SUCCESS, progress=100, message="升级执行完成", logs=logs, steps=steps)
         except Exception as exc:
@@ -577,6 +589,7 @@ class UpgradeService:
         task["logs"] = logs
         task["updated_at"] = _now().isoformat()
         task["finished_at"] = task["updated_at"]
+        task["logs"] = logs
         _save_task_file(task_dir, task)
         self.tasks.update_task(task_id, status=TaskStatus.SUCCESS, progress=100, message="组件升级执行完成", logs=logs, steps=steps)
         return self._public_task(task)
@@ -611,7 +624,6 @@ class UpgradeService:
             logs=list(task.get("logs") or []),
             steps=steps,
         )
-
     def _public_task(self, task: dict[str, Any]) -> dict[str, Any]:
         public = dict(task)
         public["task_id"] = str(task.get("task_id") or "")
@@ -620,6 +632,8 @@ class UpgradeService:
             public["status"] = "running"
         public["package_filename"] = task.get("filename") or task.get("package_filename")
         public["uploaded_at"] = task.get("created_at") or task.get("uploaded_at")
+        public["package_sha256"] = task.get("package_sha256") or task.get("uploaded_sha256") or _task_package_sha256(task)
+        public["uploaded_sha256"] = task.get("uploaded_sha256") or public["package_sha256"]
         checks = task.get("checks") or []
         public["precheck_ok"] = task.get("status") == "precheck_passed" or (bool(checks) and all(check.get("ok") for check in checks))
         public["checks"] = task.get("checks") or []
@@ -784,6 +798,23 @@ def _check_package_checksums(package_path: Path) -> dict[str, Any]:
     except (OSError, ValueError) as exc:
         return {"name": "checksums", "ok": False, "message": str(exc)}
     return {"name": "checksums", "ok": True, "message": f"升级包文件校验通过，共 {len(entries)} 项"}
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _task_package_sha256(task: dict[str, Any]) -> str:
+    uploaded = task.get("uploaded_path")
+    if uploaded:
+        path = Path(str(uploaded))
+        if path.is_file():
+            return _sha256_file(path)
+    return str(task.get("package_sha256") or task.get("uploaded_sha256") or "")
 
 
 def _check_images(package_path: Path, manifest: dict[str, Any]) -> dict[str, Any]:

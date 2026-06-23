@@ -21,6 +21,9 @@ export interface Tower {
   enabled: boolean;
   collection_hour: number;
   collection_minute: number;
+  collection_retry_enabled: boolean;
+  collection_retry_interval_minutes: number;
+  collection_retry_max_attempts: number;
   last_error?: string | null;
   clusters: Cluster[];
 }
@@ -125,6 +128,11 @@ export interface VmTrend {
   tower_id?: number;
   cluster_id?: string;
   vm_name?: string;
+  latest_success_at?: string | null;
+  latest_collection_status?: string;
+  has_collection_gap?: boolean;
+  gap_dates?: string[];
+  data_freshness?: "fresh" | "stale" | "partial" | string;
 }
 
 export interface VmDetail {
@@ -203,6 +211,49 @@ export interface ForecastPayload {
   chart_days?: number;
   growth_rate_window_days?: number;
   forecast_days?: number;
+  period_window?: {
+    days?: number;
+    start_at?: string;
+    end_at?: string;
+  };
+  data_window?: {
+    start_at?: string;
+    end_at?: string;
+  };
+  data_quality?: DataQuality;
+}
+
+export interface DataQuality {
+  status: "ok" | "warning" | "critical" | "unknown" | string;
+  actual_data_window?: {
+    start_at?: string;
+    end_at?: string;
+    days?: number;
+  };
+  requested_window?: {
+    days?: number;
+    start_at?: string;
+    end_at?: string;
+  };
+  sample_sufficient?: boolean;
+  missing_collection_dates?: string[];
+  incomplete_clusters?: Array<{
+    tower_id?: number | string | null;
+    tower?: string | null;
+    cluster_id?: string | null;
+    cluster?: string | null;
+    reason?: string | null;
+  }>;
+  sqlite_vm_count?: number;
+  prometheus_vm_series_count?: number;
+  sqlite_cluster_count?: number;
+  prometheus_cluster_series_count?: number;
+  vm_count_difference?: number;
+  vm_count_difference_ratio?: number;
+  latest_collection_status?: string | null;
+  latest_success_at?: string | null;
+  latest_prometheus_sample_at?: string | null;
+  messages?: string[];
 }
 
 export interface GrowthVmReport {
@@ -239,6 +290,8 @@ export interface UpgradeTask {
   rollback_started_at?: string;
   rollback_finished_at?: string;
   package_filename?: string;
+  package_sha256?: string;
+  uploaded_sha256?: string;
   backup_path?: string;
   kind?: string;
   component?: string;

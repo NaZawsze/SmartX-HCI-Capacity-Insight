@@ -1,9 +1,9 @@
-import { CalendarClock, Download, TrendingUp } from "lucide-react";
+import { ArrowUpRight, CalendarClock, Download, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "../components/Card";
 import { ClusterCapacityChart } from "../components/ClusterCapacityChart";
 import { api, formatBytes } from "../services/api";
-import type { AppTask, DashboardScope, DashboardSummary, ForecastPayload, GrowthVmReport } from "../types";
+import type { AppTask, DashboardScope, DashboardSummary, DataQuality, ForecastPayload, GrowthVmReport } from "../types";
 
 const VM_ALERT_RATIO = 0.2;
 const VM_ALERT_BYTES = 100 * 1024 ** 3;
@@ -134,12 +134,19 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
     }
   }
 
-  const dayTopVms = sortGrowthReports(report?.day_fastest_growing_vms || report?.fastest_growing_vms || [], dayGrowthSort).slice(0, 50);
-  const monthTopVms = sortGrowthReports(report?.month_fastest_growing_vms || [], monthGrowthSort).slice(0, 50);
+  const rawDayGrowthVms = report?.day_fastest_growing_vms || report?.fastest_growing_vms || [];
+  const rawMonthGrowthVms = report?.month_fastest_growing_vms || [];
+  const dayTopVms = sortGrowthReports(rawDayGrowthVms.filter((item) => hasSampleSpan(item, 1)), dayGrowthSort).slice(0, 50);
+  const monthTopVms = sortGrowthReports(rawMonthGrowthVms.filter((item) => hasSampleSpan(item, 30)), monthGrowthSort).slice(0, 50);
+  const dayGrowthEmptyText = rawDayGrowthVms.length && !dayTopVms.length ? "日样本不足" : "暂无增长数据";
+  const monthGrowthEmptyText = rawMonthGrowthVms.length && !monthTopVms.length ? "月样本不足" : "暂无增长数据";
+  const monthMissingCollectionDays = report?.data_quality?.missing_collection_dates?.length ?? 0;
+  const showMonthMissingBadge = monthTopVms.length > 0 && monthMissingCollectionDays > 0;
   const dayNewVms = (report?.day_new_vms || []).slice(0, 20);
   const monthNewVms = (report?.month_new_vms || []).slice(0, 20);
   const clusterGrowthRate = clusterGrowthRates(report);
   const selectedClusterLabel = selectedCluster === "all" ? "全部集群" : clusterOptions.find((item) => item.value === selectedCluster)?.label || "集群";
+  const dataQuality = report?.data_quality;
 
   return (
     <div className="report-layout">
@@ -193,22 +200,28 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
           </div>
         </Card>
 
-        <Card title="历史样本窗口">
-          <div className="forecast-window">
-            <CalendarClock size={44} />
-            <strong>{report?.window_days || 30} 天</strong>
-            <span>用于预测报表计算</span>
-          </div>
-        </Card>
+        <div className="report-side-stack">
+          <Card title="历史样本窗口" className="report-side-card report-kpi-card">
+            <div className="forecast-window compact-forecast-window">
+              <CalendarClock size={30} />
+              <strong>{report?.window_days || 30} 天</strong>
+              <span>用于预测报表计算</span>
+            </div>
+          </Card>
 
-        <Card title="容量增长速率" subtitle={`${report?.growth_rate_window_days || 7} 天平均`}>
-          <div className="forecast-window growth-window">
-            <TrendingUp size={44} />
-            <strong>{formatBytes(clusterGrowthRate.perDay)}/天</strong>
-            <span>{formatBytes(clusterGrowthRate.perMonth)}/月</span>
-            <span>{formatBytes(clusterGrowthRate.perQuarter)}/季度</span>
-          </div>
-        </Card>
+          <Card title="容量增长速率" subtitle={`${report?.growth_rate_window_days || 7} 天平均`} className="report-side-card report-kpi-card">
+            <div className="forecast-window compact-forecast-window growth-window">
+              <TrendingUp size={30} />
+              <strong>{formatBytes(clusterGrowthRate.perDay)}/天</strong>
+              <span>{formatBytes(clusterGrowthRate.perMonth)}/月</span>
+              <span>{formatBytes(clusterGrowthRate.perQuarter)}/季度</span>
+            </div>
+          </Card>
+
+          <Card className={`report-side-card report-quality-summary-card ${dataQualityClass(dataQuality?.status || "unknown")}`}>
+            <DataQualitySummary quality={dataQuality} />
+          </Card>
+        </div>
       </div>
 
       <Card title="集群容量趋势" subtitle="实际容量、预测趋势与容量阈值" className="cluster-chart-card">
@@ -221,7 +234,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
             <div className="export-dialog-head">
               <div>
                 <strong id="export-dialog-title">导出报表</strong>
-                <span>选择增长统计时间区间，将同时导出 Word 和 Excel。</span>
+                <span>选择增长统计时间区间，将同时导出 Word 和 Excel。{dataQuality ? `当前${dataQualityStatusLabel(dataQuality.status)}，导出文件会包含数据质量说明。` : ""}</span>
               </div>
             </div>
             <div className="period-options" role="radiogroup" aria-label="导出时间区间">
@@ -266,17 +279,25 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
                 onClick={() => onSelectVm(item.labels.vm_id, item.labels.vm || item.labels.vm_id)}
               >
                 <span>{item.labels.vm || item.labels.vm_id}</span>
-                <strong>{formatGrowthValue(item, dayGrowthSort, "天")}</strong>
+                <strong className="growth-strong">
+                  <ArrowUpRight size={14} />
+                  {formatGrowthValue(item, dayGrowthSort, "天")}
+                </strong>
               </button>
             ))}
-            {!dayTopVms.length && <div className="empty-state">暂无增长数据</div>}
+            {!dayTopVms.length && <div className="empty-state">{dayGrowthEmptyText}</div>}
           </div>
         </Card>
 
         <Card
           title="月增长最快 VM"
           subtitle={`${summary?.kpis.vm_count ?? 0} 台中 ${monthTopVms.length || 0} 台增长`}
-          action={<GrowthSortTabs value={monthGrowthSort} onChange={setMonthGrowthSort} />}
+          action={
+            <div className="growth-card-actions">
+              {showMonthMissingBadge && <span className="growth-missing-badge">缺采 {monthMissingCollectionDays} 天</span>}
+              <GrowthSortTabs value={monthGrowthSort} onChange={setMonthGrowthSort} />
+            </div>
+          }
         >
           <div className="list-table growth-scroll auto-scrollbar">
             {monthTopVms.map((item) => (
@@ -287,10 +308,13 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
                 onClick={() => onSelectVm(item.labels.vm_id, item.labels.vm || item.labels.vm_id)}
               >
                 <span>{item.labels.vm || item.labels.vm_id}</span>
-                <strong>{formatGrowthValue(item, monthGrowthSort, "月")}</strong>
+                <strong className="growth-strong">
+                  <ArrowUpRight size={14} />
+                  {formatGrowthValue(item, monthGrowthSort, "月")}
+                </strong>
               </button>
             ))}
-            {!monthTopVms.length && <div className="empty-state">暂无增长数据</div>}
+            {!monthTopVms.length && <div className="empty-state">{monthGrowthEmptyText}</div>}
           </div>
         </Card>
 
@@ -354,8 +378,103 @@ function GrowthSortTabs({ value, onChange }: { value: GrowthSortMode; onChange: 
   );
 }
 
+function DataQualitySummary({ quality }: { quality?: DataQuality }) {
+  const status = quality?.status || "unknown";
+  const missingCount = quality?.missing_collection_dates?.length ?? 0;
+  const incompleteCount = quality?.incomplete_clusters?.length ?? 0;
+  const windowInfo = dataQualityWindowInfo(quality);
+  const incompleteClusters = formatIncompleteClusterNames(quality);
+  return (
+    <div className={`report-quality-summary ${dataQualityClass(status)}`}>
+      <div className="report-quality-summary-head">
+        <strong>{dataQualityStatusLabel(status)}</strong>
+        <span>{dataQualityMessage(quality)}</span>
+      </div>
+      <div className="report-quality-summary-grid">
+        <div className="report-quality-window">
+          <strong>实际采集窗口</strong>
+          <span>{windowInfo.daysLabel}</span>
+          <small>{windowInfo.startLabel}</small>
+          <small>{windowInfo.endLabel}</small>
+        </div>
+        <div className="report-quality-window">
+          <strong>缺采 {missingCount} 天</strong>
+          <small>{missingCount > 0 ? "统计窗口存在缺采日期" : "未发现缺采日期"}</small>
+        </div>
+        <div className="report-quality-window">
+          <strong>样本{dataQualitySampleLabel(quality)}</strong>
+          <small>{dataQualitySampleHint(quality)}</small>
+        </div>
+        <div className="report-quality-window">
+          <strong>不完整集群 {incompleteCount} 个</strong>
+          <div className="report-quality-clusters">
+            {incompleteClusters.map((cluster, index) => (
+              <small title={cluster} key={`${cluster}-${index}`}>
+                {cluster}
+              </small>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function dataQualityClass(status: string): string {
+  if (status === "critical") return "critical";
+  if (status === "warning") return "warning";
+  if (status === "ok") return "ok";
+  return "unknown";
+}
+
+function dataQualityStatusLabel(status?: string): string {
+  if (status === "ok") return "数据质量正常";
+  return "数据质量需关注";
+}
+
+function dataQualityMessage(quality?: DataQuality): string {
+  if (!quality) return "当前报表接口未返回数据质量字段，导出时将按未知状态兼容。";
+  if (quality.messages?.length) return quality.messages[0];
+  if (quality.status === "ok") return "当前报表范围内未发现明显数据缺口。";
+  if (quality.status === "critical") return "趋势和预测结果仅供排障参考，不建议直接作为容量决策依据。";
+  if (quality.status === "warning") return "趋势与预测结论需结合实际采集窗口理解。";
+  return "当前报表未包含完整数据质量检查结果。";
+}
+
+function dataQualityWindowInfo(quality?: DataQuality): { daysLabel: string; startLabel: string; endLabel: string } {
+  const window = quality?.actual_data_window;
+  if (!window?.start_at || !window?.end_at) {
+    return { daysLabel: "未知", startLabel: "暂无开始时间", endLabel: "暂无结束时间" };
+  }
+  return {
+    daysLabel: window.days ? `${window.days} 天` : "未知",
+    startLabel: `${window.start_at.slice(0, 10)} 至`,
+    endLabel: window.end_at.slice(0, 10)
+  };
+}
+
+function dataQualitySampleLabel(quality?: DataQuality): string {
+  if (typeof quality?.sample_sufficient !== "boolean") return "未知";
+  return quality.sample_sufficient ? "足够" : "不足";
+}
+
+function dataQualitySampleHint(quality?: DataQuality): string {
+  if (typeof quality?.sample_sufficient !== "boolean") return "未返回样本状态";
+  return quality.sample_sufficient ? "满足当前统计窗口" : "需结合实际窗口理解";
+}
+
+function formatIncompleteClusterNames(quality?: DataQuality): string[] {
+  const clusters = quality?.incomplete_clusters || [];
+  if (!clusters.length) return ["未发现不完整集群"];
+  return clusters.map((item, index) => item.cluster || item.cluster_id || `未知集群 ${index + 1}`);
+}
+
 function sortGrowthReports(items: GrowthVmReport[], mode: GrowthSortMode): GrowthVmReport[] {
   return [...items].sort((left, right) => growthSortValue(right, mode) - growthSortValue(left, mode));
+}
+
+function hasSampleSpan(item: GrowthVmReport, minDays: number): boolean {
+  return item.sample_span_days == null || item.sample_span_days >= minDays;
 }
 
 function VmListCard({

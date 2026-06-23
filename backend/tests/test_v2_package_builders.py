@@ -24,6 +24,8 @@ def _load_script(name: str):
 
 
 def _fake_docker_run(command: list[str], cwd: Path = ROOT) -> str:
+    if command[:2] == ["docker", "run"]:
+        return "SMARTX_V2_HEALTH_OK\n"
     if command[:2] == ["docker", "save"] and "-o" in command:
         output = Path(command[command.index("-o") + 1])
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -50,8 +52,8 @@ class V2PackageBuilderTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             package = builder.build_package(
-                "v0.5.0",
-                min_version="v0.5.0",
+                "v0.5.1",
+                min_version="v0.5.1",
                 output_dir=Path(tmpdir),
                 build_images=False,
                 include_frontend_build=False,
@@ -65,9 +67,9 @@ class V2PackageBuilderTest(unittest.TestCase):
         self.assertEqual(manifest["minimum_runner_protocol"], 1)
         self.assertIn("backup.create", manifest["required_capabilities"])
         self.assertNotIn("script.sandbox.v1", manifest["required_capabilities"])
-        self.assertEqual(manifest["package_id"], "smartx-capacity-insight-v0.5.0")
-        self.assertEqual(manifest["version"], "v0.5.0")
-        self.assertEqual(manifest["compatibility"]["min_platform_version"], "v0.5.0")
+        self.assertEqual(manifest["package_id"], "smartx-capacity-insight-v0.5.1")
+        self.assertEqual(manifest["version"], "v0.5.1")
+        self.assertEqual(manifest["compatibility"]["min_platform_version"], "v0.5.1")
         self.assertIs(manifest["project_files"], True)
         self.assertIs(manifest["database_migration"], False)
         self.assertNotIn("migration", manifest)
@@ -109,7 +111,7 @@ class V2PackageBuilderTest(unittest.TestCase):
             )
             package = builder.build_package(
                 "v0.5.3",
-                min_version="v0.5.0",
+                min_version="v0.5.1",
                 output_dir=Path(tmpdir),
                 build_images=False,
                 include_frontend_build=False,
@@ -405,9 +407,9 @@ class V2PackageBuilderTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             package = builder.build_package(
-                platform_version="v0.5.0",
+                platform_version="v0.5.1",
                 prometheus_version="v2.55.1",
-                min_platform_version="v0.5.0",
+                min_platform_version="v0.5.1",
                 min_prometheus_version="v2.55.1",
                 output_dir=Path(tmpdir),
                 build_platform_images=False,
@@ -479,7 +481,7 @@ class V2PackageBuilderTest(unittest.TestCase):
             package = builder.build_package(
                 platform_version="v0.5.3",
                 prometheus_version="v2.55.1",
-                min_platform_version="v0.5.0",
+                min_platform_version="v0.5.1",
                 min_prometheus_version="v2.55.1",
                 output_dir=tmp,
                 build_platform_images=False,
@@ -537,9 +539,9 @@ class V2PackageBuilderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             with self.assertRaises(RuntimeError) as caught:
                 builder.build_package(
-                    platform_version="v0.5.0",
+                    platform_version="v0.5.1",
                     prometheus_version="v2.55.1",
-                    min_platform_version="v0.5.0",
+                    min_platform_version="v0.5.1",
                     min_prometheus_version="v2.55.1",
                     output_dir=Path(tmpdir),
                     build_platform_images=False,

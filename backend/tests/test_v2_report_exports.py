@@ -124,6 +124,32 @@ class FakeReportService:
             "forecast_days": 90,
             "period_window": {"days": period_days, "start_at": "2026-05-01T00:00:00+08:00", "end_at": "2026-05-31T00:00:00+08:00"},
             "data_window": {"start_at": "2026-05-22T13:00:00+00:00", "end_at": "2026-06-06T19:00:00+00:00"},
+            "data_quality": {
+                "status": "warning",
+                "actual_data_window": {"start_at": "2026-05-22T13:00:00+00:00", "end_at": "2026-06-06T19:00:00+00:00", "days": 16},
+                "requested_window": {"days": period_days, "start_at": "2026-05-01T00:00:00+08:00", "end_at": "2026-05-31T00:00:00+08:00"},
+                "sample_sufficient": False,
+                "missing_collection_dates": ["2026-06-02"],
+                "incomplete_clusters": [
+                    {
+                        "tower_id": 1,
+                        "tower": "Tower A",
+                        "cluster_id": "cluster-a",
+                        "cluster": "Cluster A",
+                        "reason": "prometheus_cluster_sample_missing",
+                    }
+                ],
+                "sqlite_vm_count": 2,
+                "prometheus_vm_series_count": 1,
+                "sqlite_cluster_count": 2,
+                "prometheus_cluster_series_count": 1,
+                "vm_count_difference": 1,
+                "vm_count_difference_ratio": 0.5,
+                "latest_collection_status": "partial_failed",
+                "latest_success_at": "2026-06-06T19:00:00+00:00",
+                "latest_prometheus_sample_at": "2026-06-06T19:00:00+00:00",
+                "messages": ["当前报表存在样本不足、缺采或部分集群样本不完整，趋势与预测结论需结合实际采集窗口理解。"],
+            },
             "timezone": "Asia/Shanghai",
         }
 
@@ -231,6 +257,12 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("客户名称", word_xml)
             self.assertIn("Tower范围", word_xml)
             self.assertIn("集群范围", word_xml)
+            self.assertIn("数据质量说明", word_xml)
+            self.assertIn("实际采集窗口", word_xml)
+            self.assertIn("样本是否足够", word_xml)
+            self.assertIn("缺采天数", word_xml)
+            self.assertIn("数据不完整集群", word_xml)
+            self.assertIn("当前报表存在样本不足、缺采或部分集群样本不完整", word_xml)
             self.assertIn("本报表统计窗口", word_xml)
             self.assertIn("全部集群（2 个）", word_xml)
             self.assertNotIn("SmartX 超融合平台", word_xml)
@@ -654,6 +686,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
 
             self.assertIn("封面", workbook.sheetnames)
             self.assertIn("执行摘要", workbook.sheetnames)
+            self.assertIn("数据质量说明", workbook.sheetnames)
             self.assertIn("容量趋势", workbook.sheetnames)
             self.assertIn("VM增长TOP100", workbook.sheetnames)
             self.assertIn("日增长详情", workbook.sheetnames)
@@ -675,6 +708,13 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("集群范围：全部集群（2 个）", workbook_text)
             self.assertIn("近 14 天样本增长", workbook_text)
             self.assertIn("近两周增长 VM", workbook_text)
+            self.assertIn("数据质量说明", workbook_text)
+            self.assertIn("总体状态", workbook_text)
+            self.assertIn("SQLite 当前 VM 数", workbook_text)
+            self.assertIn("Prometheus 当前 VM series 数", workbook_text)
+            self.assertIn("差异比例", workbook_text)
+            self.assertIn("2026-06-02", workbook_text)
+            self.assertIn("prometheus_cluster_sample_missing", workbook_text)
             self.assertIn("810.00 GiB", workbook_text)
             self.assertIn("1.06 TiB", workbook_text)
             self.assertIn("64 天", workbook_text)
@@ -761,6 +801,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             [
                 "封面",
                 "执行摘要",
+                "数据质量说明",
                 "容量趋势",
                 "VM增长TOP100",
                 "日增长详情",
@@ -787,6 +828,12 @@ class V2ReportExportDocumentTest(unittest.TestCase):
         self.assertAlmostEqual(summary.column_dimensions["D"].width, 38.83203125)
         self.assertEqual(summary.row_dimensions[2].height, 38)
         self.assertEqual(summary["A5"].font.sz, 18)
+
+        quality = workbook["数据质量说明"]
+        self.assertEqual(quality.freeze_panes, "A4")
+        self.assertEqual(quality["A1"].value, "数据质量说明")
+        self.assertGreaterEqual(quality.column_dimensions["A"].width, 24)
+        self.assertGreaterEqual(quality.column_dimensions["B"].width, 44)
 
         trend = workbook["容量趋势"]
         self.assertEqual(trend.freeze_panes, "A4")
@@ -871,7 +918,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
         self.assertIsNone(day_sheet.sheet_properties.tabColor)
 
         self.assertEqual(
-            workbook.sheetnames[4:7],
+            workbook.sheetnames[5:8],
             ["日增长详情", "月增长详情", "本日新建VM"],
         )
         month_sheet = workbook["月增长详情"]

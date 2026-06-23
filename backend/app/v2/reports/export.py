@@ -203,6 +203,8 @@ def build_report_xlsx(report: dict[str, Any], settings: V2Settings, *, period_da
     workbook = _load_customer_xlsx_template()
     _write_xlsx_template_cover(workbook["封面"], report, context, settings)
     _write_xlsx_template_summary(workbook["执行摘要"], report, context, clusters, settings, profile)
+    quality_sheet = _get_or_create_sheet_after(workbook, "数据质量说明", after="执行摘要")
+    _write_xlsx_data_quality_sheet(quality_sheet, report, context)
     _write_xlsx_template_capacity_trend(workbook["容量趋势"], report, context, clusters, profile)
     top_sheet = workbook["VM增长TOP20"] if "VM增长TOP20" in workbook.sheetnames else _get_or_create_sheet(workbook, "VM增长TOP100")
     top_sheet.title = "VM增长TOP100"
@@ -1244,6 +1246,46 @@ def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: 
         sheet.row_dimensions[row_index].height = 30
 
 
+def _write_xlsx_data_quality_sheet(sheet, report: dict[str, Any], context: dict[str, Any]) -> None:
+    _reset_xlsx_sheet_rows(sheet)
+    quality = _report_data_quality(report)
+    summary_rows = _data_quality_summary_rows(report, quality)
+    sheet.append(["数据质量说明"])
+    sheet.append([_data_quality_status_message(quality)])
+    sheet.append(["指标", "说明"])
+    for label, value in summary_rows:
+        sheet.append([label, value])
+
+    incomplete_clusters = quality.get("incomplete_clusters") or []
+    start_row = sheet.max_row + 2
+    sheet.cell(row=start_row, column=1).value = "数据不完整集群"
+    sheet.cell(row=start_row + 1, column=1).value = "Tower"
+    sheet.cell(row=start_row + 1, column=2).value = "集群"
+    sheet.cell(row=start_row + 1, column=3).value = "原因"
+    if incomplete_clusters:
+        for item in incomplete_clusters:
+            sheet.append([
+                item.get("tower") or item.get("tower_id") or "-",
+                item.get("cluster") or item.get("cluster_id") or "-",
+                item.get("reason") or "-",
+            ])
+    else:
+        sheet.append(["-", "-", "当前报表范围内未发现明显数据不完整集群"])
+
+    _style_customer_xlsx_table(sheet, title_rows={1, 2, start_row}, header_rows={3, start_row + 1})
+    _merge_title_row(sheet, 1, 1, 3)
+    _merge_title_row(sheet, 2, 1, 3)
+    _merge_title_row(sheet, start_row, 1, 3)
+    sheet.freeze_panes = "A4"
+    sheet.column_dimensions["A"].width = 24
+    sheet.column_dimensions["B"].width = 44
+    sheet.column_dimensions["C"].width = 58
+    sheet.row_dimensions[1].height = 30
+    sheet.row_dimensions[2].height = 52
+    for row_index in range(4, sheet.max_row + 1):
+        sheet.row_dimensions[row_index].height = 28
+
+
 def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dict[str, Any], profile: ReportPeriodProfile) -> None:
     _reset_xlsx_sheet_rows(sheet)
     window_label = _vm_sample_window_label(vms, report)
@@ -2216,6 +2258,7 @@ def _customer_add_executive_summary(document: Document, context: dict[str, Any],
         paragraph.paragraph_format.left_indent = Inches(0.24)
         paragraph.paragraph_format.space_after = Pt(7)
         _customer_add_emphasis_text(paragraph, finding)
+    _customer_add_data_quality_summary(document, context["report"])
 
 
 def _customer_add_cluster_overview(document: Document, context: dict[str, Any], clusters: list[dict[str, Any]], vm_counts: dict[tuple[str, str], int]) -> None:
@@ -2294,6 +2337,37 @@ def _customer_add_risk_and_advice(document: Document, context: dict[str, Any], c
             body.paragraph_format.space_after = Pt(5)
             _customer_add_emphasis_text(body, item, base_size=10)
     _customer_table_note(document, "声明：本报告基于平台采集容量数据自动生成，预测结果基于历史增长趋势推算，仅供容量规划参考。")
+
+
+def _customer_add_data_quality_summary(document: Document, report: dict[str, Any]) -> None:
+    quality = _report_data_quality(report)
+    _customer_subtitle(document, "数据质量说明")
+    _customer_table_note(document, _data_quality_status_message(quality))
+    rows = _data_quality_summary_rows(report, quality)
+    table = document.add_table(rows=1, cols=2)
+    table.style = "Table Grid"
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    _v1_set_table_width(table, [3000, 5200])
+    _customer_set_blue_headers(table.rows[0].cells, ["项目", "说明"])
+    for index, (label, value) in enumerate(rows, start=1):
+        row = table.add_row().cells
+        _v1_set_cell(row[0], label, fill=ACCENT_LIGHT, color=ACCENT_DARK, bold=True, font_size=9)
+        _v1_set_cell(row[1], value, color=TEXT_DARK, font_size=9)
+        if index % 2 == 0:
+            _v1_shade_row(row, ACCENT_SOFT)
+        _prevent_row_split(table.rows[-1])
+
+    incomplete_clusters = quality.get("incomplete_clusters") or []
+    if incomplete_clusters:
+        cluster_rows = []
+        for item in incomplete_clusters[:10]:
+            cluster_rows.append(
+                f"{item.get('tower') or item.get('tower_id') or '-'} / "
+                f"{item.get('cluster') or item.get('cluster_id') or '-'}：{item.get('reason') or '-'}"
+            )
+        if len(incomplete_clusters) > 10:
+            cluster_rows.append(f"其余 {len(incomplete_clusters) - 10} 个集群请在报表页数据质量说明中查看。")
+        _customer_table_note(document, "数据不完整集群：" + "；".join(cluster_rows))
 
 
 def _customer_advice_title(document: Document, title: str) -> None:
@@ -2577,6 +2651,85 @@ def _profile_sample_notice(report: dict[str, Any], profile: ReportPeriodProfile)
         if actual_days < profile.days:
             return f"说明：当前实际采集样本约 {actual_days} 天，{profile.window_growth_label} 已按当前可用样本窗口计算。"
     return f"说明：{profile.window_growth_label} 按当前统计窗口样本计算；如采集历史不足对应天数，则按可用样本窗口计算。"
+
+
+def _report_data_quality(report: dict[str, Any]) -> dict[str, Any]:
+    quality = report.get("data_quality")
+    return quality if isinstance(quality, dict) else {"status": "unknown", "messages": ["当前报表未包含数据质量检查结果。"]}
+
+
+def _data_quality_status_message(quality: dict[str, Any]) -> str:
+    status = str(quality.get("status") or "unknown")
+    if status == "ok":
+        return "当前报表范围内未发现明显数据缺口。"
+    if status == "warning":
+        return "当前报表存在样本不足、缺采或部分集群样本不完整，趋势与预测结论需结合实际采集窗口理解。"
+    if status == "critical":
+        return "当前数据质量异常，趋势和预测结果仅供排障参考，不建议直接作为容量决策依据。"
+    messages = quality.get("messages") or []
+    return str(messages[0]) if messages else "当前报表未包含数据质量检查结果。"
+
+
+def _data_quality_status_label(quality: dict[str, Any]) -> str:
+    status = str(quality.get("status") or "unknown")
+    return {"ok": "数据质量正常", "warning": "数据质量需关注", "critical": "数据质量异常"}.get(status, "数据质量未知")
+
+
+def _data_quality_summary_rows(report: dict[str, Any], quality: dict[str, Any]) -> list[tuple[str, str]]:
+    missing_dates = quality.get("missing_collection_dates") or []
+    incomplete_clusters = quality.get("incomplete_clusters") or []
+    sqlite_vm_count = _int_label(quality.get("sqlite_vm_count"))
+    prometheus_vm_count = _int_label(quality.get("prometheus_vm_series_count"))
+    sqlite_cluster_count = _int_label(quality.get("sqlite_cluster_count"))
+    prometheus_cluster_count = _int_label(quality.get("prometheus_cluster_series_count"))
+    diff = quality.get("vm_count_difference")
+    ratio = quality.get("vm_count_difference_ratio")
+    rows = [
+        ("总体状态", _data_quality_status_label(quality)),
+        ("本报表统计窗口", _requested_report_window_label(report)),
+        ("实际采集窗口", _data_quality_window_label(quality.get("actual_data_window"), report)),
+        ("样本是否足够", "是" if quality.get("sample_sufficient") else "否"),
+        ("缺采天数", f"{len(missing_dates)} 天" + (f"（{', '.join(map(str, missing_dates[:10]))}）" if missing_dates else "")),
+        ("数据不完整集群", f"{len(incomplete_clusters)} 个"),
+        ("最近成功采集时间", _datetime_label(quality.get("latest_success_at"), report)),
+        ("最新 Prometheus 样本时间", _datetime_label(quality.get("latest_prometheus_sample_at"), report)),
+        ("SQLite 当前 VM 数", sqlite_vm_count),
+        ("Prometheus 当前 VM series 数", prometheus_vm_count),
+        ("差异数量", _int_label(diff)),
+        ("差异比例", _percent_label(ratio)),
+        ("SQLite 启用集群数", sqlite_cluster_count),
+        ("Prometheus 当前集群 series 数", prometheus_cluster_count),
+    ]
+    return rows
+
+
+def _data_quality_window_label(window: Any, report: dict[str, Any]) -> str:
+    if not isinstance(window, dict):
+        return "-"
+    start = _datetime_label(window.get("start_at"), report, date_only=True)
+    end = _datetime_label(window.get("end_at"), report, date_only=True)
+    days = window.get("days")
+    if start != "-" and end != "-":
+        suffix = f"，约 {days} 天" if days not in (None, "") else ""
+        return f"{start} - {end}{suffix}"
+    return "-"
+
+
+def _datetime_label(value: Any, report: dict[str, Any], *, date_only: bool = False) -> str:
+    if value in (None, ""):
+        return "-"
+    parsed = _parse_report_datetime(str(value))
+    if not parsed:
+        return str(value)
+    converted = parsed.astimezone(_report_timezone(report))
+    return converted.date().isoformat() if date_only else converted.strftime("%Y-%m-%d %H:%M")
+
+
+def _int_label(value: Any) -> str:
+    try:
+        return str(int(value))
+    except (TypeError, ValueError):
+        return "-"
 
 
 def _tower_count(clusters: list[dict[str, Any]]) -> int:

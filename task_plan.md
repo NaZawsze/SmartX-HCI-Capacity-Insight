@@ -667,3 +667,140 @@ runner v0.3.0 发布策略：
 - [已完成] 在 `10.20.11.3` 临时构建 `v0.5.4` 与 `v0.5.5` 测试升级包，只用于验证升级链路。
 - [已完成] 两个测试包均确认 `schema_version=3`、`min_version=v0.5.0`、`database_migration=false`，不包含 `migration`、`migration_steps` 或 `migrations/`。
 - [已明确] 测试包目标版本不改变当前正式平台版本，正式版本仍为 `v0.5.0`。
+
+### Phase 24 - 采集重试、部分成功与趋势缺采标记
+
+状态：已实现，待用户体验验证
+
+优先级：P0
+
+目标：
+
+- 定时采集失败后，只重试失败 Tower/集群；默认每 15 分钟重试一次，最多额外重试 3 次。
+- 任一启用 Tower/集群获取失败都算采集异常，任务中心生成普通告警 `Tower/集群采集异常`。
+- 部分成功时，成功 Tower/集群仍写入 SQLite 当前态和 Prometheus；失败目标不写新样本、不伪造旧值。
+- 虚拟机趋势图识别缺采日期，不补 0、不复制旧值，并在页面显示 `非最新` 与缺采提示。
+
+当前实施进度：
+
+- [已实现] Tower 新增采集重试配置：`collection_retry_enabled`、`collection_retry_interval_minutes`、`collection_retry_max_attempts`，旧库默认回填 `true/15/3`。
+- [已实现] `collection_runs` 扩展触发来源、周期、尝试次数、成功目标、失败目标和已发布 metrics 目标。
+- [已实现] 采集服务改为目标级 try/catch；单个集群失败不会丢弃其他成功集群。
+- [已实现] `metric_snapshots` 只保存本周期成功目标生成的 metrics，失败目标不进入本周期 `/metrics`。
+- [已实现] 重试入口支持 `target_filter`，worker 定时采集失败后只对失败目标进行有限重试。
+- [已实现] 采集异常进入任务中心 warning，标题固定为 `Tower/集群采集异常`，错误信息脱敏。
+- [已实现] VM 趋势接口返回 `latest_success_at`、`latest_collection_status`、`has_collection_gap`、`gap_dates`、`data_freshness`。
+- [已实现] 虚拟机页面显示 `非最新` 和缺采日期提示；趋势图插入 null 断点，避免跨缺采日连线。
+
+待验证：
+
+- [已完成] 前端 TypeScript build 和目标测试已在远端容器环境执行。
+- [已完成] 远端 `10.20.11.3` 已执行后端目标测试、前端 build、健康检查、空间清理按钮扫描和报表导出主流程抽检。
+
+### Phase 25 - 平台自检与升级后验收
+
+状态：已撤销
+
+优先级：P0
+
+背景：
+
+- v2 已进入 `v0.5.0` 稳定线，继续堆大功能的收益低于提高现场可诊断能力。
+- 当前很多验收依赖人工 curl、容器测试和页面抽检；升级、采集、Prometheus、报表和清理链路一旦出问题，需要更快定位是服务、数据、采集、任务还是报表生成问题。
+- Phase 25 曾计划把“平台是否健康、数据是否可信、升级后是否可用”固化为产品化自检能力。
+
+撤销决定：
+
+- 用户确认该平台级自检功能太重，会把采集失败、数据一致性、趋势缺采、任务中心告警等关联问题拆成多块 critical/warning，现场观感复杂。
+- 已移除服务管理页 `平台自检` 卡片、`/api/admin/system/self-check` API、`scripts/verify_platform.py`、升级后自动 self-check 记录和相关测试。
+- 保留轻量报表数据质量说明：报表页和 Word/Excel 继续展示实际采集窗口、缺采日期、样本是否足够和数据不完整集群。
+- 平台升级页仍保留版本、升级包、服务运行状态和清理入口。
+
+最终范围：
+
+- 不再提供平台级自检 API、CLI、服务管理页自检面板或升级后自动自检。
+- 不再把同一个采集根因拆成多条平台级自检告警。
+- 日常运维入口回到现有服务管理页：平台状态、组件状态、升级包、服务运行状态、清理扫描和任务中心。
+- 数据可信度只在需要解释结论的地方展示：报表页、Word、Excel，以及数据质量相关任务告警。
+
+撤销验收：
+
+- 代码中不存在 `SelfCheckService`、`/api/admin/system/self-check`、`scripts/verify_platform.py`、`self_check_status/self_check_summary/self_check_finished_at` 的运行逻辑。
+- 服务管理页不显示 `平台自检`、`快速自检`、`深度自检` 或 `深度自检并验证报表导出`。
+- 升级成功后不再创建 `升级后自检异常` 或 `升级后存在需关注项`。
+- 报表数据质量说明继续保留，避免把报表可信度解释能力一并删掉。
+
+### Phase 26 - P1 数据正确性：SQLite/Prometheus 一致性与报表数据质量
+
+状态：已实现并在 `10.20.11.3` 验证
+
+优先级：P1
+
+目标：
+
+- 后台统一检查 SQLite 当前态与 Prometheus 历史/当前样本是否一致，避免页面和报表在数据链路断裂时仍给出看似可靠的结论。
+- 报表 API、报表页、Word 和 Excel 导出都展示“数据质量说明”，说明实际采集窗口、缺采天数、样本是否足够、哪些集群数据不完整。
+- 数据质量异常只解释可信度并产生告警，不修改 Prometheus、不伪造样本、不改变预测算法和增长榜算法。
+
+当前实施进度：
+
+- [已实现] 新增 `DataQualityService`，按启用 Tower/集群范围比较 SQLite VM/集群数量与 Prometheus 当前 series 数。
+- [已实现] 数据一致性规则：最近采集成功但 Prometheus 无样本判 `critical`；VM series 与 SQLite VM 数差异超过 `max(10, 10%)` 判 `warning`；低于 50% 判 `critical`；查询窗口存在 `partial_failed/failed` 记录缺采日期。
+- [已实现] 采集完成后执行数据质量检查，任务中心合并生成 `数据一致性异常` 或 `数据质量需关注`，避免重复刷屏。
+- [已实现] 数据质量检查结果供任务中心告警、报表 API、报表页和 Word/Excel 导出复用；平台级自检已撤销，不再展示全局自检卡片。
+- [已实现] `latest_report()` 返回 `data_quality` 字段，前端报表页兼容显示 `数据质量正常/需关注/异常/未知`。
+- [已实现] Word 客户版在“一 摘要”中新增“数据质量说明”，包含本报表统计窗口、实际采集窗口、样本是否足够、缺采天数、数据不完整集群和 SQLite/Prometheus 数量。
+- [已实现] Excel 新增 `数据质量说明` Sheet，位于 `执行摘要` 后，保持已删除的目录/范围明细/集群汇总等冗余 Sheet 不恢复。
+- [已实现] 文档更新 API 合同、README 中英文和计划文件，说明一致性检查与报表数据质量口径。
+
+待验证：
+
+- [已完成] 在 `10.20.11.3` 容器内运行后端目标测试：`test_v2_data_quality/test_v2_reports/test_v2_report_exports/test_v2_worker`。
+- [已完成] 在 `10.20.11.3` Node 容器内运行前端目标测试：`ServicePage.test.tsx ReportsPage.test.tsx` 共 25 个通过。
+- [已完成] 重建并 recreate `web-api`、`collector-worker`、`frontend`。
+- [已完成] 验证 `/api/system/health` 返回 `ok=true`，frontend `8080` 返回 200，Prometheus `/-/healthy` 返回 healthy。
+- [已完成] 真实报表 API 返回 `data_quality.status=critical`，指出 SQLite VM 数 177、Prometheus VM series 数 0、缺采日期和不完整集群；这符合当前测试机数据面异常现状。
+- [已完成] 导出 Word/Excel，Word 包含“数据质量说明”和异常提示；Excel Sheet 顺序为 `封面/执行摘要/数据质量说明/容量趋势/...`，`数据质量说明` Sheet 包含 SQLite/Prometheus 数量、缺采天数和不完整集群。
+
+### Phase 27 - 任务中心卡片四区布局与详情可读性
+
+状态：已完成
+
+优先级：P1
+
+目标：
+
+- 固化任务中心卡片 UI：左上为图标和标题，右上为 `确认/X`，左下为详情与进度条，右下为百分比与日期时间。
+- 告警任务和普通信息任务都要把百分比和日期时间放在右下角。
+- 详情默认显示 2 行，超过 2 行再截断；鼠标悬停和无障碍文本保留完整详情。
+- 不新增展开/收起按钮，避免任务中心卡片高度和滚动行为继续复杂化。
+
+实施项：
+
+- [已实现] 任务卡片结构改为 `header controls / body actions` 四区布局。
+- [已实现] `.task-menu-actions` 右下对齐：使用 `align-self: stretch` 和 `justify-content: flex-end`，告警任务和普通信息任务的百分比/日期时间均固定在右下角。
+- [已实现] `.task-menu-detail` 使用两行 line clamp，移除详情的一行强制省略。
+- [已实现] 详情节点增加 `aria-label`，与 `title` 一样保存完整详情。
+- [已实现] 步骤列表和日志列表每行增加完整 `title/aria-label`，解决下面框内截断后悬停没有完整提示的问题。
+- [已实现] 任务菜单宽度从 520px 收敛到 480px，保留四区布局和右侧时间/进度可读性。
+- [已完成] 所有测试和重建均在 `10.20.11.3` 执行：`AppLayout.test.tsx` 19 个测试通过，frontend 已重建并 recreate，`http://127.0.0.1:8080` 返回 200。
+
+### Phase 28 - 报表页顶部右侧紧凑信息栈
+
+状态：已完成
+
+优先级：P1
+
+目标：
+
+- 将报表页顶部从“三列等高卡片”改为“左侧预测报表 + 右侧紧凑信息栈”。
+- 右侧信息栈包含 `历史样本窗口`、`容量增长速率`、`数据质量摘要`。
+- 将数据质量信息从左侧预测报表卡片中移到右侧，避免左侧报表卡把右侧 KPI 卡片拉得过高。
+
+实施项：
+
+- [已实现] `.report-top-row` 改为两列，右侧新增 `.report-side-stack`。
+- [已实现] 历史样本窗口和容量增长速率改为右侧紧凑卡片，高度约 132px。
+- [已实现] 数据质量摘要改为右侧紧凑纵向卡片，只显示核心状态、窗口、缺采、样本和不完整集群。
+- [已实现] 更新 `ReportsPage.test.tsx` 覆盖右侧摘要、左侧不再显示数据质量卡片和 Tower 前缀不再出现。
+- [已完成] 在 `10.20.11.3` 跑报表页前端测试，重建并 recreate frontend，验证 8080 和健康接口。

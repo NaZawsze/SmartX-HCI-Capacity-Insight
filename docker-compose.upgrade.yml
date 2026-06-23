@@ -1,7 +1,7 @@
 services:
   web-api:
-    image: nazawsze/smartx-hci-capacity-insight-web-api:v0.5.0
+    image: nazawsze/smartx-hci-capacity-insight-web-api:v0.5.1
   collector-worker:
-    image: nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.0
+    image: nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.1
   frontend:
-    image: nazawsze/smartx-hci-capacity-insight-frontend:v0.5.0
+    image: nazawsze/smartx-hci-capacity-insight-frontend:v0.5.1

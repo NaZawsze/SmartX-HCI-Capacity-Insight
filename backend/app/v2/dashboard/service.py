@@ -208,9 +208,25 @@ class DashboardService:
     def _latest_collection(self) -> dict[str, Any] | None:
         with self.database.connection() as conn:
             row = row_to_dict(conn.execute("SELECT status, message, finished_at FROM collection_runs ORDER BY id DESC LIMIT 1").fetchone())
+            success_row = row_to_dict(
+                conn.execute(
+                    """
+                    SELECT finished_at FROM collection_runs
+                    WHERE status IN ('success', 'partial_failed') AND finished_at IS NOT NULL
+                      AND COALESCE(success_targets_json, '[]') != '[]'
+                    ORDER BY finished_at DESC, id DESC LIMIT 1
+                    """
+                ).fetchone()
+            )
+            if success_row is None:
+                success_row = row_to_dict(
+                    conn.execute(
+                        "SELECT finished_at FROM collection_runs WHERE status = 'success' AND finished_at IS NOT NULL ORDER BY finished_at DESC, id DESC LIMIT 1"
+                    ).fetchone()
+                )
         if row is None:
             return None
-        return {"status": row["status"], "message": row["message"], "last_success_at": row["finished_at"] if row["status"] == "success" else None}
+        return {"status": row["status"], "message": row["message"], "last_success_at": success_row["finished_at"] if success_row else None}
 
     def _latest_vms(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
         names = self._latest_vm_names()
@@ -345,6 +361,11 @@ def _tower_payload(tower) -> dict[str, Any]:
         "username": tower.username,
         "verify_tls": tower.verify_tls,
         "enabled": tower.enabled,
+        "collection_hour": tower.collection_hour,
+        "collection_minute": tower.collection_minute,
+        "collection_retry_enabled": tower.collection_retry_enabled,
+        "collection_retry_interval_minutes": tower.collection_retry_interval_minutes,
+        "collection_retry_max_attempts": tower.collection_retry_max_attempts,
         "clusters": [
             {
                 "cluster_id": cluster.cluster_id,

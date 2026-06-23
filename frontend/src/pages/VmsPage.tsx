@@ -262,9 +262,18 @@ export function VmsPage({ refreshKey = 0, scope, summary, selectedVmId = "", sel
       >
         <div className="trend-meta">
           <span>{current?.metric.cluster || "全部集群"}</span>
-          <strong>{formatBytes(detail?.used_bytes ?? current?.value)}</strong>
+          <span className="trend-value-group">
+            <strong>{formatBytes(detail?.used_bytes ?? current?.value)}</strong>
+            {trend?.data_freshness && trend.data_freshness !== "fresh" && <small className="freshness-badge stale">非最新</small>}
+          </span>
         </div>
-        <TrendChart points={trend?.points || []} referenceValue={current?.value} height={360} />
+        {trend?.data_freshness && trend.data_freshness !== "fresh" && (
+          <div className="trend-freshness-warning">
+            当前集群最近一次成功采集：{trend.latest_success_at || "暂无成功记录"}；存在缺采，趋势图可能不连续
+            {trend.gap_dates?.length ? `。缺采日期：${trend.gap_dates.join("、")}` : ""}
+          </div>
+        )}
+        <TrendChart points={trend?.points || []} referenceValue={current?.value} height={360} gapDates={trend?.gap_dates || []} />
       </Card>
 
       <Card title="当前虚拟机明细" subtitle={detail?.vm_name || current?.metric.vm || "未选择虚拟机"} className="current-volume-card">

@@ -1278,6 +1278,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     const needsRecovery = upgradeTask?.status === "recovery_required";
     const availablePackages = upgradeHistory.filter((task) => !task.started_at);
     const packageInfo = upgradeVerification?.package;
+    const selectedPackageSha = upgradeTask?.package_sha256 || upgradeTask?.uploaded_sha256;
     return (
       <>
         <PageHeader
@@ -1335,7 +1336,8 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             <InfoRow label="观测组件版本" value={formatVersionForDisplay(upgradeVerification?.prometheus_version)} />
             <InfoRow label="Compose 项目" value={upgradeVerification?.compose_project ?? "-"} />
             <InfoRow label="最近成功包" value={packageInfo ? `${formatVersionForDisplay(packageInfo.version)} · ${packageInfo.filename || "-"}` : "暂无成功升级记录"} />
-            <InfoRow label="升级包 SHA256" value={packageInfo?.sha256 ? shortSha(packageInfo.sha256) : "-"} />
+            <InfoRow label="已选升级包 SHA256" value={selectedPackageSha ? shortSha(selectedPackageSha) : "-"} />
+            <InfoRow label="最近成功包 SHA256" value={packageInfo?.sha256 ? shortSha(packageInfo.sha256) : "-"} />
           </div>
           {renderUpgradeRuntimeVerification()}
         </section>
@@ -1739,6 +1741,12 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function formatUnknownCount(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "string" && value.trim()) return value;
+  return "-";
 }
 
 function CollapsibleSection({ title, expanded, onToggle, children }: { title: string; expanded: boolean; onToggle: () => void; children: React.ReactNode }) {

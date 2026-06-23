@@ -184,6 +184,9 @@ class V2ReportsTest(unittest.TestCase):
             self.assertEqual([item["labels"]["vm_id"] for item in ninety_day_report["month_fastest_growing_vms"]], ["vm-old", "vm-new"])
             self.assertEqual([item["labels"]["vm_id"] for item in report["day_new_vms"]], ["vm-new"])
             self.assertEqual([item["labels"]["cluster_id"] for item in report["clusters"]], ["cluster-a"])
+            self.assertEqual(report["data_quality"]["status"], "warning")
+            self.assertIn("actual_data_window", report["data_quality"])
+            self.assertEqual(report["data_quality"]["sqlite_vm_count"], 2)
 
     def test_latest_report_uses_range_tail_when_current_vm_instant_is_empty(self) -> None:
         from app.v2.reports.service import ReportService

@@ -72,6 +72,12 @@ class V2Database:
                     api_token_encrypted TEXT,
                     verify_tls INTEGER NOT NULL DEFAULT 1,
                     enabled INTEGER NOT NULL DEFAULT 1,
+                    collection_hour INTEGER NOT NULL DEFAULT 2,
+                    collection_minute INTEGER NOT NULL DEFAULT 10,
+                    collection_retry_enabled INTEGER NOT NULL DEFAULT 1,
+                    collection_retry_interval_minutes INTEGER NOT NULL DEFAULT 15,
+                    collection_retry_max_attempts INTEGER NOT NULL DEFAULT 3,
+                    last_error TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
@@ -119,7 +125,14 @@ class V2Database:
                     status TEXT NOT NULL,
                     message TEXT,
                     started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    finished_at TEXT
+                    finished_at TEXT,
+                    trigger TEXT,
+                    cycle_id TEXT,
+                    attempt INTEGER NOT NULL DEFAULT 0,
+                    max_attempts INTEGER NOT NULL DEFAULT 0,
+                    success_targets_json TEXT,
+                    failed_targets_json TEXT,
+                    published_metrics_targets_json TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS metric_snapshots (
@@ -163,6 +176,24 @@ class V2Database:
             _ensure_column(conn, "tasks", "severity", "TEXT")
             _ensure_column(conn, "tasks", "seen_at", "TEXT")
             _ensure_column(conn, "tasks", "acknowledged_at", "TEXT")
+            _ensure_column(conn, "towers", "collection_hour", "INTEGER")
+            _ensure_column(conn, "towers", "collection_minute", "INTEGER")
+            _ensure_column(conn, "towers", "collection_retry_enabled", "INTEGER")
+            _ensure_column(conn, "towers", "collection_retry_interval_minutes", "INTEGER")
+            _ensure_column(conn, "towers", "collection_retry_max_attempts", "INTEGER")
+            _ensure_column(conn, "towers", "last_error", "TEXT")
+            conn.execute("UPDATE towers SET collection_hour = COALESCE(collection_hour, 2)")
+            conn.execute("UPDATE towers SET collection_minute = COALESCE(collection_minute, 10)")
+            conn.execute("UPDATE towers SET collection_retry_enabled = COALESCE(collection_retry_enabled, 1)")
+            conn.execute("UPDATE towers SET collection_retry_interval_minutes = COALESCE(collection_retry_interval_minutes, 15)")
+            conn.execute("UPDATE towers SET collection_retry_max_attempts = COALESCE(collection_retry_max_attempts, 3)")
+            _ensure_column(conn, "collection_runs", "trigger", "TEXT")
+            _ensure_column(conn, "collection_runs", "cycle_id", "TEXT")
+            _ensure_column(conn, "collection_runs", "attempt", "INTEGER NOT NULL DEFAULT 0")
+            _ensure_column(conn, "collection_runs", "max_attempts", "INTEGER NOT NULL DEFAULT 0")
+            _ensure_column(conn, "collection_runs", "success_targets_json", "TEXT")
+            _ensure_column(conn, "collection_runs", "failed_targets_json", "TEXT")
+            _ensure_column(conn, "collection_runs", "published_metrics_targets_json", "TEXT")
             _ensure_schema_migrations_table(conn)
             _backfill_v1_latest_vm_payloads(conn)
             _backfill_legacy_volume_items(conn)

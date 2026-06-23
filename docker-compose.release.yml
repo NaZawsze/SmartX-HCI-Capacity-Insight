@@ -1,6 +1,6 @@
 services:
   web-api:
-    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-web-api:${SMARTX_IMAGE_TAG:-v0.5.0}
+    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-web-api:${SMARTX_IMAGE_TAG:-v0.5.1}
     env_file:
       - .env
     environment:
@@ -28,7 +28,7 @@ services:
     restart: unless-stopped
 
   collector-worker:
-    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-collector-worker:${SMARTX_IMAGE_TAG:-v0.5.0}
+    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-collector-worker:${SMARTX_IMAGE_TAG:-v0.5.1}
     command: ["python", "-m", "app.v2.worker"]
     env_file:
       - .env
@@ -50,7 +50,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-frontend:${SMARTX_IMAGE_TAG:-v0.5.0}
+    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-frontend:${SMARTX_IMAGE_TAG:-v0.5.1}
     environment:
       TZ: Asia/Shanghai
     ports:

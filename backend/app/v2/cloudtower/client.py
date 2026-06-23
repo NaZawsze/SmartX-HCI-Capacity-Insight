@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
-
 from app.v2.inventory.models import ClusterInput
 
 
@@ -27,7 +25,11 @@ class CloudTowerClient:
         self.base_url = credentials.base_url.rstrip("/")
         self._token = credentials.api_token
         self._owns_client = http_client is None
-        self._client = http_client or httpx.Client(base_url=self.base_url, timeout=timeout, verify=credentials.verify_tls)
+        if http_client is None:
+            import httpx
+
+            http_client = httpx.Client(base_url=self.base_url, timeout=timeout, verify=credentials.verify_tls)
+        self._client = http_client
 
     def close(self) -> None:
         if self._owns_client:

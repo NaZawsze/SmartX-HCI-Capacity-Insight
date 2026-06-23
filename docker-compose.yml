@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    image: smartx-storage-forecast-web-api:local
+    image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-web-api:${SMARTX_IMAGE_TAG:-v0.5.1}
     env_file:
       - .env
     environment:
@@ -33,7 +33,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile.worker
-    image: smartx-storage-forecast-collector-worker:local
+    image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-collector-worker:${SMARTX_IMAGE_TAG:-v0.5.1}
     command: ["python", "-m", "app.v2.worker"]
     env_file:
       - .env
@@ -57,7 +57,7 @@ services:
   frontend:
     build:
       context: ./frontend
-    image: smartx-storage-forecast-frontend:local
+    image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-frontend:${SMARTX_IMAGE_TAG:-v0.5.1}
     environment:
       TZ: Asia/Shanghai
     ports:
@@ -72,7 +72,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile.upgrade
-    image: smartx-storage-forecast-upgrade-runner:local
+    image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-upgrade-runner:${SMARTX_RUNNER_IMAGE_TAG:-v0.3.0}
     command: ["python", "-m", "app.upgrade_runner.main"]
     env_file:
       - .env

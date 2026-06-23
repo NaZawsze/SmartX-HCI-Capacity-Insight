@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppLayout } from "./AppLayout";
@@ -13,6 +14,9 @@ const summary: DashboardSummary = {
       enabled: true,
       collection_hour: 2,
       collection_minute: 10,
+      collection_retry_enabled: true,
+      collection_retry_interval_minutes: 15,
+      collection_retry_max_attempts: 3,
       clusters: [{ cluster_id: "cluster-1", name: "Cluster 1", enabled: true }]
     }
   ],
@@ -73,7 +77,7 @@ function failedTask(): AppTask {
     id: "task-failed",
     kind: "upgrade",
     title: "执行升级失败",
-    detail: "升级失败：镜像 sha256 不匹配",
+    detail: "采集异常：重试 3/3 后仍有 1 个集群失败。失败目标：1 个；CHINATOWER / SMARTX-TT-WW：Tower requires either an API token or username/password",
     status: "failed",
     severity: "critical",
     unhandled: true,
@@ -84,8 +88,8 @@ function failedTask(): AppTask {
       { key: "images", title: "校验镜像", status: "failed", message: "sha256 不匹配" }
     ],
     logs: ["manifest 格式正确", "镜像 sha256 不匹配：images/web-api.tar"],
-    createdAt: Date.now(),
-    updatedAt: Date.now()
+    createdAt: new Date("2026-06-15T09:30:00+08:00").getTime(),
+    updatedAt: new Date("2026-06-15T09:45:00+08:00").getTime()
   };
 }
 
@@ -240,12 +244,13 @@ describe("AppLayout menus", () => {
   });
 
   it("shows failed task step and error summary in the task menu", () => {
-    render(<AppLayout {...baseProps} tasks={[failedTask()]} />);
+    const task = failedTask();
+    render(<AppLayout {...baseProps} tasks={[task]} />);
 
     fireEvent.click(screen.getByTitle("任务"));
 
     expect(screen.getByText("执行升级失败")).toBeInTheDocument();
-    expect(screen.getByText("升级失败：镜像 sha256 不匹配")).toBeInTheDocument();
+    expect(screen.getByText(task.detail)).toBeInTheDocument();
     expect(screen.getByText(/失败 校验镜像/)).toBeInTheDocument();
     expect(screen.getByText("镜像 sha256 不匹配：images/web-api.tar")).toBeInTheDocument();
   });
@@ -374,11 +379,62 @@ describe("AppLayout menus", () => {
     render(<AppLayout {...baseProps} tasks={[task]} onTaskAck={onTaskAck} onTaskAction={onTaskAction} />);
 
     fireEvent.click(screen.getByTitle("任务"));
+    const item = screen.getByText("执行升级失败").closest(".task-menu-item");
+    const titleRow = screen.getByText("执行升级失败").closest(".task-menu-title-row");
+    const controls = screen.getByTitle("确认任务告警").closest(".task-menu-controls");
+    const progress = screen.getByText("100%");
+    expect(item).toBeInTheDocument();
+    expect(titleRow).toBeInTheDocument();
+    expect(controls).toBeInTheDocument();
+    expect(item).toContainElement(screen.getByText("执行升级失败"));
+    expect(item).toContainElement(screen.getByTitle("确认任务告警"));
+    expect(item).toContainElement(screen.getByTitle(task.detail));
+    expect(screen.getByTitle("从任务中心移除").closest(".task-menu-controls")).toBe(controls);
+    expect(screen.getByTitle("确认任务告警").closest(".task-menu-title-row")).toBeNull();
+    expect(screen.getByTitle("确认任务告警").closest(".task-menu-header-row")).toBeNull();
+    expect(screen.getByTitle(task.detail).closest(".task-menu-body")).toBeInTheDocument();
+    expect(progress.closest(".task-menu-controls")).toBeNull();
+    expect(progress.closest(".task-menu-actions")).toBeInTheDocument();
+    expect(screen.getByText("2026/6/15").closest(".task-menu-actions")).toBeInTheDocument();
+    expect(screen.getByTitle(task.detail)).toHaveClass("task-menu-detail");
+    expect(screen.getByTitle(task.detail)).toHaveAttribute("aria-label", task.detail);
+    expect(screen.getByTitle("失败 校验镜像")).toHaveAttribute("aria-label", "失败 校验镜像");
+    expect(screen.getByTitle("镜像 sha256 不匹配：images/web-api.tar")).toHaveAttribute("aria-label", "镜像 sha256 不匹配：images/web-api.tar");
+
     fireEvent.click(screen.getByTitle("确认任务告警"));
     fireEvent.click(screen.getByTitle("从任务中心移除"));
 
     expect(onTaskAck).toHaveBeenCalledWith(task);
     expect(onTaskAction).toHaveBeenCalledWith(task);
+  });
+
+  it("shows the original alert date in the bottom right for warning or critical tasks", () => {
+    render(<AppLayout {...baseProps} tasks={[failedTask()]} />);
+
+    fireEvent.click(screen.getByTitle("任务"));
+
+    const date = screen.getByText("2026/6/15");
+    const time = screen.getByText("09:30:00");
+    expect(date).toBeInTheDocument();
+    expect(time).toBeInTheDocument();
+    expect(screen.queryByText(/告警日期/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/任务日期/)).not.toBeInTheDocument();
+    expect(date.closest(".task-menu-actions")).toBeInTheDocument();
+    expect(date.closest(".task-date")).toBe(time.closest(".task-date"));
+  });
+
+  it("shows a bottom-right task date for normal tasks too", () => {
+    render(<AppLayout {...baseProps} tasks={[succeededInfoTask()]} />);
+
+    fireEvent.click(screen.getByTitle("任务"));
+
+    const date = screen.getByText(/\d{4}\/\d{1,2}\/\d{1,2}/);
+    const progress = screen.getByText("100%");
+    const actions = progress.closest(".task-menu-actions");
+    expect(date).toBeInTheDocument();
+    expect(actions).toBeInTheDocument();
+    expect(actions).toContainElement(date);
+    expect(screen.queryByText(/任务日期/)).not.toBeInTheDocument();
   });
 
   it("keeps the task list scroll position when acknowledging a warning", () => {
@@ -404,6 +460,14 @@ describe("AppLayout menus", () => {
     rerender(<AppLayout {...baseProps} tasks={acknowledgedTasks} onTaskAck={onTaskAck} />);
 
     expect(document.querySelector<HTMLElement>(".task-menu-list")?.scrollTop).toBe(180);
+  });
+
+  it("keeps the task menu compact enough to avoid a large empty middle column", () => {
+    const css = readFileSync("src/styles/global.css", "utf8");
+
+    expect(css).toContain("width: min(420px, calc(100vw - 24px));");
+    expect(css).toContain("grid-template-columns: minmax(0, 1fr) 78px;");
+    expect(css).toContain("column-gap: 8px;");
   });
 
   it("only reveals auto scrollbars while the user is scrolling", () => {

@@ -101,16 +101,61 @@
 响应：
 
 ```json
-{"task_id": "collect-...", "status": "running", "message": "采集任务已开始"}
+{"run_id": 1, "status": "success|partial_failed|failed", "message": "采集完成"}
 ```
 
 ### `GET /api/collection/runs`
 
-返回最近采集记录。
+返回最近采集记录。`status=partial_failed` 表示部分 Tower/集群成功、部分失败；成功目标已写入 SQLite 当前态和 Prometheus，失败目标不写新样本。
 
 ### `GET /api/collection/runs/{run_id}`
 
-返回采集详情、错误摘要和采集数量。
+返回采集详情、错误摘要和采集数量。新增字段：
+
+```json
+{
+  "trigger": "manual|scheduled|retry",
+  "cycle_id": "collection-xxx",
+  "attempt": 0,
+  "max_attempts": 3,
+  "success_targets": [{"tower_id": 1, "tower_name": "Tower A", "cluster_id": "cluster-a", "cluster_name": "Cluster A"}],
+  "failed_targets": [{"tower_id": 1, "tower_name": "Tower A", "cluster_id": "cluster-b", "cluster_name": "Cluster B", "message": "error"}],
+  "published_metrics_targets": []
+}
+```
+
+定时采集失败时按 Tower 配置重试，默认每 15 分钟重试 1 次、最多额外重试 3 次。重试耗尽后仍失败会在任务中心生成 `Tower/集群采集异常` 普通告警。
+
+## 4.1 报表 `data_quality`
+
+平台级自检接口已移除；数据质量只作为报表上下文说明提供。
+
+`GET /api/reports/latest` 在保留旧字段的基础上增加：
+
+```json
+{
+  "data_quality": {
+    "status": "ok|warning|critical",
+    "actual_data_window": {"start_at": "...", "end_at": "...", "days": 14},
+    "requested_window": {"days": 30, "start_at": "...", "end_at": "..."},
+    "sample_sufficient": false,
+    "missing_collection_dates": ["2026-06-12"],
+    "incomplete_clusters": [
+      {"tower": "CHINATOWER", "cluster": "SMARTX-TT-WW", "reason": "prometheus_cluster_sample_missing"}
+    ],
+    "sqlite_vm_count": 526,
+    "prometheus_vm_series_count": 171,
+    "sqlite_cluster_count": 1,
+    "prometheus_cluster_series_count": 1,
+    "latest_collection_status": "partial_failed",
+    "latest_success_at": "...",
+    "latest_prometheus_sample_at": "...",
+    "messages": []
+  }
+}
+```
+
+报表页和 Word/Excel 导出使用该字段展示“数据质量说明”。质量异常不会阻止导出，但客户版文件会明确写出实际采集窗口、缺采天数、样本是否足够和数据不完整集群。
 
 ## 5. Dashboard
 
@@ -153,6 +198,20 @@
 - `days=7|14|30|90|180|365`
 
 必须同时传 `tower_id` 和 `cluster_id`，避免跨 Tower/集群混合。
+
+响应除 `points` 外包含采集新鲜度字段：
+
+```json
+{
+  "latest_success_at": "2026-06-12 02:10:00",
+  "latest_collection_status": "success|failed|unknown",
+  "has_collection_gap": true,
+  "gap_dates": ["2026-06-13"],
+  "data_freshness": "fresh|stale|partial"
+}
+```
+
+缺采判断按该 VM 所属 Tower/集群计算。缺采日期不补 0、不复制旧值，前端以断点和 `非最新` 提示展示。
 
 ### `GET /api/vms/{vm_id}/volumes`
 
