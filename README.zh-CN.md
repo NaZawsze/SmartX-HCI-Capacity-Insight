@@ -122,11 +122,6 @@ Prometheus: http://<server-ip>:9090
 
 数据质量检查会在报表上下文中比较 SQLite 当前态与 Prometheus 当前 series 数，识别最近采集成功但 Prometheus 无样本、启用集群缺少指标、VM series 数量差异过大等情况，并在报表 UI 和导出文件中展示实际采集窗口、缺采日期和数据不完整集群。
 
-## OVA 交付
-
-OVA 虚拟机模板可用于全新部署或演示环境交付。它与服务管理页的升级中心分开：升级中心只接受下面定义的 `.tar.gz` 升级包格式。
-
-OVA 文件名必须带正式平台版本，例如 `smartx-capacity-insight-v0.5.1.ova`，并同时提供 `.sha256` 校验文件。制品边界和安全检查见 [OVA 交付说明](docs/ova-delivery.md)。
 
 ## 离线升级包结构
 
