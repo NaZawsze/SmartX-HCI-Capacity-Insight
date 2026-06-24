@@ -132,7 +132,7 @@ panic: Unable to create mmap-ed active query log
 
 平台升级和 Prometheus/observability 升级由 `upgrade-runner` 执行。`upgrade-runner` 不能可靠地执行“重启自己”的任务，因为 Docker 停掉旧 runner 后，正在执行 compose 的进程也可能被杀掉，导致新 runner 只创建不启动、任务停在 `restart running`。v2 当前策略是：runner-only 组件升级由 `web-api` 直接执行 Docker 操作，平台升级仍提交给 `upgrade-runner`。
 
-跨版本升级采用累计迁移包规则：平台包构建时读取 `backend/app/v2/upgrade/migrations/registry.json`，选择 `source_version < step.version <= target_version` 的 SQLite 迁移步骤。当前 `v0.5.0` 正式包无 schema 变化时不带迁移脚本；未来如果来源版本和目标版本之间存在任意 schema 变化，升级包必须包含并执行这些中间迁移。迁移成功后写入 `schema_migrations(id, version, description, script_sha256, applied_at)`，脚本必须幂等。
+跨版本升级采用累计迁移包规则：平台包构建时读取 `backend/app/v2/upgrade/migrations/registry.json`，选择 `source_version < step.version <= target_version` 的 SQLite 迁移步骤。当前 `v0.5.1` 正式包无 schema 变化时不带迁移脚本；未来如果来源版本和目标版本之间存在任意 schema 变化，升级包必须包含并执行这些中间迁移。迁移成功后写入 `schema_migrations(id, version, description, script_sha256, applied_at)`，脚本必须幂等。
 
 后续已引入“组件升级”概念：
 
@@ -343,8 +343,8 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 平台与 Prometheus 组合包由 `scripts/build_bundle_upgrade_package.py` 生成，默认不包含 Runner。
 - Prometheus/observability 组件升级包默认是轻量包：只包含 manifest、配置和健康检查，镜像通过仓库 tag 引用；离线环境才使用 `--offline-image` 放入 `images/prometheus.tar`。
 - 平台升级、Prometheus 组件升级和组合升级都不导出 Prometheus 历史数据；升级前 Prometheus 备份只作为服务器本机回滚材料，历史 block 导出/导入只属于完整数据迁移包。
-- 升级包树形结构需要在 README 与设计文档中保持同一口径：组合包示例使用当前平台 `v0.5.0`，表示交付形态，不表示新增平台版本；历史 progress/changelog 中的旧包结构只作为当时事实保留。
-- 当前正式版本治理口径：平台正式版本仍为 `v0.5.0`，Runner 组件版本仍为 `v0.3.0`。临时 `v0.5.4`、`v0.5.5` 等测试升级包目标版本只用于验证升级链路，不代表源码、README 或正式发版版本变化。
+- 升级包树形结构需要在 README 与设计文档中保持同一口径：组合包示例使用当前平台 `v0.5.1`，表示交付形态，不表示新增平台版本；历史 progress/changelog 中的旧包结构只作为当时事实保留。
+- 当前正式版本治理口径：平台正式版本为 `v0.5.1`，Runner 组件版本仍为 `v0.3.0`。临时测试升级包目标版本只用于验证升级链路，不代表源码、README 或正式发版版本变化。
 - SQLite 处于 WAL 模式时不能直接归档 `smartx.db`；Runner 备份必须先用 SQLite Backup API 生成一致性快照。
 - Runner 宿主机路径映射需要优先匹配 `/data/backups`、`/data/compose-runtime` 等具体挂载，不能先被通用 `/data` 吞掉；`/data/exports` 和 `/data/upgrades` 禁止挂入迁移沙箱。
 - `compose up -d` 后服务可能尚未 ready，健康检查需要有限重试；只有重试耗尽才触发一次自动回滚。
@@ -405,3 +405,24 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 当前 `.task-menu-actions` 虽然位于右下 grid area，但 `justify-content:flex-start` 导致百分比和时间贴近右下区域顶部，视觉上不是右下角；普通信息任务也有同样问题。
 - 详情显示不全的直接原因是 `.task-menu-title-row strong, .task-menu-body small` 共用 `white-space: nowrap; overflow:hidden; text-overflow:ellipsis`，导致详情只能显示 1 行。
 - 合理收敛方案：详情默认显示 2 行，超出 line clamp；继续保留 `title` 和新增 `aria-label` 保存完整文本。不做展开/收起，避免任务中心高度变化和列表滚动再次复杂化。
+
+## Phase 29 测试环境与发布验收发现
+
+- `10.20.0.6` 生产类环境暴露了报表日增长 VM 名称缺失问题；同一代码缺陷没有在 `10.20.11.3` 和 `10.20.11.12` 上被用户直观看到，说明现有测试环境不能稳定代表最终生产交付状态。
+- 该问题的直接代码原因是后端报表增长数据返回顶层 `vm_name/vm_id`，而旧前端只读取 `item.labels.vm` 或 `item.labels.vm_id`；这个数据契约差异此前缺少端到端用例覆盖。
+- `10.20.11.3` 和 `10.20.11.12` 曾用于本地构建、热修、升级演练和真实数据排查，环境状态容易混杂；它们适合开发调试，但不应作为正式 release pass 的唯一依据。
+- 生产类或 canary 环境必须验证最终 tag 镜像，而不是验证当前源码目录、热修后的容器文件或某次本地构建产物。
+- 发布验收必须绑定版本号、镜像 digest、升级包 sha256、部署脚本和固定验收数据集；否则“测试通过”无法说明客户拿到的交付物也通过。
+- 前端单测需要覆盖真实 API 字段形态，包括顶层字段和 legacy labels；后端 API 测试也要固定关键响应契约，避免前后端各自 mock 后都通过但集成失败。
+- 以后任何在生产或 canary 上临时修复的问题，都必须回流到 `dev2/main`、测试、tag 镜像和升级包；手工 patch 只能用于止血和定位，不能作为发布完成状态。
+
+## Phase 30 Compose Project/Network 发现
+
+- 用户在 `10.20.0.6` 的最终常规部署命令是 `docker compose -f docker-compose.offline.yml up -d`，这是合理部署方式；问题不应归因于用户未传 `--project-name`。
+- Docker Compose 未显式指定 project 时会从目录名生成 project；`/data/SmartX-HCI-Capacity-Insight-main` 会生成 `smartx-hci-capacity-insight-main`。
+- 程序配置里旧的 `SMARTX_COMPOSE_PROJECT_NAME=smartx-storage-forecast` 与实际 Docker label `com.docker.compose.project=smartx-hci-capacity-insight-main` 不一致，导致服务管理页查询不到容器。
+- 观测组件版本显示 `-` 的直接原因是服务状态列表为空；Prometheus 版本需要从 `prom/prometheus:v2.55.1` 容器镜像 tag 解析。
+- 同一 project mismatch 会影响升级链路：web-api 预检查、Runner `compose.apply`、回滚 stop/up 都依赖 compose project，若 project 错误可能操作不到当前服务。
+- 根修复应在 Compose 文件顶层写 `name: smartx-hci-capacity-insight`，并给网络写固定真实名称 `smartx-hci-capacity-insight-net`，让普通 `docker compose up -d` 也稳定。
+- 后端仍需要保留当前容器 label 反查真实 project 的兜底，用于历史现场或第三方改过 project name 的场景。
+- 生产环境 `10.20.0.6` 后续只允许只读诊断；任何写操作、恢复操作或 recreate 都必须先列命令并等用户明确确认。

@@ -89,9 +89,15 @@ def test_compose_project_name_is_consistent_across_runtime_and_upgrade() -> None
     root = Path(__file__).resolve().parents[2]
     for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
         text = (root / name).read_text(encoding="utf-8")
-        assert "SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast" in text
+        assert text.startswith("name: smartx-hci-capacity-insight\n")
+        assert "SMARTX_COMPOSE_PROJECT_NAME: smartx-hci-capacity-insight" in text
+        assert "name: smartx-hci-capacity-insight-net" in text
+        assert "SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast" not in text
         assert "SMARTX_COMPOSE_PROJECT_NAME: smartx-capacity-insight" not in text
-    assert "--project-name smartx-storage-forecast" in (root / "docs/deployment.md").read_text(encoding="utf-8")
+    deployment_text = (root / "docs/deployment.md").read_text(encoding="utf-8")
+    assert "docker compose -f docker-compose.release.yml up -d" in deployment_text
+    assert "docker compose -f docker-compose.offline.yml up -d" in deployment_text
+    assert "smartx-hci-capacity-insight-net" in deployment_text
 
 
 def test_backend_images_carry_platform_and_runner_version_files() -> None:

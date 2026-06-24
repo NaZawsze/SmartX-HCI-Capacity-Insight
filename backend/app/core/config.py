@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     runtime_path: Path = Field(default=Path("/data/compose-runtime"), alias="SMARTX_RUNTIME_PATH")
     project_path: Path = Field(default=Path("/opt/smartx-storage-forecast"), alias="SMARTX_PROJECT_PATH")
     compose_file: str = Field(default="docker-compose.yml", alias="SMARTX_COMPOSE_FILE")
-    compose_project_name: str = Field(default="smartx-storage-forecast", alias="SMARTX_COMPOSE_PROJECT_NAME")
+    compose_project_name: str = Field(default="smartx-hci-capacity-insight", alias="SMARTX_COMPOSE_PROJECT_NAME")
     app_version: str = Field(default_factory=read_app_version)
     runner_version: str = Field(default_factory=read_runner_version, alias="SMARTX_RUNNER_VERSION")
 

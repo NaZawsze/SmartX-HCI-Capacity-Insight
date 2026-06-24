@@ -49,7 +49,7 @@ class RunnerSettings:
             prometheus_path=Path(os.environ.get("SMARTX_PROMETHEUS_DATA_PATH", "/prometheus-data")),
             project_path=project_path,
             compose_file=os.environ.get("SMARTX_COMPOSE_FILE", "docker-compose.offline.yml"),
-            compose_project=os.environ.get("SMARTX_COMPOSE_PROJECT_NAME", "smartx-storage-forecast"),
+            compose_project=os.environ.get("SMARTX_COMPOSE_PROJECT_NAME", "smartx-hci-capacity-insight"),
             runner_version=os.environ.get("SMARTX_RUNNER_VERSION", "v0.3.0"),
             host_data_path=Path(os.environ.get("SMARTX_HOST_DATA_PATH", str(database_path.parent))),
             host_backups_path=Path(os.environ.get("SMARTX_HOST_BACKUPS_PATH", "/data/backups")),

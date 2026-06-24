@@ -70,11 +70,13 @@ class UpgradeService:
         *,
         executor: UpgradeCommandExecutor | None = None,
         project_path: Path | None = None,
+        hostname_path: Path | None = None,
     ) -> None:
         self.settings = settings
         self.tasks = tasks
         self.executor = executor or UpgradeCommandExecutor()
         self.project_path = project_path or Path("/opt/smartx-storage-forecast")
+        self.hostname_path = hostname_path or Path("/etc/hostname")
 
     async def upload_package(self, upload: UploadFile) -> dict[str, Any]:
         return self.upload_package_bytes(await upload.read(), filename=upload.filename or "upgrade.tar.gz")
@@ -297,7 +299,7 @@ class UpgradeService:
     def verification(self) -> dict[str, Any]:
         success_packages = [task for task in self.history() if task.get("status") == "succeeded"]
         latest_package = success_packages[0] if success_packages else None
-        services, service_status_error = self._runtime_services()
+        services, service_status_error, actual_compose_project = self._runtime_services()
         prometheus_version = next((_version_from_service_status(service) for service in services if service.get("service") == "prometheus"), None)
         if not prometheus_version:
             prometheus_version = _version_from_service_status(self._inspect_service_by_name("prometheus")) or "-"
@@ -305,7 +307,7 @@ class UpgradeService:
             "app_version": self.settings.app_version,
             "runner_version": self.settings.runner_version,
             "prometheus_version": prometheus_version,
-            "compose_project": self.settings.compose_project_name,
+            "compose_project": actual_compose_project,
             "compose_file": self.settings.compose_file,
             "package": {
                 "task_id": latest_package.get("task_id"),
@@ -321,7 +323,7 @@ class UpgradeService:
             "services": services,
         }
 
-    def _runtime_services(self) -> tuple[list[dict[str, Any]], str | None]:
+    def _runtime_services(self) -> tuple[list[dict[str, Any]], str | None, str]:
         compose_error: Exception | None = None
         try:
             output = self.executor.output(["docker", "compose", "-f", self.settings.compose_file, "--project-name", self.settings.compose_project_name, "ps", "--format", "json"], cwd=self.project_path)
@@ -343,15 +345,21 @@ class UpgradeService:
                 continue
             services.append(self._inspect_container(service, container, fallback_status=str(item.get("State") or item.get("Status") or "")))
         if services:
-            return services, None
+            return services, None, self.settings.compose_project_name
         fallback_services = self._runtime_services_from_docker_ps()
         if fallback_services:
-            return fallback_services, None
+            return fallback_services, None, self.settings.compose_project_name
+        actual_project = self._current_compose_project()
+        if actual_project and actual_project != self.settings.compose_project_name:
+            fallback_services = self._runtime_services_from_docker_ps(actual_project)
+            if fallback_services:
+                return fallback_services, None, actual_project
         if compose_error is not None:
-            return [], f"Docker 状态读取失败：{compose_error}"
-        return services, None
+            return [], f"Docker 状态读取失败：{compose_error}", self.settings.compose_project_name
+        return services, None, self.settings.compose_project_name
 
-    def _runtime_services_from_docker_ps(self) -> list[dict[str, Any]]:
+    def _runtime_services_from_docker_ps(self, compose_project: str | None = None) -> list[dict[str, Any]]:
+        project = compose_project or self.settings.compose_project_name
         try:
             output = self.executor.output(
                 [
@@ -359,7 +367,7 @@ class UpgradeService:
                     "ps",
                     "-a",
                     "--filter",
-                    f"label=com.docker.compose.project={self.settings.compose_project_name}",
+                    f"label=com.docker.compose.project={project}",
                     "--format",
                     "{{json .}}",
                 ],
@@ -383,6 +391,23 @@ class UpgradeService:
             services.append(self._inspect_container(service, container, fallback_status=str(item.get("State") or item.get("Status") or "")))
         order = {service: index for index, service in enumerate(["web-api", "collector-worker", "frontend", "prometheus", "upgrade-runner"])}
         return sorted(services, key=lambda item: order.get(str(item.get("service")), 99))
+
+    def _current_compose_project(self) -> str | None:
+        try:
+            container_id = self.hostname_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+        if not container_id:
+            return None
+        try:
+            output = self.executor.output(["docker", "inspect", container_id], cwd=self.project_path)
+            payload = json.loads(output or "[]")
+        except Exception:
+            return None
+        inspected = payload[0] if payload else {}
+        labels = (inspected.get("Config") or {}).get("Labels") or {}
+        project = labels.get("com.docker.compose.project")
+        return str(project).strip() if project else None
 
     def _inspect_service_by_name(self, service: str) -> dict[str, Any]:
         container = f"{self.settings.compose_project_name}-{service}-1"

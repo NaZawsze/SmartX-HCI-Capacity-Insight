@@ -9,7 +9,7 @@
 - 主要开发与验证机器：`10.20.11.3`
 - v2 远端项目路径：`/opt/smartx-storage-forecast-v2`
 - v2 当前工作分支：`dev2`
-- v2 平台版本：`v0.5.0`
+- v2 平台版本：`v0.5.1`
 - v2 runner 组件版本：`v0.3.0`
 - v2 提交策略：当前重建工作只提交并推送到 `dev2`；不要同步 `dev/main` 或打 tag，除非用户明确要求。
 - v1/dev 维护策略：如果用户明确要求继续修 v1 小版本，再切回 `dev` 并按用户指令处理。
@@ -85,7 +85,7 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 
 目标：
 
-- 平台版本统一为 `v0.5.0`。
+- 平台版本统一为 `v0.5.1`。
 - 平台三件套为 `web-api`、`collector-worker`、`frontend`。
 - `upgrade-runner` 作为独立组件，版本为 `v0.3.0`。
 - 平台升级包不包含 `upgrade-runner`。
@@ -96,7 +96,7 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 待办：
 
 - [已完成] 拆分 `SMARTX_IMAGE_TAG` 和 `SMARTX_RUNNER_IMAGE_TAG`。
-- [已完成] 更新平台版本元数据到 `v0.5.0`。
+- [已完成] 更新平台版本元数据到 `v0.5.1`。
 - [已完成] 移除平台升级包中的 runner 镜像。
 - [已完成] runner 组件包默认读取 `RUNNER_VERSION`。
 - [已完成] GitHub Actions 拆分平台和 runner 构建。
@@ -478,7 +478,7 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 
 - 已新增 `docs/architecture.md` 作为项目架构总览入口。
 - 文档明确 5 容器职责、后端模块边界、SQLite/Prometheus/`/data` 职责、任务模型、升级包结构、迁移包结构和安全边界。
-- 文档记录当前版本边界：平台 `v0.5.0`、runner `v0.3.0`、Prometheus `v2.55.1`、分支 `dev2`。
+- 文档记录当前版本边界：平台 `v0.5.1`、runner `v0.3.0`、Prometheus `v2.55.1`、分支 `dev2`。
 
 ### Phase 17 - dev2 受控重建
 
@@ -519,9 +519,9 @@ Phase V2-0 细化文档：
 
 最新验证摘要：
 
-- 平台版本已切换为 `v0.5.0`，runner 组件版本已切换为 `v0.3.0`。
+- 平台版本已切换为 `v0.5.1`，runner 组件版本已切换为 `v0.3.0`。
 - `10.20.11.3:/opt/smartx-storage-forecast-v2` 已在 `dev2` 构建并启动五个容器。
-- 健康接口返回 `version=v0.5.0`、`runner_version=v0.3.0`。
+- 健康接口返回 `version=v0.5.1`、`runner_version=v0.3.0`。
 - 平台升级包仅面向 v2 同架构后续升级；v1/v0.4.x 只通过数据迁移包兼容。
 - `10.20.11.3` 远端 `test_v2_*` 后端测试 65 个通过。
 - `10.20.11.3` 远端前端关键测试 20 个通过。
@@ -610,7 +610,7 @@ runner v0.3.0 发布策略：
 - [已实现] 平台、Runner、Prometheus 与平台+观测组合包构建器，统一 schema 3 和 `checksums.sha256`。
 - [已实现] Prometheus 组件包默认轻量化，不导出历史指标，不强制包含 `prometheus.tar`；离线环境才通过 `--offline-image` 携带镜像 tar。
 - [已明确] 平台/组件升级只做升级前本机备份用于回滚；Prometheus 历史数据导出/导入只属于完整数据迁移包。
-- [已完成] 升级相关 Markdown 统一更新：README 中英文、架构、部署、功能模块、版本治理和升级问题文档均对齐平台 `v0.5.0`、Runner `v0.3.0`、schema 3、四类升级包树形结构和 Prometheus 数据边界。
+- [已完成] 升级相关 Markdown 统一更新：README 中英文、架构、部署、功能模块、版本治理和升级问题文档均对齐平台 `v0.5.1`、Runner `v0.3.0`、schema 3、四类升级包树形结构和 Prometheus 数据边界。
 - [已实现] 沙箱宿主机路径映射；回滚删除升级新增文件并 recreate 原版本服务。
 - [已实现] SQLite WAL 一致性快照、按作用域恢复 SQLite/Prometheus、回滚后健康复检和健康检查重试窗口。
 - [已实现] web-api 与 Runner 对 `task.json` 使用 revision 乐观并发控制，陈旧恢复操作返回 409。
@@ -631,7 +631,7 @@ runner v0.3.0 发布策略：
 版本边界：
 
 - `v0.5.0`：稳定首发版，目标是可部署、可升级、可导出、可迁移。
-- 当前正式口径固定为 `v0.5.0`；源码 `VERSION`、README、文档、正式升级包和常规镜像 tag 必须保持一致。
+- 当前正式口径固定为 `v0.5.1`；源码 `VERSION`、README、文档、正式升级包和常规镜像 tag 必须保持一致。
 - `v0.5.4`、`v0.5.5` 等只作为测试升级包目标版本时，不代表正式版本变化，不能反向修改源码版本和对外文档。
 - 后续报表交付质量、数据迁移与清理增强等需求继续进入新 Phase 排期；是否形成正式新版本由发布前统一决定。
 
@@ -666,7 +666,7 @@ runner v0.3.0 发布策略：
 
 - [已完成] 在 `10.20.11.3` 临时构建 `v0.5.4` 与 `v0.5.5` 测试升级包，只用于验证升级链路。
 - [已完成] 两个测试包均确认 `schema_version=3`、`min_version=v0.5.0`、`database_migration=false`，不包含 `migration`、`migration_steps` 或 `migrations/`。
-- [已明确] 测试包目标版本不改变当前正式平台版本，正式版本仍为 `v0.5.0`。
+- [已明确] 测试包目标版本不改变当前正式平台版本，正式版本仍以根目录 `VERSION` 为准。
 
 ### Phase 24 - 采集重试、部分成功与趋势缺采标记
 
@@ -804,3 +804,187 @@ runner v0.3.0 发布策略：
 - [已实现] 数据质量摘要改为右侧紧凑纵向卡片，只显示核心状态、窗口、缺采、样本和不完整集群。
 - [已实现] 更新 `ReportsPage.test.tsx` 覆盖右侧摘要、左侧不再显示数据质量卡片和 Tower 前缀不再出现。
 - [已完成] 在 `10.20.11.3` 跑报表页前端测试，重建并 recreate frontend，验证 8080 和健康接口。
+
+### Phase 29 - 生产等价测试环境与发布验收门禁
+
+状态：规划中
+
+优先级：P0
+
+背景：
+
+- `10.20.0.6` 生产类环境暴露了报表日增长虚拟机名称缺失问题，但 `10.20.11.3` 和 `10.20.11.12` 测试环境没有提前暴露。
+- 根因不是单一代码错误，而是测试环境和发布流程没有强制验证“最终 tag 镜像 + 干净部署 + 真实 API 数据契约”。
+- 后续必须把测试环境分层，明确哪些环境允许脏调试，哪些环境必须像生产一样不可热修、不可本地构建、不可用未发布镜像。
+
+目标：
+
+- 建立三类环境职责，避免调试环境、升级演练环境和发布验收环境混用。
+- 发布前必须用最终交付物验收：`main` 分支 tag、Actions/DockerHub 产出的版本镜像、正式部署脚本和固定验收数据。
+- 把“页面没报错”升级为“关键业务链路有断言”的验收门禁，尤其覆盖 Dashboard、报表、任务中心、升级中心和采集链路。
+- 任何生产热修必须回流到代码、测试和 tag 镜像，不能让生产环境成为唯一验证点。
+
+环境分层：
+
+- `dev/debug`：推荐继续使用 `10.20.11.3`。
+  - 允许本地构建、临时补丁、容器内排查、数据污染和快速重建。
+  - 用于开发验证和定位问题，不作为发布通过依据。
+- `upgrade rehearsal`：推荐继续使用 `10.20.11.12`。
+  - 用于 `v0.5.0 -> v0.5.1` 这类升级包演练。
+  - 允许按测试需要重置，但每轮升级前必须记录起始版本、镜像 tag、升级包 sha256 和数据库状态。
+  - 不允许把本地热修后的容器当作正式验收通过。
+- `release canary`：建议使用独立干净环境，可临时使用 `10.20.0.6`，后续最好固定一台专用主机。
+  - 只允许从 DockerHub 拉取正式 tag 镜像。
+  - 只允许使用 `main` 分支 tag 对应的源码包、部署脚本和升级包。
+  - 禁止直接修改容器内 JS、Python、配置文件；如果必须热修，修完后必须销毁并重新用 tag 镜像部署验证。
+  - 验收通过后才允许发布 GitHub Release、交付升级包或通知用户升级。
+
+发布验收流程：
+
+- [ ] `dev2` 合并到 `main` 前，本地和 `10.20.11.3` 目标测试通过。
+- [ ] `main` 打正式 tag，例如 `v0.5.1`。
+- [ ] GitHub Actions 必须从 `main` 的 tag 构建镜像，镜像 tag 必须与版本号一致。
+- [ ] 等待 DockerHub 镜像可拉取，并记录镜像 digest。
+- [ ] `release canary` 清理旧容器、旧网络和旧项目文件，只保留需要的应用数据或使用固定验收数据集。
+- [ ] `release canary` 通过 DockerHub tag 镜像全新部署。
+- [ ] 执行后端 smoke：`/api/system/health`、Tower/集群列表、VM 列表、报表 API、任务列表、Prometheus 健康。
+- [ ] 执行前端 smoke：Dashboard 日/月增长、报表日/月增长 TOP、任务中心告警显示、服务管理、升级中心上传/预检查。
+- [ ] 执行数据契约验收：报表增长 VM 同时覆盖顶层 `vm_name/vm_id` 和 legacy `labels.vm/labels.vm_id` 两种响应。
+- [ ] 执行升级包验收：从最低支持版本升级到当前版本，确认预检查 sha256、步骤进度、回滚材料和最终健康状态。
+- [ ] 验收结果写入 `progress.md`，失败项必须修复后重新从 tag 镜像部署验证，不能只在运行环境手工 patch。
+
+固定验收用例：
+
+- Dashboard：
+  - 日增长样本不足时显示“样本不足”，不显示空箭头。
+  - 月增长不足 30 天时显示“样本不足”；满足 30 天但缺采时显示黄色缺采提示。
+  - VM 名称、容量、增长值、趋势断点不出现空白或 `undefined`。
+- 报表页：
+  - 日增长 TOP 和月增长 TOP 必须显示 VM 名称。
+  - 数据质量卡片能显示实际窗口、缺采天数、样本状态和不完整集群。
+  - Word/Excel 导出包含数据质量说明。
+- 任务中心：
+  - 所有任务显示右下角日期时间。
+  - 告警确认后不跳回任务中心顶部。
+  - 详情截断时有完整 `title/aria-label`。
+- 升级中心：
+  - 上传完成和预检查后必须显示升级包 sha256。
+  - `v0.5.0 -> v0.5.1` 无 schema 迁移时，不包含 migration、migration_steps、script.sandbox.v1 和 `migrations/run_migrations.py`。
+  - 有 schema 跨版本升级时，累计 migration step 按版本顺序执行且可幂等跳过。
+- 采集链路：
+  - 采集失败时创建任务中心任务或告警。
+  - 部分集群成功时成功目标写入 SQLite 和 Prometheus，失败目标不伪造新样本。
+  - 账号认证失败和连接失败错误文案应可区分。
+
+数据与契约策略：
+
+- 固定一份脱敏验收数据集，至少包含：
+  - 1 个 Tower、1 个启用集群、若干 VM。
+  - 日增长和月增长 TOP 数据。
+  - 缺采日期和样本不足场景。
+  - 报表 API 返回顶层 `vm_name/vm_id` 的场景。
+  - legacy `labels.vm/labels.vm_id` 的兼容场景。
+- 前端测试必须使用契约 fixture，不只 mock 理想结构。
+- 后端测试必须覆盖真实 API 返回字段，避免前端和后端各自通过但集成失败。
+
+反污染规则：
+
+- `release canary` 不允许 `docker compose build`。
+- `release canary` 不允许编辑容器内静态资源、Python 文件或数据库补丁脚本。
+- `release canary` 每次验收必须记录：
+  - 平台版本、Runner 版本、镜像 tag、镜像 digest。
+  - 部署来源：DockerHub tag 或升级包 sha256。
+  - 数据库来源：固定验收数据、升级前数据或全新初始化。
+  - 验收人、验收时间和失败项。
+- 如果在 canary 上发现问题：
+  - 只能临时排查，不把热修状态作为通过。
+  - 修复必须提交到 `dev2/main`，重新打 tag 或移动测试 tag 后，再从零部署验收。
+
+交付物：
+
+- [ ] 新增或更新发布验收清单文档，记录环境矩阵、门禁步骤、固定用例和反污染规则。
+- [ ] 补充前端契约测试：报表增长 VM 名称兼容顶层字段和 legacy labels。
+- [ ] 补充一键 smoke 脚本或最小 curl 清单，用于 release canary 验收。
+- [ ] 在 `progress.md` 中记录每次正式 tag 的 canary 验收结果。
+
+### Phase 30 - Compose Project/Network 固定化与升级链路修复
+
+状态：已实现，待验证
+
+优先级：P0
+
+背景：
+
+- `10.20.0.6` 按常规命令 `docker compose -f docker-compose.offline.yml up -d` 部署后，Docker Compose 默认使用目录名生成 project：`smartx-hci-capacity-insight-main`。
+- 程序内 `SMARTX_COMPOSE_PROJECT_NAME` 原先写死为 `smartx-storage-forecast`，导致后端按错误 project label 查询 Docker。
+- 直接结果是服务管理页“未读取到服务状态”，平台升级页 Compose 项目显示旧值，观测组件版本显示 `-`。
+- 同一配置还会影响升级链路：web-api 预检查、服务状态读取、Runner `compose.apply` 和回滚重启都会依赖 compose project。
+- 用户确认更合理的根修复是在所有 Compose 文件里写顶层 `name:`，并固定 Docker network name，让常规 `docker compose up -d` 也天然带稳定 project/network。
+
+目标：
+
+- 用户无需记住 `--project-name`，直接执行 `docker compose -f docker-compose.offline.yml up -d` 也会创建固定 project。
+- 固定 Docker network 名称，避免源码目录变化或手动更新时生成新网络导致冲突。
+- 服务状态、Prometheus 版本、平台升级、组件升级和回滚都使用同一套 project/network。
+- 保留后端“从当前容器 label 反查真实 project”的兜底，兼容历史现场。
+- 不再对 `10.20.0.6` 执行任何写操作；生产只允许只读诊断，除非用户明确批准具体命令。
+
+实施项：
+
+- [已实现] 在 `docker-compose.yml`、`docker-compose.offline.yml`、`docker-compose.release.yml` 顶层增加：
+
+```yaml
+name: smartx-hci-capacity-insight
+```
+
+- [已实现] 三个 Compose 文件中 `web-api` 与 `upgrade-runner` 的环境变量统一为：
+
+```yaml
+SMARTX_COMPOSE_PROJECT_NAME: smartx-hci-capacity-insight
+```
+
+- [已实现] 三个 Compose 文件中的网络统一为固定真实 Docker network：
+
+```yaml
+networks:
+  smartx-net:
+    name: smartx-hci-capacity-insight-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.249.249.0/24
+```
+
+- [已实现] 保持服务内部仍引用逻辑网络名 `smartx-net`，只固定网络真实名称，不改变服务间通信方式。
+- [已实现] `SMARTX_PROJECT_PATH` 继续保持容器内路径 `/opt/smartx-storage-forecast`，因为该路径是容器内挂载点，不等同于宿主机源码目录。
+- [已实现] `SMARTX_HOST_PROJECT_PATH` 继续使用 `${PWD}`，保证 Runner 调用 Docker daemon 时能把宿主机源码目录传给 Docker。
+- [已实现] 后端 `UpgradeService.verification()` 保留兜底逻辑：若配置 project 查不到服务，则 inspect 当前 `web-api` 容器 label，使用真实 `com.docker.compose.project` 读取服务状态。
+- [已实现] `compose.apply` 和 `rollback.restore` 继续显式传 `--project-name context.compose_project`，该值来自统一后的 `SMARTX_COMPOSE_PROJECT_NAME`。
+- [已实现] 文档更新：部署文档推荐不带 `--project-name` 的普通命令，显式 `--project-name smartx-hci-capacity-insight` 仅作为兼容旧 Compose 或排障写法。
+
+测试计划：
+
+- [已验证] 配置测试：三个 Compose 文件都包含顶层 `name: smartx-hci-capacity-insight`。
+- [已验证] 配置测试：三个 Compose 文件都包含 `SMARTX_COMPOSE_PROJECT_NAME: smartx-hci-capacity-insight`。
+- [已验证] 配置测试：三个 Compose 文件都包含 `name: smartx-hci-capacity-insight-net`。
+- [已验证] 配置测试：三个 Compose 文件不再包含 `SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast`。
+- [ ] 服务状态测试：project 一致时，`verification.services` 返回 web-api、collector-worker、frontend、prometheus、upgrade-runner。
+- [已验证] 服务状态测试：配置 project 与当前容器真实 label 不一致时，后端能从当前容器 label fallback 读取实际服务。
+- [已验证] 观测版本测试：Prometheus 镜像为 `prom/prometheus:v2.55.1` 时，`prometheus_version=v2.55.1`。
+- [ ] Runner 测试：`compose.apply` 生成命令必须包含 `--project-name smartx-hci-capacity-insight`。
+- [已验证] Runner 测试：`rollback.restore` 的 stop 和 up 命令必须使用同一 project name。
+- [ ] 部署验收：在非生产 canary 上进入任意目录名，执行 `docker compose -f docker-compose.offline.yml up -d`，Docker label 必须为 `com.docker.compose.project=smartx-hci-capacity-insight`，网络必须为 `smartx-hci-capacity-insight-net`。
+- [ ] 升级验收：执行一次测试升级包，确认不会创建第二套 project 容器或第二个 smartx 网络。
+
+生产/现场处理规则：
+
+- `10.20.0.6` 当前只做只读诊断，不再写文件、不传测试文件、不 recreate 容器。
+- 如果后续需要恢复或调整 `10.20.0.6`，必须先列出将执行的命令和 diff，等用户明确确认后再执行。
+- 已有现场如果存在旧 project 容器或旧网络，升级前必须人工确认：
+
+```bash
+docker ps --format '{{.Names}} {{.Label "com.docker.compose.project"}}'
+docker network ls | grep smartx
+```
+
+- 如果存在多个 project 同时挂同一数据目录，必须先停旧 project，再按固定 project/network 重新拉起，禁止两个 project 同时管理同一套数据。

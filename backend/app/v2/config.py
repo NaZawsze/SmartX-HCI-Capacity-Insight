@@ -38,7 +38,7 @@ class V2Settings:
     timezone: str = field(default_factory=lambda: os.environ.get("SMARTX_COLLECTION_TIMEZONE", "Asia/Shanghai"))
     prometheus_url: str = field(default_factory=lambda: os.environ.get("SMARTX_PROMETHEUS_URL", "http://prometheus:9090"))
     compose_file: str = field(default_factory=lambda: os.environ.get("SMARTX_COMPOSE_FILE", "docker-compose.offline.yml"))
-    compose_project_name: str = field(default_factory=lambda: os.environ.get("SMARTX_COMPOSE_PROJECT_NAME", "smartx-storage-forecast"))
+    compose_project_name: str = field(default_factory=lambda: os.environ.get("SMARTX_COMPOSE_PROJECT_NAME", "smartx-hci-capacity-insight"))
     app_version: str = field(default_factory=lambda: read_version(IMAGE_VERSION_FILE, "SMARTX_APP_VERSION", DEFAULT_APP_VERSION))
     runner_version: str = field(default_factory=lambda: read_version(RUNNER_VERSION_FILE, "SMARTX_RUNNER_VERSION", DEFAULT_RUNNER_VERSION))
     token_ttl_minutes: int = field(default_factory=lambda: int(os.environ.get("SMARTX_TOKEN_TTL_MINUTES", "720")))

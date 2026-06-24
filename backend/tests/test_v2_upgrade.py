@@ -700,6 +700,99 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertIsNone(verification["service_status_error"])
             self.assertEqual([item["service"] for item in verification["services"]], ["web-api", "prometheus"])
 
+    def test_verification_discovers_actual_compose_project_from_current_container(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def output(self, command: list[str], *, cwd: Path | None = None) -> str:
+                if command[:4] == ["docker", "compose", "-f", "docker-compose.offline.yml"]:
+                    return ""
+                if command[:2] == ["docker", "ps"] and "label=com.docker.compose.project=smartx-storage-forecast" in command:
+                    return ""
+                if command[:3] == ["docker", "inspect", "current-container"]:
+                    return json.dumps(
+                        [
+                            {
+                                "Config": {
+                                    "Labels": {
+                                        "com.docker.compose.project": "smartx-hci-capacity-insight-main",
+                                    }
+                                }
+                            }
+                        ]
+                    )
+                if command[:2] == ["docker", "ps"] and "label=com.docker.compose.project=smartx-hci-capacity-insight-main" in command:
+                    return "\n".join(
+                        [
+                            json.dumps(
+                                {
+                                    "Names": "smartx-hci-capacity-insight-main-web-api-1",
+                                    "Labels": "com.docker.compose.service=web-api",
+                                    "State": "running",
+                                    "Status": "Up 1 minute",
+                                }
+                            ),
+                            json.dumps(
+                                {
+                                    "Names": "smartx-hci-capacity-insight-main-prometheus-1",
+                                    "Labels": "com.docker.compose.service=prometheus",
+                                    "State": "running",
+                                    "Status": "Up 1 minute",
+                                }
+                            ),
+                        ]
+                    )
+                if command[:2] == ["docker", "inspect"] and command[-1] == "smartx-hci-capacity-insight-main-web-api-1":
+                    return json.dumps(
+                        [
+                            {
+                                "Config": {"Image": "repo/web-api:v0.5.1", "Env": ["SMARTX_APP_VERSION=v0.5.1"]},
+                                "Image": "sha256:webapi",
+                                "State": {"Status": "running", "Running": True, "StartedAt": "2026-06-23T01:00:00Z"},
+                            }
+                        ]
+                    )
+                if command[:2] == ["docker", "inspect"] and command[-1] == "smartx-hci-capacity-insight-main-prometheus-1":
+                    return json.dumps(
+                        [
+                            {
+                                "Config": {"Image": "prom/prometheus:v2.55.1", "Env": []},
+                                "Image": "sha256:prom",
+                                "State": {"Status": "running", "Running": True, "StartedAt": "2026-06-23T01:01:00Z"},
+                            }
+                        ]
+                    )
+                return ""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hostname = Path(tmpdir) / "hostname"
+            hostname.write_text("current-container\n", encoding="utf-8")
+            settings = V2Settings(
+                data_root=Path(tmpdir),
+                secret_key="upgrade-secret",
+                compose_file="docker-compose.offline.yml",
+                compose_project_name="smartx-storage-forecast",
+            )
+            database = V2Database(settings)
+            database.initialize()
+            service = UpgradeService(
+                settings,
+                TaskService(database),
+                executor=FakeExecutor(),
+                project_path=Path(tmpdir) / "project",
+                hostname_path=hostname,
+            )
+
+            verification = service.verification()
+
+            self.assertIsNone(verification["service_status_error"])
+            self.assertEqual([item["service"] for item in verification["services"]], ["web-api", "prometheus"])
+            self.assertEqual(verification["prometheus_version"], "v2.55.1")
+            self.assertEqual(verification["compose_project"], "smartx-hci-capacity-insight-main")
+
     def test_runner_task_public_steps_are_grouped_from_execution_actions(self) -> None:
         from app.upgrade_runner.store import TaskStore
         from app.v2.config import V2Settings

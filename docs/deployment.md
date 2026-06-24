@@ -67,7 +67,7 @@ docker compose up -d --build
 Release image mode, for servers that can pull images from the registry:
 
 ```bash
-docker compose -f docker-compose.release.yml --project-name smartx-storage-forecast up -d
+docker compose -f docker-compose.release.yml up -d
 ```
 
 `docker-compose.release.yml` uses the Docker images built by GitHub Actions and does not contain `build:` sections. Use it when the target server should not build images locally, but can access the image registry.
@@ -75,10 +75,10 @@ docker compose -f docker-compose.release.yml --project-name smartx-storage-forec
 Offline image mode, for servers that already have the images loaded locally and should not pull from the registry:
 
 ```bash
-docker compose -f docker-compose.offline.yml --project-name smartx-storage-forecast up -d
+docker compose -f docker-compose.offline.yml up -d
 ```
 
-`docker-compose.offline.yml` sets `pull_policy: never` and uses explicit local version tags by default. Before starting, make sure these images exist on the target server:
+The Compose files define `name: smartx-hci-capacity-insight` and the fixed Docker network `smartx-hci-capacity-insight-net`, so the normal `docker compose ... up -d` command uses the same project and network regardless of the source directory name. If an older Compose implementation ignores top-level `name`, use `--project-name smartx-hci-capacity-insight` explicitly. `docker-compose.offline.yml` sets `pull_policy: never` and uses explicit local version tags by default. Before starting, make sure these images exist on the target server:
 
 ```text
 nazawsze/smartx-hci-capacity-insight-web-api:v0.5.1

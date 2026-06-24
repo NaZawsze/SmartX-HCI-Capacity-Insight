@@ -3623,3 +3623,47 @@ TDD 记录：
 - 已补前端测试覆盖：失败详情必须存在完整 `title`，并继续验证按钮位于右侧操作列且在 `100%` 前面。
 - 远端 `10.20.11.3` 前端目标测试通过：先用新测试验证旧实现失败，再完成实现后 `AppLayout.test.tsx` 19 个测试通过。
 - 已在 `10.20.11.3` 重建并 recreate `frontend`，最终 `http://127.0.0.1:8080` 返回 `HTTP/1.1 200 OK`。
+
+### 2026-06-23 生产等价测试环境规划
+
+状态：已写入规划文件，未提交
+
+- 用户指出 `10.20.0.6` 生产类环境暴露了报表日增长 VM 名称缺失，而 `10.20.11.3/10.20.11.12` 没有提前发现，说明当前测试环境无法稳定代表生产交付。
+- 已将该问题收敛为 Phase 29：生产等价测试环境与发布验收门禁。
+- 已在 `task_plan.md` 明确三类环境：
+  - `10.20.11.3` 作为 dev/debug，允许本地构建、热修和数据污染。
+  - `10.20.11.12` 作为 upgrade rehearsal，用于受控升级演练。
+  - 独立 `release canary` 作为正式验收环境，只使用 DockerHub/tag 镜像和正式部署脚本。
+- 已补充发布门禁流程：`dev2 -> main -> tag -> Actions 构建 -> DockerHub tag 镜像 -> canary 全新部署 -> 后端/前端/升级包/数据契约验收 -> Release`。
+- 已补充固定验收用例：Dashboard 日/月增长、报表日/月增长 VM 名称、数据质量、任务中心、升级中心 sha256、采集失败与部分成功。
+- 已补充反污染规则：canary 禁止本地 build、禁止容器内热修、发现问题后必须回流代码并重新从 tag 镜像部署验证。
+- 已在 `findings.md` 记录本次根因：最终交付物未被独立验收、测试环境被开发/升级/热修状态混用、缺少真实 API 数据契约覆盖。
+
+### 2026-06-23 Compose Project/Network 固定化规划
+
+状态：已写入规划文件，未提交
+
+- 用户指出根修复应在所有 `docker-compose*.yml` 中写顶层 project name，并固定 network name，使常规 `docker compose up -d` 不依赖目录名。
+- 已将该问题收敛为 Phase 30：Compose Project/Network 固定化与升级链路修复。
+- 已在 `task_plan.md` 写明实施口径：
+  - 三个 Compose 文件顶层增加 `name: smartx-hci-capacity-insight`。
+  - 三个 Compose 文件固定网络真实名称 `smartx-hci-capacity-insight-net`。
+  - `SMARTX_COMPOSE_PROJECT_NAME` 统一为 `smartx-hci-capacity-insight`。
+  - 后端服务状态读取保留当前容器 label fallback，兼容历史现场。
+  - Runner `compose.apply` 和 `rollback.restore` 必须继续使用同一 project name。
+- 已在 `findings.md` 记录 `10.20.0.6` 的真实根因：用户使用正常部署命令，Compose 根据目录名生成 project，而程序配置仍按旧 project 查询 Docker。
+- 明确生产边界：`10.20.0.6` 后续只做只读诊断；任何写操作、恢复操作或 recreate 都必须先列命令并等待用户明确确认。
+
+
+### 2026-06-23 Compose Project/Network 固定化实施
+
+状态：本地目标测试通过，未提交
+
+- 已在三个 Compose 文件顶层增加 `name: smartx-hci-capacity-insight`。
+- 已固定 Docker 网络真实名称为 `smartx-hci-capacity-insight-net`，服务仍使用逻辑网络 `smartx-net`。
+- 已统一 `SMARTX_COMPOSE_PROJECT_NAME=smartx-hci-capacity-insight`，并同步 web-api、Runner、系统重启和配置默认值。
+- 已保留并完善服务状态 fallback：配置 project 查不到时，从当前容器 label 反查真实 Compose project，并在 verification 中返回实际读取到的 project。
+- 已更新部署文档：推荐普通 `docker compose -f docker-compose.offline.yml up -d`，旧 Compose 可显式使用 `--project-name smartx-hci-capacity-insight`。
+- 本地验证通过：`PYTHONPATH=. pytest tests/test_deployment_config.py tests/test_v2_upgrade.py -k 'compose_project_name_is_consistent or discovers_actual_compose_project or verification_reports_service_statuses or falls_back_to_docker_ps' -q`，3 passed。
+- 本地验证通过：`PYTHONPATH=. pytest tests/test_upgrade_runner_engine.py -k 'rollback_restores_old_files_removes_new_files_and_recreates_services' -q`，1 passed。
+- 未对 `10.20.0.6` 执行任何写操作。

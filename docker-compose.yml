@@ -1,3 +1,5 @@
+name: smartx-hci-capacity-insight
+
 services:
   web-api:
     build:
@@ -9,7 +11,7 @@ services:
     environment:
       TZ: Asia/Shanghai
       SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
-      SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast
+      SMARTX_COMPOSE_PROJECT_NAME: smartx-hci-capacity-insight
       SMARTX_DB_PATH: /data/smartx.db
       SMARTX_PROMETHEUS_DATA_PATH: /prometheus-data
     volumes:
@@ -79,7 +81,7 @@ services:
     environment:
       TZ: Asia/Shanghai
       SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
-      SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast
+      SMARTX_COMPOSE_PROJECT_NAME: smartx-hci-capacity-insight
       SMARTX_DB_PATH: /data/smartx.db
       SMARTX_PROMETHEUS_DATA_PATH: /prometheus-data
       SMARTX_HOST_DATA_PATH: /data/smartx-capacity-insight-data/app
@@ -123,6 +125,7 @@ services:
 
 networks:
   smartx-net:
+    name: smartx-hci-capacity-insight-net
     driver: bridge
     ipam:
       config:

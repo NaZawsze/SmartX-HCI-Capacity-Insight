@@ -71,7 +71,7 @@ class ActionContext:
             compose_runtime_path=root / "compose-runtime",
             prometheus_path=root / "prometheus",
             compose_file="docker-compose.offline.yml",
-            compose_project="smartx-storage-forecast",
+            compose_project="smartx-hci-capacity-insight",
             executor=executor or CommandExecutor(),
         )
         for path in (
