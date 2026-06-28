@@ -426,3 +426,11 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 根修复应在 Compose 文件顶层写 `name: smartx-hci-capacity-insight`，并给网络写固定真实名称 `smartx-hci-capacity-insight-net`，让普通 `docker compose up -d` 也稳定。
 - 后端仍需要保留当前容器 label 反查真实 project 的兜底，用于历史现场或第三方改过 project name 的场景。
 - 生产环境 `10.20.0.6` 后续只允许只读诊断；任何写操作、恢复操作或 recreate 都必须先列命令并等用户明确确认。
+
+## Phase 31 v0.5.1u2 过渡版本发现
+
+- `v0.5.1u2` 是平台过渡版本，不是 runner 组件版本；它不升级 `upgrade-runner`，也不包含 `upgrade-runner.tar`。
+- 本轮目标是把平台版本、镜像 tag、README、部署文档、版本治理、升级包说明和包内 release-notes 统一到 `v0.5.1u2`。
+- `v0.5.1u2` 的兼容范围应写清：`v0.5.0/v0.5.1/v0.5.1u1 -> v0.5.1u2`，以及 `v0.5.1u2 -> v0.5.1u2` 同版本重同步。
+- 后续如平台版本依赖 `upgrade-runner v0.3.1` 新能力，必须先发布 runner 组件包，并在平台包预检查中校验 runner 版本或 capability。
+- 当前主线 runner 版本为 `v0.3.0`，本轮不应回退 runner 版本，也不应把 runner 镜像混入平台包。

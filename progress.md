@@ -3654,6 +3654,17 @@ TDD 记录：
 - 已在 `findings.md` 记录 `10.20.0.6` 的真实根因：用户使用正常部署命令，Compose 根据目录名生成 project，而程序配置仍按旧 project 查询 Docker。
 - 明确生产边界：`10.20.0.6` 后续只做只读诊断；任何写操作、恢复操作或 recreate 都必须先列命令并等待用户明确确认。
 
+### 2026-06-28 v0.5.1u2 过渡版本发布整理
+
+状态：进行中
+
+- 用户要求写好说明文件，写明更新内容、修复内容和过渡版本定位，并推送 `dev`、`main`，创建 tag `v0.5.1u2`。
+- 当前主线已具备 compose 顶层 `name: smartx-hci-capacity-insight`、固定网络口径和 runner `v0.3.0`，本轮不回退这些主线修复。
+- 已将平台版本、compose 默认平台 tag、后端默认平台版本、README 中英文、部署文档和版本治理文档同步到 `v0.5.1u2`。
+- 新增 `docs/releases/v0.5.1u2.md`，说明兼容范围、更新内容、修复内容、Runner 边界、升级包内容和发布检查。
+- 打包器生成的包内 `release-notes.md` 改为中文详细说明，写清升级范围、修复内容、过渡版本说明和禁止包含的数据。
+- `v0.5.1u2` 明确不升级 `upgrade-runner`，只为后续 `upgrade-runner v0.3.1` 组件包做准备。
+
 
 ### 2026-06-23 Compose Project/Network 固定化实施
 

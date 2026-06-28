@@ -562,12 +562,32 @@ def build_package(
             ],
         }
     (work / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    migration_note = "包含累计 SQLite 迁移脚本" if selected_migrations else "不包含 SQLite 迁移脚本"
     (work / "release-notes.md").write_text(
-        f"# {version}\n\n"
-        "- Platform upgrade package for web-api, collector-worker, and frontend.\n"
-        "- Syncs whitelisted project files such as compose, docs, and scripts.\n"
-        "- Writes image overrides into docker-compose.upgrade.yml before service restart.\n\n"
-        "This package does not include upgrade-runner, .env, databases, Prometheus data, Tower credentials, or runtime data.\n",
+        f"# SmartX HCI Capacity Insight {version} 升级包\n\n"
+        "## 升级范围\n\n"
+        f"- 目标平台版本：`{version}`。\n"
+        f"- 最低来源版本：`{min_version}`。\n"
+        "- 兼容来源：同一 v2 架构下的 `v0.5.0`、`v0.5.1`、`v0.5.1u1` 可直接升级或重同步到本版本。\n"
+        "- 升级对象：`web-api`、`collector-worker`、`frontend` 三个业务平台服务。\n"
+        "- 项目文件：同步白名单内 compose、Prometheus 配置、脚本、README 和 docs。\n"
+        f"- 数据库迁移：{migration_note}。\n\n"
+        "## 本版本更新\n\n"
+        "- 统一平台版本、镜像 tag、README、部署文档、版本治理和升级包说明为当前版本。\n"
+        "- 保持 compose 顶层 `name` 和固定网络口径，避免手动 `docker compose up -d` 生成错误项目名。\n"
+        "- 平台升级包继续只包含业务平台三件套，不把 `upgrade-runner` 混入平台版本。\n\n"
+        "## 修复内容\n\n"
+        "- 修复部分部署因 compose 项目名不一致导致服务管理、平台升级和观测组件状态读取不稳定的问题。\n"
+        "- 修复升级包说明不清晰，兼容范围、sha256/schema 和迁移边界难以确认的问题。\n"
+        "- 修复无 SQLite schema 变化的平台包误带迁移脚本或 `script.sandbox.v1` 能力要求的问题。\n\n"
+        "## 过渡版本说明\n\n"
+        f"`{version}` 是过渡平台版本，用于整理当前部署目录、compose 项目名、网络和升级包说明，"
+        "为后续单独升级 `upgrade-runner v0.3.1` 做准备。本包不会升级 runner，也不会重启 runner。"
+        "后续进入需要新 runner 能力的平台版本前，应先使用 runner 组件包完成 runner 升级。\n\n"
+        "## 不包含内容\n\n"
+        "- 不包含 `.env`、SQLite 数据库、Prometheus 历史数据、Tower 凭据、token、运行时备份或真实业务数据。\n"
+        "- 不包含 `upgrade-runner.tar`。\n"
+        "- 不导出 Prometheus 历史 block；平台/组件升级不是数据迁移。\n",
         encoding="utf-8",
     )
 

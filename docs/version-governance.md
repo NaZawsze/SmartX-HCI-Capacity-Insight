@@ -4,8 +4,8 @@
 
 ## 版本模型
 
-- 平台版本由根目录 `VERSION` 定义，当前为 `v0.5.1`。
-- 当前正式口径固定为 `v0.5.1`：源码版本、README、文档、正式升级包和常规镜像 tag 必须一致。
+- 平台版本由根目录 `VERSION` 定义，当前为 `v0.5.1u2`。
+- 当前正式口径固定为 `v0.5.1u2`：源码版本、README、文档、正式升级包和常规镜像 tag 必须一致。
 - 临时测试升级包可以使用不同目标版本验证升级链路，但只作为测试包元数据；不能反向修改 `VERSION`、README 或正式发布口径。
 - 平台服务包括 `web-api`、`collector-worker`、`frontend`。
 - `upgrade-runner` 是独立升级执行组件，版本由根目录 `RUNNER_VERSION` 定义，当前为 `v0.3.0`。
@@ -18,9 +18,9 @@
 平台服务镜像使用平台版本：
 
 ```text
-nazawsze/smartx-hci-capacity-insight-web-api:v0.5.1
-nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.1
-nazawsze/smartx-hci-capacity-insight-frontend:v0.5.1
+nazawsze/smartx-hci-capacity-insight-web-api:v0.5.1u2
+nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.1u2
+nazawsze/smartx-hci-capacity-insight-frontend:v0.5.1u2
 ```
 
 runner 组件镜像使用 runner 组件版本：
@@ -32,7 +32,7 @@ nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0
 `docker-compose.yml`、`docker-compose.offline.yml` 和 `docker-compose.release.yml` 使用两个独立变量：
 
 ```text
-SMARTX_IMAGE_TAG          # 平台服务 tag，例如 v0.5.1
+SMARTX_IMAGE_TAG          # 平台服务 tag，例如 v0.5.1u2
 SMARTX_RUNNER_IMAGE_TAG   # upgrade-runner tag，例如 v0.3.0
 ```
 
@@ -62,7 +62,7 @@ project/**
 migrations/run_migrations.py  # 可选，仅 migration_steps 非空时包含
 ```
 
-`v0.5.1` 起的平台升级包只面向 v2 同架构后续升级，不声明兼容 v1 或 `v0.4.x` 原地升级。v1/v0.4.x 现场数据兼容通过“新装 v2 + 数据迁移包导入”完成，迁移包兼容 SQLite 业务数据、Prometheus 历史指标和旧 VM 卷 payload。
+`v0.5.1u2` 起的平台升级包只面向 v2 同架构后续升级，不声明兼容 v1 或 `v0.4.x` 原地升级。v1/v0.4.x 现场数据兼容通过“新装 v2 + 数据迁移包导入”完成，迁移包兼容 SQLite 业务数据、Prometheus 历史指标和旧 VM 卷 payload。
 
 平台升级支持 v2 同架构跨版本直升。打包器读取 `backend/app/v2/upgrade/migrations/registry.json`，按 `source_version < step.version <= target_version` 选择累计 SQLite 迁移步骤。没有选中迁移步骤时，manifest 必须为 `database_migration=false`，且不包含 `migration`、`migration_steps` 或 `script.sandbox.v1`。有迁移步骤时，包内生成单文件 `migrations/run_migrations.py`，manifest 同时写入 `migration_steps[]` 和 legacy `migration.script`，以兼容 `upgrade-runner v0.3.0`。是否携带迁移只由来源版本、目标版本和迁移注册表共同决定，不能只看目标版本自身是否改 schema。
 
@@ -133,7 +133,7 @@ TOKEN="$(
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])'
 )"
 
-for TAG in v0.5.1 v0.4.0 v0.3.3u2 v0.3.3U1 v0.3.3 v0.3.2 v0.3.1 main latest; do
+for TAG in v0.5.1u2 v0.4.0 v0.3.3u2 v0.3.3U1 v0.3.3 v0.3.2 v0.3.1 main latest; do
   echo "Deleting ${REPO}:${TAG}"
   curl -fsS -X DELETE \
     -H "Authorization: JWT ${TOKEN}" \
