@@ -31,6 +31,13 @@ export interface Tower {
 export interface MetricItem {
   metric: Record<string, string>;
   value: number;
+  tower_id?: string | number | null;
+  cluster_id?: string | null;
+  cluster?: string | null;
+  vm_id?: string | null;
+  vm_name?: string | null;
+  current_bytes?: number | null;
+  used_bytes?: number | null;
   growth_amount?: number | null;
   previous_value?: number | null;
   growth_ratio?: number | null;
@@ -206,6 +213,12 @@ export interface ForecastPayload {
     per_day?: number | null;
     per_month?: number | null;
     per_quarter?: number | null;
+    day_sample_sufficient?: boolean;
+    month_sample_sufficient?: boolean;
+    quarter_sample_sufficient?: boolean;
+    day_window_days?: number;
+    month_window_days?: number;
+    quarter_window_days?: number;
   };
   window_days: number;
   chart_days?: number;
@@ -297,6 +310,7 @@ export interface UpgradeTask {
   backup_path?: string;
   kind?: string;
   component?: string;
+  components?: string[];
   target_version?: string;
   release_notes?: string;
   database_migration?: boolean;

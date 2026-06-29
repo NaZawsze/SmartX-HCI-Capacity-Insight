@@ -223,6 +223,36 @@ describe("DashboardPage", () => {
     expect(screen.getByText("VM Two")).toBeInTheDocument();
   });
 
+  it("renders day new vm names from top-level dashboard fields", () => {
+    const onSelectVm = vi.fn();
+    render(
+      <DashboardPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 1, vm_count: 1, used_bytes: 100, total_bytes: 200, used_ratio: 0.5 },
+          top_vms: [],
+          day_fastest_growing_vms: [],
+          day_new_vms: [
+            {
+              metric: {},
+              vm_id: "vm-day-new-top-level",
+              vm_name: "Top Level New VM",
+              value: 10
+            }
+          ],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSummary={vi.fn()}
+        onSelectVm={onSelectVm}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Top Level New VM 10 B" }));
+    expect(onSelectVm).toHaveBeenCalledWith("vm-day-new-top-level", "Top Level New VM");
+    expect(screen.queryByText("undefined")).not.toBeInTheDocument();
+  });
+
   it("opens the riskiest cluster report when capacity risk is clicked", () => {
     const onOpenRiskReport = vi.fn();
     render(

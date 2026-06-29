@@ -14,6 +14,7 @@ SAFE_RESUME_ACTIONS = {
     "image.load",
     "files.sync",
     "compose.override",
+    "compose.project_migrate",
     "compose.apply",
     "health.http",
     "health.prometheus",

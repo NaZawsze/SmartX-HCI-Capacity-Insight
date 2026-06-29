@@ -203,6 +203,41 @@ class V2ReportExportDocumentTest(unittest.TestCase):
                     self.assertIn(growth_title, workbook_text)
                     self.assertIn(vm_title, workbook_text)
 
+    def test_docx_and_xlsx_include_growth_rate_method_notes(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_docx, build_report_xlsx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="reports-growth-rate-secret")
+            report = FakeReportService().latest_report(period_days=30)
+            report["cluster_growth_rate"] = {
+                "per_day": -5,
+                "per_month": 300,
+                "per_quarter": None,
+                "day_sample_sufficient": True,
+                "month_sample_sufficient": False,
+                "quarter_sample_sufficient": False,
+                "day_window_days": 1,
+                "month_window_days": 30,
+                "quarter_window_days": 90,
+            }
+
+            content, _, _, _ = build_report_docx(report, settings, period_days=30)
+            word_xml, _ = _docx_xml(content)
+            self.assertIn("容量增长速率口径", word_xml)
+            self.assertIn("日：最近一天净变化", word_xml)
+            self.assertIn("-5.00 B/天", word_xml)
+            self.assertIn("300.00 B/月（样本不足）", word_xml)
+            self.assertIn("季度：数据不足（样本不足）", word_xml)
+
+            xlsx_content, _, _, _ = build_report_xlsx(report, settings, period_days=30)
+            workbook_text = "\n".join(_xlsx_values(xlsx_content))
+            self.assertIn("容量增长速率口径", workbook_text)
+            self.assertIn("日：最近一天净变化", workbook_text)
+            self.assertIn("-5.00 B/天", workbook_text)
+            self.assertIn("300.00 B/月（样本不足）", workbook_text)
+            self.assertIn("季度：数据不足（样本不足）", workbook_text)
+
     def test_long_window_with_short_history_uses_profile_sample_notice(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.reports.export import build_report_docx, build_report_xlsx
@@ -834,6 +869,11 @@ class V2ReportExportDocumentTest(unittest.TestCase):
         self.assertEqual(quality["A1"].value, "数据质量说明")
         self.assertGreaterEqual(quality.column_dimensions["A"].width, 24)
         self.assertGreaterEqual(quality.column_dimensions["B"].width, 44)
+
+        day_new = workbook["本日新建VM"]
+        month_new = workbook["本月新建VM"]
+        self.assertEqual(day_new.column_dimensions["E"].width, 30)
+        self.assertEqual(month_new.column_dimensions["E"].width, 30)
 
         trend = workbook["容量趋势"]
         self.assertEqual(trend.freeze_panes, "A4")

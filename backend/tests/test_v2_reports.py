@@ -142,6 +142,39 @@ class SplitLabelVmPrometheus(FakePrometheus):
         return super().range(query, start=start, end=end, step=step)
 
 
+class MixedGrowthPrometheus(FakePrometheus):
+    def range(self, query: str, *, start: int, end: int, step: str):
+        if query.startswith("smartx_cluster_storage_used_bytes"):
+            if step == "1h":
+                return [
+                    {
+                        "metric": {"tower_id": "1", "cluster_id": "cluster-a"},
+                        "values": [[self.now_ts - SECONDS_PER_DAY, "200"], [self.now_ts, "180"]],
+                    }
+                ]
+            if start <= self.now_ts - 90 * SECONDS_PER_DAY:
+                return [
+                    {
+                        "metric": {"tower_id": "1", "cluster_id": "cluster-a"},
+                        "values": [[self.now_ts - 90 * SECONDS_PER_DAY, "0"], [self.now_ts - 45 * SECONDS_PER_DAY, "90"], [self.now_ts, "180"]],
+                    }
+                ]
+            return [
+                {
+                    "metric": {"tower_id": "1", "cluster_id": "cluster-a"},
+                    "values": [[self.now_ts - 30 * SECONDS_PER_DAY, "120"], [self.now_ts, "180"]],
+                }
+            ]
+        return super().range(query, start=start, end=end, step=step)
+
+
+class InsufficientGrowthPrometheus(FakePrometheus):
+    def range(self, query: str, *, start: int, end: int, step: str):
+        if query.startswith("smartx_cluster_storage_used_bytes"):
+            return [{"metric": {"tower_id": "1", "cluster_id": "cluster-a"}, "values": [[self.now_ts, "180"]]}]
+        return super().range(query, start=start, end=end, step=step)
+
+
 class V2ReportsTest(unittest.TestCase):
     def _seed_inventory(self, tmpdir: str):
         from app.v2.config import V2Settings
@@ -171,7 +204,7 @@ class V2ReportsTest(unittest.TestCase):
             self.assertEqual(report["forecast_days"], 90)
             self.assertEqual(report["window_days"], 30)
             self.assertEqual(report["chart_days"], 90)
-            self.assertEqual(report["growth_rate_window_days"], 7)
+            self.assertEqual(report["growth_rate_window_days"], 1)
             self.assertEqual(report["period_window"]["days"], 30)
             self.assertEqual(report["clusters"][0]["labels"]["tower"], "Tower A")
             self.assertEqual(report["clusters"][0]["labels"]["cluster"], "Cluster A")
@@ -250,6 +283,43 @@ class V2ReportsTest(unittest.TestCase):
             self.assertEqual(vm["previous_value"], 100.0)
             self.assertEqual(vm["growth_amount"], 200.0)
             self.assertAlmostEqual(vm["sample_span_days"], 16.0)
+
+    def test_cluster_growth_rate_uses_day_month_and_quarter_windows_with_negative_day(self) -> None:
+        from app.v2.reports.service import ReportService
+
+        now_ts = 1_700_000_000
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            report = ReportService(db, settings, prometheus=MixedGrowthPrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
+
+            rate = report["cluster_growth_rate"]
+            self.assertEqual(rate["per_day"], -20.0)
+            self.assertEqual(rate["per_month"], 60.0)
+            self.assertEqual(rate["per_quarter"], 180.0)
+            self.assertTrue(rate["day_sample_sufficient"])
+            self.assertTrue(rate["month_sample_sufficient"])
+            self.assertTrue(rate["quarter_sample_sufficient"])
+            self.assertEqual(rate["day_window_days"], 1)
+            self.assertEqual(rate["month_window_days"], 30)
+            self.assertEqual(rate["quarter_window_days"], 90)
+            self.assertEqual(report["cluster_growth_rate_per_day"], -20.0)
+            self.assertEqual(report["growth_rate_window_days"], 1)
+
+    def test_cluster_growth_rate_marks_windows_insufficient_when_all_clusters_have_one_point(self) -> None:
+        from app.v2.reports.service import ReportService
+
+        now_ts = 1_700_000_000
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            report = ReportService(db, settings, prometheus=InsufficientGrowthPrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
+
+            rate = report["cluster_growth_rate"]
+            self.assertIsNone(rate["per_day"])
+            self.assertIsNone(rate["per_month"])
+            self.assertIsNone(rate["per_quarter"])
+            self.assertFalse(rate["day_sample_sufficient"])
+            self.assertFalse(rate["month_sample_sufficient"])
+            self.assertFalse(rate["quarter_sample_sufficient"])
 
     def test_forecast_preserves_observed_current_when_latest_point_is_filtered_for_trend(self) -> None:
         from app.v2.reports.service import SECONDS_PER_DAY, forecast_series

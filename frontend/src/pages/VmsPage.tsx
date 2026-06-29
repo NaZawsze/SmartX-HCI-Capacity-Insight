@@ -12,6 +12,7 @@ type TrendRange = (typeof trendRanges)[number];
 type SortMode = "size" | "usage";
 type VolumeSortField = "vm" | "used" | "occupied";
 type SortDirection = "asc" | "desc";
+type ClusterScope = Extract<DashboardScope, { type: "cluster" }>;
 type DisplayVolume = VmVolume & {
   tower_id?: number;
   cluster_id?: string;
@@ -44,20 +45,28 @@ export function VmsPage({ refreshKey = 0, scope, summary, selectedVmId = "", sel
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const selectedItemRef = useRef<HTMLButtonElement | null>(null);
   const lastOpenedVmNameRef = useRef("");
+  const selectedVmIdRef = useRef(selectedVmId);
+  const lastVmRequestKeyRef = useRef("");
   const effectiveScope = localScope ?? scope;
+  const effectiveScopeKey = scopeKey(effectiveScope);
   const towerOptions = useMemo(() => vmTowerOptions(summary), [summary]);
   const clusterOptions = useMemo(() => vmClusterOptions(summary, effectiveScope), [effectiveScope, summary]);
+
+  useEffect(() => {
+    selectedVmIdRef.current = selectedVmId;
+  }, [selectedVmId]);
 
   useEffect(() => {
     api.vms(effectiveScope).then((result) => {
       setItems(result);
       setSelectedVm((current) => {
-        if (selectedVmId && result.some((item) => item.metric.vm_id === selectedVmId)) return selectedVmId;
+        const externalSelectedVmId = selectedVmIdRef.current;
+        if (externalSelectedVmId && result.some((item) => item.metric.vm_id === externalSelectedVmId)) return externalSelectedVmId;
         if (current && result.some((item) => item.metric.vm_id === current)) return current;
         return result[0]?.metric.vm_id || "";
       });
     });
-  }, [effectiveScope, refreshKey, selectedVmId]);
+  }, [effectiveScopeKey, refreshKey]);
 
   useEffect(() => {
     if (!selectedVm) {
@@ -67,17 +76,24 @@ export function VmsPage({ refreshKey = 0, scope, summary, selectedVmId = "", sel
       return;
     }
     const selectedItem = items.find((item) => item.metric.vm_id === selectedVm);
-    const requestScope = selectedItem ? scopeForVm(selectedItem) ?? (effectiveScope.type === "cluster" ? effectiveScope : undefined) : effectiveScope.type === "cluster" ? effectiveScope : undefined;
+    const requestScope: ClusterScope | undefined = selectedItem
+      ? scopeForVm(selectedItem) ?? clusterScopeOrUndefined(effectiveScope)
+      : clusterScopeOrUndefined(effectiveScope);
     if (!requestScope) {
       setTrend(null);
       setDetail(null);
       setCurrentVmVolumes([]);
       return;
     }
+    const requestKey = `${requestScope.towerId}-${requestScope.clusterId}-${selectedVm}-${trendDays}-${refreshKey}`;
+    if (lastVmRequestKeyRef.current === requestKey) {
+      return;
+    }
+    lastVmRequestKeyRef.current = requestKey;
     api.vmTrend(selectedVm, "used", trendDays, requestScope).then(setTrend).catch(() => setTrend(null));
     api.vmDetail(selectedVm, requestScope).then(setDetail).catch(() => setDetail(null));
     api.vmVolumes(selectedVm, requestScope).then((result) => setCurrentVmVolumes(result.volumes || [])).catch(() => setCurrentVmVolumes([]));
-  }, [effectiveScope, items, refreshKey, selectedVm, trendDays]);
+  }, [effectiveScopeKey, items, refreshKey, selectedVm, trendDays]);
 
   useEffect(() => {
     api.vmVolumesAll(effectiveScope)
@@ -85,7 +101,7 @@ export function VmsPage({ refreshKey = 0, scope, summary, selectedVmId = "", sel
         setAllVolumeSets(flattenVolumeSets(sets));
       })
       .catch(() => setAllVolumeSets([]));
-  }, [effectiveScope, refreshKey]);
+  }, [effectiveScopeKey, refreshKey]);
 
   useEffect(() => {
     setLocalScope(null);
@@ -426,6 +442,16 @@ function scopeFromValue(value: string): DashboardScope | null {
   return { type: "cluster", towerId, clusterId };
 }
 
+function scopeKey(scope: DashboardScope): string {
+  if (scope.type === "all") return "all";
+  if (scope.type === "tower") return `tower-${scope.towerId}`;
+  return `cluster-${scope.towerId}-${scope.clusterId}`;
+}
+
+function clusterScopeOrUndefined(scope: DashboardScope): ClusterScope | undefined {
+  return scope.type === "cluster" ? scope : undefined;
+}
+
 function getOccupiedSize(volume: VmVolume, actualUsed: number | null): number | null {
   const uniqueSize = readSize(volume, ["unique_size", "unique_size_bytes"]);
   if (uniqueSize !== null) return uniqueSize;
@@ -530,7 +556,7 @@ function readVolumeUsed(volume: VmVolume): number | null {
   return readSize(volume, ["used_bytes", "used_size", "used_size_bytes", "unique_logical_size", "guest_used_size", "guest_used_size_bytes"]);
 }
 
-function scopeForVm(item: MetricItem): DashboardScope | undefined {
+function scopeForVm(item: MetricItem): ClusterScope | undefined {
   const towerId = numberish(item.metric.tower_id);
   const clusterId = item.metric.cluster_id;
   if (!towerId || !clusterId) return undefined;

@@ -45,7 +45,9 @@ class ReportService:
         enabled_scope = self._enabled_cluster_scope(tower_id=tower_id, cluster_id=cluster_id)
         cluster_series = self._cluster_series(days=window_days, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         chart_series = self._cluster_series(days=chart_window_days, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
-        growth_series = self._cluster_series(days=7, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        day_growth_series = self._cluster_series(days=1, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, step="1h")
+        month_growth_series = self._cluster_series(days=30, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        quarter_growth_series = self._cluster_series(days=90, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         capacity_by_cluster = self._cluster_totals(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         chart_points_by_cluster = _points_by_cluster(chart_series)
         clusters = []
@@ -89,7 +91,11 @@ class ReportService:
         )
         day_new_vms = _new_vm_reports_from_series(vm_series, *_period_bounds(self.now_ts, "day"), 100, latest_label_by_vm, _latest_vm_value_map(latest_vms))
         month_new_vms = _new_vm_reports_from_series(vm_series, *_period_bounds(self.now_ts, "month"), 100, latest_label_by_vm, _latest_vm_value_map(latest_vms))
-        cluster_growth_rate = _cluster_growth_rate_from_points(_points_by_cluster(growth_series))
+        cluster_growth_rate = _cluster_growth_rates(
+            day=_points_by_cluster(day_growth_series),
+            month=_points_by_cluster(month_growth_series),
+            quarter=_points_by_cluster(quarter_growth_series),
+        )
         return {
             "scope": {"tower_id": tower_id, "cluster_id": cluster_id},
             "clusters": clusters,
@@ -99,15 +105,11 @@ class ReportService:
             "month_fastest_growing_vms": month_vms,
             "day_new_vms": day_new_vms,
             "month_new_vms": month_new_vms,
-            "cluster_growth_rate_per_day": cluster_growth_rate,
-            "cluster_growth_rate": {
-                "per_day": cluster_growth_rate,
-                "per_month": cluster_growth_rate * 30,
-                "per_quarter": cluster_growth_rate * 90,
-            },
+            "cluster_growth_rate_per_day": cluster_growth_rate["per_day"],
+            "cluster_growth_rate": cluster_growth_rate,
             "window_days": window_days,
             "chart_days": chart_window_days,
-            "growth_rate_window_days": 7,
+            "growth_rate_window_days": 1,
             "forecast_days": 90,
             "period_window": _period_window(self.now_ts, window_days),
             "data_window": _data_window_from_series(vm_series, cluster_series),
@@ -347,6 +349,57 @@ def _cluster_growth_rate_from_points(points_by_cluster: dict[tuple[int, str], li
         elapsed_days = max((points[-1][0] - points[0][0]) / SECONDS_PER_DAY, 1)
         total += max(0.0, (points[-1][1] - points[0][1]) / elapsed_days)
     return total
+
+
+def _cluster_growth_rates(
+    *,
+    day: dict[tuple[int, str], list[tuple[int, float]]],
+    month: dict[tuple[int, str], list[tuple[int, float]]],
+    quarter: dict[tuple[int, str], list[tuple[int, float]]],
+) -> dict[str, Any]:
+    day_value, day_sufficient = _summed_window_rate(day, multiplier=1, use_trend=False)
+    month_value, month_sufficient = _summed_window_rate(month, multiplier=30, use_trend=True)
+    quarter_value, quarter_sufficient = _summed_window_rate(quarter, multiplier=90, use_trend=True)
+    return {
+        "per_day": day_value,
+        "per_month": month_value,
+        "per_quarter": quarter_value,
+        "day_sample_sufficient": day_sufficient,
+        "month_sample_sufficient": month_sufficient,
+        "quarter_sample_sufficient": quarter_sufficient,
+        "day_window_days": 1,
+        "month_window_days": 30,
+        "quarter_window_days": 90,
+    }
+
+
+def _summed_window_rate(points_by_cluster: dict[tuple[int, str], list[tuple[int, float]]], *, multiplier: int, use_trend: bool) -> tuple[float | None, bool]:
+    total = 0.0
+    sufficient_count = 0
+    insufficient_count = 0
+    for points in points_by_cluster.values():
+        if len(points) < 2:
+            insufficient_count += 1
+            continue
+        if use_trend:
+            slope = _trend_slope_per_day(points)
+        else:
+            elapsed_days = max((points[-1][0] - points[0][0]) / SECONDS_PER_DAY, 1)
+            slope = (points[-1][1] - points[0][1]) / elapsed_days
+        total += slope * multiplier
+        sufficient_count += 1
+    if sufficient_count == 0:
+        return None, False
+    return total, insufficient_count == 0
+
+
+def _trend_slope_per_day(points: list[tuple[int, float]]) -> float:
+    cleaned = _clean_points(points)
+    if len(cleaned) < 2:
+        return 0.0
+    filtered = _drop_outliers(cleaned)
+    slope, _ = _linear_regression(filtered)
+    return slope
 
 
 def _latest_vm_value_map(items: list[dict[str, Any]]) -> dict[tuple[int, str, str], float]:

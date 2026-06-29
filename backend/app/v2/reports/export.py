@@ -1175,7 +1175,10 @@ def _write_xlsx_template_summary(
     _set_xlsx_cell(sheet, "A14", _capacity_risk_summary(report), size=11, color=TEXT_DARK)
     _set_xlsx_cell(sheet, "A15", f"当前软件版本：{settings.app_version}", size=10, color=TEXT_MUTED)
     _set_xlsx_cell(sheet, "A16", _profile_sample_notice(report, profile), size=10, color=TEXT_MUTED)
-    for row in [1, 2, 8, 9, 10, 11, 12, 13, 14, 15, 16]:
+    _set_xlsx_cell(sheet, "A18", "容量增长速率口径", size=14, bold=True, color=ACCENT_DARK)
+    for offset, line in enumerate(_growth_rate_method_lines(report), start=19):
+        _set_xlsx_cell(sheet, f"A{offset}", line, size=10, color=TEXT_DARK)
+    for row in [1, 2, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21]:
         _merge_title_row(sheet, row, 1, 6)
     for column, width in {"A": 50, "B": 20.5, "C": 18, "D": 38.83203125, "E": 16}.items():
         sheet.column_dimensions[column].width = width
@@ -1196,6 +1199,10 @@ def _write_xlsx_template_summary(
         14: 15,
         15: 15,
         16: 38,
+        18: 26,
+        19: 28,
+        20: 28,
+        21: 28,
     }.items():
         sheet.row_dimensions[row].height = height
 
@@ -1635,7 +1642,9 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
     _style_customer_xlsx_table(sheet, title_rows={1}, header_rows={2})
     sheet.freeze_panes = "A3"
     sheet.auto_filter.ref = f"A2:{get_column_letter(len(headers))}{sheet.max_row}"
-    for column, width in {"A": 17.5, "B": 18, "C": 36, "D": 16, "G": 13}.items():
+    widths = {"A": 17.5, "B": 18, "C": 36, "D": 16}
+    widths["G" if include_growth else "E"] = 13 if include_growth else 30
+    for column, width in widths.items():
         sheet.column_dimensions[column].width = width
     sheet.row_dimensions[1].height = 22
     sheet.row_dimensions[2].height = 16
@@ -2258,6 +2267,7 @@ def _customer_add_executive_summary(document: Document, context: dict[str, Any],
         paragraph.paragraph_format.left_indent = Inches(0.24)
         paragraph.paragraph_format.space_after = Pt(7)
         _customer_add_emphasis_text(paragraph, finding)
+    _customer_add_growth_rate_method(document, context["report"])
     _customer_add_data_quality_summary(document, context["report"])
 
 
@@ -2368,6 +2378,44 @@ def _customer_add_data_quality_summary(document: Document, report: dict[str, Any
         if len(incomplete_clusters) > 10:
             cluster_rows.append(f"其余 {len(incomplete_clusters) - 10} 个集群请在报表页数据质量说明中查看。")
         _customer_table_note(document, "数据不完整集群：" + "；".join(cluster_rows))
+
+
+def _customer_add_growth_rate_method(document: Document, report: dict[str, Any]) -> None:
+    _customer_subtitle(document, "容量增长速率口径")
+    for line in _growth_rate_method_lines(report):
+        paragraph = document.add_paragraph()
+        paragraph.paragraph_format.left_indent = Inches(0.24)
+        paragraph.paragraph_format.space_after = Pt(5)
+        run = paragraph.add_run(line)
+        _v1_apply_run_font(run)
+        run.font.size = Pt(10)
+        run.font.color.rgb = RGBColor.from_string(TEXT_DARK)
+
+
+def _growth_rate_method_lines(report: dict[str, Any]) -> list[str]:
+    growth_rate = report.get("cluster_growth_rate") or {}
+    return [
+        _growth_rate_method_line("日", "最近一天净变化", growth_rate.get("per_day"), growth_rate.get("day_sample_sufficient"), "/天"),
+        _growth_rate_method_line("月", "最近 30 天趋势折算", growth_rate.get("per_month"), growth_rate.get("month_sample_sufficient"), "/月"),
+        _growth_rate_method_line("季度", "最近 90 天趋势折算", growth_rate.get("per_quarter"), growth_rate.get("quarter_sample_sufficient"), "/季度"),
+    ]
+
+
+def _growth_rate_method_line(label: str, method: str, value: Any, sample_sufficient: Any, unit: str) -> str:
+    value_label = _growth_rate_value_label(value, sample_sufficient, unit)
+    if value is None:
+        return f"{label}：{value_label}；{method}"
+    return f"{label}：{method}，{value_label}"
+
+
+def _growth_rate_value_label(value: Any, sample_sufficient: Any, unit: str) -> str:
+    if value is None:
+        label = "数据不足"
+    else:
+        label = f"{_signed_bytes_label(value)}{unit}"
+    if sample_sufficient is False:
+        label = f"{label}（样本不足）"
+    return label
 
 
 def _customer_advice_title(document: Document, title: str) -> None:

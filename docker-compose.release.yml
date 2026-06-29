@@ -2,7 +2,7 @@ name: smartx-hci-capacity-insight
 
 services:
   web-api:
-    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-web-api:${SMARTX_IMAGE_TAG:-v0.5.1}
+    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-web-api:${SMARTX_IMAGE_TAG:-v0.5.2}
     env_file:
       - .env
     environment:
@@ -30,7 +30,7 @@ services:
     restart: unless-stopped
 
   collector-worker:
-    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-collector-worker:${SMARTX_IMAGE_TAG:-v0.5.1}
+    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-collector-worker:${SMARTX_IMAGE_TAG:-v0.5.2}
     command: ["python", "-m", "app.v2.worker"]
     env_file:
       - .env
@@ -52,7 +52,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-frontend:${SMARTX_IMAGE_TAG:-v0.5.1}
+    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-frontend:${SMARTX_IMAGE_TAG:-v0.5.2}
     environment:
       TZ: Asia/Shanghai
     ports:
@@ -64,7 +64,7 @@ services:
     restart: unless-stopped
 
   upgrade-runner:
-    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-upgrade-runner:${SMARTX_RUNNER_IMAGE_TAG:-v0.3.0}
+    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-upgrade-runner:${SMARTX_RUNNER_IMAGE_TAG:-v0.3.1}
     command: ["python", "-m", "app.upgrade_runner.main"]
     env_file:
       - .env
@@ -116,8 +116,8 @@ services:
 
 networks:
   smartx-net:
-    name: smartx-hci-capacity-insight-net
     driver: bridge
+    name: smartx-hci-capacity-insight-net
     ipam:
       config:
         - subnet: 10.249.249.0/24

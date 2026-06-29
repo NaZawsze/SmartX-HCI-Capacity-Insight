@@ -88,7 +88,7 @@ restart_services: upgrade-runner
 
 ## v0.3.0 稳定执行协议
 
-正式发布前的 `upgrade-runner v0.3.0` 一次性提供以下稳定能力：
+`upgrade-runner v0.3.0` 提供以下稳定能力：
 
 - 原子任务文件、revision、Action checkpoint。
 - Runner 心跳和 SQLite 任务租约。
@@ -97,6 +97,14 @@ restart_services: upgrade-runner
 - HTTP 与 Prometheus 健康检查。
 - 自动回滚一次和人工恢复操作。
 
-后续平台升级包通过 `minimum_runner_protocol` 和 `required_capabilities` 判断兼容性。只要 v0.3.0 已具备升级包要求的能力，就不需要先升级 Runner。
+后续平台升级包通过 `minimum_runner_protocol` 和 `required_capabilities` 判断兼容性。只要当前 Runner 已具备升级包要求的能力，就不需要先升级 Runner。
+
+## v0.3.1 通用执行能力
+
+`upgrade-runner v0.3.1` 在 v0.3.0 基线之上改为上报大类能力：`backup.v1`、`image.v1`、`files.v1`、`compose.v1`、`compose.project.v1`、`health.v1`、`rollback.v1`、`task.recovery.v1` 和 `script.sandbox.v1`。旧升级包中声明的 `backup.create`、`compose.apply`、`compose.project_migrate.v1` 等细粒度能力由协议层映射到这些大类能力，避免后续每新增一个 compose 小动作都必须升级 Runner。
+
+`compose.project.v1` 用于处理 `v0.5.0/v0.5.1 -> v0.5.2` 时 Compose project/network 从旧名迁移到新名的场景。该能力会在 `compose.apply` 前停止并删除旧 project 容器；旧网络为空时删除旧网络。如果旧网络仍连接外部容器，升级会失败并保留人工处理线索，避免直接破坏非平台容器。
+
+需要该能力的 `v0.5.2` 平台升级包会在 manifest 中声明 `required_capabilities=["compose.project.v1", ...]` 和 `minimum_runner_version="v0.3.1"`，因此 `upgrade-runner v0.3.0` 会在预检查阶段被拦截，不会执行到网络冲突才失败。
 
 Runner 组件包由旧 `web-api` 直接加载镜像、写入 `/data/compose-runtime/docker-compose.runner-upgrade.yml` 并 recreate Runner。Runner 不执行自己的升级。

@@ -7,11 +7,13 @@ const apiMock = vi.hoisted(() => ({
   upgradeVersion: vi.fn(),
   componentUpgradeVersion: vi.fn(),
   componentUpgradeComponents: vi.fn(),
+  componentUpgradeStatus: vi.fn(),
   upgradeHistory: vi.fn(),
   componentUpgradeHistory: vi.fn(),
   upgradeVerification: vi.fn(),
   precheckUpgrade: vi.fn(),
   startUpgrade: vi.fn(),
+  startComponentUpgrade: vi.fn(),
   continueUpgradeRecovery: vi.fn(),
   rollbackUpgradeRecovery: vi.fn(),
   failUpgradeRecovery: vi.fn(),
@@ -36,6 +38,7 @@ vi.mock("../services/api", async () => ({
 }));
 
 beforeEach(() => {
+  vi.resetAllMocks();
   URL.createObjectURL = vi.fn(() => "blob:service");
   URL.revokeObjectURL = vi.fn();
   HTMLAnchorElement.prototype.click = vi.fn();
@@ -52,7 +55,8 @@ function mockServicePageBootstrap() {
         service: "upgrade-runner",
         version: "v0.3.0",
         executor: "web-api",
-        upgradeable: true
+        upgradeable: true,
+        capabilities: ["backup.create", "image.load", "files.sync", "compose.override", "compose.apply", "health.http", "rollback.restore"]
       },
       {
         type: "observability",
@@ -126,13 +130,40 @@ function uploadedPlatformTask() {
   return {
     task_id: "upgrade-1",
     status: "uploaded",
-    target_version: "v0.4.2",
-    package_filename: "smartx-capacity-insight-upgrade-v0.4.2.tar.gz",
+    target_version: "v0.5.2",
+    package_filename: "smartx-capacity-insight-upgrade-v0.5.2.tar.gz",
     package_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     uploaded_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     restart_services: ["web-api", "collector-worker", "frontend"],
     database_migration: true,
+    manifest: {
+      required_capabilities: ["backup.create", "compose.project_migrate.v1"],
+      source_compatibility: {
+        supported_versions: ["v0.5.0", "v0.5.1", "v0.5.2"],
+        min_version: "v0.5.0",
+        max_version_inclusive: "v0.5.2",
+        allow_same_version: true
+      }
+    },
     checks: [],
+    steps: [],
+    logs: []
+  };
+}
+
+function uploadedRunnerTask() {
+  return {
+    task_id: "runner-upgrade-1",
+    status: "prechecked",
+    component: "upgrade-runner",
+    target_version: "v0.3.1",
+    package_filename: "smartx-upgrade-runner-v0.3.1.tar.gz",
+    package_sha256: "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    uploaded_sha256: "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    precheck_ok: true,
+    database_migration: false,
+    restart_services: ["upgrade-runner"],
+    checks: [{ name: "manifest", ok: true, message: "组件包结构正确" }],
     steps: [],
     logs: []
   };
@@ -452,6 +483,7 @@ describe("ServicePage upgrade center", () => {
     render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
 
     expect(await screen.findByText("平台状态")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: /smartx-capacity-insight-upgrade-v0\.5\.2/ }));
     expect(screen.getByText("版本、升级包和当前运行服务集中展示。")).toBeInTheDocument();
     expect(screen.getByText("当前版本")).toBeInTheDocument();
     expect(screen.getByText("升级中心组件版本")).toBeInTheDocument();
@@ -511,7 +543,7 @@ describe("ServicePage upgrade center", () => {
     );
     render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
 
-    fireEvent.click(await screen.findByText("v0.4.2"));
+    fireEvent.click(await screen.findByText("v0.5.2"));
     fireEvent.click(screen.getByRole("button", { name: "预检查" }));
 
     expect(await screen.findByText("校验升级包结构")).toBeInTheDocument();
@@ -541,13 +573,24 @@ describe("ServicePage upgrade center", () => {
     });
     render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
 
-    fireEvent.click(await screen.findByText("v0.4.2"));
+    fireEvent.click(await screen.findByText("v0.5.2"));
     fireEvent.click(screen.getByRole("button", { name: "预检查" }));
 
     await waitFor(() => expect(apiMock.precheckUpgrade).toHaveBeenCalledWith("upgrade-1"));
+    expect(screen.getByText("v0.5.0、v0.5.1、v0.5.2")).toBeInTheDocument();
     expect(await screen.findByText("预检查通过")).toBeInTheDocument();
     expect(screen.queryByText("未执行")).not.toBeInTheDocument();
     expect(screen.queryByText("检查观测组件数据权限")).not.toBeInTheDocument();
+  });
+
+  it("shows missing runner capability for selected platform package before execution", async () => {
+    mockServicePageBootstrap();
+    apiMock.upgradeHistory.mockResolvedValue([uploadedPlatformTask()]);
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText("v0.5.2"));
+
+    expect(await screen.findByText("缺少 compose.project_migrate.v1")).toBeInTheDocument();
   });
 
   it("uses the backend upgrade task id for the task center start task", async () => {
@@ -558,12 +601,73 @@ describe("ServicePage upgrade center", () => {
     const updateTask = vi.fn();
     render(<ServicePage addTask={addTask} updateTask={updateTask} />);
 
-    fireEvent.click(await screen.findByText("v0.4.2"));
+    fireEvent.click(await screen.findByText("v0.5.2"));
     fireEvent.click(screen.getByRole("button", { name: "开始升级" }));
 
     await waitFor(() => expect(apiMock.startUpgrade).toHaveBeenCalledWith("upgrade-1"));
     expect(addTask).toHaveBeenCalledWith(expect.objectContaining({ id: "upgrade-1", kind: "upgrade", title: "执行系统升级" }));
     expect(updateTask).toHaveBeenCalledWith("upgrade-1", expect.objectContaining({ progress: expect.any(Number) }));
+  });
+
+  it("refreshes runner component version and steps when start completes immediately", async () => {
+    mockServicePageBootstrap();
+    const runnerBefore = {
+      type: "runner",
+      display_name: "升级中心组件",
+      service: "upgrade-runner",
+      version: "v0.3.0",
+      executor: "web-api",
+      upgradeable: true,
+      compatible: true
+    };
+    const runnerAfter = { ...runnerBefore, version: "v0.3.1", protocol_version: 2, heartbeat_at: "2026-06-29T17:20:00+08:00" };
+    const prometheus = {
+      type: "observability",
+      display_name: "观测组件",
+      service: "prometheus",
+      version: "v2.55.1",
+      executor: "upgrade-runner",
+      upgradeable: true
+    };
+    const precheckedTask = uploadedRunnerTask();
+    const succeededTask = {
+      ...precheckedTask,
+      component: undefined,
+      components: ["runner"],
+      status: "success",
+      started_at: "2026-06-29T17:19:00+08:00",
+      finished_at: "2026-06-29T17:20:00+08:00",
+      steps: [
+        { key: "backup", title: "生成组件升级备份", status: "succeeded" },
+        { key: "load_images", title: "加载组件镜像", status: "succeeded" },
+        { key: "project_files", title: "同步项目文件", status: "succeeded" },
+        { key: "write_override", title: "写入 runner bootstrap compose", status: "succeeded" },
+        { key: "restart", title: "重启升级中心组件", status: "succeeded" },
+        { key: "healthcheck", title: "检查组件运行状态", status: "succeeded" }
+      ],
+      logs: ["runner bootstrap completed"]
+    };
+    apiMock.componentUpgradeVersion.mockResolvedValueOnce({ component: "upgrade-runner", version: "v0.3.0" }).mockResolvedValue({ component: "upgrade-runner", version: "v0.3.1" });
+    apiMock.componentUpgradeComponents.mockResolvedValueOnce({ components: [runnerBefore, prometheus] }).mockResolvedValue({ components: [runnerAfter, prometheus] });
+    apiMock.componentUpgradeHistory.mockResolvedValueOnce([precheckedTask]).mockResolvedValue([succeededTask]);
+    apiMock.startComponentUpgrade.mockResolvedValue(succeededTask);
+    apiMock.componentUpgradeStatus.mockResolvedValue(succeededTask);
+    const updateTask = vi.fn();
+    render(<ServicePage addTask={vi.fn()} updateTask={updateTask} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "组件升级" }));
+    fireEvent.click(await screen.findByRole("button", { name: /v0\.3\.1.*smartx-upgrade-runner-v0\.3\.1/s }));
+    fireEvent.click(screen.getByRole("button", { name: "开始升级" }));
+
+    await waitFor(() => expect(apiMock.startComponentUpgrade).toHaveBeenCalledWith("runner-upgrade-1"));
+    await waitFor(() => expect(apiMock.componentUpgradeStatus).toHaveBeenCalledWith("runner-upgrade-1"));
+    expect(apiMock.componentUpgradeComponents).toHaveBeenCalledTimes(2);
+    expect(await screen.findByRole("button", { name: /升级中心组件 upgrade-runner v0\.3\.1/ })).toBeInTheDocument();
+    expect(screen.getByText("同步项目文件")).toBeInTheDocument();
+    expect(screen.getByText("写入 runner bootstrap compose")).toBeInTheDocument();
+    expect(screen.getByText("检查组件运行状态")).toBeInTheDocument();
+    expect(screen.queryByText("未执行")).not.toBeInTheDocument();
+    expect(updateTask).toHaveBeenCalledWith("runner-upgrade-1", expect.objectContaining({ status: "succeeded", progress: 100 }));
   });
 
   it("shows recovery controls and submits the selected recovery command", async () => {
@@ -580,7 +684,7 @@ describe("ServicePage upgrade center", () => {
     render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "升级历史" }));
-    fireEvent.click(await screen.findByRole("button", { name: /平台升级.*v0\.4\.2/s }));
+    fireEvent.click(await screen.findByRole("button", { name: /平台升级.*v0\.5\.2/s }));
 
     expect(await screen.findByText("需要恢复处理")).toBeInTheDocument();
     expect(screen.getByText("迁移脚本结果无法自动确认")).toBeInTheDocument();

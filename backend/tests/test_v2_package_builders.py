@@ -52,8 +52,8 @@ class V2PackageBuilderTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             package = builder.build_package(
-                "v0.5.1",
-                min_version="v0.5.1",
+                "v0.5.2",
+                min_version="v0.5.0",
                 output_dir=Path(tmpdir),
                 build_images=False,
                 include_frontend_build=False,
@@ -65,11 +65,31 @@ class V2PackageBuilderTest(unittest.TestCase):
 
         self.assertEqual(manifest["schema_version"], "3")
         self.assertEqual(manifest["minimum_runner_protocol"], 1)
-        self.assertIn("backup.create", manifest["required_capabilities"])
+        self.assertEqual(manifest["minimum_runner_version"], "v0.3.1")
+        self.assertIn("backup.v1", manifest["required_capabilities"])
+        self.assertIn("compose.v1", manifest["required_capabilities"])
+        self.assertIn("compose.project.v1", manifest["required_capabilities"])
+        self.assertNotIn("backup.create", manifest["required_capabilities"])
+        self.assertNotIn("compose.project_migrate.v1", manifest["required_capabilities"])
         self.assertNotIn("script.sandbox.v1", manifest["required_capabilities"])
-        self.assertEqual(manifest["package_id"], "smartx-capacity-insight-v0.5.1")
-        self.assertEqual(manifest["version"], "v0.5.1")
-        self.assertEqual(manifest["compatibility"]["min_platform_version"], "v0.5.1")
+        self.assertEqual(manifest["package_id"], "smartx-capacity-insight-v0.5.2")
+        self.assertEqual(manifest["version"], "v0.5.2")
+        self.assertEqual(manifest["min_version"], "v0.5.0")
+        self.assertEqual(manifest["compatibility"]["min_platform_version"], "v0.5.0")
+        self.assertEqual(manifest["source_compatibility"]["supported_versions"], ["v0.5.0", "v0.5.1", "v0.5.1u2", "v0.5.2"])
+        self.assertTrue(manifest["source_compatibility"]["allow_same_version"])
+        self.assertEqual(
+            manifest["environment_transitions"],
+            [
+                {
+                    "from_project": "smartx-storage-forecast",
+                    "from_network": "smartx-storage-forecast_smartx-net",
+                    "to_project": "smartx-hci-capacity-insight",
+                    "to_network": "smartx-hci-capacity-insight-net",
+                    "versions": ["v0.5.0", "v0.5.1", "v0.5.1u2"],
+                }
+            ],
+        )
         self.assertIs(manifest["project_files"], True)
         self.assertIs(manifest["database_migration"], False)
         self.assertNotIn("migration", manifest)
@@ -89,6 +109,11 @@ class V2PackageBuilderTest(unittest.TestCase):
 
         plan = compile_execution_plan(manifest).to_dict()
         self.assertNotIn("script.run_sandboxed", {action["type"] for action in plan["actions"]})
+        action_types = [action["type"] for action in plan["actions"]]
+        self.assertIn("compose.project_migrate", action_types)
+        self.assertLess(action_types.index("compose.project_migrate"), action_types.index("compose.apply"))
+        self.assertIn("compose.project.v1", plan["required_capabilities"])
+        self.assertNotIn("compose.project_migrate.v1", plan["required_capabilities"])
 
     def test_platform_builder_includes_intermediate_sqlite_migrations_for_cross_version_upgrade(self) -> None:
         builder = _load_script("build_upgrade_package.py")
@@ -100,9 +125,9 @@ class V2PackageBuilderTest(unittest.TestCase):
                 json.dumps(
                     [
                         {
-                            "id": "20260612_v0_5_2_sqlite_schema",
-                            "version": "v0.5.2",
-                            "description": "Add v0.5.2 SQLite schema",
+                            "id": "20260612_v0_5_3_sqlite_schema",
+                            "version": "v0.5.3",
+                            "description": "Add v0.5.3 SQLite schema",
                             "database": "sqlite",
                         }
                     ]
@@ -111,7 +136,7 @@ class V2PackageBuilderTest(unittest.TestCase):
             )
             package = builder.build_package(
                 "v0.5.3",
-                min_version="v0.5.1",
+                min_version="v0.5.2",
                 output_dir=Path(tmpdir),
                 build_images=False,
                 include_frontend_build=False,
@@ -127,11 +152,11 @@ class V2PackageBuilderTest(unittest.TestCase):
         self.assertIs(manifest["database_migration"], True)
         self.assertIn("script.sandbox.v1", manifest["required_capabilities"])
         self.assertEqual(manifest["migration"]["script"], "migrations/run_migrations.py")
-        self.assertEqual([step["id"] for step in manifest["migration_steps"]], ["20260612_v0_5_2_sqlite_schema"])
-        self.assertEqual(manifest["migration_steps"][0]["version"], "v0.5.2")
+        self.assertEqual([step["id"] for step in manifest["migration_steps"]], ["20260612_v0_5_3_sqlite_schema"])
+        self.assertEqual(manifest["migration_steps"][0]["version"], "v0.5.3")
         self.assertTrue(manifest["migration_steps"][0]["script_sha256"])
         self.assertIn("migrations/run_migrations.py", names)
-        self.assertIn("20260612_v0_5_2_sqlite_schema", runner)
+        self.assertIn("20260612_v0_5_3_sqlite_schema", runner)
         self.assertIn("schema_migrations", runner)
         from app.v2.upgrade.compiler import compile_execution_plan
 
@@ -148,9 +173,9 @@ class V2PackageBuilderTest(unittest.TestCase):
                 json.dumps(
                     [
                         {
-                            "id": "20260612_v0_5_2_sqlite_schema",
-                            "version": "v0.5.2",
-                            "description": "Add v0.5.2 SQLite schema",
+                            "id": "20260612_v0_5_3_sqlite_schema",
+                            "version": "v0.5.3",
+                            "description": "Add v0.5.3 SQLite schema",
                             "database": "sqlite",
                         }
                     ]
@@ -159,7 +184,7 @@ class V2PackageBuilderTest(unittest.TestCase):
             )
             package = builder.build_package(
                 "v0.5.3",
-                min_version="v0.5.2",
+                min_version="v0.5.3",
                 output_dir=Path(tmpdir),
                 build_images=False,
                 include_frontend_build=False,
@@ -180,9 +205,9 @@ class V2PackageBuilderTest(unittest.TestCase):
         builder = _load_script("build_upgrade_package.py")
         steps = [
             {
-                "id": "20260612_v0_5_2_sqlite_schema",
-                "version": "v0.5.2",
-                "description": "Add v0.5.2 SQLite schema",
+                "id": "20260612_v0_5_3_sqlite_schema",
+                "version": "v0.5.3",
+                "description": "Add v0.5.3 SQLite schema",
                 "database": "sqlite",
                 "sql": ["CREATE TABLE IF NOT EXISTS migration_probe (id TEXT PRIMARY KEY)"],
                 "operations": [
@@ -229,11 +254,11 @@ class V2PackageBuilderTest(unittest.TestCase):
                 rows = conn.execute("SELECT id, version, description, script_sha256 FROM schema_migrations").fetchall()
                 probe = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'migration_probe'").fetchone()
                 columns = {row[1] for row in conn.execute("PRAGMA table_info(migration_probe)").fetchall()}
-            self.assertEqual(rows, [("20260612_v0_5_2_sqlite_schema", "v0.5.2", "Add v0.5.2 SQLite schema", public_steps[0]["script_sha256"])])
+            self.assertEqual(rows, [("20260612_v0_5_3_sqlite_schema", "v0.5.3", "Add v0.5.3 SQLite schema", public_steps[0]["script_sha256"])])
             self.assertIsNotNone(probe)
             self.assertIn("note", columns)
-            self.assertIn("applied 20260612_v0_5_2_sqlite_schema", first.stdout)
-            self.assertIn("skip 20260612_v0_5_2_sqlite_schema", second.stdout)
+            self.assertIn("applied 20260612_v0_5_3_sqlite_schema", first.stdout)
+            self.assertIn("skip 20260612_v0_5_3_sqlite_schema", second.stdout)
 
     def test_migration_registry_rejects_invalid_sql_shape(self) -> None:
         builder = _load_script("build_upgrade_package.py")
@@ -245,7 +270,7 @@ class V2PackageBuilderTest(unittest.TestCase):
                     [
                         {
                             "id": "bad_sql",
-                            "version": "v0.5.2",
+                            "version": "v0.5.3",
                             "description": "Bad SQL",
                             "database": "sqlite",
                             "sql": "CREATE TABLE bad_sql (id TEXT)",
@@ -270,7 +295,7 @@ class V2PackageBuilderTest(unittest.TestCase):
                     [
                         {
                             "id": "bad_operation",
-                            "version": "v0.5.2",
+                            "version": "v0.5.3",
                             "description": "Bad operation",
                             "database": "sqlite",
                             "operations": [{"action": "drop_everything"}],
@@ -293,7 +318,7 @@ class V2PackageBuilderTest(unittest.TestCase):
             registry.write_text(
                 json.dumps(
                     [
-                        {"id": "dup", "version": "v0.5.2", "description": "A", "database": "sqlite"},
+                        {"id": "dup", "version": "v0.5.3", "description": "A", "database": "sqlite"},
                         {"id": "dup", "version": "v0.5.3", "description": "B", "database": "sqlite"},
                     ]
                 ),
@@ -311,7 +336,7 @@ class V2PackageBuilderTest(unittest.TestCase):
         builder.run = recorder
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            package = builder.build_package("v0.3.0", "v0.2.1", Path(tmpdir), build_image=False)
+            package = builder.build_package("v0.3.1", "v0.2.1", Path(tmpdir), build_image=False)
 
             with tarfile.open(package, mode="r:gz") as archive:
                 names = set(archive.getnames())
@@ -320,8 +345,8 @@ class V2PackageBuilderTest(unittest.TestCase):
         self.assertEqual(manifest["schema_version"], "3")
         self.assertEqual(manifest["minimum_runner_protocol"], 1)
         self.assertEqual(manifest["required_capabilities"], [])
-        self.assertEqual(manifest["package_id"], "smartx-upgrade-runner-v0.3.0")
-        self.assertEqual(manifest["version"], "v0.3.0")
+        self.assertEqual(manifest["package_id"], "smartx-upgrade-runner-v0.3.1")
+        self.assertEqual(manifest["version"], "v0.3.1")
         self.assertEqual(manifest["compatibility"]["min_runner_version"], "v0.2.1")
         self.assertEqual(manifest["restart_services"], ["upgrade-runner"])
         self.assertIs(manifest["project_files"], False)
@@ -329,7 +354,7 @@ class V2PackageBuilderTest(unittest.TestCase):
         runner = manifest["components"][0]
         self.assertEqual(runner["services"], ["upgrade-runner"])
         self.assertEqual(runner["images"][0]["archive"], "images/upgrade-runner.tar")
-        self.assertEqual(runner["images"][0]["image"], "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0")
+        self.assertEqual(runner["images"][0]["image"], "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1")
         self.assertIn("checksums.sha256", names)
         self.assertIn(
             [
@@ -338,7 +363,7 @@ class V2PackageBuilderTest(unittest.TestCase):
                 "--rm",
                 "--entrypoint",
                 "python",
-                "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0",
+                "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1",
                 "-c",
                 "import app.upgrade_runner.main; import app.upgrade_protocol.models",
             ],
@@ -358,8 +383,9 @@ class V2PackageBuilderTest(unittest.TestCase):
 
         self.assertEqual(manifest["schema_version"], "3")
         self.assertEqual(manifest["minimum_runner_protocol"], 1)
-        self.assertNotIn("image.load", manifest["required_capabilities"])
-        self.assertIn("health.prometheus", manifest["required_capabilities"])
+        self.assertNotIn("image.v1", manifest["required_capabilities"])
+        self.assertIn("health.v1", manifest["required_capabilities"])
+        self.assertNotIn("health.prometheus", manifest["required_capabilities"])
         self.assertEqual(manifest["package_id"], "smartx-prometheus-v2.55.1")
         self.assertEqual(manifest["version"], "v2.55.1")
         self.assertEqual(manifest["compatibility"]["min_prometheus_version"], "v2.55.1")
@@ -391,7 +417,8 @@ class V2PackageBuilderTest(unittest.TestCase):
                 manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
 
         image = manifest["components"][0]["images"][0]
-        self.assertIn("image.load", manifest["required_capabilities"])
+        self.assertIn("image.v1", manifest["required_capabilities"])
+        self.assertNotIn("image.load", manifest["required_capabilities"])
         self.assertEqual(image["archive"], "images/prometheus.tar")
         self.assertTrue(image["sha256"])
         self.assertIn("images/prometheus.tar", names)
@@ -407,9 +434,9 @@ class V2PackageBuilderTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             package = builder.build_package(
-                platform_version="v0.5.1",
+                platform_version="v0.5.2",
                 prometheus_version="v2.55.1",
-                min_platform_version="v0.5.1",
+                min_platform_version="v0.5.2",
                 min_prometheus_version="v2.55.1",
                 output_dir=Path(tmpdir),
                 build_platform_images=False,
@@ -457,9 +484,9 @@ class V2PackageBuilderTest(unittest.TestCase):
                 json.dumps(
                     [
                         {
-                            "id": "20260612_v0_5_2_sqlite_schema",
-                            "version": "v0.5.2",
-                            "description": "Add v0.5.2 SQLite schema",
+                            "id": "20260612_v0_5_3_sqlite_schema",
+                            "version": "v0.5.3",
+                            "description": "Add v0.5.3 SQLite schema",
                             "database": "sqlite",
                         }
                     ]
@@ -481,7 +508,7 @@ class V2PackageBuilderTest(unittest.TestCase):
             package = builder.build_package(
                 platform_version="v0.5.3",
                 prometheus_version="v2.55.1",
-                min_platform_version="v0.5.1",
+                min_platform_version="v0.5.2",
                 min_prometheus_version="v2.55.1",
                 output_dir=tmp,
                 build_platform_images=False,
@@ -496,7 +523,7 @@ class V2PackageBuilderTest(unittest.TestCase):
 
         self.assertIs(manifest["database_migration"], True)
         self.assertEqual(manifest["migration"]["script"], "platform/migrations/run_migrations.py")
-        self.assertEqual([step["id"] for step in manifest["migration_steps"]], ["20260612_v0_5_2_sqlite_schema"])
+        self.assertEqual([step["id"] for step in manifest["migration_steps"]], ["20260612_v0_5_3_sqlite_schema"])
         self.assertIn("platform/migrations/run_migrations.py", names)
         self.assertNotIn("platform/migrations/migrate.sh", names)
 
@@ -539,9 +566,9 @@ class V2PackageBuilderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             with self.assertRaises(RuntimeError) as caught:
                 builder.build_package(
-                    platform_version="v0.5.1",
+                    platform_version="v0.5.2",
                     prometheus_version="v2.55.1",
-                    min_platform_version="v0.5.1",
+                    min_platform_version="v0.5.2",
                     min_prometheus_version="v2.55.1",
                     output_dir=Path(tmpdir),
                     build_platform_images=False,

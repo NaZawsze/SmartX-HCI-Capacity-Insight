@@ -32,6 +32,41 @@ class UpgradeProtocolTest(unittest.TestCase):
                 RUNNER_CAPABILITIES,
             )
 
+    def test_broad_runner_capabilities_satisfy_legacy_action_capabilities(self) -> None:
+        from app.upgrade_protocol.constants import RUNNER_PROTOCOL_VERSION
+        from app.upgrade_protocol.validation import validate_manifest_compatibility
+
+        manifest = {
+            "schema_version": "3",
+            "minimum_runner_protocol": RUNNER_PROTOCOL_VERSION,
+            "required_capabilities": [
+                "backup.create",
+                "image.load",
+                "files.sync",
+                "compose.override",
+                "compose.project_migrate.v1",
+                "compose.apply",
+                "health.http",
+                "health.prometheus",
+                "checkpoint.write",
+                "rollback.restore",
+                "script.sandbox.v1",
+            ],
+        }
+        broad_capabilities = {
+            "backup.v1",
+            "image.v1",
+            "files.v1",
+            "compose.v1",
+            "compose.project.v1",
+            "health.v1",
+            "rollback.v1",
+            "task.recovery.v1",
+            "script.sandbox.v1",
+        }
+
+        validate_manifest_compatibility(manifest, RUNNER_PROTOCOL_VERSION, broad_capabilities)
+
     def test_execution_plan_has_stable_action_contract(self) -> None:
         from app.upgrade_protocol.models import ActionStatus, ExecutionAction, ExecutionPlan
 
@@ -196,6 +231,12 @@ class UpgradeCompilerTest(unittest.TestCase):
             "schema_version": "3",
             "minimum_runner_protocol": 1,
             "version": "v0.6.0",
+            "min_version": "v0.5.0",
+            "source_compatibility": {
+                "min_version": "v0.5.0",
+                "max_version_inclusive": "v0.6.0",
+                "supported_versions": ["v0.5.0", "v0.5.1", "v0.5.2", "v0.6.0"],
+            },
             "components": [
                 {
                     "type": "platform",
@@ -228,9 +269,12 @@ class UpgradeCompilerTest(unittest.TestCase):
                 archive.addfile(info, io.BytesIO(content))
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            settings = V2Settings(data_root=tmpdir, secret_key="upgrade-compiler")
+            settings = V2Settings(data_root=tmpdir, secret_key="upgrade-compiler", app_version="v0.5.1")
             database = V2Database(settings)
             database.initialize()
+            from app.upgrade_runner.lease import LeaseManager
+
+            LeaseManager(settings.sqlite_path, "runner-a").update_runner_state("v0.3.1")
             service = UpgradeService(settings, TaskService(database), project_path=Path(tmpdir) / "project")
             uploaded = service.upload_package_bytes(buffer.getvalue(), filename="platform.tar.gz")
             prechecked = service.precheck(uploaded["task_id"])
@@ -286,14 +330,15 @@ class UpgradeRecoveryServiceTest(unittest.TestCase):
         from app.v2.upgrade.service import UpgradeService
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            settings = V2Settings(data_root=tmpdir, secret_key="runner-state", runner_version="v0.3.0")
+            settings = V2Settings(data_root=tmpdir, secret_key="runner-state", runner_version="v0.3.1")
             database = V2Database(settings)
             database.initialize()
-            LeaseManager(settings.sqlite_path, "runner-a").update_runner_state("v0.3.0")
+            LeaseManager(settings.sqlite_path, "runner-a").update_runner_state("v0.3.1")
             runner = UpgradeService(settings, TaskService(database)).component_catalog()["components"][0]
 
             self.assertEqual(runner["protocol_version"], 1)
-            self.assertIn("backup.create", runner["capabilities"])
+            self.assertIn("backup.v1", runner["capabilities"])
+            self.assertIn("compose.project.v1", runner["capabilities"])
             self.assertTrue(runner["compatible"])
             self.assertTrue(runner["heartbeat_at"])
 

@@ -132,7 +132,7 @@ def test_runner_override_uses_runtime_path_not_data_subdirectory(tmp_path, monke
     settings.runtime_path.mkdir(parents=True)
     monkeypatch.setattr(upgrade, "get_settings", lambda: settings)
 
-    task = {"manifest": {"images": [{"service": "upgrade-runner", "image": "runner:v0.3.0"}]}}
+    task = {"manifest": {"images": [{"service": "upgrade-runner", "image": "runner:v0.3.1"}]}}
     upgrade._write_runner_override(task)
 
     assert (settings.runtime_path / "docker-compose.runner-upgrade.yml").exists()
@@ -168,7 +168,7 @@ def test_platform_manifest_rejects_upgrade_runner_service():
             {"service": "web-api", "file": "images/web-api.tar", "image": "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.0"},
             {"service": "collector-worker", "file": "images/collector-worker.tar", "image": "nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.0"},
             {"service": "frontend", "file": "images/frontend.tar", "image": "nazawsze/smartx-hci-capacity-insight-frontend:v0.5.0"},
-            {"service": "upgrade-runner", "file": "images/upgrade-runner.tar", "image": "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0"},
+            {"service": "upgrade-runner", "file": "images/upgrade-runner.tar", "image": "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1"},
         ],
         "restart_services": ["web-api", "collector-worker", "frontend"],
         "project_files": ["docker-compose.offline.yml", "docker-compose.release.yml"],

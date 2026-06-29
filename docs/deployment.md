@@ -78,13 +78,13 @@ Offline image mode, for servers that already have the images loaded locally and 
 docker compose -f docker-compose.offline.yml up -d
 ```
 
-The Compose files define `name: smartx-hci-capacity-insight` and the fixed Docker network `smartx-hci-capacity-insight-net`, so the normal `docker compose ... up -d` command uses the same project and network regardless of the source directory name. If an older Compose implementation ignores top-level `name`, use `--project-name smartx-hci-capacity-insight` explicitly. `docker-compose.offline.yml` sets `pull_policy: never` and uses explicit local version tags by default. Before starting, make sure these images exist on the target server:
+The Compose files define `name: smartx-hci-capacity-insight`, so the normal `docker compose ... up -d` command uses the same project regardless of the source directory name. The runtime network has the explicit Docker network name `smartx-hci-capacity-insight-net`, so manual compose operations and upgrades use the same network instead of creating directory-derived networks. If an older Compose implementation ignores top-level `name`, use `--project-name smartx-hci-capacity-insight` explicitly. `docker-compose.offline.yml` sets `pull_policy: never` and uses explicit local version tags by default. Before starting, make sure these images exist on the target server:
 
 ```text
-nazawsze/smartx-hci-capacity-insight-web-api:v0.5.1
-nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.1
-nazawsze/smartx-hci-capacity-insight-frontend:v0.5.1
-nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0
+nazawsze/smartx-hci-capacity-insight-web-api:v0.5.2
+nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.2
+nazawsze/smartx-hci-capacity-insight-frontend:v0.5.2
+nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1
 prom/prometheus:v2.55.1
 ```
 
@@ -101,8 +101,8 @@ Optional image variables for release or offline mode. Platform services and `upg
 
 ```text
 SMARTX_IMAGE_PREFIX=docker.io/nazawsze
-SMARTX_IMAGE_TAG=v0.5.1
-SMARTX_RUNNER_IMAGE_TAG=v0.3.0
+SMARTX_IMAGE_TAG=v0.5.2
+SMARTX_RUNNER_IMAGE_TAG=v0.3.1
 ```
 
 Service ports:
@@ -249,8 +249,8 @@ docker compose up -d
 
 The default compose file builds and runs the same versioned image names used by
 upgrade packages. Platform services use `SMARTX_IMAGE_TAG` from `VERSION`
-(`v0.5.1` in this release), and `upgrade-runner` uses `SMARTX_RUNNER_IMAGE_TAG`
-from `RUNNER_VERSION` (`v0.3.0`). Do not switch runtime services back to
+(`v0.5.2` in this release), and `upgrade-runner` uses `SMARTX_RUNNER_IMAGE_TAG`
+from `RUNNER_VERSION` (`v0.3.1`). Do not switch runtime services back to
 `:local` tags, otherwise upgrade packages and the running compose state can
 drift.
 
@@ -268,18 +268,18 @@ docker compose build web-api collector-worker
 docker compose up -d web-api collector-worker
 ```
 
-The v2 upgrade center uses manifest schema 3 and a stable Runner protocol. Platform and Prometheus packages are compiled by `web-api` into an atomic `task.json` execution plan; `upgrade-runner v0.3.0` executes generic actions and can recover after restart. Runner self-upgrade is executed directly by the old `web-api`.
+The v2 upgrade center uses manifest schema 3 and a stable Runner protocol. Platform and Prometheus packages are compiled by `web-api` into an atomic `task.json` execution plan; `upgrade-runner v0.3.1` executes generic actions and can recover after restart. Runner self-upgrade is executed directly by the old `web-api`.
 
 Package builders:
 
 ```bash
 python scripts/build_upgrade_package.py
-python scripts/build_runner_component_package.py --version v0.3.0
+python scripts/build_runner_component_package.py --version v0.3.1
 python scripts/build_prometheus_component_package.py --version v2.55.1
-python scripts/build_bundle_upgrade_package.py --platform-version v0.5.1 --prometheus-version v2.55.1
+python scripts/build_bundle_upgrade_package.py --platform-version v0.5.2 --prometheus-version v2.55.1
 ```
 
-The official platform version for this release line is `v0.5.1`. Temporary package target versions used in a test environment do not change the release version documented here.
+The official platform version for this release line is `v0.5.2`. Temporary package target versions used in a test environment do not change the release version documented here.
 
 Every package requires `manifest.json` and `checksums.sha256`. Bundle packages contain `platform/` and `observability/` sections and do not contain Runner by default. Prometheus component and bundle packages do not export Prometheus historical data; they may reference a repository image tag, and include `prometheus.tar` only when explicitly built for offline image delivery. Never package `.env`, SQLite databases, Prometheus data blocks, backups, exports, credentials, or tokens.
 
@@ -290,8 +290,8 @@ An OVA appliance image may be delivered for fresh deployment. The OVA is not an 
 Recommended OVA artifacts:
 
 ```text
-smartx-capacity-insight-v0.5.1.ova
-smartx-capacity-insight-v0.5.1.ova.sha256
+smartx-capacity-insight-v0.5.2.ova
+smartx-capacity-insight-v0.5.2.ova.sha256
 ```
 
 OVA exports must not contain production `.env`, SQLite databases, Prometheus data blocks, backups, exports, Tower credentials, tokens, or customer data. See [OVA 交付说明](ova-delivery.md) for the full checklist.

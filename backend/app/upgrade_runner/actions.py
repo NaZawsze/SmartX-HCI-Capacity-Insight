@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import sqlite3
@@ -255,6 +256,97 @@ def compose_apply(action: dict[str, Any], context_payload: dict[str, Any]) -> di
     return {"services": services, "checkpoint": {"submitted": True}}
 
 
+def _docker_lines(value: str) -> list[str]:
+    return [line.strip() for line in value.splitlines() if line.strip()]
+
+
+def _safe_docker_name(value: Any) -> str:
+    name = str(value or "").strip()
+    if not name:
+        raise ValueError("Docker 名称不能为空。")
+    if any(part in name for part in ("/", "\\", "..")):
+        raise ValueError(f"Docker 名称不安全：{name}")
+    return name
+
+
+def compose_project_migrate(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:
+    context = _context(context_payload)
+    migrated_projects: list[str] = []
+    removed_networks: list[str] = []
+    skipped: list[str] = []
+    for transition in action.get("params", {}).get("transitions") or []:
+        from_project = _safe_docker_name(transition.get("from_project"))
+        to_project = _safe_docker_name(transition.get("to_project") or context.compose_project)
+        if from_project == to_project:
+            skipped.append(from_project)
+            continue
+        containers = _docker_lines(
+            context.executor.output(
+                [
+                    "docker",
+                    "ps",
+                    "-a",
+                    "--filter",
+                    f"label=com.docker.compose.project={from_project}",
+                    "--format",
+                    "{{.ID}}",
+                ]
+            )
+        )
+        if containers:
+            context.executor.run(["docker", "stop", *containers])
+            context.executor.run(["docker", "rm", *containers])
+            migrated_projects.append(from_project)
+        from_network = str(transition.get("from_network") or "").strip()
+        if not from_network:
+            continue
+        from_network = _safe_docker_name(from_network)
+        try:
+            inspected = context.executor.output(["docker", "network", "inspect", from_network])
+        except Exception:
+            skipped.append(from_network)
+            continue
+        try:
+            networks = json.loads(inspected or "[]")
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"无法解析 Docker 网络信息：{from_network}") from exc
+        network = networks[0] if networks else {}
+        attached = dict(network.get("Containers") or {})
+        legacy_network_containers: list[str] = []
+        external_names: list[str] = []
+        for container_id, item in attached.items():
+            name = str(item.get("Name") or container_id)
+            if _is_legacy_project_container(name, from_project):
+                legacy_network_containers.append(str(container_id))
+            else:
+                external_names.append(name)
+        if external_names:
+            names = sorted(external_names)
+            raise RuntimeError(f"旧网络 {from_network} 仍有外部容器连接：{', '.join(names)}")
+        if legacy_network_containers:
+            context.executor.run(["docker", "stop", *legacy_network_containers])
+            context.executor.run(["docker", "rm", *legacy_network_containers])
+            if from_project not in migrated_projects:
+                migrated_projects.append(from_project)
+        context.executor.run(["docker", "network", "rm", from_network])
+        removed_networks.append(from_network)
+    return {
+        "migrated_projects": migrated_projects,
+        "removed_networks": removed_networks,
+        "skipped": skipped,
+        "checkpoint": {
+            "completed": True,
+            "migrated_projects": migrated_projects,
+            "removed_networks": removed_networks,
+        },
+    }
+
+
+def _is_legacy_project_container(name: str, from_project: str) -> bool:
+    normalized = name.lstrip("/")
+    return normalized == from_project or normalized.startswith(f"{from_project}-") or normalized.startswith(f"{from_project}_")
+
+
 def health_http(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:
     params = action.get("params", {})
     expected = int(params.get("expected_status") or 200)
@@ -372,6 +464,7 @@ def default_handlers() -> dict[str, Any]:
         "image.load": image_load,
         "files.sync": files_sync,
         "compose.override": compose_override,
+        "compose.project_migrate": compose_project_migrate,
         "script.run_sandboxed": run_sandboxed_script,
         "compose.apply": compose_apply,
         "health.http": health_http,

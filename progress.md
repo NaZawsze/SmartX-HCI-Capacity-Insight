@@ -3667,3 +3667,141 @@ TDD 记录：
 - 本地验证通过：`PYTHONPATH=. pytest tests/test_deployment_config.py tests/test_v2_upgrade.py -k 'compose_project_name_is_consistent or discovers_actual_compose_project or verification_reports_service_statuses or falls_back_to_docker_ps' -q`，3 passed。
 - 本地验证通过：`PYTHONPATH=. pytest tests/test_upgrade_runner_engine.py -k 'rollback_restores_old_files_removes_new_files_and_recreates_services' -q`，1 passed。
 - 未对 `10.20.0.6` 执行任何写操作。
+
+### 2026-06-24 发布验收体系、Smoke 脚本与测试补齐
+
+状态：已实现，目标测试通过；正式 canary 部署/升级验收待选定非生产环境后执行
+
+- 新增 `docs/release-acceptance.md`，明确 `dev/debug`、`upgrade rehearsal`、`release canary` 三类环境职责，以及 canary 禁止本地 build、禁止容器内热修、必须使用最终 tag 镜像和正式升级包的反污染规则。
+- 新增 `scripts/release_smoke_check.py`，提供只读 release smoke 检查；未提供账号密码时只检查 frontend、Prometheus 和 `/api/system/health`，提供账号密码后补查任务中心、报表 API、升级版本、组件版本、Prometheus 组件和升级 verification。
+- 补充 `ReportsPage.test.tsx` 契约测试：既覆盖 `v0.5.1` 顶层 `vm_name/vm_id`，也覆盖 legacy `labels.vm/labels.vm_id`，确保日增长和月增长 VM 名称不空、不显示 `undefined`。
+- 补充 `test_v2_upgrade.py` 服务状态 happy path：compose project 一致时 verification 返回 `web-api`、`collector-worker`、`frontend`、`prometheus`、`upgrade-runner` 五个服务，并识别 Prometheus `v2.55.1`。
+- 补充 `test_upgrade_runner_engine.py`：`compose.apply` 必须带 `--project-name smartx-hci-capacity-insight`。
+- 本地验证通过：`python3 -m py_compile scripts/release_smoke_check.py`。
+- 本地验证通过：`PYTHONPATH=. pytest tests/test_v2_upgrade.py -k 'verification_reports_all_services_when_compose_project_matches or verification_discovers_actual_compose_project or verification_falls_back_to_docker_ps' -q`，3 passed。
+- 本地验证通过：`PYTHONPATH=. pytest tests/test_upgrade_runner_engine.py -k 'compose_apply_uses_configured_project_name or rollback_restores_old_files_removes_new_files_and_recreates_services' -q`，2 passed。
+- 远端 `10.20.11.3` Node 容器前端目标测试通过：`ReportsPage.test.tsx` 10 tests passed。第一次运行被 macOS `._ReportsPage.test.tsx` 资源叉文件干扰，删除临时测试副本里的 `._*` 后测试通过。
+- 本轮未对 `10.20.0.6` 执行任何操作。
+
+### 2026-06-24 报表页容量增长速率算法优化规划
+
+状态：已写入规划文件，未改代码
+
+- 用户反馈报表页左侧预测有增长，但右侧“容量增长速率”显示 `0 B/天`，并进一步提出增长速率算法需要贴近实际预算。
+- 只读检查确认当前后端 `cluster_growth_rate` 用最近 7 天首尾差，并通过 `max(0, value)` 把负增长压成 0。
+- 只读查询 `10.20.11.3` `/api/reports/latest` 确认当前场景：近 7 天集群容量略下降，`cluster_growth_rate.per_day=0`；但 30 天预测斜率为正，左侧 90 天预测增长。
+- 已将新口径写入 `task_plan.md` Phase 31：
+  - 日增长使用最近一天净变化，可为负。
+  - 月增长使用近 30 天趋势。
+  - 季度增长使用近 90 天趋势。
+  - 样本不足显示提示，完全不足显示“数据不足”。
+  - 不改采集、Prometheus 写入或容量风险算法。
+- 已在 `findings.md` 记录旧 7 天口径与新规划口径的差异，避免后续误读。
+
+### 2026-06-24 v0.5.2 同版本升级兼容说明
+
+状态：实施中，待最终验证
+
+- 平台正式版本口径更新为 `v0.5.2`，README、部署/版本治理/升级中心设计和 release acceptance 文档同步说明。
+- 平台升级包 manifest 新增/完善 `source_compatibility`，明确支持 `v0.5.0 -> v0.5.2`、`v0.5.1 -> v0.5.2` 和 `v0.5.2 -> v0.5.2`。
+- 同版本应用定义为修复安装或重同步镜像、项目文件和 runtime override；迁移选择仍为 `source_version < step.version <= target_version`，因此不会重复选择 SQLite 迁移步骤。
+- 服务管理页平台升级详情显示兼容来源版本，预检查步骤将来源版本兼容性与 Runner 协议能力一起展示。
+- 未对生产环境 `10.20.0.6` 执行任何操作。
+
+## 2026-06-27 v0.5.2 Compose Migration Implementation
+
+- 将 runner 版本切换为 `v0.3.1`，新增 capability `compose.project_migrate.v1`。
+- 新增 runner action `compose.project_migrate`：按旧 Compose project label 停止/删除容器，旧网络为空时删除；旧网络仍有外部容器则失败。
+- `v0.5.2` 平台包构建器新增 `environment_transitions`，支持 `v0.5.0/v0.5.1 -> v0.5.2` 迁移到新 project/network。
+- Compose 目标 project/network 统一为 `smartx-hci-capacity-insight` / `smartx-hci-capacity-insight-net`。
+
+## 2026-06-27 v0.5.2 Runner Requirement Manifest Update
+
+- 平台升级包 manifest 新增 `minimum_runner_version=v0.3.1`。
+- web-api 预检查在 Runner 缺少 `compose.project_migrate.v1` 或无心跳时，会阻止升级并提示先升级 `upgrade-runner` 到 manifest 声明版本。
+- `release-notes.md` 明确最低 Runner 版本和 `v0.5.2` 所需 Compose project/network 迁移能力。
+- `10.20.11.3` 已重新生成平台升级包：`/data/upgrade-packages/smartx-capacity-insight-upgrade-v0.5.2.tar.gz`，SHA256 `f628a6e1505ac4844365330603d681afe6242943d3141fb53de891d8927d5ac9`。
+
+## 2026-06-29 v0.5.0 到 v0.5.2 升级链路计划文档
+
+- 新增独立文档 `docs/v0.5.0-to-v0.5.2-upgrade-plan.md`。
+- 文档明确升级链路：`v0.5.0/v0.5.1 + runner v0.3.0 -> v0.5.1u2 + runner v0.3.0 -> runner v0.3.1 bootstrap -> v0.5.2 + runner v0.3.1`。
+- 文档固定每个节点的 Docker Compose project、network name、subnet 和服务版本边界。
+- 特别记录 `v0.5.1u2` 不能提前切到 `smartx-hci-capacity-insight` / `smartx-hci-capacity-insight-net`，否则会触发 Docker network pool overlap。
+
+## 2026-06-29 v0.5.1u2-fix9 修补计划写入
+
+状态：已写入规划文件，未改业务代码
+
+- 用户要求这是最后一次，先写出 `v0.5.1u2-fix9` 的详细修补计划。
+- 已确认之前 fix8 的问题不是 runner 未升级，而是 active runner version 和组件任务显示模型不完整。
+- 现场事实：
+  - 活动 runner 已是 `v0.3.1`。
+  - web-api 容器内 `/app/RUNNER_VERSION=v0.3.0` 只是桥包 baseline。
+  - 页面若显示 `v0.3.0`，说明读取了错误来源或前端使用了旧缓存。
+- 已在 `task_plan.md` 新增 `Phase 32 v0.5.1u2-fix9 Runner Active Version 与组件升级显示修复`。
+- 已在 `findings.md` 新增 `Phase 32 v0.5.1u2-fix9 Runner Active Version 根因发现`。
+- fix9 计划明确：
+  - active runner version 只能来自新鲜 heartbeat、running runner 容器 `/app/RUNNER_VERSION` 或 running runner 容器 image tag。
+  - web-api `/app/RUNNER_VERSION` 不能作为当前 runner 版本。
+  - runner 组件 task 必须稳定投影为 `component=upgrade-runner`。
+  - 前端组件页必须绑定真实 task steps，不再展示平台默认“未执行”步骤。
+  - fix9 包必须先在 `10.20.11.3` 构建和验证。
+
+## 2026-06-29 v0.5.1u2-fix9 实施与构建
+
+状态：已在 `10.20.11.3` 构建 fix9 包，等待用户按链路验证
+
+- 后端修复：
+  - active runner version 不再回落到 web-api `/app/RUNNER_VERSION`。
+  - 新鲜 heartbeat 优先；heartbeat 超过 30 秒视为过期。
+  - heartbeat 缺失或过期时读取 running `upgrade-runner` 容器内 `/app/RUNNER_VERSION`，再回落 running runner image tag。
+  - 未检测到 active runner 时返回 `未检测到 runner`。
+  - `history(component_type="runner")` 与 `_public_task()` 支持真实 task 形态 `components=["runner"]` 且顶层 `component` 缺失。
+- 前端修复：
+  - 组件页用统一 matcher 识别 `upgrade-runner`：`task.component === "upgrade-runner"` 或 `task.components` 包含 `runner`。
+  - 目标版本、已选升级包、操作区、执行步骤和包列表状态都绑定真实 runner task。
+  - 组件模式没有真实 steps 时不再展示平台默认“未执行”步骤。
+- 本地验证：
+  - `PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_upgrade`：28 passed, 1 skipped。
+  - `python3 -m py_compile backend/app/v2/upgrade/service.py backend/app/v2/system/health.py backend/tests/test_v2_upgrade.py`：通过。
+  - `git diff --check -- backend/app/v2/upgrade/service.py backend/app/v2/system/health.py backend/tests/test_v2_upgrade.py frontend/src/pages/ServicePage.tsx frontend/src/pages/ServicePage.test.tsx frontend/src/types.ts frontend/src/styles/global.css`：通过。
+  - `frontend` `tsc -b`：通过。
+  - `frontend` `vitest run src/pages/ServicePage.test.tsx`：21 passed。
+- `10.20.11.3` 验证：
+  - 同步 fix9 定向文件到 `/home/user1/codex-build/devv2-v051u2-build`，保留 `VERSION=v0.5.1u2`、`RUNNER_VERSION=v0.3.0`。
+  - `PYTHONPATH=backend python3 -m unittest backend.tests.test_v2_upgrade`：28 passed, 1 skipped。
+  - 远端未安装 node/npm/pnpm，前端单测无法在该用户环境直接执行；前端代码已由本地单测与 tsc 验证，并通过远端 Docker 构建进入镜像。
+  - package manifest 闸门通过：`version=v0.5.1u2`、`min_version=v0.5.0`、无 `minimum_runner_version`、required capabilities 保持 legacy runner v0.3.0 能力。
+  - package components 只有 platform，未包含 runner 镜像。
+  - package compose defaults 仍为 `smartx-storage-forecast` / `smartx-storage-forecast_smartx-net`，未切到 `smartx-hci-capacity-insight-net`。
+  - web-api 镜像内确认包含 `RUNNER_NOT_DETECTED`、`_active_runner_state_from_docker`、`_component_types_from_task`。
+- fix9 包：
+  - path: `/home/user1/codex-build/packages-v051-to-v052-chain-rebuilt/01-v0.5.1u2-fix9/smartx-capacity-insight-upgrade-v0.5.1u2.tar.gz`
+  - sha256: `724265634635c50e079f6e2576c51dc294a83ddfabf4c85a631ee6990cdb6f4b`
+- runner v0.3.1 包沿用：
+  - path: `/home/user1/codex-build/packages-v051-to-v052-chain-rebuilt/02-runner-v0.3.1-bootstrap/smartx-upgrade-runner-v0.3.1.tar.gz`
+  - sha256: `2dcd14e633512b4a95254ea1dd299b4a2513bd64726e72d4e1cc2e75cdd633aa`
+
+## 2026-06-29 v0.5.1u2-fix10 来源版本兼容补充
+
+状态：已在 `10.20.11.3` 构建 fix10 包，等待用户按链路验证
+
+- 用户在 UI 中发现 `v0.5.1u2` 包的“兼容来源版本”只显示 `v0.5.0`、`v0.5.1`、`v0.5.1u2`，没有 `v0.5.1u1`。
+- 判断：`v0.5.1u1 -> v0.5.1u2` 应该支持；这是 manifest `source_compatibility.supported_versions` 漏列，不是 runner 或前端显示 bug。
+- 修复：
+  - 本地 `scripts/build_upgrade_package.py` 的 patch source versions 加入 `v0.5.1u1`。
+  - `10.20.11.3` 的 `/home/user1/codex-build/devv2-v051u2-build/scripts/build_upgrade_package.py` 专用 `v0.5.1u2` 分支返回 `["v0.5.0", "v0.5.1", "v0.5.1u1", "v0.5.1u2"]`。
+- 10.20.11.3 构建：
+  - path: `/home/user1/codex-build/packages-v051-to-v052-chain-rebuilt/01-v0.5.1u2-fix10/smartx-capacity-insight-upgrade-v0.5.1u2.tar.gz`
+  - sha256: `b976ef8c761271ac06cd8bd3e23d3394a84360ea189e46b1042bc2ced70651df`
+- manifest 闸门：
+  - `version=v0.5.1u2`
+  - `min_version=v0.5.0`
+  - `source_compatibility.supported_versions=["v0.5.0","v0.5.1","v0.5.1u1","v0.5.1u2"]`
+  - no `minimum_runner_version`
+  - required capabilities 保持 legacy runner v0.3.0 能力
+  - components 只有 platform
+  - no runner image archive
+  - compose defaults 仍为 `smartx-storage-forecast` / `smartx-storage-forecast_smartx-net`
+- fix10 沿用 fix9 的 active runner version 与组件任务显示修复；只额外补充 `v0.5.1u1` 来源兼容。

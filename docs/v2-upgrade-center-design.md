@@ -6,7 +6,7 @@
 
 v2 升级中心重新设计，不兼容旧升级路径。目标是一次上传后，由 manifest 自动识别升级内容，完成预检查、备份、执行、健康检查、历史记录和回滚准备。
 
-当前正式平台版本统一为 `v0.5.1`，`upgrade-runner` 组件版本统一为 `v0.3.0`。临时测试升级包的目标版本只用于验证升级链路，不代表正式版本变化。
+当前正式平台版本统一为 `v0.5.2`，`upgrade-runner` 组件版本统一为 `v0.3.1`。临时测试升级包的目标版本只用于验证升级链路，不代表正式版本变化。
 
 支持升级对象：
 
@@ -55,8 +55,9 @@ smartx-capacity-insight-platform-upgrade-v0.5.x.tar.gz
 - `images/` 中只包含平台三件套镜像。
 - `project/` 包含允许同步到项目目录的白名单文件。
 - `migrations/run_migrations.py` 仅在来源版本到目标版本之间存在已登记 SQLite 迁移步骤时包含并执行。
-- 无 schema 变化的当前 `v0.5.1` 正式包不包含迁移脚本。
+- 无 schema 变化的当前 `v0.5.2` 正式包不包含迁移脚本。
 - 跨版本升级包必须是累计迁移包：只要来源版本到目标版本之间存在已登记 schema 迁移，就必须包含并执行这些中间迁移。
+- 同版本应用允许，例如 `v0.5.2 -> v0.5.2`，用于修复安装或重同步镜像、项目文件和 runtime override；迁移选择仍按 `source_version < step.version <= target_version`，不会重复选择迁移步骤。
 - 平台升级包不默认包含 `upgrade-runner.tar` 或 `prometheus.tar`。
 
 执行者：`upgrade-runner`。
@@ -213,13 +214,12 @@ Tower credentials
   "schema_version": "3",
   "minimum_runner_protocol": 1,
   "required_capabilities": [
-    "backup.create",
-    "image.load",
-    "files.sync",
-    "compose.override",
-    "compose.apply",
-    "health.http",
-    "rollback.restore"
+    "backup.v1",
+    "image.v1",
+    "files.v1",
+    "compose.v1",
+    "health.v1",
+    "rollback.v1"
   ],
   "package_id": "smartx-capacity-insight-v2.0.0",
   "version": "v2.0.0",
@@ -275,7 +275,7 @@ Tower credentials
 ### 3.2 Phase 22 执行协议
 
 - `web-api` 只负责解包、预检查并把 manifest 编译为 `execution_plan`。
-- `upgrade-runner v0.3.0` 只执行版本化 Action，不导入平台 `UpgradeService`。
+- `upgrade-runner v0.3.1` 只执行版本化 Action，不导入平台 `UpgradeService`。
 - `task.json` 是执行状态权威记录，使用原子写入、单调递增 revision 和逐 Action checkpoint。
 - SQLite `upgrade_runner_state` 保存 Runner 心跳、协议和能力；`upgrade_task_leases` 防止多个 Runner 重复执行同一任务。
 - 幂等动作可自动恢复；结果不明确的迁移脚本进入 `recovery_required`，由管理员选择继续、回滚或标记失败。
@@ -284,7 +284,7 @@ Tower credentials
 ### 3.3 组合包
 
 ```text
-smartx-capacity-insight-bundle-v0.5.1.tar.gz
+smartx-capacity-insight-bundle-v0.5.2.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── platform/

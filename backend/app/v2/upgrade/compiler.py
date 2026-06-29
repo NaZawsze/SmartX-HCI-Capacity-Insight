@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.upgrade_protocol.constants import RUNNER_CAPABILITIES, RUNNER_PROTOCOL_VERSION
+from app.upgrade_protocol.constants import ACTION_CAPABILITIES, RUNNER_CAPABILITIES, RUNNER_PROTOCOL_VERSION
 from app.upgrade_protocol.models import ExecutionAction, ExecutionPlan
 from app.upgrade_protocol.validation import validate_manifest_compatibility
 
@@ -94,6 +94,15 @@ def compile_execution_plan(manifest: dict[str, Any]) -> ExecutionPlan:
             params={"images": images, "services": services},
         )
     )
+    environment_transitions = list(manifest.get("environment_transitions") or [])
+    if environment_transitions:
+        actions.append(
+            ExecutionAction(
+                id="migrate-compose-project",
+                type="compose.project_migrate",
+                params={"transitions": environment_transitions},
+            )
+        )
 
     migration = dict(manifest.get("migration") or {})
     if migration.get("required"):
@@ -154,10 +163,7 @@ def compile_execution_plan(manifest: dict[str, Any]) -> ExecutionPlan:
             )
         )
 
-    action_capabilities = {
-        "script.sandbox.v1" if action.type == "script.run_sandboxed" else action.type
-        for action in actions
-    }
+    action_capabilities = {ACTION_CAPABILITIES.get(action.type, action.type) for action in actions}
     required = sorted(action_capabilities | {str(item) for item in manifest.get("required_capabilities") or []})
     compatibility_manifest = {
         **manifest,

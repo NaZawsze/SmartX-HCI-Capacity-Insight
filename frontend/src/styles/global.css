@@ -1958,6 +1958,46 @@ button.risk-cluster-row:hover {
   line-height: 1.35;
 }
 
+.growth-rate-list {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px 10px;
+}
+
+.growth-rate-list > svg {
+  grid-row: 1 / 4;
+  color: var(--blue);
+}
+
+.growth-rate-item {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.growth-rate-item span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.growth-rate-item strong {
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.2;
+  min-width: 0;
+}
+
+.growth-rate-item small {
+  color: #b7791f;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .report-quality-summary-card {
   grid-column: 1 / -1;
   border-color: rgba(26, 60, 110, 0.14);
@@ -3969,6 +4009,19 @@ button.risk-cluster-row:hover {
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
+}
+
+.upgrade-package-progress {
+  height: 5px;
+  border-radius: 999px;
+  background: #d8e5f3;
+}
+
+.upgrade-package-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--blue);
 }
 
 .service-upload-panel {

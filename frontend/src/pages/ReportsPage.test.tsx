@@ -234,6 +234,7 @@ describe("ReportsPage", () => {
     expect(screen.queryByText("Tower A / Cluster A")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "历史样本窗口" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "容量增长速率" })).toBeInTheDocument();
+    expect(screen.getByText("日/月/季度趋势")).toBeInTheDocument();
     expect(screen.getByText("8 天")).toHaveClass("exhaustion-days-risk");
     expect(screen.getByText("未触发")).not.toHaveClass("exhaustion-days-risk");
     expect(screen.getByText("90 天后 1090 B")).toBeInTheDocument();
@@ -246,7 +247,58 @@ describe("ReportsPage", () => {
     expect(onSelectVm).toHaveBeenCalledWith("vm-month", "Month VM");
   });
 
-  it("renders vm names from the v0.5.1 top-level growth fields", async () => {
+  it("renders report growth rates with negative day values and sample warnings", async () => {
+    apiMock.report.mockResolvedValue({
+      clusters: [],
+      fastest_growing_vms: [],
+      day_fastest_growing_vms: [],
+      month_fastest_growing_vms: [],
+      day_new_vms: [],
+      month_new_vms: [],
+      cluster_growth_rate: {
+        per_day: -20,
+        per_month: 300,
+        per_quarter: null,
+        day_sample_sufficient: true,
+        month_sample_sufficient: false,
+        quarter_sample_sufficient: false,
+        day_window_days: 1,
+        month_window_days: 30,
+        quarter_window_days: 90
+      },
+      window_days: 30,
+      chart_days: 365,
+      growth_rate_window_days: 1,
+      forecast_days: 90
+    });
+
+    render(
+      <ReportsPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 1, vm_count: 0, used_bytes: 0, total_bytes: 0, used_ratio: 0 },
+          top_vms: [],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSelectVm={vi.fn()}
+        addTask={vi.fn()}
+        updateTask={vi.fn()}
+      />
+    );
+
+    const growthCard = (await screen.findByRole("heading", { name: "容量增长速率" })).closest("section")!;
+    expect(within(growthCard).getByText("日/月/季度趋势")).toBeInTheDocument();
+    expect(within(growthCard).getByText("日")).toBeInTheDocument();
+    expect(within(growthCard).getByText("-20 B/天")).toBeInTheDocument();
+    expect(within(growthCard).getByText("月")).toBeInTheDocument();
+    expect(within(growthCard).getByText("300 B/月")).toBeInTheDocument();
+    expect(within(growthCard).getByText("季度")).toBeInTheDocument();
+    expect(within(growthCard).getByText("数据不足")).toBeInTheDocument();
+    expect(within(growthCard).getAllByText("样本不足")).toHaveLength(2);
+  });
+
+  it("renders vm names from the v0.5.2 top-level growth fields", async () => {
     const onSelectVm = vi.fn();
     apiMock.report.mockResolvedValue({
       clusters: [],
@@ -290,6 +342,59 @@ describe("ReportsPage", () => {
     fireEvent.click(row);
     expect(onSelectVm).toHaveBeenCalledWith("vm-day-top-level", "Top Level Day VM");
     expect(screen.queryByText("vm-day-top-level")).not.toBeInTheDocument();
+  });
+
+  it("keeps legacy labels-only growth vm names visible", async () => {
+    const onSelectVm = vi.fn();
+    apiMock.report.mockResolvedValue({
+      clusters: [],
+      fastest_growing_vms: [],
+      day_fastest_growing_vms: [
+        {
+          labels: { tower_id: "1", cluster_id: "cluster-a", vm_id: "vm-day-legacy", vm: "Legacy Day VM" },
+          forecast: { status: "ok", slope_per_day: 0, current: 1024 },
+          growth_amount: 21,
+          growth_ratio: 0.2
+        }
+      ],
+      month_fastest_growing_vms: [
+        {
+          labels: { tower_id: "1", cluster_id: "cluster-a", vm_id: "vm-month-legacy", vm_name: "Legacy Month VM" },
+          forecast: { status: "ok", slope_per_day: 0, current: 2048 },
+          growth_amount: 120,
+          growth_ratio: 0.3,
+          sample_span_days: 31
+        }
+      ],
+      day_new_vms: [],
+      month_new_vms: [],
+      cluster_growth_rate: { per_day: 0, per_month: 0, per_quarter: 0 },
+      window_days: 30,
+      chart_days: 365,
+      growth_rate_window_days: 7,
+      forecast_days: 90
+    });
+
+    render(
+      <ReportsPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 1, vm_count: 2, used_bytes: 0, total_bytes: 0, used_ratio: 0 },
+          top_vms: [],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSelectVm={onSelectVm}
+        addTask={vi.fn()}
+        updateTask={vi.fn()}
+      />
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Legacy Day VM 21 B/天" }));
+    expect(onSelectVm).toHaveBeenCalledWith("vm-day-legacy", "Legacy Day VM");
+    fireEvent.click(screen.getByRole("button", { name: "Legacy Month VM 120 B/月" }));
+    expect(onSelectVm).toHaveBeenCalledWith("vm-month-legacy", "Legacy Month VM");
+    expect(screen.queryByText("undefined")).not.toBeInTheDocument();
   });
 
   it("keeps report page usable when data quality is absent", async () => {

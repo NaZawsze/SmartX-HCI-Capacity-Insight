@@ -132,7 +132,7 @@ panic: Unable to create mmap-ed active query log
 
 平台升级和 Prometheus/observability 升级由 `upgrade-runner` 执行。`upgrade-runner` 不能可靠地执行“重启自己”的任务，因为 Docker 停掉旧 runner 后，正在执行 compose 的进程也可能被杀掉，导致新 runner 只创建不启动、任务停在 `restart running`。v2 当前策略是：runner-only 组件升级由 `web-api` 直接执行 Docker 操作，平台升级仍提交给 `upgrade-runner`。
 
-跨版本升级采用累计迁移包规则：平台包构建时读取 `backend/app/v2/upgrade/migrations/registry.json`，选择 `source_version < step.version <= target_version` 的 SQLite 迁移步骤。当前 `v0.5.1` 正式包无 schema 变化时不带迁移脚本；未来如果来源版本和目标版本之间存在任意 schema 变化，升级包必须包含并执行这些中间迁移。迁移成功后写入 `schema_migrations(id, version, description, script_sha256, applied_at)`，脚本必须幂等。
+跨版本升级采用累计迁移包规则：平台包构建时读取 `backend/app/v2/upgrade/migrations/registry.json`，选择 `source_version < step.version <= target_version` 的 SQLite 迁移步骤。当前 `v0.5.2` 正式包无 schema 变化时不带迁移脚本；未来如果来源版本和目标版本之间存在任意 schema 变化，升级包必须包含并执行这些中间迁移。同版本应用允许，例如 `v0.5.2 -> v0.5.2`，用于修复安装或重同步镜像、项目文件和 runtime override，但不会重复选择迁移步骤。迁移成功后写入 `schema_migrations(id, version, description, script_sha256, applied_at)`，脚本必须幂等。
 
 后续已引入“组件升级”概念：
 
@@ -266,7 +266,7 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 
 - DockerHub 已有平台镜像 tag `v0.5.0`，但仓库 dev 曾仍停留在 `v0.4.0` 元数据。
 - `docker-compose.offline.yml` 和 `docker-compose.release.yml` 曾用同一个 `SMARTX_IMAGE_TAG` 控制平台服务和 `upgrade-runner`，会导致 runner 被平台版本牵引。
-- runner 应作为独立组件，当前目标版本为 `v0.3.0`。
+- runner 应作为独立组件，当前目标版本为 `v0.3.1`。
 - 平台升级包不应包含 `upgrade-runner.tar`。
 - `scripts/build_runner_component_package.py` 曾默认 `v0.2.0`，需要改为读取根目录 `RUNNER_VERSION`。
 - GitHub Actions 曾在平台镜像矩阵中构建 `upgrade-runner`，导致 runner 仓库出现 `v0.4.0`、`v0.5.0`、`main`、`latest` 等平台语义 tag。
@@ -331,7 +331,7 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 当前 runner 只会接管 `pending + runner_requested` 和 `runner_restarting`，普通 `running` 任务在进程重启后缺少通用恢复路径。
 - 当前 `execute_task()` 每次都会重新初始化步骤列表，因此不能直接把任意 `running` 任务重新送入该函数，否则可能重复执行备份、项目文件覆盖或服务重启。
 - Phase 22 必须采用检查点和幂等恢复，而不是简单地把 `running` 状态重新改成 `pending`。
-- `runner v0.3.0` 尚未正式发布，因此不再增加 `v0.3.1` 引导版本；直接在 v0.3.0 中补齐 Phase 22 并重建测试环境镜像。
+- `runner v0.3.0` 已作为 Phase 22 通用执行协议基线；`v0.5.2` 因新增 Compose project/network 迁移原子能力，发布 `runner v0.3.1`。
 - 长期目标是让 runner 成为协议驱动的稳定执行器，而不是平台 `UpgradeService` 的镜像副本。普通平台升级只声明通用动作，不应要求 runner 跟随平台更新。
 - 平台包与 runner 通过 `protocol_version + required_capabilities` 协商兼容性；只有新增原子能力、底层 Docker/Compose 变化、安全修复或容器拓扑变化才需要升级 runner。
 - 对无法确认结果的非幂等步骤默认进入 `recovery_required` 等待人工选择，这是比自动重试更稳妥的默认策略。
@@ -343,8 +343,8 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 平台与 Prometheus 组合包由 `scripts/build_bundle_upgrade_package.py` 生成，默认不包含 Runner。
 - Prometheus/observability 组件升级包默认是轻量包：只包含 manifest、配置和健康检查，镜像通过仓库 tag 引用；离线环境才使用 `--offline-image` 放入 `images/prometheus.tar`。
 - 平台升级、Prometheus 组件升级和组合升级都不导出 Prometheus 历史数据；升级前 Prometheus 备份只作为服务器本机回滚材料，历史 block 导出/导入只属于完整数据迁移包。
-- 升级包树形结构需要在 README 与设计文档中保持同一口径：组合包示例使用当前平台 `v0.5.1`，表示交付形态，不表示新增平台版本；历史 progress/changelog 中的旧包结构只作为当时事实保留。
-- 当前正式版本治理口径：平台正式版本为 `v0.5.1`，Runner 组件版本仍为 `v0.3.0`。临时测试升级包目标版本只用于验证升级链路，不代表源码、README 或正式发版版本变化。
+- 升级包树形结构需要在 README 与设计文档中保持同一口径：组合包示例使用当前平台 `v0.5.2`，表示交付形态，不表示新增平台版本；历史 progress/changelog 中的旧包结构只作为当时事实保留。
+- 当前正式版本治理口径：平台正式版本为 `v0.5.2`，Runner 组件版本为 `v0.3.1`。临时测试升级包目标版本只用于验证升级链路，不代表源码、README 或正式发版版本变化。
 - SQLite 处于 WAL 模式时不能直接归档 `smartx.db`；Runner 备份必须先用 SQLite Backup API 生成一致性快照。
 - Runner 宿主机路径映射需要优先匹配 `/data/backups`、`/data/compose-runtime` 等具体挂载，不能先被通用 `/data` 吞掉；`/data/exports` 和 `/data/upgrades` 禁止挂入迁移沙箱。
 - `compose up -d` 后服务可能尚未 ready，健康检查需要有限重试；只有重试耗尽才触发一次自动回滚。
@@ -426,3 +426,41 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 根修复应在 Compose 文件顶层写 `name: smartx-hci-capacity-insight`，并给网络写固定真实名称 `smartx-hci-capacity-insight-net`，让普通 `docker compose up -d` 也稳定。
 - 后端仍需要保留当前容器 label 反查真实 project 的兜底，用于历史现场或第三方改过 project name 的场景。
 - 生产环境 `10.20.0.6` 后续只允许只读诊断；任何写操作、恢复操作或 recreate 都必须先列命令并等用户明确确认。
+
+## Phase 31 报表页容量增长速率发现
+
+- 当前实现中，报表页右侧“容量增长速率”来自后端 `cluster_growth_rate`，计算方式是最近 7 天集群容量首尾差除以天数，并使用 `max(0, value)` 把负增长压成 0。
+- 在 `10.20.11.3` 当前数据中，近 7 天集群容量略有下降，所以后端返回 `per_day=0`；但 30 天预测趋势仍为正，导致页面左侧预测增长、右侧速率 0 的口径矛盾。
+- 用户确认希望优化为：日增长按当天/最近一天实际速率，容量减少用负数表示；月增长按近 30 天趋势；季度增长按近 90 天趋势。
+- 新口径应更贴近容量预算：日增长表达最近实际变化，月/季度表达预算趋势；月/季度不再简单由日增长或 7 天窗口乘出来。
+- 样本不足需要明确提示，不能把未知或负增长显示为 `0 B`。
+
+## 2026-06-27 v0.5.2 Upgrade Failure Root Cause
+
+- `10.20.11.12` 升级失败根因是旧环境存在 `smartx-storage-forecast_smartx-net`，新包尝试创建 `smartx-hci-capacity-insight-net`，二者同为 `10.249.249.0/24` 导致 Docker network pool overlap。
+- `upgrade-runner v0.3.0` 没有 Docker Compose project/network 迁移原子能力；沙箱脚本不能访问 Docker socket，不能承担这类迁移。
+- 因此本次需要发布 `upgrade-runner v0.3.1`，并在平台包中声明 `environment_transitions`，由 runner 在 `compose.apply` 前迁移旧 project/network。
+
+## Phase 32 v0.5.1u2-fix9 Runner Active Version 根因发现
+
+- 用户目标是平台容器和 runner 容器相互执行、相互监督：web-api 管理和观测 runner，runner 执行并上报 heartbeat；web-api 不能用自己的构建基线自证 runner 当前版本。
+- `10.20.11.12` 真实现场证明 runner bootstrap 已成功：
+  - `/api/system/health.runner_version=v0.3.1`
+  - 活动 runner 容器是 `smartx-hci-capacity-insight-upgrade-runner-1`
+  - 活动 runner image tag 是 `nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1`
+  - 活动 runner 容器内 `/app/RUNNER_VERSION=v0.3.1`
+  - `upgrade_runner_state.runner_version=v0.3.1`
+- `smartx-storage-forecast-web-api-1` 容器内 `/app/RUNNER_VERSION=v0.3.0`，这是 `v0.5.1u2` 桥包内置 baseline，不是当前活动 runner 版本。
+- 页面或接口如果显示 `v0.3.0`，说明它读到了错误来源：
+  - web-api 自己的 `/app/RUNNER_VERSION`
+  - 已退出的旧 runner 容器 `smartx-storage-forecast-upgrade-runner-1:v0.3.0`
+  - 前端初始化缓存 `defaultComponentInfos.version=v0.3.0`
+  - 或组件任务未正确关联后没有刷新 active runner state。
+- `RUNNER_VERSION` 在 web-api 内应改名或按语义视为 `bundled_runner_baseline_version`；页面上的 runner 当前版本应只使用 `active_runner_version`。
+- active runner version 的合理来源优先级：
+  1. 新鲜的 `upgrade_runner_state` heartbeat，heartbeat 超过 30 秒视为过期。
+  2. running runner 容器的 `/app/RUNNER_VERSION`。
+  3. running runner 容器 Docker image tag。
+  4. 都没有时显示“未检测到 runner”，不能回退为 web-api baseline。
+- 组件升级页面执行步骤“未执行”的直接原因是前端把组件任务和选中组件绑定得过窄，只认 `task.component === selectedComponent.service`；真实或历史 runner bootstrap task 可能只有 `components=["runner"]`，导致任务中心能显示成功但组件页主体不渲染真实 steps。
+- 第 8 版 fix 失败的原因是测试夹具假设 `component="upgrade-runner"`，没有使用真实现场 task 形态：`status=success`、`component` 缺失、`components=["runner"]`、6 个 succeeded steps。

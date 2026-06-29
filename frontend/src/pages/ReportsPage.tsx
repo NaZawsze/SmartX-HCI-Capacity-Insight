@@ -209,12 +209,12 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
             </div>
           </Card>
 
-          <Card title="容量增长速率" subtitle={`${report?.growth_rate_window_days || 7} 天平均`} className="report-side-card report-kpi-card">
-            <div className="forecast-window compact-forecast-window growth-window">
+          <Card title="容量增长速率" subtitle="日/月/季度趋势" className="report-side-card report-kpi-card">
+            <div className="growth-rate-list">
               <TrendingUp size={30} />
-              <strong>{formatBytes(clusterGrowthRate.perDay)}/天</strong>
-              <span>{formatBytes(clusterGrowthRate.perMonth)}/月</span>
-              <span>{formatBytes(clusterGrowthRate.perQuarter)}/季度</span>
+              <GrowthRateItem label="日" value={clusterGrowthRate.perDay} unit="/天" sufficient={clusterGrowthRate.daySampleSufficient} />
+              <GrowthRateItem label="月" value={clusterGrowthRate.perMonth} unit="/月" sufficient={clusterGrowthRate.monthSampleSufficient} />
+              <GrowthRateItem label="季度" value={clusterGrowthRate.perQuarter} unit="/季度" sufficient={clusterGrowthRate.quarterSampleSufficient} />
             </div>
           </Card>
 
@@ -352,17 +352,39 @@ const EXPORT_PERIOD_OPTIONS = [
   { value: 365, label: "近 365 天" }
 ] as const;
 
-function clusterGrowthRates(report: ForecastPayload | null): { perDay: number; perMonth: number; perQuarter: number } {
-  const perDay =
-    report?.cluster_growth_rate?.per_day ??
-    report?.cluster_growth_rate_per_day ??
-    report?.clusters?.reduce((total, item) => total + Math.max(0, item.forecast.slope_per_day || 0), 0) ??
-    0;
+function clusterGrowthRates(report: ForecastPayload | null): {
+  perDay: number | null;
+  perMonth: number | null;
+  perQuarter: number | null;
+  daySampleSufficient?: boolean;
+  monthSampleSufficient?: boolean;
+  quarterSampleSufficient?: boolean;
+} {
+  const hasStructuredRate = Boolean(report?.cluster_growth_rate);
+  const perDay = hasStructuredRate
+    ? report?.cluster_growth_rate?.per_day ?? null
+    : report?.cluster_growth_rate_per_day ??
+      report?.clusters?.reduce((total, item) => total + Math.max(0, item.forecast.slope_per_day || 0), 0) ??
+      0;
   return {
     perDay,
-    perMonth: report?.cluster_growth_rate?.per_month ?? monthlyGrowth(perDay),
-    perQuarter: report?.cluster_growth_rate?.per_quarter ?? quarterlyGrowth(perDay)
+    perMonth: hasStructuredRate ? report?.cluster_growth_rate?.per_month ?? null : monthlyGrowth(perDay),
+    perQuarter: hasStructuredRate ? report?.cluster_growth_rate?.per_quarter ?? null : quarterlyGrowth(perDay),
+    daySampleSufficient: report?.cluster_growth_rate?.day_sample_sufficient,
+    monthSampleSufficient: report?.cluster_growth_rate?.month_sample_sufficient,
+    quarterSampleSufficient: report?.cluster_growth_rate?.quarter_sample_sufficient
   };
+}
+
+function GrowthRateItem({ label, value, unit, sufficient }: { label: string; value?: number | null; unit: string; sufficient?: boolean }) {
+  const content = value == null ? "数据不足" : `${formatBytes(value)}${unit}`;
+  return (
+    <div className="growth-rate-item">
+      <span>{label}</span>
+      <strong>{content}</strong>
+      {sufficient === false && <small>样本不足</small>}
+    </div>
+  );
 }
 
 function GrowthSortTabs({ value, onChange }: { value: GrowthSortMode; onChange: (value: GrowthSortMode) => void }) {

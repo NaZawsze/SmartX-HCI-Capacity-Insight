@@ -360,7 +360,7 @@ observability/images/prometheus.tar  # 可选，仅离线镜像包包含
 - runner 是否需要显示平台版本
 - [已解决] v2 runner-only 组件升级由 web-api 直接执行，不依赖旧 web-api 写只读 `/opt`，也不提交给 runner 自己重启自己。
 - runner 被重建时正在执行的升级任务如何恢复
-- [已解决] Runner v0.3.0 使用 action checkpoint、revision、心跳和租约恢复安全动作；结果不明确的迁移进入 `recovery_required`。
+- [已解决] Runner 使用 action checkpoint、revision、心跳和租约恢复安全动作；结果不明确的迁移进入 `recovery_required`。当前 Runner 版本为 `v0.3.1`，新增 Compose project/network 迁移能力。
 - [已解决] 健康检查失败只自动回滚一次，恢复项目文件、删除新增文件、移除升级 override 并 recreate 原版本服务。
 - [已解决] Prometheus 作为 `observability` 组件独立升级，由 manifest 自动识别，不作为普通平台三件套默认升级内容。
 

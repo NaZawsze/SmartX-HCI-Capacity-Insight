@@ -13,16 +13,15 @@ from typing import Any
 
 
 REQUIRED_RUNNER_CAPABILITIES = {
-    "backup.create",
-    "checkpoint.write",
-    "compose.apply",
-    "compose.override",
-    "files.sync",
-    "health.http",
-    "health.prometheus",
-    "image.load",
-    "rollback.restore",
+    "backup.v1",
+    "compose.project.v1",
+    "compose.v1",
+    "files.v1",
+    "health.v1",
+    "image.v1",
+    "rollback.v1",
     "script.sandbox.v1",
+    "task.recovery.v1",
 }
 
 
@@ -153,7 +152,7 @@ def main() -> int:
     parser.add_argument("--upgrades-dir", default="/data/upgrades")
     parser.add_argument("--platform-package")
     parser.add_argument("--expected-version", default="v0.5.0")
-    parser.add_argument("--expected-runner-version", default="v0.3.0")
+    parser.add_argument("--expected-runner-version", default="v0.3.1")
     args = parser.parse_args()
 
     db_path = Path(args.db_path)
@@ -172,4 +171,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

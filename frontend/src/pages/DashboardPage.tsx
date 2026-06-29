@@ -220,11 +220,11 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRis
             topVms.map((item) => (
               <button
                 className="table-row clickable"
-                key={`${item.metric.vm_id}-${item.value}`}
+                key={`${metricVmId(item)}-${metricValue(item)}`}
                 type="button"
-                onClick={() => onSelectVm(item.metric.vm_id, item.metric.vm || item.metric.vm_id)}
+                onClick={() => onSelectVm(metricVmId(item), metricVmName(item))}
               >
-                <span>{item.metric.vm || item.metric.vm_id}</span>
+                <span>{metricVmName(item)}</span>
                 <strong className="growth-strong">
                   <ArrowUpRight size={14} />
                   {formatGrowthValue(item, growthSort, "天")}
@@ -258,12 +258,12 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRis
             dayNewVms.slice(0, 20).map((item) => (
               <button
                 className="table-row clickable"
-                key={`${item.metric.tower_id}-${item.metric.cluster_id}-${item.metric.vm_id}`}
+                key={`${metricTowerId(item)}-${metricClusterId(item)}-${metricVmId(item)}`}
                 type="button"
-                onClick={() => onSelectVm(item.metric.vm_id, item.metric.vm || item.metric.vm_id)}
+                onClick={() => onSelectVm(metricVmId(item), metricVmName(item))}
               >
-                <span>{item.metric.vm || item.metric.vm_id}</span>
-                <strong>{formatBytes(item.value)}</strong>
+                <span>{metricVmName(item)}</span>
+                <strong>{formatBytes(metricValue(item))}</strong>
               </button>
             ))
           ) : (
@@ -398,12 +398,32 @@ function reportScopeForRiskCluster(item: RiskClusterRowItem): DashboardScope | u
 
 function growthSortValue(item: MetricItem, mode: GrowthSortMode): number {
   if (mode === "ratio") return item.growth_ratio ?? 0;
-  return item.growth_amount ?? item.value ?? 0;
+  return item.growth_amount ?? metricValue(item);
 }
 
 function formatGrowthValue(item: MetricItem, mode: GrowthSortMode, unit: string): string {
   if (mode === "ratio") return formatPercent(item.growth_ratio);
-  return `${formatBytes(item.growth_amount ?? item.value)}/${unit}`;
+  return `${formatBytes(item.growth_amount ?? metricValue(item))}/${unit}`;
+}
+
+function metricVmId(item: MetricItem): string {
+  return String(item.metric.vm_id || item.vm_id || "");
+}
+
+function metricVmName(item: MetricItem): string {
+  return String(item.metric.vm || item.metric.vm_name || item.vm_name || metricVmId(item) || "未知 VM");
+}
+
+function metricTowerId(item: MetricItem): string {
+  return String(item.metric.tower_id || item.tower_id || "tower");
+}
+
+function metricClusterId(item: MetricItem): string {
+  return String(item.metric.cluster_id || item.cluster_id || item.metric.cluster || item.cluster || "cluster");
+}
+
+function metricValue(item: MetricItem): number {
+  return item.value ?? item.current_bytes ?? item.used_bytes ?? 0;
 }
 
 function formatPercent(value?: number | null): string {

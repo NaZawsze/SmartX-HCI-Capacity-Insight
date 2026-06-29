@@ -4,10 +4,11 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import tarfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from secrets import token_hex
 from typing import Any
@@ -40,6 +41,8 @@ SENSITIVE_PARTS = {"backups", "exports", "compose-runtime", "password", "token",
 PLATFORM_SERVICES = {"web-api", "collector-worker", "frontend"}
 OBSERVABILITY_SERVICES = {"prometheus"}
 RUNNER_SERVICES = {"upgrade-runner"}
+RUNNER_HEARTBEAT_STALE_SECONDS = 30
+RUNNER_NOT_DETECTED = "未检测到 runner"
 
 
 def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
@@ -128,7 +131,11 @@ class UpgradeService:
             {"name": "paths", "ok": True, "message": "包内路径安全"},
         ]
         if manifest.get("schema_version") == "3":
-            checks.extend([_check_protocol(manifest), _check_package_checksums(package_path)])
+            if "platform" in _component_types(manifest):
+                checks.append(_check_source_compatibility(manifest, self.settings.app_version))
+            if not _runner_only(manifest):
+                checks.append(self._check_runner_protocol(manifest))
+            checks.append(_check_package_checksums(package_path))
         checks.extend([_check_images(package_path, manifest), _check_project_files(package_path, manifest)])
         if _observability_services(manifest):
             checks.append(_check_prometheus_permissions(self.settings.prometheus_data_dir))
@@ -176,7 +183,7 @@ class UpgradeService:
         tasks: list[dict[str, Any]] = []
         for task_file in sorted(self.settings.upgrades_dir.glob("*/task.json"), key=lambda path: path.stat().st_mtime, reverse=True):
             task = self._normalize_completed_runner_task(task_file.parent, _read_task_file(task_file.parent))
-            if component_type and component_type not in set(task.get("components") or []):
+            if component_type and component_type not in _component_types_from_task(task):
                 continue
             tasks.append(self._public_task(task))
         return tasks
@@ -184,8 +191,8 @@ class UpgradeService:
     def delete_package(self, task_id: str) -> dict[str, Any]:
         task_dir = self.settings.upgrades_dir / task_id
         task = _read_task_file(task_dir)
-        if task.get("started_at") or task.get("status") in {"running", "pending", "runner_restarting", "success", "failed"}:
-            raise HTTPException(status_code=400, detail="已开始执行的升级包不能删除。")
+        if task.get("status") in {"running", "pending", "runner_restarting", "recovery_required", "rollback_pending", "rollback_running"}:
+            raise HTTPException(status_code=400, detail="升级任务正在执行或需要恢复，不能删除。")
         shutil.rmtree(task_dir, ignore_errors=True)
         return {"ok": True, "task_id": task_id}
 
@@ -210,15 +217,17 @@ class UpgradeService:
         return {"version": self.settings.app_version}
 
     def component_version(self) -> dict[str, str]:
-        return {"component": "upgrade-runner", "version": self.settings.runner_version}
+        return {"component": "upgrade-runner", "version": self._active_runner_version()}
 
     def component_catalog(self) -> dict[str, Any]:
         prometheus_status = self._inspect_service_by_name("prometheus")
         prometheus_version = _version_from_service_status(prometheus_status) or "-"
-        runner_state = self._runner_state()
+        runner_state = self._active_runner_state()
+        runner_version = self._active_runner_version(runner_state)
         runner_capabilities = runner_state.get("capabilities", []) if runner_state else []
         compatible = bool(
             runner_state
+            and runner_state.get("source") == "heartbeat"
             and int(runner_state.get("protocol_version") or 0) >= RUNNER_PROTOCOL_VERSION
             and RUNNER_CAPABILITIES <= set(runner_capabilities)
         )
@@ -228,7 +237,7 @@ class UpgradeService:
                     "type": "runner",
                     "display_name": "升级中心组件",
                     "service": "upgrade-runner",
-                    "version": self.settings.runner_version,
+                    "version": runner_version,
                     "protocol_version": runner_state.get("protocol_version") if runner_state else None,
                     "capabilities": runner_capabilities,
                     "heartbeat_at": runner_state.get("heartbeat_at") if runner_state else None,
@@ -296,6 +305,128 @@ class UpgradeService:
             payload["capabilities"] = []
         return payload
 
+    def _active_runner_state(self) -> dict[str, Any] | None:
+        runner_state = self._runner_state()
+        if runner_state and _runner_state_is_fresh(runner_state):
+            runner_state["source"] = "heartbeat"
+            return runner_state
+        return self._active_runner_state_from_docker()
+
+    def _active_runner_state_from_docker(self) -> dict[str, Any] | None:
+        try:
+            output = self.executor.output(
+                [
+                    "docker",
+                    "ps",
+                    "--filter",
+                    "name=upgrade-runner",
+                    "--filter",
+                    "status=running",
+                    "--format",
+                    "{{json .}}",
+                ],
+                cwd=self.project_path,
+            )
+        except Exception:
+            return None
+        candidates: list[dict[str, Any]] = []
+        for raw_line in output.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            container = str(item.get("Names") or item.get("Name") or item.get("Container") or "").strip()
+            image = str(item.get("Image") or "").strip()
+            if not container or "upgrade-runner" not in container:
+                continue
+            candidates.append({"container": container, "image": image})
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: ("smartx-hci-capacity-insight" not in item["container"], item["container"]))
+        for candidate in candidates:
+            container = candidate["container"]
+            version = ""
+            try:
+                version = self.executor.output(["docker", "exec", container, "sh", "-lc", "cat /app/RUNNER_VERSION 2>/dev/null || true"], cwd=self.project_path).strip()
+            except Exception:
+                version = ""
+            if not version:
+                version = _version_from_image(candidate["image"]) or ""
+            if version:
+                return {
+                    "runner_version": version,
+                    "protocol_version": 0,
+                    "capabilities": [],
+                    "heartbeat_at": None,
+                    "container": container,
+                    "image": candidate["image"],
+                    "source": "docker",
+                }
+        return None
+
+    def _active_runner_version(self, runner_state: dict[str, Any] | None = None) -> str:
+        state = runner_state if runner_state is not None else self._active_runner_state()
+        version = str(state.get("runner_version") or "").strip() if state else ""
+        return version or RUNNER_NOT_DETECTED
+
+    def _check_runner_protocol(self, manifest: dict[str, Any]) -> dict[str, Any]:
+        runner_state = self._active_runner_state()
+        minimum_runner_version = str(manifest.get("minimum_runner_version") or "").strip()
+        if not runner_state or runner_state.get("source") != "heartbeat":
+            return {
+                "name": "runner_protocol",
+                "ok": False,
+                "message": (
+                    f"未检测到 upgrade-runner 心跳，无法确认升级执行器能力。请先升级 upgrade-runner 到 {minimum_runner_version}。"
+                    if minimum_runner_version
+                    else "未检测到 upgrade-runner 心跳，无法确认升级执行器能力。"
+                ),
+                "detail": {
+                    "required_capabilities": list(manifest.get("required_capabilities") or []),
+                    "minimum_runner_version": minimum_runner_version or None,
+                    "runner_version": runner_state.get("runner_version") if runner_state else None,
+                    "capabilities": runner_state.get("capabilities", []) if runner_state else [],
+                    "source": runner_state.get("source") if runner_state else None,
+                },
+            }
+        capabilities = [str(item) for item in runner_state.get("capabilities") or []]
+        protocol_version = int(runner_state.get("protocol_version") or 0)
+        try:
+            validate_manifest_compatibility(manifest, protocol_version, capabilities)
+        except (ProtocolValidationError, TypeError, ValueError) as exc:
+            message = str(exc)
+            if minimum_runner_version:
+                message = f"{message}。请先升级 upgrade-runner 到 {minimum_runner_version}。"
+            return {
+                "name": "runner_protocol",
+                "ok": False,
+                "message": message,
+                "detail": {
+                    "runner_version": runner_state.get("runner_version"),
+                    "minimum_runner_version": minimum_runner_version,
+                    "protocol_version": protocol_version,
+                    "required_capabilities": list(manifest.get("required_capabilities") or []),
+                    "capabilities": capabilities,
+                    "heartbeat_at": runner_state.get("heartbeat_at"),
+                },
+            }
+        return {
+            "name": "runner_protocol",
+            "ok": True,
+            "message": "Runner 协议与能力满足升级包要求",
+            "detail": {
+                "runner_version": runner_state.get("runner_version"),
+                "minimum_runner_version": minimum_runner_version or None,
+                "protocol_version": protocol_version,
+                "required_capabilities": list(manifest.get("required_capabilities") or []),
+                "capabilities": capabilities,
+                "heartbeat_at": runner_state.get("heartbeat_at"),
+            },
+        }
+
     def verification(self) -> dict[str, Any]:
         success_packages = [task for task in self.history() if task.get("status") == "succeeded"]
         latest_package = success_packages[0] if success_packages else None
@@ -305,7 +436,7 @@ class UpgradeService:
             prometheus_version = _version_from_service_status(self._inspect_service_by_name("prometheus")) or "-"
         return {
             "app_version": self.settings.app_version,
-            "runner_version": self.settings.runner_version,
+            "runner_version": self._active_runner_version(),
             "prometheus_version": prometheus_version,
             "compose_project": actual_compose_project,
             "compose_file": self.settings.compose_file,
@@ -566,8 +697,21 @@ class UpgradeService:
                 task["logs"] = logs
                 task["updated_at"] = _now().isoformat()
                 _save_task_file(task_dir, task)
+            compose_command = ["docker", "compose"]
+            if _runner_only(task["manifest"]):
+                compose_command.extend(["-f", str(override_path)])
+            else:
+                compose_command.extend(["-f", self.settings.compose_file, "-f", str(override_path)])
+            compose_project_name = _runner_compose_project_name(task["manifest"], self.settings.compose_project_name)
+            compose_command.extend(["--project-name", compose_project_name, "up", "-d", "--no-deps", *sorted(_task_services(task["manifest"]))])
             try:
-                self.executor.run(["docker", "compose", "-f", self.settings.compose_file, "-f", str(override_path), "--project-name", self.settings.compose_project_name, "up", "-d", "--no-deps", *sorted(_task_services(task["manifest"]))], cwd=self.project_path)
+                self.executor.run(compose_command, cwd=self.project_path)
+                if _runner_bootstrap(task["manifest"]):
+                    self.executor.run(
+                        ["docker", "compose", "-f", self.settings.compose_file, "--project-name", self.settings.compose_project_name, "stop", "upgrade-runner"],
+                        cwd=self.project_path,
+                    )
+                    logs.append("已停止旧 project upgrade-runner，避免旧 runner 心跳覆盖新版本。")
             except SystemExit:
                 if _runner_only(task["manifest"]):
                     self.tasks.update_task(task_id, status=TaskStatus.RUNNING, progress=86, message="upgrade-runner 正在重启，等待新进程接续", logs=logs, steps=steps)
@@ -597,7 +741,7 @@ class UpgradeService:
             task["updated_at"] = _now().isoformat()
             _save_task_file(task_dir, task)
             self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message=str(exc), logs=task["logs"], steps=steps)
-            raise
+            return self._public_task(task)
         return self._public_task(task)
 
     def _resume_runner_upgrade(self, task: dict[str, Any]) -> dict[str, Any]:
@@ -660,15 +804,16 @@ class UpgradeService:
         public["package_sha256"] = task.get("package_sha256") or task.get("uploaded_sha256") or _task_package_sha256(task)
         public["uploaded_sha256"] = task.get("uploaded_sha256") or public["package_sha256"]
         checks = task.get("checks") or []
-        public["precheck_ok"] = task.get("status") == "precheck_passed" or (bool(checks) and all(check.get("ok") for check in checks))
+        public["precheck_ok"] = task.get("status") == "precheck_passed"
         public["checks"] = task.get("checks") or []
         public["steps"] = _runner_action_steps(task) if task.get("execution_plan") else task.get("steps") or []
         public["logs"] = task.get("logs") or []
-        components = set(task.get("components") or [])
-        if components <= {"runner"}:
+        components = _component_types_from_task(task)
+        public["components"] = sorted(components)
+        if components and components <= {"runner"}:
             public["kind"] = "component"
             public["component"] = "upgrade-runner"
-        elif components <= {"observability"}:
+        elif components and components <= {"observability"}:
             public["kind"] = "component"
             public["component"] = "prometheus"
         else:
@@ -744,14 +889,74 @@ class UpgradeService:
         path = self.settings.compose_runtime_dir / "docker-compose.upgrade.yml"
         return self._write_override(path, images)
 
-    def _write_runner_override(self, images: list[dict[str, Any]]) -> Path:
+    def _write_runner_override(self, manifest: dict[str, Any], images: list[dict[str, Any]]) -> Path:
         self.settings.compose_runtime_dir.mkdir(parents=True, exist_ok=True)
-        path = self.settings.compose_runtime_dir / "docker-compose.runner-upgrade.yml"
-        return self._write_override(path, images)
+        bootstrap = _runner_bootstrap(manifest)
+        path = self.settings.compose_runtime_dir / (
+            "docker-compose.runner-bootstrap.yml" if bootstrap else "docker-compose.runner-upgrade.yml"
+        )
+        runner_image = next((str(image["image"]) for image in images if image.get("service") == "upgrade-runner"), "")
+        if not runner_image:
+            raise HTTPException(status_code=400, detail="Runner 组件包缺少 upgrade-runner 镜像。")
+        project_name = str(bootstrap.get("target_project") or self.settings.compose_project_name) if bootstrap else self.settings.compose_project_name
+        network_name = (
+            str(bootstrap.get("target_network") or _runtime_network_name(project_name))
+            if bootstrap
+            else _runtime_network_name(project_name)
+        )
+        subnet = str(bootstrap.get("target_subnet") or "").strip() if bootstrap else ""
+        host_data_path = _host_data_path()
+        network_block = (
+            f"""  smartx-net:
+    name: {network_name}
+    ipam:
+      config:
+        - subnet: {subnet}
+"""
+            if subnet
+            else f"""  smartx-net:
+    external: true
+    name: {network_name}
+"""
+        )
+        content = f"""services:
+  upgrade-runner:
+    image: {runner_image}
+    command: ["python", "-m", "app.upgrade_runner.main"]
+    environment:
+      TZ: Asia/Shanghai
+      SMARTX_PROJECT_PATH: {self.project_path}
+      SMARTX_COMPOSE_FILE: {self.settings.compose_file}
+      SMARTX_COMPOSE_PROJECT_NAME: {project_name}
+      SMARTX_DB_PATH: /data/smartx.db
+      SMARTX_PROMETHEUS_DATA_PATH: /prometheus-data
+      SMARTX_HOST_DATA_PATH: {host_data_path}
+      SMARTX_HOST_BACKUPS_PATH: {self.settings.backups_dir}
+      SMARTX_HOST_COMPOSE_RUNTIME_PATH: {self.settings.compose_runtime_dir}
+      SMARTX_HOST_PROMETHEUS_DATA_PATH: {self.settings.prometheus_data_dir}
+      SMARTX_HOST_PROJECT_PATH: {self.project_path}
+    volumes:
+      - {self.project_path}:{self.project_path}
+      - {host_data_path}:/data
+      - {self.settings.upgrades_dir}:/data/upgrades
+      - {self.settings.backups_dir}:/data/backups
+      - {self.settings.exports_dir}:/data/exports
+      - {self.settings.compose_runtime_dir}:/data/compose-runtime
+      - {self.settings.prometheus_data_dir}:/prometheus-data
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - smartx-net
+    restart: unless-stopped
+
+networks:
+{network_block.rstrip()}
+"""
+        path.write_text(content, encoding="utf-8")
+        return path
 
     def _write_task_override(self, manifest: dict[str, Any], images: list[dict[str, Any]]) -> Path:
         if _runner_only(manifest):
-            return self._write_runner_override(images)
+            return self._write_runner_override(manifest, images)
         return self._write_upgrade_override(images)
 
     def _write_override(self, path: Path, images: list[dict[str, Any]]) -> Path:
@@ -791,6 +996,22 @@ def _component_types(manifest: dict[str, Any]) -> list[str]:
     return [str(component.get("type")) for component in manifest.get("components") or [] if component.get("type")]
 
 
+def _component_types_from_task(task: dict[str, Any]) -> set[str]:
+    components = {str(component) for component in task.get("components") or [] if component}
+    if components:
+        return components
+    manifest = task.get("manifest") if isinstance(task.get("manifest"), dict) else {}
+    components = set(_component_types(manifest))
+    if components:
+        return components
+    component = str(task.get("component") or "")
+    if component == "upgrade-runner":
+        return {"runner"}
+    if component == "prometheus":
+        return {"observability"}
+    return set()
+
+
 def _check_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     ok = bool(manifest.get("version")) and isinstance(manifest.get("components"), list)
     return {"name": "manifest", "ok": ok, "message": "manifest 格式正确" if ok else "manifest 缺少 version 或 components"}
@@ -802,6 +1023,66 @@ def _check_protocol(manifest: dict[str, Any]) -> dict[str, Any]:
     except (ProtocolValidationError, TypeError, ValueError) as exc:
         return {"name": "runner_protocol", "ok": False, "message": str(exc)}
     return {"name": "runner_protocol", "ok": True, "message": "Runner 协议与能力满足升级包要求"}
+
+
+def _check_source_compatibility(manifest: dict[str, Any], current_version: str) -> dict[str, Any]:
+    target_version = str(manifest.get("version") or "")
+    source_compatibility = manifest.get("source_compatibility") if isinstance(manifest.get("source_compatibility"), dict) else {}
+    min_version = str(source_compatibility.get("min_version") or (manifest.get("compatibility") or {}).get("min_platform_version") or manifest.get("min_version") or "")
+    max_version = str(source_compatibility.get("max_version_inclusive") or target_version)
+    current_tuple = _version_tuple(current_version)
+    min_tuple = _version_tuple(min_version)
+    max_tuple = _version_tuple(max_version)
+    ok = bool(current_version and min_version and target_version and min_tuple <= current_tuple <= max_tuple)
+    supported_versions = source_compatibility.get("supported_versions")
+    detail = {
+        "current_version": current_version,
+        "target_version": target_version,
+        "min_version": min_version,
+        "max_version_inclusive": max_version,
+        "supported_versions": supported_versions if isinstance(supported_versions, list) else [],
+        "allow_same_version": bool(source_compatibility.get("allow_same_version", True)),
+    }
+    if ok:
+        message = str(source_compatibility.get("message") or f"当前版本 {current_version} 可升级到 {target_version}")
+    else:
+        message = f"当前版本 {current_version or '-'} 不在升级包兼容范围 {min_version or '-'} 至 {max_version or '-'} 内"
+    return {"name": "source_compatibility", "ok": ok, "message": message, "detail": detail}
+
+
+def _version_tuple(value: str) -> tuple[int, int, int]:
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", str(value or ""))
+    if not match:
+        return (0, 0, 0)
+    return tuple(int(part) for part in match.groups())
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            try:
+                parsed = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _runner_state_is_fresh(state: dict[str, Any]) -> bool:
+    heartbeat_at = _parse_datetime(state.get("heartbeat_at") or state.get("updated_at"))
+    if heartbeat_at is None:
+        return False
+    return _now() - heartbeat_at <= timedelta(seconds=RUNNER_HEARTBEAT_STALE_SECONDS)
 
 
 def _check_package_checksums(package_path: Path) -> dict[str, Any]:
@@ -945,6 +1226,30 @@ def _runner_services(manifest: dict[str, Any]) -> set[str]:
 def _runner_only(manifest: dict[str, Any]) -> bool:
     components = set(_component_types(manifest))
     return bool(components) and components <= {"runner"}
+
+
+def _runner_bootstrap(manifest: dict[str, Any]) -> dict[str, Any]:
+    bootstrap = manifest.get("bootstrap_runner")
+    if isinstance(bootstrap, dict) and bootstrap.get("enabled") is True:
+        return bootstrap
+    return {}
+
+
+def _runner_compose_project_name(manifest: dict[str, Any], default: str) -> str:
+    bootstrap = _runner_bootstrap(manifest)
+    if not bootstrap:
+        return default
+    return str(bootstrap.get("target_project") or default)
+
+
+def _host_data_path() -> Path:
+    return Path(os.environ.get("SMARTX_HOST_DATA_PATH") or "/data/smartx-capacity-insight-data/app")
+
+
+def _runtime_network_name(compose_project_name: str) -> str:
+    if compose_project_name == "smartx-hci-capacity-insight":
+        return "smartx-hci-capacity-insight-net"
+    return f"{compose_project_name}_smartx-net"
 
 
 def _upgrade_images(manifest: dict[str, Any]) -> list[dict[str, Any]]:

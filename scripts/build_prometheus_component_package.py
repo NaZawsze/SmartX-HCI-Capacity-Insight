@@ -93,11 +93,10 @@ def build_package(version: str, min_version: str, output_dir: Path, pull_image: 
         "schema_version": "3",
         "minimum_runner_protocol": 1,
         "required_capabilities": [
-            "backup.create",
-            "compose.override",
-            "compose.apply",
-            "health.prometheus",
-            "rollback.restore",
+            "backup.v1",
+            "compose.v1",
+            "health.v1",
+            "rollback.v1",
         ],
         "product": PRODUCT,
         "package_id": f"{PRODUCT}-{version}",
@@ -140,7 +139,7 @@ def build_package(version: str, min_version: str, output_dir: Path, pull_image: 
         "release_notes": f"Prometheus {version}: observability component package with data-directory precheck.",
     }
     if offline_image:
-        manifest["required_capabilities"].insert(1, "image.load")
+        manifest["required_capabilities"].insert(1, "image.v1")
     (work / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (work / "release-notes.md").write_text(
         f"# Prometheus {version}\n\n"

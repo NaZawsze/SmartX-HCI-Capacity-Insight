@@ -29,7 +29,7 @@ class RunnerSettings:
     project_path: Path
     compose_file: str
     compose_project: str
-    runner_version: str = "v0.3.0"
+    runner_version: str = "v0.3.1"
     host_data_path: Path | None = None
     host_backups_path: Path | None = None
     host_compose_runtime_path: Path | None = None
@@ -50,7 +50,7 @@ class RunnerSettings:
             project_path=project_path,
             compose_file=os.environ.get("SMARTX_COMPOSE_FILE", "docker-compose.offline.yml"),
             compose_project=os.environ.get("SMARTX_COMPOSE_PROJECT_NAME", "smartx-hci-capacity-insight"),
-            runner_version=os.environ.get("SMARTX_RUNNER_VERSION", "v0.3.0"),
+            runner_version=os.environ.get("SMARTX_RUNNER_VERSION", "v0.3.1"),
             host_data_path=Path(os.environ.get("SMARTX_HOST_DATA_PATH", str(database_path.parent))),
             host_backups_path=Path(os.environ.get("SMARTX_HOST_BACKUPS_PATH", "/data/backups")),
             host_compose_runtime_path=Path(os.environ.get("SMARTX_HOST_COMPOSE_RUNTIME_PATH", "/data/compose-runtime")),
@@ -116,6 +116,7 @@ ACTION_STEP_DEFINITIONS = [
     ("load_images", "加载升级镜像", {"image.load"}),
     ("project_files", "同步项目文件", {"files.sync"}),
     ("write_override", "写入服务镜像覆盖配置", {"compose.override"}),
+    ("project_migrate", "迁移 Compose 项目和网络", {"compose.project_migrate"}),
     ("migration", "执行数据库迁移脚本", {"script.run_sandboxed"}),
     ("restart", "重启升级服务", {"compose.apply"}),
     ("healthcheck", "执行服务健康检查", {"health.http", "health.prometheus"}),
@@ -284,7 +285,7 @@ def run_pending_once(
         task = store.load()
         status = str(task.get("status") or "")
         if status == "success" and _is_runner_component_task(task) and _has_unfinished_steps(task):
-            task = _finish_runner_component_steps(task, "upgrade-runner v0.3.0 已重新启动，组件升级完成。")
+            task = _finish_runner_component_steps(task, f"upgrade-runner {settings.runner_version} 已重新启动，组件升级完成。")
             result = store.save(task, expected_revision=int(task.get("revision") or 0))
             _project_task(settings.database_path, result)
             executed += 1

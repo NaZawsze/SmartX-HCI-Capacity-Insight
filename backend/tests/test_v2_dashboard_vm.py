@@ -54,6 +54,31 @@ class EmptyPrometheus(FakePrometheus):
         return []
 
 
+class RangeOnlyNewVmPrometheus(FakePrometheus):
+    def instant(self, query: str):
+        self.instant_queries.append(query)
+        if query == "smartx_cluster_storage_used_bytes":
+            return [{"metric": {"tower_id": "1", "cluster_id": "cluster-a"}, "value": [200, "81"]}]
+        if query == "smartx_cluster_storage_total_bytes":
+            return [{"metric": {"tower_id": "1", "cluster_id": "cluster-a"}, "value": [200, "100"]}]
+        if query.startswith("smartx_vm_storage_used_bytes"):
+            return []
+        return []
+
+    def range(self, query: str, *, start: int, end: int, step: str):
+        self.range_calls.append({"query": query, "start": start, "end": end, "step": step})
+        if query == "smartx_cluster_storage_used_bytes":
+            return [{"metric": {"tower_id": "1", "cluster_id": "cluster-a"}, "values": [[start, "70"], [end, "81"]]}]
+        if query.startswith("smartx_vm_storage_used_bytes"):
+            today = end - 3600
+            return [
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-1", "vm_name": "Existing VM"}, "values": [[start, "50"], [end, "70"]]},
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-new-a", "vm_name": "Range New A"}, "values": [[today, "0"], [end, "8"]]},
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-new-b", "vm_name": "Range New B"}, "values": [[today + 60, "0"], [end, "4"]]},
+            ]
+        return []
+
+
 class MultiRiskPrometheus(FakePrometheus):
     def instant(self, query: str):
         self.instant_queries.append(query)
@@ -154,7 +179,7 @@ class V2DashboardVmTest(unittest.TestCase):
             self.assertEqual(summary["storage"]["total_bytes"], 200)
             self.assertEqual(summary["day_fastest_growing_vms"][0]["vm_name"], "VM One Latest")
             self.assertEqual(summary["day_fastest_growing_vms"][0]["growth_amount"], 20)
-            self.assertEqual(summary["day_new_vms"], [{"tower_id": 1, "cluster_id": "cluster-a", "vm_id": "vm-2", "vm_name": "VM Two", "current_bytes": 10}])
+            self.assertEqual(summary["day_new_vms"], [])
 
     def test_dashboard_capacity_risk_summarizes_multiple_risk_clusters(self) -> None:
         from app.v2.dashboard.service import DashboardService
@@ -173,6 +198,25 @@ class V2DashboardVmTest(unittest.TestCase):
             self.assertEqual(risk["risk_clusters"][0]["risk_level"], "high")
             self.assertEqual(round(risk["risk_clusters"][0]["exhaustion_days"]), 20)
             self.assertEqual(risk["risk_clusters"][1]["risk_level"], "warning")
+
+    def test_dashboard_day_new_vms_uses_range_series_when_instant_vm_list_is_empty(self) -> None:
+        from app.v2.dashboard.service import DashboardService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            with db.connection() as conn:
+                conn.execute(
+                    "INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cluster-a', 'vm-new-a', 'Range New A Latest', 8)"
+                )
+                conn.execute(
+                    "INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cluster-a', 'vm-new-b', 'Range New B Latest', 4)"
+                )
+
+            summary = DashboardService(db, settings, prometheus=RangeOnlyNewVmPrometheus(), now_ts=200).summary()
+
+            self.assertEqual([vm["vm_id"] for vm in summary["day_new_vms"]], ["vm-new-b", "vm-new-a"])
+            self.assertEqual([vm["vm_name"] for vm in summary["day_new_vms"]], ["Range New B Latest", "Range New A Latest"])
+            self.assertEqual([vm["current_bytes"] for vm in summary["day_new_vms"]], [4.0, 8.0])
 
     def test_dashboard_capacity_risk_uses_merged_cluster_series_for_exhaustion_days(self) -> None:
         from app.v2.dashboard.service import DashboardService

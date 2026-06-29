@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) | English
 
-Version: `v0.5.1`
+Version: `v0.5.2`
 
 > Status: This project is currently in the testing stage and is not recommended for production use without additional validation.
 
@@ -123,20 +123,20 @@ The data quality check compares SQLite current state with Prometheus current ser
 
 An OVA appliance image can be delivered for fresh deployment or demo environments. It is separate from the service management upgrade center: the upgrade center accepts only the `.tar.gz` package formats described below.
 
-Use versioned filenames such as `smartx-capacity-insight-v0.5.1.ova` and publish a matching `.sha256` file. See [OVA Delivery](docs/ova-delivery.md) for the artifact boundary and safety checklist.
+Use versioned filenames such as `smartx-capacity-insight-v0.5.2.ova` and publish a matching `.sha256` file. See [OVA Delivery](docs/ova-delivery.md) for the artifact boundary and safety checklist.
 
 ## Offline Upgrade Package
 
 The platform supports offline `.tar.gz` upgrade packages uploaded from the service management page. An upgrade package replaces service images and runs SQLite migrations only when the package manifest selects cumulative migration steps. It must not include runtime data, `.env`, SQLite databases, Prometheus data, Tower credentials, or other secrets.
 
-Version scope: the current official platform version, source version, documentation version, and normal image tag are all `v0.5.1`. Temporary test upgrade package target versions are only used to verify the upgrade path; they do not change the official platform version unless `VERSION`, release notes, and the public documentation are updated together.
+Version scope: the current official platform version, source version, documentation version, and normal image tag are all `v0.5.2`. Temporary test upgrade package target versions are only used to verify the upgrade path; they do not change the official platform version unless `VERSION`, release notes, and the public documentation are updated together.
 
-Compatibility: the `v0.5.1` upgrade package targets the v2 upgrade flow only. It is not an in-place upgrade path from v1 or `v0.4.x`; those older systems are supported through data migration instead. Within the v2 architecture, direct cross-version upgrades are supported from the minimum supported source version to a later supported target version. The package contains every registered SQLite migration whose version is greater than the source version and less than or equal to the target version.
+Compatibility: the `v0.5.2` upgrade package targets the v2 upgrade flow only. It is not an in-place upgrade path from v1 or `v0.4.x`; those older systems are supported through data migration instead. Within the v2 architecture, direct cross-version upgrades are supported from the minimum supported source version to a later supported target version. Same-version package application, such as `v0.5.2 -> v0.5.2`, is allowed as a repair or re-sync install for images, project files, and runtime overrides. The package contains every registered SQLite migration whose version is greater than the source version and less than or equal to the target version, so same-version application never reselects already bounded migration steps.
 
 Recommended package structure:
 
 ```text
-smartx-capacity-insight-v0.5.1-upgrade.tar.gz
+smartx-capacity-insight-v0.5.2-upgrade.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md                 # optional
@@ -168,11 +168,19 @@ Example fields:
 {
   "schema_version": "3",
   "minimum_runner_protocol": 1,
-  "required_capabilities": ["backup.create", "image.load", "compose.apply", "health.http"],
+  "required_capabilities": ["backup.v1", "image.v1", "files.v1", "compose.v1", "health.v1", "rollback.v1"],
   "product": "smartx-storage-forecast",
-  "package_id": "smartx-capacity-insight-v0.5.1",
-  "version": "v0.5.1",
-  "min_version": "v0.5.1",
+  "package_id": "smartx-capacity-insight-v0.5.2",
+  "version": "v0.5.2",
+  "min_version": "v0.5.0",
+  "source_compatibility": {
+    "min_version": "v0.5.0",
+    "max_version_inclusive": "v0.5.2",
+    "target_version": "v0.5.2",
+    "allow_same_version": true,
+    "supported_versions": ["v0.5.0", "v0.5.1", "v0.5.2"],
+    "message": "支持 v0.5.0 -> v0.5.2、v0.5.1 -> v0.5.2、v0.5.2 -> v0.5.2"
+  },
   "package_type": "platform",
   "project_files": true,
   "database_migration": false,
@@ -185,7 +193,7 @@ Example fields:
         {
           "service": "web-api",
           "archive": "images/web-api.tar",
-          "image": "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.1",
+          "image": "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.2",
           "sha256": "<sha256>"
         }
       ]
@@ -194,14 +202,14 @@ Example fields:
 }
 ```
 
-Packages with no selected migration steps, such as the current `v0.5.1` package, do not contain `migration`, `migration_steps`, or `script.sandbox.v1`. Packages that cross a future schema-changing version include `migration_steps[]` plus the legacy `migration.script = migrations/run_migrations.py` field for `upgrade-runner v0.3.0` compatibility. The runner still executes one sandbox script; the script applies all selected steps in version order and records them in `schema_migrations`.
+Packages with no selected migration steps, such as the current `v0.5.2` package, do not contain `migration`, `migration_steps`, or `script.sandbox.v1`. Packages that cross a future schema-changing version include `migration_steps[]` plus the legacy `migration.script = migrations/run_migrations.py` field for `upgrade-runner v0.3.1` compatibility. The runner still executes one sandbox script; the script applies all selected steps in version order and records them in `schema_migrations`.
 
 For normal platform upgrades, do not restart `upgrade-runner` in the same package that is executing the upgrade. Use a component upgrade package when `upgrade-runner` itself needs to be replaced.
 
-Component upgrade packages for `upgrade-runner` are separate and use the runner component version, for example `v0.3.0`, not the platform version.
+Component upgrade packages for `upgrade-runner` are separate and use the runner component version, for example `v0.3.1`, not the platform version.
 
 ```text
-smartx-upgrade-runner-v0.3.0.tar.gz
+smartx-upgrade-runner-v0.3.1.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md
@@ -229,7 +237,7 @@ For offline environments, build the package with `--offline-image`; only then do
 Platform and Prometheus can also be delivered as one bundle:
 
 ```text
-smartx-capacity-insight-bundle-v0.5.1.tar.gz
+smartx-capacity-insight-bundle-v0.5.2.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md
@@ -243,7 +251,7 @@ smartx-capacity-insight-bundle-v0.5.1.tar.gz
     └── images/                         # optional, only for offline Prometheus image packages
 ```
 
-Build it with `python scripts/build_bundle_upgrade_package.py --platform-version v0.5.1 --prometheus-version v2.55.1`. Bundle packages are a delivery shape for the current platform version; they do not change the platform version number, do not contain Runner by default, and do not contain Prometheus historical data. Upgrade-time Prometheus backups stay on the server under `/data/backups/...` for rollback. Prometheus historical blocks are exported only by full data migration packages.
+Build it with `python scripts/build_bundle_upgrade_package.py --platform-version v0.5.2 --prometheus-version v2.55.1`. Bundle packages are a delivery shape for the current platform version; they do not change the platform version number, do not contain Runner by default, and do not contain Prometheus historical data. Upgrade-time Prometheus backups stay on the server under `/data/backups/...` for rollback. Prometheus historical blocks are exported only by full data migration packages.
 
 ### Recommended Migration Path: Fresh Install + CLI Data Export
 

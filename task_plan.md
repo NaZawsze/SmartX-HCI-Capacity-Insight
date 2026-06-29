@@ -9,8 +9,8 @@
 - 主要开发与验证机器：`10.20.11.3`
 - v2 远端项目路径：`/opt/smartx-storage-forecast-v2`
 - v2 当前工作分支：`dev2`
-- v2 平台版本：`v0.5.1`
-- v2 runner 组件版本：`v0.3.0`
+- v2 平台版本：`v0.5.2`
+- v2 runner 组件版本：`v0.3.1`
 - v2 提交策略：当前重建工作只提交并推送到 `dev2`；不要同步 `dev/main` 或打 tag，除非用户明确要求。
 - v1/dev 维护策略：如果用户明确要求继续修 v1 小版本，再切回 `dev` 并按用户指令处理。
 
@@ -85,9 +85,9 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 
 目标：
 
-- 平台版本统一为 `v0.5.1`。
+- 平台版本统一为 `v0.5.2`。
 - 平台三件套为 `web-api`、`collector-worker`、`frontend`。
-- `upgrade-runner` 作为独立组件，版本为 `v0.3.0`。
+- `upgrade-runner` 作为独立组件，版本为 `v0.3.1`。
 - 平台升级包不包含 `upgrade-runner`。
 - runner 只通过组件升级包和 runner 专用 GitHub Actions 构建。
 - 每次版本提交必须更新 `docs/releases/CHANGELOG.md` 和相关版本治理文档。
@@ -96,7 +96,7 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 待办：
 
 - [已完成] 拆分 `SMARTX_IMAGE_TAG` 和 `SMARTX_RUNNER_IMAGE_TAG`。
-- [已完成] 更新平台版本元数据到 `v0.5.1`。
+- [已完成] 更新平台版本元数据到 `v0.5.2`。
 - [已完成] 移除平台升级包中的 runner 镜像。
 - [已完成] runner 组件包默认读取 `RUNNER_VERSION`。
 - [已完成] GitHub Actions 拆分平台和 runner 构建。
@@ -478,7 +478,7 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 
 - 已新增 `docs/architecture.md` 作为项目架构总览入口。
 - 文档明确 5 容器职责、后端模块边界、SQLite/Prometheus/`/data` 职责、任务模型、升级包结构、迁移包结构和安全边界。
-- 文档记录当前版本边界：平台 `v0.5.1`、runner `v0.3.0`、Prometheus `v2.55.1`、分支 `dev2`。
+- 文档记录当前版本边界：平台 `v0.5.2`、runner `v0.3.1`、Prometheus `v2.55.1`、分支 `dev2`。
 
 ### Phase 17 - dev2 受控重建
 
@@ -519,9 +519,9 @@ Phase V2-0 细化文档：
 
 最新验证摘要：
 
-- 平台版本已切换为 `v0.5.1`，runner 组件版本已切换为 `v0.3.0`。
+- 历史验证记录：平台版本曾切换为 `v0.5.2`，runner 组件版本曾为 `v0.3.0`；当前 `v0.5.2` 正式升级包需要 `runner v0.3.1`。
 - `10.20.11.3:/opt/smartx-storage-forecast-v2` 已在 `dev2` 构建并启动五个容器。
-- 健康接口返回 `version=v0.5.1`、`runner_version=v0.3.0`。
+- 历史健康接口曾返回 `version=v0.5.2`、`runner_version=v0.3.0`；当前待升级验证应以 `runner_version=v0.3.1` 为准。
 - 平台升级包仅面向 v2 同架构后续升级；v1/v0.4.x 只通过数据迁移包兼容。
 - `10.20.11.3` 远端 `test_v2_*` 后端测试 65 个通过。
 - `10.20.11.3` 远端前端关键测试 20 个通过。
@@ -559,7 +559,7 @@ Phase V2-0 细化文档：
 
 - 平台升级、Prometheus 升级和 runner 组件升级在 `web-api`、`upgrade-runner` 或宿主机意外重启后，不再永久停留在 `pending/running`。
 - 升级步骤具备持久化检查点、执行器心跳、任务租约、幂等恢复、人工接管和回滚能力。
-- 在 `runner v0.3.0` 正式发布前一次性补齐 Phase 22 和通用升级协议；当前测试环境直接重建同版本 runner，不增加 `v0.3.1` 引导版本。
+- `runner v0.3.0` 已作为通用升级协议基线；本次 `v0.5.2` 新增 Compose project/network 迁移能力，发布 `runner v0.3.1`。
 - 普通平台代码、镜像、Compose 配置和常规迁移升级不要求先升级 runner；只有升级包需要 runner 未提供的新能力时，才要求先升级 runner。
 
 实施边界：
@@ -582,12 +582,12 @@ Phase V2-0 细化文档：
 - 平台升级包声明 `minimum_runner_protocol` 和 `required_capabilities`；预检查按能力匹配，不因普通平台版本变化而要求升级 runner。
 - 升级步骤由平台升级包和 manifest 描述，runner 只提供通用原子动作、状态机和安全边界，避免每次增加平台步骤都重建 runner。
 
-runner v0.3.0 发布策略：
+runner 发布策略：
 
-1. 直接在当前未正式发布的 `runner v0.3.0` 代码和镜像中实现通用协议、能力协商、检查点、租约和恢复状态机。
-2. 在 `10.20.11.3` 直接重建并替换测试环境的 `runner v0.3.0`，完成故障注入和平台升级回归。
-3. 正式发布后的常规平台升级继续使用同一个 `runner v0.3.0`，不要求先执行组件升级。
-4. 只有未来出现 v0.3.0 无法表达的新原子能力、Docker/Compose 接口变化、安全修复或容器拓扑变化时，才发布新的 runner 组件版本。
+1. `runner v0.3.0` 提供通用协议、能力协商、检查点、租约和恢复状态机基线。
+2. 普通平台功能升级不要求跟随升级 runner。
+3. 只有出现旧 runner 无法表达的新原子能力、Docker/Compose 接口变化、安全修复或容器拓扑变化时，才发布新的 runner 组件版本。
+4. `runner v0.3.1` 仅为 `v0.5.2` 的 Compose project/network 迁移新增 `compose.project_migrate.v1`。
 5. 新 runner 必须保持旧协议兼容；平台包在确实需要新能力时才通过 `required_capabilities` 阻止旧 runner 执行。
 
 计划测试：
@@ -596,9 +596,9 @@ runner v0.3.0 发布策略：
 - 在平台服务重启期间重启 `web-api`，确认任务中心状态、日志、进度和告警不会丢失或重复。
 - 模拟两个 runner 同时发现同一任务，验证任务租约只允许一个执行器获得所有权。
 - 模拟 SQLite 与 `task.json` 状态不一致，验证对账规则不会把已失败任务重新执行。
-- 验证当前测试环境直接替换完善后的同版本 `runner v0.3.0`，随后可执行 Phase 22 平台升级。
+- 验证当前测试环境先安装 `runner v0.3.1`，随后执行需要 `compose.project_migrate.v1` 的 `v0.5.2` 平台升级包。
 - 使用多个后续平台模拟版本验证均无需升级 runner；仅当升级包声明未知 capability 时才阻止执行并提示升级 runner。
-- 验证 Phase 22 平台失败后仍可回滚到上一平台版本，且完善后的 `runner v0.3.0` 继续兼容旧平台。
+- 验证 Phase 22 平台失败后仍可回滚到上一平台版本，且 `runner v0.3.1` 继续兼容旧平台升级任务。
 
 当前实施进度：
 
@@ -610,7 +610,7 @@ runner v0.3.0 发布策略：
 - [已实现] 平台、Runner、Prometheus 与平台+观测组合包构建器，统一 schema 3 和 `checksums.sha256`。
 - [已实现] Prometheus 组件包默认轻量化，不导出历史指标，不强制包含 `prometheus.tar`；离线环境才通过 `--offline-image` 携带镜像 tar。
 - [已明确] 平台/组件升级只做升级前本机备份用于回滚；Prometheus 历史数据导出/导入只属于完整数据迁移包。
-- [已完成] 升级相关 Markdown 统一更新：README 中英文、架构、部署、功能模块、版本治理和升级问题文档均对齐平台 `v0.5.1`、Runner `v0.3.0`、schema 3、四类升级包树形结构和 Prometheus 数据边界。
+- [已完成] 升级相关 Markdown 统一更新：README 中英文、架构、部署、功能模块、版本治理和升级问题文档均对齐平台 `v0.5.2`、Runner `v0.3.1`、schema 3、四类升级包树形结构和 Prometheus 数据边界。
 - [已实现] 沙箱宿主机路径映射；回滚删除升级新增文件并 recreate 原版本服务。
 - [已实现] SQLite WAL 一致性快照、按作用域恢复 SQLite/Prometheus、回滚后健康复检和健康检查重试窗口。
 - [已实现] web-api 与 Runner 对 `task.json` 使用 revision 乐观并发控制，陈旧恢复操作返回 409。
@@ -631,7 +631,7 @@ runner v0.3.0 发布策略：
 版本边界：
 
 - `v0.5.0`：稳定首发版，目标是可部署、可升级、可导出、可迁移。
-- 当前正式口径固定为 `v0.5.1`；源码 `VERSION`、README、文档、正式升级包和常规镜像 tag 必须保持一致。
+- 当前正式口径固定为 `v0.5.2`；源码 `VERSION`、README、文档、正式升级包和常规镜像 tag 必须保持一致。
 - `v0.5.4`、`v0.5.5` 等只作为测试升级包目标版本时，不代表正式版本变化，不能反向修改源码版本和对外文档。
 - 后续报表交付质量、数据迁移与清理增强等需求继续进入新 Phase 排期；是否形成正式新版本由发布前统一决定。
 
@@ -659,7 +659,7 @@ runner v0.3.0 发布策略：
 - 平台升级、Runner 组件升级、Prometheus 轻量组件升级三条主路径均能结束为一致的 `success/failed/recovery_required` 状态。
 - 任何 `success` 升级任务的 steps 不得存在 `running/pending`。
 - 任务中心角标与未处理通知一致，确认告警不改变排序位置。
-- `/api/system/health` 返回 `version=v0.5.0`、`runner_version=v0.3.0`，前端 8080 与 Prometheus healthy 返回 200。
+- 历史 v0.5.0 基线验证：`/api/system/health` 返回 `version=v0.5.0`、`runner_version=v0.3.0`，前端 8080 与 Prometheus healthy 返回 200。
 - 固定验收脚本和目标单测通过后，才允许提交并推送 `dev2`。
 
 测试升级包记录：
@@ -842,7 +842,7 @@ runner v0.3.0 发布策略：
 发布验收流程：
 
 - [ ] `dev2` 合并到 `main` 前，本地和 `10.20.11.3` 目标测试通过。
-- [ ] `main` 打正式 tag，例如 `v0.5.1`。
+- [ ] `main` 打正式 tag，例如 `v0.5.2`。
 - [ ] GitHub Actions 必须从 `main` 的 tag 构建镜像，镜像 tag 必须与版本号一致。
 - [ ] 等待 DockerHub 镜像可拉取，并记录镜像 digest。
 - [ ] `release canary` 清理旧容器、旧网络和旧项目文件，只保留需要的应用数据或使用固定验收数据集。
@@ -902,10 +902,10 @@ runner v0.3.0 发布策略：
 
 交付物：
 
-- [ ] 新增或更新发布验收清单文档，记录环境矩阵、门禁步骤、固定用例和反污染规则。
-- [ ] 补充前端契约测试：报表增长 VM 名称兼容顶层字段和 legacy labels。
-- [ ] 补充一键 smoke 脚本或最小 curl 清单，用于 release canary 验收。
-- [ ] 在 `progress.md` 中记录每次正式 tag 的 canary 验收结果。
+- [已实现] 新增 `docs/release-acceptance.md`，记录环境矩阵、门禁步骤、固定用例和反污染规则。
+- [已实现] 补充前端契约测试：报表增长 VM 名称兼容顶层字段和 legacy labels。
+- [已实现] 新增 `scripts/release_smoke_check.py`，提供只读 release canary smoke 检查。
+- [已记录] 在 `progress.md` 中记录本轮发布验收体系实现和目标测试结果；正式 canary 部署/升级验收仍需在选定非生产 canary 后执行。
 
 ### Phase 30 - Compose Project/Network 固定化与升级链路修复
 
@@ -968,10 +968,10 @@ networks:
 - [已验证] 配置测试：三个 Compose 文件都包含 `SMARTX_COMPOSE_PROJECT_NAME: smartx-hci-capacity-insight`。
 - [已验证] 配置测试：三个 Compose 文件都包含 `name: smartx-hci-capacity-insight-net`。
 - [已验证] 配置测试：三个 Compose 文件不再包含 `SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast`。
-- [ ] 服务状态测试：project 一致时，`verification.services` 返回 web-api、collector-worker、frontend、prometheus、upgrade-runner。
+- [已验证] 服务状态测试：project 一致时，`verification.services` 返回 web-api、collector-worker、frontend、prometheus、upgrade-runner。
 - [已验证] 服务状态测试：配置 project 与当前容器真实 label 不一致时，后端能从当前容器 label fallback 读取实际服务。
 - [已验证] 观测版本测试：Prometheus 镜像为 `prom/prometheus:v2.55.1` 时，`prometheus_version=v2.55.1`。
-- [ ] Runner 测试：`compose.apply` 生成命令必须包含 `--project-name smartx-hci-capacity-insight`。
+- [已验证] Runner 测试：`compose.apply` 生成命令必须包含 `--project-name smartx-hci-capacity-insight`。
 - [已验证] Runner 测试：`rollback.restore` 的 stop 和 up 命令必须使用同一 project name。
 - [ ] 部署验收：在非生产 canary 上进入任意目录名，执行 `docker compose -f docker-compose.offline.yml up -d`，Docker label 必须为 `com.docker.compose.project=smartx-hci-capacity-insight`，网络必须为 `smartx-hci-capacity-insight-net`。
 - [ ] 升级验收：执行一次测试升级包，确认不会创建第二套 project 容器或第二个 smartx 网络。
@@ -988,3 +988,216 @@ docker network ls | grep smartx
 ```
 
 - 如果存在多个 project 同时挂同一数据目录，必须先停旧 project，再按固定 project/network 重新拉起，禁止两个 project 同时管理同一套数据。
+
+### Phase 31 - 报表页容量增长速率算法优化
+
+状态：已规划，待实施
+
+优先级：P1
+
+背景：
+
+- 报表页左侧集群预测使用统计窗口内的集群容量趋势，可以显示长期增长预测。
+- 右侧“容量增长速率”当前只使用最近 7 天集群容量首尾差，并且通过 `max(0, value)` 把负增长压成 `0`。
+- 在 `10.20.11.3` 当前数据中，近 7 天集群容量略有下降，所以 API 返回 `cluster_growth_rate.per_day=0`，页面显示 `0 B/天`；但 30 天预测趋势仍然为正，用户感知为口径矛盾。
+- 用户确认希望优化算法：日增长按当天或最近一天实际速率，容量减少可以显示负数；月/季度增长速率需要更贴近实际预算，不应简单由 7 天值乘出来。
+
+目标：
+
+- 日增长速率反映最近一天真实净变化，允许负数，例如 `-12.30 GiB/天`。
+- 月增长速率使用近 30 天趋势，季度增长速率使用近 90 天趋势，分别服务容量预算和趋势判断。
+- 月/季度不再直接用日增长乘 `30/90`，也不再沿用最近 7 天首尾差。
+- 样本不足时明确提示“样本不足”或“数据不足”，不能把未知或负增长伪装为 `0 B`。
+- 不改采集逻辑、不改 Prometheus 写入、不改容量风险算法；本阶段只优化报表增长速率展示和导出说明。
+
+后端实施口径：
+
+- 在 `backend/app/v2/reports/service.py` 中新增统一增长速率计算函数，例如 `cluster_growth_rates_from_series()`。
+- `latest_report()` 查询三组集群容量序列：
+  - 日窗口：近 1 天，建议 `step="1h"`，用于捕捉最近一天净变化。
+  - 月窗口：近 30 天，`step="1d"`。
+  - 季度窗口：近 90 天，`step="1d"`。
+- 每个启用集群独立计算，最后汇总：
+  - 日增长：最近 24 小时窗口内最早点和最新点的差值除以实际间隔天数，允许负数。
+  - 月增长：近 30 天趋势斜率乘 30，趋势函数应与现有 `forecast_series()` 口径一致或复用其线性趋势能力。
+  - 季度增长：近 90 天趋势斜率乘 90。
+- 样本判断：
+  - 每个窗口至少需要两个有效点才可计算。
+  - 如果某个集群窗口样本不足，该集群不参与该窗口汇总，并记录该窗口 `sample_sufficient=false`。
+  - 如果全部启用集群某窗口都不足两点，该窗口值为 `null`，前端显示“数据不足”。
+  - 如果有部分集群可计算、部分不足，返回汇总值并带 `sample_sufficient=false`，前端显示“样本不足”提示。
+- API 兼容：
+  - 保留 `cluster_growth_rate_per_day`，值等于新的 `cluster_growth_rate.per_day`，兼容旧调用。
+  - `growth_rate_window_days` 保留但不再作为页面主要口径；新字段为权威。
+  - `cluster_growth_rate` 扩展为：
+
+```json
+{
+  "per_day": -123,
+  "per_month": 456,
+  "per_quarter": 789,
+  "day_sample_sufficient": true,
+  "month_sample_sufficient": false,
+  "quarter_sample_sufficient": false,
+  "day_window_days": 1,
+  "month_window_days": 30,
+  "quarter_window_days": 90
+}
+```
+
+前端实施口径：
+
+- 更新 `frontend/src/types.ts` 的 `ForecastPayload.cluster_growth_rate` 类型，增加窗口和样本字段。
+- 更新 `ReportsPage` 容量增长速率卡片：
+  - 标题保持 `容量增长速率`。
+  - 副标题由 `7 天平均` 改为 `日/月/季度趋势`。
+  - 三行分别显示：`日：±X/天`、`月：±X/月`、`季度：±X/季度`。
+  - 负数必须保留 `-`，不能被格式化成 `0 B`。
+  - `null` 显示 `数据不足`。
+  - `sample_sufficient=false` 且有数值时，在该行显示黄色 `样本不足` 小提示。
+- 前端 fallback：
+  - 如果后端只有旧字段，则按旧字段渲染，避免旧 API 报错。
+  - 旧字段 fallback 不显示样本提示。
+
+导出和文档实施口径：
+
+- Word/Excel 报表中同步说明增长速率口径：
+  - 日：最近一天净变化。
+  - 月：近 30 天趋势折算。
+  - 季度：近 90 天趋势折算。
+- Word/Excel 中负增长使用负数展示。
+- 样本不足时保留数值并标注“样本不足”；完全不足时写“数据不足”。
+- 更新 `findings.md` 中旧的“容量增长速率当前需求为最近 7 天平均”记录，追加当前新口径，避免后续误读。
+
+测试计划：
+
+- 后端测试：
+  - 最近一天容量下降时，`per_day` 返回负数，不再返回 0。
+  - 近 1 天下降但近 30 天增长时，日为负、月为正。
+  - 近 30 天和近 90 天趋势不同，`per_month` 和 `per_quarter` 分别按各自窗口计算。
+  - 单个集群样本不足时，不影响其他集群计算，并返回对应 sample flag。
+  - 全部集群窗口不足两点时，返回 `null` 和 `sample_sufficient=false`。
+  - 只统计启用 Tower/集群范围，禁用集群和 orphan series 不参与。
+- 前端测试：
+  - 容量增长速率卡显示日/月/季度三行。
+  - 负数显示 `-` 前缀。
+  - 样本不足时显示黄色提示。
+  - `null` 显示 `数据不足`。
+  - 旧 API 只有 `per_day/per_month/per_quarter` 时仍能渲染。
+- 导出测试：
+  - Word/Excel 包含新口径说明。
+  - 负增长和样本不足文案正确。
+- 远端验证：
+  - 在 `10.20.11.3` 调用 `/api/reports/latest`，确认当前场景日增长可显示负数，月/季度按 30/90 天趋势显示。
+  - 重建 `web-api/frontend` 后目视确认报表页不再出现“长期预测增长但速率显示 0”的矛盾。
+
+验收标准：
+
+- 当前 `10.20.11.3` 这种近 7 天下降但 30 天增长的场景，页面应显示日增长为负数、月/季度为趋势值或样本不足提示。
+- 任何负增长都不能被后端或前端强行压成 `0 B`。
+- 报表页、Word、Excel 对增长速率口径一致。
+- 不影响容量风险、VM 日/月增长榜、本日/本月新增 VM、数据质量说明等既有功能。
+
+## Phase 26 v0.5.2 Compose Project/Network Migration Fix
+
+### 背景
+- `v0.5.2` 需要把运行时 Compose project/network 统一到 `smartx-hci-capacity-insight` / `smartx-hci-capacity-insight-net`。
+- 旧 `v0.5.0/v0.5.1` 现场使用 `smartx-storage-forecast` / `smartx-storage-forecast_smartx-net`，且网络网段同为 `10.249.249.0/24`。
+- 如果只同步新 compose 文件并直接 `compose.apply`，Docker 会尝试创建新网络并因网段重叠失败。
+
+### 决策
+- 发布 `upgrade-runner v0.3.1`，新增 `compose.project_migrate.v1` 能力。
+- `v0.5.2` 平台升级包声明 `environment_transitions`：旧 project/network -> 新 project/network。
+- Runner 在 `compose.apply` 前执行 `compose.project_migrate`：停止并删除旧 project 容器，旧网络为空时删除；如果旧网络仍有外部容器，升级失败并保留人工处理线索。
+- `v0.5.2 -> v0.5.2` 同版本应用允许；如果旧 project 不存在则迁移动作幂等跳过。
+- 本次平台包仍不包含 SQLite schema 迁移：`database_migration=false`，无 `migration`、`migration_steps`、`migrations/run_migrations.py`。
+
+### 待办
+- [x] Runner capability 增加 `compose.project_migrate.v1`。
+- [x] Runner action 增加 `compose.project_migrate`。
+- [x] manifest 编译器在 `environment_transitions` 存在时插入迁移动作。
+- [x] 平台包构建器写入 `environment_transitions` 和说明文档。
+- [x] Compose 文件目标 project/network 恢复为新命名。
+- [ ] 在 `10.20.11.3` 构建 runner v0.3.1 组件包和 v0.5.2 平台包。
+- [ ] 在 `10.20.11.12` 先升级 runner，再执行 v0.5.2，验证旧 project/network 被清理、新服务健康。
+
+## Phase 32 v0.5.1u2-fix9/fix10 Runner Active Version 与组件升级显示修复
+
+状态：已完成
+
+### 背景
+
+- `v0.5.1u2` 是桥包，平台仍运行在旧 project/network：`smartx-storage-forecast` / `smartx-storage-forecast_smartx-net`。
+- `v0.5.1u2` 的关键职责是由 web-api 直接执行 runner bootstrap，将 `upgrade-runner` 从 `v0.3.0` 升级到 `v0.3.1`。
+- 现场 `10.20.11.12` 已证明 runner bootstrap 实际成功：`/api/system/health.runner_version=v0.3.1`，活动 runner 容器为 `smartx-hci-capacity-insight-upgrade-runner-1:v0.3.1`，DB heartbeat 也是 `v0.3.1`。
+- 页面仍可能显示 `v0.3.0` 或执行步骤“未执行”，说明问题不是 runner 未升级，而是 web-api/前端对 active runner version 与组件任务状态的模型不完整。
+
+### 根因决策
+
+- web-api 镜像内置 `/app/RUNNER_VERSION=v0.3.0` 只能表示 `v0.5.1u2` 桥包默认搭配的 runner baseline，不能表示当前活动 runner 版本。
+- 当前活动 runner 版本只能来自：
+  - 新鲜的 `upgrade_runner_state.runner_version` heartbeat。
+  - 正在运行的 runner 容器 Docker image tag。
+  - 正在运行的 runner 容器 `/app/RUNNER_VERSION`。
+- web-api 不允许用自己的 `/app/RUNNER_VERSION` 自证 runner 当前版本；否则平台容器和 runner 容器分离后失去相互监督意义。
+- runner 组件升级任务必须稳定公开为 `kind=component`、`component=upgrade-runner`，即使底层 task.json 只有 `components=["runner"]` 或历史任务缺少 `component` 字段。
+- 前端组件页必须绑定真实 task steps，不允许用平台默认步骤渲染 runner 组件任务，否则会出现任务中心成功但页面主体仍显示“未执行”。
+
+### 实施计划
+
+- [ ] 后端新增 active runner state 统一读取逻辑：
+  - 优先读取 `upgrade_runner_state`。
+  - heartbeat 超过 30 秒视为过期。
+  - heartbeat 过期或缺失时，查询 Docker 中 running 的 `upgrade-runner` 容器。
+  - Docker fallback 优先读活动 runner 容器 `/app/RUNNER_VERSION`，再解析 image tag。
+  - 完全检测不到 runner 时返回“未检测到 runner”，不能回退成 web-api baseline。
+- [ ] 后端统一以下接口的 runner 版本来源：
+  - `/api/system/health`
+  - `/api/admin/component-upgrade/version`
+  - `/api/admin/component-upgrade/components`
+  - `/api/admin/upgrade/verification`
+  - 平台升级预检查中的 runner capability 判断
+- [ ] 后端修正组件任务 public projection：
+  - `_public_task()` 对 `components=["runner"]` 永远投影为 `component=upgrade-runner`。
+  - `component-upgrade/history?component=upgrade-runner` 必须能查到 runner bootstrap 任务。
+  - runner bootstrap 成功任务必须公开真实 6 个 steps，public status 为 `succeeded`。
+- [ ] 前端修正组件页任务绑定：
+  - 增加 `taskBelongsToComponent(task, service)`。
+  - `upgrade-runner` 匹配 `task.component === "upgrade-runner"` 或 `task.components` 包含 `runner`。
+  - 组件详情、可选包列表、目标版本、已选升级包和执行区全部使用该判断。
+  - 组件任务有真实 `steps` 时只展示真实 steps。
+  - 组件任务没有真实 steps 时显示等待状态，不展示平台默认未执行步骤。
+  - 组件升级包区域下方展示执行进度，进度来自真实 task status/steps。
+- [ ] 更新升级包台账：
+  - `v0.5.1u2-fix8` 标记为 `SUPERSEDED`。
+  - 新增 `v0.5.1u2-fix9`，说明修复 active runner version source、runner component task projection、component page real task binding。
+
+### 测试计划
+
+- 后端测试：
+  - fresh heartbeat 为 `v0.3.1`、web-api baseline 为 `v0.3.0` 时，所有 runner version 接口返回 `v0.3.1`。
+  - heartbeat 超过 30 秒时，不再把 DB 旧值当活动 runner。
+  - heartbeat 缺失时，能从 running runner 容器 tag 或 `/app/RUNNER_VERSION` 识别 `v0.3.1`。
+  - 没有活动 runner 时，不返回 web-api baseline 作为当前 runner。
+  - runner task 只有 `components=["runner"]` 时，public task 返回 `component=upgrade-runner`。
+  - runner bootstrap success task 保留真实 6 个 steps。
+- 前端测试：
+  - 使用真实现场形态：`status=success`、`component` 缺失、`components=["runner"]`、6 个 succeeded steps。
+  - 页面显示 runner `v0.3.1`。
+  - 页面展示真实 6 个完成步骤，不出现默认“未执行”步骤。
+  - 组件包区域显示执行进度 100%。
+  - components 刷新失败时，不把 runner 版本回退到 `v0.3.0`。
+- 远端验证：
+  - 所有测试先在 `10.20.11.3` 执行。
+  - 在 `10.20.11.3` 构建 `v0.5.1u2-fix9` 包并检查 manifest/compose gates。
+  - `v0.5.1u2-fix9` 仍必须保持 old project/network/subnet，不包含 runner 镜像，不包含 `minimum_runner_version`。
+  - 如需在 `10.20.11.12` 验证，先恢复到 `v0.5.1 + runner v0.3.0`，再按 `v0.5.1u2-fix9 -> runner v0.3.1` 链路验证页面和接口一致。
+
+### 完成记录
+
+- `v0.5.1u2-fix9` 已完成 active runner version source、runner component task projection、component page real task binding 修复。
+- `v0.5.1u2-fix10` 在 fix9 基础上补充来源版本兼容：`source_compatibility.supported_versions` 包含 `v0.5.1u1`，支持 `v0.5.1u1 -> v0.5.1u2`。
+- 当前可用包：
+  - `/home/user1/codex-build/packages-v051-to-v052-chain-rebuilt/01-v0.5.1u2-fix10/smartx-capacity-insight-upgrade-v0.5.1u2.tar.gz`
+  - SHA256 `b976ef8c761271ac06cd8bd3e23d3394a84360ea189e46b1042bc2ced70651df`
+- `10.20.11.12` 已按用户要求恢复到 `v0.5.1 + runner v0.3.0`，用于下一轮从干净起点验证。

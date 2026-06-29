@@ -182,6 +182,8 @@ def build_package(
             },
             "notes": "release-notes.md",
         }
+        if platform_manifest.get("source_compatibility"):
+            manifest["source_compatibility"] = platform_manifest.get("source_compatibility")
         if migration:
             manifest["migration"] = migration
             manifest["migration_steps"] = list(platform_manifest.get("migration_steps") or [])

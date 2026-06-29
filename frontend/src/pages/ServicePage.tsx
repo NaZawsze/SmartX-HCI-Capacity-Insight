@@ -38,7 +38,7 @@ const componentStepDefaults = [
 const platformPrecheckStepDefaults = [
   { key: "manifest", title: "校验升级包结构", checks: ["manifest"] },
   { key: "paths", title: "检查项目文件与敏感路径", checks: ["paths", "project_files"] },
-  { key: "runner_protocol", title: "校验版本兼容性与升级执行器", checks: ["runner_protocol"] },
+  { key: "runner_protocol", title: "校验版本兼容性与升级执行器", checks: ["source_compatibility", "runner_protocol"] },
   { key: "images", title: "校验镜像名、Tag 与 SHA256", checks: ["checksums", "images"] },
   { key: "observability", title: "检查观测组件数据权限", checks: ["prometheus_permissions"] },
   { key: "summary", title: "生成预检查结果", checks: [] }
@@ -71,6 +71,23 @@ const defaultComponentInfos: ComponentInfo[] = [
     status_message: "由 upgrade-runner 执行升级，保留 Prometheus 历史指标。"
   }
 ];
+
+function taskBelongsToComponent(task: UpgradeTask | null | undefined, service: string): boolean {
+  if (!task) return false;
+  if (task.component === service) return true;
+  const components = task.components ?? [];
+  if (service === "upgrade-runner") return components.includes("runner");
+  if (service === "prometheus") return components.includes("observability");
+  return false;
+}
+
+function componentServiceFromTask(task: UpgradeTask): string | undefined {
+  if (task.component) return task.component;
+  const components = task.components ?? [];
+  if (components.includes("runner")) return "upgrade-runner";
+  if (components.includes("observability")) return "prometheus";
+  return undefined;
+}
 
 interface ServicePageProps {
   addTask: (task: Omit<AppTask, "createdAt" | "updatedAt">) => void;
@@ -181,6 +198,31 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     }
   }
 
+  async function refreshComponentUpgradeState(taskId?: string, knownTask?: UpgradeTask) {
+    const statusRequest = taskId && !knownTask ? api.componentUpgradeStatus(taskId) : Promise.resolve(knownTask);
+    const [statusResult, historyResult, componentsResult, versionResult] = await Promise.allSettled([
+      statusRequest,
+      api.componentUpgradeHistory(),
+      api.componentUpgradeComponents(),
+      api.componentUpgradeVersion()
+    ]);
+    let latestTask: UpgradeTask | undefined;
+    if (statusResult.status === "fulfilled" && statusResult.value) {
+      latestTask = statusResult.value;
+      setComponentTask(latestTask);
+      if (latestTask.steps.length) setComponentStepsExpanded(true);
+      if (latestTask.logs.length) setComponentLogsExpanded(true);
+    }
+    if (historyResult.status === "fulfilled") setComponentHistory(historyResult.value);
+    if (componentsResult.status === "fulfilled" && componentsResult.value.components.length) {
+      setComponentInfos(componentsResult.value.components);
+      const selectedExists = componentsResult.value.components.some((component) => component.service === selectedComponentService);
+      if (!selectedExists) setSelectedComponentService(componentsResult.value.components[0].service);
+    }
+    if (versionResult.status === "fulfilled") setRunnerVersion(versionResult.value.version);
+    return latestTask;
+  }
+
   useEffect(() => {
     api.upgradeVersion().then((result) => setAppVersion(result.version)).catch(() => undefined);
     api.componentUpgradeVersion().then((result) => setRunnerVersion(result.version)).catch(() => undefined);
@@ -234,9 +276,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             if (done) delete upgradeRunTaskRef.current[next.task_id];
           }
           if (!runningUpgradeStatuses.has(next.status)) {
-            reloadComponentHistory().catch(() => undefined);
-            reloadComponentInfos().catch(() => undefined);
-            api.componentUpgradeVersion().then((result) => setRunnerVersion(result.version)).catch(() => undefined);
+            refreshComponentUpgradeState(next.task_id, next).catch(() => undefined);
           }
         })
         .catch((exc) => setComponentMessage(exc instanceof Error ? exc.message : "刷新组件升级状态失败"));
@@ -840,8 +880,11 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
       upgradeRunTaskRef.current[task.task_id] = id;
       updateTask(id, { status: upgradeTaskStatus(task), progress: upgradeProgress(task), detail: upgradeStatusText(task.status) });
       setComponentMessage("组件升级已执行，日志会自动刷新。");
-      await reloadComponentHistory();
-      api.componentUpgradeVersion().then((result) => setRunnerVersion(result.version)).catch(() => undefined);
+      const latestTask = await refreshComponentUpgradeState(task.task_id);
+      if (latestTask) {
+        updateTask(id, { status: upgradeTaskStatus(latestTask), progress: upgradeProgress(latestTask), detail: activeUpgradeDetail(latestTask) });
+        if (!runningUpgradeStatuses.has(latestTask.status)) delete upgradeRunTaskRef.current[latestTask.task_id];
+      }
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "开始组件升级失败";
       updateTask(id, { status: "failed", progress: 100, detail: message });
@@ -887,7 +930,8 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
   function selectComponentPackage(task: UpgradeTask) {
     setComponentTask(task);
     setComponentFile(null);
-    if (task.component) setSelectedComponentService(task.component);
+    const service = componentServiceFromTask(task);
+    if (service) setSelectedComponentService(service);
     setComponentPrecheckExpanded(Boolean(task.checks.length));
     setComponentStepsExpanded(Boolean(task.steps.length));
     setComponentLogsExpanded(false);
@@ -1333,6 +1377,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             <InfoRow label="目标版本" value={formatVersionForDisplay(upgradeTask?.target_version)} />
             <InfoRow label="已选升级包" value={upgradeTask?.package_filename ?? "未选择"} />
             <InfoRow label="升级中心组件版本" value={formatVersionForDisplay(upgradeVerification?.runner_version ?? runnerVersion)} />
+            <InfoRow label="Runner 要求" value={runnerRequirementLabel(upgradeTask, componentInfos.find((component) => component.service === "upgrade-runner"))} />
             <InfoRow label="观测组件版本" value={formatVersionForDisplay(upgradeVerification?.prometheus_version)} />
             <InfoRow label="Compose 项目" value={upgradeVerification?.compose_project ?? "-"} />
             <InfoRow label="最近成功包" value={packageInfo ? `${formatVersionForDisplay(packageInfo.version)} · ${packageInfo.filename || "-"}` : "暂无成功升级记录"} />
@@ -1386,7 +1431,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                 <X size={16} />
                 取消选择
               </button>
-              <button className="secondary-button danger-button" type="button" onClick={deleteSelectedUpgradePackage} disabled={upgradeBusy || isRunning || needsRecovery || Boolean(upgradeTask.started_at)}>
+              <button className="secondary-button danger-button" type="button" onClick={deleteSelectedUpgradePackage} disabled={upgradeBusy || isRunning || needsRecovery}>
                 <X size={16} />
                 删除
               </button>
@@ -1493,7 +1538,12 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
   function renderComponentUpgrade() {
     const isRunning = Boolean(componentTask && runningUpgradeStatuses.has(componentTask.status));
     const selectedComponent = componentInfos.find((component) => component.service === selectedComponentService) ?? componentInfos[0] ?? defaultComponentInfos[0];
-    const availablePackages = componentHistory.filter((task) => !task.started_at && (!task.component || task.component === selectedComponent.service));
+    const selectedTask = taskBelongsToComponent(componentTask, selectedComponent.service) ? componentTask : null;
+    const availablePackages = componentHistory.filter(
+      (task) =>
+        (!componentServiceFromTask(task) || taskBelongsToComponent(task, selectedComponent.service)) &&
+        (!task.started_at || task.task_id === selectedTask?.task_id || runningUpgradeStatuses.has(task.status))
+    );
     return (
       <>
         <PageHeader
@@ -1530,7 +1580,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
               aria-label={`${component.display_name} ${component.service} ${formatVersionForDisplay(component.version)}`}
               onClick={() => {
                 setSelectedComponentService(component.service);
-                if (componentTask?.component && componentTask.component !== component.service) setComponentTask(null);
+                if (componentTask && !taskBelongsToComponent(componentTask, component.service)) setComponentTask(null);
               }}
             >
               <strong>{component.display_name}</strong>
@@ -1546,8 +1596,8 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           {selectedComponent.service === "upgrade-runner" && <InfoRow label="能力状态" value={selectedComponent.compatible ? "兼容" : "未就绪"} />}
           {selectedComponent.service === "upgrade-runner" && <InfoRow label="最后心跳" value={formatTime(selectedComponent.heartbeat_at || undefined)} />}
           <InfoRow label="执行者" value={selectedComponent.executor || "-"} />
-          <InfoRow label="目标版本" value={formatVersionForDisplay(componentTask?.component === selectedComponent.service ? componentTask?.target_version : undefined)} />
-          <InfoRow label="已选升级包" value={componentTask?.component === selectedComponent.service ? componentTask?.package_filename ?? "未选择" : "未选择"} />
+          <InfoRow label="目标版本" value={formatVersionForDisplay(selectedTask?.target_version)} />
+          <InfoRow label="已选升级包" value={selectedTask?.package_filename ?? "未选择"} />
         </div>
         <div className="service-notice">
           <Info size={16} />
@@ -1571,6 +1621,11 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                   <span>
                     <strong>{formatVersionForDisplay(task.target_version, "未知版本")}</strong>
                     <small>{task.package_filename || "-"} · {formatTime(task.uploaded_at)} · {upgradeStatusText(task.status)}</small>
+                    {task.started_at && (
+                      <small className="upgrade-package-progress">
+                        <i style={{ width: `${upgradeProgress(task)}%` }} />
+                      </small>
+                    )}
                   </span>
                 </button>
               ))}
@@ -1579,14 +1634,14 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             <EmptyUpgrade message={`点击右上角“上传组件包”后，可在这里执行${selectedComponent.display_name}预检查和组件升级。`} />
           )}
         </section>
-        {componentTask && componentTask.component === selectedComponent.service && (
+        {selectedTask && (
           <>
             <div className="service-upgrade-actions">
               <button className="secondary-button" type="button" onClick={precheckComponentUpgrade} disabled={componentBusy || isRunning}>
                 <ListChecks size={16} />
                 预检查
               </button>
-              <button className="primary-button" type="button" onClick={startComponentUpgrade} disabled={componentBusy || !componentTask.precheck_ok || isRunning}>
+              <button className="primary-button" type="button" onClick={startComponentUpgrade} disabled={componentBusy || !selectedTask.precheck_ok || isRunning}>
                 <Upload size={16} />
                 开始升级
               </button>
@@ -1594,12 +1649,12 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
                 <X size={16} />
                 取消选择
               </button>
-              <button className="secondary-button danger-button" type="button" onClick={deleteSelectedComponentPackage} disabled={componentBusy || isRunning || Boolean(componentTask.started_at)}>
+              <button className="secondary-button danger-button" type="button" onClick={deleteSelectedComponentPackage} disabled={componentBusy || isRunning}>
                 <X size={16} />
                 删除
               </button>
             </div>
-            {renderUpgradeTask(componentTask, {
+            {renderUpgradeTask(selectedTask, {
               file: componentFile,
               componentMode: true,
               precheckExpanded: componentPrecheckExpanded,
@@ -1637,8 +1692,9 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
         )}
         <div className="service-info-table">
           <InfoRow label="升级包" value={task.package_filename ?? currentFile?.name ?? "-"} />
-          {isComponent && <InfoRow label="组件" value={task.component || "upgrade-runner"} />}
+          {isComponent && <InfoRow label="组件" value={componentServiceFromTask(task) || "upgrade-runner"} />}
           <InfoRow label="影响服务" value={task.restart_services?.join("、") || "-"} />
+          {!isComponent && <InfoRow label="兼容来源版本" value={sourceCompatibilityLabel(task)} />}
           <InfoRow label="数据库迁移" value={isComponent ? "不涉及" : task.database_migration ? "需要" : "不需要"} />
           {!isComponent && <InfoRow label="备份文件" value={task.backup_path || "升级开始后生成"} />}
         </div>
@@ -1670,10 +1726,10 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             )}
           </CollapsibleSection>
         )}
-        {!!displayUpgradeSteps(task).length && (
+        {!!displayUpgradeSteps(task, isComponent).length && (
           <CollapsibleSection title="执行步骤" expanded={options?.stepsExpanded ?? stepsExpanded} onToggle={options?.onStepsToggle ?? (() => setStepsExpanded((expanded) => !expanded))}>
             <div className="upgrade-steps">
-              {displayUpgradeSteps(task).map((step) => (
+              {displayUpgradeSteps(task, isComponent).map((step) => (
                 <div className={`upgrade-step ${step.status}`} key={step.key}>
                   <span className="upgrade-step-icon" aria-hidden="true">{stepIcon(step.status)}</span>
                   <strong>{step.title}</strong>
@@ -1843,6 +1899,7 @@ function upgradeStatusText(status: string): string {
     prechecked: "预检查通过",
     pending: "等待执行",
     running: "升级中",
+    success: "升级成功",
     succeeded: "升级成功",
     failed: "升级失败",
     rollback_pending: "等待回滚",
@@ -1871,8 +1928,9 @@ function stepIcon(status: string) {
   return <Circle size={14} />;
 }
 
-export function displayUpgradeSteps(task: UpgradeTask) {
+export function displayUpgradeSteps(task: UpgradeTask, isComponent = false) {
   if (task.steps.length > 0) return task.steps;
+  if (isComponent) return [];
   const defaults = task.status.startsWith("rollback") || task.status === "rolled_back" ? rollbackStepDefaults : upgradeStepDefaults;
   const existing = new Map(task.steps.map((step) => [step.key, step]));
   const merged = defaults.map((item) => ({ ...item, status: "pending", ...existing.get(item.key) }));
@@ -1932,6 +1990,42 @@ function formatCheckDetail(detail: unknown): string {
     return Object.entries(detail as Record<string, unknown>).map(([key, value]) => `${key}: ${String(value)}`).join("；");
   }
   return String(detail);
+}
+
+function sourceCompatibilityLabel(task?: UpgradeTask | null): string {
+  const check = task?.checks?.find((item) => item.name === "source_compatibility");
+  const checkDetail = check?.detail && typeof check.detail === "object" ? (check.detail as Record<string, unknown>) : undefined;
+  const manifest = task?.manifest && typeof task.manifest === "object" ? task.manifest : undefined;
+  const sourceCompatibility = manifest?.source_compatibility && typeof manifest.source_compatibility === "object" ? (manifest.source_compatibility as Record<string, unknown>) : undefined;
+  const versions = checkDetail?.supported_versions ?? sourceCompatibility?.supported_versions;
+  if (Array.isArray(versions) && versions.length) {
+    return versions.map((item) => String(item)).join("、");
+  }
+  const minVersion = String(checkDetail?.min_version ?? sourceCompatibility?.min_version ?? manifest?.min_version ?? "");
+  const maxVersion = String(checkDetail?.max_version_inclusive ?? sourceCompatibility?.max_version_inclusive ?? task?.target_version ?? "");
+  if (minVersion && maxVersion) return `${minVersion} 至 ${maxVersion}`;
+  if (minVersion) return `${minVersion} 及以上`;
+  return "-";
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item)).filter(Boolean);
+}
+
+function runnerRequirementLabel(task?: UpgradeTask | null, runner?: ComponentInfo): string {
+  if (!task) return "-";
+  const protocolCheck = task.checks?.find((item) => item.name === "runner_protocol");
+  const detail = protocolCheck?.detail && typeof protocolCheck.detail === "object" ? (protocolCheck.detail as Record<string, unknown>) : undefined;
+  const manifest = task.manifest && typeof task.manifest === "object" ? task.manifest : undefined;
+  const required = stringArray(detail?.required_capabilities ?? manifest?.required_capabilities);
+  const current = stringArray(detail?.capabilities ?? runner?.capabilities);
+  const missing = required.filter((item) => !current.includes(item));
+  const needsProjectMigration = required.includes("compose.project_migrate.v1");
+  if (missing.length) return `缺少 ${missing.join("、")}`;
+  if (needsProjectMigration) return "需要 Runner v0.3.1+（项目/网络迁移能力）";
+  if (required.length) return "当前 Runner 能力满足";
+  return "-";
 }
 
 function migrationExportTaskPatch(task: MigrationExportTask): Partial<Omit<AppTask, "id" | "createdAt">> {
@@ -2052,7 +2146,7 @@ function formatTransferSpeed(value?: number): string {
 }
 
 function upgradeProgress(task: UpgradeTask): number {
-  if (task.status === "succeeded" || task.status === "rolled_back") return 100;
+  if (task.status === "success" || task.status === "succeeded" || task.status === "rolled_back") return 100;
   if (task.status === "failed" || task.status === "rollback_failed") return 100;
   const total = task.steps.length || 6;
   const finished = task.steps.filter((step) => step.status === "succeeded").length;
@@ -2071,7 +2165,7 @@ function activeUpgradeDetail(task: UpgradeTask): string {
 
 
 function upgradeTaskStatus(task: UpgradeTask): AppTask["status"] {
-  if (task.status === "succeeded" || task.status === "rolled_back") return "succeeded";
+  if (task.status === "success" || task.status === "succeeded" || task.status === "rolled_back") return "succeeded";
   if (task.status === "failed" || task.status === "rollback_failed") return "failed";
   return "running";
 }

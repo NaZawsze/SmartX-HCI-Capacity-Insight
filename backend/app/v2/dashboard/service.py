@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import datetime, timezone
 from typing import Any
 
 from app.v2.config import V2Settings
@@ -29,7 +30,6 @@ class DashboardService:
         enabled_scope = self._enabled_cluster_scope(tower_id=tower_id, cluster_id=cluster_id)
         clusters = self._cluster_capacity(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         cluster_forecasts = self._cluster_forecasts(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
-        vms = self._latest_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         day_fastest_growing_vms = self._day_fastest_growing_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         month_fastest_growing_vms = self._period_fastest_growing_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, days=30, limit=100)
         towers = InventoryService(self.database, self.settings).list_towers()
@@ -40,7 +40,7 @@ class DashboardService:
             "storage": self._storage(clusters),
             "collection": self._latest_collection(),
             "day_fastest_growing_vms": day_fastest_growing_vms,
-            "day_new_vms": self._day_new_vms(vms, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope),
+            "day_new_vms": self._day_new_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope),
             "clusters": clusters,
             "towers": [_tower_payload(tower) for tower in towers],
         }
@@ -285,24 +285,53 @@ class DashboardService:
             )
         return sorted(result, key=lambda item: (-float(item["growth_amount"]), item["vm_name"]))[:limit]
 
-    def _day_new_vms(self, vms: list[dict[str, Any]], *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
-        existing_keys = set()
-        start = self.now_ts - 86400
-        for series in self.prometheus.range(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step="1h"):
-            points = range_values(series)
-            if len(points) >= 2:
-                metric = series.get("metric", {})
-                key = (int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""))
-                if _in_enabled_scope(key, enabled_scope):
-                    existing_keys.add((key[0], key[1], str(metric.get("vm_id") or "")))
+    def _day_new_vms(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
+        names = self._latest_vm_names()
+        current_values = self._latest_vm_value_map(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        start, end = _day_bounds(self.now_ts)
+        series_list = self._vm_series(days=30, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, step="6h")
         new_vms = []
-        for vm in vms:
-            if vm.get("source") != "prometheus":
+        for series in series_list:
+            metric = series.get("metric", {})
+            key = _vm_key(metric)
+            if not _in_enabled_scope((key[0], key[1]), enabled_scope):
                 continue
-            key = (int(vm["tower_id"]), str(vm["cluster_id"]), str(vm["vm_id"]))
-            if key not in existing_keys:
-                new_vms.append({key: value for key, value in vm.items() if key != "source"})
-        return sorted(new_vms, key=lambda item: item["vm_name"])[:100]
+            points = range_values(series)
+            if not points:
+                continue
+            first_ts, first_value = sorted(points)[0]
+            if first_ts < start or first_ts > end:
+                continue
+            new_vms.append(
+                {
+                    "tower_id": key[0],
+                    "cluster_id": key[1],
+                    "vm_id": key[2],
+                    "vm_name": names.get(key, str(metric.get("vm_name") or metric.get("vm") or key[2])),
+                    "current_bytes": current_values.get(key, points[-1][1] if points else first_value),
+                    "first_seen_at": datetime.fromtimestamp(first_ts, tz=timezone.utc).isoformat(),
+                }
+            )
+        return sorted(new_vms, key=lambda item: item["first_seen_at"], reverse=True)[:100]
+
+    def _vm_series(self, *, days: int, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]], step: str) -> list[dict[str, Any]]:
+        start = self.now_ts - days * SECONDS_PER_DAY
+        return [
+            series
+            for series in self.prometheus.range(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step=step)
+            if labels_match(series.get("metric", {}), tower_id=tower_id, cluster_id=cluster_id)
+            and _in_enabled_scope(_cluster_key(series.get("metric", {})), enabled_scope)
+        ]
+
+    def _latest_vm_value_map(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> dict[tuple[int, str, str], float]:
+        values: dict[tuple[int, str, str], float] = {}
+        for row in self.prometheus.instant(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id)):
+            metric = row.get("metric", {})
+            if labels_match(metric, tower_id=tower_id, cluster_id=cluster_id):
+                key = _vm_key(metric)
+                if _in_enabled_scope((key[0], key[1]), enabled_scope):
+                    values[key] = metric_value(row)
+        return values
 
     def _cluster_names(self) -> dict[tuple[int, str], str]:
         with self.database.connection() as conn:
@@ -379,6 +408,19 @@ def _tower_payload(tower) -> dict[str, Any]:
 
 def _in_enabled_scope(key: tuple[int, str], enabled_scope: set[tuple[int, str]]) -> bool:
     return key in enabled_scope if enabled_scope else True
+
+
+def _cluster_key(labels: dict[str, Any]) -> tuple[int, str]:
+    return (int(labels.get("tower_id") or 0), str(labels.get("cluster_id") or ""))
+
+
+def _vm_key(labels: dict[str, Any]) -> tuple[int, str, str]:
+    return (int(labels.get("tower_id") or 0), str(labels.get("cluster_id") or ""), str(labels.get("vm_id") or ""))
+
+
+def _day_bounds(now_ts: int) -> tuple[int, int]:
+    start = datetime.fromtimestamp(now_ts).replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(start.timestamp()), now_ts
 
 
 def _risk_clusters(clusters: list[dict[str, Any]], forecasts: dict[tuple[int, str], dict[str, Any]]) -> list[dict[str, Any]]:

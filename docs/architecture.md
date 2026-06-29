@@ -106,7 +106,7 @@ v2 升级包使用统一 `.tar.gz` 格式，由 `manifest.json` 自动识别组�
 平台升级包：
 
 ```text
-smartx-capacity-insight-v0.5.1-upgrade.tar.gz
+smartx-capacity-insight-v0.5.2-upgrade.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md
@@ -125,12 +125,12 @@ smartx-capacity-insight-v0.5.1-upgrade.tar.gz
     └── run_migrations.py  # 可选，仅 migration_steps 非空时包含
 ```
 
-平台包默认不带迁移脚本。若来源版本到目标版本之间存在 SQLite schema migration，manifest 会包含 `migration_steps[]`，包内只生成一个兼容 Runner v0.3.0 的 `migrations/run_migrations.py` 编排脚本。
+平台包默认不带迁移脚本。若来源版本到目标版本之间存在 SQLite schema migration，manifest 会包含 `migration_steps[]`，包内只生成一个兼容 Runner v0.3.1 的 `migrations/run_migrations.py` 编排脚本。
 
 Runner 组件包：
 
 ```text
-smartx-upgrade-runner-v0.3.0.tar.gz
+smartx-upgrade-runner-v0.3.1.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md
@@ -161,7 +161,7 @@ images/
 平台和观测组合包：
 
 ```text
-smartx-capacity-insight-bundle-v0.5.1.tar.gz
+smartx-capacity-insight-bundle-v0.5.2.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── platform/
@@ -231,9 +231,9 @@ overwrite 只用于明确恢复场景，并要求用户显式确认。
 
 ## 9. 当前版本边界
 
-- 平台版本：`v0.5.1`
-- runner 组件版本：`v0.3.0`
+- 平台版本：`v0.5.2`
+- runner 组件版本：`v0.3.1`
 - Prometheus 镜像版本：`prom/prometheus:v2.55.1`
 - 当前重建分支：`dev2`
 
-`v0.5.1` 平台升级包只面向 v2 同架构后续升级。v1/v0.4.x 现场通过“全新部署 v2 + 数据迁移包导入”兼容，不走原地升级。
+`v0.5.2` 平台升级包只面向 v2 同架构后续升级。v1/v0.4.x 现场通过“全新部署 v2 + 数据迁移包导入”兼容，不走原地升级。

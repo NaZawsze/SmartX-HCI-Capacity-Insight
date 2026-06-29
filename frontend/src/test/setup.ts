@@ -7,6 +7,11 @@ Object.defineProperty(window, "scrollTo", {
   writable: true
 });
 
+Object.defineProperty(Element.prototype, "scrollIntoView", {
+  value: vi.fn(),
+  writable: true
+});
+
 afterEach(() => {
   cleanup();
 });

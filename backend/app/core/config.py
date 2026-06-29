@@ -7,8 +7,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 IMAGE_VERSION_FILE = Path("/app/VERSION")
 RUNNER_VERSION_FILE = Path("/app/RUNNER_VERSION")
-DEFAULT_APP_VERSION = "v0.5.1"
-DEFAULT_RUNNER_VERSION = "v0.3.0"
+DEFAULT_APP_VERSION = "v0.5.2"
+DEFAULT_RUNNER_VERSION = "v0.3.1"
 
 
 def read_app_version(version_file: Path = IMAGE_VERSION_FILE) -> str:

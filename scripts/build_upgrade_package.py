@@ -18,6 +18,13 @@ PACKAGE_DIR = Path("/data/upgrade-packages")
 PRODUCT = "smartx-storage-forecast"
 DEFAULT_MIN_VERSION = "v0.5.0"
 RELEASE_NAMESPACE = "nazawsze"
+TARGET_COMPOSE_PROJECT = "smartx-hci-capacity-insight"
+TARGET_COMPOSE_NETWORK = "smartx-hci-capacity-insight-net"
+LEGACY_COMPOSE_PROJECT = "smartx-storage-forecast"
+LEGACY_COMPOSE_NETWORK = "smartx-storage-forecast_smartx-net"
+PATCH_SOURCE_VERSIONS = {
+    "v0.5.1": ["v0.5.1u1", "v0.5.1u2"],
+}
 PLATFORM_IMAGES = [
     ("web-api", "smartx-hci-capacity-insight-web-api", "images/web-api.tar", True),
     ("collector-worker", "smartx-hci-capacity-insight-collector-worker", "images/collector-worker.tar", True),
@@ -200,6 +207,52 @@ def _selected_migration_steps(registry: list[dict[str, Any]], *, min_version: st
         for step in registry
         if source < _version_tuple(str(step["version"])) <= target
     ]
+
+
+def _source_compatibility(*, min_version: str, target_version: str) -> dict[str, Any]:
+    supported_versions = _supported_source_versions(min_version, target_version)
+    supported_paths = [f"{version} -> {target_version}" for version in supported_versions]
+    return {
+        "min_version": min_version,
+        "max_version_inclusive": target_version,
+        "target_version": target_version,
+        "allow_same_version": True,
+        "supported_versions": supported_versions,
+        "message": f"支持 {', '.join(supported_paths)}" if supported_paths else f"支持 {min_version} 至 {target_version} 升级到 {target_version}",
+    }
+
+
+def _environment_transitions(*, min_version: str, target_version: str) -> list[dict[str, Any]]:
+    supported = _supported_source_versions(min_version, target_version)
+    legacy_versions = [version for version in supported if _version_tuple(version) < _version_tuple("v0.5.2")]
+    if _version_tuple(target_version) < _version_tuple("v0.5.2") or not legacy_versions:
+        return []
+    return [
+        {
+            "from_project": LEGACY_COMPOSE_PROJECT,
+            "from_network": LEGACY_COMPOSE_NETWORK,
+            "to_project": TARGET_COMPOSE_PROJECT,
+            "to_network": TARGET_COMPOSE_NETWORK,
+            "versions": legacy_versions,
+        }
+    ]
+
+
+def _supported_source_versions(min_version: str, target_version: str) -> list[str]:
+    min_match = re.match(r"^v?(\d+)\.(\d+)\.(\d+)$", min_version)
+    target_match = re.match(r"^v?(\d+)\.(\d+)\.(\d+)$", target_version)
+    if not min_match or not target_match:
+        return []
+    min_major, min_minor, min_patch = (int(item) for item in min_match.groups())
+    target_major, target_minor, target_patch = (int(item) for item in target_match.groups())
+    if (min_major, min_minor) != (target_major, target_minor) or min_patch > target_patch:
+        return []
+    versions: list[str] = []
+    for patch in range(min_patch, target_patch + 1):
+        version = f"v{min_major}.{min_minor}.{patch}"
+        versions.append(version)
+        versions.extend(PATCH_SOURCE_VERSIONS.get(version, []))
+    return versions
 
 
 def _migration_runner_source(steps: list[dict[str, Any]]) -> str:
@@ -509,6 +562,7 @@ def build_package(
         shutil.copy2(ROOT / rel, target)
 
     selected_migrations = _selected_migration_steps(_load_migration_registry(migration_registry or MIGRATION_REGISTRY), min_version=min_version, target_version=version)
+    environment_transitions = _environment_transitions(min_version=min_version, target_version=version)
     migration_runner = work / "migrations" / "run_migrations.py"
     migration_sha = ""
     migration_steps: list[dict[str, Any]] = []
@@ -518,14 +572,14 @@ def build_package(
     manifest = {
         "schema_version": "3",
         "minimum_runner_protocol": 1,
+        "minimum_runner_version": read_runner_version(),
         "required_capabilities": [
-            "backup.create",
-            "image.load",
-            "files.sync",
-            "compose.override",
-            "compose.apply",
-            "health.http",
-            "rollback.restore",
+            "backup.v1",
+            "image.v1",
+            "files.v1",
+            "compose.v1",
+            "health.v1",
+            "rollback.v1",
         ],
         "product": PRODUCT,
         "package_id": f"smartx-capacity-insight-{version}",
@@ -544,9 +598,13 @@ def build_package(
         "project_file_list": project_files,
         "restart_services": ["web-api", "collector-worker", "frontend"],
         "compatibility": {"min_platform_version": min_version},
+        "source_compatibility": _source_compatibility(min_version=min_version, target_version=version),
         "notes": "release-notes.md",
         "release_notes": f"{version} platform upgrade package.",
     }
+    if environment_transitions:
+        manifest["required_capabilities"].append("compose.project.v1")
+        manifest["environment_transitions"] = environment_transitions
     if selected_migrations:
         manifest["required_capabilities"].append("script.sandbox.v1")
         manifest["migration_steps"] = migration_steps
@@ -562,12 +620,62 @@ def build_package(
             ],
         }
     (work / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    compatibility = _source_compatibility(min_version=min_version, target_version=version)
+    migration_note = (
+        "本包不包含 SQLite schema 迁移脚本；manifest 中 `database_migration=false`，且不包含 "
+        "`migration`、`migration_steps` 或 `script.sandbox.v1`。"
+        if not selected_migrations
+        else f"本包包含累计 SQLite schema 迁移脚本 `migrations/run_migrations.py`，由 upgrade-runner {read_runner_version()} 以单脚本沙箱方式执行。"
+    )
+    migration_tree = "\n└── migrations/\n    └── run_migrations.py" if selected_migrations else ""
     (work / "release-notes.md").write_text(
-        f"# {version}\n\n"
-        "- Platform upgrade package for web-api, collector-worker, and frontend.\n"
-        "- Syncs whitelisted project files such as compose, docs, and scripts.\n"
-        "- Writes image overrides into docker-compose.upgrade.yml before service restart.\n\n"
-        "This package does not include upgrade-runner, .env, databases, Prometheus data, Tower credentials, or runtime data.\n",
+        f"# SmartX HCI Capacity Insight {version} 升级包说明\n\n"
+        "## 适用范围\n\n"
+        f"- 目标版本：`{version}`。\n"
+        f"- 最低来源版本：`{min_version}`。\n"
+        f"- 最低 Runner 版本：`{read_runner_version()}`；预检查不满足时会阻止升级，并提示先升级 upgrade-runner。\n"
+        f"- 兼容升级路径：{compatibility['message']}。\n"
+        "- 支持同版本应用，用于修复安装、重同步镜像、项目文件和运行时 override。\n"
+        "- 仅适用于 v2 同架构升级流程；v1 或 v0.4.x 现场请通过数据迁移进入 v2。\n\n"
+        "## 本次更新与修复\n\n"
+        "- 优化容量增长速率计算，日报表与报表页面的日/月/季度增长展示更贴近实际预算场景。\n"
+        "- 修复虚拟机页面首次加载时趋势图重复加载的问题，避免同一 VM 在初始化阶段重复请求趋势、详情和卷数据。\n"
+        "- 修复平台升级页已完成升级包无法删除的问题；运行中或需要恢复处理的任务仍禁止删除。\n"
+        f"- 升级执行前由 upgrade-runner {read_runner_version()} 迁移旧 Compose project/network：`{LEGACY_COMPOSE_PROJECT}` / `{LEGACY_COMPOSE_NETWORK}` -> `{TARGET_COMPOSE_PROJECT}` / `{TARGET_COMPOSE_NETWORK}`，避免同网段网络重叠。\n"
+        "- 同步服务状态、观测组件版本、compose project/network、报表数据质量、文档和升级包兼容说明相关更新。\n\n"
+        "## 升级包组成\n\n"
+        "```text\n"
+        f"smartx-capacity-insight-upgrade-{version}.tar.gz\n"
+        "├── manifest.json\n"
+        "├── checksums.sha256\n"
+        "├── release-notes.md\n"
+        "├── images/\n"
+        "│   ├── web-api.tar\n"
+        "│   ├── collector-worker.tar\n"
+        "│   └── frontend.tar\n"
+        "└── project/\n"
+        "    ├── docker-compose.yml\n"
+        "    ├── docker-compose.offline.yml\n"
+        "    ├── docker-compose.release.yml\n"
+        "    ├── README.md\n"
+        "    ├── README.zh-CN.md\n"
+        "    ├── docs/\n"
+        "    ├── prometheus/\n"
+        "    └── scripts/"
+        f"{migration_tree}\n"
+        "```\n\n"
+        "## 执行动作\n\n"
+        "- 创建升级前备份。\n"
+        "- 校验 `checksums.sha256` 中列出的包内文件。\n"
+        "- 加载 `web-api`、`collector-worker`、`frontend` 镜像。\n"
+        "- 同步白名单内项目文件。\n"
+        "- 写入运行时升级 override，并 recreate 平台服务。\n"
+        "- 如来源版本仍使用旧 Compose project/network，则停止并删除旧 project 容器，确认旧网络没有外部容器后删除旧网络，再创建新 project/network。\n"
+        "- 执行 HTTP 健康检查，失败时按升级中心策略触发一次自动回滚。\n\n"
+        "## 数据库迁移\n\n"
+        f"{migration_note}\n\n"
+        "## 不包含内容\n\n"
+        "本包不包含 `upgrade-runner`、`.env`、SQLite 数据库、Prometheus 历史数据、备份、导出文件、Tower 凭据、token、客户现场数据或其他运行时数据。\n",
         encoding="utf-8",
     )
 

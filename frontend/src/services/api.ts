@@ -631,8 +631,10 @@ export const api = {
 };
 
 export function formatBytes(value: number | undefined | null): string {
-  if (!value || value <= 0) return "0 B";
+  if (value == null || value === 0) return "0 B";
+  const sign = value < 0 ? "-" : "";
+  const absolute = Math.abs(value);
   const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
-  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
-  return `${(value / 1024 ** index).toFixed(index < 3 ? 0 : 2)} ${units[index]}`;
+  const index = Math.min(Math.floor(Math.log(absolute) / Math.log(1024)), units.length - 1);
+  return `${sign}${(absolute / 1024 ** index).toFixed(index < 3 ? 0 : 2)} ${units[index]}`;
 }

@@ -32,12 +32,13 @@ class UpgradeLeaseTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             database = Path(tmpdir) / "smartx.db"
             manager = LeaseManager(database, "runner-a")
-            manager.update_runner_state("v0.3.0")
+            manager.update_runner_state("v0.3.1")
             state = manager.runner_state()
 
-            self.assertEqual(state["runner_version"], "v0.3.0")
+            self.assertEqual(state["runner_version"], "v0.3.1")
             self.assertEqual(state["protocol_version"], 1)
-            self.assertIn("backup.create", state["capabilities"])
+            self.assertIn("backup.v1", state["capabilities"])
+            self.assertIn("compose.project.v1", state["capabilities"])
 
 
 def _safe_extract_for_test(archive: tarfile.TarFile, destination: Path) -> None:
@@ -788,6 +789,218 @@ class UpgradeActionTest(unittest.TestCase):
         self.assertEqual(result["status"], 200)
         self.assertEqual(calls, 3)
         self.assertEqual(sleep.call_count, 2)
+
+    def test_compose_apply_uses_configured_project_name(self) -> None:
+        from app.upgrade_runner.actions import ActionContext, compose_apply
+
+        class Executor:
+            def __init__(self) -> None:
+                self.commands: list[tuple[list[str], Path | None]] = []
+
+            def run(self, command: list[str], *, cwd: Path | None = None, timeout: int | None = None) -> None:
+                self.commands.append((command, cwd))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            executor = Executor()
+            context = ActionContext.minimal(root, executor=executor)
+            context.task_id = "upgrade-apply"
+            context.compose_project = "smartx-hci-capacity-insight"
+            override = context.compose_runtime_path / "docker-compose.upgrade-apply.yml"
+            override.write_text("services:\n  web-api:\n    image: repo/web-api:v0.5.1u1\n", encoding="utf-8")
+
+            result = compose_apply({"params": {"services": ["web-api", "frontend"]}}, context.as_dict())
+
+            self.assertEqual(result["services"], ["web-api", "frontend"])
+            self.assertEqual(
+                executor.commands,
+                [
+                    (
+                        [
+                            "docker",
+                            "compose",
+                            "-f",
+                            "docker-compose.offline.yml",
+                            "-f",
+                            str(override),
+                            "--project-name",
+                            "smartx-hci-capacity-insight",
+                            "up",
+                            "-d",
+                            "--no-deps",
+                            "web-api",
+                            "frontend",
+                        ],
+                        context.project_path,
+                    )
+                ],
+            )
+
+    def test_compose_project_migrate_removes_old_project_and_safe_network(self) -> None:
+        from app.upgrade_runner.actions import ActionContext, compose_project_migrate
+
+        class Executor:
+            def __init__(self) -> None:
+                self.commands: list[tuple[list[str], Path | None]] = []
+
+            def run(self, command: list[str], *, cwd: Path | None = None, timeout: int | None = None) -> None:
+                self.commands.append((command, cwd))
+
+            def output(self, command: list[str], *, cwd: Path | None = None) -> str:
+                self.commands.append((command, cwd))
+                if command[:2] == ["docker", "ps"]:
+                    return "old-web\nold-runner\n"
+                if command[:3] == ["docker", "network", "inspect"]:
+                    return json.dumps(
+                        [
+                            {
+                                "Name": "smartx-storage-forecast_smartx-net",
+                                "Containers": {},
+                            }
+                        ]
+                    )
+                return ""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            executor = Executor()
+            context = ActionContext.minimal(root, executor=executor)
+            context.compose_project = "smartx-hci-capacity-insight"
+
+            result = compose_project_migrate(
+                {
+                    "params": {
+                        "transitions": [
+                            {
+                                "from_project": "smartx-storage-forecast",
+                                "from_network": "smartx-storage-forecast_smartx-net",
+                                "to_project": "smartx-hci-capacity-insight",
+                                "to_network": "smartx-hci-capacity-insight-net",
+                            }
+                        ]
+                    }
+                },
+                context.as_dict(),
+            )
+
+            self.assertEqual(result["migrated_projects"], ["smartx-storage-forecast"])
+            self.assertEqual(result["removed_networks"], ["smartx-storage-forecast_smartx-net"])
+            self.assertEqual(
+                executor.commands,
+                [
+                    (
+                        [
+                            "docker",
+                            "ps",
+                            "-a",
+                            "--filter",
+                            "label=com.docker.compose.project=smartx-storage-forecast",
+                            "--format",
+                            "{{.ID}}",
+                        ],
+                        None,
+                    ),
+                    (["docker", "stop", "old-web", "old-runner"], None),
+                    (["docker", "rm", "old-web", "old-runner"], None),
+                    (["docker", "network", "inspect", "smartx-storage-forecast_smartx-net"], None),
+                    (["docker", "network", "rm", "smartx-storage-forecast_smartx-net"], None),
+                ],
+            )
+
+    def test_compose_project_migrate_removes_old_project_containers_attached_to_old_network(self) -> None:
+        from app.upgrade_runner.actions import ActionContext, compose_project_migrate
+
+        class Executor:
+            def __init__(self) -> None:
+                self.commands: list[tuple[list[str], Path | None]] = []
+
+            def run(self, command: list[str], *, cwd: Path | None = None, timeout: int | None = None) -> None:
+                self.commands.append((command, cwd))
+
+            def output(self, command: list[str], *, cwd: Path | None = None) -> str:
+                self.commands.append((command, cwd))
+                if command[:2] == ["docker", "ps"]:
+                    return ""
+                if command[:3] == ["docker", "network", "inspect"]:
+                    return json.dumps(
+                        [
+                            {
+                                "Name": "smartx-storage-forecast_smartx-net",
+                                "Containers": {
+                                    "old-web-id": {"Name": "smartx-storage-forecast-web-api-1"},
+                                    "old-fe-id": {"Name": "smartx-storage-forecast-frontend-1"},
+                                },
+                            }
+                        ]
+                    )
+                return ""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = Executor()
+            context = ActionContext.minimal(Path(tmpdir), executor=executor)
+            context.compose_project = "smartx-hci-capacity-insight"
+
+            result = compose_project_migrate(
+                {
+                    "params": {
+                        "transitions": [
+                            {
+                                "from_project": "smartx-storage-forecast",
+                                "from_network": "smartx-storage-forecast_smartx-net",
+                                "to_project": "smartx-hci-capacity-insight",
+                                "to_network": "smartx-hci-capacity-insight-net",
+                            }
+                        ]
+                    }
+                },
+                context.as_dict(),
+            )
+
+            self.assertEqual(result["migrated_projects"], ["smartx-storage-forecast"])
+            self.assertEqual(result["removed_networks"], ["smartx-storage-forecast_smartx-net"])
+            self.assertIn((["docker", "stop", "old-web-id", "old-fe-id"], None), executor.commands)
+            self.assertIn((["docker", "rm", "old-web-id", "old-fe-id"], None), executor.commands)
+
+    def test_compose_project_migrate_blocks_network_with_external_containers(self) -> None:
+        from app.upgrade_runner.actions import ActionContext, compose_project_migrate
+
+        class Executor:
+            def run(self, command: list[str], *, cwd: Path | None = None, timeout: int | None = None) -> None:
+                raise AssertionError(f"unexpected run: {command}")
+
+            def output(self, command: list[str], *, cwd: Path | None = None) -> str:
+                if command[:2] == ["docker", "ps"]:
+                    return ""
+                if command[:3] == ["docker", "network", "inspect"]:
+                    return json.dumps(
+                        [
+                            {
+                                "Name": "smartx-storage-forecast_smartx-net",
+                                "Containers": {"abc": {"Name": "manual-container"}},
+                            }
+                        ]
+                    )
+                return ""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            context = ActionContext.minimal(Path(tmpdir), executor=Executor())
+
+            with self.assertRaisesRegex(RuntimeError, "manual-container"):
+                compose_project_migrate(
+                    {
+                        "params": {
+                            "transitions": [
+                                {
+                                    "from_project": "smartx-storage-forecast",
+                                    "from_network": "smartx-storage-forecast_smartx-net",
+                                    "to_project": "smartx-hci-capacity-insight",
+                                    "to_network": "smartx-hci-capacity-insight-net",
+                                }
+                            ]
+                        }
+                    },
+                    context.as_dict(),
+                )
 
 
 if __name__ == "__main__":

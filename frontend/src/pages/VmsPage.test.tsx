@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 import { VmsPage } from "./VmsPage";
 
 const apiMock = vi.hoisted(() => ({
@@ -56,6 +57,54 @@ describe("VmsPage", () => {
     expect(await screen.findByText("Root")).toBeInTheDocument();
     expect(screen.getAllByText("60 B").length).toBeGreaterThan(0);
     expect(screen.getByText("已使用 60.0%")).toBeInTheDocument();
+  });
+
+  it("does not reload the vm list or trend when auto-selecting the first vm syncs to the parent", async () => {
+    apiMock.vms.mockResolvedValue([
+      {
+        metric: { tower_id: "1", cluster_id: "cluster-a", vm_id: "vm-1", vm: "VM One", cluster: "Cluster A" },
+        value: 70
+      },
+      {
+        metric: { tower_id: "1", cluster_id: "cluster-a", vm_id: "vm-2", vm: "VM Two", cluster: "Cluster A" },
+        value: 65
+      }
+    ]);
+    apiMock.vmDetail.mockResolvedValue({
+      tower_id: 1,
+      cluster_id: "cluster-a",
+      vm_id: "vm-1",
+      vm_name: "VM One",
+      used_bytes: 70
+    });
+    apiMock.vmTrend.mockResolvedValue({
+      vm_id: "vm-1",
+      metric: "used",
+      points: []
+    });
+    apiMock.vmVolumes.mockResolvedValue({
+      vm_id: "vm-1",
+      volumes: []
+    });
+
+    function ParentSyncedPage() {
+      const [selectedVmId, setSelectedVmId] = useState("");
+      return (
+        <VmsPage
+          scope={{ type: "cluster", towerId: 1, clusterId: "cluster-a" }}
+          selectedVmId={selectedVmId}
+          onSelectedVmChange={setSelectedVmId}
+        />
+      );
+    }
+
+    render(<ParentSyncedPage />);
+
+    await screen.findByRole("heading", { name: "VM One" });
+    await waitFor(() => expect(apiMock.vmTrend).toHaveBeenCalledTimes(1));
+    expect(apiMock.vms).toHaveBeenCalledTimes(1);
+    expect(apiMock.vmDetail).toHaveBeenCalledTimes(1);
+    expect(apiMock.vmVolumes).toHaveBeenCalledTimes(1);
   });
 
   it("shows stale collection warning and gap dates for vm trends", async () => {
