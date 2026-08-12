@@ -973,6 +973,24 @@ def upgrade_verification(
     return upgrade.verification()
 
 
+@router.get("/api/admin/upgrade/post-cleanup/{task_id}")
+def upgrade_post_cleanup_status(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.post_upgrade_cleanup_status(task_id)
+
+
+@router.post("/api/admin/upgrade/post-cleanup/{task_id}/retry")
+def retry_upgrade_post_cleanup(
+    task_id: str,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.retry_post_upgrade_cleanup(task_id)
+
+
 @router.post("/api/admin/component-upgrade/upload")
 async def upload_component_upgrade_package(
     _: Annotated[CurrentUser, Depends(require_user)],

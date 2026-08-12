@@ -142,7 +142,7 @@ You must provide:
 If the password is lost, use the CLI reset command on the server:
 
 ```bash
-cd /opt/smartx-storage-forecast
+cd /data/smartx-storage-forecast/project
 ```
 
 Interactive reset:

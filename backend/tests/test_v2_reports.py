@@ -271,6 +271,49 @@ class V2ReportsTest(unittest.TestCase):
             self.assertEqual(seven_day["vm_growth_sample_bucket"], {"min_days": 0, "max_days": 7})
             self.assertEqual(fourteen_day["vm_growth_sample_bucket"], {"min_days": 0, "max_days": 14})
 
+    def test_latest_report_keeps_all_export_growth_vms_without_top100_truncation(self) -> None:
+        from app.v2.reports.service import ReportService
+
+        now_ts = 1_700_000_000
+
+        class ManyVmPrometheus(FakePrometheus):
+            def instant(self, query: str):
+                if query.startswith("smartx_vm_storage_used_bytes"):
+                    return [
+                        {
+                            "metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": f"vm-{index:03d}", "vm_name": f"VM {index:03d}"},
+                            "value": [now_ts, str((1000 + index) * 1024**3)],
+                        }
+                        for index in range(1, 106)
+                    ]
+                return super().instant(query)
+
+            def range(self, query: str, *, start: int, end: int, step: str):
+                if query.startswith("smartx_vm_storage_used_bytes"):
+                    return [
+                        {
+                            "metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": f"vm-{index:03d}", "vm_name": f"VM {index:03d}"},
+                            "values": [[now_ts - 30 * SECONDS_PER_DAY, str(1000 * 1024**3)], [now_ts, str((1000 + index) * 1024**3)]],
+                        }
+                        for index in range(1, 106)
+                    ]
+                return super().range(query, start=start, end=end, step=step)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            with db.connection() as conn:
+                for index in range(1, 106):
+                    conn.execute(
+                        "INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (?, ?, ?, ?, ?)",
+                        (1, "cluster-a", f"vm-{index:03d}", f"VM {index:03d}", (1000 + index) * 1024**3),
+                    )
+
+            report = ReportService(db, settings, prometheus=ManyVmPrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
+
+            self.assertEqual(len(report["month_fastest_growing_vms"]), 105)
+            self.assertEqual(report["month_fastest_growing_vms"][0]["labels"]["vm_id"], "vm-105")
+            self.assertEqual(report["month_fastest_growing_vms"][-1]["labels"]["vm_id"], "vm-001")
+
     def test_latest_report_merges_split_prometheus_vm_series_for_baseline(self) -> None:
         from app.v2.reports.service import ReportService
 

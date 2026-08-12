@@ -50,6 +50,110 @@ def sha256_file(path: Path) -> str:
 
 
 def verify_runner_image(image: str) -> None:
+    script = r'''
+import tempfile
+from pathlib import Path
+
+from app.upgrade_runner.actions import ActionContext, default_handlers, filesystem_prepare
+from app.upgrade_runner.engine import UpgradeEngine
+from app.upgrade_runner.store import TaskStore
+from app.upgrade_protocol.constants import RUNNER_CAPABILITIES
+
+handlers = default_handlers()
+required_handlers = {
+    "filesystem.prepare",
+    "task.migrate_runtime_state",
+    "task.sync_runtime_state",
+    "post_upgrade.schedule_cleanup",
+    "post_upgrade.schedule_collection",
+    "runner.schedule_target_runtime_handoff",
+}
+missing = sorted(required_handlers - set(handlers))
+if missing:
+    raise SystemExit(f"missing runner handlers: {missing}")
+if "filesystem.v1" not in RUNNER_CAPABILITIES or "task.recovery.v1" not in RUNNER_CAPABILITIES:
+    raise SystemExit("runner capabilities missing filesystem/task recovery")
+
+with tempfile.TemporaryDirectory() as tmpdir:
+    root = Path(tmpdir)
+    legacy_project = root / "legacy-project"
+    target_project = root / "target" / "project"
+    legacy_project.mkdir()
+    (legacy_project / ".env").write_text(
+        "SMARTX_SECRET_KEY=legacy\nSMARTX_IMAGE_TAG=v0.5.1\nSMARTX_RUNNER_IMAGE_TAG=v0.3.0\n",
+        encoding="utf-8",
+    )
+    context = ActionContext.minimal(root)
+    result = filesystem_prepare(
+        {
+            "params": {
+                "project_path": str(target_project),
+                "env_file_migration": {
+                    "target": str(target_project / ".env"),
+                    "legacy_candidates": [str(legacy_project / ".env")],
+                    "preserve_existing": True,
+                    "sanitize_image_tags": True,
+                    "fallback_defaults": True,
+                },
+            }
+        },
+        context.as_dict(),
+    )
+    env_text = (target_project / ".env").read_text(encoding="utf-8")
+    if result.get("env_file", {}).get("status") != "copied":
+        raise SystemExit(f"env_file_migration did not copy legacy env: {result!r}")
+    if "SMARTX_IMAGE_TAG=" in env_text or "SMARTX_RUNNER_IMAGE_TAG=" in env_text:
+        raise SystemExit("env_file_migration did not sanitize image tag env keys")
+
+with tempfile.TemporaryDirectory() as tmpdir:
+    root = Path(tmpdir)
+    legacy_task_dir = root / "legacy-upgrades" / "upgrade-verify"
+    target_task_dir = root / "target-upgrades" / "upgrade-verify"
+    store = TaskStore(legacy_task_dir)
+    store.save(
+        {
+            "task_id": "upgrade-verify",
+            "status": "pending",
+            "execution_plan": {
+                "actions": [
+                    {
+                        "id": "migrate-task-state",
+                        "type": "task.migrate_runtime_state",
+                        "params": {"target_task_dir": str(target_task_dir)},
+                        "status": "pending",
+                        "attempt": 0,
+                        "checkpoint": {},
+                        "result": {},
+                    },
+                    {
+                        "id": "sync-task-state",
+                        "type": "task.sync_runtime_state",
+                        "params": {},
+                        "status": "pending",
+                        "attempt": 0,
+                        "checkpoint": {},
+                        "result": {},
+                    },
+                ]
+            },
+        }
+    )
+    result = UpgradeEngine(
+        store,
+        handlers={
+            "task.migrate_runtime_state": handlers["task.migrate_runtime_state"],
+            "task.sync_runtime_state": handlers["task.sync_runtime_state"],
+        },
+        context=ActionContext.minimal(root).as_dict(),
+    ).run()
+    if result.get("status") != "success":
+        raise SystemExit(f"task mirror verification did not finish: {result!r}")
+    mirrored = TaskStore(target_task_dir).load()
+    if mirrored.get("status") != "success":
+        raise SystemExit(f"task mirror did not receive final success: {mirrored!r}")
+
+print("SMARTX_RUNNER_VERIFY_OK")
+'''
     run([
         'docker',
         'run',
@@ -58,14 +162,27 @@ def verify_runner_image(image: str) -> None:
         'python',
         image,
         '-c',
-        'import app.upgrade_runner.main; import app.upgrade_protocol.models',
+        script,
     ])
+
+
+def _run_compose_build_with_env() -> None:
+    env_file = ROOT / ".env"
+    created = False
+    if not env_file.exists():
+        env_file.write_text("", encoding="utf-8")
+        created = True
+    try:
+        run(['docker', 'compose', '-f', 'docker-compose.yml', 'build', COMPONENT])
+    finally:
+        if created:
+            env_file.unlink(missing_ok=True)
 
 
 def build_package(version: str, min_version: str, output_dir: Path, build_image: bool) -> Path:
     image = f'{RELEASE_IMAGE_REPO}:{version}'
     if build_image:
-        run(['docker', 'compose', '-f', 'docker-compose.yml', 'build', COMPONENT])
+        _run_compose_build_with_env()
     else:
         run(['docker', 'image', 'inspect', image])
     verify_runner_image(image)
@@ -89,6 +206,13 @@ def build_package(version: str, min_version: str, output_dir: Path, build_image:
         'version': version,
         'min_version': min_version,
         'package_type': 'component',
+        'bootstrap_runner': {
+            'enabled': True,
+            'target_project': 'smartx-hci-capacity-insight',
+            'target_network': 'smartx-hci-capacity-insight-net',
+            'target_subnet': '10.249.251.0/24',
+            'target_root': '/data/smartx-storage-forecast',
+        },
         'components': [
             {
                 'type': 'runner',

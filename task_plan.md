@@ -7,7 +7,7 @@
 ## 当前环境
 
 - 主要开发与验证机器：`10.20.11.3`
-- v2 远端项目路径：`/opt/smartx-storage-forecast-v2`
+- v2 远端项目路径：`/data/smartx-storage-forecast/project`
 - v2 当前工作分支：`dev2`
 - v2 平台版本：`v0.5.2`
 - v2 runner 组件版本：`v0.3.1`
@@ -23,6 +23,133 @@ git status --short --branch
 ```
 
 不要提交 `.env`、SQLite、Prometheus 数据、升级包、迁移包、备份包、导出文件或 Tower 凭据。
+
+## 专项升级链路文档
+
+`v0.5.1 + runner v0.3.0 -> v0.5.1u2 -> runner v0.3.1 -> v0.5.2` 的详细修复、任务计划、失败证据、包路径/SHA、任务 ID 和完整链路验证，统一维护在：
+
+```text
+docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
+```
+
+本文件只保留最终阶段摘要。详细过程、失败记录和中间包仍查专项 worklog。
+
+## 当前执行项 - UPG-036 / UPG-037 / UPG-038 / UPG-039 v0.5.2 final chain
+
+状态：UPG-039 已在 `10.20.11.3` 完整链路验证通过。此前 UPG-038 follow-up 的 post-cleanup 失败根因是 handoff 后 runner 容器内路径视角变化，cleanup guard 把 host target DB 路径读错，并把容器 `/data/smartx.db` 误当 legacy DB。现已修复 runner v0.3.1 `data_migration_guard` host/container 路径归一化，v0.5.2 主升级和 post-cleanup 均成功。
+
+目标：
+
+- 修复 runner 组件升级实际成功但 start API 因 task revision 竞争误返回 HTTP 409 的问题。
+- 保留 UPG-035 `upgrade.verification.latest_package` 只指向真实平台包的修复。
+- 重打包含最新修复的 `v0.5.1u2` 和 `v0.5.2` 升级包。
+- 验证完整链路：
+  `v0.5.1 + runner v0.3.0 -> v0.5.1u2-upg036 -> runner-v0.3.1-upg032-historyfix -> v0.5.2-upg035-upg036`
+
+最终包：
+
+```text
+v0.5.1u2-upg036-runner-start-conflict
+path=/home/user1/codex-build/packages-upg036-runner-start-conflict/01-v0.5.1u2-runner-start-conflict/smartx-capacity-insight-upgrade-v0.5.1u2.tar.gz
+sha256=d5f277167445e7636ddfba16b4f780b40d59952467bb1c8e72d2469b43ee0a49
+
+runner-v0.3.1-upg032-historyfix
+path=/home/user1/codex-build/packages-upg032-historyfix/02-runner-v0.3.1-historyfix/smartx-upgrade-runner-v0.3.1.tar.gz
+sha256=d10e15cf7b516d172ebe2f1bc37621f9cf32d8ab3abd548f808ae5c5de151d2c
+
+v0.5.2-upg035-upg036
+path=/home/user1/codex-build/packages-upg036-runner-start-conflict/03-v0.5.2-upg035-upg036/smartx-capacity-insight-upgrade-v0.5.2.tar.gz
+sha256=5ab9d41d1192efb794c9a43db4d340ef86bbeb0e5a4755118e517f715cdca2cc
+```
+
+验收：
+
+- [已通过] 本地回归：`Ran 144 tests in 5.735s, OK (skipped=1)`。
+- [已通过] 远端依赖完整回归：`Ran 175 tests in 186.825s, OK`。
+- [已通过] 镜像身份闸门：`v0.5.1u2` 包内 web-api `/app/VERSION=v0.5.1u2`、`/app/RUNNER_VERSION=v0.3.0`；`v0.5.2` 包内 web-api `/app/VERSION=v0.5.2`、`/app/RUNNER_VERSION=v0.3.1`。
+- [已通过] 两个平台包内 compose 不含 `SMARTX_IMAGE_TAG`、`SMARTX_RUNNER_IMAGE_TAG`、`SMARTX_APP_VERSION`、`SMARTX_RUNNER_VERSION`。
+- [已通过] 完整链路 task：
+  - `v0.5.1u2=upgrade-1e3345094fc9c4dc`
+  - `runner=upgrade-a31572ffb4d37e54`
+  - `v0.5.2=upgrade-f3e7160e4397acf0`
+  - `post-cleanup=post-cleanup-upgrade-f3e7160e4397acf0`
+
+后续计划：
+
+- UPG-037 已记录到专项升级文档：升级期间前端对 web-api 重启窗口做 5 分钟容错；`/api/admin/upgrade/verification` runner version 对齐 health/component fallback。
+- UPG-037 只计划重打 v0.5.2；不修改已验证的 `v0.5.1u2` 和 `runner v0.3.1` 核心链路包。
+- UPG-037 详细执行边界已补充：前端容错只限升级相关轮询，5 分钟后必须显示原始错误或 `Internal Server Error`；后端 verification runner fallback 只用于展示，不能放宽 runner_protocol 预检查。
+- UPG-037 验证要求：在 `10.20.11.3` 恢复 `v0.5.1 + runner v0.3.0` 后重新走正常链路，失败时先记录根因并停止，不继续静默修复。
+- UPG-038 已记录到专项升级文档：v0.5.2 `filesystem.prepare` 不能只用“目标 smartx.db 存在”判断数据有效；必须比较旧库/目标库业务计数，空目标库可被旧业务库替换，双业务库冲突必须硬失败，cleanup 必须在数据迁移有效后才能删除旧目录。
+- [已通过] runner 组件升级 start 返回 HTTP 200，不再出现“任务已成功但 API 返回 409”的假失败。
+- [已通过] 最终健康：`version=v0.5.2`、`runner_version=v0.3.1`、`prometheus=true`。
+- [已通过] `upgrade.verification.latest_package` 指向真实 v0.5.2 平台任务 `upgrade-f3e7160e4397acf0`，SHA 非空且不是 post-cleanup。
+- [已通过] 旧 network 和 legacy 目录已清理，目标目录均存在。
+- [已通过] release smoke：`critical_count=0`、`warning_count=0`。
+- [未通过] UPG-038 链路复测：
+  - `v0.5.1u2=upgrade-0d944fd29242c0fb`
+  - `runner=upgrade-b3b5f205f14f451b`
+  - `v0.5.2=upgrade-c5510018291d4656`
+  - `post-cleanup=post-cleanup-upgrade-c5510018291d4656`
+  - health/version/docker/project/network 均达到目标，但目标 DB `/data/smartx-storage-forecast/app/smartx.db` 只有 96K，`towers=0`、`clusters=0`、`vm_latest=0`、`vm_volumes=0`。
+  - v0.5.2 task checkpoint 显示 `copied_app_sources=[]`，post-cleanup 随后删除旧 `/data/smartx-capacity-insight-data`。
+  - 下一步：修复 runner v0.3.1 `filesystem.prepare` 数据迁移策略和 v0.5.2 cleanup 门禁，重打 runner/v0.5.2 包，在 `10.20.11.3` 重新完整链路验证。
+- [未通过] UPG-038 follow-up 链路复测：
+  - `v0.5.1u2=upgrade-60dd4ec8163e1df0`
+  - `runner=upgrade-a272344cdbf0ed85`
+  - `v0.5.2=upgrade-14d79d309b95ff76`
+  - `post-cleanup=post-cleanup-upgrade-14d79d309b95ff76`
+  - v0.5.2 主任务成功，最终业务库实际已迁移到 host `/data/smartx-storage-forecast/app/smartx.db`，计数为 `towers=1`、`clusters=1`、`vm_latest=523`、`vm_volumes=89530`。
+  - post-cleanup 失败原因不是数据未迁移，而是 target runner 容器内路径视角变化：host `/data/smartx-storage-forecast/app` 挂载为容器 `/data`，cleanup guard 仍按 host 路径 `/data/smartx-storage-forecast/app/smartx.db` 检查目标库，并把容器 `/data/smartx.db` 误当 legacy 库。
+  - 已由 UPG-039 修复：runner v0.3.1 `data_migration_guard` 会把 host target DB 映射到容器 `/data/smartx.db`，解析后等于 target 的 legacy 路径会剔除，避免误判。
+- [已通过] UPG-039 完整链路复测：
+  - `v0.5.1u2=upgrade-528d1f42aa5b62dd`
+  - `runner=upgrade-4b1c542232cce245`
+  - `v0.5.2=upgrade-37fbd66390f39880`
+  - `post-cleanup=post-cleanup-upgrade-37fbd66390f39880`
+  - 最终健康：`version=v0.5.2`、`runner_version=v0.3.1`、`checks.prometheus=true`。
+  - 最终业务库：`/data/smartx-storage-forecast/app/smartx.db`，`users=1`、`towers=1`、`clusters=1`、`collection_runs=37`、`vm_latest=523`、`vm_volumes=89530`。
+  - 旧目录 `/opt/smartx-storage-forecast`、`/data/smartx-capacity-insight-data`、`/data/upgrades`、`/data/backups`、`/data/exports`、`/data/compose-runtime`、`/prometheus-data` 均已清理。
+- [已通过] UPG-040 空业务库完整链路复测：
+  - 修复 post-cleanup 对空来源业务库的误拦截：仅当父任务 `filesystem.prepare.source_db_counts` 明确无业务数据且 target DB 有效时，才以 `parent_source_had_no_business_data` 放行。
+  - 10.20.11.3 空业务库链路：`upgrade-891334c5ac85007b -> upgrade-52f6c7c53b89ad53 -> upgrade-a3734551cbbaff02`，post-cleanup success。
+  - 10.20.11.12 空业务库链路：`upgrade-79cae85f494677a2 -> upgrade-3ec9762ff81c5101 -> upgrade-5a22d9f11248f7f3`，post-cleanup success。
+  - 最终两台机器均为 `v0.5.2 + runner v0.3.1 + prometheus=true`；legacy `/opt`、`/data/*` runtime、`/data/smartx-capacity-insight-data`、`/prometheus-data` 均已清理。
+
+## 当前执行项 - UPG-031 / fix20
+
+状态：已在 `10.20.11.3` 完整链路验证通过。
+
+目标：
+
+- 解决 fix19 链路中 `target_app_residual_paths` 删除 final runtime 活动挂载点的问题。
+- `target_app_residual_paths` 不再生成；旧包传入这些路径时 runner 必须识别并跳过活动挂载点。
+- 生成并验证：
+  - `v0.5.1u2-fix20-skip-active-target-mountpoints`
+  - `runner-v0.3.1-postcleanupfix7-skip-active-target-mountpoints`
+  - `v0.5.2-postcleanupfix7-skip-active-target-mountpoints`
+
+已完成：
+
+- v0.5.2 manifest 的 `legacy_cleanup.target_app_residual_paths` 改为空列表。
+- runner cleanup 对 `/data/smartx-storage-forecast/app/upgrades`、`app/backups`、`app/exports`、`app/compose-runtime` 这类 final runtime mountpoint 返回 skipped。
+- 本地 123 个升级相关单测通过。
+- `10.20.11.3` 远端 123 个升级相关单测通过。
+- 已生成并静态验证三个候选包：
+  - `v0.5.1u2-fix20-skip-active-target-mountpoints`
+  - `runner-v0.3.1-postcleanupfix7-skip-active-target-mountpoints`
+  - `v0.5.2-postcleanupfix7-skip-active-target-mountpoints`
+- 完整链路已通过：
+  `v0.5.1 + runner v0.3.0 -> v0.5.1u2-fix20 -> runner-v0.3.1-postcleanupfix7 -> v0.5.2-postcleanupfix7`
+- post-cleanup 成功，旧 `/opt/smartx-storage-forecast` 和 legacy `/data/upgrades`、`/data/backups`、`/data/exports`、`/data/compose-runtime`、`/data/smartx-capacity-insight-data`、`/prometheus-data` 均已清理。
+
+验收：
+
+- [已通过] `10.20.11.3` 完整链路：
+  `v0.5.1 + runner v0.3.0 -> v0.5.1u2-fix20 -> runner-v0.3.1-postcleanupfix7 -> v0.5.2-postcleanupfix7`
+- [已通过] 主 v0.5.2 task 和 post-cleanup task 都保留在 `/data/smartx-storage-forecast/upgrades`。
+- [已通过] 旧宿主机路径清理成功或明确显示 missing。
+- [已通过] 最终健康：`version=v0.5.2`、`runner_version=v0.3.1`、`prometheus=true`。
 
 ## 阶段计划
 
@@ -57,14 +184,14 @@ git status --short --branch
 
 ## 常用验证命令
 
-在 `10.20.11.3:/opt/smartx-storage-forecast-v2` 执行：
+在 `10.20.11.3:/data/smartx-storage-forecast/project` 执行：
 
 ```bash
 git status --short --branch
 git diff --check
 docker compose --project-name smartx-storage-forecast exec -T web-api sh -lc \
-  'cd /opt/smartx-storage-forecast && PYTHONPATH=backend python -m unittest backend.tests.test_v2_reports backend.tests.test_v2_inventory_metrics backend.tests.test_v2_collection backend.tests.test_v2_dashboard_vm backend.tests.test_v2_migration backend.tests.test_v2_upgrade backend.tests.test_v2_package_builders'
-docker run --rm -v /opt/smartx-storage-forecast-v2/frontend:/src:ro -w /tmp node:22-alpine sh -lc \
+  'cd /data/smartx-storage-forecast/project && PYTHONPATH=backend python -m unittest backend.tests.test_v2_reports backend.tests.test_v2_inventory_metrics backend.tests.test_v2_collection backend.tests.test_v2_dashboard_vm backend.tests.test_v2_migration backend.tests.test_v2_upgrade backend.tests.test_v2_package_builders'
+docker run --rm -v /data/smartx-storage-forecast/project/frontend:/src:ro -w /tmp node:22-alpine sh -lc \
   'cp -a /src ./frontend-test && cd frontend-test && npm install --no-audit --no-fund && npm test -- --run AppLayout.test.tsx DashboardPage.test.tsx global.test.ts ServicePage.test.tsx'
 curl -fsS http://127.0.0.1:8000/api/system/health
 curl -fsSI http://127.0.0.1:8080 | head -n 1
@@ -231,7 +358,7 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 
 已完成：
 
-- 后端 `UpgradeService.cancel()` 支持处理“任务表中存在 pending 记录，但 `/data/upgrades/<task_id>/task.json` 已不存在”的孤儿升级任务；这类任务可被标记为 `cancelled`，不再永久挂在 pending。
+- 后端 `UpgradeService.cancel()` 支持处理“任务表中存在 pending 记录，但 `/data/smartx-storage-forecast/upgrades/<task_id>/task.json` 已不存在”的孤儿升级任务；这类任务可被标记为 `cancelled`，不再永久挂在 pending。
 - 后端任务清理语义调整：
   - `DELETE /api/tasks/finished` 只清理 `success` 成功完成任务。
   - `failed`、`cancelled` 等异常/失败/已取消任务不会被“清空”删除。
@@ -259,8 +386,8 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 
 后续注意：
 
-- 如果任务中心仍出现历史升级任务，先查 SQLite `tasks` 表，不要只看 `/data/upgrades` 目录。
-- 任务中心状态来源有两层：SQLite `tasks` 表用于全局任务中心，`/data/upgrades/<task_id>/task.json` 用于升级包历史和升级任务详情；二者可能因测试或旧逻辑产生不一致。
+- 如果任务中心仍出现历史升级任务，先查 SQLite `tasks` 表，不要只看 `/data/smartx-storage-forecast/upgrades` 目录。
+- 任务中心状态来源有两层：SQLite `tasks` 表用于全局任务中心，`/data/smartx-storage-forecast/upgrades/<task_id>/task.json` 用于升级包历史和升级任务详情；二者可能因测试或旧逻辑产生不一致。
 - 现场直接清空任务中心记录可执行 `DELETE FROM tasks`，但只能在用户明确要求“直接清理”时操作。
 - runner 自升级不能依赖旧 web-api 写只读路径，也不能在执行任务中重启自己导致任务断链。
 - 升级包采用统一入口，由 `manifest.json` 自动识别平台服务、runner 组件和 Prometheus/observability 组件；包类型和目标组件由 manifest 声明，不再依赖用户手动选择。
@@ -520,7 +647,7 @@ Phase V2-0 细化文档：
 最新验证摘要：
 
 - 历史验证记录：平台版本曾切换为 `v0.5.2`，runner 组件版本曾为 `v0.3.0`；当前 `v0.5.2` 正式升级包需要 `runner v0.3.1`。
-- `10.20.11.3:/opt/smartx-storage-forecast-v2` 已在 `dev2` 构建并启动五个容器。
+- `10.20.11.3:/data/smartx-storage-forecast/project` 已在 `dev2` 构建并启动五个容器。
 - 历史健康接口曾返回 `version=v0.5.2`、`runner_version=v0.3.0`；当前待升级验证应以 `runner_version=v0.3.1` 为准。
 - 平台升级包仅面向 v2 同架构后续升级；v1/v0.4.x 只通过数据迁移包兼容。
 - `10.20.11.3` 远端 `test_v2_*` 后端测试 65 个通过。
@@ -534,7 +661,7 @@ Phase V2-0 细化文档：
 - [已解决] 大规模现场数据迁移导出/导入进度继续细化：迁出任务记录扫描、打包、保存、下载链接，完整迁移包导出 start 接口已真正后台化；迁入改为后台任务，展示上传保存、解压校验、导入前备份、SQLite、Prometheus 和健康检查步骤。
 - [已解决] SQLite / 虚拟卷存储结构瘦身：v2 正式使用 `vm_volumes`，旧 `latest_vm_volumes.payload_json` 抽取后删除并记录 schema migration；旧 `latest_vm_volume_items` 迁入 `vm_volumes` 后删除，`10.20.11.3` 执行 VACUUM 后 SQLite 从约 68.34MB 降到 32.29MB；空间清理新增 SQLite VACUUM 扫描和整理能力。
 - [已解决] SQLite 运行态缓存治理第一版：`metric_snapshots` 最多保留 1 条，`collection_runs` 保留最近 7 天，`tasks` 保留最近 30 天且未确认告警/严重告警继续保留；SQLite 清理前备份并执行 VACUUM；导出文件被清理后任务中心下载链接显示“已失效”。
-- [已解决] SQLite 备份清理第一版：空间清理页在“SQLite 清理并整理”下方新增独立框体，可扫描 `/data/backups` 顶层 SQLite 数据库备份，勾选后删除；不会清理升级前备份、导入前备份、Prometheus 备份或 `.tar.gz` 文件。
+- [已解决] SQLite 备份清理第一版：空间清理页在“SQLite 清理并整理”下方新增独立框体，可扫描 `/data/smartx-storage-forecast/backups` 顶层 SQLite 数据库备份，勾选后删除；不会清理升级前备份、导入前备份、Prometheus 备份或 `.tar.gz` 文件。
 - [已解决] 升级中心 v2 后续增强文档补齐：`docs/v2-upgrade-center-design.md` 已补 manifest 组件声明、执行边界、组合升级顺序、Prometheus 回归和失败恢复策略。
 
 ### Phase 21 - Excel 客户模板固化
@@ -956,7 +1083,7 @@ networks:
 ```
 
 - [已实现] 保持服务内部仍引用逻辑网络名 `smartx-net`，只固定网络真实名称，不改变服务间通信方式。
-- [已实现] `SMARTX_PROJECT_PATH` 继续保持容器内路径 `/opt/smartx-storage-forecast`，因为该路径是容器内挂载点，不等同于宿主机源码目录。
+- [已实现] `SMARTX_PROJECT_PATH` 继续保持容器内路径 `/data/smartx-storage-forecast/project`，因为该路径是容器内挂载点，不等同于宿主机源码目录。
 - [已实现] `SMARTX_HOST_PROJECT_PATH` 继续使用 `${PWD}`，保证 Runner 调用 Docker daemon 时能把宿主机源码目录传给 Docker。
 - [已实现] 后端 `UpgradeService.verification()` 保留兜底逻辑：若配置 project 查不到服务，则 inspect 当前 `web-api` 容器 label，使用真实 `com.docker.compose.project` 读取服务状态。
 - [已实现] `compose.apply` 和 `rollback.restore` 继续显式传 `--project-name context.compose_project`，该值来自统一后的 `SMARTX_COMPOSE_PROJECT_NAME`。
@@ -1098,106 +1225,62 @@ docker network ls | grep smartx
 - 报表页、Word、Excel 对增长速率口径一致。
 - 不影响容量风险、VM 日/月增长榜、本日/本月新增 VM、数据质量说明等既有功能。
 
-## Phase 26 v0.5.2 Compose Project/Network Migration Fix
+## 专项升级链路历史任务归档
 
-### 背景
-- `v0.5.2` 需要把运行时 Compose project/network 统一到 `smartx-hci-capacity-insight` / `smartx-hci-capacity-insight-net`。
-- 旧 `v0.5.0/v0.5.1` 现场使用 `smartx-storage-forecast` / `smartx-storage-forecast_smartx-net`，且网络网段同为 `10.249.249.0/24`。
-- 如果只同步新 compose 文件并直接 `compose.apply`，Docker 会尝试创建新网络并因网段重叠失败。
+`v0.5.1 + runner v0.3.0 -> v0.5.1u2 -> runner v0.3.1 -> v0.5.2` 的历史 Phase 任务细节已从本文件移出，统一归档到：
 
-### 决策
-- 发布 `upgrade-runner v0.3.1`，新增 `compose.project_migrate.v1` 能力。
-- `v0.5.2` 平台升级包声明 `environment_transitions`：旧 project/network -> 新 project/network。
-- Runner 在 `compose.apply` 前执行 `compose.project_migrate`：停止并删除旧 project 容器，旧网络为空时删除；如果旧网络仍有外部容器，升级失败并保留人工处理线索。
-- `v0.5.2 -> v0.5.2` 同版本应用允许；如果旧 project 不存在则迁移动作幂等跳过。
-- 本次平台包仍不包含 SQLite schema 迁移：`database_migration=false`，无 `migration`、`migration_steps`、`migrations/run_migrations.py`。
+```text
+docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md
+```
 
-### 待办
-- [x] Runner capability 增加 `compose.project_migrate.v1`。
-- [x] Runner action 增加 `compose.project_migrate`。
-- [x] manifest 编译器在 `environment_transitions` 存在时插入迁移动作。
-- [x] 平台包构建器写入 `environment_transitions` 和说明文档。
-- [x] Compose 文件目标 project/network 恢复为新命名。
-- [ ] 在 `10.20.11.3` 构建 runner v0.3.1 组件包和 v0.5.2 平台包。
-- [ ] 在 `10.20.11.12` 先升级 runner，再执行 v0.5.2，验证旧 project/network 被清理、新服务健康。
+后续这条链路的详细修复计划、失败记录、包路径/SHA、任务 ID 和完整链路验证，先写入：
 
-## Phase 32 v0.5.1u2-fix9/fix10 Runner Active Version 与组件升级显示修复
+```text
+docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
+```
 
-状态：已完成
+等链路全部完成后，再把最终结论、最终包和验收结果摘要回填到本文件。
 
-### 背景
+## UPG-041 v0.5.2 升级后自动采集
 
-- `v0.5.1u2` 是桥包，平台仍运行在旧 project/network：`smartx-storage-forecast` / `smartx-storage-forecast_smartx-net`。
-- `v0.5.1u2` 的关键职责是由 web-api 直接执行 runner bootstrap，将 `upgrade-runner` 从 `v0.3.0` 升级到 `v0.3.1`。
-- 现场 `10.20.11.12` 已证明 runner bootstrap 实际成功：`/api/system/health.runner_version=v0.3.1`，活动 runner 容器为 `smartx-hci-capacity-insight-upgrade-runner-1:v0.3.1`，DB heartbeat 也是 `v0.3.1`。
-- 页面仍可能显示 `v0.3.0` 或执行步骤“未执行”，说明问题不是 runner 未升级，而是 web-api/前端对 active runner version 与组件任务状态的模型不完整。
+状态：实施中。
 
-### 根因决策
+- [x] 确认根因：UPG-040 包只恢复历史 SQLite/Prometheus 数据，v0.5.2 执行计划没有升级后采集动作。
+- [x] 完成设计：runner 写一次性标记，collector-worker 等父升级成功后消费，采集独立进入任务中心。
+- [x] 写入设计与详细实施计划。
+- [x] TDD 实现 compiler、runner marker、worker consumer 和任务中心状态。
+- [x] 重打 v0.5.1u2、runner v0.3.1、v0.5.2 UPG-041 三包。
+- [ ] 在 10.20.11.3 从正常业务库执行完整链路：升级主链已成功，自动采集因测试恢复夹具只恢复 DB/Prometheus、未恢复与 DB 配套的旧 `.env` 而失败；先找回并成对恢复旧 `smartx.db + .env`，不得要求重新填写 Tower 凭据。
+- [ ] 增加凭据迁移安全门禁：来源库存在加密 Tower 凭据时，目标 `.env` 缺失或密钥不匹配必须中止目录迁移/旧环境清理并给出明确错误，不得静默创建默认密钥。
+- [ ] 修正迁移顺序与候选优先级：先确定/迁移业务数据库，再以该数据库验证目标和 legacy `.env`；迁入旧 DB 时不得因目标 `.env` 已存在就无条件保留它。
+- [ ] 处理 UPG-042 代码审查阻塞：迁移 `.env` 权限改为 `0600`；异常/不完整 Tower schema fail-closed；无认证 XOR 密文不得用“非空解密结果”作为唯一兼容依据。
+- [ ] UPG-043 修复 credential helper 目标 DB host path 映射：`directory_transition.target_root` 下的同路径 bind mount 必须保持宿主机绝对路径，不能再套用 `/data -> SMARTX_HOST_DATA_PATH` 映射。修复前不得重试 v0.5.2。
+- [ ] 验证当前容量、趋势新样本、VM 真实名称、post-cleanup 和旧目录清理。
+- [x] UPG-043 fix3 在 10.20.11.3 完成核心链路：凭据迁移、自动采集、post-cleanup、数据和目录验收通过。
+- [x] UPG-044 修复 verification 最近包排序：history 已改为无副作用只读视图，按业务创建时间排序；verification 按成功平台包完成时间独立选最新。fix4 已通过本地/10.20.11.3 各 165 项回归、包静态门禁、真实历史 SHA/mtime 无变化验证和隔离 HTTP release smoke。
 
-- web-api 镜像内置 `/app/RUNNER_VERSION=v0.3.0` 只能表示 `v0.5.1u2` 桥包默认搭配的 runner baseline，不能表示当前活动 runner 版本。
-- 当前活动 runner 版本只能来自：
-  - 新鲜的 `upgrade_runner_state.runner_version` heartbeat。
-  - 正在运行的 runner 容器 Docker image tag。
-  - 正在运行的 runner 容器 `/app/RUNNER_VERSION`。
-- web-api 不允许用自己的 `/app/RUNNER_VERSION` 自证 runner 当前版本；否则平台容器和 runner 容器分离后失去相互监督意义。
-- runner 组件升级任务必须稳定公开为 `kind=component`、`component=upgrade-runner`，即使底层 task.json 只有 `components=["runner"]` 或历史任务缺少 `component` 字段。
-- 前端组件页必须绑定真实 task steps，不允许用平台默认步骤渲染 runner 组件任务，否则会出现任务中心成功但页面主体仍显示“未执行”。
+详细计划：`docs/superpowers/plans/2026-07-10-post-upgrade-auto-collection.md`。
 
-### 实施计划
+## UPG-045 / UPG-046 / UPG-047 / UPG-048 最终升级链路闭环
 
-- [ ] 后端新增 active runner state 统一读取逻辑：
-  - 优先读取 `upgrade_runner_state`。
-  - heartbeat 超过 30 秒视为过期。
-  - heartbeat 过期或缺失时，查询 Docker 中 running 的 `upgrade-runner` 容器。
-  - Docker fallback 优先读活动 runner 容器 `/app/RUNNER_VERSION`，再解析 image tag。
-  - 完全检测不到 runner 时返回“未检测到 runner”，不能回退成 web-api baseline。
-- [ ] 后端统一以下接口的 runner 版本来源：
-  - `/api/system/health`
-  - `/api/admin/component-upgrade/version`
-  - `/api/admin/component-upgrade/components`
-  - `/api/admin/upgrade/verification`
-  - 平台升级预检查中的 runner capability 判断
-- [ ] 后端修正组件任务 public projection：
-  - `_public_task()` 对 `components=["runner"]` 永远投影为 `component=upgrade-runner`。
-  - `component-upgrade/history?component=upgrade-runner` 必须能查到 runner bootstrap 任务。
-  - runner bootstrap 成功任务必须公开真实 6 个 steps，public status 为 `succeeded`。
-- [ ] 前端修正组件页任务绑定：
-  - 增加 `taskBelongsToComponent(task, service)`。
-  - `upgrade-runner` 匹配 `task.component === "upgrade-runner"` 或 `task.components` 包含 `runner`。
-  - 组件详情、可选包列表、目标版本、已选升级包和执行区全部使用该判断。
-  - 组件任务有真实 `steps` 时只展示真实 steps。
-  - 组件任务没有真实 steps 时显示等待状态，不展示平台默认未执行步骤。
-  - 组件升级包区域下方展示执行进度，进度来自真实 task status/steps。
-- [ ] 更新升级包台账：
-  - `v0.5.1u2-fix8` 标记为 `SUPERSEDED`。
-  - 新增 `v0.5.1u2-fix9`，说明修复 active runner version source、runner component task projection、component page real task binding。
+状态：完成。fix7 已由完整链路证明不可交付；fix8 已在 `10.20.11.3` 完成代码测试、依赖完整回归、真实 Docker bind、构建、包体门禁、真实业务基线全链路和最终 release smoke 验收。
 
-### 测试计划
+执行边界：
 
-- 后端测试：
-  - fresh heartbeat 为 `v0.3.1`、web-api baseline 为 `v0.3.0` 时，所有 runner version 接口返回 `v0.3.1`。
-  - heartbeat 超过 30 秒时，不再把 DB 旧值当活动 runner。
-  - heartbeat 缺失时，能从 running runner 容器 tag 或 `/app/RUNNER_VERSION` 识别 `v0.3.1`。
-  - 没有活动 runner 时，不返回 web-api baseline 作为当前 runner。
-  - runner task 只有 `components=["runner"]` 时，public task 返回 `component=upgrade-runner`。
-  - runner bootstrap success task 保留真实 6 个 steps。
-- 前端测试：
-  - 使用真实现场形态：`status=success`、`component` 缺失、`components=["runner"]`、6 个 succeeded steps。
-  - 页面显示 runner `v0.3.1`。
-  - 页面展示真实 6 个完成步骤，不出现默认“未执行”步骤。
-  - 组件包区域显示执行进度 100%。
-  - components 刷新失败时，不把 runner 版本回退到 `v0.3.0`。
-- 远端验证：
-  - 所有测试先在 `10.20.11.3` 执行。
-  - 在 `10.20.11.3` 构建 `v0.5.1u2-fix9` 包并检查 manifest/compose gates。
-  - `v0.5.1u2-fix9` 仍必须保持 old project/network/subnet，不包含 runner 镜像，不包含 `minimum_runner_version`。
-  - 如需在 `10.20.11.12` 验证，先恢复到 `v0.5.1 + runner v0.3.0`，再按 `v0.5.1u2-fix9 -> runner v0.3.1` 链路验证页面和接口一致。
+- 当前及后续所有 Python 验证、依赖安装、镜像构建、升级包构建、包体门禁和完整升级链路只允许在 `10.20.11.3` 执行。
+- 不连接、不恢复、不验证 `10.20.11.12`。
+- 本地工作区只维护源码和文档，不运行 Python，不安装测试依赖，不构建升级包。
 
-### 完成记录
-
-- `v0.5.1u2-fix9` 已完成 active runner version source、runner component task projection、component page real task binding 修复。
-- `v0.5.1u2-fix10` 在 fix9 基础上补充来源版本兼容：`source_compatibility.supported_versions` 包含 `v0.5.1u1`，支持 `v0.5.1u1 -> v0.5.1u2`。
-- 当前可用包：
-  - `/home/user1/codex-build/packages-v051-to-v052-chain-rebuilt/01-v0.5.1u2-fix10/smartx-capacity-insight-upgrade-v0.5.1u2.tar.gz`
-  - SHA256 `b976ef8c761271ac06cd8bd3e23d3394a84360ea189e46b1042bc2ced70651df`
-- `10.20.11.12` 已按用户要求恢复到 `v0.5.1 + runner v0.3.0`，用于下一轮从干净起点验证。
+- [x] 固定已发布输入：`v0.5.1u2` SHA256 `d5f277167445e7636ddfba16b4f780b40d59952467bb1c8e72d2469b43ee0a49`；runner `v0.3.1` SHA256 `d10e15cf7b516d172ebe2f1bc37621f9cf32d8ab3abd548f808ae5c5de151d2c`，两者不得修改。
+- [x] UPG-045：v0.5.2 worker 兼容已发布 bridge 未生成自动采集 marker 的情况；fix5 链路已证明主升级、自动采集和 post-cleanup 成功。
+- [x] UPG-046：终态 runner task 必须投影到任务中心，并保证重复状态查询不刷新 `updated_at`。
+- [x] UPG-047 第一方案：尝试通过 v0.5.2 正式 compose 的 runner 启动命令修正 `.env` 权限；完整链路证明该命令会被已发布 runner handoff compose 覆盖，因此 fix7 不可交付。
+- [x] `10.20.11.3` 依赖完整回归：198 项通过，1 项跳过，退出码 0。
+- [x] 仅从 `/home/user1/codex-build/worktree-upg047` 构建 v0.5.2 fix7，并完成 checksums、manifest、镜像身份、敏感成员、bundled images 和 compose chmod 门禁；SHA256 `1cde8e34617fcddc00e1a334516694ab0e34fc2997f164a91c718f5f17317497`。
+- [x] fix7 完整链路执行完成并定位验收失败：主任务/自动采集/post-cleanup 与任务中心投影均通过，但最终 `.env` 仍为 `0644`；根因是发布 runner handoff compose 覆盖正式 runner command。fix7 不可交付。
+- [x] UPG-048 / fix8 TDD：在 web-api 主 apply 路径增加仅针对 `.env` 的权限 shim，不修改已发布 u2/runner。
+- [x] fix8 在 `10.20.11.3` 通过 compose 定向测试、2 项 package-builder 测试、198 项依赖完整回归以及真实 Docker 单文件 bind 权限验证；宿主机 `.env` 从 `0644` 修正为 `0600`，web-api 保持 running。
+- [x] 仅在 `10.20.11.3:/home/user1/codex-build/worktree-upg048` 构建 fix8，完成 sidecar/internal checksums、manifest/source compatibility、镜像身份、敏感成员、bundled images、三份 compose shim 和 bridge render 门禁；包 SHA256 `692aca8b58ad8199c43c02a3771fa4fd7a62f1d7bbf4f198af4bd2e4b2c67733`。
+- [x] 在 `10.20.11.3` 审计并恢复真实 `v0.5.1 + runner v0.3.0`：五容器和旧 project/network/subnet 正确，业务计数 `towers=1/clusters=1/vm_latest=556/vm_volumes=89588`，`.env` SHA `8b644112...`、`0600 root:root`，目标根目录不存在。
+- [x] 在 `10.20.11.3` 按正常产品流程执行已发布 `v0.5.1u2 -> runner v0.3.1 -> v0.5.2 fix8`；任务依次为 `upgrade-5680ff0264c4acbd -> upgrade-53ebaff4da3218df -> upgrade-9ad951d4024b2c16`，全部成功。
+- [x] 验收任务中心终态与幂等查询、自动采集、post-cleanup、`.env` SHA/`0600 root:root`、业务计数、五容器镜像、project/network/subnet、七目录、旧路径清理、history/verification 只读稳定性和 release smoke；最终 `critical=0/warning=0`。

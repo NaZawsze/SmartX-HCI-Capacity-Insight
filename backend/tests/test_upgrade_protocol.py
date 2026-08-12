@@ -216,6 +216,215 @@ class UpgradeCompilerTest(unittest.TestCase):
                 }
             )
 
+    def test_compiler_starts_prometheus_when_platform_compose_rebuild_declares_it(self) -> None:
+        from app.v2.upgrade.compiler import compile_execution_plan
+
+        manifest = {
+            "schema_version": "3",
+            "components": [
+                {
+                    "type": "platform",
+                    "services": ["web-api", "collector-worker", "frontend", "prometheus", "upgrade-runner"],
+                    "images": [
+                        {
+                            "service": "web-api",
+                            "image": "repo/web-api:v0.5.2",
+                            "archive": "images/web-api.tar",
+                            "sha256": "a" * 64,
+                        }
+                    ],
+                }
+            ],
+        }
+
+        plan = compile_execution_plan(manifest).to_dict()
+
+        compose_apply = next(action for action in plan["actions"] if action["type"] == "compose.apply")
+        compose_override = next(action for action in plan["actions"] if action["type"] == "compose.override")
+        self.assertEqual(compose_apply["params"]["services"], ["collector-worker", "frontend", "prometheus", "web-api"])
+        self.assertEqual(compose_override["params"]["services"], ["collector-worker", "frontend", "prometheus", "upgrade-runner", "web-api"])
+        self.assertEqual(plan["actions"][-1]["id"], "health-platform")
+
+    def test_compiler_places_task_state_migration_and_legacy_cleanup_around_v052_cutover(self) -> None:
+        from app.v2.upgrade.compiler import compile_execution_plan
+
+        manifest = {
+            "schema_version": "3",
+            "components": [
+                {
+                    "type": "platform",
+                    "services": ["web-api", "frontend", "prometheus", "upgrade-runner"],
+                    "images": [],
+                }
+            ],
+            "project_files": True,
+            "project_file_list": ["docker-compose.release.yml"],
+            "directory_transition": {
+                "target_root": "/data/smartx-storage-forecast",
+                "upgrades_path": "/data/smartx-storage-forecast/upgrades",
+            },
+            "environment_transitions": [
+                {
+                    "from_project": "smartx-storage-forecast",
+                    "from_network": "smartx-storage-forecast_smartx-net",
+                    "to_project": "smartx-hci-capacity-insight",
+                    "to_network": "smartx-hci-capacity-insight-net",
+                }
+            ],
+            "legacy_cleanup": {
+                "legacy_projects": ["smartx-storage-forecast"],
+                "legacy_networks": ["smartx-storage-forecast_smartx-net"],
+                "legacy_paths": ["/data/upgrades"],
+                "target_app_residual_paths": ["/data/smartx-storage-forecast/app/upgrades"],
+                "protected_paths": ["/data/smartx-storage-forecast"],
+            },
+        }
+
+        plan = compile_execution_plan(manifest).to_dict()
+        action_types = [action["type"] for action in plan["actions"]]
+
+        self.assertEqual(
+            action_types,
+            [
+                "backup.create",
+                "filesystem.prepare",
+                "files.sync",
+                "task.migrate_runtime_state",
+                "compose.override",
+                "compose.project_migrate",
+                "compose.apply",
+                "health.http",
+                "task.sync_runtime_state",
+                "runner.handoff_target_runtime",
+                "runner.stop_legacy_runtime",
+                "legacy.cleanup",
+            ],
+        )
+        self.assertIn("task.recovery.v1", plan["required_capabilities"])
+        self.assertIn("runner.handoff.v1", plan["required_capabilities"])
+        stop_runner = plan["actions"][-2]
+        self.assertEqual(
+            stop_runner["params"],
+            {
+                "legacy_project": "smartx-storage-forecast",
+                "legacy_runner_container": "smartx-storage-forecast-upgrade-runner-1",
+                "target_project": "smartx-hci-capacity-insight",
+            },
+        )
+        cleanup = plan["actions"][-1]
+        self.assertEqual(cleanup["params"]["legacy_paths"], ["/data/upgrades"])
+        self.assertEqual(cleanup["params"]["protected_paths"], ["/data/smartx-storage-forecast"])
+
+    def test_compiler_schedules_post_upgrade_cleanup_when_manifest_requests_it(self) -> None:
+        from app.v2.upgrade.compiler import compile_execution_plan
+
+        manifest = {
+            "schema_version": "3",
+            "components": [
+                {
+                    "type": "platform",
+                    "services": ["web-api", "frontend", "prometheus", "upgrade-runner"],
+                    "images": [],
+                }
+            ],
+            "project_files": True,
+            "project_file_list": ["docker-compose.release.yml"],
+            "directory_transition": {
+                "target_root": "/data/smartx-storage-forecast",
+                "upgrades_path": "/data/smartx-storage-forecast/upgrades",
+                "env_file_migration": {
+                    "target": "/data/smartx-storage-forecast/project/.env",
+                    "legacy_candidates": ["/opt/smartx-storage-forecast/.env"],
+                    "preserve_existing": True,
+                    "sanitize_image_tags": True,
+                    "fallback_defaults": True,
+                },
+            },
+            "environment_transitions": [
+                {
+                    "from_project": "smartx-storage-forecast",
+                    "from_network": "smartx-storage-forecast_smartx-net",
+                    "to_project": "smartx-hci-capacity-insight",
+                    "to_network": "smartx-hci-capacity-insight-net",
+                }
+            ],
+            "legacy_cleanup": {
+                "legacy_projects": ["smartx-storage-forecast"],
+                "legacy_networks": ["smartx-storage-forecast_smartx-net"],
+                "legacy_paths": ["/data/upgrades"],
+                "target_app_residual_paths": ["/data/smartx-storage-forecast/app/upgrades"],
+                "protected_paths": ["/data/smartx-storage-forecast"],
+            },
+            "post_upgrade": {
+                "create_cleanup_task": True,
+                "cleanup_task_policy": "after_platform_health_success",
+                "cleanup_failure_severity": "warning",
+            },
+        }
+
+        plan = compile_execution_plan(manifest).to_dict()
+        action_types = [action["type"] for action in plan["actions"]]
+
+        self.assertIn("post_upgrade.schedule_cleanup", action_types)
+        self.assertIn("runner.schedule_target_runtime_handoff", action_types)
+        self.assertNotIn("runner.handoff_target_runtime", action_types)
+        self.assertNotIn("runner.stop_legacy_runtime", action_types)
+        self.assertNotIn("legacy.cleanup", action_types)
+        self.assertLess(action_types.index("task.sync_runtime_state"), action_types.index("post_upgrade.schedule_cleanup"))
+        self.assertLess(action_types.index("post_upgrade.schedule_cleanup"), action_types.index("runner.schedule_target_runtime_handoff"))
+        cutover = next(action for action in plan["actions"] if action["type"] == "runner.schedule_target_runtime_handoff")
+        self.assertEqual(
+            cutover["params"],
+            {
+                "image": "",
+                "compose_project": "smartx-hci-capacity-insight",
+                "network_name": "smartx-hci-capacity-insight-net",
+                "project_path": "/data/smartx-storage-forecast/project",
+                "app_data_path": "/data/smartx-storage-forecast/app",
+                "upgrades_path": "/data/smartx-storage-forecast/upgrades",
+                "backups_path": "/data/smartx-storage-forecast/backups",
+                "exports_path": "/data/smartx-storage-forecast/exports",
+                "compose_runtime_path": "/data/smartx-storage-forecast/compose-runtime",
+                "prometheus_data_path": "/data/smartx-storage-forecast/prometheus",
+            },
+        )
+
+    def test_compiler_prepares_single_root_layout_before_project_sync(self) -> None:
+        from app.v2.upgrade.compiler import compile_execution_plan
+
+        transition = {
+            "target_root": "/data/smartx-storage-forecast",
+            "project_path": "/data/smartx-storage-forecast/project",
+            "app_data_path": "/data/smartx-storage-forecast/app",
+            "prometheus_data_path": "/data/smartx-storage-forecast/prometheus",
+            "compose_runtime_path": "/data/smartx-storage-forecast/compose-runtime",
+            "legacy_app_data_paths": ["/data/smartx-capacity-insight-data/app", "/data"],
+            "legacy_prometheus_data_paths": ["/data/smartx-capacity-insight-data/prometheus", "/prometheus-data"],
+        }
+        manifest = {
+            "schema_version": "3",
+            "project_files": True,
+            "project_file_list": ["docker-compose.release.yml"],
+            "directory_transition": transition,
+            "components": [
+                {
+                    "type": "platform",
+                    "services": ["web-api"],
+                    "images": [],
+                }
+            ],
+        }
+
+        plan = compile_execution_plan(manifest).to_dict()
+
+        action_types = [action["type"] for action in plan["actions"]]
+        self.assertIn("filesystem.prepare", action_types)
+        self.assertLess(action_types.index("filesystem.prepare"), action_types.index("files.sync"))
+        self.assertLess(action_types.index("filesystem.prepare"), action_types.index("compose.apply"))
+        action = next(item for item in plan["actions"] if item["type"] == "filesystem.prepare")
+        self.assertEqual(action["params"], transition)
+        self.assertIn("filesystem.v1", plan["required_capabilities"])
+
     def test_service_submission_persists_compiled_execution_plan(self) -> None:
         import hashlib
         import io

@@ -29,10 +29,10 @@ MANIFEST_NAME = "manifest.json"
 ALLOWED_SERVICES = {"web-api", "frontend", "collector-worker", "prometheus", "upgrade-runner"}
 PLATFORM_PACKAGE_SERVICES = {"web-api", "frontend", "collector-worker"}
 CORE_VOLUME_MARKERS = (
-    "/data/smartx-capacity-insight-data/app:/data",
-    "/data/smartx-capacity-insight-data/prometheus:/prometheus",
+    "/data/smartx-storage-forecast/app:/data",
+    "/data/smartx-storage-forecast/prometheus:/prometheus",
 )
-EXPECTED_NETWORK_SUBNET = "10.249.249.0/24"
+EXPECTED_NETWORK_SUBNET = "10.249.251.0/24"
 RUNNING_STATUSES = {"pending", "running", "rollback_pending", "rollback_running"}
 APP_BACKUP_SKIP_NAMES = {"backups", "upgrades", "exports", "compose-runtime", "migration-tasks", "__pycache__"}
 PROMETHEUS_BACKUP_SKIP_NAMES = {"chunks_head", "lock", "queries.active", "wal"}
@@ -1061,7 +1061,7 @@ def _compose_volume_safe() -> tuple[bool, str]:
         return False, "核心数据目录挂载缺失：" + ", ".join(missing)
     if "down -v" in text:
         return False, "compose 配置中包含禁止的 down -v。"
-    return True, "核心数据目录挂载保持安全：/data/smartx-capacity-insight-data/app 和 /data/smartx-capacity-insight-data/prometheus 不会被替换。"
+    return True, "核心数据目录挂载保持安全：/data/smartx-storage-forecast/app 和 /data/smartx-storage-forecast/prometheus 不会被替换。"
 
 
 def _compose_network_safe(package_dir: Path) -> tuple[bool, str, list[str]]:
@@ -1087,7 +1087,7 @@ def _compose_network_safe(package_dir: Path) -> tuple[bool, str, list[str]]:
             ok = False
     if ok:
         details.append("compose 网络使用 smartx-net，未发现 172.16/172.17 网段。")
-    return ok, "compose 网络网段符合 10.249.249.0/24 规划。" if ok else "compose 网络配置不符合规划。", details
+    return ok, f"compose 网络网段符合 {EXPECTED_NETWORK_SUBNET} 规划。" if ok else "compose 网络配置不符合规划。", details
 
 
 def _image_names_check(manifest: dict[str, Any]) -> tuple[bool, str, list[str]]:

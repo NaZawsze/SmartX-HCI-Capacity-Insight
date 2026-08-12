@@ -86,6 +86,7 @@ def build_package(
     include_frontend_build: bool,
     pull_prometheus: bool,
     offline_prometheus_image: bool = False,
+    allow_existing_images: bool = False,
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     platform_builder = load_platform_builder()
@@ -99,6 +100,7 @@ def build_package(
             output_dir=temporary,
             build_images=build_platform_images,
             include_frontend_build=include_frontend_build,
+            allow_existing_images=allow_existing_images,
         )
         prometheus_package = prometheus_builder.build_package(
             prometheus_version,
@@ -184,6 +186,15 @@ def build_package(
         }
         if platform_manifest.get("source_compatibility"):
             manifest["source_compatibility"] = platform_manifest.get("source_compatibility")
+        for key in (
+            "minimum_runner_version",
+            "environment_transitions",
+            "directory_transition",
+            "legacy_cleanup",
+            "post_upgrade",
+        ):
+            if platform_manifest.get(key):
+                manifest[key] = platform_manifest.get(key)
         if migration:
             manifest["migration"] = migration
             manifest["migration_steps"] = list(platform_manifest.get("migration_steps") or [])
@@ -229,6 +240,7 @@ def main() -> None:
     parser.add_argument("--min-prometheus-version", default="v2.55.1")
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--no-build", action="store_true")
+    parser.add_argument("--allow-existing-images", action="store_true", help="Allow --no-build to reuse existing platform images after strict image identity checks.")
     parser.add_argument("--skip-frontend-build", action="store_true")
     parser.add_argument("--no-pull-prometheus", action="store_true")
     parser.add_argument("--offline-prometheus-image", action="store_true", help="Include observability/images/prometheus.tar in the bundle.")
@@ -241,6 +253,7 @@ def main() -> None:
         output_dir=args.output_dir,
         build_platform_images=not args.no_build,
         include_frontend_build=not args.skip_frontend_build,
+        allow_existing_images=args.allow_existing_images,
         pull_prometheus=not args.no_pull_prometheus,
         offline_prometheus_image=args.offline_prometheus_image,
     )

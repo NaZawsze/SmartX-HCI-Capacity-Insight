@@ -18,6 +18,7 @@ import type {
   SpaceCleanupResult,
   SpaceCleanupScanResult,
   Tower,
+  UpgradePostCleanupStatus,
   UpgradeTask,
   UpgradeVerification,
   VmDetail,
@@ -603,6 +604,12 @@ export const api = {
   },
   async upgradeVerification(): Promise<UpgradeVerification> {
     return request<UpgradeVerification>("/api/admin/upgrade/verification");
+  },
+  async upgradePostCleanupStatus(taskId: string): Promise<UpgradePostCleanupStatus> {
+    return request<UpgradePostCleanupStatus>(`/api/admin/upgrade/post-cleanup/${taskId}`);
+  },
+  async retryUpgradePostCleanup(taskId: string): Promise<UpgradeTask> {
+    return request<UpgradeTask>(`/api/admin/upgrade/post-cleanup/${taskId}/retry`, { method: "POST" });
   },
   async uploadComponentUpgradePackage(file: File, onProgress?: ProgressCallback): Promise<UpgradeTask> {
     const formData = new FormData();

@@ -42,6 +42,8 @@ v2 保持 5 个容器，不拆成多个业务微服务，避免离线部署、�
 
 API 层只做鉴权、参数解析和服务调用；业务规则应沉到对应模块里。
 
+CloudTower 版本范围：`collection` 和 `inventory` 模块通过 CloudTower v2 HTTP API（`/v2/api/login`、`/v2/api/get-clusters`、`/v2/api/get-cluster-storage-info`、`/v2/api/get-vms`、`/v2/api/get-vm-volumes`）读取集群、VM、卷和容量数据。需要目标 CloudTower（SMTX OS）支持这些 v2 API 端点；只要端点可用并返回预期结构，不强制要求具体 CloudTower 小版本号。
+
 ## 3. 数据职责
 
 SQLite 保存业务元数据和最新状态：
@@ -74,15 +76,16 @@ VM 名称只用于展示。VM 改名后，页面和报表使用最新采集名�
 
 | 路径 | 用途 |
 | --- | --- |
-| `/data/smartx-capacity-insight-data/app` | SQLite 业务库和少量应用状态 |
-| `/data/smartx-capacity-insight-data/prometheus` | Prometheus 历史 block |
-| `/data/upgrades` | 升级包、解包目录、升级任务状态 |
-| `/data/backups` | 升级前备份、导入前备份、项目文件备份 |
-| `/data/exports/reports` | Word/Excel 报表留存 |
-| `/data/exports/migrations` | 数据迁出包 |
-| `/data/exports/imports` | 数据迁入上传包和解包目录 |
-| `/data/exports/migration-tasks` | 数据迁出后台任务状态 |
-| `/data/compose-runtime` | 升级中心生成的 compose override |
+| `/data/smartx-storage-forecast/project` | 项目文件、Compose 文件、脚本、文档和 Prometheus 配置 |
+| `/data/smartx-storage-forecast/app` | SQLite 业务库和少量应用状态 |
+| `/data/smartx-storage-forecast/prometheus` | Prometheus 历史 block |
+| `/data/smartx-storage-forecast/upgrades` | 升级包、解包目录、升级任务状态 |
+| `/data/smartx-storage-forecast/backups` | 升级前备份、导入前备份、项目文件备份 |
+| `/data/smartx-storage-forecast/exports/reports` | Word/Excel 报表留存 |
+| `/data/smartx-storage-forecast/exports/migrations` | 数据迁出包 |
+| `/data/smartx-storage-forecast/exports/imports` | 数据迁入上传包和解包目录 |
+| `/data/smartx-storage-forecast/exports/migration-tasks` | 数据迁出后台任务状态 |
+| `/data/smartx-storage-forecast/compose-runtime` | 升级中心生成的 compose override |
 
 运行产物不得放回 app 业务库目录，避免备份、迁移和空间清理互相污染。
 
@@ -214,10 +217,10 @@ overwrite 只用于明确恢复场景，并要求用户显式确认。
 - Prometheus 历史数据。
 - Tower 明文密码或 API Token。
 - 升级包、迁移包、备份包。
-- `/data/upgrades`
-- `/data/backups`
-- `/data/exports`
-- `/data/compose-runtime`
+- `/data/smartx-storage-forecast/upgrades`
+- `/data/smartx-storage-forecast/backups`
+- `/data/smartx-storage-forecast/exports`
+- `/data/smartx-storage-forecast/compose-runtime`
 - 包含 `password`、`token`、`secret` 的敏感路径。
 
 运行规则：

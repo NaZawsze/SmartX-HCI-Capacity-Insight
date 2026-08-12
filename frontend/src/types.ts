@@ -356,6 +356,13 @@ export interface UpgradeVerification {
   }>;
 }
 
+export interface UpgradePostCleanupStatus {
+  parent_task_id: string;
+  status: string;
+  task_id?: string;
+  task?: UpgradeTask | null;
+}
+
 export interface ComponentInfo {
   type: "runner" | "observability" | string;
   display_name: string;

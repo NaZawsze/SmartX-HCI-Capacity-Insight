@@ -12,17 +12,17 @@
 - `需验证`：代码或包已调整，需要在真实升级流程验证。
 - `设计约束`：当前设计刻意如此，但需要在文档和 UI 中解释清楚。
 
-## UPG-001 旧 web-api 组件升级写入只读 /opt
+## UPG-001 旧 web-api 组件升级写入只读项目目录
 
-状态：[已解决] v2 已改为 `/data/compose-runtime`，runner-only 组件升级已在 `10.20.11.3` 真实验证
+状态：[已解决] v2 已改为 `/data/smartx-storage-forecast/compose-runtime`，runner-only 组件升级已在 `10.20.11.3` 真实验证
 
 现象：从 `upgrade-runner v0.1.0` 升级到 `v0.2.0` 时，页面组件升级失败，报错：
 
 ```text
-[Errno 30] Read-only file system: '/opt/smartx-storage-forecast/docker-compose.runner-upgrade.yml'
+[Errno 30] Read-only file system: '/data/smartx-storage-forecast/project/docker-compose.runner-upgrade.yml'
 ```
 
-根因：旧 `web-api` 的组件升级逻辑把 runner override 写到项目目录 `/opt/smartx-storage-forecast`。实际部署中该目录可能是只读挂载，或者不是运行时文件应该写入的位置。
+根因：旧 `web-api` 的组件升级逻辑把 runner override 写到项目目录 `/data/smartx-storage-forecast/project`。实际部署中该目录可能是只读挂载，或者不是运行时文件应该写入的位置。
 
 影响：
 - web 页面无法完成 runner 组件升级。
@@ -30,16 +30,16 @@
 - 这不是 `v0.2.0` runner 镜像本体的问题，而是旧 `web-api` 执行组件升级的路径设计问题。
 
 根修方向：
-- [已完成代码修改] 组件升级运行时文件写到 `/data/compose-runtime/docker-compose.runner-upgrade.yml`。
-- [已完成代码修改] `docker compose -f` 读取同一个 `/data/compose-runtime/docker-compose.runner-upgrade.yml`。
-- [已完成代码修改] 不再向 `/opt/smartx-storage-forecast` 写运行时 compose override。
+- [已完成代码修改] 组件升级运行时文件写到 `/data/smartx-storage-forecast/compose-runtime/docker-compose.runner-upgrade.yml`。
+- [已完成代码修改] `docker compose -f` 读取同一个 `/data/smartx-storage-forecast/compose-runtime/docker-compose.runner-upgrade.yml`。
+- [已完成代码修改] 不再向 `/data/smartx-storage-forecast/project` 写运行时 compose override。
 
 验证记录：
-- 已用最小复现证明旧逻辑会写 project path，不会写 `/data/compose-runtime`。
+- 已用最小复现证明旧逻辑会写 project path，不会写 `/data/smartx-storage-forecast/compose-runtime`。
 - 修改后同一复现通过：runtime override 存在，project override 不存在。
 - 新增 `backend/tests/test_upgrade.py` 回归测试覆盖写入路径和 compose 命令引用路径。
 - `docker compose build web-api` 通过。
-- v2 在 `10.20.11.3` 使用 runner 组件包 `smartx-upgrade-runner-v0.3.0.tar.gz` 真实执行成功，写入 `/data/compose-runtime/docker-compose.runner-upgrade.yml`，runner 容器切换到 `nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0`。
+- v2 在 `10.20.11.3` 使用 runner 组件包 `smartx-upgrade-runner-v0.3.0.tar.gz` 真实执行成功，写入 `/data/smartx-storage-forecast/compose-runtime/docker-compose.runner-upgrade.yml`，runner 容器切换到 `nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.0`。
 
 ## UPG-002 runner v0.2.0 升级前备份函数缺失
 
@@ -82,7 +82,7 @@ name '_write_upgrade_backup_archive' is not defined
 
 状态：[已解决] v2 runner 已区分 Docker 视角 compose 路径和容器内 cwd，远端验证通过
 
-现象：容器内看到的项目路径是 `/opt/smartx-storage-forecast`，但 Docker daemon 真正需要宿主机路径，例如 `/data/SmartX-HCI-Capacity-Insight-main`。升级重启时 compose 里的相对 bind mount 可能解析到错误路径。
+现象：容器内看到的项目路径是 `/data/smartx-storage-forecast/project`，但 Docker daemon 真正需要宿主机路径，例如 `/data/SmartX-HCI-Capacity-Insight-main`。升级重启时 compose 里的相对 bind mount 可能解析到错误路径。
 
 根因：runner 在容器内通过 Docker socket 调用宿主机 Docker，但 compose 文件里的相对路径需要按宿主机项目路径解释，而不是容器内路径。
 
@@ -90,7 +90,7 @@ name '_write_upgrade_backup_archive' is not defined
 - Prometheus 配置挂载可能找不到文件。
 - 项目文件同步后 compose up 可能使用错误目录。
 
-当前处理：v2 runner 通过 `/data/compose-runtime/*.yml` 写入 Docker daemon 可见的 compose override，同时使用容器内存在的项目路径作为 `cwd`。`10.20.11.3` 的平台、runner、Prometheus 升级任务均已验证该路径模型可用。
+当前处理：v2 runner 通过 `/data/smartx-storage-forecast/compose-runtime/*.yml` 写入 Docker daemon 可见的 compose override，同时使用容器内存在的项目路径作为 `cwd`。`10.20.11.3` 的平台、runner、Prometheus 升级任务均已验证该路径模型可用。
 
 ## UPG-005 升级包镜像名与 compose 镜像名不闭环
 
@@ -148,13 +148,13 @@ name '_write_upgrade_backup_archive' is not defined
 
 根修方向：
 - 升级包新增 `project/` 目录，仅包含白名单文件。
-- 同步前备份旧项目文件到 `/data/backups/project-files-before-版本-时间/`。
+- 同步前备份旧项目文件到 `/data/smartx-storage-forecast/backups/project-files-before-版本-时间/`。
 - 回滚时同时恢复项目文件。
 - 禁止覆盖 `.env`、数据库、Prometheus 数据、Tower 凭据和任何 secret/token/password 文件。
 
 验证记录：
 - `10.20.11.3` 平台升级任务 `upgrade-9c1b8ce0fb6f7b47` 成功同步项目文件。
-- 同步前备份路径为 `/data/backups/project-files-before-v0.5.0-20260606090010`。
+- 同步前备份路径为 `/data/smartx-storage-forecast/backups/project-files-before-v0.5.0-20260606090010`。
 
 ## UPG-008 升级前备份进度不透明且可能卡住
 
@@ -162,7 +162,7 @@ name '_write_upgrade_backup_archive' is not defined
 
 现象：升级任务卡在“升级前备份”，页面缺少精确进度和小日志，用户只能看到步骤长时间不动。
 
-根因：备份过程是大文件 tar/gzip 操作，历史实现没有按文件或字节上报进度；旧实现还可能把 `/data/upgrades`、`/data/backups`、`/data/exports` 等运行时目录打进备份，导致备份变大甚至递归式膨胀。
+根因：备份过程是大文件 tar/gzip 操作，历史实现没有按文件或字节上报进度；旧实现还可能把 `/data/smartx-storage-forecast/upgrades`、`/data/smartx-storage-forecast/backups`、`/data/smartx-storage-forecast/exports` 等运行时目录打进备份，导致备份变大甚至递归式膨胀。
 
 影响：
 - 大数据量现场用户无法判断是正常压缩还是失败。
@@ -290,7 +290,7 @@ name '_write_upgrade_backup_archive' is not defined
 验证记录：
 - `10.20.11.3` 已生成 `/data/upgrade-packages/components/smartx-prometheus-v2.55.1.tar.gz`。
 - 真实执行 Prometheus 组件包任务 `upgrade-91593ac4799312d2` 成功。
-- 升级前备份路径为 `/data/backups/upgrade-v2.55.1-before-20260606093851.tar.gz`。
+- 升级前备份路径为 `/data/smartx-storage-forecast/backups/upgrade-v2.55.1-before-20260606093851.tar.gz`。
 - Prometheus 重启后 healthy，`smartx_vm_storage_used_bytes` 最近 2 天 `query_range` 返回 175 条 series。
 
 ## UPG-016 数据迁移后增长和趋势为空
@@ -304,14 +304,14 @@ name '_write_upgrade_backup_archive' is not defined
 当前处理：数据迁移包包含业务库和 Prometheus 历史指标；`pre_install.sh` 负责修正 Prometheus 数据目录权限；导入前会自动生成当前系统备份，备份成功后才执行 merge/overwrite。v2 报表服务在 Prometheus 当前 instant 样本为空时，会用历史窗口内每条 series 的最后一个样本回退计算 VM 增长和集群总容量，避免刚导入后页面空白。
 
 验证记录：
-- 2026-06-05 在 `10.20.11.3` 通过后台迁移导出任务生成 `/data/exports/migrations/smartx-storage-migration-20260605113838.tar.gz`。
+- 2026-06-05 在 `10.20.11.3` 通过后台迁移导出任务生成 `/data/smartx-storage-forecast/exports/migrations/smartx-storage-migration-20260605113838.tar.gz`。
 - 导出包检查：包含 `smartx-data/smartx.db`，包含 7 个 Prometheus block 的 `meta.json`，不包含 Prometheus `wal` 运行时目录。
-- 使用 merge 模式导回当前系统，导入成功并生成导入前备份 `/data/backups/import-before-20260605114014-0ac6678f.tar.gz`。
+- 使用 merge 模式导回当前系统，导入成功并生成导入前备份 `/data/smartx-storage-forecast/backups/import-before-20260605114014-0ac6678f.tar.gz`。
 - 同包回导时业务库已有数据被跳过，Prometheus 7 个已有 block 被跳过，未覆盖现有数据。
 - 重启 `web-api`、`collector-worker`、`prometheus` 后，`smartx_vm_storage_used_bytes` 即时查询返回 175 条 series。
 - `query_range` 最近 7 天返回 175 条 series，前 10 条 series 共 260 个历史点。
 - 报表接口返回 `clusters=1`、`day_fastest_growing_vms=100`，集群趋势点数为 13；`month_fastest_growing_vms=0` 符合当前“样本满 30 天”新口径。
-- 2026-06-06 使用 `/data/exports/migrations/smartx-capacity-insight-migration-20260606075715-438dc55b.tar.gz` 在 `/data/v2-migration-verify` 做隔离导入验证：导入后 SQLite 有 `towers=1`、`clusters=1`、`vm_latest=523`、`vm_volumes=89530`，Prometheus 历史 block `7` 个，健康检查 `complete=true`。
+- 2026-06-06 使用 `/data/smartx-storage-forecast/exports/migrations/smartx-capacity-insight-migration-20260606075715-438dc55b.tar.gz` 在 `/data/v2-migration-verify` 做隔离导入验证：导入后 SQLite 有 `towers=1`、`clusters=1`、`vm_latest=523`、`vm_volumes=89530`，Prometheus 历史 block `7` 个，健康检查 `complete=true`。
 - 2026-06-06 用隔离 Prometheus 查询历史 block，`smartx_vm_storage_used_bytes` 90 天窗口返回 `525` 条历史 series，最大样本时间 `2026-06-06 13:07:52`；修复后报表在 instant 为空时以历史尾点回退，返回 `clusters=1`、`cluster_points=15`、`day_growth=100`。
 - 同一隔离包 `month_growth=0` 是符合规则的结果：迁移包历史跨度约 15 天，不满足月增长榜固定 `>=30` 天样本跨度要求。
 
@@ -341,8 +341,8 @@ name '_write_upgrade_backup_archive' is not defined
 根因：runner 通过 Docker socket 解析出了宿主机项目目录 `/data/SmartX-HCI-Capacity-Insight-main`，但该路径在 runner 容器内不存在；旧逻辑把它作为 `subprocess.run(..., cwd=...)` 的工作目录，导致重启阶段失败。
 
 修复：
-- `docker compose -f` 仍使用 `/data/compose-runtime/*.yml`，保证 compose 文件和 bind mount 路径对 Docker daemon 可见。
-- `cwd` 改为 runner 容器内存在的 `/opt/smartx-storage-forecast`，不存在时再兜底 `/data` 或 `/`。
+- `docker compose -f` 仍使用 `/data/smartx-storage-forecast/compose-runtime/*.yml`，保证 compose 文件和 bind mount 路径对 Docker daemon 可见。
+- `cwd` 改为 runner 容器内存在的 `/data/smartx-storage-forecast/project`，不存在时再兜底 `/data` 或 `/`。
 - 已生成 `/data/upgrade-packages/components/smartx-upgrade-runner-v0.2.2.tar.gz`。
 - 已在 `10.20.11.12` 导入并切换到 `nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.2.2`。
 
@@ -350,13 +350,13 @@ name '_write_upgrade_backup_archive' is not defined
 
 ```text
 runner_version v0.2.2
-compose_cwd /opt/smartx-storage-forecast True
-compose_command docker compose -p smartx-capacity-insight -f /data/compose-runtime/docker-compose.offline.yml -f /data/compose-runtime/docker-compose.upgrade.yml
+compose_cwd /data/smartx-storage-forecast/project True
+compose_command docker compose -p smartx-capacity-insight -f /data/smartx-storage-forecast/compose-runtime/docker-compose.offline.yml -f /data/smartx-storage-forecast/compose-runtime/docker-compose.upgrade.yml
 ```
 
 ## 当前建议修复顺序
 
-1. [已解决] 修复旧 web-api 组件升级写 `/opt` 的问题，改为 `/data/compose-runtime`。
+1. [已解决] 修复旧 web-api 组件升级写项目目录的问题，改为 `/data/smartx-storage-forecast/compose-runtime`。
 2. [已解决] runner 独立治理到 v2 当前 `v0.3.0`，解决备份、排除目录、`--no-deps`、容器内 `cwd` 和 runner-only 自升级执行者问题。
 3. [已解决] 修复平台升级闭环：镜像名、compose tag、project 文件同步；后续升级以 v2 当前 runner `v0.3.0` 为基线。
 4. [已解决] 增强预检查：镜像名/tag、compose 文件、项目文件、敏感路径、volume、网络、磁盘空间的步骤化进度。
@@ -370,9 +370,9 @@ compose_command docker compose -p smartx-capacity-insight -f /data/compose-runti
 
 状态：[已解决] v2 目录结构和 compose 挂载已调整，并在远端运行验证通过
 
-现象：升级包上传目录、升级历史任务、自动备份、报表导出、数据迁出、数据迁入留档等运行产物历史上都可能落在容器 `/data` 下。由于 `/data` 映射到宿主机 `/data/smartx-capacity-insight-data/app`，这些运行产物实际会进入业务库目录旁边，例如 `app/upgrades`、`app/backups`、`app/exports`。
+现象：升级包上传目录、升级历史任务、自动备份、报表导出、数据迁出、数据迁入留档等运行产物历史上都可能落在容器 `/data` 下。由于 `/data` 映射到宿主机 `/data/smartx-storage-forecast/app`，这些运行产物实际会进入业务库目录旁边，例如 `app/upgrades`、`app/backups`、`app/exports`。
 
-根因：配置默认使用 `/data/upgrades`、`/data/backups`、`/data/exports`、`/data/compose-runtime`，但 compose 只挂载了 `/data/smartx-capacity-insight-data/app:/data`，没有为运行产物目录提供独立 bind mount。
+根因：配置默认使用 `/data/smartx-storage-forecast/upgrades`、`/data/smartx-storage-forecast/backups`、`/data/smartx-storage-forecast/exports`、`/data/smartx-storage-forecast/compose-runtime`，但 compose 只挂载了 `/data/smartx-storage-forecast/app:/data`，没有为运行产物目录提供独立 bind mount。
 
 影响：
 - 升级前备份可能把旧升级包、报表、迁移包一起打进去，体积变大甚至看起来卡住。
@@ -380,28 +380,28 @@ compose_command docker compose -p smartx-capacity-insight -f /data/compose-runti
 - 业务库目录职责不清，排查时容易误把缓存和核心数据混在一起。
 
 修复：
-- 保留核心业务数据在 `/data/smartx-capacity-insight-data/app`，例如 `smartx.db` 和 `upgrade-runner.version`。
-- 新增独立宿主机目录：`/data/upgrades`、`/data/backups`、`/data/exports`、`/data/compose-runtime`。
+- 保留核心业务数据在 `/data/smartx-storage-forecast/app`，例如 `smartx.db` 和 `upgrade-runner.version`。
+- 新增独立宿主机目录：`/data/smartx-storage-forecast/upgrades`、`/data/smartx-storage-forecast/backups`、`/data/smartx-storage-forecast/exports`、`/data/smartx-storage-forecast/compose-runtime`。
 - `docker-compose.yml`、`docker-compose.offline.yml`、`docker-compose.release.yml` 对 web-api、collector-worker、upgrade-runner 增加独立挂载。
 - `pre_install.sh` 创建并授权上述目录。
-- runner override 写入路径改为 `SMARTX_RUNTIME_PATH`，默认 `/data/compose-runtime`。
+- runner override 写入路径改为 `SMARTX_RUNTIME_PATH`，默认 `/data/smartx-storage-forecast/compose-runtime`。
 - 后续平台升级以 v2 当前 `upgrade-runner v0.3.0` 为基线，不再在平台升级包里自动整理旧 `app/upgrades/backups/exports/compose-runtime` 目录。
 - 当前平台包不再默认携带 `scripts/migrate.sh`；需要 SQLite schema 迁移时才由打包器生成 `migrations/run_migrations.py`，并通过 manifest 的 `migration_steps` 累计执行。
 
 目录归属：
 
 ```text
-/data/smartx-capacity-insight-data/app/smartx.db                 # 业务库
-/data/smartx-capacity-insight-data/app/upgrade-runner.version    # runner 版本记录
-/data/smartx-capacity-insight-data/prometheus                    # Prometheus 历史指标
-/data/upgrades                                                   # 上传升级包、解包目录、升级任务记录
-/data/backups                                                    # 升级前备份、项目文件备份
-/data/exports                                                    # 导出/导入留档总目录
-/data/exports/reports                                            # Word/Excel 报表导出文件
-/data/exports/migrations                                         # 数据迁移导出包
-/data/exports/imports                                            # 数据迁移导入上传包、解压目录、task.json
-/data/exports/migration-tasks                                    # 数据迁移导出后台任务状态
-/data/compose-runtime                                            # 运行时 compose override
+/data/smartx-storage-forecast/app/smartx.db                 # 业务库
+/data/smartx-storage-forecast/app/upgrade-runner.version    # runner 版本记录
+/data/smartx-storage-forecast/prometheus                    # Prometheus 历史指标
+/data/smartx-storage-forecast/upgrades                                                   # 上传升级包、解包目录、升级任务记录
+/data/smartx-storage-forecast/backups                                                    # 升级前备份、项目文件备份
+/data/smartx-storage-forecast/exports                                                    # 导出/导入留档总目录
+/data/smartx-storage-forecast/exports/reports                                            # Word/Excel 报表导出文件
+/data/smartx-storage-forecast/exports/migrations                                         # 数据迁移导出包
+/data/smartx-storage-forecast/exports/imports                                            # 数据迁移导入上传包、解压目录、task.json
+/data/smartx-storage-forecast/exports/migration-tasks                                    # 数据迁移导出后台任务状态
+/data/smartx-storage-forecast/compose-runtime                                            # 运行时 compose override
 ```
 
 取舍：已取消“数据迁移导出跳过 Prometheus 历史指标”的优化方向。历史指标是日增长、月增长和趋势图的数据来源，不能为了导出速度跳过；真正优化方向是目录职责拆开，并给导出/导入/备份增加精确进度和可清理留档。
@@ -430,13 +430,76 @@ compose_command docker compose -p smartx-capacity-insight -f /data/compose-runti
 - VM 列表返回 `172` 台，首个 VM 7 天趋势点 `146`。
 - 报表返回 `clusters=1`、趋势点 `14`、预测窗口 `90` 天。
 
+## UPG-021 v0.5.2 升级成功后旧环境残留未自动清理
+
+状态：[待修复] `v0.5.2-cleanupfix2` 完整链路验证失败，需实现 `v0.5.2-cleanupfix3`
+
+专项文档：`docs/v0.5.1u2-to-v0.5.2-upgrade-issues.md` 单独记录 `v0.5.1u2 -> runner v0.3.1 -> v0.5.2` 的目录矩阵、历史失败模式和 2026-07-02 当前现场问题；`docs/v0.5.1u2-to-v0.5.2-upgrade-plan-issue.md` 单独记录修复规划、包策略、测试计划和验收标准。
+
+现象：`v0.5.2-fix2` 能完成平台、runner、Prometheus 切换，最终健康为 `ok=true`、`version=v0.5.2`、`runner_version=v0.3.1`、`checks.prometheus=true`，但升级后仍可能保留旧 project 容器、旧 network、旧顶层目录，以及旧 runner `/data` 绑定误写到新 app 目录下的运行产物。2026-07-03 完整链路验证显示，`v0.5.2-cleanupfix2` 已能把新平台切到 `v0.5.2 + runner v0.3.1`，但最终 `legacy.cleanup` 失败，因为旧 runner `smartx-storage-forecast-upgrade-runner-1` 仍运行并挂载 `/opt/smartx-storage-forecast`。
+
+已知残留范围：
+
+```text
+旧 project: smartx-storage-forecast
+旧 network: smartx-storage-forecast_smartx-net
+
+旧目录:
+/opt/smartx-storage-forecast
+/data/upgrades
+/data/backups
+/data/exports
+/data/compose-runtime
+/data/smartx-capacity-insight-data
+/prometheus-data
+
+旧 runner 误写残留:
+/data/smartx-storage-forecast/app/upgrades
+/data/smartx-storage-forecast/app/backups
+/data/smartx-storage-forecast/app/exports
+/data/smartx-storage-forecast/app/compose-runtime
+/data/smartx-storage-forecast/app/smartx-storage-forecast
+```
+
+根因：
+
+- v0.5.2 已完成目录迁移和新 project 切换，但执行计划没有最终 `legacy.cleanup` 动作。
+- v0.5.2 切换后，新 web-api 读取 `/data/smartx-storage-forecast/upgrades`，而正在执行的任务状态可能仍在旧 `/data/upgrades/<task_id>/task.json`，直接删除旧目录会造成任务中心丢最终状态。
+- 旧 runner bootstrap 阶段使用过 `/data` bind，可能把 upgrades/backups/exports/compose-runtime 等运行产物写入 `/data/smartx-storage-forecast/app`。
+- cleanupfix2 新增了 runner handoff，但 handoff 只启动新 runner，没有停止旧 runner；cleanup guard 因旧 runner 仍挂载 `/opt/smartx-storage-forecast` 正确失败。
+- `task.migrate_runtime_state` 对 manifest 给出的目标绝对路径 `/data/smartx-storage-forecast/upgrades` 仍执行旧 runner 的 host-path 映射，导致新 web-api 查当前任务 404。
+
+修复计划：
+
+- v0.5.2 manifest 增加 `legacy_cleanup` allowlist，v0.5.1u2 和 runner v0.3.1 包不携带。
+- runner 增加 `task.migrate_runtime_state` 和 `task.sync_runtime_state`，迁移当前任务目录并在切换期间双写 task 状态。
+- v0.5.2 execution plan 顺序更新为 `filesystem.prepare -> files.sync -> task.migrate_runtime_state -> compose.override -> compose.project_migrate -> compose.apply -> health.http -> task.sync_runtime_state -> runner.handoff_target_runtime -> runner.stop_legacy_runtime -> legacy.cleanup`。
+- 新增 `runner.stop_legacy_runtime`：只停止并删除旧 project 的 `smartx-storage-forecast-upgrade-runner-1`，禁止删除当前 runner 和新 project runner。
+- `task.migrate_runtime_state` 对 manifest 明确声明的 `/data/smartx-storage-forecast/upgrades` 直接按宿主机目标路径写入，不再映射到旧 `/data` 的宿主机来源。
+- `legacy.cleanup` 只在最终健康通过后执行，并重新确认 `version=v0.5.2`、`runner_version=v0.3.1`、`directories/database/prometheus=true`。
+- 清理动作删除旧 project 容器、旧 network、allowlist 内旧目录和误写残留目录；每项记录 `deleted/missing/skipped/failed`。
+
+安全边界：
+
+- 禁止删除 `/`、`/data`、`/opt`、空路径、包含 `..` 的路径。
+- 禁止删除 `/data/smartx-storage-forecast` 及其正式目标子目录。
+- 禁止删除当前 project `smartx-hci-capacity-insight` 的容器和 network。
+- 健康失败时不执行清理；清理失败只作为 warning，不回滚已健康运行的 v0.5.2 平台。
+
+验证要求：
+
+- 只在 `10.20.11.3` 验证，不操作 `10.20.11.12`。
+- 从 `v0.5.1 + runner v0.3.0` 正常升级到 `v0.5.1u2-fix10 -> runner v0.3.1-fsdirfix9 -> 新 v0.5.2 包`。
+- 最终任务中心可读 v0.5.2 升级成功状态和清理明细。
+- 旧容器、旧 network、旧目录和误写残留已删除，或以 skipped 形式记录明确原因。
+
 ## v2 升级中心规避策略
 
 v2 不继续兼容旧升级路径，而是在 `dev2` 上重新设计升级中心。历史问题在 v2 中按下面方式规避。
 
 | 历史问题 | v2 规避策略 | 设计文档 |
 | --- | --- | --- |
-| UPG-001 写只读 `/opt` | runner 和 web-api 的运行时 compose override 统一写 `/data/compose-runtime` | `docs/v2-upgrade-center-design.md` |
+| UPG-001 写只读项目目录 | runner 和 web-api 的运行时 compose override 统一写 `/data/smartx-storage-forecast/compose-runtime` | `docs/v2-upgrade-center-design.md` |
 | UPG-002 runner 函数缺失 | runner 独立组件包、独立版本、独立验证，不跟随平台包混发 | `docs/v2-upgrade-center-design.md` |
 | UPG-003 重启平台服务带起依赖 | 平台升级只重启 manifest 声明服务，未声明组件一律不动 | `docs/v2-upgrade-center-design.md` |
 | UPG-004 Docker socket 路径不一致 | runner 区分宿主机 Docker 视角路径和容器内 cwd | `docs/v2-upgrade-center-design.md` |
@@ -452,7 +515,8 @@ v2 不继续兼容旧升级路径，而是在 `dev2` 上重新设计升级中心
 | UPG-014 网络冲突 | 预检查校验 compose 网络，继续规避 172.16/172.17 常见冲突段 | `docs/v2-upgrade-center-design.md` |
 | UPG-015 Prometheus 升级未定义 | Prometheus 作为 `observability` 组件独立升级，强制备份和健康检查 | `docs/v2-upgrade-center-design.md` |
 | UPG-016 迁移后趋势为空 | v2 数据迁移必须包含 Prometheus 历史 block，并有导入后健康验证 | `docs/v1-data-compatibility.md` |
-| UPG-019 运行产物污染 app 目录 | v2 明确 `/data/upgrades`、`/data/backups`、`/data/exports`、`/data/compose-runtime` 独立职责 | `docs/architecture-v2.md` |
+| UPG-019 运行产物污染 app 目录 | v2 明确 `/data/smartx-storage-forecast/upgrades`、`/data/smartx-storage-forecast/backups`、`/data/smartx-storage-forecast/exports`、`/data/smartx-storage-forecast/compose-runtime` 独立职责 | `docs/architecture-v2.md` |
+| UPG-021 v0.5.2 旧环境残留 | v0.5.2 最终健康后由 runner 执行 allowlist 清理，并先迁移/双写升级任务状态 | `docs/v0.5.0-to-v0.5.2-upgrade-plan.md` |
 
 v2 升级中心实施前必须先完成：
 

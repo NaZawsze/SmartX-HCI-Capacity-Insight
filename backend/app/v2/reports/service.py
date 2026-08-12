@@ -78,19 +78,19 @@ class ReportService:
         day_vm_series = self._vm_series(days=2, tower_id=tower_id, cluster_id=cluster_id, step="1h", enabled_scope=enabled_scope)
         latest_vms = _merge_latest_items(latest_vms, _latest_items_from_series_tail(vm_series))
         latest_label_by_vm = self._latest_vm_labels()
-        window_vms = _growth_reports_from_series(latest_vms, window_vm_series, period_days=window_days, limit=100, latest_label_by_vm=latest_label_by_vm)
-        day_vms = _growth_reports_from_series(latest_vms, day_vm_series, period_days=1, limit=100, latest_label_by_vm=latest_label_by_vm)
+        window_vms = _growth_reports_from_series(latest_vms, window_vm_series, period_days=window_days, limit=None, latest_label_by_vm=latest_label_by_vm)
+        day_vms = _growth_reports_from_series(latest_vms, day_vm_series, period_days=1, limit=None, latest_label_by_vm=latest_label_by_vm)
         month_vms = _growth_reports_from_series(
             latest_vms,
             vm_series,
             period_days=window_days,
-            limit=100,
+            limit=None,
             latest_label_by_vm=latest_label_by_vm,
             min_sample_days=0,
             max_sample_days=window_days,
         )
-        day_new_vms = _new_vm_reports_from_series(vm_series, *_period_bounds(self.now_ts, "day"), 100, latest_label_by_vm, _latest_vm_value_map(latest_vms))
-        month_new_vms = _new_vm_reports_from_series(vm_series, *_period_bounds(self.now_ts, "month"), 100, latest_label_by_vm, _latest_vm_value_map(latest_vms))
+        day_new_vms = _new_vm_reports_from_series(vm_series, *_period_bounds(self.now_ts, "day"), None, latest_label_by_vm, _latest_vm_value_map(latest_vms))
+        month_new_vms = _new_vm_reports_from_series(vm_series, *_period_bounds(self.now_ts, "month"), None, latest_label_by_vm, _latest_vm_value_map(latest_vms))
         cluster_growth_rate = _cluster_growth_rates(
             day=_points_by_cluster(day_growth_series),
             month=_points_by_cluster(month_growth_series),
@@ -230,7 +230,7 @@ def _growth_reports_from_series(
     series_list: list[dict[str, Any]],
     *,
     period_days: int,
-    limit: int,
+    limit: int | None,
     latest_label_by_vm: dict[tuple[int, str, str], dict[str, str]],
     min_sample_days: int | None = None,
     max_sample_days: int | None = None,
@@ -272,14 +272,15 @@ def _growth_reports_from_series(
                 "forecast": asdict(ForecastResult("ok", slope_per_day, current, current + slope_per_day * 30, current + slope_per_day * 60, current + slope_per_day * 90, current + slope_per_day * 180)),
             }
         )
-    return sorted(mapped, key=lambda item: (-float(item["growth_amount"]), item["labels"].get("vm", "")))[:limit]
+    sorted_items = sorted(mapped, key=lambda item: (-float(item["growth_amount"]), item["labels"].get("vm", "")))
+    return sorted_items[:limit] if limit is not None else sorted_items
 
 
 def _new_vm_reports_from_series(
     series_list: list[dict[str, Any]],
     start_ts: int,
     end_ts: int,
-    limit: int,
+    limit: int | None,
     latest_label_by_vm: dict[tuple[int, str, str], dict[str, str]],
     latest_value_by_vm: dict[tuple[int, str, str], float],
 ) -> list[dict[str, Any]]:
@@ -303,7 +304,8 @@ def _new_vm_reports_from_series(
                 "forecast": asdict(ForecastResult("ok", 0, current, current, current, current, current)),
             }
         )
-    return sorted(mapped, key=lambda item: item["first_seen_at"], reverse=True)[:limit]
+    sorted_items = sorted(mapped, key=lambda item: item["first_seen_at"], reverse=True)
+    return sorted_items[:limit] if limit is not None else sorted_items
 
 
 def _cluster_growth_rate_from_series(series_list: list[dict[str, Any]]) -> float:

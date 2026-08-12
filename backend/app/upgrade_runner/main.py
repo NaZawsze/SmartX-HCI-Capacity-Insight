@@ -23,6 +23,7 @@ class RunnerSettings:
     database_path: Path
     upgrades_path: Path
     data_path: Path
+    exports_path: Path
     backups_path: Path
     compose_runtime_path: Path
     prometheus_path: Path
@@ -31,7 +32,9 @@ class RunnerSettings:
     compose_project: str
     runner_version: str = "v0.3.1"
     host_data_path: Path | None = None
+    host_upgrades_path: Path | None = None
     host_backups_path: Path | None = None
+    host_exports_path: Path | None = None
     host_compose_runtime_path: Path | None = None
     host_prometheus_path: Path | None = None
     host_project_path: Path | None = None
@@ -39,11 +42,12 @@ class RunnerSettings:
     @classmethod
     def from_environment(cls) -> "RunnerSettings":
         database_path = Path(os.environ.get("SMARTX_DB_PATH", "/data/smartx.db"))
-        project_path = Path(os.environ.get("SMARTX_PROJECT_PATH", "/opt/smartx-storage-forecast"))
+        project_path = Path(os.environ.get("SMARTX_PROJECT_PATH", "/data/smartx-storage-forecast/project"))
         return cls(
             database_path=database_path,
             upgrades_path=Path(os.environ.get("SMARTX_UPGRADES_PATH", "/data/upgrades")),
             data_path=database_path.parent,
+            exports_path=Path(os.environ.get("SMARTX_EXPORTS_PATH", "/data/exports")),
             backups_path=Path(os.environ.get("SMARTX_BACKUPS_PATH", "/data/backups")),
             compose_runtime_path=Path(os.environ.get("SMARTX_COMPOSE_RUNTIME_PATH", "/data/compose-runtime")),
             prometheus_path=Path(os.environ.get("SMARTX_PROMETHEUS_DATA_PATH", "/prometheus-data")),
@@ -51,11 +55,13 @@ class RunnerSettings:
             compose_file=os.environ.get("SMARTX_COMPOSE_FILE", "docker-compose.offline.yml"),
             compose_project=os.environ.get("SMARTX_COMPOSE_PROJECT_NAME", "smartx-hci-capacity-insight"),
             runner_version=os.environ.get("SMARTX_RUNNER_VERSION", "v0.3.1"),
-            host_data_path=Path(os.environ.get("SMARTX_HOST_DATA_PATH", str(database_path.parent))),
-            host_backups_path=Path(os.environ.get("SMARTX_HOST_BACKUPS_PATH", "/data/backups")),
-            host_compose_runtime_path=Path(os.environ.get("SMARTX_HOST_COMPOSE_RUNTIME_PATH", "/data/compose-runtime")),
+            host_data_path=Path(os.environ.get("SMARTX_HOST_DATA_PATH", "/data/smartx-storage-forecast/app")),
+            host_upgrades_path=Path(os.environ.get("SMARTX_HOST_UPGRADES_PATH", "/data/smartx-storage-forecast/upgrades")),
+            host_backups_path=Path(os.environ.get("SMARTX_HOST_BACKUPS_PATH", "/data/smartx-storage-forecast/backups")),
+            host_exports_path=Path(os.environ.get("SMARTX_HOST_EXPORTS_PATH", "/data/smartx-storage-forecast/exports")),
+            host_compose_runtime_path=Path(os.environ.get("SMARTX_HOST_COMPOSE_RUNTIME_PATH", "/data/smartx-storage-forecast/compose-runtime")),
             host_prometheus_path=Path(
-                os.environ.get("SMARTX_HOST_PROMETHEUS_DATA_PATH", os.environ.get("SMARTX_PROMETHEUS_DATA_PATH", "/prometheus-data"))
+                os.environ.get("SMARTX_HOST_PROMETHEUS_DATA_PATH", "/data/smartx-storage-forecast/prometheus")
             ),
             host_project_path=Path(os.environ.get("SMARTX_HOST_PROJECT_PATH", str(project_path))),
         )
@@ -94,6 +100,20 @@ def _is_runner_component_task(task: dict[str, Any]) -> bool:
     return bool(manifest_components) and manifest_components <= {"runner"}
 
 
+PACKAGELESS_TASK_TYPES = {"post_upgrade_cleanup"}
+
+
+def _package_path_for_task(task: dict[str, Any], task_dir: Path) -> Path:
+    package_path = task.get("package_path")
+    if package_path:
+        return Path(str(package_path))
+    manifest_type = str((task.get("manifest") or {}).get("package_type") or "")
+    task_type = str(task.get("task_type") or "")
+    if task_type in PACKAGELESS_TASK_TYPES or manifest_type in PACKAGELESS_TASK_TYPES:
+        return task_dir / "package"
+    raise KeyError("package_path")
+
+
 def _finish_runner_component_steps(task: dict[str, Any], message: str) -> dict[str, Any]:
     steps = list(task.get("steps") or [])
     steps = _replace_step(steps, "restart", "succeeded", "upgrade-runner 已重新启动")
@@ -114,12 +134,34 @@ def _finish_runner_component_steps(task: dict[str, Any], message: str) -> dict[s
 ACTION_STEP_DEFINITIONS = [
     ("backup", "生成升级前数据备份", {"backup.create"}),
     ("load_images", "加载升级镜像", {"image.load"}),
+    ("prepare_filesystem", "准备运行目录", {"filesystem.prepare"}),
     ("project_files", "同步项目文件", {"files.sync"}),
+    ("task_state", "迁移升级任务状态", {"task.migrate_runtime_state", "task.sync_runtime_state"}),
     ("write_override", "写入服务镜像覆盖配置", {"compose.override"}),
     ("project_migrate", "迁移 Compose 项目和网络", {"compose.project_migrate"}),
     ("migration", "执行数据库迁移脚本", {"script.run_sandboxed"}),
     ("restart", "重启升级服务", {"compose.apply"}),
     ("healthcheck", "执行服务健康检查", {"health.http", "health.prometheus"}),
+    ("post_upgrade_collection", "调度升级后自动采集", {"post_upgrade.schedule_collection"}),
+    ("post_upgrade", "调度升级后清理", {"post_upgrade.schedule_cleanup"}),
+    (
+        "runner_handoff",
+        "切换 runner 运行目录",
+        {"runner.handoff_target_runtime", "runner.schedule_target_runtime_handoff", "runner.stop_legacy_runtime"},
+    ),
+    (
+        "legacy_cleanup",
+        "清理旧环境残留",
+        {
+            "post_cleanup.precheck_target_health",
+            "compose.stop_legacy_project",
+            "network.remove_legacy",
+            "filesystem.cleanup_legacy_paths",
+            "filesystem.cleanup_target_app_residuals",
+            "post_cleanup.verify",
+            "legacy.cleanup",
+        },
+    ),
     ("rollback", "执行自动回滚", {"rollback.restore"}),
 ]
 
@@ -331,10 +373,12 @@ def run_pending_once(
                     elif completed.get("type") == "compose.apply":
                         services = [str(item) for item in result.get("services") or []]
                 recovery_context = ActionContext(
-                    package_path=Path(task["package_path"]),
+                    package_path=_package_path_for_task(task, task_file.parent),
                     project_path=settings.project_path,
                     data_path=settings.data_path,
+                    upgrades_path=settings.upgrades_path,
                     backups_path=settings.backups_path,
+                    exports_path=settings.exports_path,
                     compose_runtime_path=settings.compose_runtime_path,
                     prometheus_path=settings.prometheus_path,
                     compose_file=settings.compose_file,
@@ -343,7 +387,9 @@ def run_pending_once(
                     task_id=task["task_id"],
                     target_version=str(task.get("target_version") or "unknown"),
                     host_data_path=settings.host_data_path,
+                    host_upgrades_path=settings.host_upgrades_path,
                     host_backups_path=settings.host_backups_path,
+                    host_exports_path=settings.host_exports_path,
                     host_compose_runtime_path=settings.host_compose_runtime_path,
                     host_prometheus_path=settings.host_prometheus_path,
                     host_project_path=settings.host_project_path,
@@ -385,10 +431,12 @@ def run_pending_once(
             task["recovery_command"] = None
             task = store.save(task, expected_revision=int(task.get("revision") or 0))
         action_context = ActionContext(
-            package_path=Path(task["package_path"]),
+            package_path=_package_path_for_task(task, task_file.parent),
             project_path=settings.project_path,
             data_path=settings.data_path,
+            upgrades_path=settings.upgrades_path,
             backups_path=settings.backups_path,
+            exports_path=settings.exports_path,
             compose_runtime_path=settings.compose_runtime_path,
             prometheus_path=settings.prometheus_path,
             compose_file=settings.compose_file,
@@ -397,10 +445,13 @@ def run_pending_once(
             task_id=task["task_id"],
             target_version=str(task.get("target_version") or "unknown"),
             host_data_path=settings.host_data_path,
+            host_upgrades_path=settings.host_upgrades_path,
             host_backups_path=settings.host_backups_path,
+            host_exports_path=settings.host_exports_path,
             host_compose_runtime_path=settings.host_compose_runtime_path,
             host_prometheus_path=settings.host_prometheus_path,
             host_project_path=settings.host_project_path,
+            current_container_id=os.environ.get("HOSTNAME", ""),
         )
         stop_heartbeat = threading.Event()
         heartbeat = threading.Thread(

@@ -19,7 +19,7 @@ class SystemCommandExecutor:
 class SystemControlService:
     def __init__(self, *, executor: SystemCommandExecutor | None = None, project_path: Path | None = None) -> None:
         self.executor = executor or SystemCommandExecutor()
-        self.project_path = project_path or Path(os.environ.get("SMARTX_PROJECT_PATH", "/opt/smartx-storage-forecast"))
+        self.project_path = project_path or Path(os.environ.get("SMARTX_PROJECT_PATH", "/data/smartx-storage-forecast/project"))
 
     def restart_data_services(self) -> dict[str, Any]:
         self.executor.run(

@@ -111,7 +111,7 @@ class CollectionService:
             published_targets=success_targets,
         )
         self._finish_task(task_id, status=status, message=message)
-        if failed_targets and self.tasks is not None and trigger != "manual":
+        if failed_targets and self.tasks is not None and trigger not in {"manual", "post_upgrade"}:
             self._record_collection_warning(run_id, status, message, success_targets, failed_targets, attempt=attempt, max_attempts=max_attempts)
         return CollectionResult(run_id=run_id, status=status, message=message, metrics_text=metrics_text)
 
@@ -260,17 +260,19 @@ class CollectionService:
         return self._mask_secret_material(_normalize_collection_error(str(exc)))
 
     def _start_task(self, run_id: int, *, trigger: str, task_id: str | None = None) -> str | None:
-        if self.tasks is None or trigger != "manual":
+        if self.tasks is None or trigger not in {"manual", "post_upgrade"}:
             return None
         task_id = task_id or f"collection-run-{run_id}"
+        title = "升级后自动采集" if trigger == "post_upgrade" else "执行采集"
+        message = "升级完成，正在刷新 Tower/集群容量数据" if trigger == "post_upgrade" else "正在采集 Tower/集群容量数据"
         self.tasks.create_task(
             task_id,
             TaskType.COLLECTION,
-            "执行采集",
+            title,
             status=TaskStatus.RUNNING,
             progress=10,
-            message="正在采集 Tower/集群容量数据",
-            logs=[f"采集记录：{run_id}", "开始采集启用 Tower/集群"],
+            message=message,
+            logs=[f"采集记录：{run_id}", "开始采集启用 Tower/集群", f"触发来源：{trigger}"],
         )
         return task_id
 

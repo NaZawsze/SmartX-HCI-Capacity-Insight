@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import re
@@ -14,14 +15,24 @@ from typing import Any, Iterable
 ROOT = Path(__file__).resolve().parents[1]
 VERSION_FILE = ROOT / "VERSION"
 RUNNER_VERSION_FILE = ROOT / "RUNNER_VERSION"
+ENV_FILE = ROOT / ".env"
 PACKAGE_DIR = Path("/data/upgrade-packages")
 PRODUCT = "smartx-storage-forecast"
 DEFAULT_MIN_VERSION = "v0.5.0"
 RELEASE_NAMESPACE = "nazawsze"
 TARGET_COMPOSE_PROJECT = "smartx-hci-capacity-insight"
 TARGET_COMPOSE_NETWORK = "smartx-hci-capacity-insight-net"
+TARGET_INSTALL_ROOT = "/data/smartx-storage-forecast"
+TARGET_PROJECT_PATH = f"{TARGET_INSTALL_ROOT}/project"
+TARGET_APP_DATA_PATH = f"{TARGET_INSTALL_ROOT}/app"
+TARGET_PROMETHEUS_DATA_PATH = f"{TARGET_INSTALL_ROOT}/prometheus"
+TARGET_UPGRADES_PATH = f"{TARGET_INSTALL_ROOT}/upgrades"
+TARGET_BACKUPS_PATH = f"{TARGET_INSTALL_ROOT}/backups"
+TARGET_EXPORTS_PATH = f"{TARGET_INSTALL_ROOT}/exports"
+TARGET_COMPOSE_RUNTIME_PATH = f"{TARGET_INSTALL_ROOT}/compose-runtime"
 LEGACY_COMPOSE_PROJECT = "smartx-storage-forecast"
 LEGACY_COMPOSE_NETWORK = "smartx-storage-forecast_smartx-net"
+LEGACY_PROJECT_PATH = "/opt/smartx-storage-forecast"
 PATCH_SOURCE_VERSIONS = {
     "v0.5.1": ["v0.5.1u1", "v0.5.1u2"],
 }
@@ -29,6 +40,26 @@ PLATFORM_IMAGES = [
     ("web-api", "smartx-hci-capacity-insight-web-api", "images/web-api.tar", True),
     ("collector-worker", "smartx-hci-capacity-insight-collector-worker", "images/collector-worker.tar", True),
     ("frontend", "smartx-hci-capacity-insight-frontend", "images/frontend.tar", True),
+]
+BASE_PLATFORM_SERVICES = ["web-api", "collector-worker", "frontend"]
+PROMETHEUS_SERVICE = "prometheus"
+UPGRADE_RUNNER_SERVICE = "upgrade-runner"
+LEGACY_PLATFORM_CAPABILITIES = [
+    "backup.create",
+    "image.load",
+    "files.sync",
+    "compose.override",
+    "compose.apply",
+    "health.http",
+    "rollback.restore",
+]
+MODERN_PLATFORM_CAPABILITIES = [
+    "backup.v1",
+    "image.v1",
+    "files.v1",
+    "compose.v1",
+    "health.v1",
+    "rollback.v1",
 ]
 PROJECT_FILES = [
     "docker-compose.offline.yml",
@@ -48,6 +79,24 @@ SENSITIVE_PATTERNS = (
     re.compile(r"(^|/)prometheus(/(data|wal|chunks_head|queries\.active|.*\.tmp)|$)", re.I),
     re.compile(r"credential|secret|password|tower_password|access_key|token", re.I),
 )
+IMAGE_IDENTITY_MARKER = "SMARTX_IMAGE_IDENTITY:"
+
+
+LEGACY_PROJECT_FILE_VALUES = [
+    (TARGET_PROJECT_PATH, "/opt/smartx-storage-forecast"),
+    (TARGET_APP_DATA_PATH, "/data/smartx-capacity-insight-data/app"),
+    (TARGET_UPGRADES_PATH, "/data/upgrades"),
+    (TARGET_BACKUPS_PATH, "/data/backups"),
+    (TARGET_EXPORTS_PATH, "/data/exports"),
+    (TARGET_COMPOSE_RUNTIME_PATH, "/data/compose-runtime"),
+    (TARGET_PROMETHEUS_DATA_PATH, "/prometheus-data"),
+    (TARGET_INSTALL_ROOT, "/opt/smartx-storage-forecast"),
+    (TARGET_COMPOSE_NETWORK, LEGACY_COMPOSE_NETWORK),
+    (TARGET_COMPOSE_PROJECT, LEGACY_COMPOSE_PROJECT),
+    ("10.249.251.0/24", "10.249.249.0/24"),
+    ("SMARTX_IMAGE_TAG:-v0.5.2", "SMARTX_IMAGE_TAG:-{version}"),
+    ("SMARTX_RUNNER_IMAGE_TAG:-v0.3.1", "SMARTX_RUNNER_IMAGE_TAG:-v0.3.0"),
+]
 
 
 def read_version() -> str:
@@ -107,9 +156,112 @@ def release_image(repository: str, version: str) -> str:
     return f"{RELEASE_NAMESPACE}/{repository}:{version}"
 
 
+def _replace_default_version_constants(text: str, *, app_version: str, runner_version: str) -> str:
+    text = re.sub(r'DEFAULT_APP_VERSION = "[^"]+"', f'DEFAULT_APP_VERSION = "{app_version}"', text)
+    text = re.sub(r'DEFAULT_RUNNER_VERSION = "[^"]+"', f'DEFAULT_RUNNER_VERSION = "{runner_version}"', text)
+    return text
+
+
+def _replace_readme_version(text: str, *, app_version: str) -> str:
+    text = re.sub(r"Version: `[^`]+`", f"Version: `{app_version}`", text)
+    text = re.sub(r"版本：`[^`]+`", f"版本：`{app_version}`", text)
+    return text
+
+
+def _replace_compose_version_tags(text: str, *, app_version: str, runner_version: str) -> str:
+    text = re.sub(r"SMARTX_IMAGE_TAG:-[^}]+", f"SMARTX_IMAGE_TAG:-{app_version}", text)
+    text = re.sub(r"SMARTX_RUNNER_IMAGE_TAG:-[^}]+", f"SMARTX_RUNNER_IMAGE_TAG:-{runner_version}", text)
+    text = re.sub(
+        r"smartx-hci-capacity-insight-web-api:v[0-9A-Za-z._-]+",
+        f"smartx-hci-capacity-insight-web-api:{app_version}",
+        text,
+    )
+    text = re.sub(
+        r"smartx-hci-capacity-insight-collector-worker:v[0-9A-Za-z._-]+",
+        f"smartx-hci-capacity-insight-collector-worker:{app_version}",
+        text,
+    )
+    text = re.sub(
+        r"smartx-hci-capacity-insight-frontend:v[0-9A-Za-z._-]+",
+        f"smartx-hci-capacity-insight-frontend:{app_version}",
+        text,
+    )
+    return text
+
+
+@contextlib.contextmanager
+def temporary_image_version_metadata(version: str):
+    runner_version = _expected_web_api_runner_baseline(version)
+    paths = [
+        VERSION_FILE,
+        RUNNER_VERSION_FILE,
+        ROOT / "backend/app/core/config.py",
+        ROOT / "backend/app/v2/config.py",
+        ROOT / "README.md",
+        ROOT / "README.zh-CN.md",
+        ROOT / "docker-compose.yml",
+        ROOT / "docker-compose.offline.yml",
+        ROOT / "docker-compose.release.yml",
+        ROOT / "docker-compose.upgrade.yml",
+    ]
+    original = {path: path.read_text(encoding="utf-8") for path in paths}
+    try:
+        VERSION_FILE.write_text(version + "\n", encoding="utf-8")
+        RUNNER_VERSION_FILE.write_text(runner_version + "\n", encoding="utf-8")
+        for path in (ROOT / "backend/app/core/config.py", ROOT / "backend/app/v2/config.py"):
+            path.write_text(
+                _replace_default_version_constants(original[path], app_version=version, runner_version=runner_version),
+                encoding="utf-8",
+            )
+        for path in (ROOT / "README.md", ROOT / "README.zh-CN.md"):
+            path.write_text(_replace_readme_version(original[path], app_version=version), encoding="utf-8")
+        for path in (
+            ROOT / "docker-compose.yml",
+            ROOT / "docker-compose.offline.yml",
+            ROOT / "docker-compose.release.yml",
+            ROOT / "docker-compose.upgrade.yml",
+        ):
+            path.write_text(
+                _replace_compose_version_tags(original[path], app_version=version, runner_version=runner_version),
+                encoding="utf-8",
+            )
+        yield runner_version
+    finally:
+        for path, text in original.items():
+            path.write_text(text, encoding="utf-8")
+
+
+@contextlib.contextmanager
+def temporary_compose_env_file():
+    existed = ENV_FILE.exists()
+    if existed:
+        yield
+        return
+    try:
+        ENV_FILE.write_text("", encoding="utf-8")
+        yield
+    finally:
+        if ENV_FILE.exists():
+            ENV_FILE.unlink()
+
+
 def docker_build(version: str, *, include_frontend: bool) -> None:
     services = ["web-api", "collector-worker"] + (["frontend"] if include_frontend else [])
-    run(["docker", "compose", "-f", "docker-compose.yml", "build", *services], cwd=ROOT)
+    with temporary_image_version_metadata(version) as runner_version, temporary_compose_env_file():
+        run(
+            [
+                "env",
+                f"SMARTX_IMAGE_TAG={version}",
+                f"SMARTX_RUNNER_IMAGE_TAG={runner_version}",
+                "docker",
+                "compose",
+                "-f",
+                "docker-compose.yml",
+                "build",
+                *services,
+            ],
+            cwd=ROOT,
+        )
 
 
 def validate_release_images(version: str) -> None:
@@ -126,6 +278,84 @@ def validate_release_images(version: str) -> None:
     output = run(["docker", "run", "--rm", "--entrypoint", "python", web_api_image, "-c", script])
     if marker not in output:
         raise SystemExit(f"web-api image validation failed: {web_api_image} missing /api/system/health")
+    validate_platform_image_identity(version)
+
+
+def _expected_web_api_runner_baseline(version: str) -> str:
+    if _version_tuple(version) < _version_tuple("v0.5.2"):
+        return "v0.3.0"
+    return read_runner_version()
+
+
+def _read_web_api_image_identity(image: str) -> dict[str, Any]:
+    script = f"""
+import json
+from pathlib import Path
+
+def read_file(path):
+    try:
+        return Path(path).read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+
+payload = {{
+    "version_file": read_file("/app/VERSION"),
+    "runner_version_file": read_file("/app/RUNNER_VERSION"),
+    "core_default_app_version": None,
+    "core_default_runner_version": None,
+    "v2_default_app_version": None,
+    "v2_default_runner_version": None,
+}}
+try:
+    from app.core import config as core_config
+    payload["core_default_app_version"] = getattr(core_config, "DEFAULT_APP_VERSION", None)
+    payload["core_default_runner_version"] = getattr(core_config, "DEFAULT_RUNNER_VERSION", None)
+except Exception as exc:
+    payload["core_config_error"] = str(exc)
+try:
+    from app.v2 import config as v2_config
+    payload["v2_default_app_version"] = getattr(v2_config, "DEFAULT_APP_VERSION", None)
+    payload["v2_default_runner_version"] = getattr(v2_config, "DEFAULT_RUNNER_VERSION", None)
+except Exception as exc:
+    payload["v2_config_error"] = str(exc)
+print("{IMAGE_IDENTITY_MARKER}" + json.dumps(payload, sort_keys=True))
+"""
+    output = run(["docker", "run", "--rm", "--entrypoint", "python", image, "-c", script])
+    for line in output.splitlines():
+        if line.startswith(IMAGE_IDENTITY_MARKER):
+            payload = json.loads(line[len(IMAGE_IDENTITY_MARKER):])
+            if not isinstance(payload, dict):
+                raise SystemExit(f"web-api image identity is not an object: {image}")
+            return payload
+    raise SystemExit(f"web-api image identity missing from {image}: {output[-1000:]}")
+
+
+def _assert_web_api_image_identity(*, image: str, version: str) -> dict[str, Any]:
+    identity = _read_web_api_image_identity(image)
+    expected_runner = _expected_web_api_runner_baseline(version)
+    expected = {
+        "version_file": version,
+        "runner_version_file": expected_runner,
+        "core_default_app_version": version,
+        "core_default_runner_version": expected_runner,
+        "v2_default_app_version": version,
+        "v2_default_runner_version": expected_runner,
+    }
+    mismatches = [
+        f"{key}: expected {expected_value!r}, got {identity.get(key)!r}"
+        for key, expected_value in expected.items()
+        if identity.get(key) != expected_value
+    ]
+    if mismatches:
+        raise SystemExit(f"web-api image identity mismatch for {image}: " + "; ".join(mismatches))
+    return identity
+
+
+def validate_platform_image_identity(version: str) -> None:
+    _assert_web_api_image_identity(
+        image=release_image("smartx-hci-capacity-insight-web-api", version),
+        version=version,
+    )
 
 
 def sha256_file(path: Path) -> str:
@@ -238,21 +468,113 @@ def _environment_transitions(*, min_version: str, target_version: str) -> list[d
     ]
 
 
+def _directory_transition(*, target_version: str) -> dict[str, Any]:
+    if _version_tuple(target_version) < _version_tuple("v0.5.2"):
+        return {}
+    return {
+        "target_root": TARGET_INSTALL_ROOT,
+        "project_path": TARGET_PROJECT_PATH,
+        "app_data_path": TARGET_APP_DATA_PATH,
+        "prometheus_data_path": TARGET_PROMETHEUS_DATA_PATH,
+        "upgrades_path": TARGET_UPGRADES_PATH,
+        "backups_path": TARGET_BACKUPS_PATH,
+        "exports_path": TARGET_EXPORTS_PATH,
+        "compose_runtime_path": TARGET_COMPOSE_RUNTIME_PATH,
+        "legacy_app_data_paths": ["/data/smartx-capacity-insight-data/app", "/data"],
+        "legacy_prometheus_data_paths": ["/data/smartx-capacity-insight-data/prometheus", "/prometheus-data"],
+        "env_file_migration": {
+            "target": f"{TARGET_PROJECT_PATH}/.env",
+            "legacy_candidates": [f"{LEGACY_PROJECT_PATH}/.env"],
+            "preserve_existing": True,
+            "sanitize_image_tags": True,
+            "fallback_defaults": True,
+            "require_credential_decryption": True,
+        },
+        "helper_image": release_image("smartx-hci-capacity-insight-web-api", target_version),
+    }
+
+
+def _legacy_cleanup(*, target_version: str) -> dict[str, Any]:
+    if _version_tuple(target_version) < _version_tuple("v0.5.2"):
+        return {}
+    return {
+        "helper_image": release_image("smartx-hci-capacity-insight-web-api", target_version),
+        "legacy_projects": [LEGACY_COMPOSE_PROJECT],
+        "legacy_networks": [LEGACY_COMPOSE_NETWORK],
+        "legacy_paths": [
+            "/opt/smartx-storage-forecast",
+            "/data/upgrades",
+            "/data/backups",
+            "/data/exports",
+            "/data/compose-runtime",
+            "/data/smartx-capacity-insight-data",
+            "/prometheus-data",
+        ],
+        "target_app_residual_paths": [],
+        "protected_paths": [
+            TARGET_INSTALL_ROOT,
+            TARGET_PROJECT_PATH,
+            TARGET_APP_DATA_PATH,
+            TARGET_PROMETHEUS_DATA_PATH,
+            TARGET_UPGRADES_PATH,
+            TARGET_BACKUPS_PATH,
+            TARGET_EXPORTS_PATH,
+            TARGET_COMPOSE_RUNTIME_PATH,
+        ],
+        "required_health": {
+            "version": target_version,
+            "runner_version": read_runner_version(),
+            "checks": ["directories", "database", "prometheus"],
+        },
+        "data_migration_guard": {
+            "target_db_path": f"{TARGET_APP_DATA_PATH}/smartx.db",
+            "legacy_db_paths": [
+                "/data/smartx-capacity-insight-data/app/smartx.db",
+                "/data/smartx.db",
+            ],
+        },
+    }
+
+
+def _post_upgrade(*, target_version: str, legacy_cleanup: dict[str, Any]) -> dict[str, Any]:
+    if _version_tuple(target_version) < _version_tuple("v0.5.2") or not legacy_cleanup:
+        return {}
+    return {
+        "auto_collection": True,
+        "create_cleanup_task": True,
+        "cleanup_task_policy": "after_platform_health_success",
+        "cleanup_failure_severity": "warning",
+    }
+
+
+def _platform_services_for_version(version: str) -> list[str]:
+    services = list(BASE_PLATFORM_SERVICES)
+    if _version_tuple(version) >= _version_tuple("v0.5.2"):
+        services.append(PROMETHEUS_SERVICE)
+        services.append(UPGRADE_RUNNER_SERVICE)
+    return services
+
+
 def _supported_source_versions(min_version: str, target_version: str) -> list[str]:
-    min_match = re.match(r"^v?(\d+)\.(\d+)\.(\d+)$", min_version)
-    target_match = re.match(r"^v?(\d+)\.(\d+)\.(\d+)$", target_version)
-    if not min_match or not target_match:
+    try:
+        min_tuple = _version_tuple(min_version)
+        target_tuple = _version_tuple(target_version)
+    except SystemExit:
         return []
-    min_major, min_minor, min_patch = (int(item) for item in min_match.groups())
-    target_major, target_minor, target_patch = (int(item) for item in target_match.groups())
+    min_major, min_minor, min_patch, _ = min_tuple
+    target_major, target_minor, target_patch, _ = target_tuple
     if (min_major, min_minor) != (target_major, target_minor) or min_patch > target_patch:
         return []
     versions: list[str] = []
     for patch in range(min_patch, target_patch + 1):
         version = f"v{min_major}.{min_minor}.{patch}"
-        versions.append(version)
-        versions.extend(PATCH_SOURCE_VERSIONS.get(version, []))
-    return versions
+        candidates = [version, *PATCH_SOURCE_VERSIONS.get(version, [])]
+        versions.extend(
+            candidate
+            for candidate in candidates
+            if min_tuple <= _version_tuple(candidate) <= target_tuple
+        )
+    return sorted(dict.fromkeys(versions), key=_version_tuple)
 
 
 def _migration_runner_source(steps: list[dict[str, Any]]) -> str:
@@ -398,7 +720,7 @@ def write_migrate_script(path: Path, version: str) -> None:
     script = f'''#!/bin/sh
 set -eu
 
-PROJECT_ROOT="${{SMARTX_PROJECT_PATH:-/opt/smartx-storage-forecast}}"
+PROJECT_ROOT="${{SMARTX_PROJECT_PATH:-/data/smartx-storage-forecast/project}}"
 PACKAGE_DIR="$(pwd)"
 VERSION="{version}"
 BACKUP_ROOT="${{SMARTX_DATA_PATH:-/data}}/backups/project-files-before-${{VERSION}}-$(date +%Y%m%d%H%M%S)"
@@ -517,6 +839,87 @@ def collect_project_files(version: str, *, check_version_metadata: bool = True) 
     return result
 
 
+def _project_file_override(rel: str, *, version: str) -> str | None:
+    if rel not in {"docker-compose.offline.yml", "docker-compose.release.yml", "docker-compose.yml"}:
+        return None
+    text = (ROOT / rel).read_text(encoding="utf-8")
+    runner_version = _expected_web_api_runner_baseline(version)
+    if _version_tuple(version) < _version_tuple("v0.5.2"):
+        for old, new in LEGACY_PROJECT_FILE_VALUES:
+            text = text.replace(old, new.format(version=version))
+    return _render_packaged_compose_tags(text, app_version=version, runner_version=runner_version)
+
+
+def _render_packaged_compose_tags(text: str, *, app_version: str, runner_version: str) -> str:
+    text = re.sub(
+        r"\$\{SMARTX_IMAGE_PREFIX:-([^}]+)\}/([^:\s]+):\$\{SMARTX_IMAGE_TAG:-[^}]+}",
+        rf"\1/\2:{app_version}",
+        text,
+    )
+    text = re.sub(
+        r"\$\{SMARTX_RUNNER_IMAGE_PREFIX:-([^}]+)\}/([^:\s]+):\$\{SMARTX_RUNNER_IMAGE_TAG:-[^}]+}",
+        rf"\1/\2:{runner_version}",
+        text,
+    )
+    text = re.sub(
+        r"\$\{SMARTX_IMAGE_PREFIX:-([^}]+)\}/([^:\s]+):\$\{SMARTX_RUNNER_IMAGE_TAG:-[^}]+}",
+        rf"\1/\2:{runner_version}",
+        text,
+    )
+    return text
+
+
+def _assert_project_files_match_version(version: str, project_dir: Path) -> None:
+    compose_files = [
+        project_dir / "docker-compose.release.yml",
+        project_dir / "docker-compose.offline.yml",
+        project_dir / "docker-compose.yml",
+    ]
+    if _version_tuple(version) < _version_tuple("v0.5.2"):
+        required = [
+            "name: smartx-storage-forecast",
+            "SMARTX_COMPOSE_PROJECT_NAME: smartx-storage-forecast",
+            "SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast",
+            "/data/smartx-capacity-insight-data/app:/data",
+            "/data/upgrades:/data/upgrades",
+            "/data/backups:/data/backups",
+            "/data/exports:/data/exports",
+            "/data/compose-runtime:/data/compose-runtime",
+            "/prometheus-data:/prometheus-data",
+            "name: smartx-storage-forecast_smartx-net",
+            "subnet: 10.249.249.0/24",
+            f":{version}",
+            ":v0.3.0",
+        ]
+        forbidden = [
+            "smartx-hci-capacity-insight-net",
+            "/data/smartx-storage-forecast",
+            "10.249.251.0/24",
+            "SMARTX_IMAGE_TAG",
+            "SMARTX_RUNNER_IMAGE_TAG",
+        ]
+    else:
+        required = [
+            "name: smartx-hci-capacity-insight",
+            "SMARTX_COMPOSE_PROJECT_NAME: smartx-hci-capacity-insight",
+            "SMARTX_PROJECT_PATH: /data/smartx-storage-forecast/project",
+            "/data/smartx-storage-forecast/app:/data",
+            "name: smartx-hci-capacity-insight-net",
+            "subnet: 10.249.251.0/24",
+            f":{version}",
+            f":{read_runner_version()}",
+        ]
+        forbidden = ["SMARTX_IMAGE_TAG", "SMARTX_RUNNER_IMAGE_TAG"]
+    for path in compose_files:
+        text = path.read_text(encoding="utf-8")
+        missing = [item for item in required if item not in text]
+        if missing:
+            raise SystemExit(f"{path.relative_to(project_dir.parent)} does not match {version}: missing {', '.join(missing)}")
+        present = [item for item in forbidden if item in text]
+        if present:
+            raise SystemExit(f"{path.relative_to(project_dir.parent)} does not match {version}: contains {', '.join(present)}")
+
+
 def build_package(
     version: str,
     *,
@@ -524,13 +927,27 @@ def build_package(
     output_dir: Path,
     build_images: bool,
     include_frontend_build: bool,
+    allow_existing_images: bool = False,
     migration_registry: Path | None = None,
     check_version_metadata: bool = True,
 ) -> Path:
     if check_version_metadata:
-        check_versions(version)
+        with temporary_image_version_metadata(version):
+            check_versions(version)
+            return build_package(
+                version,
+                min_version=min_version,
+                output_dir=output_dir,
+                build_images=build_images,
+                include_frontend_build=include_frontend_build,
+                allow_existing_images=allow_existing_images,
+                migration_registry=migration_registry,
+                check_version_metadata=False,
+            )
     if build_images:
         docker_build(version, include_frontend=include_frontend_build)
+    elif not allow_existing_images:
+        raise SystemExit("--no-build requires --allow-existing-images so polluted local tags cannot be reused silently.")
     validate_release_images(version)
 
     work = output_dir / f"smartx-capacity-insight-upgrade-{version}"
@@ -554,33 +971,42 @@ def build_package(
         if not restart:
             item["restart"] = False
         manifest_images.append(item)
+    if _version_tuple(version) >= _version_tuple("v0.5.2"):
+        manifest_images.append(
+            {
+                "service": UPGRADE_RUNNER_SERVICE,
+                "image": release_image("smartx-hci-capacity-insight-upgrade-runner", read_runner_version()),
+                "archive": None,
+            }
+        )
 
     project_files = collect_project_files(version, check_version_metadata=check_version_metadata)
     for rel in project_files:
         target = work / "project" / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / rel, target)
+        override = _project_file_override(rel, version=version)
+        if override is None:
+            shutil.copy2(ROOT / rel, target)
+        else:
+            target.write_text(override, encoding="utf-8")
+    _assert_project_files_match_version(version, work / "project")
 
     selected_migrations = _selected_migration_steps(_load_migration_registry(migration_registry or MIGRATION_REGISTRY), min_version=min_version, target_version=version)
     environment_transitions = _environment_transitions(min_version=min_version, target_version=version)
+    directory_transition = _directory_transition(target_version=version)
+    legacy_cleanup = _legacy_cleanup(target_version=version)
+    post_upgrade = _post_upgrade(target_version=version, legacy_cleanup=legacy_cleanup)
     migration_runner = work / "migrations" / "run_migrations.py"
     migration_sha = ""
     migration_steps: list[dict[str, Any]] = []
     if selected_migrations:
         migration_sha, migration_steps = write_migration_runner(migration_runner, selected_migrations)
 
+    is_modern_platform_package = _version_tuple(version) >= _version_tuple("v0.5.2")
     manifest = {
         "schema_version": "3",
         "minimum_runner_protocol": 1,
-        "minimum_runner_version": read_runner_version(),
-        "required_capabilities": [
-            "backup.v1",
-            "image.v1",
-            "files.v1",
-            "compose.v1",
-            "health.v1",
-            "rollback.v1",
-        ],
+        "required_capabilities": list(MODERN_PLATFORM_CAPABILITIES if is_modern_platform_package else LEGACY_PLATFORM_CAPABILITIES),
         "product": PRODUCT,
         "package_id": f"smartx-capacity-insight-{version}",
         "version": version,
@@ -590,21 +1016,34 @@ def build_package(
         "components": [
             {
                 "type": "platform",
-                "services": ["web-api", "collector-worker", "frontend"],
+                "services": _platform_services_for_version(version),
                 "images": manifest_images,
             }
         ],
         "project_files": True,
         "project_file_list": project_files,
-        "restart_services": ["web-api", "collector-worker", "frontend"],
+        "restart_services": _platform_services_for_version(version),
         "compatibility": {"min_platform_version": min_version},
         "source_compatibility": _source_compatibility(min_version=min_version, target_version=version),
         "notes": "release-notes.md",
         "release_notes": f"{version} platform upgrade package.",
     }
+    if is_modern_platform_package:
+        manifest["minimum_runner_version"] = read_runner_version()
     if environment_transitions:
+        if directory_transition:
+            environment_transitions = [
+                {**transition, "directory_transition": directory_transition}
+                for transition in environment_transitions
+            ]
         manifest["required_capabilities"].append("compose.project.v1")
         manifest["environment_transitions"] = environment_transitions
+    if directory_transition:
+        manifest["directory_transition"] = directory_transition
+    if legacy_cleanup:
+        manifest["legacy_cleanup"] = legacy_cleanup
+    if post_upgrade:
+        manifest["post_upgrade"] = post_upgrade
     if selected_migrations:
         manifest["required_capabilities"].append("script.sandbox.v1")
         manifest["migration_steps"] = migration_steps
@@ -628,12 +1067,17 @@ def build_package(
         else f"本包包含累计 SQLite schema 迁移脚本 `migrations/run_migrations.py`，由 upgrade-runner {read_runner_version()} 以单脚本沙箱方式执行。"
     )
     migration_tree = "\n└── migrations/\n    └── run_migrations.py" if selected_migrations else ""
+    runner_scope_note = (
+        f"- 最低 Runner 版本：`{read_runner_version()}`；预检查不满足时会阻止升级，并提示先升级 upgrade-runner。\n"
+        if is_modern_platform_package
+        else "- Runner 要求：兼容现有 upgrade-runner v0.3.0 能力；本桥包不要求先升级 runner。\n"
+    )
     (work / "release-notes.md").write_text(
         f"# SmartX HCI Capacity Insight {version} 升级包说明\n\n"
         "## 适用范围\n\n"
         f"- 目标版本：`{version}`。\n"
         f"- 最低来源版本：`{min_version}`。\n"
-        f"- 最低 Runner 版本：`{read_runner_version()}`；预检查不满足时会阻止升级，并提示先升级 upgrade-runner。\n"
+        f"{runner_scope_note}"
         f"- 兼容升级路径：{compatibility['message']}。\n"
         "- 支持同版本应用，用于修复安装、重同步镜像、项目文件和运行时 override。\n"
         "- 仅适用于 v2 同架构升级流程；v1 或 v0.4.x 现场请通过数据迁移进入 v2。\n\n"
@@ -641,6 +1085,8 @@ def build_package(
         "- 优化容量增长速率计算，日报表与报表页面的日/月/季度增长展示更贴近实际预算场景。\n"
         "- 修复虚拟机页面首次加载时趋势图重复加载的问题，避免同一 VM 在初始化阶段重复请求趋势、详情和卷数据。\n"
         "- 修复平台升级页已完成升级包无法删除的问题；运行中或需要恢复处理的任务仍禁止删除。\n"
+        "- v0.5.2 平台 compose 重建会同时启动 `prometheus` 服务；Prometheus 镜像不进入本包，预检查会确认目标机已有 `prom/prometheus:v2.55.1`。\n"
+        f"- v0.5.2 平台升级会准备单根目录 `{TARGET_INSTALL_ROOT}`，并将旧 app 数据和 Prometheus 历史指标迁入 `{TARGET_APP_DATA_PATH}` / `{TARGET_PROMETHEUS_DATA_PATH}`。\n"
         f"- 升级执行前由 upgrade-runner {read_runner_version()} 迁移旧 Compose project/network：`{LEGACY_COMPOSE_PROJECT}` / `{LEGACY_COMPOSE_NETWORK}` -> `{TARGET_COMPOSE_PROJECT}` / `{TARGET_COMPOSE_NETWORK}`，避免同网段网络重叠。\n"
         "- 同步服务状态、观测组件版本、compose project/network、报表数据质量、文档和升级包兼容说明相关更新。\n\n"
         "## 升级包组成\n\n"
@@ -668,8 +1114,9 @@ def build_package(
         "- 创建升级前备份。\n"
         "- 校验 `checksums.sha256` 中列出的包内文件。\n"
         "- 加载 `web-api`、`collector-worker`、`frontend` 镜像。\n"
+        f"- 创建 `{TARGET_INSTALL_ROOT}` 单根目录结构，目标已有数据时不覆盖。\n"
         "- 同步白名单内项目文件。\n"
-        "- 写入运行时升级 override，并 recreate 平台服务。\n"
+        "- 写入运行时升级 override，并 recreate 平台服务和 Prometheus 服务。\n"
         "- 如来源版本仍使用旧 Compose project/network，则停止并删除旧 project 容器，确认旧网络没有外部容器后删除旧网络，再创建新 project/network。\n"
         "- 执行 HTTP 健康检查，失败时按升级中心策略触发一次自动回滚。\n\n"
         "## 数据库迁移\n\n"
@@ -710,6 +1157,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build SmartX Capacity Insight offline upgrade package.")
     parser.add_argument("--check-version", action="store_true", help="Only validate version metadata and exit.")
     parser.add_argument("--no-build", action="store_true", help="Reuse existing docker images instead of building them.")
+    parser.add_argument("--allow-existing-images", action="store_true", help="Allow --no-build to reuse existing images after strict image identity checks.")
     parser.add_argument("--skip-frontend-build", action="store_true", help="Do not build frontend image before packaging.")
     parser.add_argument("--min-version", default=DEFAULT_MIN_VERSION)
     parser.add_argument("--output-dir", type=Path, default=PACKAGE_DIR)
@@ -720,7 +1168,14 @@ def main() -> None:
         check_versions(version)
         return
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    build_package(version, min_version=args.min_version, output_dir=args.output_dir, build_images=not args.no_build, include_frontend_build=not args.skip_frontend_build)
+    build_package(
+        version,
+        min_version=args.min_version,
+        output_dir=args.output_dir,
+        build_images=not args.no_build,
+        allow_existing_images=args.allow_existing_images,
+        include_frontend_build=not args.skip_frontend_build,
+    )
 
 
 if __name__ == "__main__":

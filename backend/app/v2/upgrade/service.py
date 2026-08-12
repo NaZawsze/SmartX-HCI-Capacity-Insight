@@ -32,13 +32,14 @@ from app.upgrade_protocol.constants import RUNNER_CAPABILITIES, RUNNER_PROTOCOL_
 from app.upgrade_protocol.validation import ProtocolValidationError, validate_manifest_compatibility
 from app.upgrade_runner.main import _action_steps as _runner_action_steps
 from app.upgrade_runner.store import RevisionConflict, TaskStore
-from app.v2.upgrade.compiler import UpgradeCompilationError, compile_execution_plan
+from app.v2.upgrade.compiler import UpgradeCompilationError, compile_execution_plan, compile_post_upgrade_cleanup_plan
 
 
 MANIFEST_NAME = "manifest.json"
 SENSITIVE_NAMES = {".env", "smartx.db"}
 SENSITIVE_PARTS = {"backups", "exports", "compose-runtime", "password", "token", "secret"}
 PLATFORM_SERVICES = {"web-api", "collector-worker", "frontend"}
+PLATFORM_COMPOSE_SERVICES = PLATFORM_SERVICES | {"prometheus"}
 OBSERVABILITY_SERVICES = {"prometheus"}
 RUNNER_SERVICES = {"upgrade-runner"}
 RUNNER_HEARTBEAT_STALE_SECONDS = 30
@@ -50,6 +51,26 @@ def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
         archive.extractall(destination, filter="data")
     except TypeError:  # Python < 3.12 has no extraction filter argument.
         archive.extractall(destination)
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    elif path.exists() or path.is_symlink():
+        path.unlink()
+
+
+def _backup_existing_project_path(source: Path, backup: Path) -> None:
+    if not source.exists() and not source.is_symlink():
+        return
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    _remove_path(backup)
+    if source.is_dir() and not source.is_symlink():
+        shutil.copytree(source, backup)
+        shutil.rmtree(source)
+        return
+    shutil.copy2(source, backup)
+    source.unlink()
 
 
 class UpgradeCommandExecutor:
@@ -78,7 +99,7 @@ class UpgradeService:
         self.settings = settings
         self.tasks = tasks
         self.executor = executor or UpgradeCommandExecutor()
-        self.project_path = project_path or Path("/opt/smartx-storage-forecast")
+        self.project_path = project_path or Path(os.environ.get("SMARTX_PROJECT_PATH", "/data/smartx-storage-forecast/project"))
         self.hostname_path = hostname_path or Path("/etc/hostname")
 
     async def upload_package(self, upload: UploadFile) -> dict[str, Any]:
@@ -136,7 +157,7 @@ class UpgradeService:
             if not _runner_only(manifest):
                 checks.append(self._check_runner_protocol(manifest))
             checks.append(_check_package_checksums(package_path))
-        checks.extend([_check_images(package_path, manifest), _check_project_files(package_path, manifest)])
+        checks.extend([_check_images_with_executor(package_path, manifest, self.executor), _check_project_files(package_path, manifest)])
         if _observability_services(manifest):
             checks.append(_check_prometheus_permissions(self.settings.prometheus_data_dir))
         task["checks"] = checks
@@ -181,12 +202,13 @@ class UpgradeService:
 
     def history(self, *, component_type: str | None = None) -> list[dict[str, Any]]:
         tasks: list[dict[str, Any]] = []
-        for task_file in sorted(self.settings.upgrades_dir.glob("*/task.json"), key=lambda path: path.stat().st_mtime, reverse=True):
-            task = self._normalize_completed_runner_task(task_file.parent, _read_task_file(task_file.parent))
+        for task_file in self.settings.upgrades_dir.glob("*/task.json"):
+            task = _completed_runner_task_view(_read_task_file(task_file.parent))
             if component_type and component_type not in _component_types_from_task(task):
                 continue
-            tasks.append(self._public_task(task))
-        return tasks
+            tasks.append(task)
+        tasks.sort(key=_history_task_sort_key, reverse=True)
+        return [self._public_task(task) for task in tasks]
 
     def delete_package(self, task_id: str) -> dict[str, Any]:
         task_dir = self.settings.upgrades_dir / task_id
@@ -212,6 +234,98 @@ class UpgradeService:
         _save_task_file(task_dir, task)
         self.tasks.update_task(task_id, status=TaskStatus.CANCELLED, progress=100, message="升级任务已取消", logs=logs)
         return self._public_task(task)
+
+    def create_post_upgrade_cleanup_task(self, parent_task_id: str, legacy_cleanup: dict[str, Any] | None = None) -> dict[str, Any]:
+        parent_dir = self.settings.upgrades_dir / parent_task_id
+        parent = _read_task_file(parent_dir)
+        cleanup_config = dict(legacy_cleanup or (parent.get("manifest") or {}).get("legacy_cleanup") or {})
+        if not cleanup_config:
+            raise HTTPException(status_code=400, detail="当前升级任务没有旧环境清理配置。")
+        cleanup_id = f"post-cleanup-{parent_task_id}"
+        cleanup_dir = self.settings.upgrades_dir / cleanup_id
+        if (cleanup_dir / "task.json").is_file():
+            return self._public_task(_read_task_file(cleanup_dir))
+        target_version = str(parent.get("target_version") or (parent.get("manifest") or {}).get("version") or self.settings.app_version)
+        target_project = self.settings.compose_project_name
+        plan = compile_post_upgrade_cleanup_plan(
+            cleanup_config,
+            parent_task_id=parent_task_id,
+            target_version=target_version,
+            target_project=target_project,
+        )
+        now = _now().isoformat()
+        cleanup_task = {
+            "task_id": cleanup_id,
+            "status": "pending",
+            "target_version": target_version,
+            "components": ["platform"],
+            "task_type": "post_upgrade_cleanup",
+            "parent_task_id": parent_task_id,
+            "manifest": {
+                "version": target_version,
+                "package_type": "post_upgrade_cleanup",
+                "components": [{"type": "platform", "services": []}],
+                "legacy_cleanup": cleanup_config,
+            },
+            "runner_requested": True,
+            "task_schema_version": TASK_SCHEMA_VERSION,
+            "execution_plan": plan.to_dict(),
+            "created_at": now,
+            "updated_at": now,
+            "checks": [{"name": "post_upgrade_cleanup", "ok": True, "message": "旧环境清理任务已创建"}],
+            "logs": [f"由平台升级任务 {parent_task_id} 创建升级后清理任务"],
+        }
+        _save_task_file(cleanup_dir, cleanup_task)
+        parent["post_upgrade_cleanup_task_id"] = cleanup_id
+        parent["post_upgrade_cleanup_status"] = "pending"
+        parent["updated_at"] = now
+        _save_task_file(parent_dir, parent)
+        self.tasks.create_task(
+            cleanup_id,
+            TaskType.CLEANUP,
+            "升级后清理",
+            status=TaskStatus.PENDING,
+            progress=1,
+            message="等待 upgrade-runner 清理旧环境残留",
+            logs=list(cleanup_task["logs"]),
+            steps=_runner_action_steps(cleanup_task),
+        )
+        return self._public_task(cleanup_task)
+
+    def retry_post_upgrade_cleanup(self, parent_task_id: str) -> dict[str, Any]:
+        cleanup_id = f"post-cleanup-{parent_task_id}"
+        cleanup_dir = self.settings.upgrades_dir / cleanup_id
+        if cleanup_dir.exists():
+            task = _read_task_file(cleanup_dir)
+            if task.get("status") in {"pending", "running", "runner_restarting", "recovery_required"}:
+                raise HTTPException(status_code=400, detail="升级后清理任务正在执行或等待恢复。")
+            shutil.rmtree(cleanup_dir, ignore_errors=True)
+        return self.create_post_upgrade_cleanup_task(parent_task_id)
+
+    def post_upgrade_cleanup_status(self, parent_task_id: str) -> dict[str, Any]:
+        parent = _read_task_file(self.settings.upgrades_dir / parent_task_id)
+        manifest = parent.get("manifest") or {}
+        post_upgrade = manifest.get("post_upgrade") if isinstance(manifest, dict) else None
+        legacy_cleanup = manifest.get("legacy_cleanup") if isinstance(manifest, dict) else None
+        if not (
+            isinstance(post_upgrade, dict)
+            and post_upgrade.get("create_cleanup_task")
+            and isinstance(legacy_cleanup, dict)
+            and legacy_cleanup
+        ):
+            return {"parent_task_id": parent_task_id, "status": "not_required", "task": None}
+        cleanup_id = str(parent.get("post_upgrade_cleanup_task_id") or f"post-cleanup-{parent_task_id}")
+        cleanup_file = self.settings.upgrades_dir / cleanup_id / "task.json"
+        if not cleanup_file.is_file():
+            return {"parent_task_id": parent_task_id, "status": "pending", "task_id": cleanup_id, "task": None}
+        task = self._normalize_completed_runner_task(cleanup_file.parent, _read_task_file(cleanup_file.parent))
+        public = self._public_task(task)
+        return {
+            "parent_task_id": parent_task_id,
+            "status": public["status"],
+            "task_id": cleanup_id,
+            "task": public,
+        }
 
     def version(self) -> dict[str, str]:
         return {"version": self.settings.app_version}
@@ -428,8 +542,8 @@ class UpgradeService:
         }
 
     def verification(self) -> dict[str, Any]:
-        success_packages = [task for task in self.history() if task.get("status") == "succeeded"]
-        latest_package = success_packages[0] if success_packages else None
+        success_packages = [task for task in self.history() if task.get("status") == "succeeded" and _is_real_platform_package_task(task)]
+        latest_package = max(success_packages, key=_successful_package_sort_key, default=None)
         services, service_status_error, actual_compose_project = self._runtime_services()
         prometheus_version = next((_version_from_service_status(service) for service in services if service.get("service") == "prometheus"), None)
         if not prometheus_version:
@@ -731,7 +845,13 @@ class UpgradeService:
             task["updated_at"] = _now().isoformat()
             task["finished_at"] = task["updated_at"]
             task["logs"] = logs
-            _save_task_file(task_dir, task)
+            try:
+                _save_task_file(task_dir, task)
+            except HTTPException as exc:
+                recovered = self._recover_runner_only_success_after_save_conflict(task_dir, task, exc)
+                if recovered is not None:
+                    return self._public_task(recovered)
+                raise
             self.tasks.update_task(task_id, status=TaskStatus.SUCCESS, progress=100, message="升级执行完成", logs=logs, steps=steps)
         except Exception as exc:
             task["status"] = "failed"
@@ -743,6 +863,17 @@ class UpgradeService:
             self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message=str(exc), logs=task["logs"], steps=steps)
             return self._public_task(task)
         return self._public_task(task)
+
+    def _recover_runner_only_success_after_save_conflict(self, task_dir: Path, attempted_task: dict[str, Any], exc: HTTPException) -> dict[str, Any] | None:
+        if getattr(exc, "status_code", None) != 409:
+            return None
+        if not _runner_only(attempted_task.get("manifest") or {}):
+            return None
+        current = _read_task_file(task_dir)
+        if str(current.get("status") or "") not in {"success", "succeeded"}:
+            return None
+        self._project_runner_task(current)
+        return current
 
     def _resume_runner_upgrade(self, task: dict[str, Any]) -> dict[str, Any]:
         task_id = task["task_id"]
@@ -768,29 +899,86 @@ class UpgradeService:
         if not actions:
             return task
         if str(task.get("status") or "") in {"success", "failed", "rollback_failed", "rolled_back", "recovery_required", "cancelled"}:
+            if str(task.get("status") or "") == "success":
+                self._project_runner_task(task)
+                self._maybe_schedule_post_upgrade_cleanup(task)
             return task
-        if not all(str(action.get("status") or "") in {"succeeded", "skipped"} for action in actions):
+        completed = _completed_runner_task_view(task)
+        if completed is task:
             return task
+        task = completed
         updated_at = _now().isoformat()
-        task["status"] = "success"
-        task["recovery_status"] = "none"
-        task["available_recovery_actions"] = []
         task["updated_at"] = updated_at
         task["finished_at"] = task.get("finished_at") or updated_at
         _save_task_file(task_dir, task)
         self._project_runner_task(task)
+        self._maybe_schedule_post_upgrade_cleanup(task)
         return task
+
+    def _maybe_schedule_post_upgrade_cleanup(self, task: dict[str, Any]) -> None:
+        manifest = task.get("manifest") or {}
+        post_upgrade = manifest.get("post_upgrade") if isinstance(manifest, dict) else None
+        legacy_cleanup = manifest.get("legacy_cleanup") if isinstance(manifest, dict) else None
+        if not (
+            isinstance(post_upgrade, dict)
+            and post_upgrade.get("create_cleanup_task")
+            and isinstance(legacy_cleanup, dict)
+            and legacy_cleanup
+        ):
+            return
+        task_id = str(task.get("task_id") or "")
+        if not task_id:
+            return
+        cleanup_id = f"post-cleanup-{task_id}"
+        if (self.settings.upgrades_dir / cleanup_id / "task.json").is_file():
+            return
+        try:
+            self.create_post_upgrade_cleanup_task(task_id, legacy_cleanup)
+        except Exception as exc:
+            logs = list(task.get("logs") or [])
+            logs.append(f"升级后清理任务创建失败：{exc}")
+            task["logs"] = logs
+            task["post_upgrade_cleanup_status"] = "failed"
+            task["post_upgrade_cleanup_error"] = str(exc)
+            task["updated_at"] = _now().isoformat()
+            _save_task_file(self.settings.upgrades_dir / task_id, task)
+            try:
+                self.tasks.create_task(
+                    f"post-cleanup-{task_id}-warning",
+                    TaskType.CLEANUP,
+                    "升级后清理",
+                    status=TaskStatus.FAILED,
+                    progress=100,
+                    message=f"升级后清理任务创建失败：{exc}",
+                    logs=logs,
+                )
+            except Exception:
+                return
 
     def _project_runner_task(self, task: dict[str, Any]) -> None:
         steps = _runner_action_steps(task)
+        task_id = str(task["task_id"])
+        logs = list(task.get("logs") or [])
+        existing = self.tasks.get_task(task_id)
+        if (
+            existing
+            and existing.get("type") == TaskType.UPGRADE.value
+            and existing.get("status") == TaskStatus.SUCCESS.value
+            and existing.get("title") == "执行系统升级"
+            and existing.get("progress") == 100
+            and existing.get("message") == "升级执行完成"
+            and existing.get("logs") == logs
+            and existing.get("steps") == steps
+        ):
+            return
         self.tasks.create_task(
-            str(task["task_id"]),
+            task_id,
             TaskType.UPGRADE,
             "执行系统升级",
             status=TaskStatus.SUCCESS,
             progress=100,
             message="升级执行完成",
-            logs=list(task.get("logs") or []),
+            logs=logs,
             steps=steps,
         )
     def _public_task(self, task: dict[str, Any]) -> dict[str, Any]:
@@ -877,9 +1065,7 @@ class UpgradeService:
             relative = source.relative_to(package_project)
             target = self.project_path / relative
             backup = backup_dir / relative
-            if target.exists():
-                backup.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(target, backup)
+            _backup_existing_project_path(target, backup)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
         return backup_dir
@@ -905,7 +1091,15 @@ class UpgradeService:
             else _runtime_network_name(project_name)
         )
         subnet = str(bootstrap.get("target_subnet") or "").strip() if bootstrap else ""
-        host_data_path = _host_data_path()
+        host_data_path = self._host_data_path()
+        host_upgrades_path = self._host_upgrades_path()
+        host_backups_path = self._host_backups_path()
+        host_exports_path = self._host_exports_path()
+        host_compose_runtime_path = self._host_compose_runtime_path()
+        host_prometheus_path = self._host_prometheus_path()
+        host_project_path = self._host_project_path()
+        target_root_path = _runner_bootstrap_target_root(bootstrap)
+        target_root_volume = f"      - {target_root_path}:{target_root_path}\n" if target_root_path else ""
         network_block = (
             f"""  smartx-net:
     name: {network_name}
@@ -929,20 +1123,27 @@ class UpgradeService:
       SMARTX_COMPOSE_FILE: {self.settings.compose_file}
       SMARTX_COMPOSE_PROJECT_NAME: {project_name}
       SMARTX_DB_PATH: /data/smartx.db
+      SMARTX_UPGRADES_PATH: /data/upgrades
+      SMARTX_BACKUPS_PATH: /data/backups
+      SMARTX_EXPORTS_PATH: /data/exports
+      SMARTX_COMPOSE_RUNTIME_PATH: /data/compose-runtime
       SMARTX_PROMETHEUS_DATA_PATH: /prometheus-data
       SMARTX_HOST_DATA_PATH: {host_data_path}
-      SMARTX_HOST_BACKUPS_PATH: {self.settings.backups_dir}
-      SMARTX_HOST_COMPOSE_RUNTIME_PATH: {self.settings.compose_runtime_dir}
-      SMARTX_HOST_PROMETHEUS_DATA_PATH: {self.settings.prometheus_data_dir}
-      SMARTX_HOST_PROJECT_PATH: {self.project_path}
+      SMARTX_HOST_UPGRADES_PATH: {host_upgrades_path}
+      SMARTX_HOST_BACKUPS_PATH: {host_backups_path}
+      SMARTX_HOST_EXPORTS_PATH: {host_exports_path}
+      SMARTX_HOST_COMPOSE_RUNTIME_PATH: {host_compose_runtime_path}
+      SMARTX_HOST_PROMETHEUS_DATA_PATH: {host_prometheus_path}
+      SMARTX_HOST_PROJECT_PATH: {host_project_path}
     volumes:
-      - {self.project_path}:{self.project_path}
+      - {host_project_path}:{self.project_path}
       - {host_data_path}:/data
-      - {self.settings.upgrades_dir}:/data/upgrades
-      - {self.settings.backups_dir}:/data/backups
-      - {self.settings.exports_dir}:/data/exports
-      - {self.settings.compose_runtime_dir}:/data/compose-runtime
-      - {self.settings.prometheus_data_dir}:/prometheus-data
+      - {host_upgrades_path}:/data/upgrades
+      - {host_backups_path}:/data/backups
+      - {host_exports_path}:/data/exports
+      - {host_compose_runtime_path}:/data/compose-runtime
+      - {host_prometheus_path}:/prometheus-data
+{target_root_volume.rstrip()}
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - smartx-net
@@ -968,6 +1169,54 @@ networks:
                 lines.append('    command: ["python", "-m", "app.upgrade_runner.main"]')
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return path
+
+    def _host_data_path(self) -> Path:
+        return self._host_path("SMARTX_HOST_DATA_PATH", "/data", "/data/smartx-storage-forecast/app")
+
+    def _host_upgrades_path(self) -> Path:
+        return self._host_path("SMARTX_HOST_UPGRADES_PATH", "/data/upgrades", "/data/smartx-storage-forecast/upgrades")
+
+    def _host_backups_path(self) -> Path:
+        return self._host_path("SMARTX_HOST_BACKUPS_PATH", "/data/backups", "/data/smartx-storage-forecast/backups")
+
+    def _host_exports_path(self) -> Path:
+        return self._host_path("SMARTX_HOST_EXPORTS_PATH", "/data/exports", "/data/smartx-storage-forecast/exports")
+
+    def _host_compose_runtime_path(self) -> Path:
+        return self._host_path("SMARTX_HOST_COMPOSE_RUNTIME_PATH", "/data/compose-runtime", "/data/smartx-storage-forecast/compose-runtime")
+
+    def _host_prometheus_path(self) -> Path:
+        return self._host_path("SMARTX_HOST_PROMETHEUS_DATA_PATH", "/prometheus-data", "/data/smartx-storage-forecast/prometheus")
+
+    def _host_project_path(self) -> Path:
+        return self._host_path("SMARTX_HOST_PROJECT_PATH", str(self.project_path), "/data/smartx-storage-forecast/project")
+
+    def _host_path(self, env_name: str, destination: str, fallback: str) -> Path:
+        configured = os.environ.get(env_name)
+        if configured:
+            return Path(configured)
+        mounted = self._container_mount_source(destination)
+        if mounted:
+            return Path(mounted)
+        return Path(fallback)
+
+    def _container_mount_source(self, destination: str) -> str | None:
+        try:
+            container_id = self.hostname_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+        if not container_id:
+            return None
+        try:
+            output = self.executor.output(["docker", "inspect", container_id], cwd=self.project_path)
+            payload = json.loads(output or "[]")
+        except Exception:
+            return None
+        inspected = payload[0] if payload else {}
+        for mount in inspected.get("Mounts") or []:
+            if mount.get("Destination") == destination and mount.get("Source"):
+                return str(mount["Source"])
+        return None
 
 
 def _validate_members(archive: tarfile.TarFile) -> None:
@@ -1078,6 +1327,30 @@ def _parse_datetime(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _first_task_timestamp(task: dict[str, Any], fields: tuple[str, ...]) -> float:
+    for field in fields:
+        parsed = _parse_datetime(task.get(field))
+        if parsed is not None:
+            return parsed.timestamp()
+    return float("-inf")
+
+
+def _history_task_sort_key(task: dict[str, Any]) -> tuple[float, str]:
+    timestamp = _first_task_timestamp(
+        task,
+        ("created_at", "uploaded_at", "started_at", "finished_at", "updated_at"),
+    )
+    return timestamp, str(task.get("task_id") or "")
+
+
+def _successful_package_sort_key(task: dict[str, Any]) -> tuple[float, str]:
+    timestamp = _first_task_timestamp(
+        task,
+        ("finished_at", "uploaded_at", "created_at", "started_at", "updated_at"),
+    )
+    return timestamp, str(task.get("task_id") or "")
+
+
 def _runner_state_is_fresh(state: dict[str, Any]) -> bool:
     heartbeat_at = _parse_datetime(state.get("heartbeat_at") or state.get("updated_at"))
     if heartbeat_at is None:
@@ -1123,6 +1396,17 @@ def _task_package_sha256(task: dict[str, Any]) -> str:
     return str(task.get("package_sha256") or task.get("uploaded_sha256") or "")
 
 
+def _is_real_platform_package_task(task: dict[str, Any]) -> bool:
+    manifest = task.get("manifest") if isinstance(task.get("manifest"), dict) else {}
+    if task.get("task_type") == "post_upgrade_cleanup" or manifest.get("package_type") == "post_upgrade_cleanup":
+        return False
+    if task.get("kind") == "component":
+        return False
+    if "platform" not in _component_types_from_task(task):
+        return False
+    return bool(task.get("package_filename") and (task.get("package_sha256") or task.get("uploaded_sha256") or _task_package_sha256(task)))
+
+
 def _check_images(package_path: Path, manifest: dict[str, Any]) -> dict[str, Any]:
     for component in manifest.get("components") or []:
         for image in component.get("images") or []:
@@ -1141,6 +1425,67 @@ def _check_images(package_path: Path, manifest: dict[str, Any]) -> dict[str, Any
             if actual != sha256:
                 return {"name": "images", "ok": False, "message": f"镜像 sha256 不匹配：{archive_name}"}
     return {"name": "images", "ok": True, "message": "镜像声明校验通过；无 archive 的镜像使用仓库引用"}
+
+
+def _check_images_with_executor(package_path: Path, manifest: dict[str, Any], executor: UpgradeCommandExecutor) -> dict[str, Any]:
+    archive_check = _check_images(package_path, manifest)
+    if not archive_check["ok"]:
+        return archive_check
+    for image_name in sorted(_local_image_requirements(package_path, manifest)):
+        try:
+            executor.run(["docker", "image", "inspect", image_name])
+        except Exception:
+            return {"name": "images", "ok": False, "message": f"本地 Docker 镜像不存在：{image_name}"}
+    return archive_check
+
+
+def _local_image_requirements(package_path: Path, manifest: dict[str, Any]) -> set[str]:
+    images: set[str] = set()
+    for component in manifest.get("components") or []:
+        for image in component.get("images") or []:
+            image_name = str(image.get("image") or "").strip()
+            if image_name and not image.get("archive"):
+                images.add(image_name)
+    if "prometheus" in _platform_services(manifest):
+        prometheus_image = _packaged_compose_service_image(package_path, "prometheus")
+        if prometheus_image:
+            images.add(prometheus_image)
+    return images
+
+
+def _packaged_compose_service_image(package_path: Path, service_name: str) -> str:
+    compose_path = package_path / "project" / "docker-compose.offline.yml"
+    if not compose_path.is_file():
+        return ""
+    lines = compose_path.read_text(encoding="utf-8").splitlines()
+    in_services = False
+    in_service = False
+    service_indent = -1
+    for raw_line in lines:
+        line = raw_line.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip(" "))
+        if indent == 0:
+            in_services = stripped == "services:"
+            in_service = False
+            service_indent = -1
+            continue
+        if not in_services:
+            continue
+        if indent == 2 and stripped.endswith(":"):
+            current_service = stripped[:-1].strip().strip('"').strip("'")
+            in_service = current_service == service_name
+            service_indent = indent if in_service else -1
+            continue
+        if in_service and indent <= service_indent:
+            in_service = False
+            service_indent = -1
+            continue
+        if in_service and indent > service_indent and stripped.startswith("image:"):
+            return stripped.split(":", 1)[1].strip().strip('"').strip("'")
+    return ""
 
 
 def _check_project_files(package_path: Path, manifest: dict[str, Any]) -> dict[str, Any]:
@@ -1168,11 +1513,11 @@ def _platform_services(manifest: dict[str, Any]) -> set[str]:
         if component.get("type") != "platform":
             continue
         for service in component.get("services") or []:
-            if service in PLATFORM_SERVICES:
+            if service in PLATFORM_COMPOSE_SERVICES:
                 services.add(str(service))
     if services:
         return services
-    return {str(image.get("service")) for image in _platform_images(manifest) if image.get("service") in PLATFORM_SERVICES}
+    return {str(image.get("service")) for image in _platform_images(manifest) if image.get("service") in PLATFORM_COMPOSE_SERVICES}
 
 
 def _observability_images(manifest: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1235,15 +1580,23 @@ def _runner_bootstrap(manifest: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _runner_bootstrap_target_root(bootstrap: dict[str, Any]) -> Path | None:
+    if not bootstrap:
+        return None
+    raw = str(bootstrap.get("target_root") or "/data/smartx-storage-forecast").strip()
+    if not raw:
+        return None
+    path = Path(raw)
+    if not path.is_absolute() or ".." in path.parts or str(path) in {"/", "/data", "/opt"}:
+        raise HTTPException(status_code=400, detail=f"Runner bootstrap target_root 不安全：{raw}")
+    return path
+
+
 def _runner_compose_project_name(manifest: dict[str, Any], default: str) -> str:
     bootstrap = _runner_bootstrap(manifest)
     if not bootstrap:
         return default
     return str(bootstrap.get("target_project") or default)
-
-
-def _host_data_path() -> Path:
-    return Path(os.environ.get("SMARTX_HOST_DATA_PATH") or "/data/smartx-capacity-insight-data/app")
 
 
 def _runtime_network_name(compose_project_name: str) -> str:
@@ -1399,6 +1752,20 @@ def _public_status(status: str) -> str:
         "failed": "failed",
         "cancelled": "cancelled",
     }.get(status, status)
+
+
+def _completed_runner_task_view(task: dict[str, Any]) -> dict[str, Any]:
+    actions = task.get("execution_plan", {}).get("actions") or []
+    terminal_statuses = {"success", "failed", "rollback_failed", "rolled_back", "recovery_required", "cancelled"}
+    if not actions or str(task.get("status") or "") in terminal_statuses:
+        return task
+    if not all(str(action.get("status") or "") in {"succeeded", "skipped"} for action in actions):
+        return task
+    completed = dict(task)
+    completed["status"] = "success"
+    completed["recovery_status"] = "none"
+    completed["available_recovery_actions"] = []
+    return completed
 
 
 def _now() -> datetime:

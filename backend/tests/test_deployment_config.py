@@ -7,17 +7,32 @@ def test_compose_mounts_runtime_artifacts_outside_app_data() -> None:
     root = Path(__file__).resolve().parents[2]
     for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
         text = (root / name).read_text(encoding="utf-8")
-        assert "/data/smartx-capacity-insight-data/app:/data" in text
-        assert "/data/upgrades:/data/upgrades" in text
-        assert "/data/backups:/data/backups" in text
-        assert "/data/exports:/data/exports" in text
-        assert "/data/compose-runtime:/data/compose-runtime" in text
+        assert "/data/smartx-storage-forecast/app:/data" in text
+        assert "/data/smartx-storage-forecast/upgrades:/data/upgrades" in text
+        assert "/data/smartx-storage-forecast/backups:/data/backups" in text
+        assert "/data/smartx-storage-forecast/exports:/data/exports" in text
+        assert "/data/smartx-storage-forecast/compose-runtime:/data/compose-runtime" in text
+        assert "/data/smartx-storage-forecast/project:/data/smartx-storage-forecast/project" in text
+        assert "/data/smartx-storage-forecast/prometheus:/prometheus" in text
+        assert "/data/smartx-capacity-insight-data" not in text
+        assert "/opt/smartx-storage-forecast" not in text
+        assert "- /data/compose-runtime:" not in text
+        assert "SMARTX_HOST_COMPOSE_RUNTIME_PATH: /data/compose-runtime" not in text
 
 
 def test_pre_install_creates_runtime_artifact_directories() -> None:
     root = Path(__file__).resolve().parents[2]
     text = (root / "pre_install.sh").read_text(encoding="utf-8")
-    for value in ("/data/upgrades", "/data/backups", "/data/exports", "/data/compose-runtime"):
+    for value in (
+        "/data/smartx-storage-forecast",
+        "$INSTALL_ROOT/project",
+        "$INSTALL_ROOT/app",
+        "$INSTALL_ROOT/prometheus",
+        "$INSTALL_ROOT/upgrades",
+        "$INSTALL_ROOT/backups",
+        "$INSTALL_ROOT/exports",
+        "$INSTALL_ROOT/compose-runtime",
+    ):
         assert value in text
 
 
@@ -148,10 +163,37 @@ def test_upgrade_runner_receives_host_paths_for_sandbox_mounts() -> None:
     for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
         text = (root / name).read_text(encoding="utf-8")
         runner_section = text.split("  upgrade-runner:\n", 1)[1].split("  prometheus:\n", 1)[0]
-        assert "SMARTX_HOST_DATA_PATH: /data/smartx-capacity-insight-data/app" in runner_section
-        assert "SMARTX_HOST_PROMETHEUS_DATA_PATH: /data/smartx-capacity-insight-data/prometheus" in runner_section
-        assert "SMARTX_HOST_BACKUPS_PATH: /data/backups" in runner_section
-        assert "SMARTX_HOST_COMPOSE_RUNTIME_PATH: /data/compose-runtime" in runner_section
+        assert "SMARTX_HOST_PROJECT_PATH: /data/smartx-storage-forecast/project" in runner_section
+        assert "SMARTX_HOST_DATA_PATH: /data/smartx-storage-forecast/app" in runner_section
+        assert "SMARTX_HOST_BACKUPS_PATH: /data/smartx-storage-forecast/backups" in runner_section
+        assert "SMARTX_HOST_COMPOSE_RUNTIME_PATH: /data/smartx-storage-forecast/compose-runtime" in runner_section
+        assert "SMARTX_HOST_PROMETHEUS_DATA_PATH: /data/smartx-storage-forecast/prometheus" in runner_section
+        assert "chmod 600 /data/smartx-storage-forecast/project/.env" in runner_section
+        assert "exec python -m app.upgrade_runner.main" in runner_section
+
+
+def test_web_api_repairs_migrated_env_permissions_before_startup() -> None:
+    root = Path(__file__).resolve().parents[2]
+    for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+        text = (root / name).read_text(encoding="utf-8")
+        web_api_section = text.split("  web-api:\n", 1)[1].split("  collector-worker:\n", 1)[0]
+
+        assert (
+            'command: ["sh", "-c", "chmod 600 /run/smartx-runtime.env '
+            '&& exec uvicorn app.v2.main:app --host 0.0.0.0 --port 8000"]'
+        ) in web_api_section
+        assert "/data/smartx-storage-forecast/project/.env:/run/smartx-runtime.env" in web_api_section
+        assert "/data/smartx-storage-forecast/project:/data/smartx-storage-forecast/project:ro" in web_api_section
+
+
+def test_v052_compose_uses_target_project_network_and_subnet() -> None:
+    root = Path(__file__).resolve().parents[2]
+    for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+        text = (root / name).read_text(encoding="utf-8")
+        assert text.startswith("name: smartx-hci-capacity-insight\n")
+        assert "name: smartx-hci-capacity-insight-net" in text
+        assert "subnet: 10.249.251.0/24" in text
+        assert "subnet: 10.249.249.0/24" not in text
 
 
 def test_upgrade_runner_dependencies_do_not_pull_web_api_stack() -> None:
@@ -188,6 +230,18 @@ def test_web_api_image_uses_slim_runtime_dependencies() -> None:
     assert '[CHART_FONT_FAMILY, "Noto Serif", "DejaVu Serif"]' not in v1_report_export
     assert '[CHART_FONT_FAMILY, "DejaVu Serif"]' in v2_report_export
     assert '[CHART_FONT_FAMILY, "DejaVu Serif"]' in v1_report_export
+
+
+def test_frontend_docker_context_excludes_local_build_artifacts() -> None:
+    root = Path(__file__).resolve().parents[2]
+    dockerignore = root / "frontend/.dockerignore"
+    assert dockerignore.is_file()
+    ignored = {line.strip() for line in dockerignore.read_text(encoding="utf-8").splitlines() if line.strip()}
+
+    assert "node_modules" in ignored
+    assert "dist" in ignored
+    assert "coverage" in ignored
+    assert "*.tsbuildinfo" in ignored
 
 
 def test_upgrade_override_uses_platform_release_images() -> None:
@@ -248,7 +302,7 @@ def test_upgrade_precheck_checks_network_and_project_closure() -> None:
     backend = (root / "backend/app/services/upgrade.py").read_text(encoding="utf-8")
     frontend = (root / "frontend/src/pages/ServicePage.tsx").read_text(encoding="utf-8")
 
-    assert 'EXPECTED_NETWORK_SUBNET = "10.249.249.0/24"' in backend
+    assert 'EXPECTED_NETWORK_SUBNET = "10.249.251.0/24"' in backend
     assert 'check("network", network_ok, network_message, network_detail)' in backend
     assert '"volumes", "network", "compose-tag"' in frontend
     assert '"project-files"' in frontend

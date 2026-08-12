@@ -107,4 +107,4 @@ restart_services: upgrade-runner
 
 需要该能力的 `v0.5.2` 平台升级包会在 manifest 中声明 `required_capabilities=["compose.project.v1", ...]` 和 `minimum_runner_version="v0.3.1"`，因此 `upgrade-runner v0.3.0` 会在预检查阶段被拦截，不会执行到网络冲突才失败。
 
-Runner 组件包由旧 `web-api` 直接加载镜像、写入 `/data/compose-runtime/docker-compose.runner-upgrade.yml` 并 recreate Runner。Runner 不执行自己的升级。
+Runner 组件包由旧 `web-api` 直接加载镜像、写入 `/data/smartx-storage-forecast/compose-runtime/docker-compose.runner-upgrade.yml` 并 recreate Runner。Runner 不执行自己的升级。

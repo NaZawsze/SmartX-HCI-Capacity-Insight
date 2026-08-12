@@ -4,23 +4,25 @@ services:
   web-api:
     image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-web-api:${SMARTX_IMAGE_TAG:-v0.5.2}
     pull_policy: never
+    command: ["sh", "-c", "chmod 600 /run/smartx-runtime.env && exec uvicorn app.v2.main:app --host 0.0.0.0 --port 8000"]
     env_file:
       - .env
     environment:
       TZ: Asia/Shanghai
-      SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
+      SMARTX_PROJECT_PATH: /data/smartx-storage-forecast/project
       SMARTX_COMPOSE_FILE: docker-compose.offline.yml
       SMARTX_COMPOSE_PROJECT_NAME: smartx-hci-capacity-insight
       SMARTX_DB_PATH: /data/smartx.db
       SMARTX_PROMETHEUS_DATA_PATH: /prometheus-data
     volumes:
-      - /data/smartx-capacity-insight-data/app:/data
-      - /data/upgrades:/data/upgrades
-      - /data/backups:/data/backups
-      - /data/exports:/data/exports
-      - /data/compose-runtime:/data/compose-runtime
-      - /data/smartx-capacity-insight-data/prometheus:/prometheus-data
-      - .:/opt/smartx-storage-forecast:ro
+      - /data/smartx-storage-forecast/app:/data
+      - /data/smartx-storage-forecast/upgrades:/data/upgrades
+      - /data/smartx-storage-forecast/backups:/data/backups
+      - /data/smartx-storage-forecast/exports:/data/exports
+      - /data/smartx-storage-forecast/compose-runtime:/data/compose-runtime
+      - /data/smartx-storage-forecast/prometheus:/prometheus-data
+      - /data/smartx-storage-forecast/project/.env:/run/smartx-runtime.env
+      - /data/smartx-storage-forecast/project:/data/smartx-storage-forecast/project:ro
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8000:8000"
@@ -40,11 +42,11 @@ services:
       TZ: Asia/Shanghai
       SMARTX_DB_PATH: /data/smartx.db
     volumes:
-      - /data/smartx-capacity-insight-data/app:/data
-      - /data/upgrades:/data/upgrades
-      - /data/backups:/data/backups
-      - /data/exports:/data/exports
-      - /data/compose-runtime:/data/compose-runtime
+      - /data/smartx-storage-forecast/app:/data
+      - /data/smartx-storage-forecast/upgrades:/data/upgrades
+      - /data/smartx-storage-forecast/backups:/data/backups
+      - /data/smartx-storage-forecast/exports:/data/exports
+      - /data/smartx-storage-forecast/compose-runtime:/data/compose-runtime
     expose:
       - "9108"
     depends_on:
@@ -69,29 +71,29 @@ services:
   upgrade-runner:
     image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-upgrade-runner:${SMARTX_RUNNER_IMAGE_TAG:-v0.3.1}
     pull_policy: never
-    command: ["python", "-m", "app.upgrade_runner.main"]
+    command: ["sh", "-c", "chmod 600 /data/smartx-storage-forecast/project/.env && exec python -m app.upgrade_runner.main"]
     env_file:
       - .env
     environment:
       TZ: Asia/Shanghai
-      SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast
+      SMARTX_PROJECT_PATH: /data/smartx-storage-forecast/project
       SMARTX_COMPOSE_FILE: docker-compose.offline.yml
       SMARTX_COMPOSE_PROJECT_NAME: smartx-hci-capacity-insight
       SMARTX_DB_PATH: /data/smartx.db
       SMARTX_PROMETHEUS_DATA_PATH: /prometheus-data
-      SMARTX_HOST_DATA_PATH: /data/smartx-capacity-insight-data/app
-      SMARTX_HOST_BACKUPS_PATH: /data/backups
-      SMARTX_HOST_COMPOSE_RUNTIME_PATH: /data/compose-runtime
-      SMARTX_HOST_PROMETHEUS_DATA_PATH: /data/smartx-capacity-insight-data/prometheus
-      SMARTX_HOST_PROJECT_PATH: ${SMARTX_HOST_PROJECT_PATH:-${PWD}}
+      SMARTX_HOST_DATA_PATH: /data/smartx-storage-forecast/app
+      SMARTX_HOST_BACKUPS_PATH: /data/smartx-storage-forecast/backups
+      SMARTX_HOST_COMPOSE_RUNTIME_PATH: /data/smartx-storage-forecast/compose-runtime
+      SMARTX_HOST_PROMETHEUS_DATA_PATH: /data/smartx-storage-forecast/prometheus
+      SMARTX_HOST_PROJECT_PATH: /data/smartx-storage-forecast/project
     volumes:
-      - .:/opt/smartx-storage-forecast
-      - /data/smartx-capacity-insight-data/app:/data
-      - /data/upgrades:/data/upgrades
-      - /data/backups:/data/backups
-      - /data/exports:/data/exports
-      - /data/compose-runtime:/data/compose-runtime
-      - /data/smartx-capacity-insight-data/prometheus:/prometheus-data
+      - /data/smartx-storage-forecast/project:/data/smartx-storage-forecast/project
+      - /data/smartx-storage-forecast/app:/data
+      - /data/smartx-storage-forecast/upgrades:/data/upgrades
+      - /data/smartx-storage-forecast/backups:/data/backups
+      - /data/smartx-storage-forecast/exports:/data/exports
+      - /data/smartx-storage-forecast/compose-runtime:/data/compose-runtime
+      - /data/smartx-storage-forecast/prometheus:/prometheus-data
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - prometheus
@@ -110,8 +112,8 @@ services:
       TZ: CST-8
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - /data/smartx-capacity-insight-data/prometheus:/prometheus
+      - /data/smartx-storage-forecast/project/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /data/smartx-storage-forecast/prometheus:/prometheus
     ports:
       - "9090:9090"
     networks:
@@ -125,4 +127,4 @@ networks:
     name: smartx-hci-capacity-insight-net
     ipam:
       config:
-        - subnet: 10.249.249.0/24
+        - subnet: 10.249.251.0/24

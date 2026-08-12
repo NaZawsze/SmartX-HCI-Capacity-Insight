@@ -169,11 +169,11 @@ def build_report_docx(report: dict[str, Any], settings: V2Settings, *, period_da
     _add_new_vm_table(document, report.get("day_new_vms") or [], empty_text="暂无本日新建 VM")
     document.add_heading("本月新建 VM", level=1)
     _add_new_vm_table(document, report.get("month_new_vms") or [], empty_text="暂无本月新建 VM")
-    document.add_heading("VM_TOP100_汇总", level=1)
-    document.add_heading("增长量 TOP100", level=2)
+    document.add_heading("VM 增长明细", level=1)
+    document.add_heading("增长量全部虚拟机", level=2)
     document.add_paragraph(f"统计窗口：{_period_window_label(report)}")
     _add_vm_table(document, _top_vms(month_vms, "amount"), empty_text=EMPTY_MONTH_VM_TEXT, include_cluster=True)
-    document.add_heading("增长率 TOP100", level=2)
+    document.add_heading("增长率全部虚拟机", level=2)
     document.add_paragraph(f"统计窗口：{_period_window_label(report)}")
     _add_vm_table(document, _top_vms(month_vms, "ratio"), empty_text=EMPTY_MONTH_VM_TEXT, include_cluster=True)
     document.add_heading("集群专项分析", level=1)
@@ -185,10 +185,10 @@ def build_report_docx(report: dict[str, Any], settings: V2Settings, *, period_da
         document.add_heading(f"{index}. {_cluster_name(cluster)} 集群容量概览", level=1)
         _add_single_cluster_summary(document, cluster, len(cluster_vms))
         figure_index = _add_single_cluster_charts(document, cluster, cluster_vms, figure_index=figure_index)
-        document.add_heading("增长量 TOP100 虚拟机（按增长量降序）", level=2)
+        document.add_heading("增长量全部虚拟机（按增长量降序）", level=2)
         document.add_paragraph(f"统计窗口：{_period_window_label(report)}")
         _add_vm_table(document, _top_vms(cluster_vms, "amount"), empty_text=EMPTY_MONTH_VM_TEXT, include_cluster=False)
-        document.add_heading("增长率 TOP100 虚拟机（按增长率降序）", level=2)
+        document.add_heading("增长率全部虚拟机（按增长率降序）", level=2)
         document.add_paragraph(f"统计窗口：{_period_window_label(report)}")
         _add_vm_table(document, _top_vms(cluster_vms, "ratio"), empty_text=EMPTY_MONTH_VM_TEXT, include_cluster=False)
     content = _docx_bytes(document)
@@ -364,7 +364,7 @@ def _add_vm_table(document: Document, vms: list[dict[str, Any]], *, empty_text: 
         row = table.add_row().cells
         row[0].text = empty_text
         return
-    for vm in vms[:100]:
+    for vm in vms:
         labels = vm.get("labels", {})
         forecast = vm.get("forecast", {})
         values = []
@@ -395,7 +395,7 @@ def _add_new_vm_table(document: Document, vms: list[dict[str, Any]], *, empty_te
     if not vms:
         table.add_row().cells[0].text = empty_text
         return
-    for vm in vms[:100]:
+    for vm in vms:
         labels = vm.get("labels", {})
         row = table.add_row().cells
         values = [
@@ -985,7 +985,7 @@ def _cluster_key(labels: dict[str, Any]) -> tuple[str, str]:
 
 def _top_vms(vms: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
     key = (lambda vm: float(vm.get("growth_ratio") or 0)) if mode == "ratio" else (lambda vm: float(vm.get("growth_amount") or 0))
-    return sorted(vms, key=key, reverse=True)[:100]
+    return sorted(vms, key=key, reverse=True)
 
 
 def _merge_growth_candidates(primary: list[dict[str, Any]], secondary: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1296,7 +1296,7 @@ def _write_xlsx_data_quality_sheet(sheet, report: dict[str, Any], context: dict[
 def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dict[str, Any], profile: ReportPeriodProfile) -> None:
     _reset_xlsx_sheet_rows(sheet)
     window_label = _vm_sample_window_label(vms, report)
-    sheet.append([f"三、{profile.vm_growth_title} TOP100（{window_label}）", "", "", "", "", "", "", "", "四、虚拟机增长率 TOP100"])
+    sheet.append([f"三、{profile.vm_growth_title}全部虚拟机（{window_label}）", "", "", "", "", "", "", "", "四、虚拟机增长率全部虚拟机"])
     sheet.append([])
     sheet.append(["按增长量降序", "", "", "", "", "", "", "", "按增长率降序"])
     amount_headers = ["排名", "虚拟机名称", "当前容量", "期初容量", "增长量", "增长率", "风险"]
@@ -1305,8 +1305,8 @@ def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dic
         sheet.cell(row=4, column=index).value = value
     for index, value in enumerate(ratio_headers, start=9):
         sheet.cell(row=4, column=index).value = value
-    amount_vms = _top_vms(vms, "amount")[:100]
-    ratio_vms = _top_vms(vms, "ratio")[:100]
+    amount_vms = _top_vms(vms, "amount")
+    ratio_vms = _top_vms(vms, "ratio")
     if not amount_vms and not ratio_vms:
         sheet.cell(row=5, column=1).value = profile.vm_empty_text
     for row_index, vm in enumerate(amount_vms, start=5):
@@ -1339,7 +1339,7 @@ def _write_xlsx_template_growth_detail(
     sheet.append(headers)
     if not vms:
         sheet.append(["暂无日增长 VM 数据"])
-    for index, vm in enumerate(vms[:100], start=1):
+    for index, vm in enumerate(vms, start=1):
         row = _xlsx_vm_display_row(vm, index, include_risk=True)
         labels = vm.get("labels") or {}
         sheet.append([row[0], row[1], labels.get("tower") or labels.get("tower_id") or "", labels.get("cluster") or labels.get("cluster_id") or "", *row[2:]])
@@ -1578,7 +1578,7 @@ def _write_directory_sheet(sheet, clusters: list[dict[str, Any]]) -> None:
 def _write_vm_top_sheet(sheet, vms: list[dict[str, Any]], report: dict[str, Any], profile: ReportPeriodProfile) -> None:
     headers = ["Tower", "集群", "VM", "当前容量", "期初容量", "增长量", "增长率"]
     window_label = _vm_sample_window_label(vms, report)
-    sheet.append([f"{profile.vm_growth_title} 增长量 TOP100（按增长量降序，统计窗口：{window_label}）"])
+    sheet.append([f"{profile.vm_growth_title} 增长量全部虚拟机（按增长量降序，统计窗口：{window_label}）"])
     sheet.append([profile.window_growth_label])
     sheet.append([_profile_sample_notice(report, profile)])
     sheet.append(headers)
@@ -1590,7 +1590,7 @@ def _write_vm_top_sheet(sheet, vms: list[dict[str, Any]], report: dict[str, Any]
             sheet.append(_vm_xlsx_row(vm, include_cluster=True))
     amount_end = sheet.max_row
     sheet.append([])
-    sheet.append([f"{profile.vm_growth_title} 增长率 TOP100（按增长率降序，统计窗口：{window_label}）"])
+    sheet.append([f"{profile.vm_growth_title} 增长率全部虚拟机（按增长率降序，统计窗口：{window_label}）"])
     ratio_title_row = sheet.max_row
     sheet.append(headers)
     ratio_header_row = sheet.max_row
@@ -1621,7 +1621,7 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
         sheet.cell(row=2, column=column).value = header
     if not vms:
         sheet.cell(row=3, column=1).value = empty_text
-    for row_index, vm in enumerate(vms[:100], start=3):
+    for row_index, vm in enumerate(vms, start=3):
         labels = vm.get("labels", {})
         row = [
             labels.get("tower") or labels.get("tower_id") or "",
@@ -1677,7 +1677,7 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
     sheet.append([])
     headers = ["VM", "当前容量", "期初容量", "增长量", "增长率"]
     window_label = _vm_sample_window_label(vms, report)
-    sheet.append([f"{profile.vm_growth_title} 增长量 TOP100（按增长量降序，统计窗口：{window_label}）"])
+    sheet.append([f"{profile.vm_growth_title} 增长量全部虚拟机（按增长量降序，统计窗口：{window_label}）"])
     sheet.append(headers)
     amount_start = sheet.max_row + 1
     if not vms:
@@ -1687,7 +1687,7 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
             sheet.append(_vm_xlsx_row(vm, include_cluster=False))
     amount_end = sheet.max_row
     sheet.append([])
-    sheet.append([f"{profile.vm_growth_title} 增长率 TOP100（按增长率降序，统计窗口：{window_label}）"])
+    sheet.append([f"{profile.vm_growth_title} 增长率全部虚拟机（按增长率降序，统计窗口：{window_label}）"])
     ratio_title_row = sheet.max_row
     sheet.append(headers)
     ratio_header_row = sheet.max_row

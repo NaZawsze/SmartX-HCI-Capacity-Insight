@@ -124,15 +124,16 @@ VM 名称只做展示，不作为历史数据绑定身份。
 
 | 路径 | 用途 |
 | --- | --- |
-| `/data/smartx-capacity-insight-data/app` | SQLite 业务库 |
-| `/data/smartx-capacity-insight-data/prometheus` | Prometheus 历史 block |
-| `/data/upgrades` | 升级包、解包目录、升级任务状态 |
-| `/data/backups` | 升级前备份、导入前备份、项目文件备份 |
-| `/data/exports/reports` | Word/Excel 报表留存 |
-| `/data/exports/migrations` | 数据迁出包 |
-| `/data/exports/imports` | 数据迁入包和解包目录 |
-| `/data/exports/migration-tasks` | 数据迁移任务状态 |
-| `/data/compose-runtime` | 升级中心生成的运行时 compose override |
+| `/data/smartx-storage-forecast/project` | 项目文件、Compose 文件、脚本、文档和 Prometheus 配置 |
+| `/data/smartx-storage-forecast/app` | SQLite 业务库 |
+| `/data/smartx-storage-forecast/prometheus` | Prometheus 历史 block |
+| `/data/smartx-storage-forecast/upgrades` | 升级包、解包目录、升级任务状态 |
+| `/data/smartx-storage-forecast/backups` | 升级前备份、导入前备份、项目文件备份 |
+| `/data/smartx-storage-forecast/exports/reports` | Word/Excel 报表留存 |
+| `/data/smartx-storage-forecast/exports/migrations` | 数据迁出包 |
+| `/data/smartx-storage-forecast/exports/imports` | 数据迁入包和解包目录 |
+| `/data/smartx-storage-forecast/exports/migration-tasks` | 数据迁移任务状态 |
+| `/data/smartx-storage-forecast/compose-runtime` | 升级中心生成的运行时 compose override |
 
 ## 6. 核心数据流
 
@@ -145,6 +146,8 @@ VM 名称只做展示，不作为历史数据绑定身份。
 5. 写入 Prometheus 指标源。
 6. Dashboard、VM、Reports 读取 SQLite 最新状态和 Prometheus 历史指标。
 
+CloudTower 版本范围：采集依赖 CloudTower v2 HTTP API（`/v2/api/login`、`/v2/api/get-clusters`、`/v2/api/get-cluster-storage-info`、`/v2/api/get-vms`、`/v2/api/get-vm-volumes`）。需要目标 CloudTower（SMTX OS）支持这些 v2 API 端点；只要端点可用并返回预期结构，不强制要求具体 CloudTower 小版本号。
+
 ### 报表流
 
 1. 前端选择 scope 和统计窗口。
@@ -152,7 +155,7 @@ VM 名称只做展示，不作为历史数据绑定身份。
 3. `metrics` 查询 Prometheus 历史数据。
 4. `forecast` 计算风险、增长、预测、新建 VM。
 5. 页面展示或 `reports` 生成 Word/Excel。
-6. 导出文件保存到 `/data/exports/reports`，任务中心提供下载链接。
+6. 导出文件保存到 `/data/smartx-storage-forecast/exports/reports`，任务中心提供下载链接。
 
 ### 迁移流
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import tarfile
 import tempfile
 import unittest
@@ -305,6 +306,398 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertEqual(verification["package"]["sha256"], expected_package_sha256)
             self.assertEqual(verification["package"]["filename"], "upgrade.tar.gz")
 
+    def test_verification_uses_latest_real_platform_package_not_post_cleanup_task(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            platform_dir = settings.upgrades_dir / "upgrade-platform"
+            cleanup_dir = settings.upgrades_dir / "post-cleanup-upgrade-platform"
+            platform_dir.mkdir(parents=True)
+            cleanup_dir.mkdir(parents=True)
+            (platform_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": "upgrade-platform",
+                        "status": "success",
+                        "target_version": "v0.5.2",
+                        "components": ["platform"],
+                        "kind": "platform",
+                        "package_filename": "smartx-capacity-insight-upgrade-v0.5.2.tar.gz",
+                        "package_sha256": "a" * 64,
+                        "uploaded_sha256": "a" * 64,
+                        "uploaded_at": "2026-07-08T09:27:00+00:00",
+                        "finished_at": "2026-07-08T09:28:00+00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (cleanup_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": "post-cleanup-upgrade-platform",
+                        "status": "success",
+                        "target_version": "v0.5.2",
+                        "components": ["platform"],
+                        "task_type": "post_upgrade_cleanup",
+                        "manifest": {"package_type": "post_upgrade_cleanup"},
+                        "uploaded_at": "2026-07-08T09:28:10+00:00",
+                        "finished_at": "2026-07-08T09:28:20+00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            os.utime(platform_dir / "task.json", (1, 1))
+            os.utime(cleanup_dir / "task.json", (2, 2))
+            service = UpgradeService(settings, TaskService(database), project_path=Path(tmpdir) / "project")
+
+            verification = service.verification()
+
+            self.assertEqual(verification["package"]["task_id"], "upgrade-platform")
+            self.assertEqual(verification["package"]["sha256"], "a" * 64)
+            self.assertEqual(verification["package"]["filename"], "smartx-capacity-insight-upgrade-v0.5.2.tar.gz")
+
+    def test_verification_uses_latest_finished_package_instead_of_task_file_mtime(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            old_dir = settings.upgrades_dir / "upgrade-old"
+            new_dir = settings.upgrades_dir / "upgrade-new"
+            old_dir.mkdir(parents=True)
+            new_dir.mkdir(parents=True)
+            old_file = old_dir / "task.json"
+            new_file = new_dir / "task.json"
+            old_file.write_text(
+                json.dumps(
+                    {
+                        "task_id": "upgrade-old",
+                        "status": "success",
+                        "target_version": "v0.5.2",
+                        "components": ["platform"],
+                        "kind": "platform",
+                        "package_filename": "old-v0.5.2.tar.gz",
+                        "package_sha256": "a" * 64,
+                        "uploaded_at": "2026-07-10T06:16:02+00:00",
+                        "finished_at": "2026-07-10T06:17:14+00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            new_file.write_text(
+                json.dumps(
+                    {
+                        "task_id": "upgrade-new",
+                        "status": "success",
+                        "target_version": "v0.5.2",
+                        "components": ["platform"],
+                        "kind": "platform",
+                        "package_filename": "new-v0.5.2.tar.gz",
+                        "package_sha256": "b" * 64,
+                        "uploaded_at": "2026-07-14T15:39:50+00:00",
+                        "finished_at": "2026-07-14T15:44:24+00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            os.utime(new_file, (1, 1))
+            os.utime(old_file, (2, 2))
+            service = UpgradeService(settings, TaskService(database), project_path=Path(tmpdir) / "project")
+
+            verification = service.verification()
+
+            self.assertEqual(verification["package"]["task_id"], "upgrade-new")
+            self.assertEqual(verification["package"]["sha256"], "b" * 64)
+
+    def test_history_does_not_schedule_cleanup_or_rewrite_success_task(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            task_dir = settings.upgrades_dir / "upgrade-history-success"
+            task_dir.mkdir(parents=True)
+            task_file = task_dir / "task.json"
+            task_file.write_text(
+                json.dumps(
+                    {
+                        "task_id": "upgrade-history-success",
+                        "status": "success",
+                        "target_version": "v0.5.2",
+                        "components": ["platform"],
+                        "manifest": {
+                            "version": "v0.5.2",
+                            "post_upgrade": {"create_cleanup_task": True},
+                            "legacy_cleanup": {"legacy_paths": ["/legacy"]},
+                        },
+                        "execution_plan": {
+                            "actions": [
+                                {
+                                    "id": "health-platform",
+                                    "type": "health.http",
+                                    "status": "succeeded",
+                                    "checkpoint": {"healthy": True},
+                                    "result": {},
+                                }
+                            ]
+                        },
+                        "created_at": "2026-07-10T06:16:02+00:00",
+                        "finished_at": "2026-07-10T06:17:14+00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            before = task_file.read_bytes()
+            before_mtime = task_file.stat().st_mtime_ns
+            service = UpgradeService(settings, TaskService(database), project_path=Path(tmpdir) / "project")
+
+            history = service.history()
+
+            self.assertEqual(history[0]["status"], "succeeded")
+            self.assertEqual(task_file.read_bytes(), before)
+            self.assertEqual(task_file.stat().st_mtime_ns, before_mtime)
+            self.assertFalse((settings.upgrades_dir / "post-cleanup-upgrade-history-success").exists())
+
+    def test_history_projects_completed_runner_task_without_persisting(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            task_dir = settings.upgrades_dir / "upgrade-history-running"
+            task_dir.mkdir(parents=True)
+            task_file = task_dir / "task.json"
+            task_file.write_text(
+                json.dumps(
+                    {
+                        "task_id": "upgrade-history-running",
+                        "status": "running",
+                        "target_version": "v0.5.2",
+                        "components": ["platform"],
+                        "manifest": {
+                            "version": "v0.5.2",
+                            "post_upgrade": {"create_cleanup_task": True},
+                            "legacy_cleanup": {"legacy_paths": ["/legacy"]},
+                        },
+                        "execution_plan": {
+                            "actions": [
+                                {
+                                    "id": "health-platform",
+                                    "type": "health.http",
+                                    "status": "succeeded",
+                                    "checkpoint": {"healthy": True},
+                                    "result": {},
+                                    "finished_at": "2026-07-10T06:17:14+00:00",
+                                }
+                            ]
+                        },
+                        "created_at": "2026-07-10T06:16:02+00:00",
+                        "updated_at": "2026-07-10T06:17:14+00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            before = task_file.read_bytes()
+            service = UpgradeService(settings, TaskService(database), project_path=Path(tmpdir) / "project")
+
+            history = service.history()
+
+            self.assertEqual(history[0]["status"], "succeeded")
+            self.assertEqual(task_file.read_bytes(), before)
+            self.assertEqual(json.loads(task_file.read_text(encoding="utf-8"))["status"], "running")
+            self.assertFalse((settings.upgrades_dir / "post-cleanup-upgrade-history-running").exists())
+
+    def test_history_orders_by_business_created_time_not_task_file_mtime(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            old_dir = settings.upgrades_dir / "upgrade-created-old"
+            new_dir = settings.upgrades_dir / "upgrade-created-new"
+            old_dir.mkdir(parents=True)
+            new_dir.mkdir(parents=True)
+            old_file = old_dir / "task.json"
+            new_file = new_dir / "task.json"
+            old_file.write_text(
+                json.dumps(
+                    {
+                        "task_id": "upgrade-created-old",
+                        "status": "failed",
+                        "components": ["platform"],
+                        "created_at": "2026-07-10T06:16:02+00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            new_file.write_text(
+                json.dumps(
+                    {
+                        "task_id": "upgrade-created-new",
+                        "status": "failed",
+                        "components": ["platform"],
+                        "created_at": "2026-07-14T15:39:50+00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            os.utime(new_file, (1, 1))
+            os.utime(old_file, (2, 2))
+            service = UpgradeService(settings, TaskService(database), project_path=Path(tmpdir) / "project")
+
+            history = service.history()
+
+            self.assertEqual([task["task_id"] for task in history], ["upgrade-created-new", "upgrade-created-old"])
+
+    def test_precheck_checks_local_image_for_manifest_image_without_archive(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def __init__(self, *, has_prometheus: bool) -> None:
+                self.has_prometheus = has_prometheus
+                self.commands: list[list[str]] = []
+
+            def run(self, command: list[str], *, cwd: Path | None = None) -> None:
+                self.commands.append(command)
+                if command[:3] == ["docker", "image", "inspect"] and command[-1] == "prom/prometheus:v2.55.1" and not self.has_prometheus:
+                    raise RuntimeError("missing local image")
+
+        web_api = b"web-api-image"
+        manifest = {
+            "schema_version": "2",
+            "version": "v0.5.2",
+            "project_files": True,
+            "components": [
+                {
+                    "type": "platform",
+                    "services": ["web-api", "prometheus"],
+                    "images": [
+                        {
+                            "service": "web-api",
+                            "image": "repo/web-api:v0.5.2",
+                            "archive": "images/web-api.tar",
+                            "sha256": hashlib.sha256(web_api).hexdigest(),
+                        },
+                        {
+                            "service": "prometheus",
+                            "image": "prom/prometheus:v2.55.1",
+                        },
+                    ],
+                }
+            ],
+        }
+        files = {"images/web-api.tar": web_api, "project/docker-compose.offline.yml": b"services: {}"}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            missing_executor = FakeExecutor(has_prometheus=False)
+            service = UpgradeService(settings, TaskService(database), executor=missing_executor, project_path=Path(tmpdir) / "project")
+            task = service.upload_package_bytes(self._package(manifest, files), filename="upgrade.tar.gz")
+
+            precheck = service.precheck(task["task_id"])
+
+            self.assertFalse(precheck["ok"])
+            images_check = next(check for check in precheck["checks"] if check["name"] == "images")
+            self.assertFalse(images_check["ok"])
+            self.assertIn("本地 Docker 镜像不存在：prom/prometheus:v2.55.1", images_check["message"])
+            self.assertIn(["docker", "image", "inspect", "prom/prometheus:v2.55.1"], missing_executor.commands)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            present_executor = FakeExecutor(has_prometheus=True)
+            service = UpgradeService(settings, TaskService(database), executor=present_executor, project_path=Path(tmpdir) / "project")
+            task = service.upload_package_bytes(self._package(manifest, files), filename="upgrade.tar.gz")
+
+            precheck = service.precheck(task["task_id"])
+
+            self.assertTrue(precheck["ok"])
+            self.assertIn(["docker", "image", "inspect", "prom/prometheus:v2.55.1"], present_executor.commands)
+
+    def test_precheck_checks_platform_prometheus_image_from_packaged_compose(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def __init__(self, *, has_prometheus: bool) -> None:
+                self.has_prometheus = has_prometheus
+                self.commands: list[list[str]] = []
+
+            def run(self, command: list[str], *, cwd: Path | None = None) -> None:
+                self.commands.append(command)
+                if command[:3] == ["docker", "image", "inspect"] and command[-1] == "prom/prometheus:v2.55.1" and not self.has_prometheus:
+                    raise RuntimeError("missing local image")
+
+        web_api = b"web-api-image"
+        compose = b"""
+services:
+  web-api:
+    image: repo/web-api:v0.5.2
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    pull_policy: never
+"""
+        manifest = {
+            "schema_version": "2",
+            "version": "v0.5.2",
+            "project_files": True,
+            "components": [
+                {
+                    "type": "platform",
+                    "services": ["web-api", "prometheus"],
+                    "images": [
+                        {
+                            "service": "web-api",
+                            "image": "repo/web-api:v0.5.2",
+                            "archive": "images/web-api.tar",
+                            "sha256": hashlib.sha256(web_api).hexdigest(),
+                        }
+                    ],
+                }
+            ],
+        }
+        files = {"images/web-api.tar": web_api, "project/docker-compose.offline.yml": compose}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            service = UpgradeService(settings, TaskService(database), executor=FakeExecutor(has_prometheus=False), project_path=Path(tmpdir) / "project")
+            task = service.upload_package_bytes(self._package(manifest, files), filename="upgrade.tar.gz")
+
+            precheck = service.precheck(task["task_id"])
+
+            self.assertFalse(precheck["ok"])
+            self.assertIn("本地 Docker 镜像不存在：prom/prometheus:v2.55.1", next(check for check in precheck["checks"] if check["name"] == "images")["message"])
+
     def test_rollback_restores_project_files_and_removes_runtime_override(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
@@ -513,6 +906,174 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertEqual(projected["message"], "升级执行完成")
             self.assertEqual(projected["progress"], 100)
 
+    def test_status_projects_terminal_runner_success_to_task_center_once(self) -> None:
+        from app.upgrade_runner.store import TaskStore
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.models import TaskStatus, TaskType
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret")
+            database = V2Database(settings)
+            database.initialize()
+            task_service = TaskService(database)
+            task_id = "upgrade-terminal-success"
+            task_service.create_task(
+                task_id,
+                TaskType.UPGRADE,
+                "执行系统升级",
+                status=TaskStatus.RUNNING,
+                progress=32,
+                message="准备运行目录",
+            )
+            TaskStore(settings.upgrades_dir / task_id).save(
+                {
+                    "task_id": task_id,
+                    "status": "success",
+                    "target_version": "v0.5.2",
+                    "components": ["platform"],
+                    "execution_plan": {
+                        "actions": [
+                            {"id": "prepare-filesystem", "type": "filesystem.prepare", "status": "succeeded"},
+                            {"id": "health-platform", "type": "health.http", "status": "succeeded"},
+                        ]
+                    },
+                }
+            )
+            service = UpgradeService(settings, task_service, project_path=Path(tmpdir) / "project")
+
+            self.assertEqual(service.status(task_id)["status"], "succeeded")
+            projected = task_service.get_task(task_id)
+            self.assertEqual(projected["status"], "success")
+            self.assertEqual(projected["progress"], 100)
+            self.assertEqual(projected["message"], "升级执行完成")
+            first_updated_at = projected["updated_at"]
+
+            self.assertEqual(service.status(task_id)["status"], "succeeded")
+            self.assertEqual(task_service.get_task(task_id)["updated_at"], first_updated_at)
+
+    def test_post_upgrade_cleanup_task_is_created_from_v052_web_api(self) -> None:
+        from app.upgrade_runner.store import TaskStore
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        legacy_cleanup = {
+            "helper_image": "repo/web-api:v0.5.2",
+            "legacy_projects": ["smartx-storage-forecast"],
+            "legacy_networks": ["smartx-storage-forecast_smartx-net"],
+            "legacy_paths": ["/opt/smartx-storage-forecast", "/data/upgrades"],
+            "target_app_residual_paths": ["/data/smartx-storage-forecast/app/upgrades"],
+            "protected_paths": ["/data/smartx-storage-forecast"],
+            "required_health": {
+                "version": "v0.5.2",
+                "runner_version": "v0.3.1",
+                "checks": ["directories", "database", "prometheus"],
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret", app_version="v0.5.2")
+            database = V2Database(settings)
+            database.initialize()
+            task_service = TaskService(database)
+            parent_id = "upgrade-v052"
+            TaskStore(settings.upgrades_dir / parent_id).save(
+                {
+                    "task_id": parent_id,
+                    "status": "success",
+                    "target_version": "v0.5.2",
+                    "components": ["platform"],
+                    "manifest": {
+                        "version": "v0.5.2",
+                        "post_upgrade": {"create_cleanup_task": True},
+                        "legacy_cleanup": legacy_cleanup,
+                    },
+                    "execution_plan": {"actions": [{"id": "schedule-cleanup", "type": "post_upgrade.schedule_cleanup", "status": "succeeded"}]},
+                }
+            )
+            service = UpgradeService(settings, task_service, project_path=Path(tmpdir) / "project")
+
+            cleanup = service.create_post_upgrade_cleanup_task(parent_id, legacy_cleanup)
+
+            self.assertEqual(cleanup["task_id"], "post-cleanup-upgrade-v052")
+            self.assertEqual(cleanup["parent_task_id"], parent_id)
+            self.assertEqual(cleanup["status"], "pending")
+            self.assertEqual(cleanup["kind"], "platform")
+            cleanup_task = TaskStore(settings.upgrades_dir / cleanup["task_id"]).load()
+            action_types = [action["type"] for action in cleanup_task["execution_plan"]["actions"]]
+            self.assertEqual(
+                action_types,
+                [
+                    "post_cleanup.precheck_target_health",
+                    "runner.stop_legacy_runtime",
+                    "compose.stop_legacy_project",
+                    "network.remove_legacy",
+                    "filesystem.cleanup_legacy_paths",
+                    "filesystem.cleanup_target_app_residuals",
+                    "post_cleanup.verify",
+                ],
+            )
+            cleanup_actions = cleanup_task["execution_plan"]["actions"]
+            self.assertEqual(cleanup_actions[4]["params"]["helper_image"], "repo/web-api:v0.5.2")
+            self.assertEqual(cleanup_actions[5]["params"]["helper_image"], "repo/web-api:v0.5.2")
+            self.assertEqual(cleanup_task["parent_task_id"], parent_id)
+            projected = task_service.get_task(cleanup["task_id"])
+            self.assertEqual(projected["type"], "cleanup")
+            self.assertEqual(projected["status"], "pending")
+            self.assertEqual(projected["title"], "升级后清理")
+
+    def test_successful_v052_runner_task_schedules_post_cleanup_when_read(self) -> None:
+        from app.upgrade_runner.store import TaskStore
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        legacy_cleanup = {
+            "legacy_projects": ["smartx-storage-forecast"],
+            "legacy_networks": ["smartx-storage-forecast_smartx-net"],
+            "legacy_paths": ["/opt/smartx-storage-forecast"],
+            "target_app_residual_paths": [],
+            "protected_paths": ["/data/smartx-storage-forecast"],
+            "required_health": {"version": "v0.5.2", "runner_version": "v0.3.1", "checks": ["directories"]},
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret", app_version="v0.5.2")
+            database = V2Database(settings)
+            database.initialize()
+            task_id = "upgrade-v052-success"
+            TaskStore(settings.upgrades_dir / task_id).save(
+                {
+                    "task_id": task_id,
+                    "status": "success",
+                    "target_version": "v0.5.2",
+                    "components": ["platform"],
+                    "manifest": {
+                        "version": "v0.5.2",
+                        "post_upgrade": {"create_cleanup_task": True},
+                        "legacy_cleanup": legacy_cleanup,
+                    },
+                    "execution_plan": {
+                        "actions": [
+                            {"id": "health-platform", "type": "health.http", "status": "succeeded"},
+                            {"id": "schedule-cleanup", "type": "post_upgrade.schedule_cleanup", "status": "succeeded"},
+                        ]
+                    },
+                }
+            )
+            service = UpgradeService(settings, TaskService(database), project_path=Path(tmpdir) / "project")
+
+            status = service.status(task_id)
+
+            self.assertEqual(status["status"], "succeeded")
+            cleanup_file = settings.upgrades_dir / f"post-cleanup-{task_id}" / "task.json"
+            self.assertTrue(cleanup_file.is_file())
+            cleanup_task = TaskStore(cleanup_file.parent).load()
+            self.assertEqual(cleanup_task["parent_task_id"], task_id)
+
     def test_observability_upgrade_only_restarts_prometheus_and_checks_permissions(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
@@ -681,6 +1242,67 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertEqual(projected_steps["healthcheck"], "succeeded")
             self.assertEqual(executor.restart_calls, 1)
 
+    def test_runner_component_upgrade_uses_project_path_from_environment_by_default(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def run(self, command: list[str], *, cwd: Path | None = None) -> None:
+                if command[:3] == ["docker", "compose", "-f"]:
+                    raise SystemExit("runner restarted")
+
+            def output(self, command: list[str], *, cwd: Path | None = None) -> str:
+                if command[:2] == ["docker", "inspect"]:
+                    return json.dumps(
+                        [
+                            {
+                                "Mounts": [
+                                    {"Source": "/data/smartx-capacity-insight-data/app", "Destination": "/data"},
+                                    {"Source": "/opt/smartx-storage-forecast", "Destination": "/opt/smartx-storage-forecast"},
+                                ]
+                            }
+                        ]
+                    )
+                return ""
+
+        runner_image = b"runner-image"
+        manifest = {
+            "schema_version": "2",
+            "version": "v0.3.1",
+            "components": [
+                {
+                    "type": "runner",
+                    "services": ["upgrade-runner"],
+                    "images": [{"service": "upgrade-runner", "image": "repo/upgrade-runner:v0.3.1", "archive": "images/upgrade-runner.tar", "sha256": hashlib.sha256(runner_image).hexdigest()}],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hostname = Path(tmpdir) / "hostname"
+            hostname.write_text("web-api-container-id", encoding="utf-8")
+            settings = V2Settings(
+                data_root=Path(tmpdir),
+                secret_key="upgrade-secret",
+                compose_project_name="smartx-storage-forecast",
+            )
+            database = V2Database(settings)
+            database.initialize()
+            with patch.dict("os.environ", {"SMARTX_PROJECT_PATH": "/opt/smartx-storage-forecast"}):
+                service = UpgradeService(settings, TaskService(database), executor=FakeExecutor(), hostname_path=hostname)
+                task = service.upload_package_bytes(self._package(manifest, {"images/upgrade-runner.tar": runner_image}), filename="runner.tar.gz")
+                self.assertTrue(service.precheck(task["task_id"])["ok"])
+                service.start(task["task_id"])
+
+            override = (settings.compose_runtime_dir / "docker-compose.runner-upgrade.yml").read_text(encoding="utf-8")
+            self.assertIn("SMARTX_PROJECT_PATH: /opt/smartx-storage-forecast", override)
+            self.assertIn("- /opt/smartx-storage-forecast:/opt/smartx-storage-forecast", override)
+            self.assertIn("SMARTX_HOST_DATA_PATH: /data/smartx-capacity-insight-data/app", override)
+            self.assertIn("- /data/smartx-capacity-insight-data/app:/data", override)
+            self.assertNotIn("/data/smartx-storage-forecast/project", override)
+            self.assertNotIn("- /data/smartx-storage-forecast/app:/data", override)
+
     def test_component_upgrade_failure_returns_failed_task_without_requiring_second_precheck(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
@@ -781,6 +1403,81 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertEqual(final["status"], "success")
             self.assertTrue(final.get("finished_at"))
 
+    def test_runner_bootstrap_returns_success_when_new_runner_wins_final_task_save(self) -> None:
+        from app.upgrade_runner.store import TaskStore
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class CompletingRunnerExecutor(UpgradeCommandExecutor):
+            def __init__(self, task_dir: Path) -> None:
+                self.task_dir = task_dir
+                self.completed_by_runner = False
+
+            def run(self, command: list[str], *, cwd: Path | None = None) -> None:
+                if (
+                    command[:3] == ["docker", "compose", "-f"]
+                    and "up" in command
+                    and command[-1:] == ["upgrade-runner"]
+                    and not self.completed_by_runner
+                ):
+                    current = TaskStore(self.task_dir).load()
+                    steps = []
+                    for step in current.get("steps") or []:
+                        updated = dict(step)
+                        updated["status"] = "succeeded"
+                        if updated.get("key") == "restart":
+                            updated["message"] = "upgrade-runner 已重新启动"
+                        if updated.get("key") == "healthcheck":
+                            updated["message"] = "组件升级健康检查通过"
+                        steps.append(updated)
+                    current["status"] = "success"
+                    current["runner_resume_pending"] = False
+                    current["steps"] = steps
+                    current["logs"] = list(current.get("logs") or []) + ["new runner completed task first"]
+                    current["finished_at"] = "2026-07-08T09:53:42+00:00"
+                    current["updated_at"] = current["finished_at"]
+                    TaskStore(self.task_dir).save(current, expected_revision=int(current.get("revision") or 0))
+                    self.completed_by_runner = True
+
+        runner_image = b"runner-image"
+        manifest = {
+            "schema_version": "2",
+            "version": "v0.3.1",
+            "bootstrap_runner": {
+                "enabled": True,
+                "target_project": "smartx-hci-capacity-insight",
+                "target_network": "smartx-hci-capacity-insight-net",
+                "target_subnet": "10.249.251.0/24",
+            },
+            "components": [
+                {
+                    "type": "runner",
+                    "services": ["upgrade-runner"],
+                    "images": [{"service": "upgrade-runner", "image": "repo/upgrade-runner:v0.3.1", "archive": "images/upgrade-runner.tar", "sha256": hashlib.sha256(runner_image).hexdigest()}],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret", compose_project_name="smartx-storage-forecast")
+            database = V2Database(settings)
+            database.initialize()
+            service = UpgradeService(settings, TaskService(database), project_path=Path(tmpdir) / "project")
+            task = service.upload_package_bytes(self._package(manifest, {"images/upgrade-runner.tar": runner_image}), filename="runner.tar.gz")
+            service.executor = CompletingRunnerExecutor(settings.upgrades_dir / task["task_id"])
+
+            self.assertTrue(service.precheck(task["task_id"])["precheck_ok"])
+            started = service.start(task["task_id"])
+
+            self.assertEqual(started["status"], "succeeded")
+            self.assertTrue(service.executor.completed_by_runner)
+            final = json.loads((settings.upgrades_dir / task["task_id"] / "task.json").read_text(encoding="utf-8"))
+            self.assertEqual(final["status"], "success")
+            self.assertIn("new runner completed task first", final["logs"])
+            projected = TaskService(database).get_task(task["task_id"])
+            self.assertEqual(projected["status"], "success")
+
     def test_runner_bootstrap_uses_target_project_network_and_app_database(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
@@ -812,7 +1509,7 @@ class V2UpgradeServiceTest(unittest.TestCase):
                 }
             ],
         }
-        host_data_path = "/data/smartx-capacity-insight-data/app"
+        host_data_path = "/data/smartx-storage-forecast/app"
         with tempfile.TemporaryDirectory() as tmpdir, patch.dict("os.environ", {"SMARTX_HOST_DATA_PATH": host_data_path}):
             settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret", compose_project_name="smartx-storage-forecast")
             database = V2Database(settings)
@@ -842,6 +1539,129 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertTrue(any(str(bootstrap_path) in part for command in compose_commands for part in command))
             self.assertTrue(any("--project-name" in command and "smartx-hci-capacity-insight" in command for command in compose_commands))
             self.assertTrue(any("--project-name" in command and "smartx-storage-forecast" in command and command[-2:] == ["stop", "upgrade-runner"] for command in compose_commands))
+
+    def test_runner_bootstrap_keeps_legacy_task_scan_and_mounts_target_root(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def run(self, command: list[str], *, cwd: Path | None = None) -> None:
+                return None
+
+        runner_image = b"runner-image"
+        manifest = {
+            "schema_version": "2",
+            "version": "v0.3.1",
+            "bootstrap_runner": {
+                "enabled": True,
+                "target_project": "smartx-hci-capacity-insight",
+                "target_network": "smartx-hci-capacity-insight-net",
+                "target_subnet": "10.249.251.0/24",
+                "target_root": "/data/smartx-storage-forecast",
+            },
+            "components": [
+                {
+                    "type": "runner",
+                    "services": ["upgrade-runner"],
+                    "images": [
+                        {
+                            "service": "upgrade-runner",
+                            "image": "repo/upgrade-runner:v0.3.1",
+                            "archive": "images/upgrade-runner.tar",
+                            "sha256": hashlib.sha256(runner_image).hexdigest(),
+                        }
+                    ],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(
+            "os.environ",
+            {
+                "SMARTX_HOST_DATA_PATH": "/data/smartx-capacity-insight-data/app",
+                "SMARTX_HOST_UPGRADES_PATH": "/data/upgrades",
+                "SMARTX_HOST_BACKUPS_PATH": "/data/backups",
+                "SMARTX_HOST_EXPORTS_PATH": "/data/exports",
+                "SMARTX_HOST_COMPOSE_RUNTIME_PATH": "/data/compose-runtime",
+                "SMARTX_HOST_PROMETHEUS_DATA_PATH": "/prometheus-data",
+                "SMARTX_HOST_PROJECT_PATH": "/opt/smartx-storage-forecast",
+            },
+        ):
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret", compose_project_name="smartx-storage-forecast")
+            database = V2Database(settings)
+            database.initialize()
+            service = UpgradeService(settings, TaskService(database), executor=FakeExecutor(), project_path=Path("/opt/smartx-storage-forecast"))
+            task = service.upload_package_bytes(self._package(manifest, {"images/upgrade-runner.tar": runner_image}), filename="runner.tar.gz")
+
+            self.assertTrue(service.precheck(task["task_id"])["ok"])
+            service.start(task["task_id"])
+
+            override = (settings.compose_runtime_dir / "docker-compose.runner-bootstrap.yml").read_text(encoding="utf-8")
+            self.assertIn("SMARTX_UPGRADES_PATH: /data/upgrades", override)
+            self.assertIn("SMARTX_HOST_UPGRADES_PATH: /data/upgrades", override)
+            self.assertIn("- /data/upgrades:/data/upgrades", override)
+            self.assertIn("- /data/smartx-storage-forecast:/data/smartx-storage-forecast", override)
+
+    def test_runner_upgrade_compose_uses_target_host_runtime_paths(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def run(self, command: list[str], *, cwd: Path | None = None) -> None:
+                return None
+
+        runner_image = b"runner-image"
+        manifest = {
+            "schema_version": "2",
+            "version": "v0.3.1",
+            "components": [
+                {
+                    "type": "runner",
+                    "services": ["upgrade-runner"],
+                    "images": [
+                        {
+                            "service": "upgrade-runner",
+                            "image": "repo/upgrade-runner:v0.3.1",
+                            "archive": "images/upgrade-runner.tar",
+                            "sha256": hashlib.sha256(runner_image).hexdigest(),
+                        }
+                    ],
+                }
+            ],
+        }
+        target_root = "/data/smartx-storage-forecast"
+        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(
+            "os.environ",
+            {
+                "SMARTX_HOST_DATA_PATH": f"{target_root}/app",
+                "SMARTX_HOST_UPGRADES_PATH": f"{target_root}/upgrades",
+                "SMARTX_HOST_BACKUPS_PATH": f"{target_root}/backups",
+                "SMARTX_HOST_EXPORTS_PATH": f"{target_root}/exports",
+                "SMARTX_HOST_COMPOSE_RUNTIME_PATH": f"{target_root}/compose-runtime",
+                "SMARTX_HOST_PROMETHEUS_DATA_PATH": f"{target_root}/prometheus",
+                "SMARTX_HOST_PROJECT_PATH": f"{target_root}/project",
+            },
+        ):
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret", compose_project_name="smartx-hci-capacity-insight")
+            database = V2Database(settings)
+            database.initialize()
+            service = UpgradeService(settings, TaskService(database), executor=FakeExecutor(), project_path=Path(f"{target_root}/project"))
+            task = service.upload_package_bytes(self._package(manifest, {"images/upgrade-runner.tar": runner_image}), filename="runner.tar.gz")
+
+            self.assertTrue(service.precheck(task["task_id"])["ok"])
+            service.start(task["task_id"])
+
+            override = (settings.compose_runtime_dir / "docker-compose.runner-upgrade.yml").read_text(encoding="utf-8")
+            self.assertIn(f"SMARTX_HOST_UPGRADES_PATH: {target_root}/upgrades", override)
+            self.assertIn(f"- {target_root}/upgrades:/data/upgrades", override)
+            self.assertIn(f"- {target_root}/compose-runtime:/data/compose-runtime", override)
+            self.assertIn(f"- {target_root}/prometheus:/prometheus-data", override)
+            self.assertNotIn("- /data/upgrades:/data/upgrades", override)
+            self.assertNotIn("- /data/compose-runtime:/data/compose-runtime", override)
+            self.assertNotIn("- /prometheus-data:/prometheus-data", override)
 
     def test_runner_normalizes_legacy_success_component_upgrade_steps(self) -> None:
         from app.upgrade_runner.store import TaskStore
@@ -1019,6 +1839,142 @@ class V2UpgradeServiceTest(unittest.TestCase):
 
             self.assertEqual(service.component_version()["version"], "v0.3.1")
             self.assertEqual(service.component_catalog()["components"][0]["version"], "v0.3.1")
+
+    def test_verification_uses_running_runner_container_when_heartbeat_is_stale(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def output(self, command: list[str], *, cwd: Path | None = None) -> str:
+                if command[:2] == ["docker", "ps"] and "--filter" in command and "name=upgrade-runner" in command:
+                    return json.dumps(
+                        {
+                            "Names": "smartx-hci-capacity-insight-upgrade-runner-1",
+                            "Image": "repo/upgrade-runner:v0.3.1",
+                            "State": "running",
+                        }
+                    )
+                if command[:2] == ["docker", "exec"]:
+                    return "v0.3.1\n"
+                if command[:4] == ["docker", "compose", "-f", "docker-compose.offline.yml"]:
+                    return ""
+                if command[:2] == ["docker", "ps"]:
+                    return ""
+                return ""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret", runner_version="v0.3.0", compose_file="docker-compose.offline.yml")
+            database = V2Database(settings)
+            database.initialize()
+            record_runner_state(database, version="v0.3.0", heartbeat_at="2000-01-01 00:00:00")
+            service = UpgradeService(settings, TaskService(database), executor=FakeExecutor(), project_path=Path(tmpdir) / "project")
+
+            verification = service.verification()
+
+            self.assertEqual(verification["runner_version"], "v0.3.1")
+
+    def test_verification_falls_back_to_runner_image_tag_when_version_file_is_empty(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def output(self, command: list[str], *, cwd: Path | None = None) -> str:
+                if command[:2] == ["docker", "ps"] and "--filter" in command and "name=upgrade-runner" in command:
+                    return json.dumps(
+                        {
+                            "Names": "smartx-hci-capacity-insight-upgrade-runner-1",
+                            "Image": "repo/upgrade-runner:v0.3.1",
+                            "State": "running",
+                        }
+                    )
+                if command[:2] == ["docker", "exec"]:
+                    return "\n"
+                if command[:4] == ["docker", "compose", "-f", "docker-compose.offline.yml"]:
+                    return ""
+                if command[:2] == ["docker", "ps"]:
+                    return ""
+                return ""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret", runner_version="v0.3.0", compose_file="docker-compose.offline.yml")
+            database = V2Database(settings)
+            database.initialize()
+            service = UpgradeService(settings, TaskService(database), executor=FakeExecutor(), project_path=Path(tmpdir) / "project")
+
+            verification = service.verification()
+
+            self.assertEqual(verification["runner_version"], "v0.3.1")
+
+    def test_runner_protocol_precheck_does_not_accept_docker_only_runner_fallback(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeCommandExecutor, UpgradeService
+
+        class FakeExecutor(UpgradeCommandExecutor):
+            def output(self, command: list[str], *, cwd: Path | None = None) -> str:
+                if command[:2] == ["docker", "ps"] and "--filter" in command and "name=upgrade-runner" in command:
+                    return json.dumps(
+                        {
+                            "Names": "smartx-hci-capacity-insight-upgrade-runner-1",
+                            "Image": "repo/upgrade-runner:v0.3.1",
+                            "State": "running",
+                        }
+                    )
+                if command[:2] == ["docker", "exec"]:
+                    return "v0.3.1\n"
+                return ""
+
+            def run(self, command: list[str], *, cwd: Path | None = None) -> None:
+                return None
+
+        image = b"web-api-image"
+        manifest = {
+            "schema_version": "3",
+            "version": "v0.5.2",
+            "min_version": "v0.5.0",
+            "minimum_runner_protocol": 1,
+            "minimum_runner_version": "v0.3.1",
+            "required_capabilities": ["compose.project_migrate.v1"],
+            "source_compatibility": {
+                "min_version": "v0.5.0",
+                "max_version_inclusive": "v0.5.2",
+                "target_version": "v0.5.2",
+                "allow_same_version": True,
+                "supported_versions": ["v0.5.1"],
+            },
+            "components": [
+                {
+                    "type": "platform",
+                    "services": ["web-api"],
+                    "images": [
+                        {
+                            "service": "web-api",
+                            "image": "repo/web-api:v0.5.2",
+                            "archive": "images/web-api.tar",
+                            "sha256": hashlib.sha256(image).hexdigest(),
+                        }
+                    ],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret", app_version="v0.5.1")
+            database = V2Database(settings)
+            database.initialize()
+            service = UpgradeService(settings, TaskService(database), executor=FakeExecutor(), project_path=Path(tmpdir) / "project")
+            task = service.upload_package_bytes(build_schema3_package(manifest, {"images/web-api.tar": image}), filename="upgrade.tar.gz")
+
+            precheck = service.precheck(task["task_id"])
+
+            protocol_check = next(check for check in precheck["checks"] if check["name"] == "runner_protocol")
+            self.assertFalse(protocol_check["ok"])
+            self.assertEqual(protocol_check["detail"]["runner_version"], "v0.3.1")
+            self.assertEqual(protocol_check["detail"]["source"], "docker")
 
     def test_runner_component_history_projects_real_components_shape(self) -> None:
         from app.v2.config import V2Settings

@@ -2,15 +2,17 @@ import { Check, Circle, Download, FileArchive, History, Info, ListChecks, Loader
 import { useEffect, useRef, useState } from "react";
 import { api } from "../services/api";
 import type { TransferProgress } from "../services/api";
-import type { AppTask, ComponentInfo, LocalStorageUsage, MigrationExportTask, MigrationImportTask, SpaceCleanupScanItem, SqliteBackupScanResult, SqliteVacuumScan, UpgradeTask, UpgradeVerification } from "../types";
+import type { AppTask, ComponentInfo, LocalStorageUsage, MigrationExportTask, MigrationImportTask, SpaceCleanupScanItem, SqliteBackupScanResult, SqliteVacuumScan, UpgradePostCleanupStatus, UpgradeTask, UpgradeVerification } from "../types";
 
 type ServiceSection = "migration" | "restart" | "space-cleanup" | "platform-upgrade" | "component-upgrade" | "history";
 type CleanupScanImage = { id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string; reclaimable_size?: number; reclaimable_size_label?: string; created_at?: number | string };
 type UpgradeCheck = UpgradeTask["checks"][number];
 type PrecheckStepDefinition = { key: string; title: string; checks: string[] };
 type DisplayStep = { key: string; title: string; status: string; message?: string };
+type RestartWindowState = { startedAt: number; lastError: string };
 
 const runningUpgradeStatuses = new Set(["pending", "running", "rollback_pending", "rollback_running"]);
+const restartWindowTimeoutMs = 5 * 60 * 1000;
 const serviceItems = [
   { name: "web-api", description: "提供页面 API、报表导出、数据迁移和升级接口。" },
   { name: "collector-worker", description: "负责定时采集 Tower、集群和虚拟机容量数据。" },
@@ -89,6 +91,48 @@ function componentServiceFromTask(task: UpgradeTask): string | undefined {
   return undefined;
 }
 
+function errorMessage(exc: unknown, fallback: string): string {
+  return exc instanceof Error && exc.message ? exc.message : fallback;
+}
+
+function isRecoverableRestartError(exc: unknown): boolean {
+  const message = errorMessage(exc, "").toLowerCase();
+  if (!message) return false;
+  return (
+    message.includes("internal server error") ||
+    message.includes("failed to fetch") ||
+    message.includes("networkerror") ||
+    message.includes("connection reset") ||
+    message.includes("connection refused") ||
+    /\b50[0-4]\b/.test(message)
+  );
+}
+
+function restartWindowMessage(
+  exc: unknown,
+  stateRef: { current: RestartWindowState | null },
+  reconnectingMessage: string,
+  fallbackError: string
+): string {
+  const message = errorMessage(exc, fallbackError) || "Internal Server Error";
+  if (!isRecoverableRestartError(exc)) {
+    stateRef.current = null;
+    return message;
+  }
+  const now = Date.now();
+  if (!stateRef.current) {
+    stateRef.current = { startedAt: now, lastError: message };
+  } else {
+    stateRef.current.lastError = message;
+  }
+  if (now - stateRef.current.startedAt >= restartWindowTimeoutMs) {
+    const finalMessage = stateRef.current.lastError || message || "Internal Server Error";
+    stateRef.current = null;
+    return finalMessage;
+  }
+  return reconnectingMessage;
+}
+
 interface ServicePageProps {
   addTask: (task: Omit<AppTask, "createdAt" | "updatedAt">) => void;
   updateTask: (id: string, patch: Partial<Omit<AppTask, "id" | "createdAt">>) => void;
@@ -102,6 +146,8 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
   const [upgradeTask, setUpgradeTask] = useState<UpgradeTask | null>(null);
   const [upgradeHistory, setUpgradeHistory] = useState<UpgradeTask[]>([]);
   const [upgradeVerification, setUpgradeVerification] = useState<UpgradeVerification | null>(null);
+  const [postCleanupStatus, setPostCleanupStatus] = useState<UpgradePostCleanupStatus | null>(null);
+  const [postCleanupBusy, setPostCleanupBusy] = useState(false);
   const [verificationBusy, setVerificationBusy] = useState(false);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [upgradeMessage, setUpgradeMessage] = useState("");
@@ -161,6 +207,10 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
   const migrationFileInputRef = useRef<HTMLInputElement | null>(null);
   const contentPanelRef = useRef<HTMLElement | null>(null);
   const upgradeRunTaskRef = useRef<Record<string, string>>({});
+  const upgradeRestartWindowRef = useRef<RestartWindowState | null>(null);
+  const componentRestartWindowRef = useRef<RestartWindowState | null>(null);
+  const verificationRestartWindowRef = useRef<RestartWindowState | null>(null);
+  const postCleanupRestartWindowRef = useRef<RestartWindowState | null>(null);
 
   async function reloadUpgradeHistory() {
     setUpgradeHistory(await api.upgradeHistory());
@@ -170,6 +220,10 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     setVerificationBusy(true);
     try {
       const result = await api.upgradeVerification();
+      if (verificationRestartWindowRef.current) {
+        verificationRestartWindowRef.current = null;
+        setUpgradeMessage("");
+      }
       setUpgradeVerification(result);
       setAppVersion(result.app_version || "-");
       setRunnerVersion(result.runner_version || "v0.1.0");
@@ -180,8 +234,49 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           return component;
         })
       );
+      if (result.package?.task_id) {
+        api
+          .upgradePostCleanupStatus(result.package.task_id)
+          .then((status) => {
+            postCleanupRestartWindowRef.current = null;
+            setPostCleanupStatus(status);
+          })
+          .catch((exc) => {
+            setUpgradeMessage(restartWindowMessage(exc, postCleanupRestartWindowRef, "服务正在重启，正在重新连接...", "刷新升级后清理状态失败"));
+            setPostCleanupStatus(null);
+          });
+      } else {
+        setPostCleanupStatus(null);
+      }
+    } catch (exc) {
+      setUpgradeMessage(restartWindowMessage(exc, verificationRestartWindowRef, "服务正在重启，正在重新连接...", "刷新核验失败"));
+      throw exc;
     } finally {
       setVerificationBusy(false);
+    }
+  }
+
+  async function retryPostUpgradeCleanup() {
+    const parentTaskId = postCleanupStatus?.parent_task_id || upgradeVerification?.package?.task_id;
+    if (!parentTaskId) return;
+    setPostCleanupBusy(true);
+    setUpgradeMessage("");
+    try {
+      const task = await api.retryUpgradePostCleanup(parentTaskId);
+      setPostCleanupStatus({ parent_task_id: parentTaskId, status: task.status, task_id: task.task_id, task });
+      addTask({
+        id: task.task_id,
+        kind: "upgrade",
+        title: "升级后清理",
+        detail: upgradeStatusText(task.status),
+        status: upgradeTaskStatus(task),
+        progress: upgradeProgress(task)
+      });
+      setUpgradeMessage("升级后清理任务已提交。");
+    } catch (exc) {
+      setUpgradeMessage(exc instanceof Error ? exc.message : "提交升级后清理失败");
+    } finally {
+      setPostCleanupBusy(false);
     }
   }
 
@@ -238,6 +333,10 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     const timer = window.setInterval(() => {
       api.upgradeStatus(upgradeTask.task_id)
         .then((next) => {
+          if (upgradeRestartWindowRef.current) {
+            upgradeRestartWindowRef.current = null;
+            setUpgradeMessage("");
+          }
           setUpgradeTask(next);
           const appTaskId = upgradeRunTaskRef.current[next.task_id];
           if (appTaskId) {
@@ -252,9 +351,16 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
           if (!runningUpgradeStatuses.has(next.status)) {
             reloadUpgradeHistory().catch(() => undefined);
             reloadUpgradeVerification().catch(() => undefined);
+            api
+              .upgradePostCleanupStatus(next.task_id)
+              .then((status) => {
+                postCleanupRestartWindowRef.current = null;
+                setPostCleanupStatus(status);
+              })
+              .catch((exc) => setUpgradeMessage(restartWindowMessage(exc, postCleanupRestartWindowRef, "服务正在重启，正在重新连接...", "刷新升级后清理状态失败")));
           }
         })
-        .catch((exc) => setUpgradeMessage(exc instanceof Error ? exc.message : "刷新升级状态失败"));
+        .catch((exc) => setUpgradeMessage(restartWindowMessage(exc, upgradeRestartWindowRef, "服务正在重启，正在重新连接...", "刷新升级状态失败")));
     }, 2500);
     return () => window.clearInterval(timer);
   }, [upgradeTask, updateTask]);
@@ -264,6 +370,10 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
     const timer = window.setInterval(() => {
       api.componentUpgradeStatus(componentTask.task_id)
         .then((next) => {
+          if (componentRestartWindowRef.current) {
+            componentRestartWindowRef.current = null;
+            setComponentMessage("");
+          }
           setComponentTask(next);
           const appTaskId = upgradeRunTaskRef.current[next.task_id];
           if (appTaskId) {
@@ -279,7 +389,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             refreshComponentUpgradeState(next.task_id, next).catch(() => undefined);
           }
         })
-        .catch((exc) => setComponentMessage(exc instanceof Error ? exc.message : "刷新组件升级状态失败"));
+        .catch((exc) => setComponentMessage(restartWindowMessage(exc, componentRestartWindowRef, "升级中心组件正在重启，正在重新连接...", "刷新组件升级状态失败")));
     }, 2500);
     return () => window.clearInterval(timer);
   }, [componentTask, updateTask]);
@@ -1383,7 +1493,16 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
             <InfoRow label="最近成功包" value={packageInfo ? `${formatVersionForDisplay(packageInfo.version)} · ${packageInfo.filename || "-"}` : "暂无成功升级记录"} />
             <InfoRow label="已选升级包 SHA256" value={selectedPackageSha ? shortSha(selectedPackageSha) : "-"} />
             <InfoRow label="最近成功包 SHA256" value={packageInfo?.sha256 ? shortSha(packageInfo.sha256) : "-"} />
+            <InfoRow label="旧环境清理" value={postCleanupStatusText(postCleanupStatus)} />
           </div>
+          {postCleanupStatus && ["failed", "warning"].includes(postCleanupStatus.status) && (
+            <div className="service-upgrade-actions service-upgrade-actions-inline">
+              <button className="secondary-button" type="button" onClick={retryPostUpgradeCleanup} disabled={postCleanupBusy}>
+                <RefreshCw size={16} />
+                {postCleanupBusy ? "提交中" : "重试清理"}
+              </button>
+            </div>
+          )}
           {renderUpgradeRuntimeVerification()}
         </section>
         <div className="service-notice">
@@ -1909,6 +2028,21 @@ function upgradeStatusText(status: string): string {
     recovery_required: "需要恢复处理"
   };
   return labels[status] ?? status;
+}
+
+function postCleanupStatusText(status?: UpgradePostCleanupStatus | null): string {
+  if (!status) return "-";
+  const labels: Record<string, string> = {
+    not_required: "不需要",
+    pending: "等待清理",
+    running: "清理中",
+    success: "清理完成",
+    succeeded: "清理完成",
+    warning: "清理有告警",
+    failed: "清理失败",
+    cancelled: "已取消"
+  };
+  return labels[status.status] ?? status.status;
 }
 
 function stepStatusText(status: string): string {

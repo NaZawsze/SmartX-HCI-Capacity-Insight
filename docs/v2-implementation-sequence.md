@@ -135,7 +135,7 @@ v2 按阶段重建，每个阶段都必须可验证、可提交、可回退。�
 
 - 页面报表有集群数据。
 - Word/Excel 可打开。
-- 导出文件留存在 `/data/exports/reports`。
+- 导出文件留存在 `/data/smartx-storage-forecast/exports/reports`。
 - 月增长榜不包含样本不足 30 天的 VM。
 
 ## 8. Phase V2-6 - 数据迁移

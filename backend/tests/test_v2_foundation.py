@@ -344,6 +344,25 @@ class V2FoundationTest(unittest.TestCase):
 
             self.assertEqual(result.runner_version, "v0.3.1")
 
+    def test_health_check_falls_back_to_running_runner_probe(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.metrics.prometheus import PrometheusHealth
+        from app.v2.system.health import check_health
+
+        class ReadyPrometheus:
+            def health(self):
+                return PrometheusHealth(ok=True, message="ready")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="unit-secret", runner_version="v0.3.0")
+            db = V2Database(settings)
+            db.initialize()
+
+            result = check_health(settings, db, prometheus=ReadyPrometheus(), runner_probe=lambda: "v0.3.1")
+
+            self.assertEqual(result.runner_version, "v0.3.1")
+
     def test_health_check_reports_required_directory_writeability(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.database import V2Database

@@ -11,8 +11,8 @@
 主要内容：
 - Docker Compose 编排：`web-api`、`frontend`、`collector-worker`、`prometheus`、`upgrade-runner`
 - 镜像构建：开发镜像、本地离线镜像、Release 镜像、升级包镜像
-- 数据目录：`/data/smartx-capacity-insight-data/app`、`/data/smartx-capacity-insight-data/prometheus`
-- 运行产物目录：`/data/upgrades`、`/data/backups`、`/data/exports`、`/data/compose-runtime`；其中报表、数据迁出、数据迁入留档分别在 `/data/exports/reports`、`/data/exports/migrations`、`/data/exports/imports`。
+- 数据目录：`/data/smartx-storage-forecast/app`、`/data/smartx-storage-forecast/prometheus`
+- 运行产物目录：`/data/smartx-storage-forecast/upgrades`、`/data/smartx-storage-forecast/backups`、`/data/smartx-storage-forecast/exports`、`/data/smartx-storage-forecast/compose-runtime`；其中报表、数据迁出、数据迁入留档分别在 `/data/smartx-storage-forecast/exports/reports`、`/data/smartx-storage-forecast/exports/migrations`、`/data/smartx-storage-forecast/exports/imports`。
 - 网络规划：Docker 网络段、端口暴露、Prometheus 内部访问
 - 时区配置：宿主机 CST、容器内 CST、报表和升级日志时间
 - 安装前置脚本：目录创建、权限、SELinux/防火墙/Prometheus 权限
@@ -36,7 +36,7 @@
 - [已解决] compose 文件写死旧版本：版本来源改为镜像内置 `VERSION`，compose 默认 tag 固定到明确版本
 - [已解决] 容器时间和页面日志差 8 小时：按 CST/Asia/Shanghai 统一展示
 - [已解决] Docker 默认网段和客户环境冲突：项目网络改为 `10.249.249.0/24`，Docker daemon 可配置 `10.249.0.0/16`
-- [已解决] 升级包、备份、报表导出、数据迁出、数据迁入留档等运行产物不再落在 `app/` 目录下：独立到 `/data/upgrades`、`/data/backups`、`/data/exports`、`/data/compose-runtime`
+- [已解决] 升级包、备份、报表导出、数据迁出、数据迁入留档等运行产物不再落在 `app/` 目录下：独立到 `/data/smartx-storage-forecast/upgrades`、`/data/smartx-storage-forecast/backups`、`/data/smartx-storage-forecast/exports`、`/data/smartx-storage-forecast/compose-runtime`
 
 ## 2. 用户、认证与权限
 
@@ -68,6 +68,8 @@
 ## 3. Tower 与集群配置
 
 目标：管理 Tower 连接、集群启用状态和采集范围。
+
+CloudTower 版本范围：Tower 连接和采集通过 CloudTower v2 HTTP API（`/v2/api/login`、`/v2/api/get-clusters`、`/v2/api/get-cluster-storage-info`、`/v2/api/get-vms`、`/v2/api/get-vm-volumes`）读取集群、VM、卷和容量数据。需要目标 CloudTower（SMTX OS）支持这些 v2 API 端点；只要端点可用并返回预期结构，不强制要求具体 CloudTower 小版本号。
 
 主要内容：
 - Tower 新增、编辑、删除
@@ -238,7 +240,7 @@
 - [已解决] 大文件上传触发 Request Entity Too Large：前端和服务端支持后台任务与上传进度展示
 - [已解决] 导入后不重启服务导致页面仍显示旧数据：服务管理提供数据服务重启入口
 - [已解决] 已取消“跳过历史指标换取迁移导出速度”的方向：Prometheus 历史指标必须保留，真正优化点是把运行产物搬离 `app/` 并增加精确进度
-- [已解决] 数据迁移导入没有服务器留档目录：上传包、解压目录和 `task.json` 统一写入 `/data/exports/imports/<task_id>/`，并纳入空间清理扫描。
+- [已解决] 数据迁移导入没有服务器留档目录：上传包、解压目录和 `task.json` 统一写入 `/data/smartx-storage-forecast/exports/imports/<task_id>/`，并纳入空间清理扫描。
 - [已解决] 数据迁移导入前先生成当前系统备份，备份成功后才继续导入；备份失败默认阻止导入，导入结果和任务中心显示备份路径。
 
 ## 9. 服务管理
@@ -278,7 +280,7 @@
 - manifest 校验
 - sha256 校验
 - 预检查
-- 备份 `/data/backups/upgrade-版本-before-时间.tar.gz`
+- 备份 `/data/smartx-storage-forecast/backups/upgrade-版本-before-时间.tar.gz`
 - `upgrade-runner` 执行升级
 - manifest schema 3 协议与 capability 预检查
 - `task.json` 原子检查点、Runner 心跳、任务租约与跨重启恢复
@@ -358,7 +360,7 @@ observability/images/prometheus.tar  # 可选，仅离线镜像包包含
 常见问题：
 - 平台升级包为什么不升级 runner
 - runner 是否需要显示平台版本
-- [已解决] v2 runner-only 组件升级由 web-api 直接执行，不依赖旧 web-api 写只读 `/opt`，也不提交给 runner 自己重启自己。
+- [已解决] v2 runner-only 组件升级由 web-api 直接执行，不依赖旧 web-api 写只读项目目录，也不提交给 runner 自己重启自己。
 - runner 被重建时正在执行的升级任务如何恢复
 - [已解决] Runner 使用 action checkpoint、revision、心跳和租约恢复安全动作；结果不明确的迁移进入 `recovery_required`。当前 Runner 版本为 `v0.3.1`，新增 Compose project/network 迁移能力。
 - [已解决] 健康检查失败只自动回滚一次，恢复项目文件、删除新增文件、移除升级 override 并 recreate 原版本服务。

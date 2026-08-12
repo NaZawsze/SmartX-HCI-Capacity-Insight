@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { displayUpgradeSteps, formatVersionForDisplay } from "./ServicePage";
 import { ServicePage } from "./ServicePage";
 
@@ -7,10 +7,13 @@ const apiMock = vi.hoisted(() => ({
   upgradeVersion: vi.fn(),
   componentUpgradeVersion: vi.fn(),
   componentUpgradeComponents: vi.fn(),
+  upgradeStatus: vi.fn(),
   componentUpgradeStatus: vi.fn(),
   upgradeHistory: vi.fn(),
   componentUpgradeHistory: vi.fn(),
   upgradeVerification: vi.fn(),
+  upgradePostCleanupStatus: vi.fn(),
+  retryUpgradePostCleanup: vi.fn(),
   precheckUpgrade: vi.fn(),
   startUpgrade: vi.fn(),
   startComponentUpgrade: vi.fn(),
@@ -44,6 +47,16 @@ beforeEach(() => {
   HTMLAnchorElement.prototype.click = vi.fn();
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+async function flushReactUpdates() {
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
 function mockServicePageBootstrap() {
   apiMock.upgradeVersion.mockResolvedValue({ version: "v0.5.0" });
   apiMock.componentUpgradeVersion.mockResolvedValue({ component: "upgrade-runner", version: "v0.3.0" });
@@ -70,6 +83,8 @@ function mockServicePageBootstrap() {
   });
   apiMock.upgradeHistory.mockResolvedValue([]);
   apiMock.componentUpgradeHistory.mockResolvedValue([]);
+  apiMock.upgradePostCleanupStatus.mockResolvedValue({ parent_task_id: "upgrade-ok", status: "not_required", task: null });
+  apiMock.retryUpgradePostCleanup.mockResolvedValue({ ...uploadedPlatformTask(), task_id: "post-cleanup-upgrade-ok", status: "pending" });
   apiMock.upgradeVerification.mockResolvedValue({
     app_version: "v0.5.0",
     runner_version: "v0.3.0",
@@ -667,6 +682,91 @@ describe("ServicePage upgrade center", () => {
     expect(screen.getByText("写入 runner bootstrap compose")).toBeInTheDocument();
     expect(screen.getByText("检查组件运行状态")).toBeInTheDocument();
     expect(screen.queryByText("未执行")).not.toBeInTheDocument();
+    expect(updateTask).toHaveBeenCalledWith("runner-upgrade-1", expect.objectContaining({ status: "succeeded", progress: 100 }));
+  });
+
+  it("keeps polling platform upgrade status during a short web-api restart window", async () => {
+    mockServicePageBootstrap();
+    const runningTask = { ...uploadedPlatformTask(), status: "running", precheck_ok: true, started_at: "2026-07-08T10:00:00Z" };
+    const succeededTask = { ...runningTask, status: "success", finished_at: "2026-07-08T10:01:00Z" };
+    apiMock.upgradeHistory.mockResolvedValue([{ ...uploadedPlatformTask(), status: "prechecked", precheck_ok: true }]);
+    apiMock.startUpgrade.mockResolvedValue(runningTask);
+    apiMock.upgradeStatus.mockRejectedValueOnce(new Error("Internal Server Error")).mockResolvedValueOnce(succeededTask);
+    const updateTask = vi.fn();
+    render(<ServicePage addTask={vi.fn()} updateTask={updateTask} />);
+
+    fireEvent.click(await screen.findByText("v0.5.2"));
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "开始升级" }));
+    await flushReactUpdates();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(apiMock.upgradeStatus).toHaveBeenCalledWith("upgrade-1");
+    expect(screen.getByText("服务正在重启，正在重新连接...")).toBeInTheDocument();
+    expect(updateTask).not.toHaveBeenCalledWith("upgrade-1", expect.objectContaining({ status: "failed" }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(apiMock.upgradeStatus).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("服务正在重启，正在重新连接...")).not.toBeInTheDocument();
+    expect(updateTask).toHaveBeenCalledWith("upgrade-1", expect.objectContaining({ status: "succeeded", progress: 100 }));
+  });
+
+  it("shows the platform upgrade polling error after the restart window times out", async () => {
+    mockServicePageBootstrap();
+    const runningTask = { ...uploadedPlatformTask(), status: "running", precheck_ok: true, started_at: "2026-07-08T10:00:00Z" };
+    apiMock.upgradeHistory.mockResolvedValue([{ ...uploadedPlatformTask(), status: "prechecked", precheck_ok: true }]);
+    apiMock.startUpgrade.mockResolvedValue(runningTask);
+    apiMock.upgradeStatus.mockRejectedValue(new Error("Internal Server Error"));
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText("v0.5.2"));
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "开始升级" }));
+    await flushReactUpdates();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(screen.getByText("服务正在重启，正在重新连接...")).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300000);
+    });
+    expect(screen.getByText("Internal Server Error")).toBeInTheDocument();
+  });
+
+  it("keeps polling component upgrade status during a short upgrade-center restart window", async () => {
+    mockServicePageBootstrap();
+    const runningTask = { ...uploadedRunnerTask(), status: "running", started_at: "2026-07-08T10:00:00Z" };
+    const succeededTask = { ...runningTask, status: "success", finished_at: "2026-07-08T10:01:00Z" };
+    apiMock.componentUpgradeHistory.mockResolvedValue([{ ...uploadedRunnerTask(), status: "prechecked", precheck_ok: true }]);
+    apiMock.startComponentUpgrade.mockResolvedValue(runningTask);
+    apiMock.componentUpgradeStatus.mockResolvedValueOnce(runningTask).mockRejectedValueOnce(new Error("Internal Server Error")).mockResolvedValueOnce(succeededTask);
+    const updateTask = vi.fn();
+    render(<ServicePage addTask={vi.fn()} updateTask={updateTask} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "组件升级" }));
+    fireEvent.click(await screen.findByRole("button", { name: /v0\.3\.1.*smartx-upgrade-runner-v0\.3\.1/s }));
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "开始升级" }));
+    await flushReactUpdates();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(apiMock.componentUpgradeStatus).toHaveBeenCalledWith("runner-upgrade-1");
+    expect(screen.getByText("升级中心组件正在重启，正在重新连接...")).toBeInTheDocument();
+    expect(updateTask).not.toHaveBeenCalledWith("runner-upgrade-1", expect.objectContaining({ status: "failed" }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(apiMock.componentUpgradeStatus).toHaveBeenCalledTimes(3);
+    expect(screen.queryByText("升级中心组件正在重启，正在重新连接...")).not.toBeInTheDocument();
     expect(updateTask).toHaveBeenCalledWith("runner-upgrade-1", expect.objectContaining({ status: "succeeded", progress: 100 }));
   });
 

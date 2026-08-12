@@ -2,6 +2,71 @@
 
 本文档记录 SmartX HCI Capacity Insight 各版本的主要变化。项目介绍、部署方式和基础使用说明仍以根目录 README 和 docs 文档为准。
 
+## v0.5.2
+
+发布日期：2026-07-17
+
+### 更新摘要
+
+v0.5.2 是 v0.5.1u2 之后的正式平台版本。它基于 `v0.5.1u2` 桥接包、`upgrade-runner v0.3.1` 组件包完成完整升级链路验证，并把运行目录统一收敛到 `/data/smartx-storage-forecast` 单根目录。平台三件套使用 `v0.5.2` 镜像 tag，`upgrade-runner` 使用 `v0.3.1`。
+
+### CloudTower 版本范围
+
+- 数据采集和连接使用 CloudTower v2 HTTP API（`/v2/api/login`、`/v2/api/get-clusters`、`/v2/api/get-cluster-storage-info`、`/v2/api/get-vms`、`/v2/api/get-vm-volumes`）。
+- 需要 CloudTower（SMTX OS）提供并支持上述 v2 API 端点；已在现场 CloudTower 实例（`CHINATOWER`）完成采集验证。
+
+### 新增与优化
+
+- 正式支持升级链路：`v0.5.1 + runner v0.3.0 -> v0.5.1u2 -> runner v0.3.1 -> v0.5.2`，全程通过正常升级接口验证。
+- Compose project/network 迁移：从旧 `smartx-storage-forecast` / `smartx-storage-forecast_smartx-net`（`10.249.249.0/24`）迁移到 `smartx-hci-capacity-insight` / `smartx-hci-capacity-insight-net`（`10.249.251.0/24`）。
+- 运行目录统一收敛到 `/data/smartx-storage-forecast/{project,app,prometheus,upgrades,backups,exports,compose-runtime}`，旧 `/opt`、旧 `/data/*` 和旧 `/prometheus-data` 在升级后自动清理。
+- SQLite、Prometheus、`.env` 与 Tower 加密凭据成对迁移保护；目标 `.env` 权限要求为 `0600`，凭据与密钥不配套时升级硬失败。
+- 升级完成后自动触发一次采集，作为独立任务进入任务中心；自动采集失败不改写平台升级成功状态。
+- Prometheus 作为平台 Compose 服务随 v0.5.2 重建，不再单独拆成组件升级包。
+- 升级任务历史排序、verification 包身份读取和任务中心投影稳定化。
+- 报表导出改为全量虚拟机（不再截断 Top100），并修复部分虚拟机名称刷新问题。
+
+### 验证说明
+
+- 使用带业务数据、Tower 凭据和 Prometheus 历史的基线在测试机完整链路通过：主升级、runner 组件升级、升级后清理、升级后自动采集均成功。
+- 使用空业务库基线在另一台测试机完整链路通过，验证升级、目录迁移、任务闭环和自动采集流程。
+- 当前正式升级包：
+  - `smartx-capacity-insight-upgrade-v0.5.1u2.tar.gz`（SHA256 `d5f277167445e7636ddfba16b4f780b40d59952467bb1c8e72d2469b43ee0a49`）
+  - `smartx-upgrade-runner-v0.3.1.tar.gz`（SHA256 `d10e15cf7b516d172ebe2f1bc37621f9cf32d8ab3abd548f808ae5c5de151d2c`）
+  - `smartx-capacity-insight-upgrade-v0.5.2.tar.gz`（SHA256 `692aca8b58ad8199c43c02a3771fa4fd7a62f1d7bbf4f198af4bd2e4b2c67733`）
+
+## v0.5.1u2
+
+发布日期：2026-06-29
+
+### 更新摘要
+
+v0.5.1u2 是面向已发布 v0.5.1 / v0.5.1u1 现场环境的桥接平台包。它不改变 compose project/network，只为后续 `upgrade-runner v0.3.1` 组件升级和 `v0.5.2` 平台迁移铺路。
+
+### 新增与优化
+
+- 修复 active runner 版本报告：页面/接口优先读取 runner 心跳或运行中 runner 容器的版本，不再用 web-api 内置基线版本冒充当前 runner。
+- 修复组件升级任务显示：runner 组件升级后能正确显示执行步骤和进度。
+- 支持从 `v0.5.1u1` 升级到 `v0.5.1u2`。
+- 兼容 runner v0.3.0 能力集，桥接包可被旧 runner 预检查通过。
+- 修复 runner 自升级后任务状态投影：已完成任务不再被误判为可再次执行。
+
+## v0.5.1u1
+
+发布日期：2026-06-24
+
+### 更新摘要
+
+v0.5.1u1 修复 Compose project 发现问题，保证 release 部署时能正确识别运行中的 compose project。
+
+## v0.5.1
+
+发布日期：2026-06-23
+
+### 更新摘要
+
+v0.5.1 修复报表增长 VM 名称显示问题，并完成 v0.5.1 平台升级包发布。
+
 ## v0.5.0
 
 发布日期：2026-06-06
@@ -18,8 +83,8 @@ v0.5.0 是 v2 受控重建版本，保持 v1 的业务能力和页面风格，�
 - Dashboard 容量风险按单集群使用率判断，任一集群超过 80% 即高风险。
 - 日增长、本日新建 VM、月增长、本月新建 VM 使用稳定 VM UUID 口径，展示名称优先使用最新采集名称。
 - 月增长 VM 要求样本跨度满 30 天；刚部署不足 30 天时月增长榜为空。
-- Word/Excel 报表复用页面数据口径，保存到 `/data/exports/reports`，任务中心提供下载链接。
-- 数据迁移导入前强制备份当前系统，迁出/迁入文件留存在 `/data/exports` 对应目录。
+- Word/Excel 报表复用页面数据口径，保存到 `/data/smartx-storage-forecast/exports/reports`，任务中心提供下载链接。
+- 数据迁移导入前强制备份当前系统，迁出/迁入文件留存在 `/data/smartx-storage-forecast/exports` 对应目录。
 - 升级中心 manifest 支持 platform、runner、observability 组件类型，平台升级、runner 组件升级和 Prometheus 组件升级分离。
 - 服务管理页包含数据迁移、服务重启、升级中心和空间清理。
 - Docker Compose 平台 tag 与 runner tag 分离，离线和 release compose 默认使用明确版本，不再依赖 `latest`。
@@ -126,7 +191,7 @@ restart_services: web-api、collector-worker、frontend
 
 ### 验证说明
 
-- 已在 `10.20.11.3` 使用本地升级包完成一次平台升级验证。
+- 已在测试机使用本地升级包完成一次平台升级验证。
 - 升级任务完成后 `web-api`、`collector-worker`、`frontend` 均正常 recreate/start。
 - `web-api`、`frontend`、`prometheus` HTTP 健康检查均返回 200。
 
@@ -188,8 +253,8 @@ v0.3.2 聚焦离线部署、/data 持久化目录和数据迁移可靠性，修�
 
 - 新增 `docker-compose.release.yml`，用于直接运行 GitHub Actions 构建好的远端镜像。
 - 新增 `docker-compose.offline.yml`，默认使用本地 `latest` 镜像并设置 `pull_policy: never`，适合无外网或不允许拉取镜像的环境。
-- 持久化数据统一迁移到宿主机 `/data/smartx-capacity-insight-data`：业务库位于 `app`，Prometheus 指标位于 `prometheus`。
-- 系统升级预检查改为校验新的 `/data/smartx-capacity-insight-data` 绑定挂载，并按当前 `SMARTX_COMPOSE_FILE` 读取实际 compose 文件。
+- 持久化数据统一迁移到宿主机 `/data/smartx-storage-forecast`：业务库位于 `app`，Prometheus 指标位于 `prometheus`。
+- 系统升级预检查改为校验新的 `/data/smartx-storage-forecast` 绑定挂载，并按当前 `SMARTX_COMPOSE_FILE` 读取实际 compose 文件。
 - 数据迁移补全导入优化：当目标 Prometheus 目录没有历史 block 时，会完整导入迁移包中的历史指标数据；已有历史 block 时只补充缺失 block，不覆盖现有指标。
 - 更新平台版本号到 `0.3.2`，确保系统升级页显示和预检查版本判断准确。
 
@@ -232,7 +297,7 @@ release_notes: 页面展示的升级说明
 
 - 默认补全导入仍不覆盖当前业务库已有 Tower、集群和采集记录。
 - 覆盖导入仍会整体替换当前业务库和 Prometheus 指标目录，执行前需要确认。
-- 从旧 named volume 部署切换到 `/data/smartx-capacity-insight-data` 前，需要先迁移旧 volume 数据。
+- 从旧 named volume 部署切换到 `/data/smartx-storage-forecast` 前，需要先迁移旧 volume 数据。
 
 ## v0.3.0
 
@@ -250,11 +315,11 @@ v0.3.0 聚焦平台运维能力，新增独立的服务管理页面、数据迁�
 - 数据迁移支持补全导入，默认只补齐缺失数据，保留当前系统已有数据。
 - 数据迁移支持覆盖导入，但需要显式确认。
 - 服务重启页支持手动重启 `web-api`、`collector-worker` 和 `prometheus`，用于迁移导入后让数据完全生效。
-- 新增离线升级包上传能力，升级包上传后保存到系统目录 `/data/upgrades/{task_id}`。
+- 新增离线升级包上传能力，升级包上传后保存到系统目录 `/data/smartx-storage-forecast/upgrades/{task_id}`。
 - 系统升级页新增“可升级版本”区域，可选中某个升级包后执行预检查、开始升级、取消选择或删除未开始升级的包。
 - 新增升级历史页，展示目标版本、状态、上传时间、完成时间和备份路径。
 - 新增 `upgrade-runner` 服务，负责执行升级任务，避免 `web-api` 升级自身时中断任务。
-- 升级前会自动生成数据迁移备份包，路径形如 `/data/backups/upgrade-<version>-before-<time>.tar.gz`。
+- 升级前会自动生成数据迁移备份包，路径形如 `/data/smartx-storage-forecast/backups/upgrade-<version>-before-<time>.tar.gz`。
 - 支持手动回滚到升级前镜像配置。
 
 ### 优化与修复

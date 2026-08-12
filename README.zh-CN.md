@@ -302,9 +302,11 @@ sha256sum "$host_path"
 - [版本治理说明](docs/version-governance.md)
 - [v0.2 更新说明](docs/releases/v0.2.md)
 
-## CloudTower 权限
+## CloudTower 兼容范围与权限
 
-建议使用只读 CloudTower 账号或只读 API Token。采集器只需要读取集群、虚拟机、虚拟卷和容量数据。
+### CloudTower 版本范围
+
+平台通过 CloudTower v2 HTTP API 连接 CloudTower（SMTX OS）。CloudTower/Tower 实例必须提供并支持下列 v2 API 端点。当前 `v0.5.2` 平台已在 CloudTower 实例（`CHINATOWER`）完成采集验证；只要下列 v2 API 端点可用且返回预期结构，不强制要求具体 CloudTower 小版本号。
 
 相关 CloudTower API：
 
@@ -314,12 +316,16 @@ sha256sum "$host_path"
 - `/v2/api/get-vms`
 - `/v2/api/get-vm-volumes`
 
+### 权限
+
+建议使用只读 CloudTower 账号或只读 API Token。采集器只需要读取集群、虚拟机、虚拟卷和容量数据。
+
 ## 重置密码
 
 如果忘记平台登录密码，可以在目标服务器进入项目目录：
 
 ```bash
-cd /opt/smartx-storage-forecast
+cd /data/smartx-storage-forecast/project
 ```
 
 交互式重置：

@@ -763,8 +763,8 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("集群", trend_headers)
 
             top_sheet = workbook["VM增长TOP100"]
-            self.assertIn("TOP100", str(top_sheet["A1"].value))
-            self.assertIn("TOP100", str(top_sheet["I1"].value))
+            self.assertIn("全部虚拟机", str(top_sheet["A1"].value))
+            self.assertIn("全部虚拟机", str(top_sheet["I1"].value))
             self.assertGreaterEqual(top_sheet.column_dimensions["B"].width, 36)
             self.assertGreaterEqual(top_sheet.column_dimensions["C"].width, 16)
             self.assertEqual(top_sheet.column_dimensions["E"].width, 13)
@@ -780,8 +780,8 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("810.00 GiB", cluster_text)
             self.assertIn("+30.00 GiB", cluster_text)
             self.assertIn("64 天", cluster_text)
-            self.assertIn("增长量 TOP100", cluster_text)
-            self.assertIn("增长率 TOP100", cluster_text)
+            self.assertIn("增长量全部虚拟机", cluster_text)
+            self.assertIn("增长率全部虚拟机", cluster_text)
             self.assertGreaterEqual(cluster_sheet.column_dimensions["A"].width, 36)
             self.assertGreaterEqual(cluster_sheet.column_dimensions["B"].width, 16)
             self.assertGreaterEqual(cluster_sheet.column_dimensions["D"].width, 16)
@@ -818,6 +818,21 @@ class V2ReportExportDocumentTest(unittest.TestCase):
                             continue
                         self.assertEqual(cell.font.name, "Noto Sans CJK SC", f"{sheet.title}!{cell.coordinate}")
                         self.assertGreater(cell.font.sz or 0, 0, f"{sheet.title}!{cell.coordinate}")
+
+    def test_customer_xlsx_growth_sheets_include_all_vms_not_only_top100(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_xlsx
+
+        vms = _many_growth_vms(105)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="reports-all-growth-vms-secret")
+            report = FakeReportService(month_vms=vms, window_vms=vms).latest_report(period_days=30)
+            content, _, _, _ = build_report_xlsx(report, settings, period_days=30)
+            workbook_text = "\n".join(_xlsx_values(content))
+
+            self.assertIn("VM 105", workbook_text)
+            self.assertIn("VM 001", workbook_text)
+            self.assertIn("全部虚拟机", workbook_text)
 
     def test_xlsx_matches_optimized_customer_template_layout(self) -> None:
         from openpyxl import load_workbook
@@ -1180,4 +1195,27 @@ def _xlsx_values(content: bytes) -> list[str]:
         for row in sheet.iter_rows(values_only=True)
         for cell in row
         if cell is not None
+    ]
+
+
+def _many_growth_vms(count: int) -> list[dict]:
+    return [
+        {
+            "labels": {
+                "tower_id": "1",
+                "tower": "Tower A",
+                "cluster_id": "cluster-a",
+                "cluster": "Cluster A",
+                "vm_id": f"vm-{index:03d}",
+                "vm": f"VM {index:03d}",
+            },
+            "forecast": {"status": "ok", "slope_per_day": index, "current": (1000 + index) * 1024**3},
+            "growth_amount": index * 1024**3,
+            "previous_value": 1000 * 1024**3,
+            "growth_ratio": index / 1000,
+            "sample_span_days": 30,
+            "window_start_at": "2026-05-01T00:00:00+08:00",
+            "window_end_at": "2026-05-31T00:00:00+08:00",
+        }
+        for index in range(1, count + 1)
     ]

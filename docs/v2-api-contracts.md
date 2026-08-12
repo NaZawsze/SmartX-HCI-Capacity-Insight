@@ -257,7 +257,7 @@
 {"task_id": "report-..."}
 ```
 
-导出文件保存到 `/data/exports/reports`，任务完成后通过 task artifact 下载。
+导出文件保存到 `/data/smartx-storage-forecast/exports/reports`，任务完成后通过 task artifact 下载。
 
 ## 8. 数据迁移
 
@@ -302,7 +302,7 @@
   "task_id": "migration-import-...",
   "status": "running",
   "progress": 5,
-  "saved_path": "/data/exports/imports/migration-import-.../package.tar.gz",
+  "saved_path": "/data/smartx-storage-forecast/exports/imports/migration-import-.../package.tar.gz",
   "steps": []
 }
 ```
@@ -341,11 +341,11 @@
 
 执行 SQLite 清理并整理。
 
-执行前必须备份 `smartx.db` 到 `/data/backups/sqlite-before-cleanup-*.db`。随后清理运行态缓存并执行 VACUUM，返回 `runtime_cache` 删除统计、整理前后大小和释放空间。
+执行前必须备份 `smartx.db` 到 `/data/smartx-storage-forecast/backups/sqlite-before-cleanup-*.db`。随后清理运行态缓存并执行 VACUUM，返回 `runtime_cache` 删除统计、整理前后大小和释放空间。
 
 ### `GET /api/admin/system/sqlite-backups/scan`
 
-扫描 `/data/backups` 顶层 SQLite 数据库备份。
+扫描 `/data/smartx-storage-forecast/backups` 顶层 SQLite 数据库备份。
 
 只返回符合 SQLite 备份命名和扩展名的文件，例如：
 
@@ -376,7 +376,7 @@
 }
 ```
 
-后端只接受文件名，自动丢弃路径穿越部分，并再次校验文件必须位于 `/data/backups` 顶层且符合 SQLite 备份识别规则。不存在或不符合规则的文件会跳过并写入日志。
+后端只接受文件名，自动丢弃路径穿越部分，并再次校验文件必须位于 `/data/smartx-storage-forecast/backups` 顶层且符合 SQLite 备份识别规则。不存在或不符合规则的文件会跳过并写入日志。
 
 响应字段：
 

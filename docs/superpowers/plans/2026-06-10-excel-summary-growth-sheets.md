@@ -36,6 +36,6 @@
 - Modify: `progress.md`
 
 - [ ] 运行完整报表测试、`py_compile` 和 `git diff --check`。
-- [ ] 同步到 `10.20.11.3:/opt/smartx-storage-forecast-v2`。
+- [ ] 同步到 `10.20.11.3:/data/smartx-storage-forecast/project`。
 - [ ] 重建并 recreate `web-api`，运行容器报表测试。
 - [ ] 用真实数据导出 14 天 Excel，检查摘要字体、标题合并、月增长 Sheet 和健康状态。

@@ -222,6 +222,7 @@ def _effective_severity_sql() -> str:
       severity,
       CASE
         WHEN status = 'success' THEN 'info'
+        WHEN status IN ('failed', 'cancelled') AND type = 'collection' THEN 'warning'
         WHEN status IN ('failed', 'cancelled')
              AND (type = 'upgrade' OR lower(title) LIKE '%升级%' OR lower(title) LIKE '%重启%' OR lower(title) LIKE '%回滚%' OR lower(title) LIKE '%upgrade%' OR lower(title) LIKE '%restart%' OR lower(title) LIKE '%rollback%' OR lower(title) LIKE '%component%') THEN 'critical'
         WHEN status IN ('failed', 'cancelled') THEN 'warning'
@@ -239,6 +240,8 @@ def _severity(task_type: str, status: str, title: str) -> str:
     if status == TaskStatus.SUCCESS.value:
         return "info"
     if status in {TaskStatus.FAILED.value, TaskStatus.CANCELLED.value}:
+        if task_type == TaskType.COLLECTION.value:
+            return "warning"
         if task_type == TaskType.UPGRADE.value or any(keyword in title.lower() for keyword in _CRITICAL_FAILURE_KEYWORDS):
             return "critical"
         return "warning"

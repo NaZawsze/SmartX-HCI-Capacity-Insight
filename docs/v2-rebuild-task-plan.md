@@ -61,16 +61,16 @@ v2 要把当前平台从“功能可用”升级为“现场可交付、可迁�
 - [x] 固定平台版本来自镜像内 `VERSION`。
 - [x] 固定 runner 版本来自 `RUNNER_VERSION`。
 - [x] 定义所有运行目录：
-  - `/data/smartx-capacity-insight-data/app`
-  - `/data/smartx-capacity-insight-data/prometheus`
-  - `/data/upgrades`
-  - `/data/backups`
-  - `/data/exports`
-  - `/data/exports/reports`
-  - `/data/exports/migrations`
-  - `/data/exports/imports`
-  - `/data/exports/migration-tasks`
-  - `/data/compose-runtime`
+  - `/data/smartx-storage-forecast/app`
+  - `/data/smartx-storage-forecast/prometheus`
+  - `/data/smartx-storage-forecast/upgrades`
+  - `/data/smartx-storage-forecast/backups`
+  - `/data/smartx-storage-forecast/exports`
+  - `/data/smartx-storage-forecast/exports/reports`
+  - `/data/smartx-storage-forecast/exports/migrations`
+  - `/data/smartx-storage-forecast/exports/imports`
+  - `/data/smartx-storage-forecast/exports/migration-tasks`
+  - `/data/smartx-storage-forecast/compose-runtime`
 - [x] 设计健康检查接口，至少覆盖 web-api、Prometheus、数据库、数据目录权限。
 - [x] 更新 `pre_install.sh`，确保目录和权限可以重复初始化。
 
@@ -228,7 +228,7 @@ v2 要把当前平台从“功能可用”升级为“现场可交付、可迁�
 - [x] 任务中心通知状态继续保存在 SQLite `tasks` 表，新增 `severity`、`seen_at`、`acknowledged_at` 等字段用于未处理角标和确认状态。
 - [x] SQLite 运行态缓存治理第一版：`metric_snapshots` 最多保留 1 条，`collection_runs` 保留最近 7 天，`tasks` 保留最近 30 天且未确认告警/严重告警继续保留。
 - [x] SQLite 清理并整理第一版：清理运行态缓存前备份 `smartx.db`，清理后执行 VACUUM；导出文件被空间清理删除后，任务中心下载链接显示“已失效”。
-- [x] SQLite 备份清理第一版：在“SQLite 清理并整理”下方提供独立框体，扫描 `/data/backups` 顶层 SQLite `.db/.sqlite` 备份，用户勾选后删除；不清理升级前备份、导入前备份、Prometheus 备份或 `.tar.gz` 文件。
+- [x] SQLite 备份清理第一版：在“SQLite 清理并整理”下方提供独立框体，扫描 `/data/smartx-storage-forecast/backups` 顶层 SQLite `.db/.sqlite` 备份，用户勾选后删除；不清理升级前备份、导入前备份、Prometheus 备份或 `.tar.gz` 文件。
 - 不立即拆分 SQLite 双 DB；`config.db + runtime.db` 作为低优先级架构治理项保留。
 - 新机器配置迁移只依赖 `towers/clusters`，其他运行态表不作为配置迁移必需项。
 
@@ -330,7 +330,7 @@ v2 要把当前平台从“功能可用”升级为“现场可交付、可迁�
 - [x] Word 客户版模板二次优化：项目名统一为 `存储容量预测平台`，封面增加空白 `客户名称` 字段，使用开源 Noto 字体，多 Tower/多集群显示范围摘要，统计窗口使用实际样本窗口，关键发现/运维建议重点值加粗放大；VM 名称前后只加 1 个空格，数据值不额外加空格；2.2 增加 Tower 列，2.3 改为 DOCX 纯文本块容量使用率可视化，风险矩阵去掉 `单 VM 容量异常`。
 - [x] Word 客户版模板第三轮口径修正：摘要 KPI 和 2.2 表格按采集窗口显示 `统计窗口增长`，不再写 `较上月/较上季度/较上一年`；范围基本信息支持多 Tower/多集群，正文 Tower/集群名称加粗放大。
 - [x] Word/Excel 导出 6 种时间区间 Profile 化：`7/14/30/90/180/365` 统一驱动窗口标题、增长指标标题、VM 榜单标题、样本不足说明和运维建议语气。
-- [x] 导出文件保存到 `/data/exports/reports`。
+- [x] 导出文件保存到 `/data/smartx-storage-forecast/exports/reports`。
 - [x] 任务中心提供报表下载链接。
 
 验收标准：
@@ -360,9 +360,9 @@ v2 要把当前平台从“功能可用”升级为“现场可交付、可迁�
 - [x] 迁移包必须包含 Prometheus 历史 block。
 - [x] 迁移包必须包含校验信息第一版。
 - [x] 数据迁出任务显示精确进度、小日志、当前文件第一版。
-- [x] 数据迁出文件保存到 `/data/exports/migrations`。
-- [x] 数据迁入包保存到 `/data/exports/imports`。
-- [x] 导入前自动备份当前系统到 `/data/backups`。
+- [x] 数据迁出文件保存到 `/data/smartx-storage-forecast/exports/migrations`。
+- [x] 数据迁入包保存到 `/data/smartx-storage-forecast/exports/imports`。
+- [x] 导入前自动备份当前系统到 `/data/smartx-storage-forecast/backups`。
 - [x] 备份失败阻止导入第一版。
 - [x] 默认 merge 模式补全缺失数据，不覆盖现有数据第一版。
 - [x] overwrite 模式必须显式选择。
@@ -462,7 +462,7 @@ v2 要把当前平台从“功能可用”升级为“现场可交付、可迁�
 - 未在 manifest 中声明的组件不会被动到。
 - Prometheus 升级前必须检查历史数据目录权限。
 - 平台升级不会误升级 runner。
-- runner 组件升级不会依赖旧只读 `/opt` 写入路径，也不会由 runner 自己执行重启自身。
+- runner 组件升级不会依赖只读项目目录写入路径，也不会由 runner 自己执行重启自身。
 
 ### 4.13 服务管理与空间清理
 
@@ -492,7 +492,7 @@ v2 要把当前平台从“功能可用”升级为“现场可交付、可迁�
 验收标准：
 
 - 清理旧镜像不再显示错误的 0B。
-- 清理运行文件不会清理 `/data/backups` 默认备份。
+- 清理运行文件不会清理 `/data/smartx-storage-forecast/backups` 默认备份。
 - 清理前能看到将被删除的文件列表。
 
 ### 4.14 前端 UI 与组件
@@ -683,7 +683,7 @@ v2 不兼容 v1 旧升级路径，但必须兼容 v1 数据迁入。
 - [x] 报表页接入 v2 `latest_report` 合同。
 - [x] 报表页支持从月增长、本日/本月新建 VM 跳转虚拟机页面。
 - [x] Word/Excel 导出和留存第一版。
-- [x] 导出文件保存到 `/data/exports/reports`。
+- [x] 导出文件保存到 `/data/smartx-storage-forecast/exports/reports`。
 - [x] 导出响应提供任务中心可用下载链接。
 - [x] Word/Excel 首页增加容量风险摘要。
 - [x] Word 参考客户交付模板补充执行摘要、关键发现、风险评估矩阵和短/中/长期建议。
@@ -851,7 +851,7 @@ Phase V2-0 先细写设计文档，再进入代码重建。该阶段目标是把
 - 状态机：uploaded、parsed、prechecked、backup_running、images_loaded、project_synced、migration_running、services_restarting、health_checking、success、failed、rollback_ready。
 - 预检查：镜像名/tag/sha256、Docker、compose、网络、volume、项目文件敏感路径、磁盘空间、Prometheus 权限。
 - 回滚：恢复 compose override、项目文件备份、运行配置；数据备份保留给人工恢复。
-- runner 自升级：不写只读 `/opt`，使用 `/data/compose-runtime`，任务状态跨重启恢复。
+- runner 自升级：不写只读项目目录，使用 `/data/smartx-storage-forecast/compose-runtime`，任务状态跨重启恢复。
 - Prometheus 升级：强制备份数据目录，检查 `65534:65534` 权限，升级后检查 `/-/ready`、`query`、`query_range`。
 
 ### 11.4 `docs/v2-api-contracts.md`

@@ -251,7 +251,7 @@ smartx-capacity-insight-bundle-v0.5.2.tar.gz
     └── images/                         # optional, only for offline Prometheus image packages
 ```
 
-Build it with `python scripts/build_bundle_upgrade_package.py --platform-version v0.5.2 --prometheus-version v2.55.1`. Bundle packages are a delivery shape for the current platform version; they do not change the platform version number, do not contain Runner by default, and do not contain Prometheus historical data. Upgrade-time Prometheus backups stay on the server under `/data/backups/...` for rollback. Prometheus historical blocks are exported only by full data migration packages.
+Build it with `python scripts/build_bundle_upgrade_package.py --platform-version v0.5.2 --prometheus-version v2.55.1`. Bundle packages are a delivery shape for the current platform version; they do not change the platform version number, do not contain Runner by default, and do not contain Prometheus historical data. Upgrade-time Prometheus backups stay on the server under `/data/smartx-storage-forecast/backups/...` for rollback. Prometheus historical blocks are exported only by full data migration packages.
 
 ### Recommended Migration Path: Fresh Install + CLI Data Export
 
@@ -297,9 +297,11 @@ The printed `host_path` is the migration package path. The package includes the 
 - [Version Governance](docs/version-governance.md)
 - [v0.2 Release Notes](docs/releases/v0.2.md)
 
-## CloudTower Permissions
+## CloudTower Compatibility and Permissions
 
-Use a read-only CloudTower account or a read-only API token whenever possible. The collector only needs read access to cluster, VM, volume, and storage capacity data.
+### Supported CloudTower Version Range
+
+The platform connects to CloudTower (SMTX OS) through the CloudTower v2 HTTP API. The CloudTower/Tower instance must provide and support the v2 API endpoints listed below. The current `v0.5.2` platform has been validated against a CloudTower instance (`CHINATOWER`). No specific CloudTower minor version is required as long as the following v2 API endpoints are available and return the expected payload shapes.
 
 Related CloudTower API operations:
 
@@ -309,12 +311,16 @@ Related CloudTower API operations:
 - `/v2/api/get-vms`
 - `/v2/api/get-vm-volumes`
 
+### Permissions
+
+Use a read-only CloudTower account or a read-only API token whenever possible. The collector only needs read access to cluster, VM, volume, and storage capacity data.
+
 ## Password Reset
 
 If the platform password is lost, reset it on the target server from the project directory:
 
 ```bash
-cd /opt/smartx-storage-forecast
+cd /data/smartx-storage-forecast/project
 ```
 
 Reset interactively:

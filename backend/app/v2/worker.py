@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+import os
 import signal
 import time
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from threading import Thread
 
 from app.v2.cloudtower.service import CloudTowerService
@@ -66,6 +70,130 @@ def run_collection(database: V2Database) -> None:
     _run_data_quality_check(database, tasks)
 
 
+def _write_collection_marker(path: Path, marker: dict) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(marker, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def _task_timestamp(task: dict) -> float:
+    for field in ("finished_at", "uploaded_at", "created_at", "started_at", "updated_at"):
+        value = str(task.get(field) or "").strip()
+        if not value:
+            continue
+        if value.endswith("Z"):
+            value = f"{value[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.timestamp()
+    return float("-inf")
+
+
+def _auto_collection_platform_task(task: dict) -> bool:
+    if str(task.get("status") or "") not in {"success", "succeeded"}:
+        return False
+    manifest = task.get("manifest") if isinstance(task.get("manifest"), dict) else {}
+    if str(manifest.get("package_type") or "") != "platform":
+        return False
+    components = manifest.get("components") if isinstance(manifest.get("components"), list) else []
+    if not any(isinstance(component, dict) and component.get("type") == "platform" for component in components):
+        return False
+    post_upgrade = manifest.get("post_upgrade") if isinstance(manifest.get("post_upgrade"), dict) else {}
+    return bool(post_upgrade.get("auto_collection"))
+
+
+def _ensure_post_upgrade_collection_marker(database: V2Database, tasks: TaskService) -> Path | None:
+    settings = database.settings
+    candidates: list[tuple[float, str, Path, dict]] = []
+    for task_file in settings.upgrades_dir.glob("*/task.json"):
+        try:
+            task = json.loads(task_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        task_id = str(task.get("task_id") or "").strip()
+        if task_id != task_file.parent.name or not _auto_collection_platform_task(task):
+            continue
+        candidates.append((_task_timestamp(task), task_id, task_file.parent, task))
+    if not candidates:
+        return None
+    _, task_id, task_dir, task = max(candidates, key=lambda item: (item[0], item[1]))
+    marker_path = task_dir / "post-upgrade-collection.json"
+    if marker_path.is_file():
+        return marker_path
+    collection_task_id = f"post-upgrade-collection-{task_id}"
+    if tasks.get_task(collection_task_id) is not None:
+        return None
+    marker = {
+        "schema_version": 1,
+        "parent_upgrade_task_id": task_id,
+        "task_id": collection_task_id,
+        "target_version": str(task.get("target_version") or (task.get("manifest") or {}).get("version") or settings.app_version),
+        "status": "pending",
+        "scheduled_at": datetime.now(timezone.utc).isoformat(),
+        "source": "target_worker_compatibility",
+    }
+    _write_collection_marker(marker_path, marker)
+    return marker_path
+
+
+def run_pending_post_upgrade_collection(database: V2Database):
+    settings = database.settings
+    tasks = TaskService(database)
+    _ensure_post_upgrade_collection_marker(database, tasks)
+    for marker_path in sorted(settings.upgrades_dir.glob("*/post-upgrade-collection.json")):
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+        marker_status = str(marker.get("status") or "pending")
+        if marker_status in {"success", "failed"}:
+            continue
+        task_id = str(marker.get("task_id") or "")
+        parent_id = str(marker.get("parent_upgrade_task_id") or "")
+        if not task_id or not parent_id:
+            marker["status"] = "failed"
+            marker["error"] = "升级后采集标记缺少 task_id 或 parent_upgrade_task_id"
+            _write_collection_marker(marker_path, marker)
+            continue
+        parent_path = settings.upgrades_dir / parent_id / "task.json"
+        if not parent_path.is_file():
+            continue
+        parent = json.loads(parent_path.read_text(encoding="utf-8"))
+        if str(parent.get("status") or "") not in {"success", "succeeded"}:
+            continue
+        if marker_status == "running":
+            existing = tasks.get_task(task_id)
+            if existing and existing.get("status") in {"pending", "running"}:
+                tasks.update_task(
+                    task_id,
+                    status="failed",
+                    progress=100,
+                    message="升级后自动采集被 worker 重启中断，请手动重新采集。",
+                    logs=[*(existing.get("logs") or []), "检测到未完成的 running 标记，停止自动重试。"],
+                )
+            marker["status"] = "failed"
+            marker["error"] = "collector-worker restarted during post-upgrade collection"
+            _write_collection_marker(marker_path, marker)
+            continue
+        marker["status"] = "running"
+        _write_collection_marker(marker_path, marker)
+        service = CollectionService(
+            database,
+            settings,
+            cloudtower_client=CloudTowerService(database, settings),
+            tasks=tasks,
+        )
+        result = service.run_manual_collection(trigger="post_upgrade", task_id=task_id)
+        marker["status"] = "success" if result.status == "success" else "failed"
+        marker["collection_status"] = result.status
+        marker["message"] = result.message
+        marker["run_id"] = result.run_id
+        _write_collection_marker(marker_path, marker)
+        return result
+    return None
+
+
 class MetricsHandler(BaseHTTPRequestHandler):
     database: V2Database
 
@@ -114,6 +242,14 @@ def main() -> None:
         lambda: run_collection(database),
         build_collection_trigger(timezone=settings.timezone, hour=hour, minute=minute),
         id="daily-smartx-v2-collector",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        lambda: run_pending_post_upgrade_collection(database),
+        "interval",
+        seconds=5,
+        id="post-upgrade-auto-collection",
         replace_existing=True,
         max_instances=1,
     )

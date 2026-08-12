@@ -71,7 +71,7 @@ smartx-capacity-insight-platform-upgrade-v0.5.x.tar.gz
 5. `upgrade-runner` 生成升级前备份。
 6. `upgrade-runner` 加载平台三件套镜像。
 7. `upgrade-runner` 同步 `project/` 白名单项目文件。
-8. `upgrade-runner` 写入 `/data/compose-runtime/docker-compose.upgrade.yml`。
+8. `upgrade-runner` 写入 `/data/smartx-storage-forecast/compose-runtime/docker-compose.upgrade.yml`。
 9. 如 manifest 中 `database_migration=true`，`upgrade-runner` 执行 `migrations/run_migrations.py`，脚本内部按版本顺序执行所有命中的迁移步骤。
 10. `upgrade-runner` 重启 `web-api`、`collector-worker`、`frontend`。
 11. `upgrade-runner` 执行健康检查。
@@ -105,7 +105,7 @@ smartx-capacity-insight-component-upgrade-runner-v0.3.x.tar.gz
 2. `web-api` 解包并解析 `manifest.json`，确认 `type=runner`、`service=upgrade-runner`。
 3. `web-api` 执行预检查。
 4. `web-api` 加载 `upgrade-runner.tar`。
-5. `web-api` 写入 `/data/compose-runtime/docker-compose.runner-upgrade.yml`。
+5. `web-api` 写入 `/data/smartx-storage-forecast/compose-runtime/docker-compose.runner-upgrade.yml`。
 6. `web-api` 重启 `upgrade-runner`。
 7. `web-api` 读取 runner 版本并做组件健康检查。
 8. `web-api` 展示任务状态、日志和历史。
@@ -171,11 +171,11 @@ file_sets:
 2. `web-api` 解包并解析 `manifest.json`，确认 `type=observability`、`service=prometheus`。
 3. `web-api` 执行预检查并创建升级任务。
 4. `web-api` 将任务提交给 `upgrade-runner`。
-5. `upgrade-runner` 强制备份 Prometheus 历史指标目录到 `/data/backups/...`，用于失败回滚。
+5. `upgrade-runner` 强制备份 Prometheus 历史指标目录到 `/data/smartx-storage-forecast/backups/...`，用于失败回滚。
 6. `upgrade-runner` 检查 Prometheus 数据目录权限和磁盘空间。
 7. 如果离线包包含 `images/prometheus.tar`，`upgrade-runner` 加载镜像；否则使用 manifest 中声明的仓库镜像。
 8. 如果 manifest 声明 `file_sets`，`upgrade-runner` 先备份再同步配置白名单文件。
-9. `upgrade-runner` 写入 `/data/compose-runtime/docker-compose.prometheus-upgrade.yml`。
+9. `upgrade-runner` 写入 `/data/smartx-storage-forecast/compose-runtime/docker-compose.prometheus-upgrade.yml`。
 10. `upgrade-runner` 重启 Prometheus。
 11. `upgrade-runner` 检查 `/-/healthy` 或 `/-/ready`。
 12. `upgrade-runner` 验证历史指标 `query_range`。
@@ -303,7 +303,7 @@ smartx-capacity-insight-bundle-v0.5.2.tar.gz
 ### 3.4 数据与备份边界
 
 - 平台升级、Prometheus 组件升级和组合升级都不导出 Prometheus 历史数据。
-- 升级前 Prometheus 备份只保存在服务器 `/data/backups/...`，用于失败回滚或人工恢复。
+- 升级前 Prometheus 备份只保存在服务器 `/data/smartx-storage-forecast/backups/...`，用于失败回滚或人工恢复。
 - Prometheus 历史 block 的导出/导入只属于完整数据迁移包。
 - 配置迁移包只迁移 Tower/Cluster 配置，不包含 Prometheus 历史指标。
 
@@ -340,7 +340,7 @@ rollback_failed
 - 小日志。
 - 错误摘要。
 
-任务状态必须持久化到 `/data/upgrades/<task_id>/task.json`，web-api 重启后能恢复展示。
+任务状态必须持久化到 `/data/smartx-storage-forecast/upgrades/<task_id>/task.json`，web-api 重启后能恢复展示。
 
 ## 5. 预检查
 
@@ -387,7 +387,7 @@ upgrade-runner 负责：
 - 平台升级和 observability 升级的健康检查。
 - 平台升级和 observability 升级的回滚。
 
-runner 执行 Docker 操作时必须使用宿主机视角路径，不使用容器内 `/opt` 作为 Docker compose 工作目录。
+runner 执行 Docker 操作时必须使用宿主机视角路径，不使用容器内项目挂载路径作为 Docker compose 工作目录。
 
 执行边界：
 
@@ -407,8 +407,8 @@ runner 执行 Docker 操作时必须使用宿主机视角路径，不使用容�
 备份路径：
 
 ```text
-/data/backups/upgrade-<version>-before-<timestamp>.tar.gz
-/data/backups/project-files-before-<version>-<timestamp>/
+/data/smartx-storage-forecast/backups/upgrade-<version>-before-<timestamp>.tar.gz
+/data/smartx-storage-forecast/backups/project-files-before-<version>-<timestamp>/
 ```
 
 备份必须有进度：
@@ -447,8 +447,8 @@ runner 是升级执行器，不能在执行任务中直接杀掉自己导致任�
 设计规则：
 
 - runner 组件升级是独立任务。
-- 组件升级 override 写到 `/data/compose-runtime`。
-- 不写只读 `/opt`。
+- 组件升级 override 写到 `/data/smartx-storage-forecast/compose-runtime`。
+- 不写只读项目目录。
 - runner-only 组件升级由 web-api 直接执行，只加载 `upgrade-runner` 镜像、写 `docker-compose.runner-upgrade.yml` 并重启 `upgrade-runner`。
 - 平台升级和 Prometheus/observability 升级仍提交给 upgrade-runner 执行。
 - runner 升级后写入 runner 版本记录。
@@ -512,7 +512,7 @@ Prometheus 历史指标回归要求：
 3. 生成升级前备份。
 4. 加载镜像。
 5. 同步项目文件。
-6. 写入 `/data/compose-runtime` 下的 runtime override。
+6. 写入 `/data/smartx-storage-forecast/compose-runtime` 下的 runtime override。
 7. 执行迁移脚本。
 8. 按组件边界重启服务。
 9. 分组件健康检查。
@@ -528,7 +528,7 @@ Prometheus 历史指标回归要求：
 
 任务恢复：
 
-- 任务状态持久化到 SQLite `tasks` 和 `/data/upgrades/<task_id>/task.json`。
+- 任务状态持久化到 SQLite `tasks` 和 `/data/smartx-storage-forecast/upgrades/<task_id>/task.json`。
 - web-api 重启后必须能恢复任务中心展示。
 - 如果 task.json 缺失但 SQLite 仍有 pending/running 任务，任务中心允许标记为 cancelled 或 failed，避免永久卡住。
 
@@ -544,7 +544,7 @@ Prometheus 历史指标回归要求：
 
 - 不自动覆盖用户业务数据。
 - 不自动删除 Prometheus 历史数据。
-- `/data/backups` 是人工恢复来源，空间清理默认不删除。
+- `/data/smartx-storage-forecast/backups` 是人工恢复来源，空间清理默认不删除。
 
 ## 14. 版本兼容边界
 

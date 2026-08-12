@@ -12,12 +12,27 @@ TaskUpdateCallback = Callable[[dict[str, Any]], None]
 SAFE_RESUME_ACTIONS = {
     "backup.create",
     "image.load",
+    "filesystem.prepare",
     "files.sync",
     "compose.override",
     "compose.project_migrate",
     "compose.apply",
     "health.http",
     "health.prometheus",
+    "task.migrate_runtime_state",
+    "task.sync_runtime_state",
+    "post_upgrade.schedule_cleanup",
+    "post_upgrade.schedule_collection",
+    "post_cleanup.precheck_target_health",
+    "runner.handoff_target_runtime",
+    "runner.schedule_target_runtime_handoff",
+    "runner.stop_legacy_runtime",
+    "compose.stop_legacy_project",
+    "network.remove_legacy",
+    "filesystem.cleanup_legacy_paths",
+    "filesystem.cleanup_target_app_residuals",
+    "post_cleanup.verify",
+    "legacy.cleanup",
     "checkpoint.write",
     "rollback.restore",
 }
@@ -40,9 +55,15 @@ class UpgradeEngine:
         self.handlers = handlers
         self.context = context or {}
         self.on_update = on_update
+        self._mirror_store: TaskStore | None = None
 
     def _save(self, task: dict[str, Any]) -> dict[str, Any]:
         saved = self.store.save(task, expected_revision=int(task["revision"]))
+        mirror_dir = str(saved.get("task_mirror_dir") or "")
+        if self._mirror_store is None and mirror_dir:
+            self._mirror_store = TaskStore(Path(mirror_dir))
+        if self._mirror_store is not None:
+            self._mirror_store.save(dict(saved))
         if self.on_update is not None:
             self.on_update(saved)
         return saved
@@ -95,7 +116,15 @@ class UpgradeEngine:
                 task = self._save(task)
 
             try:
-                result = handler(action, {**self.context, "checkpoint_writer": checkpoint_writer}) or {}
+                result = handler(
+                    action,
+                    {
+                        **self.context,
+                        "task": task,
+                        "task_mirror_dir": task.get("task_mirror_dir"),
+                        "checkpoint_writer": checkpoint_writer,
+                    },
+                ) or {}
             except Exception as exc:
                 action = task["execution_plan"]["actions"][index]
                 action["status"] = "failed"
@@ -113,6 +142,10 @@ class UpgradeEngine:
             action["finished_at"] = _now()
             if result.get("checkpoint"):
                 action["checkpoint"] = result["checkpoint"]
+            mirror_dir = str(result.get("mirror_task_dir") or (result.get("checkpoint") or {}).get("mirror_task_dir") or "")
+            if mirror_dir:
+                task["task_mirror_dir"] = mirror_dir
+                self._mirror_store = TaskStore(Path(mirror_dir))
             task = self._save(task)
 
         task["status"] = "success"

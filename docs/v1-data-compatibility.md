@@ -77,20 +77,20 @@ Tower 明文凭据
 导入前必须生成备份：
 
 ```text
-/data/backups/import-before-YYYYMMDDHHMMSS.tar.gz
+/data/smartx-storage-forecast/backups/import-before-YYYYMMDDHHMMSS.tar.gz
 ```
 
 备份内容：
 
-- `/data/smartx-capacity-insight-data/app/smartx.db`
-- `/data/smartx-capacity-insight-data/prometheus` 下的历史 block
+- `/data/smartx-storage-forecast/app/smartx.db`
+- `/data/smartx-storage-forecast/prometheus` 下的历史 block
 
 跳过内容：
 
-- `/data/upgrades`
-- `/data/backups`
-- `/data/exports`
-- `/data/compose-runtime`
+- `/data/smartx-storage-forecast/upgrades`
+- `/data/smartx-storage-forecast/backups`
+- `/data/smartx-storage-forecast/exports`
+- `/data/smartx-storage-forecast/compose-runtime`
 - Prometheus `wal`
 
 失败规则：
