@@ -150,3 +150,17 @@ curl -fsSL "https://hub.docker.com/v2/repositories/${NAMESPACE}/${REPO}/tags?pag
 ```
 
 不要删除平台三件套仓库中的平台版本 tag。
+
+## 历史 tag 版本口径说明
+
+以下历史 git tag 的源码 `VERSION` 与 tag 名称不一致，已发布无法修改，仅作记录，避免后续误用：
+
+| tag | 指向提交 | 提交内 `VERSION` | 提交内 `RUNNER_VERSION` | 说明 |
+| --- | --- | --- | --- | --- |
+| `v0.5.1u2` | `baaffcd` | `v0.5.2` | `v0.3.1` | 源码文件已按 v0.5.2 口径维护，但 tag 名为 v0.5.1u2。该 Release 发布的升级包（`d5f27716...`）才是真正的 v0.5.1u2 语义。**不要直接 checkout 该 tag 编译镜像作为 v0.5.1u2 产物**；v0.5.1u2 以 Release asset 为准。 |
+
+规则：
+
+- 发布新版本时，`git tag` 名称必须与提交内 `VERSION` 一致；不一致时禁止打 tag。
+- 已发布的历史 tag 不做修改；如需修正语义，通过新的 tag 或 Release 说明补充。
+- 升级包以 GitHub Release asset 的 SHA256 为准，不以 git tag 源码为准。
