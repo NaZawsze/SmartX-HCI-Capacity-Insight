@@ -1284,3 +1284,38 @@ docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
 - [x] 在 `10.20.11.3` 审计并恢复真实 `v0.5.1 + runner v0.3.0`：五容器和旧 project/network/subnet 正确，业务计数 `towers=1/clusters=1/vm_latest=556/vm_volumes=89588`，`.env` SHA `8b644112...`、`0600 root:root`，目标根目录不存在。
 - [x] 在 `10.20.11.3` 按正常产品流程执行已发布 `v0.5.1u2 -> runner v0.3.1 -> v0.5.2 fix8`；任务依次为 `upgrade-5680ff0264c4acbd -> upgrade-53ebaff4da3218df -> upgrade-9ad951d4024b2c16`，全部成功。
 - [x] 验收任务中心终态与幂等查询、自动采集、post-cleanup、`.env` SHA/`0600 root:root`、业务计数、五容器镜像、project/network/subnet、七目录、旧路径清理、history/verification 只读稳定性和 release smoke；最终 `critical=0/warning=0`。
+
+## Phase 49 - v0.5.2 后续治理与风险待办
+
+状态：待处理
+
+背景：v0.5.2 升级链路已闭环，但在代码审查和现场测试中发现若干治理/风险项，统一记录待处理。
+
+### 3. compose 镜像 tag 仍可被 .env 覆盖
+
+- 源码 compose 仍使用 `${SMARTX_IMAGE_TAG:-v0.5.2}` 模板。
+- 现场 `.env` 若残留旧 `SMARTX_IMAGE_TAG=v0.5.1`，`docker compose up -d` 会把镜像拉回旧版。
+- 升级包内 compose 已在打包时渲染固定 tag（安全），但**源码 compose 仍是模板**，现场误用风险仍在。
+- 待办：正式部署场景下禁止 `.env` 覆盖镜像版本；或部署后强制校验 `.env` 无版本 key。
+
+### 4. 测试机地址散落在内部文档
+
+- `progress.md`、`findings.md`、UPG worklog、计划文档中存在大量 `10.20.11.3` / `10.20.11.12` / `10.20.0.6`。
+- 对外发布文档（README/CHANGELOG/deployment）已清理，但内部工作记录一旦被复制到公开渠道会泄露拓扑信息。
+- 待办：内部文档保持现状（排障需要），但对外交付文档必须零业务地址；必要时增加发布前地址扫描门禁。
+
+### 5. post_upgrade_cleanup_status 与 post-cleanup 实际状态不一致
+
+- 现场测试发现 `task.json` 里 `post_upgrade_cleanup_status: pending`，但实际 post-cleanup 任务已 success。
+- 属于历史字段/投影不同步，会误导后续排障。
+- 待办：统一 task 顶层 cleanup 状态字段与 post-cleanup 子任务状态投影。
+
+### 6. 测试机无统一一键回归
+
+- 每次完整链路验证靠临时脚本（`do_step.py`、`upg_chain.py` 等）和人工核对。
+- 待办：把完整链路验证固化为脚本/工具，包含基线恢复、三步升级、自动采集/cleanup 验收、数据/目录/.env 断言和报告生成。
+
+### 7. 标准业务基线未固化为产物
+
+- 多次因数据源选择错误导致误判（本次 .3 就踩了 `v2-migration-verify` 旧库 vs `fixtures` 配套库的坑）。
+- 待办：把「SQLite + 配套 .env + Prometheus 数据」固化为一个可校验 SHA 的标准基线产物，恢复脚本只用它。

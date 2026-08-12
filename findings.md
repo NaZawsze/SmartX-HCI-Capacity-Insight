@@ -659,3 +659,11 @@ docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
 - `.12` 的 `/data/smartx-storage-forecast/project/.env` 当前为 `0644 root:root`，与 fix8 要求的 `0600` 不符；历史 `upgrade-7b8f26242070ee47` 仍记录为 `running/32%`，后续 cleanup/collection 虽显示成功，但业务结果为 0。
 - `/data/smartx-storage-forecast/app/smartx-storage-forecast` 仅 8 KB、只含空 `project` 子目录，是旧残留；本轮未删除。
 - 结论：不能把 `.12` 当前状态作为完整链路成功验证，也不能在没有业务库备份和明确恢复基线前继续重置、清理或重新升级；必须先提供/恢复有效的 `v0.5.1 + runner v0.3.0` 业务基线，再使用 fix8 重新验证。
+
+## 2026-08-12 v0.5.2 后续治理与风险发现
+
+- 源码 compose 镜像 tag 仍用 `${SMARTX_IMAGE_TAG:-v0.5.2}` 模板；现场 `.env` 残留旧 tag 会把镜像拉回旧版。升级包内 compose 已固定 tag，但源码模板风险仍在（Phase 49.3）。
+- 内部文档（progress/findings/worklog/UPG 计划）散落测试机地址 `10.20.11.3/.12`、`10.20.0.6`；对外发布文档已清理，但内部记录外流会泄露拓扑（Phase 49.4）。
+- `task.json` 顶层 `post_upgrade_cleanup_status` 与 post-cleanup 子任务实际状态可能不同步（现场出现 pending vs success），误导排障（Phase 49.5）。
+- 完整链路验证依赖临时脚本与人工核对，没有统一一键回归（Phase 49.6）。
+- 标准业务基线未固化为产物，多次因数据源选择错误误判（`v2-migration-verify` 旧库 vs `fixtures` 配套库）（Phase 49.7）。
