@@ -1225,97 +1225,49 @@ docker network ls | grep smartx
 - 报表页、Word、Excel 对增长速率口径一致。
 - 不影响容量风险、VM 日/月增长榜、本日/本月新增 VM、数据质量说明等既有功能。
 
-## 专项升级链路历史任务归档
+## 专项升级链路历史任务归档（已完成）
 
-`v0.5.1 + runner v0.3.0 -> v0.5.1u2 -> runner v0.3.1 -> v0.5.2` 的历史 Phase 任务细节已从本文件移出，统一归档到：
+`v0.5.1 + runner v0.3.0 -> v0.5.1u2 -> runner v0.3.1 -> v0.5.2` 链路已在 `10.20.11.3` / `10.20.11.12` 完整验证通过。详细修复计划、失败记录、包路径/SHA、任务 ID 归档到：
 
-```text
-docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md
-```
+- 任务与发现归档：`docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md`
+- 当前执行与验证记录：`docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md`
 
-后续这条链路的详细修复计划、失败记录、包路径/SHA、任务 ID 和完整链路验证，先写入：
+根目录不再承载历史 Phase 细节。
 
-```text
-docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
-```
+## UPG 修复链路摘要（全部完成）
 
-等链路全部完成后，再把最终结论、最终包和验收结果摘要回填到本文件。
+UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集、任务中心投影、.env 权限 0600、凭据迁移安全门禁、credential helper host path 映射、verification 最近包排序、已发布 u2 兼容。最终链路 `v0.5.1u2(d5f277) -> runner v0.3.1(d10e15) -> v0.5.2 fix8(692aca8b)` 验证通过，release smoke `critical=0/warning=0`。
 
-## UPG-041 v0.5.2 升级后自动采集
-
-状态：实施中。
-
-- [x] 确认根因：UPG-040 包只恢复历史 SQLite/Prometheus 数据，v0.5.2 执行计划没有升级后采集动作。
-- [x] 完成设计：runner 写一次性标记，collector-worker 等父升级成功后消费，采集独立进入任务中心。
-- [x] 写入设计与详细实施计划。
-- [x] TDD 实现 compiler、runner marker、worker consumer 和任务中心状态。
-- [x] 重打 v0.5.1u2、runner v0.3.1、v0.5.2 UPG-041 三包。
-- [ ] 在 10.20.11.3 从正常业务库执行完整链路：升级主链已成功，自动采集因测试恢复夹具只恢复 DB/Prometheus、未恢复与 DB 配套的旧 `.env` 而失败；先找回并成对恢复旧 `smartx.db + .env`，不得要求重新填写 Tower 凭据。
-- [ ] 增加凭据迁移安全门禁：来源库存在加密 Tower 凭据时，目标 `.env` 缺失或密钥不匹配必须中止目录迁移/旧环境清理并给出明确错误，不得静默创建默认密钥。
-- [ ] 修正迁移顺序与候选优先级：先确定/迁移业务数据库，再以该数据库验证目标和 legacy `.env`；迁入旧 DB 时不得因目标 `.env` 已存在就无条件保留它。
-- [ ] 处理 UPG-042 代码审查阻塞：迁移 `.env` 权限改为 `0600`；异常/不完整 Tower schema fail-closed；无认证 XOR 密文不得用“非空解密结果”作为唯一兼容依据。
-- [ ] UPG-043 修复 credential helper 目标 DB host path 映射：`directory_transition.target_root` 下的同路径 bind mount 必须保持宿主机绝对路径，不能再套用 `/data -> SMARTX_HOST_DATA_PATH` 映射。修复前不得重试 v0.5.2。
-- [ ] 验证当前容量、趋势新样本、VM 真实名称、post-cleanup 和旧目录清理。
-- [x] UPG-043 fix3 在 10.20.11.3 完成核心链路：凭据迁移、自动采集、post-cleanup、数据和目录验收通过。
-- [x] UPG-044 修复 verification 最近包排序：history 已改为无副作用只读视图，按业务创建时间排序；verification 按成功平台包完成时间独立选最新。fix4 已通过本地/10.20.11.3 各 165 项回归、包静态门禁、真实历史 SHA/mtime 无变化验证和隔离 HTTP release smoke。
-
-详细计划：`docs/superpowers/plans/2026-07-10-post-upgrade-auto-collection.md`。
-
-## UPG-045 / UPG-046 / UPG-047 / UPG-048 最终升级链路闭环
-
-状态：完成。fix7 已由完整链路证明不可交付；fix8 已在 `10.20.11.3` 完成代码测试、依赖完整回归、真实 Docker bind、构建、包体门禁、真实业务基线全链路和最终 release smoke 验收。
-
-执行边界：
-
-- 当前及后续所有 Python 验证、依赖安装、镜像构建、升级包构建、包体门禁和完整升级链路只允许在 `10.20.11.3` 执行。
-- 不连接、不恢复、不验证 `10.20.11.12`。
-- 本地工作区只维护源码和文档，不运行 Python，不安装测试依赖，不构建升级包。
-
-- [x] 固定已发布输入：`v0.5.1u2` SHA256 `d5f277167445e7636ddfba16b4f780b40d59952467bb1c8e72d2469b43ee0a49`；runner `v0.3.1` SHA256 `d10e15cf7b516d172ebe2f1bc37621f9cf32d8ab3abd548f808ae5c5de151d2c`，两者不得修改。
-- [x] UPG-045：v0.5.2 worker 兼容已发布 bridge 未生成自动采集 marker 的情况；fix5 链路已证明主升级、自动采集和 post-cleanup 成功。
-- [x] UPG-046：终态 runner task 必须投影到任务中心，并保证重复状态查询不刷新 `updated_at`。
-- [x] UPG-047 第一方案：尝试通过 v0.5.2 正式 compose 的 runner 启动命令修正 `.env` 权限；完整链路证明该命令会被已发布 runner handoff compose 覆盖，因此 fix7 不可交付。
-- [x] `10.20.11.3` 依赖完整回归：198 项通过，1 项跳过，退出码 0。
-- [x] 仅从 `/home/user1/codex-build/worktree-upg047` 构建 v0.5.2 fix7，并完成 checksums、manifest、镜像身份、敏感成员、bundled images 和 compose chmod 门禁；SHA256 `1cde8e34617fcddc00e1a334516694ab0e34fc2997f164a91c718f5f17317497`。
-- [x] fix7 完整链路执行完成并定位验收失败：主任务/自动采集/post-cleanup 与任务中心投影均通过，但最终 `.env` 仍为 `0644`；根因是发布 runner handoff compose 覆盖正式 runner command。fix7 不可交付。
-- [x] UPG-048 / fix8 TDD：在 web-api 主 apply 路径增加仅针对 `.env` 的权限 shim，不修改已发布 u2/runner。
-- [x] fix8 在 `10.20.11.3` 通过 compose 定向测试、2 项 package-builder 测试、198 项依赖完整回归以及真实 Docker 单文件 bind 权限验证；宿主机 `.env` 从 `0644` 修正为 `0600`，web-api 保持 running。
-- [x] 仅在 `10.20.11.3:/home/user1/codex-build/worktree-upg048` 构建 fix8，完成 sidecar/internal checksums、manifest/source compatibility、镜像身份、敏感成员、bundled images、三份 compose shim 和 bridge render 门禁；包 SHA256 `692aca8b58ad8199c43c02a3771fa4fd7a62f1d7bbf4f198af4bd2e4b2c67733`。
-- [x] 在 `10.20.11.3` 审计并恢复真实 `v0.5.1 + runner v0.3.0`：五容器和旧 project/network/subnet 正确，业务计数 `towers=1/clusters=1/vm_latest=556/vm_volumes=89588`，`.env` SHA `8b644112...`、`0600 root:root`，目标根目录不存在。
-- [x] 在 `10.20.11.3` 按正常产品流程执行已发布 `v0.5.1u2 -> runner v0.3.1 -> v0.5.2 fix8`；任务依次为 `upgrade-5680ff0264c4acbd -> upgrade-53ebaff4da3218df -> upgrade-9ad951d4024b2c16`，全部成功。
-- [x] 验收任务中心终态与幂等查询、自动采集、post-cleanup、`.env` SHA/`0600 root:root`、业务计数、五容器镜像、project/network/subnet、七目录、旧路径清理、history/verification 只读稳定性和 release smoke；最终 `critical=0/warning=0`。
+详见 `docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md` 和 Release。
 
 ## Phase 49 - v0.5.2 后续治理与风险待办
 
-状态：待处理
+状态：部分完成
 
-背景：v0.5.2 升级链路已闭环，但在代码审查和现场测试中发现若干治理/风险项，统一记录待处理。
+背景：v0.5.2 升级链路已闭环，代码审查和现场测试中发现若干治理/风险项。
 
-### 3. compose 镜像 tag 仍可被 .env 覆盖
+### 1. v0.5.1u2 tag 源码版本口径不一致 [已完成]
+- tag `v0.5.1u2` 的源码 `VERSION` 已是 `v0.5.2`，已发布无法修改。
+- [x] 已记录到 `docs/version-governance.md`，新增规则：发布时 tag 必须与 VERSION 一致；升级包以 Release asset SHA 为准。
 
-- 源码 compose 仍使用 `${SMARTX_IMAGE_TAG:-v0.5.2}` 模板。
-- 现场 `.env` 若残留旧 `SMARTX_IMAGE_TAG=v0.5.1`，`docker compose up -d` 会把镜像拉回旧版。
-- 升级包内 compose 已在打包时渲染固定 tag（安全），但**源码 compose 仍是模板**，现场误用风险仍在。
-- 待办：正式部署场景下禁止 `.env` 覆盖镜像版本；或部署后强制校验 `.env` 无版本 key。
+### 2. 前端 pnpm 锁文件历史遗留 [已完成]
+- `pnpm-lock.yaml` / `pnpm-workspace.yaml` 已被删除；Dockerfile 实际用 npm（`package-lock.json`）。
+- [x] 已在 `79431e1` 提交中移除。
 
-### 4. 测试机地址散落在内部文档
+### 3. compose 镜像 tag 仍可被 .env 覆盖 [待实施]
+- 源码 compose 仍用 `${SMARTX_IMAGE_TAG:-v0.5.2}` 模板，现场 `.env` 含旧 tag 时风险仍在。
+- 升级包内 compose 已固定 tag（安全）；源码模板风险待修。
 
-- `progress.md`、`findings.md`、UPG worklog、计划文档中存在大量 `10.20.11.3` / `10.20.11.12` / `10.20.0.6`。
-- 对外发布文档（README/CHANGELOG/deployment）已清理，但内部工作记录一旦被复制到公开渠道会泄露拓扑信息。
-- 待办：内部文档保持现状（排障需要），但对外交付文档必须零业务地址；必要时增加发布前地址扫描门禁。
+### 4. 测试机地址散落在内部文档 [已完成]
+- 对外发布文档（README/CHANGELOG/deployment）已清理。
+- [x] 已新增 `scripts/verify_release_docs_safe.py` 发布前安全扫描门禁。
 
-### 5. post_upgrade_cleanup_status 与 post-cleanup 实际状态不一致
+### 5. post_upgrade_cleanup_status 投影不同步 [已完成]
+- `task.json` 顶层字段与 post-cleanup 子任务实际状态可能不一致。
+- [x] 已修复：`post_upgrade_cleanup_status()` 在子任务终态时回写父 task.json。补回归测试。
 
-- 现场测试发现 `task.json` 里 `post_upgrade_cleanup_status: pending`，但实际 post-cleanup 任务已 success。
-- 属于历史字段/投影不同步，会误导后续排障。
-- 待办：统一 task 顶层 cleanup 状态字段与 post-cleanup 子任务状态投影。
+### 6. 测试机无统一一键回归 [已完成]
+- [x] 已新增 `scripts/verify_full_upgrade_chain.py`：参数化一键验证脚本，覆盖基线确认、三步升级 API、逐节点验收、post-cleanup/自动采集、报告输出。
 
-### 6. 测试机无统一一键回归
-
-- 每次完整链路验证靠临时脚本（`do_step.py`、`upg_chain.py` 等）和人工核对。
-- 待办：把完整链路验证固化为脚本/工具，包含基线恢复、三步升级、自动采集/cleanup 验收、数据/目录/.env 断言和报告生成。
-
-### 7. 标准业务基线未固化为产物
-
-- 多次因数据源选择错误导致误判（本次 .3 就踩了 `v2-migration-verify` 旧库 vs `fixtures` 配套库的坑）。
-- 待办：把「SQLite + 配套 .env + Prometheus 数据」固化为一个可校验 SHA 的标准基线产物，恢复脚本只用它。
+### 7. 标准业务基线未固化为产物 [待实施]
+- 多次因数据源选择错误导致误判，需把「SQLite + 配套 .env + Prometheus 数据」固化为可校验 SHA 的标准基线产物。

@@ -1025,6 +1025,123 @@ services:
             self.assertEqual(projected["status"], "pending")
             self.assertEqual(projected["title"], "升级后清理")
 
+    def test_post_upgrade_cleanup_status_syncs_parent_task_json_field(self) -> None:
+        from app.upgrade_runner.store import TaskStore
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        legacy_cleanup = {
+            "helper_image": "repo/web-api:v0.5.2",
+            "legacy_projects": ["smartx-storage-forecast"],
+            "legacy_networks": ["smartx-storage-forecast_smartx-net"],
+            "legacy_paths": ["/opt/smartx-storage-forecast", "/data/upgrades"],
+            "protected_paths": ["/data/smartx-storage-forecast"],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret", app_version="v0.5.2")
+            database = V2Database(settings)
+            database.initialize()
+            task_service = TaskService(database)
+            parent_id = "upgrade-v052"
+            TaskStore(settings.upgrades_dir / parent_id).save(
+                {
+                    "task_id": parent_id,
+                    "status": "success",
+                    "target_version": "v0.5.2",
+                    "components": ["platform"],
+                    "manifest": {
+                        "version": "v0.5.2",
+                        "post_upgrade": {"create_cleanup_task": True},
+                        "legacy_cleanup": legacy_cleanup,
+                    },
+                    "execution_plan": {"actions": [{"id": "schedule-cleanup", "type": "post_upgrade.schedule_cleanup", "status": "succeeded"}]},
+                }
+            )
+            service = UpgradeService(settings, task_service, project_path=Path(tmpdir) / "project")
+
+            cleanup = service.create_post_upgrade_cleanup_task(parent_id, legacy_cleanup)
+            parent_on_disk = TaskStore(settings.upgrades_dir / parent_id).load()
+            self.assertEqual(parent_on_disk["post_upgrade_cleanup_status"], "pending")
+
+            TaskStore(settings.upgrades_dir / cleanup["task_id"]).save(
+                {
+                    "task_id": cleanup["task_id"],
+                    "status": "success",
+                    "target_version": "v0.5.2",
+                    "task_type": "post_upgrade_cleanup",
+                    "parent_task_id": parent_id,
+                    "manifest": {"version": "v0.5.2", "package_type": "post_upgrade_cleanup", "components": [{"type": "platform", "services": []}], "legacy_cleanup": legacy_cleanup},
+                    "execution_plan": {"actions": [{"id": "verify", "type": "post_cleanup.verify", "status": "succeeded"}]},
+                    "created_at": "2026-08-12T00:00:00",
+                    "updated_at": "2026-08-12T00:00:01",
+                }
+            )
+
+            result = service.post_upgrade_cleanup_status(parent_id)
+            self.assertEqual(result["status"], "succeeded")
+            parent_after = TaskStore(settings.upgrades_dir / parent_id).load()
+            self.assertEqual(parent_after["post_upgrade_cleanup_status"], "success")
+            self.assertNotIn("post_upgrade_cleanup_error", parent_after)
+
+    def test_post_upgrade_cleanup_status_syncs_failed_parent_task_json_field(self) -> None:
+        from app.upgrade_runner.store import TaskStore
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        legacy_cleanup = {
+            "helper_image": "repo/web-api:v0.5.2",
+            "legacy_projects": ["smartx-storage-forecast"],
+            "legacy_networks": ["smartx-storage-forecast_smartx-net"],
+            "legacy_paths": ["/opt/smartx-storage-forecast", "/data/upgrades"],
+            "protected_paths": ["/data/smartx-storage-forecast"],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret", app_version="v0.5.2")
+            database = V2Database(settings)
+            database.initialize()
+            task_service = TaskService(database)
+            parent_id = "upgrade-v052-fail"
+            TaskStore(settings.upgrades_dir / parent_id).save(
+                {
+                    "task_id": parent_id,
+                    "status": "success",
+                    "target_version": "v0.5.2",
+                    "components": ["platform"],
+                    "manifest": {
+                        "version": "v0.5.2",
+                        "post_upgrade": {"create_cleanup_task": True},
+                        "legacy_cleanup": legacy_cleanup,
+                    },
+                    "execution_plan": {"actions": [{"id": "schedule-cleanup", "type": "post_upgrade.schedule_cleanup", "status": "succeeded"}]},
+                }
+            )
+            service = UpgradeService(settings, task_service, project_path=Path(tmpdir) / "project")
+
+            cleanup = service.create_post_upgrade_cleanup_task(parent_id, legacy_cleanup)
+            TaskStore(settings.upgrades_dir / cleanup["task_id"]).save(
+                {
+                    "task_id": cleanup["task_id"],
+                    "status": "failed",
+                    "target_version": "v0.5.2",
+                    "task_type": "post_upgrade_cleanup",
+                    "parent_task_id": parent_id,
+                    "manifest": {"version": "v0.5.2", "package_type": "post_upgrade_cleanup", "components": [{"type": "platform", "services": []}], "legacy_cleanup": legacy_cleanup},
+                    "execution_plan": {"actions": [{"id": "verify", "type": "post_cleanup.verify", "status": "failed", "error": "旧目录清理失败"}]},
+                    "created_at": "2026-08-12T00:00:00",
+                    "updated_at": "2026-08-12T00:00:01",
+                }
+            )
+
+            result = service.post_upgrade_cleanup_status(parent_id)
+            self.assertEqual(result["status"], "failed")
+            parent_after = TaskStore(settings.upgrades_dir / parent_id).load()
+            self.assertEqual(parent_after["post_upgrade_cleanup_status"], "failed")
+            self.assertEqual(parent_after["post_upgrade_cleanup_error"], "旧目录清理失败")
+
     def test_successful_v052_runner_task_schedules_post_cleanup_when_read(self) -> None:
         from app.upgrade_runner.store import TaskStore
         from app.v2.config import V2Settings

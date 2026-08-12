@@ -320,6 +320,25 @@ class UpgradeService:
             return {"parent_task_id": parent_task_id, "status": "pending", "task_id": cleanup_id, "task": None}
         task = self._normalize_completed_runner_task(cleanup_file.parent, _read_task_file(cleanup_file.parent))
         public = self._public_task(task)
+        cleanup_status = str(task.get("status") or "pending")
+        if cleanup_status in {"success", "failed", "cancelled", "rolled_back", "rollback_failed", "recovery_required"}:
+            parent_dir = self.settings.upgrades_dir / parent_task_id
+            parent["post_upgrade_cleanup_status"] = cleanup_status
+            if cleanup_status != "success":
+                first_error = task.get("error")
+                if not first_error:
+                    for act in task.get("execution_plan", {}).get("actions") or []:
+                        if act.get("error"):
+                            first_error = act.get("error")
+                            break
+                if not first_error:
+                    for log in task.get("logs") or []:
+                        if "错误" in str(log) or "error" in str(log).lower():
+                            first_error = log
+                            break
+                if first_error:
+                    parent["post_upgrade_cleanup_error"] = first_error
+            _save_task_file(parent_dir, parent)
         return {
             "parent_task_id": parent_task_id,
             "status": public["status"],
