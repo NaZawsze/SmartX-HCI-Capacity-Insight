@@ -88,6 +88,8 @@ export interface DashboardSummary {
       used_ratio?: number | null;
       forecast_90d?: number | null;
       exhaustion_days?: number | null;
+      exhaustion_days_30d?: number | null;
+      spike_detected?: boolean | null;
       risk_level?: "high" | "warning" | "danger" | "normal" | string | null;
     }>;
     top_clusters: Array<{
@@ -298,6 +300,8 @@ export interface ForecastResult {
   forecast_90d?: number | null;
   forecast_180d?: number | null;
   exhaustion_days?: number | null;
+  exhaustion_days_30d?: number | null;
+  spike_detected?: boolean | null;
 }
 
 

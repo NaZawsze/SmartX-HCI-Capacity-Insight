@@ -80,3 +80,50 @@ class V2P1InfraTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RobustForecastTest(unittest.TestCase):
+    DAY = 86_400
+
+    def _points(self, *, days: int, per_day: float, base: float = 10 * 1024 ** 3, last_day_delta: float | None = None):
+        # per_day 为每日净增字节数（不再乘以 DAY）
+        points = [(NOW_TS - (days - index) * self.DAY, base + index * per_day) for index in range(days)]
+        if last_day_delta is not None:
+            last_ts, last_value = points[-1]
+            points[-1] = (last_ts, last_value + last_day_delta)
+        return points
+
+    def test_stable_series_no_spike(self):
+        from app.v2.reports.service import forecast_series
+
+        result = forecast_series(self._points(days=60, per_day=1024 ** 2), capacity=100 * 1024 ** 3)
+        self.assertFalse(result.spike_detected)
+        self.assertIsNotNone(result.exhaustion_days_30d)
+        self.assertIsNotNone(result.exhaustion_days)
+
+    def test_spike_detected_and_30d_slower(self):
+        from app.v2.reports.service import forecast_series
+
+        points = self._points(days=90, per_day=1024 ** 2, last_day_delta=200 * 1024 ** 3)
+        result = forecast_series(points, capacity=500 * 1024 ** 3)
+        self.assertTrue(result.spike_detected)
+        self.assertGreater(result.recent_day_delta or 0, 0)
+        # 全窗口回归已有 _drop_outliers 保护，两口径都应存在且为正
+        self.assertIsNotNone(result.exhaustion_days_30d)
+        self.assertIsNotNone(result.exhaustion_days)
+
+    def test_declining_series_no_exhaustion_30d(self):
+        from app.v2.reports.service import forecast_series
+
+        # 时间越往后容量越少（每 24 小时减少 1 GiB）
+        points = [(NOW_TS - index * self.DAY, 100 * 1024 ** 3 + index * 1024 ** 3) for index in range(30)]
+        result = forecast_series(points, capacity=200 * 1024 ** 3)
+        self.assertIsNone(result.exhaustion_days_30d)
+
+    def test_insufficient_points_defaults(self):
+        from app.v2.reports.service import forecast_series
+
+        result = forecast_series([(NOW_TS, 1024)], capacity=2048)
+        self.assertEqual(result.status, "insufficient_data")
+        self.assertFalse(result.spike_detected)
+        self.assertIsNone(result.exhaustion_days_30d)

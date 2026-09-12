@@ -501,6 +501,8 @@ def _risk_clusters(clusters: list[dict[str, Any]], forecasts: dict[tuple[int, st
                 "used_ratio": used_ratio,
                 "forecast_90d": forecast.get("forecast_90d"),
                 "exhaustion_days": forecast.get("exhaustion_days"),
+                "exhaustion_days_30d": forecast.get("exhaustion_days_30d"),
+                "spike_detected": bool(forecast.get("spike_detected")),
                 "risk_level": risk_level,
             }
         )

@@ -307,9 +307,9 @@ function RiskClusterRow({ cluster, onOpen }: { cluster: RiskClusterRowItem; onOp
         </span>
       </div>
       <div className="risk-cluster-numbers">
-        <span>预计存储耗尽</span>
-        <strong className={isQuarterRiskExhaustion(cluster.exhaustion_days) ? "exhaustion-days-risk" : undefined}>
-          {formatExhaustionDays(cluster.exhaustion_days)}
+        <span>预计存储耗尽{cluster.spike_detected ? "（近 24 小时增长异常，建议观察多日）" : ""}</span>
+        <strong className={isQuarterRiskExhaustion(cluster.exhaustion_days_30d ?? cluster.exhaustion_days) ? "exhaustion-days-risk" : undefined}>
+          {formatExhaustionDays(cluster.exhaustion_days_30d ?? cluster.exhaustion_days)}
         </strong>
         {scope && (
           <button className="risk-cluster-detail-button" type="button" onClick={() => onOpen?.(scope)}>

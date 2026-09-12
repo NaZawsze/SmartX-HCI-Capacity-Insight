@@ -31,6 +31,10 @@ class ForecastResult:
     forecast_180d: float | None
     exhaustion_days: float | None = None
     exhaustion_date: str | None = None
+    smoothed_slope_per_day: float | None = None
+    exhaustion_days_30d: float | None = None
+    recent_day_delta: float | None = None
+    spike_detected: bool = False
 
 
 class ReportService:
@@ -206,6 +210,10 @@ class ReportService:
         return {(int(row["tower_id"]), str(row["cluster_id"])) for row in rows}
 
 
+SPIKE_MULTIPLIER = 3
+SPIKE_FLOOR_BYTES = 1024 ** 3
+
+
 def forecast_series(points: list[tuple[int, float]], capacity: float | None = None) -> ForecastResult:
     cleaned = _clean_points(points)
     if len(cleaned) < 2:
@@ -223,7 +231,32 @@ def forecast_series(points: list[tuple[int, float]], capacity: float | None = No
     forecast_90 = max(0.0, current + slope * 90)
     forecast_180 = max(0.0, current + slope * 180)
     exhaustion_days = (capacity - current) / slope if capacity and slope > 0 and current < capacity else None
-    return ForecastResult("ok", slope, current, forecast_30, forecast_60, forecast_90, forecast_180, exhaustion_days)
+
+    # 稳健口径：近 30 天平滑趋势，避免单日大迁入把耗尽预测拉陡
+    recent_30 = cleaned[-30:]
+    smoothed_slope = _trend_slope_per_day(recent_30) if len(recent_30) >= 2 else None
+    exhaustion_30d = (capacity - current) / smoothed_slope if capacity and smoothed_slope and smoothed_slope > 0 and current < capacity else None
+    recent_day_delta = cleaned[-1][1] - cleaned[-2][1] if len(cleaned) >= 2 else None
+    baseline = max(smoothed_slope or 0.0, 0.0)
+    spike = bool(
+        recent_day_delta is not None
+        and recent_day_delta > 0
+        and recent_day_delta > SPIKE_MULTIPLIER * max(baseline, SPIKE_FLOOR_BYTES)
+    )
+    return ForecastResult(
+        "ok",
+        slope,
+        current,
+        forecast_30,
+        forecast_60,
+        forecast_90,
+        forecast_180,
+        exhaustion_days,
+        smoothed_slope_per_day=smoothed_slope,
+        exhaustion_days_30d=exhaustion_30d,
+        recent_day_delta=recent_day_delta,
+        spike_detected=spike,
+    )
 
 
 def _growth_reports_from_series(
