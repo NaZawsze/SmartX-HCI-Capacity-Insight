@@ -32,7 +32,7 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 | # | 事项 | 来源 | 说明 |
 | --- | --- | --- | --- |
 | 14 | 拆分巨型文件 | Phase 49-13 | 设计已定稿：[split-giant-files-design](superpowers/specs/2026-09-13-split-giant-files-design.md)；四文件独立提交，顺序 api → ServicePage → export → upgrade/service |
-| 15 | API 增加响应模型 | Phase 49-14 | 批次 1-4 已完成（towers/dashboard/tasks/collection/me/system/vms/volumes/reports/admin 读类，金样本全等、零回归）；批次 5（删前端 normalize）重新立项为前后端契约对齐（normalizer 是兼容层非死代码）。设计：[api-response-models-design](superpowers/specs/2026-09-13-api-response-models-design.md) |
+| 15 | API 增加响应模型 | Phase 49-14 | 批次 1-4 已完成（金样本全等、零回归）；批次 5 立项为 49-16 契约对齐（后端补发 kpis/latest_run/metric/value，前端删 normalizer）——设计：[contract-alignment-design](superpowers/specs/2026-09-13-contract-alignment-design.md) |
 | 16 | 低优增强 | Phase 13/14/16 | Excel 图表精修、AI 措辞层、task-worker 第 6 容器评估 |
 
 P3 其余项（v1 死代码移除、helper 收敛、静默吞错清理、CORS 收紧）已于 2026-09-12/13 完成并验证，见文末"已完成"与 progress.md。

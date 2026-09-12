@@ -1405,6 +1405,12 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 
 **2026-09-13 读码核实：`_render_packaged_compose_tags` 已在包构建时渲染字面量 tag**（builder 测试 assertNotIn 佐证），升级包路径本就安全、无需管线改动；升级链路另有 env 剥离防护。剩余收尾：真机构建双包取证、runner DEFAULT_ENV_LINES 移除 CORS=* 遗留、check_versions 增加 .env tag 防呆警告、version-governance 文档更新。
 
+### 16. 前后端契约对齐（49-14 批次 5 修正案）[设计完成，实施中]
+
+设计文档：[docs/superpowers/specs/2026-09-13-contract-alignment-design.md](docs/superpowers/specs/2026-09-13-contract-alignment-design.md)。
+
+决策：后端补发前端消费字段（kpis/latest_run/top_vms/tower_runs/item 的 metric+value），纯增量不删不改既有字段；前端删除兼容 normalizer。验收：金样本"既有键全等 + 新增键到位"、前端全套测试、tsc。
+
 ### 11. Tower 设置页完整 UI 改版 [已完成 2026-09-12]
 
 设计文档：[docs/superpowers/specs/2026-09-12-tower-settings-ui-design.md](docs/superpowers/specs/2026-09-12-tower-settings-ui-design.md)。
