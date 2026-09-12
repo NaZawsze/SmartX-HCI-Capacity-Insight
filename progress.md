@@ -7024,3 +7024,19 @@ release_smoke=critical 0, warning 0
 - builder 26 tests 回到已知基线（9 只读挂载错误，17 通过含 assertNotIn）。
 - 双版本渲染取证：v0.5.2 → `:v0.5.2`/`:v0.3.1`、v0.5.1u2 → `:v0.5.1u2`/`:v0.3.0`，均零 `${SMARTX_IMAGE_TAG`/`${SMARTX_RUNNER_IMAGE_TAG`。
 - 健康检查通过。P1 全部清零。
+
+## 2026-09-13 49-15 完成 + 49-14 批次 2（dashboard 响应模型）落地
+
+### 49-15（P1 清零）
+
+- 读码核实升级包管线已渲染字面量 tag；收尾：runner DEFAULT_ENV_LINES 移除 CORS=*、check_versions .env tag 防呆、version-governance 文档、双版本渲染取证（v0.5.2→:v0.3.1 / v0.5.1u2→:v0.3.0，零插值）。builder 26 tests 回基线。
+
+### 49-14 批次 2（dashboard summary 响应模型，commit 6a798b6）
+
+- 新增 DashboardSummaryResponse 及 10 个嵌套模型（scope/capacity_risk 含 thresholds+evaluated_at+risk_clusters+top_clusters/totals/storage/collection/clusters/towers/day_fastest/day_new），全部 extra="allow" 过渡保证零字段丢失；dashboard_summary 端点挂 response_model。
+- 金样本对比（.3 改前/改后真实响应）：顶层 9 键、capacity_risk、clusters[0]、towers[0]、day_fastest[0]、day_new 键集全部相等。
+- 前端 DashboardPage/AppLayout/ReportsPage 47 tests 通过；健康检查正常。
+
+### 批次 2 剩余
+
+- collection/tasks/me/system 端点模型（下一轮）；批次 3-5（vms/reports、admin、删 normalize）与 49-13 拆分待续。
