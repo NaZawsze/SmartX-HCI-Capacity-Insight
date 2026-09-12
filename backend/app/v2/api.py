@@ -339,6 +339,134 @@ class DashboardSummaryResponse(BaseModel):
     towers: list[DashboardTowerModel] = []
 
 
+
+
+# ---- Batch 3: vms / volumes / reports response models（49-14 批次 3，extra=allow 过渡）----
+
+
+class VmDetailResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    vm_id: Optional[str] = None
+    name: Optional[str] = None
+    tower_id: Optional[Union[str, int]] = None
+    cluster_id: Optional[str] = None
+    used_bytes: Optional[float] = None
+    volumes: list[dict] = []
+
+
+class VmVolumeResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    volume_id: Optional[str] = None
+    name: Optional[str] = None
+    path: Optional[str] = None
+    size_bytes: Optional[float] = None
+    used_bytes: Optional[float] = None
+    storage_policy: Optional[str] = None
+    replica_num: Optional[int] = None
+    thin_provision: Optional[bool] = None
+    ec_k: Optional[int] = None
+    ec_m: Optional[int] = None
+
+
+class ReportScopeModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    tower_id: Optional[int] = None
+    cluster_id: Optional[str] = None
+
+
+class ForecastModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    status: Optional[str] = None
+    slope_per_day: Optional[float] = None
+    current: Optional[float] = None
+    forecast_30d: Optional[float] = None
+    forecast_60d: Optional[float] = None
+    forecast_90d: Optional[float] = None
+    forecast_180d: Optional[float] = None
+    exhaustion_days: Optional[float] = None
+    exhaustion_date: Optional[str] = None
+    exhaustion_days_30d: Optional[float] = None
+    smoothed_slope_per_day: Optional[float] = None
+    recent_day_delta: Optional[float] = None
+    spike_detected: Optional[bool] = None
+
+
+class ReportClusterModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    labels: dict = {}
+    forecast: ForecastModel = ForecastModel()
+    points: list[list] = []
+    total: Optional[float] = None
+    warning: Optional[float] = None
+
+
+class ReportGrowthItemModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    labels: dict = {}
+    forecast: ForecastModel = ForecastModel()
+    growth_amount: Optional[float] = None
+    growth_ratio: Optional[float] = None
+    previous_value: Optional[float] = None
+    period_days: Optional[int] = None
+    sample_span_days: Optional[int] = None
+    window_start_at: Optional[str] = None
+    window_end_at: Optional[str] = None
+    age_days: Optional[int] = None
+    first_seen_at: Optional[str] = None
+
+
+class ClusterGrowthRateModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    per_day: Optional[float] = None
+    per_month: Optional[float] = None
+    per_quarter: Optional[float] = None
+    day_sample_sufficient: Optional[bool] = None
+    month_sample_sufficient: Optional[bool] = None
+    quarter_sample_sufficient: Optional[bool] = None
+    day_window_days: Optional[int] = None
+    month_window_days: Optional[int] = None
+    quarter_window_days: Optional[int] = None
+
+
+class DataQualityModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    status: Optional[str] = None
+    sample_sufficient: Optional[bool] = None
+    sqlite_vm_count: Optional[int] = None
+    prometheus_vm_series_count: Optional[int] = None
+    sqlite_cluster_count: Optional[int] = None
+    prometheus_cluster_series_count: Optional[int] = None
+    latest_collection_status: Optional[str] = None
+    latest_success_at: Optional[str] = None
+    latest_prometheus_sample_at: Optional[str] = None
+    missing_collection_dates: list[str] = []
+    incomplete_clusters: list[dict] = []
+    messages: list[str] = []
+    freshness: Optional[dict] = None
+
+
+class ReportResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    scope: ReportScopeModel = ReportScopeModel()
+    clusters: list[ReportClusterModel] = []
+    window_fastest_growing_vms: list[ReportGrowthItemModel] = []
+    fastest_growing_vms: list[ReportGrowthItemModel] = []
+    day_fastest_growing_vms: list[ReportGrowthItemModel] = []
+    month_fastest_growing_vms: list[ReportGrowthItemModel] = []
+    day_new_vms: list[ReportGrowthItemModel] = []
+    month_new_vms: list[ReportGrowthItemModel] = []
+    cluster_growth_rate_per_day: Optional[float] = None
+    cluster_growth_rate: Optional[ClusterGrowthRateModel] = None
+    window_days: Optional[int] = None
+    chart_days: Optional[int] = None
+    growth_rate_window_days: Optional[int] = None
+    forecast_days: Optional[int] = None
+    period_window: Optional[dict] = None
+    data_window: Optional[dict] = None
+    data_quality: Optional[DataQualityModel] = None
+    timezone: Optional[str] = None
+
+
 def get_v2_settings() -> V2Settings:
     return settings_from_environment()
 
@@ -751,7 +879,7 @@ def vm_trend(
     return VmTrendResponse(**vms.trend(vm_id=vm_id, tower_id=tower_id, cluster_id=cluster_id, days=days))
 
 
-@router.get("/api/vms/{vm_id}")
+@router.get("/api/vms/{vm_id}", response_model=VmDetailResponse)
 def vm_detail(
     vm_id: str,
     _: Annotated[CurrentUser, Depends(require_user)],
@@ -764,7 +892,7 @@ def vm_detail(
     return vms.detail(vm_id=vm_id, tower_id=tower_id, cluster_id=cluster_id)
 
 
-@router.get("/api/vms/{vm_id}/volumes")
+@router.get("/api/vms/{vm_id}/volumes", response_model=list[VmVolumeResponse])
 def vm_volumes(
     vm_id: str,
     _: Annotated[CurrentUser, Depends(require_user)],
@@ -777,7 +905,7 @@ def vm_volumes(
     return vms.volumes(vm_id=vm_id, tower_id=tower_id, cluster_id=cluster_id)
 
 
-@router.get("/api/vm-volumes")
+@router.get("/api/vm-volumes", response_model=list[VmVolumeResponse])
 def vm_volumes_all(
     _: Annotated[CurrentUser, Depends(require_user)],
     vms: Annotated[VmService, Depends(get_vm_service)],
@@ -789,7 +917,7 @@ def vm_volumes_all(
     return vms.all_volumes(tower_id=tower_id, cluster_id=cluster_id)
 
 
-@router.get("/api/reports/latest")
+@router.get("/api/reports/latest", response_model=ReportResponse)
 def latest_report(
     _: Annotated[CurrentUser, Depends(require_user)],
     reports: Annotated[ReportService, Depends(get_report_service)],
