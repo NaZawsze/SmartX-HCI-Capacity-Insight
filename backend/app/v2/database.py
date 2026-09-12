@@ -24,6 +24,8 @@ class V2Database:
         conn = sqlite3.connect(self.settings.sqlite_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        # web-api 与 collector-worker 双进程并发读写，写锁冲突时等待而非立即失败
+        conn.execute("PRAGMA busy_timeout = 5000")
         return conn
 
     @contextmanager
@@ -38,6 +40,7 @@ class V2Database:
     def initialize(self) -> None:
         self.settings.ensure_directories()
         with self.connection() as conn:
+            conn.execute("PRAGMA journal_mode = WAL")
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS users (
@@ -208,6 +211,13 @@ class V2Database:
             _ensure_column(conn, "collection_runs", "success_targets_json", "TEXT")
             _ensure_column(conn, "collection_runs", "failed_targets_json", "TEXT")
             _ensure_column(conn, "collection_runs", "published_metrics_targets_json", "TEXT")
+            conn.executescript(
+                """
+                CREATE INDEX IF NOT EXISTS idx_tasks_updated_at ON tasks(updated_at);
+                CREATE INDEX IF NOT EXISTS idx_collection_runs_started_at ON collection_runs(started_at);
+                CREATE INDEX IF NOT EXISTS idx_collection_runs_finished_at ON collection_runs(finished_at);
+                """
+            )
             _ensure_schema_migrations_table(conn)
             _backfill_v1_latest_vm_payloads(conn)
             _backfill_legacy_volume_items(conn)

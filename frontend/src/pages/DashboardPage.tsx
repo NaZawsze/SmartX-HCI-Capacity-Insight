@@ -94,10 +94,11 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRis
         : summary?.towers.find((tower) => tower.id === scope.towerId)?.name || summary?.scope?.label || "当前 Tower";
   const topVms = sortMetricGrowthItems(summary?.day_fastest_growing_vms || summary?.top_vms || [], growthSort);
   const dayNewVms = summary?.day_new_vms || [];
-  const risk = capacityRisk(summary?.capacity_risk, kpis?.used_ratio);
+  const riskThresholdValues = riskThresholds(summary?.capacity_risk);
+  const risk = capacityRisk(summary?.capacity_risk, kpis?.used_ratio, riskThresholdValues);
   const riskReportScope = reportScopeForRisk(summary?.capacity_risk);
   const clusterCapacityItems = clusterCapacityRows(summary?.clusters || []);
-  const riskClusters = riskClusterRows(summary?.capacity_risk);
+  const riskClusters = riskClusterRows(summary?.capacity_risk, riskThresholdValues);
 
   function openRiskReport() {
     onOpenRiskReport?.(riskReportScope);
@@ -140,7 +141,7 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRis
           <div className="cluster-capacity-list auto-scrollbar">
             {clusterCapacityItems.length ? (
               clusterCapacityItems.map((item) => (
-                <ClusterCapacityRow item={item} key={`${item.metric.tower_id || "tower"}-${item.metric.cluster_id || item.metric.cluster || "cluster"}`} onOpen={openClusterReport} />
+                <ClusterCapacityRow item={item} key={`${item.metric.tower_id || "tower"}-${item.metric.cluster_id || item.metric.cluster || "cluster"}`} onOpen={openClusterReport} thresholds={riskThresholdValues} />
               ))
             ) : (
               <div className="cluster-capacity-empty">暂无集群容量数据</div>
@@ -321,11 +322,11 @@ function RiskClusterRow({ cluster, onOpen }: { cluster: RiskClusterRowItem; onOp
   return <div className={`risk-cluster-row ${cluster.risk_level || "warning"}`}>{content}</div>;
 }
 
-function ClusterCapacityRow({ item, onOpen }: { item: MetricItem; onOpen: (item: MetricItem) => void }) {
+function ClusterCapacityRow({ item, onOpen, thresholds }: { item: MetricItem; onOpen: (item: MetricItem) => void; thresholds: RiskThresholds }) {
   const total = item.total_bytes ?? 0;
   const used = item.value ?? 0;
   const ratio = total > 0 ? Math.min(Math.max(used / total, 0), 1) : 0;
-  const tone = clusterCapacityTone(ratio, total);
+  const tone = clusterCapacityTone(ratio, total, thresholds);
   const reportScope = reportScopeForCluster(item);
   const content = (
     <>
@@ -379,10 +380,10 @@ function clusterUsageRatio(item: MetricItem): number {
   return (item.value ?? 0) / total;
 }
 
-function clusterCapacityTone(ratio: number, total: number): "normal" | "warning" | "danger" | "unknown" {
+function clusterCapacityTone(ratio: number, total: number, thresholds: RiskThresholds = DEFAULT_RISK_THRESHOLDS): "normal" | "warning" | "danger" | "unknown" {
   if (total <= 0) return "unknown";
-  if (ratio >= 0.8) return "danger";
-  if (ratio >= 0.75) return "warning";
+  if (ratio >= thresholds.dangerRatio) return "danger";
+  if (ratio >= thresholds.warningRatio) return "warning";
   return "normal";
 }
 
@@ -443,9 +444,27 @@ function isQuarterRiskExhaustion(value?: number | null): boolean {
   return value != null && Number.isFinite(value) && value < 90;
 }
 
+interface RiskThresholds {
+  warningRatio: number;
+  dangerRatio: number;
+}
+
+const DEFAULT_RISK_THRESHOLDS: RiskThresholds = { warningRatio: 0.75, dangerRatio: 0.8 };
+
+function riskThresholds(clusterRisk?: DashboardSummary["capacity_risk"]): RiskThresholds {
+  const raw = clusterRisk?.thresholds;
+  const warning = Number(raw?.warning_ratio);
+  const danger = Number(raw?.danger_ratio);
+  return {
+    warningRatio: Number.isFinite(warning) && warning > 0 ? warning : DEFAULT_RISK_THRESHOLDS.warningRatio,
+    dangerRatio: Number.isFinite(danger) && danger > 0 ? danger : DEFAULT_RISK_THRESHOLDS.dangerRatio
+  };
+}
+
 function capacityRisk(
   clusterRisk?: DashboardSummary["capacity_risk"],
-  usedRatio?: number | null
+  usedRatio?: number | null,
+  thresholds: RiskThresholds = DEFAULT_RISK_THRESHOLDS
 ): { tone: "normal" | "warning" | "danger"; title: string; description: string } {
   if (clusterRisk) {
     const tone = clusterRisk.level === "high" ? "danger" : clusterRisk.level;
@@ -459,10 +478,10 @@ function capacityRisk(
     return { tone: "normal", title: "暂无容量风险", description: "等待采集完成后显示容量风险。" };
   }
   const percent = `${(usedRatio * 100).toFixed(2)}%`;
-  if (usedRatio >= 0.8) {
+  if (usedRatio >= thresholds.dangerRatio) {
     return { tone: "danger", title: "容量高风险", description: `当前已使用 ${percent}，建议尽快确认扩容或清理计划。` };
   }
-  if (usedRatio >= 0.75) {
+  if (usedRatio >= thresholds.warningRatio) {
     return { tone: "warning", title: "容量需关注", description: `当前已使用 ${percent}，建议关注增长趋势和重点 VM。` };
   }
   return { tone: "normal", title: "容量风险正常", description: `当前已使用 ${percent}，暂无明显容量风险。` };
@@ -478,15 +497,15 @@ function reportScopeForRisk(clusterRisk?: DashboardSummary["capacity_risk"]): Da
   return { type: "all" };
 }
 
-function riskClusterRows(clusterRisk?: DashboardSummary["capacity_risk"]): RiskClusterRowItem[] {
+function riskClusterRows(clusterRisk?: DashboardSummary["capacity_risk"], thresholds: RiskThresholds = DEFAULT_RISK_THRESHOLDS): RiskClusterRowItem[] {
   if (!clusterRisk || clusterRisk.level === "normal") return [];
   const rows = clusterRisk.risk_clusters?.length
     ? clusterRisk.risk_clusters
     : (clusterRisk.top_clusters || [])
-        .filter((cluster) => (cluster.used_ratio ?? 0) >= 0.75)
+        .filter((cluster) => (cluster.used_ratio ?? 0) >= thresholds.warningRatio)
         .map((cluster) => ({
           ...cluster,
-          risk_level: (cluster.used_ratio ?? 0) >= 0.8 ? "high" : "warning",
+          risk_level: (cluster.used_ratio ?? 0) >= thresholds.dangerRatio ? "high" : "warning",
           forecast_90d: null,
           exhaustion_days: null
         }));

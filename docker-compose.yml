@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-web-api:${SMARTX_IMAGE_TAG:-v0.5.2}
+    image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-web-api:v0.5.2
     command: ["sh", "-c", "chmod 600 /run/smartx-runtime.env && exec uvicorn app.v2.main:app --host 0.0.0.0 --port 8000"]
     env_file:
       - .env
@@ -37,7 +37,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile.worker
-    image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-collector-worker:${SMARTX_IMAGE_TAG:-v0.5.2}
+    image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-collector-worker:v0.5.2
     command: ["python", "-m", "app.v2.worker"]
     env_file:
       - .env
@@ -61,7 +61,7 @@ services:
   frontend:
     build:
       context: ./frontend
-    image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-frontend:${SMARTX_IMAGE_TAG:-v0.5.2}
+    image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-frontend:v0.5.2
     environment:
       TZ: Asia/Shanghai
     ports:
@@ -76,7 +76,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile.upgrade
-    image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-upgrade-runner:${SMARTX_RUNNER_IMAGE_TAG:-v0.3.1}
+    image: ${SMARTX_IMAGE_PREFIX:-nazawsze}/smartx-hci-capacity-insight-upgrade-runner:v0.3.1
     command: ["sh", "-c", "chmod 600 /data/smartx-storage-forecast/project/.env && exec python -m app.upgrade_runner.main"]
     env_file:
       - .env

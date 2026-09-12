@@ -18,6 +18,8 @@ CLUSTER_TOTAL_METRIC = "smartx_cluster_storage_total_bytes"
 VM_USED_METRIC = "smartx_vm_storage_used_bytes"
 NORMAL_RISK_MESSAGE = "当前所有集群暂无明显容量风险"
 SECONDS_PER_DAY = 86_400
+CAPACITY_WARNING_RATIO = 0.75
+CAPACITY_DANGER_RATIO = 0.80
 SUMMARY_CACHE_TTL_SECONDS = 60.0
 _summary_cache: dict[tuple[int | None, str | None], tuple[float, int, dict[str, Any]]] = {}
 _summary_cache_lock = __import__("threading").Lock()
@@ -68,6 +70,10 @@ class DashboardService:
         towers = InventoryService(self.database, self.settings).list_towers()
         capacity_risk = self._capacity_risk(clusters, month_fastest_growing_vms, cluster_forecasts)
         capacity_risk["evaluated_at"] = _utc_now_iso()
+        capacity_risk["thresholds"] = {
+            "warning_ratio": CAPACITY_WARNING_RATIO,
+            "danger_ratio": CAPACITY_DANGER_RATIO,
+        }
         return {
             "scope": {
                 "tower_id": tower_id,
@@ -177,8 +183,8 @@ class DashboardService:
                 "top_clusters": [],
                 "risk_clusters": [],
             }
-        high = [cluster for cluster in clusters if float(cluster["used_ratio"]) >= 0.8]
-        warning = [cluster for cluster in clusters if 0.75 <= float(cluster["used_ratio"]) < 0.8]
+        high = [cluster for cluster in clusters if float(cluster["used_ratio"]) >= CAPACITY_DANGER_RATIO]
+        warning = [cluster for cluster in clusters if CAPACITY_WARNING_RATIO <= float(cluster["used_ratio"]) < CAPACITY_DANGER_RATIO]
         if high:
             message = _risk_message(risk_clusters, high_count=len(high), warning_count=len(warning), high=True)
             return {
@@ -339,7 +345,7 @@ class DashboardService:
     def _day_new_vms(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
         names = self._latest_vm_names()
         current_values = self._latest_vm_value_map(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
-        start, end = _day_bounds(self.now_ts)
+        start, end = _day_bounds(self.now_ts, self.settings.timezone)
         series_list = self._vm_series(days=30, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, step="6h")
         new_vms = []
         for series in series_list:
@@ -465,8 +471,14 @@ def _vm_key(labels: dict[str, Any]) -> tuple[int, str, str]:
     return (int(labels.get("tower_id") or 0), str(labels.get("cluster_id") or ""), str(labels.get("vm_id") or ""))
 
 
-def _day_bounds(now_ts: int) -> tuple[int, int]:
-    start = datetime.fromtimestamp(now_ts).replace(hour=0, minute=0, second=0, microsecond=0)
+def _day_bounds(now_ts: int, tz_name: str | None = None) -> tuple[int, int]:
+    try:
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo(tz_name) if tz_name else timezone.utc
+    except Exception:
+        tz = timezone.utc
+    start = datetime.fromtimestamp(now_ts, tz=tz).replace(hour=0, minute=0, second=0, microsecond=0)
     return int(start.timestamp()), now_ts
 
 
@@ -474,11 +486,11 @@ def _risk_clusters(clusters: list[dict[str, Any]], forecasts: dict[tuple[int, st
     items: list[dict[str, Any]] = []
     for cluster in clusters:
         used_ratio = float(cluster.get("used_ratio") or 0.0)
-        if used_ratio < 0.75:
+        if used_ratio < CAPACITY_WARNING_RATIO:
             continue
         key = (int(cluster["tower_id"]), str(cluster["cluster_id"]))
         forecast = forecasts.get(key, {})
-        risk_level = "high" if used_ratio >= 0.8 else "warning"
+        risk_level = "high" if used_ratio >= CAPACITY_DANGER_RATIO else "warning"
         items.append(
             {
                 "tower_id": cluster["tower_id"],

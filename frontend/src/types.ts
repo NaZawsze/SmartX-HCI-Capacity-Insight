@@ -72,6 +72,7 @@ export interface DashboardSummary {
     level: "normal" | "warning" | "danger" | "high";
     title: string;
     evaluated_at?: string | null;
+    thresholds?: { warning_ratio?: number | null; danger_ratio?: number | null } | null;
     message?: string;
     description: string;
     cluster_count: number;

@@ -108,12 +108,10 @@ docker load -i smartx-hci-capacity-insight-frontend.tar
 docker load -i smartx-hci-capacity-insight-upgrade-runner.tar
 ```
 
-Optional image variables for release or offline mode. Platform services and `upgrade-runner` intentionally use separate tags:
+Optional image variable for release or offline mode (registry/prefix only). Image tags are fixed in the compose files and follow `VERSION` / `RUNNER_VERSION`; they must not be overridden via `.env`:
 
 ```text
 SMARTX_IMAGE_PREFIX=docker.io/nazawsze
-SMARTX_IMAGE_TAG=v0.5.2
-SMARTX_RUNNER_IMAGE_TAG=v0.3.1
 ```
 
 Service ports:
@@ -262,11 +260,11 @@ docker compose up -d
 ```
 
 The default compose file builds and runs the same versioned image names used by
-upgrade packages. Platform services use `SMARTX_IMAGE_TAG` from `VERSION`
-(`v0.5.2` in this release), and `upgrade-runner` uses `SMARTX_RUNNER_IMAGE_TAG`
-from `RUNNER_VERSION` (`v0.3.1`). Do not switch runtime services back to
-`:local` tags, otherwise upgrade packages and the running compose state can
-drift.
+upgrade packages. Image tags are written literally in the compose files
+(web-api/collector-worker/frontend `v0.5.2`, `upgrade-runner` `v0.3.1`) and change
+only through version commits, never through `.env` overrides. Do not switch
+runtime services back to `:local` tags, otherwise upgrade packages and the
+running compose state can drift.
 
 To rebuild only the frontend:
 
