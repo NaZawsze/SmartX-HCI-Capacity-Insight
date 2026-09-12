@@ -6877,3 +6877,18 @@ release_smoke=critical 0, warning 0
 - commit 15f6bf5 误将含测试机密码的 AGENTS.md 提交并推送到 origin/dev2。
 - 处置：`git rm --cached` + `.gitignore` + amend 后 force push（远端 dev2 现指向 f9bc728，不再包含该文件）。
 - 残留风险：旧提交对象在 GitHub 服务端可能仍可按 SHA 访问（未被 GC 前）。凭据为本机测试机密码，是否轮换由用户决定；若轮换，需同步更新本地 AGENTS.md。
+
+## 2026-09-12 P1 基础设施批次（SQLite/阈值/时区）与 compose 修复回退
+
+### 实施并验证（commit 7793011 + 5fa369b + 03e94e1，设计 p1-infra-batch-design.md）
+
+- SQLite：`connect()` 加 busy_timeout 5000ms、`initialize()` 设 WAL 并建 `idx_tasks_updated_at`、`idx_collection_runs_started_at/finished_at`；.3 实库验证 journal=wal、三索引存在。
+- 阈值统一：后端常量 CAPACITY_WARNING/DANGER_RATIO，`capacity_risk.thresholds` 下发；DashboardPage `capacityRisk/clusterCapacityTone/riskClusterRows` 改读后端阈值（payload 缺失回退 0.75/0.8）。
+- 时区统一：`_day_bounds(now_ts, tz_name)` 按 settings.timezone 算零点；测试覆盖 Asia/Shanghai 与 UTC 日界差及非法时区回退。
+- 前端目标测试 73 通过；后端全量 297 tests。
+
+### compose tag 修复尝试与回退（重要教训）
+
+- 首版把源码 compose tag 写死为字面量，导致 `build_upgrade_package.py` 的 16 个 builder 用例报错：构建管线靠 `SMARTX_IMAGE_TAG:-<默认>` 占位符正则改写为目标包版本并断言 `:<version>`（v0.5.1u2/v0.3.0 等）。
+- 已回退占位符（03e94e1）并验证 builder 回到 9 个只读挂载基线错误。Phase 49-3 重新立项：包构建时渲染字面量 tag，源码模板保留占位符（pending-tasks P1 #5 更新）。
+- 教训：改发布管线（compose/打包脚本）前必须先读 build_upgrade_package 的渲染与断言逻辑。

@@ -55,14 +55,11 @@
 
 现状：三个 compose 的 image tag 为 `${SMARTX_IMAGE_TAG:-v0.5.2}`，现场 `.env` 的旧 tag 会静默切换镜像版本，违反版本治理"发布包内的 Compose 应写入明确、可审计的镜像身份"。
 
-变更：
+变更（2026-09-12 实施后修正）：
 
-- `docker-compose.yml` / `docker-compose.offline.yml` / `docker-compose.release.yml` 中 `${SMARTX_IMAGE_TAG:-v0.5.2}` → `v0.5.2`、`${SMARTX_RUNNER_IMAGE_TAG:-v0.3.1}` → `v0.3.1`（跟随 VERSION 治理，发版时随版本提交同步修改）。
-- `SMARTX_IMAGE_PREFIX` 插值保留（镜像仓库地址切换属合法部署参数）。
-- `docs/deployment.md` 移除 `SMARTX_IMAGE_TAG/RUNNER_IMAGE_TAG` 作为部署变量的说明；`.env.example` 无此二项（确认即可）。
-- 风险：本地开发如需临时切 tag，用 `docker tag` 而非 .env；升级包内 compose 原本就是固定 tag，不受影响。
-
-验证：`test_deployment_config` 回归（该测试不校验 tag，需人工确认三文件不再含 `${SMARTX_IMAGE_TAG`）；grep 门禁加入验证脚本。
+- 首版方案（源码 compose 写死字面量 tag）**实施后回退**：`scripts/build_upgrade_package.py` 依赖 `SMARTX_IMAGE_TAG:-<默认值>` 占位符做目标版本改写（正则替换为包目标版本），并断言渲染后的 project compose 含 `:<version>`；写死 v0.5.2 导致 v0.5.1u2/v0.3.0 等旧版本包构建断言失败（16 个 builder 用例报错），已回退并验证回到 9 个只读挂载基线错误。
+- 正确修法（重新立项，pending-tasks P1 #5 保持待办）：包构建时把渲染后的 compose 写成**字面量 tag**（替换 `${...}` 整体为 `:版本`），源码模板保留占位符；`docs/deployment.md` 的 tag env 说明维持原状。
+- 本批次实际落地：deployment.md 的两处 env 说明在回退时一并恢复原状。
 
 ## 6. 测试与验收
 

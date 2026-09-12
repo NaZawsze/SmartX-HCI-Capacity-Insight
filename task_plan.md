@@ -1360,8 +1360,8 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 前端清理静默吞错：summary 轮询路径已完成（失败横幅 + 保留旧数据）；tasks 轮询等其他 `catch(() => undefined)` 路径待后续处理。
 - [x] 消除双重轮询：DashboardPage 的 scope 变化拉取已移除（保留采集运行期 5s 局部刷新）；App 刷新加 single-flight。
 - [x] summary 慢查询治理：60s TTL 缓存（接口拆分作为后续优化项保留）。
-- [ ] 容量阈值统一：75%/80% 由后端 capacity_risk payload 下发 thresholds，前端（DashboardPage 5 处、VmsPage VM 红线）只读后端值。
-- [ ] 时区统一：`_day_bounds` 改用 settings.timezone 计算日界，替换服务器本地时区。
+- [x] 容量阈值统一：capacity_risk payload 下发 thresholds（后端常量 CAPACITY_WARNING/DANGER_RATIO），DashboardPage 三处改读后端值并带同值回退；VmsPage VM 红线语义不同暂不动。
+- [x] 时区统一：`_day_bounds` 按 settings.timezone 计算零点（ZoneInfo，非法时区回退 UTC）。
 - [x] capacity_risk payload 增加 evaluated_at 与最后采集成功时间，支撑前端"数据截至"展示。
 
 ### 10. 全项目架构与代码治理 [待实施]

@@ -13,10 +13,8 @@
 
 | # | 事项 | 来源 | 说明 |
 | --- | --- | --- | --- |
-| 2 | SQLite 索引 + WAL + busy_timeout | Phase 49-10 | 零索引 + web-api/worker 双进程并发写，`vm_volumes` 已 9 万行级；数据量增长后最先爆 |
-| 3 | 容量阈值统一 + 时区统一 | Phase 49-9 | 75%/80% 前后端硬编码 7 处改由 capacity_risk payload 下发；`_day_bounds` 本地时区日界改 settings.timezone |
 | 4 | 报表页容量增长速率算法优化 | Phase 31 | 已规划待实施，口径已定（日/月/季三窗口，负增长不压 0） |
-| 5 | compose 镜像 tag 可被 .env 覆盖 | Phase 49-3 | 源码 compose 模板 `${SMARTX_IMAGE_TAG:-...}` 风险（升级包内已固定） |
+| 5 | compose 镜像 tag .env 覆盖风险（重新立项） | Phase 49-3 | 2026-09-12 尝试源码写死 tag 后回退：build_upgrade_package 依赖占位符做目标版本改写。正确修法=包构建时渲染字面量 tag（详见 p1-infra-batch-design §5），源码模板保留占位符 |
 | 6 | 预计存储耗尽算法增强 | Phase 15 待办 | 区分长期趋势与单日突增，避免迁移后耗尽天数被误读 |
 | 7 | Tower 设置页完整 UI 改版 | Phase 49-11 | 设计已完成（分区式布局已落地为本次基线），剩：创建前测试连接、删除确认框、列表健康徽标、TowerForm 组件抽取、B1/B2 后端接口 |
 
@@ -44,6 +42,10 @@
 | 20 | 低优增强 | Phase 13/14/16 | Excel 图表精修、AI 措辞层、task-worker 第 6 容器评估 |
 
 ## 已完成（2026-09-12，备查）
+
+- SQLite 治理：WAL + busy_timeout 5s + `tasks.updated_at`/`collection_runs.started_at/finished_at` 索引（.3 实库验证）。
+- 容量阈值统一：`capacity_risk.thresholds` 由后端下发，DashboardPage 三处改读后端值（旧后端回退 0.75/0.8）。
+- 日界时区统一：`_day_bounds` 按 settings.timezone 计算零点（Asia/Shanghai 与 UTC 断言覆盖）。
 
 - 主动容量告警机制（采集后阈值检查 → 任务中心 warning/critical，确认去重）。
 - 首页总览静默陈旧：前端 30s 超时/失败横幅/单飞、summary 60s TTL 缓存、`_in_enabled_scope` 三处 fail-closed、`cluster_enabled`/`evaluated_at` 字段。
