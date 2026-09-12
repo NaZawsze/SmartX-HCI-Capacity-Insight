@@ -419,7 +419,7 @@ export const api = {
   },
   async testTowerParams(payload: { base_url: string; username?: string; password?: string; api_token?: string; verify_tls: boolean }): Promise<{ ok: boolean; message: string; clusters: Array<{ cluster_id: string; name: string; enabled: boolean }> }> {
     return request("/api/towers/test", { method: "POST", body: JSON.stringify(payload) });
-  },,
+  },
   async createTower(payload: Record<string, unknown>): Promise<Tower> {
     return request<Tower>("/api/towers", { method: "POST", body: JSON.stringify(payload) });
   },
