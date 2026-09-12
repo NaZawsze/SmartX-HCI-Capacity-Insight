@@ -18,7 +18,7 @@ class V2DashboardVmApiTest(unittest.TestCase):
         class FakeDashboardService:
             def summary(self, tower_id=None, cluster_id=None):
                 return {
-                    "scope": {"tower_id": tower_id, "cluster_id": cluster_id},
+                    "scope": {"tower_id": tower_id, "cluster_id": cluster_id, "cluster_enabled": None},
                     "capacity_risk": {"level": "normal", "message": "当前所有集群暂无明显容量风险"},
                     "totals": {"towers": 1, "clusters": 1, "vms": 1},
                     "storage": {"used_bytes": 1, "total_bytes": 2, "used_ratio": 0.5},
@@ -60,7 +60,7 @@ class V2DashboardVmApiTest(unittest.TestCase):
 
                     summary = client.get("/api/dashboard/summary?tower_id=1&cluster_id=cluster-a", headers=headers)
                     self.assertEqual(summary.status_code, 200)
-                    self.assertEqual(summary.json()["scope"], {"tower_id": 1, "cluster_id": "cluster-a"})
+                    self.assertEqual(summary.json()["scope"], {"tower_id": 1, "cluster_id": "cluster-a", "cluster_enabled": None})
 
                     vms = client.get("/api/vms?tower_id=1&cluster_id=cluster-a", headers=headers)
                     self.assertEqual(vms.status_code, 200)
