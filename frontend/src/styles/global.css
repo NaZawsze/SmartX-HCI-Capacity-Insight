@@ -4915,3 +4915,28 @@ button.risk-cluster-row:hover {
 .tower-form .tower-form-section label:last-child {
   margin-bottom: 0;
 }
+
+.tower-form-section .cluster-toggle-list {
+  grid-column: auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding-top: 0;
+  border-top: none;
+}
+
+.tower-form-section .cluster-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.tower-form-section .cluster-toggle input {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
