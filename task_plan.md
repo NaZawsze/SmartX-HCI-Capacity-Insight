@@ -1387,6 +1387,18 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [ ] API 增加响应模型（Pydantic response_model），逐步替代前端 normalize 兜底。
 - [ ] 已知取舍记录：前端 token 存 localStorage（内网离线产品，暂不改）。
 
+### 13. 拆分巨型文件 [设计完成，待实施]
+
+设计文档：[docs/superpowers/specs/2026-09-13-split-giant-files-design.md](docs/superpowers/specs/2026-09-13-split-giant-files-design.md)。
+
+四个文件各自独立提交/部署：v2/api.py → 域 router 包（OpenAPI path+method 集合 diff 为空）；reports/export.py → common/word/excel 包（公开入口再导出）；upgrade/service.py → Mixin 拆分（类名/构造签名不变）；ServicePage.tsx → 四域组件（页面收敛 ≤400 行）。
+
+### 14. API 响应模型分批落地 [设计完成，待实施]
+
+设计文档：[docs/superpowers/specs/2026-09-13-api-response-models-design.md](docs/superpowers/specs/2026-09-13-api-response-models-design.md)。
+
+原则"模型描述现状"：五批推进（towers → dashboard/tasks → vms/reports → admin 读类 → 删前端 normalize），每批金样本对比（键集与类型 diff 为空）+ 单测 + 前端回归 + 独立提交部署；风险（response_model 剔除未声明字段）以 extra="allow" 过渡与金样本对比缓解。
+
 ### 11. Tower 设置页完整 UI 改版 [已完成 2026-09-12]
 
 设计文档：[docs/superpowers/specs/2026-09-12-tower-settings-ui-design.md](docs/superpowers/specs/2026-09-12-tower-settings-ui-design.md)。
