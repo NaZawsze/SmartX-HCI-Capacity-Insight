@@ -4940,3 +4940,35 @@ button.risk-cluster-row:hover {
   height: 14px;
   flex: none;
 }
+
+.tower-form-checks {
+  align-items: center;
+}
+
+.tower-form-checks .checkbox-line {
+  height: 28px;
+  margin: 0;
+}
+
+.tower-form input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  min-width: 15px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.cluster-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cluster-select-all {
+  font-size: 12px;
+  font-weight: 500;
+  color: #48617e;
+}

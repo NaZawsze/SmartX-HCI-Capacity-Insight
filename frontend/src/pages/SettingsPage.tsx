@@ -100,6 +100,11 @@ export function SettingsPage() {
     await reload();
   }
 
+  async function setAllClusters(tower: Tower, enabled: boolean) {
+    await Promise.all(tower.clusters.map((cluster) => api.updateCluster(tower.id, cluster.cluster_id, { enabled })));
+    await reload();
+  }
+
 
 
   return (
@@ -222,7 +227,19 @@ export function SettingsPage() {
                     <RetryFields form={editForm} onChange={setEditForm} />
                   </section>
                   <section className="tower-form-section">
-                    <div className="tower-form-section-title">③ 集群 ({tower.clusters.length})</div>
+                    <div className="tower-form-section-title cluster-section-head">
+                      <span>③ 集群 ({tower.clusters.length})</span>
+                      {!!tower.clusters.length && (
+                        <label className="checkbox-line cluster-select-all">
+                          <input
+                            type="checkbox"
+                            checked={tower.clusters.every((cluster) => cluster.enabled)}
+                            onChange={(event) => setAllClusters(tower, event.target.checked)}
+                          />
+                          全选
+                        </label>
+                      )}
+                    </div>
                     {!!tower.clusters.length ? (
                       <div className="cluster-toggle-list">
                         {tower.clusters.map((cluster) => (
