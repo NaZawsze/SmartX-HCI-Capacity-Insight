@@ -164,3 +164,11 @@ curl -fsSL "https://hub.docker.com/v2/repositories/${NAMESPACE}/${REPO}/tags?pag
 - 发布新版本时，`git tag` 名称必须与提交内 `VERSION` 一致；不一致时禁止打 tag。
 - 已发布的历史 tag 不做修改；如需修正语义，通过新的 tag 或 Release 说明补充。
 - 升级包以 GitHub Release asset 的 SHA256 为准，不以 git tag 源码为准。
+
+
+## 升级包 compose 与源码部署的 tag 规则（2026-09-13 补充）
+
+- 升级包内 compose 为**字面量 tag**：`build_upgrade_package.py::_render_packaged_compose_tags` 在包构建时把 `${SMARTX_IMAGE_PREFIX:-…}/…:${SMARTX_IMAGE_TAG:-…}` 渲染为 `仓库/镜像:版本`，现场 .env 无法覆盖包内版本。
+- 源码模板保留 `${SMARTX_IMAGE_TAG:-v0.5.2}` 占位符（`check_versions` 门禁与开发流程依赖）。
+- 源码直连部署（git clone + docker compose up）时，`.env` 或 shell 若定义 `SMARTX_IMAGE_TAG/RUNNER_IMAGE_TAG/APP_VERSION/RUNNER_VERSION` 会覆盖占位符默认值——**不应在 .env 定义这四个变量**；`check_versions` 检测到会打印警告。
+- 升级链路纵深防御：runner 升级时从目标 .env 剥离上述四个变量（`upgrade_runner/actions.py IMAGE_TAG_ENV_KEYS`）。

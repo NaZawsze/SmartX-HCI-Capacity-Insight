@@ -144,6 +144,12 @@ def check_versions(version: str) -> None:
         raise SystemExit("docker-compose.offline.yml must not default to latest.")
     if "smartx-hci-capacity-insight-upgrade-runner:${SMARTX_IMAGE_TAG" in offline_text:
         raise SystemExit("upgrade-runner must not use SMARTX_IMAGE_TAG.")
+    env_file = ROOT / ".env"
+    if env_file.is_file():
+        env_text = env_file.read_text(encoding="utf-8")
+        for key in ("SMARTX_IMAGE_TAG", "SMARTX_RUNNER_IMAGE_TAG", "SMARTX_APP_VERSION", "SMARTX_RUNNER_VERSION"):
+            if re.search(rf"^{key}\s*=", env_text, re.M):
+                print(f"[warn] {env_file} defines {key}; 源码部署时该值会覆盖 compose 占位符默认值，可能导致版本漂移。升级包内 compose 为字面量 tag，不受影响。")
     upgrade_text = (ROOT / "docker-compose.upgrade.yml").read_text(encoding="utf-8")
     for service, release_repository, _, _ in PLATFORM_IMAGES:
         expected = release_image(release_repository, version)
