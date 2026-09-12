@@ -6846,3 +6846,20 @@ release_smoke=critical 0, warning 0
 ### 用户操作
 
 - 浏览器硬刷新 10.20.11.3:8080 → Tower 设置（编辑 CHINATOWER）可见"采集模式：每日定时/按间隔"分段开关。
+
+## 2026-09-12 Tower 表单分区式重构（用户反馈布局凌乱）
+
+### 反馈与设计
+
+- 用户指出：两列网格导致切换采集模式时字段跳动；"采集失败重试"块插在 API Token 下面，与认证混排。
+- 设计更新（tower-settings-ui-design.md §4.2）：整表改分区式布局——① 连接信息（名称/地址/用户名/密码/API Token + 校验 TLS + 启用采集）、② 采集计划（模式切换 + 条件输入 + 失败重试）、③ 集群（编辑态）；全部单列堆叠等宽，切换模式只有计划区内一行变化。
+
+### 实施（commit d78ceea/d78ca64）
+
+- 创建与编辑表单重构为 `.tower-form-section` 分区；重试块移入采集计划分区；TLS/启用采集移入连接信息分区；集群启停从行底部移入编辑表单③集群分区（移除行底部重复列表）。
+- CSS：`.tower-form-section` 分区样式 + `.tower-form.tower-edit-form` 强制单列（原 grid 双列是布局混乱根因）。
+
+### 验证
+
+- 前端镜像重建成功（Dockerfile 内含 tsc/vite build），frontend 8080 返回 200。
+- SettingsPage 目标测试通过；用户浏览器硬刷新后目视验收（待用户确认）。
