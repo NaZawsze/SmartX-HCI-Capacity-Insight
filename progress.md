@@ -7047,3 +7047,12 @@ release_smoke=critical 0, warning 0
 - 接线：/api/collection/runs、/api/collection/runs/{id}、/api/tasks、/api/system/health 挂 response_model（全部 extra="allow" 过渡）。
 - 金样本对比（.3 改前/改后）：tasks 列表、runs 列表、health 键集全等；前端 47 tests 通过；健康正常。
 - 批次 2 全部完成。批次 3（vms/reports）、批次 4（admin 读类）、批次 5（删前端 normalize）与 49-13 拆分待续。
+
+## 2026-09-13 49-14 批次 1-4 完成（响应模型覆盖主要读端点）
+
+- 批次 2：dashboard summary（10 嵌套模型）+ collection runs + tasks + me + system health。
+- 批次 3：vms detail/volumes + reports/latest（forecast 稳健字段、增长速率三窗口、data_quality 19 字段）。
+- 批次 4：admin 读类 17 端点（verification/version/component catalog/migration health/local-storage/cleanup scans/status/history）。
+- 全部 extra="allow" 过渡；金样本对比（改前/改后真实响应键集）全等；修复 3 处模型类型偏差（sample_span_days 浮点、migration health dict、component catalog dict 包装、collection 可空）。
+- 全量 317 tests 回到 10 已知环境性错误基线，零回归；前端 47 tests 通过。
+- 批次 5 重新立项：normalizer 是前后端契约兼容层（非死代码），删除需契约对齐决策，保留为兼容层。

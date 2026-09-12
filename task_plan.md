@@ -1393,7 +1393,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 
 四个文件各自独立提交/部署：v2/api.py → 域 router 包（OpenAPI path+method 集合 diff 为空）；reports/export.py → common/word/excel 包（公开入口再导出）；upgrade/service.py → Mixin 拆分（类名/构造签名不变）；ServicePage.tsx → 四域组件（页面收敛 ≤400 行）。
 
-### 14. API 响应模型分批落地 [设计完成，待实施]
+### 14. API 响应模型分批落地 [批次 1-4 已完成 2026-09-13；批次 5 重新立项为契约对齐]
 
 设计文档：[docs/superpowers/specs/2026-09-13-api-response-models-design.md](docs/superpowers/specs/2026-09-13-api-response-models-design.md)。
 

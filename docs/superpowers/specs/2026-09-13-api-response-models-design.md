@@ -38,7 +38,13 @@
 - 批次 2~4 期间前端不动（normalize 兼容两种形态）。
 - 批次 5 删除对应 normalize 与"旧字段 fallback"分支（如 `capacityRisk` 的 usedRatio 兜底、`cluster_growth_rate_per_day` 兼容），前端测试同步更新——这是唯一可能暴露历史前后端契约漂移的环节，出问题按契约漂移处理（记录 findings，后端修正）。
 
-## 5. 风险与回滚
+## 5. 批次 5 重新立项说明（2026-09-13 实施后修正）
+
+- 实施中发现前端 normalize（normalizeDashboardSummary/normalizeMetricItem/normalizeCapacityRisk/normalizeVmTrend）**不是死代码**：后端 wire 格式（无 kpis/latest_run/top_vms/tower_runs，metric 嵌套）与前端消费形状（扁平 kpis、latest_run 由 collection 推导）不同，normalizer 是兼容层。
+- 批次 5"删 normalize"实际是**前后端契约对齐重构**：要么后端改为直接输出前端形状（会改变刚验证的金样本），要么前端类型与组件改为消费后端形状（大改）。两者都需独立设计决策，不能简单删除。
+- 结论：批次 1-4（响应模型描述后端现状）为 49-14 交付物；批次 5 重新立项为"前后端契约对齐"（待用户定对齐方向），normalizer 保留为兼容层。
+
+## 6. 风险与回滚
 
 - 风险：response_model 序列化会**剔除未声明字段**，若模型遗漏实际返回字段则前端拿不到数据。缓解：批次内金样本对比 + `extra="allow"` 过渡 + 前端测试全绿才部署。
 - 回滚：单批单提交，revert 即恢复。
