@@ -6932,3 +6932,10 @@ release_smoke=critical 0, warning 0
 
 - 完成：SQLite 治理、阈值统一+时区统一、Phase 31、预计耗尽增强、Tower UI 主体（B1/B2/删除确认/分区布局）。
 - 重新立项待办：compose tag 字面量渲染（Phase 49-3 修正案）；TowerForm 组件抽取（低优）。
+
+## 2026-09-12 P1 #5 TowerForm 组件抽取
+
+- 新增 `frontend/src/components/tower/TowerForm.tsx`：TowerFormState 类型、emptyTowerForm 工厂、创建/编辑共用表单（三分区 + 模式差异 props）、ScheduleModeFields/RetryFields、payload 归一化函数。
+- SettingsPage 从 476 行收敛到约 190 行，只保留状态、提交处理、列表渲染、删除确认与健康徽标。
+- 部署中发现两处问题并修复：api.ts 双逗号（0c7420e，上一轮已修）；DashboardPage RiskClusterRowItem fallback 类型缺 exhaustion_days_30d/spike_detected 导致 tsc 失败（8f1d663）——该问题同时意味着此前一次部署实际未生效，本次已用 `--force-recreate` 确保新 bundle 上线。
+- 验证：前端构建通过、8080=200、SettingsPage+DashboardPage 16 tests 通过。目视刷新确认即可。

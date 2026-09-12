@@ -14,7 +14,8 @@
 | # | 事项 | 来源 | 说明 |
 | --- | --- | --- | --- |
 | 4 | compose 镜像 tag .env 覆盖风险（重新立项） | Phase 49-3 | 2026-09-12 尝试源码写死 tag 后回退：build_upgrade_package 依赖占位符做目标版本改写。正确修法=包构建时渲染字面量 tag（详见 p1-infra-batch-design §5），源码模板保留占位符 |
-| 5 | Tower 设置页完整 UI 改版（收尾） | Phase 49-11 | 2026-09-12 已落地：创建前测试连接（B1）、删除二次确认、列表健康徽标（B2）、分区式布局。剩 TowerForm 创建/编辑组件抽取（纯重构，低优） |
+
+P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite 治理、阈值/时区统一、Tower UI 改版含 TowerForm 抽取）已于 2026-09-12 完成并验证，见文末"已完成"与 progress.md。
 
 P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite 治理、阈值/时区统一、Tower UI 主体）已于 2026-09-12 完成并验证，见文末"已完成"与 progress.md。
 
@@ -53,3 +54,4 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 - 前端风格规范文档化（frontend-style-guide.md）与新区块 token 统一。
 - Phase 31 增长速率算法：核对确认后端三窗口（日/月/季）、前端三行卡片、Word/Excel 口径、单测均已落地（历史实现未更新状态）；findings 旧口径已修正；.3 真实数据验证三窗口输出与样本标记。
 - 预计耗尽算法增强：`forecast_series` 新增 smoothed_slope_per_day / exhaustion_days_30d / recent_day_delta / spike_detected；Dashboard 风险行与报表预测行优先 30d 稳健口径并提示"近 24 小时增长异常"；.3 真实数据验证（spike=True 正确识别当日突增）。
+- TowerForm 组件抽取：创建/编辑表单共用 TowerForm.tsx（表单状态类型、分区、采集/重试字段、payload 归一化），SettingsPage 收敛到 190 行；DashboardPage fallback 类型补齐新字段后 tsc 通过、16 tests 通过、容器强制重建。
