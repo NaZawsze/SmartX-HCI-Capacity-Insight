@@ -292,6 +292,8 @@ type RiskClusterRowItem = NonNullable<DashboardSummary["capacity_risk"]>["risk_c
       used_ratio?: number | null;
       forecast_90d?: number | null;
       exhaustion_days?: number | null;
+      exhaustion_days_30d?: number | null;
+      spike_detected?: boolean | null;
       risk_level?: string | null;
     };
 
