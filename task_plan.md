@@ -1333,7 +1333,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 ### 7. 标准业务基线未固化为产物 [待实施]
 - 多次因数据源选择错误导致误判，需把「SQLite + 配套 .env + Prometheus 数据」固化为可校验 SHA 的标准基线产物。
 
-### 8. 首页容量风险总览静默陈旧 [待实施]
+### 8. 首页容量风险总览静默陈旧 [已实现并在 10.20.11.3 验证，生产现场定位待现象复现时执行]
 
 设计文档：[docs/superpowers/specs/2026-09-12-capacity-alert-and-overview-freshness-design.md](docs/superpowers/specs/2026-09-12-capacity-alert-and-overview-freshness-design.md)；实施计划：[docs/superpowers/plans/2026-09-12-capacity-alert-and-overview-freshness.md](docs/superpowers/plans/2026-09-12-capacity-alert-and-overview-freshness.md)。
 
@@ -1343,26 +1343,26 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - 缺陷 A [根因待现场确认]：前端 `refreshSummary().catch(() => undefined)` 静默吞掉刷新失败；`request()` 裸 fetch 无超时；scope=all 的 summary 为无选择器全量查询（含 30 天 range 预测），生产数据量大时慢/挂起概率高于集群 scope 查询，可造成总览长期停留旧数据。叠加定时采集每天一次（02:10），旧数据窗口最长一天。
 - 缺陷 B：`_in_enabled_scope()` 空集放行（dashboard/service.py），集群停用/移除后单集群页读遗留 Prometheus 序列显示黄色、总览过滤显示绿色，不对称。
 - 修复项：
-  - [ ] 前端 summary 刷新失败/超时显示"数据截至 HH:mm，刷新失败"提示；fetch 加 30s 超时（AbortController）。
-  - [ ] 后端总览 summary 提速：容量风险与 VM 明细/预测计算拆分，避免全量 range 拖慢首页。
-  - [ ] `_in_enabled_scope` 空集 fail closed；集群 scope 查不到启用集群时明确显示"集群已停用/未纳管"。
-  - [ ] 容量相关采集频率从每天一次提高（小时级或可配置）。
-  - [ ] 主动容量告警机制：采集完成后按集群检查容量阈值（使用率比率 + 剩余绝对空间），跨阈值生成任务中心 warning 告警（复用 severity 体系，含确认去重规则）；可选接入 Tower 原生容量告警（如 service_disk_usage_overload）对齐双方口径。
-  - [ ] 生产现场定位（只读）：浏览器对比总览页 `/api/dashboard/summary`（无参）请求状态与 `capacity_risk.level`，区分"请求慢/失败"与"数据本身 normal"。
+  - [x] 前端 summary 刷新失败/超时显示"数据截至 HH:mm，刷新失败"提示；fetch 加 30s 超时（AbortController）。
+  - [x] 后端总览 summary 提速：以 60s TTL 缓存 + 最新采集 run id 失效实现（设计允许的缓存方案，未拆分接口）。
+  - [x] `_in_enabled_scope` 空集 fail closed；cluster scope 未启用集群显示"未启用采集"提示（dashboard/vms/reports 三处统一 `app/v2/scope.py`）。
+  - [x] 容量相关采集频率从每天一次提高：`SMARTX_COLLECTION_INTERVAL_MINUTES` 默认 60，<=0 回退每日 cron。
+  - [x] 主动容量告警机制：采集完成后按集群检查容量阈值（使用率比率 + 剩余绝对空间），跨阈值生成任务中心 warning/critical 告警（复用 severity 体系，确认去重、升级新建）；Tower 原生告警接入保留为后续增强。
+  - [ ] 生产现场定位（只读）：浏览器对比总览页 `/api/dashboard/summary`（无参）请求状态与 `capacity_risk.level`，区分"请求慢/失败"与"数据本身 normal"；待生产现象复现时执行。
 
-### 9. 首页与风险链路设计优化 [待实施]
+### 9. 首页与风险链路设计优化 [部分完成]
 
 设计文档：与第 8 项共用 [docs/superpowers/specs/2026-09-12-capacity-alert-and-overview-freshness-design.md](docs/superpowers/specs/2026-09-12-capacity-alert-and-overview-freshness-design.md)（第 3 节）。
 
 补充审计发现（详见 findings.md「风险链路补充审计」），与第 8 项同链路：
 
-- [ ] `_in_enabled_scope` 空集放行修复需覆盖三处复制粘贴：dashboard/vms/reports service，抽公共函数。
-- [ ] 前端清理静默吞错：summary/tasks 等关键路径 `catch(() => undefined)` 改为可感知的失败提示。
-- [ ] 消除双重轮询：App 与 DashboardPage 对 summary 的两路拉取合并为一路；请求加 single-flight/AbortController，避免慢查询堆积。
-- [ ] summary 接口拆分：轻量（容量风险/状态/使用率，高频轮询）与重数据（VM 榜单/预测，低频或按需），或后端短 TTL 缓存。
+- [x] `_in_enabled_scope` 空集放行修复需覆盖三处复制粘贴：dashboard/vms/reports service，抽公共函数。
+- [x] 前端清理静默吞错：summary 轮询路径已完成（失败横幅 + 保留旧数据）；tasks 轮询等其他 `catch(() => undefined)` 路径待后续处理。
+- [x] 消除双重轮询：DashboardPage 的 scope 变化拉取已移除（保留采集运行期 5s 局部刷新）；App 刷新加 single-flight。
+- [x] summary 慢查询治理：60s TTL 缓存（接口拆分作为后续优化项保留）。
 - [ ] 容量阈值统一：75%/80% 由后端 capacity_risk payload 下发 thresholds，前端（DashboardPage 5 处、VmsPage VM 红线）只读后端值。
 - [ ] 时区统一：`_day_bounds` 改用 settings.timezone 计算日界，替换服务器本地时区。
-- [ ] capacity_risk payload 增加 evaluated_at 与最后采集成功时间，支撑前端"数据截至"展示。
+- [x] capacity_risk payload 增加 evaluated_at 与最后采集成功时间，支撑前端"数据截至"展示。
 
 ### 10. 全项目架构与代码治理 [待实施]
 

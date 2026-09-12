@@ -6772,3 +6772,29 @@ release_smoke=critical 0, warning 0
 
 - 本轮只做代码审计和文档记录，未修改业务代码；AGENTS.md 新增了 10.20.11.3 测试机登录方式（用户确认的测试环境）。
 - 未验证项：生产现场 `/api/dashboard/summary` 实际响应状态待下次现象出现时只读抓取；修复项均未实施。
+
+## 2026-09-12 P0 容量告警与总览时效修复实施与验证
+
+### 实施（commit 75394d5，设计 docs/superpowers/specs/2026-09-12-capacity-alert-and-overview-freshness-design.md）
+
+- 新增 `app/v2/scope.py` fail-closed 公共函数，替换 dashboard/vms/reports 三处 `_in_enabled_scope`（停用集群不再读遗留序列）。
+- 新增 `app/v2/capacity_alerts/service.py`：启用集群容量阈值评估（75%/80% 可配，MIN_FREE_BYTES 可选），任务中心 warning/critical 告警；`TaskService.upsert_alert` 持续告警不重置已确认状态，升级新建。
+- worker：`SMARTX_COLLECTION_INTERVAL_MINUTES` 默认 60（<=0 回退每日 cron），容量告警检查每 300s。
+- dashboard summary：60s TTL 缓存（最新采集 run id 失效）、`scope.cluster_enabled`、`capacity_risk.evaluated_at`。
+- 前端：request() 30s 超时；App 单飞 + 刷新失败横幅（数据时间戳）；DashboardPage 移除重复 scope 拉取、加"未启用采集"提示。
+- 部署文档与 .env.example 补充新 env 说明。
+
+### 验证证据（10.20.11.3）
+
+- 源码以 `git archive dev2`（75394d5）解压至项目目录，三镜像构建成功。
+- 后端全量 289 tests：仅 10 个环境性错误（9 个 package_builders 需写 VERSION 撞容器只读挂载、1 个 test_deployment_config 镜像缺 pytest），与本次改动无关；其余全部通过。
+- 前端目标测试 4 文件 71 tests 通过（含新增 2 个横幅断言）。
+- 重建 web-api/collector-worker/frontend 后健康检查：`ok=true`、8080=200、Prometheus healthy，五容器 Up。
+- 容量告警功能验证：低阈值 5% 触发真实告警（集群 16.18% → warning，severity 正确），确认后重复评估 `acknowledged_at` 不被重置，验证任务已删除。
+- 采集间隔验证：一次性 worker（1 分钟间隔）60s 后准时触发 scheduled 采集、失败后自动 retry，wiring 正确；正式 worker 下一次整点采集待观察（容器启动后 1 小时）。
+
+### 清理与边界
+
+- 验证残留清理：删除测试产生的 collection_runs 59/60（failed）；任务中心无采集异常残留；一次性容器已移除。
+- 未完成项：生产现场 `/api/dashboard/summary` 只读定位（待现象复现）；容量阈值 payload 下发、`_day_bounds` 时区统一、tasks 轮询静默吞错清理（Phase 49-9 遗留）。
+- 未做真实浏览器 UI 点击验证；前端行为由组件测试覆盖，建议用户在浏览器抽查横幅与"未启用采集"提示。
