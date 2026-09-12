@@ -7005,3 +7005,22 @@ release_smoke=critical 0, warning 0
 
 - 过程中曾先删后立项，被用户指出后补齐 task_plan 立项与设计文档并拆分提交（设计 5b0ab9f 先于实现 2945a83）。
 - 提交均为本地（按 2026-09-13 新提交策略），未推送。
+
+## 2026-09-13 49-15 compose tag 覆盖风险收尾（P1 清零）
+
+### 核实结论
+
+- 读码确认 `build_upgrade_package.py::_render_packaged_compose_tags` 已在包构建时把 `${SMARTX_IMAGE_PREFIX:-…}/…:${SMARTX_IMAGE_TAG:-…}` 渲染为字面量 `仓库/镜像:版本`；builder 测试 assertNotIn 佐证。升级包路径本就安全，无需管线改动。
+- 上一轮"源码写死 tag"失败根因完全解释：占位符是渲染正则的匹配锚点。
+
+### 实施（commit 203a383）
+
+- `upgrade_runner/actions.py DEFAULT_ENV_LINES` 移除 `SMARTX_CORS_ORIGINS=*`（与 P3 CORS 收紧对齐）。
+- `check_versions()` 增加 .env 定义 tag 变量的防呆警告（不阻断）。
+- `docs/version-governance.md` 补充升级包字面量 tag / 源码部署 .env 规则 / runner env 剥离纵深防御。
+
+### 验证（10.20.11.3）
+
+- builder 26 tests 回到已知基线（9 只读挂载错误，17 通过含 assertNotIn）。
+- 双版本渲染取证：v0.5.2 → `:v0.5.2`/`:v0.3.1`、v0.5.1u2 → `:v0.5.1u2`/`:v0.3.0`，均零 `${SMARTX_IMAGE_TAG`/`${SMARTX_RUNNER_IMAGE_TAG`。
+- 健康检查通过。P1 全部清零。
