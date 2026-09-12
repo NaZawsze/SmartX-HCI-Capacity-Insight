@@ -24,6 +24,7 @@ export default function App() {
   const [dataRefreshKey, setDataRefreshKey] = useState(0);
   const [tasks, setTasks] = useState<AppTask[]>([]);
   const [summaryFreshness, setSummaryFreshness] = useState<SummaryFreshness>({ lastSuccessAt: null, lastError: null });
+  const [tasksError, setTasksError] = useState<string | null>(null);
   const completedRunKeyRef = useRef("");
   const summaryInFlightRef = useRef(false);
 
