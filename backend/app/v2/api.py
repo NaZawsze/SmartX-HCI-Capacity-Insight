@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 from secrets import token_hex
-from typing import Annotated, Optional
+from typing import Annotated, Optional, Union
 from urllib.parse import quote
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.v2.auth.service import AuthService, CurrentUser
 from app.v2.cloudtower.service import CloudTowerService
@@ -157,6 +157,138 @@ class TaskSeenRequest(BaseModel):
 
 class SqliteBackupDeleteRequest(BaseModel):
     filenames: list[str] = Field(default_factory=list)
+
+
+
+
+# ---- Dashboard summary response models（49-14 批次 2；extra=allow 过渡期保证零字段丢失）----
+
+
+class DashboardScopeModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    tower_id: Optional[int] = None
+    cluster_id: Optional[str] = None
+    cluster_enabled: Optional[bool] = None
+
+
+class DashboardTotalsModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    towers: int = 0
+    clusters: int = 0
+    vms: int = 0
+
+
+class DashboardStorageModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    used_bytes: float = 0.0
+    total_bytes: float = 0.0
+    used_ratio: float = 0.0
+
+
+class DashboardCollectionModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    last_success_at: Optional[str] = None
+    message: Optional[str] = None
+    status: Optional[str] = None
+
+
+class RiskThresholdsModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    warning_ratio: float = 0.75
+    danger_ratio: float = 0.80
+
+
+class RiskClusterModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    tower_id: Optional[Union[str, int]] = None
+    cluster_id: Optional[str] = None
+    cluster: Optional[str] = None
+    used_bytes: Optional[float] = None
+    total_bytes: Optional[float] = None
+    used_ratio: Optional[float] = None
+    forecast_90d: Optional[float] = None
+    exhaustion_days: Optional[float] = None
+    exhaustion_days_30d: Optional[float] = None
+    spike_detected: Optional[bool] = None
+    risk_level: Optional[str] = None
+
+
+class TopClusterModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    tower_id: Optional[Union[str, int]] = None
+    tower: Optional[str] = None
+    cluster_id: Optional[str] = None
+    cluster: Optional[str] = None
+    used_bytes: Optional[float] = None
+    total_bytes: Optional[float] = None
+    used_ratio: Optional[float] = None
+    top_growth_vms: list[dict] = []
+
+
+class CapacityRiskModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    level: str = "normal"
+    title: str = ""
+    message: Optional[str] = None
+    description: str = ""
+    cluster_count: int = 0
+    warning_count: int = 0
+    danger_count: int = 0
+    evaluated_at: Optional[str] = None
+    thresholds: Optional[RiskThresholdsModel] = None
+    risk_clusters: list[RiskClusterModel] = []
+    top_clusters: list[TopClusterModel] = []
+
+
+class DashboardClusterModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    tower_id: int = 0
+    cluster_id: str = ""
+    name: str = ""
+    used_bytes: float = 0.0
+    total_bytes: float = 0.0
+    used_ratio: float = 0.0
+
+
+class DashboardTowerModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: int = 0
+    name: str = ""
+    base_url: str = ""
+    username: Optional[str] = None
+    verify_tls: bool = True
+    enabled: bool = True
+    collection_hour: int = 2
+    collection_minute: int = 10
+    collection_retry_enabled: bool = True
+    collection_retry_interval_minutes: int = 15
+    collection_retry_max_attempts: int = 3
+    clusters: list[ClusterResponse] = []
+
+
+class DashboardVmItemModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    tower_id: Optional[Union[str, int]] = None
+    cluster_id: Optional[str] = None
+    vm_id: Optional[str] = None
+    vm_name: Optional[str] = None
+    current_bytes: Optional[float] = None
+    previous_bytes: Optional[float] = None
+    growth_amount: Optional[float] = None
+    growth_ratio: Optional[float] = None
+
+
+class DashboardSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    scope: DashboardScopeModel = DashboardScopeModel()
+    capacity_risk: CapacityRiskModel = CapacityRiskModel()
+    totals: DashboardTotalsModel = DashboardTotalsModel()
+    storage: DashboardStorageModel = DashboardStorageModel()
+    collection: DashboardCollectionModel = DashboardCollectionModel()
+    day_fastest_growing_vms: list[DashboardVmItemModel] = []
+    day_new_vms: list[DashboardVmItemModel] = []
+    clusters: list[DashboardClusterModel] = []
+    towers: list[DashboardTowerModel] = []
 
 
 def get_v2_settings() -> V2Settings:
@@ -529,7 +661,7 @@ def collection_run_detail(
     return result
 
 
-@router.get("/api/dashboard/summary")
+@router.get("/api/dashboard/summary", response_model=DashboardSummaryResponse)
 def dashboard_summary(
     _: Annotated[CurrentUser, Depends(require_user)],
     dashboard: Annotated[DashboardService, Depends(get_dashboard_service)],
