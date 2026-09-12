@@ -98,3 +98,55 @@ ServicePage.tsx 收敛为：状态编排 + 四个 Section 的组装（目标 ≤
 
 - 不借此机会改任何函数逻辑、命名、payload 字段。
 - admin.py 的二次拆分、export legacy 的消化归入后续维护，不在本项验收内。
+
+
+## 附录 A：函数映射清单（实施时以此为准，边界冲突以 import 闭包校验裁决）
+
+> 生成方式：`grep -nE "^def |^    def " <file>`。行号为 2026-09-13 快照。
+
+### A.1 export.py（190 函数）
+
+**excel.py（36 个）**：`build_report_xlsx`、`_load_customer_xlsx_template`、`_get_or_create_sheet`、`_get_or_create_sheet_after`、`_clone_cluster_template_sheet`、`_remove_sheets`、`_clear_xlsx_sheet`、`_clear_xlsx_tables`、`_reset_xlsx_sheet_rows`、`_set_xlsx_cell`、`_write_xlsx_template_cover`、`_write_xlsx_template_summary`、`_write_xlsx_template_capacity_trend`、`_write_xlsx_data_quality_sheet`、`_write_xlsx_template_vm_top100`、`_write_xlsx_template_growth_detail`、`_write_scope_detail_sheet`、`_write_cluster_summary_sheet`、`_style_customer_xlsx_table`、`_merge_title_row`、`_apply_vm_top100_layout`、`_xlsx_vm_display_row`、`_vm_risk_label`、`_xlsx_bytes_label`、`_xlsx_signed_bytes_label`、`_parse_xlsx_bytes_label`、`_parse_percent_label`、`_style_sheet`、`_autosize`、`_write_directory_sheet`、`_write_vm_top_sheet`、`_write_simple_vm_sheet`、`_write_cluster_vm_sheet`、`_apply_cluster_sheet_layout`、`_normalize_xlsx_fonts`、`_vm_xlsx_row`、`_style_vm_rows`
+
+**word.py（约 95 个）**：`build_report_docx`、`_setup_document`、`_add_cover`、`_add_callout`、`_add_paragraph_table`、`_add_cluster_directory`、`_add_cluster_table`、`_add_vm_table`、`_add_new_vm_table`、`_setup_footer`、`_footer_label`、`_overview_sentence`、`_add_single_cluster_summary`、`_add_single_cluster_charts`、`_docx_bytes`、`_shade_cell`、`_set_cell_text_color`、`_risk_text_color`、`_risk_word_color`、`_repeat_table_header`、`_prevent_row_split`、全部 `_customer_*`（约 50 个：_customer_setup_document 至 _customer_emphasis_segments）、全部 `_v1_*`（约 50 个：_v1_setup_document 至 _v1_vm_window_label）
+
+**common.py（其余约 55 个）**：`report_period_profile`、`_export_context`、`_persist_report`、`_period_window_label`、`_requested_report_window_label`、`_effective_report_window`、`_vm_sample_window_label`、`_parse_report_datetime`、`_report_timezone`、`_capacity_risk_summary`、`_risk_summary_sentence`、`_cluster_name`、`_cluster_full_name`、`_tower_scope_label`、`_cluster_scope_label`、`_cluster_used_ratio`、`_risk_level`、`_overall_risk_status`、`_customer_growth_vms`、`_report_vm_count`、`_report_cluster_vm_counts`、`_cluster_vm_count`、`_report_vm_keys`、`_customer_key_findings`、`_customer_risk_matrix_rows`、`_customer_operation_advice`、`_vm_display_name`、`_vm_full_name`、`_vm_scope_name`、`_vm_current_bytes`、`_largest_vm`、`_exhaustion_days`、`_cluster_period_growth`、`_cluster_points`、`_merged_cluster_points`、`_vms_by_cluster`、`_cluster_key`、`_top_vms`、`_merge_growth_candidates`、`_float_or_none`、`_first_cluster_name`、`_is_alert_vm`、`_add_figure`、`_add_cluster_growth_chart`、`_line_chart_image`、`_horizontal_bar_chart_image`、`_figure_bytes`、`_configure_chart_fonts`、`_chart_color`、`_chart_y_limits`、`_truncate_label`、`_chart_bar_value`、`_bytes_to_tib`、`_bytes_to_gb`、`_local_now`、`_slug`、`_bytes_label`、`_signed_bytes_label`、`_days_label`、`_percent_label`
+
+裁决规则：
+
+- 同时被 word/excel 引用的 → common；仅一方引用 → 归该方（哪怕前缀像公共）。
+- **已知陷阱**：文件内存在重复定义（`_percent_label` 定义了两次，后者生效）——拆分时必须消解，保留一个进 common。
+- 搬移后 `python -m pyflakes`（或 import 冒烟）驱动的缺失补齐循环，直至零 NameError。
+
+### A.2 upgrade/service.py（145 方法/函数）
+
+| 目标模块 | 内容 |
+| --- | --- |
+| `fs.py`（模块级助手） | `_safe_extract`、`_remove_path`、`_backup_existing_project_path`、`_validate_members`、`_sha256_file`、`_now` |
+| `intake.py` | `upload_package_bytes`、`delete_package`、`history`、`version`、`component_version`、`component_catalog`、`_read_manifest`、`_component_types`、`_component_types_from_task`、`_check_package_checksums`、`_task_package_sha256`、`_is_real_platform_package_task` |
+| `precheck.py` | `precheck`、`_check_manifest`、`_check_protocol`、`_check_source_compatibility`、`_check_images`、`_check_images_with_executor`、`_local_image_requirements`、`_packaged_compose_service_image`、`_check_project_files`、`_platform_images`、`_platform_services`、`_observability_images`、`_observability_services`、`_runner_images`、`_runner_services`、`_runner_only`、`_runner_bootstrap`、`_runner_bootstrap_target_root`、`_runner_compose_project_name`、`_runtime_network_name`、`_upgrade_images`、`_upgrade_services`、`_task_images`、`_task_services`、`_check_prometheus_permissions`、`_version_from_env`、`_version_from_image`、`_version_from_service_status`、`_service_from_docker_ps_item` |
+| `execution.py` | `start`、`status`、`cancel`、`execute_task`、`rollback`、`recovery_continue/rollback/fail`、`_set_recovery_command`、`_recover_runner_only_success_after_save_conflict`、`_resume_runner_upgrade`、`_normalize_completed_runner_task`、`_maybe_schedule_post_upgrade_cleanup`、`_runner_state`、`_active_runner_state`、`_active_runner_state_from_docker`、`_active_runner_version`、`_check_runner_protocol`、`_runner_state_is_fresh` |
+| `cleanup.py` | `create_post_upgrade_cleanup_task`、`retry_post_upgrade_cleanup`、`post_upgrade_cleanup_status` |
+| `verification.py` | `verification`、`_runtime_services`、`_runtime_services_from_docker_ps`、`_current_compose_project`、`_inspect_service_by_name`、`_inspect_container` |
+| `taskfile.py` | `_save_task_file`、`_read_task_file`、`_step`、`_replace_step`、`_add_json`、`_add_directory`、`_public_status`、`_completed_runner_task_view`、`_public_task`、`_read_task_or_pending_record`、`_parse_datetime`、`_first_task_timestamp`、`_history_task_sort_key`、`_successful_package_sort_key` |
+| `paths.py` | `_create_upgrade_backup`、`_sync_project_files`、`_write_upgrade_override`、`_write_runner_override`、`_write_task_override`、`_write_override`、`_host_data_path`、`_host_upgrades_path`、`_host_backups_path`、`_host_exports_path`、`_host_compose_runtime_path`、`_host_prometheus_path`、`_host_project_path`、`_host_path`、`_container_mount_source` |
+| `__init__.py` | `UpgradeCommandExecutor` + `class UpgradeService(IntakeMixin, PrecheckMixin, ExecutionMixin, CleanupMixin, VerificationMixin, TaskFileMixin, PathsMixin)`（构造签名不变） |
+
+### A.3 api.py 路由 → 域模块
+
+| 模块 | 路由（method path） | 同时搬移的模型/依赖 |
+| --- | --- | --- |
+| auth.py | POST /api/auth/login；GET /api/me；POST /api/me/password | LoginRequest/TokenResponse/UserResponse/PasswordChangeRequest |
+| towers.py | GET/POST /api/towers；PUT/DELETE /api/towers/{id}；POST sync/test/test-params；PUT clusters/{cid} | TowerPayload/ClusterPayload/ClusterUpdatePayload/TowerResponse/ClusterResponse/TowerTestPayload/TowerTestResponse/TowerCollectionStatus/tower_response/cluster_response/cluster_input_from_any/tower_last_collection |
+| dashboard.py | GET /api/dashboard/summary | — |
+| vms.py | GET /api/vms、/api/vms/{id}、/api/vms/{id}/trend、/api/vm-volumes、/api/vm-volumes/all | VmTrendResponse |
+| reports.py | GET /api/reports/latest 等 3 GET；POST export word/excel/bundle；GET download_saved_export | — |
+| collection.py | POST /api/collection/run；GET /api/collection/runs；GET /api/collection/runs/{id} | CollectionRunResponse/CollectionRunRequest |
+| tasks.py | GET /api/tasks；POST seen/ack；DELETE /api/tasks/{id}、/api/tasks/finished、sqlite-backup | TaskSeenRequest/SqliteBackupDeleteRequest |
+| system.py | GET /api/system/health | — |
+| admin.py | 43 条 /api/admin/*（升级/迁移/清理/系统） | 其余全部模型 |
+| deps.py | get_*_service 全部 + require_user + get_v2_settings/database | — |
+
+### A.4 ServicePage.tsx 分区边界
+
+以现有 JSX 注释与 Card title 为界：`升级中心`（上传/包列表/预检查/任务/恢复控制）、`服务状态`（组件状态/重启/版本）、`空间清理`（扫描/清理/SQLite 备份清理）、`数据迁移`（导出/导入/配置迁移）。拆分前先用 grep 统计各域 useState/handler 数量确定边界；共享的 api 调用放各自 Section 内。
