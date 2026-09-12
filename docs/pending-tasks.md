@@ -29,7 +29,7 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 
 | # | 事项 | 来源 | 说明 |
 | --- | --- | --- | --- |
-| 14 | 移除 v1 死代码（约 4800 行） | Phase 49-10 | app/main.py、app/api/、app/services/ 等；删除前回归 v1 迁移包兼容 |
+| 14 | 移除 v1 死代码（约 4800 行） | Phase 49-12 | 设计已定稿：[remove-v1-dead-code-design](superpowers/specs/2026-09-13-remove-v1-dead-code-design.md)；实施中 |
 | 15 | 拆分巨型文件 | Phase 49-10 | export.py 3720 行、upgrade/service.py 1791 行、api.py 1112 行、ServicePage.tsx 2305 行 |
 | 16 | API 增加响应模型 | Phase 49-10 | Pydantic response_model，替代前端 normalize 兜底 |
 | 17 | 低优增强 | Phase 13/14/16 | Excel 图表精修、AI 措辞层、task-worker 第 6 容器评估 |

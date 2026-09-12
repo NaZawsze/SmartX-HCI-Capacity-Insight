@@ -53,6 +53,7 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | [superpowers/specs/2026-09-12-capacity-alert-and-overview-freshness-design.md](superpowers/specs/2026-09-12-capacity-alert-and-overview-freshness-design.md) | P0 容量告警与总览时效修复设计：主动容量告警、总览静默陈旧修复、采集频率可配置。 | task_plan Phase 49 第 8/9 项 |
 | [superpowers/plans/2026-09-12-capacity-alert-and-overview-freshness.md](superpowers/plans/2026-09-12-capacity-alert-and-overview-freshness.md) | P0 容量告警与总览时效修复实施计划（5 个 Step：scope/告警/worker/前端/远端验证）。 | task_plan Phase 49 第 8/9 项 |
 | [superpowers/specs/2026-09-12-tower-settings-ui-design.md](superpowers/specs/2026-09-12-tower-settings-ui-design.md) | Tower 设置页完整 UI 设计：添加/编辑分组表单、认证互斥、测试连接前置、集群分区、删除确认。 | task_plan Phase 49 第 11 项 |
+| [superpowers/specs/2026-09-13-remove-v1-dead-code-design.md](superpowers/specs/2026-09-13-remove-v1-dead-code-design.md) | 移除 v1 死代码设计：删除集/保留集盘点（app.core.config 被构建脚本依赖）、迁移包兼容回归与镜像体积对比。 | task_plan Phase 49 第 12 项 |
 
 ## 5. 升级链路专项文档
 
