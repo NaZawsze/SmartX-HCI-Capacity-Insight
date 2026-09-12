@@ -14,6 +14,7 @@ const emptyForm = {
   enabled: true,
   collection_hour: 2,
   collection_minute: 10,
+  collection_interval_minutes: 60,
   collection_retry_enabled: true,
   collection_retry_interval_minutes: 15,
   collection_retry_max_attempts: 3
@@ -70,6 +71,7 @@ export function SettingsPage() {
       enabled: tower.enabled,
       collection_hour: tower.collection_hour,
       collection_minute: tower.collection_minute,
+      collection_interval_minutes: tower.collection_interval_minutes ?? 60,
       collection_retry_enabled: tower.collection_retry_enabled ?? true,
       collection_retry_interval_minutes: tower.collection_retry_interval_minutes ?? 15,
       collection_retry_max_attempts: tower.collection_retry_max_attempts ?? 3
@@ -122,6 +124,10 @@ export function SettingsPage() {
             API Token (可选)
             <input value={form.api_token} onChange={(event) => setForm({ ...form, api_token: event.target.value })} />
           </label>
+          <label>
+            采集间隔 - 分钟
+            <input type="number" min={0} max={10080} value={form.collection_interval_minutes} onChange={(event) => setForm({ ...form, collection_interval_minutes: Number(event.target.value) })} />
+          </label>
           <div className="form-pair">
             <label>
               每日采集时间 - 小时
@@ -132,7 +138,7 @@ export function SettingsPage() {
               <input type="number" min={0} max={59} value={form.collection_minute} onChange={(event) => setForm({ ...form, collection_minute: Number(event.target.value) })} />
             </label>
           </div>
-          <div className="form-hint">按 24 小时制设置每天自动采集的触发时间，例如 02:10 表示每天凌晨 2 点 10 分执行。</div>
+          <div className="form-hint">采集间隔大于 0 时按该间隔定时自动采集（默认 60 = 每小时一次）；设为 0 时按下方每日采集时间每天执行一次，例如 02:10 表示每天凌晨 2 点 10 分。</div>
           <RetryFields form={form} onChange={setForm} />
           <label className="checkbox-line">
             <input type="checkbox" checked={form.verify_tls} onChange={(event) => setForm({ ...form, verify_tls: event.target.checked })} />
@@ -197,6 +203,10 @@ export function SettingsPage() {
                     API Token (可选)
                     <input value={editForm.api_token} onChange={(event) => setEditForm({ ...editForm, api_token: event.target.value })} placeholder="留空则不修改" />
                   </label>
+                  <label>
+                    采集间隔 - 分钟
+                    <input type="number" min={0} max={10080} value={editForm.collection_interval_minutes} onChange={(event) => setEditForm({ ...editForm, collection_interval_minutes: Number(event.target.value) })} />
+                  </label>
                   <div className="form-pair">
                     <label>
                       每日采集时间 - 小时
@@ -207,7 +217,7 @@ export function SettingsPage() {
                       <input type="number" min={0} max={59} value={editForm.collection_minute} onChange={(event) => setEditForm({ ...editForm, collection_minute: Number(event.target.value) })} />
                     </label>
                   </div>
-                  <div className="form-hint">密码和 API Token 留空时保留原配置。采集时间按 24 小时制设置每天自动采集的触发时间。</div>
+                  <div className="form-hint">密码和 API Token 留空时保留原配置。采集间隔大于 0 时按间隔定时采集（默认 60 = 每小时）；设为 0 时按每日采集时间每天执行一次。</div>
                   <RetryFields form={editForm} onChange={setEditForm} />
                   <div className="tower-edit-options">
                     <label className="checkbox-line">
@@ -274,6 +284,7 @@ function normalizeTowerUpdatePayload(payload: typeof emptyForm) {
     enabled: payload.enabled,
     collection_hour: payload.collection_hour,
     collection_minute: payload.collection_minute,
+    collection_interval_minutes: payload.collection_interval_minutes,
     collection_retry_enabled: payload.collection_retry_enabled,
     collection_retry_interval_minutes: payload.collection_retry_interval_minutes,
     collection_retry_max_attempts: payload.collection_retry_max_attempts

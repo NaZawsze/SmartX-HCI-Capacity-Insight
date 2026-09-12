@@ -28,6 +28,7 @@ class TowerInput:
     enabled: bool = True
     collection_hour: int = 2
     collection_minute: int = 10
+    collection_interval_minutes: int = 60
     collection_retry_enabled: bool = True
     collection_retry_interval_minutes: int = 15
     collection_retry_max_attempts: int = 3
@@ -43,6 +44,7 @@ class TowerRecord:
     enabled: bool
     collection_hour: int = 2
     collection_minute: int = 10
+    collection_interval_minutes: int = 60
     collection_retry_enabled: bool = True
     collection_retry_interval_minutes: int = 15
     collection_retry_max_attempts: int = 3

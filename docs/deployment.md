@@ -47,7 +47,7 @@ SMARTX_CORS_ORIGINS=*
 Production recommendations:
 
 - Change `SMARTX_SECRET_KEY`.
-- `SMARTX_COLLECTION_INTERVAL_MINUTES` 控制定时采集频率（分钟），默认 `60`（每小时一次）；设为 `0` 回退为每日 `SMARTX_COLLECTION_HOUR:SMARTX_COLLECTION_MINUTE` 定时采集。
+- 采集频率在 Tower 设置页按 Tower 配置："采集间隔 - 分钟"默认 `60`（每小时一次），设为 `0` 时按该 Tower 的"每日采集时间"每天执行一次。`SMARTX_COLLECTION_INTERVAL_MINUTES` 仅作为存量数据库迁移时的初始回填值，运行时以 Tower 配置为准（worker 每 60 秒同步一次调度）。
 - `SMARTX_CAPACITY_ALERT_*` 控制集群容量告警：使用率 >= `WARNING_RATIO`（默认 75%）生成"需关注"告警，>= `CRITICAL_RATIO`（默认 80%）生成"高风险"告警；`MIN_FREE_BYTES` 大于 0 时，剩余空间低于该值也会生成"需关注"告警。告警在任务中心展示，同一持续条件确认后不会重复弹出，等级升级（需关注→高风险）会生成新告警。
 - 定时采集失败时，平台按 Tower 配置只重试失败 Tower/集群；默认每 15 分钟重试一次，最多额外重试 3 次。
 - 部分 Tower/集群采集成功时，成功目标仍写入 SQLite 当前态和 Prometheus；失败目标不写新样本，虚拟机趋势图会显示缺采和 `非最新` 提示。

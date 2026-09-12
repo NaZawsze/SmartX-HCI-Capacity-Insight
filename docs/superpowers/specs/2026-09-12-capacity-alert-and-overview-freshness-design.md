@@ -103,6 +103,25 @@ class CapacityAlertService:
 - 手动采集与失败重试逻辑不变；容量告警 job 独立 300s interval。
 - `docs/deployment.md` 补充三个新 env 说明（含容量告警阈值）。
 
+### 4.1 修订（2026-09-12 验证后补充）：采集频率接入 Tower 级 UI
+
+实施验证后发现两个问题，本节修订方案三：
+
+1. 采集频率只存在于 env，UI 完全看不到，用户无法在产品内配置（用户验收不通过）。
+2. 历史遗留：Tower 设置页的"每日采集时间"字段只写入 `towers.collection_hour/minute`，调度器从未读取——UI 一直是死的。
+
+修订设计（Tower 级配置，同时修复问题 2）：
+
+- **数据**：`towers` 表新增 `collection_interval_minutes INTEGER`（迁移补列，回填取 env `SMARTX_COLLECTION_INTERVAL_MINUTES`，缺省 60）。语义：`>0` 按分钟间隔定时采集；`=0` 使用该 Tower 的 `collection_hour:collection_minute` 每日定时——使每日时间字段首次真正生效。
+- **API**：Tower 创建/更新/查询 payload 增加 `collection_interval_minutes`（`ge=0, le=10080`，默认 60）。
+- **UI**（SettingsPage 创建与编辑表单）：在"每日采集时间"上方增加"采集间隔 – 分钟"输入，说明文案：`大于 0 时按该间隔定时采集（默认 60 = 每小时）；设为 0 时按下方每日采集时间每天执行一次。`"每日采集时间"说明同步注明仅间隔为 0 时生效。
+- **worker 调度**：移除全局单一采集 job，改为 60s 周期的 `collection-schedule-sync` job：
+  - 读取全部 `enabled=1` Tower 的 (id, interval, hour, minute)，计算期望任务表：interval>0 → `interval` 触发器；否则 `cron` 触发器（时区用 settings.timezone）。
+  - job id 形如 `collect-tower-{id}`；与 APScheduler 当前 `collect-tower-*` 任务 diff 后增/删/改（触发器变化即重建）。
+  - 每个 job 执行 `run_manual_collection(trigger="scheduled", target_filter=<该 Tower 当前启用集群键集合>)`，目标集合每次执行时动态查询；集群为空则跳过。
+  - `SMARTX_COLLECTION_HOUR/MINUTE/INTERVAL_MINUTES` env 保留为迁移回填默认值，运行时不再直接驱动调度。
+- **验证**：单测覆盖期望任务计算与 diff；远端以产品流程将 Tower 间隔临时改为 1 分钟，观察 `collection_runs` 新增 `scheduled` 成功记录后恢复 60。
+
 ## 5. 测试计划
 
 后端新增 `backend/tests/test_v2_capacity_alerts.py`：

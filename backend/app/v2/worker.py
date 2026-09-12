@@ -237,6 +237,116 @@ def _run_capacity_alert_check(database: V2Database, tasks: TaskService) -> None:
         return
 
 
+def _tower_schedule(database: V2Database, tower_id: int) -> dict | None:
+    with database.connection() as conn:
+        row = conn.execute(
+            "SELECT id, enabled, collection_interval_minutes, collection_hour, collection_minute FROM towers WHERE id = ?",
+            (int(tower_id),),
+        ).fetchone()
+    if row is None or not row["enabled"]:
+        return None
+    interval = int(row["collection_interval_minutes"] if row["collection_interval_minutes"] is not None else 60)
+    return {
+        "id": int(row["id"]),
+        "interval_minutes": max(interval, 0),
+        "hour": int(row["collection_hour"] if row["collection_hour"] is not None else 2),
+        "minute": int(row["collection_minute"] if row["collection_minute"] is not None else 10),
+    }
+
+
+def _desired_collection_schedule(database: V2Database) -> dict[int, dict]:
+    with database.connection() as conn:
+        rows = conn.execute(
+            "SELECT id, enabled, collection_interval_minutes, collection_hour, collection_minute FROM towers WHERE enabled = 1"
+        ).fetchall()
+    desired: dict[int, dict] = {}
+    for row in rows:
+        interval = int(row["collection_interval_minutes"] if row["collection_interval_minutes"] is not None else 60)
+        desired[int(row["id"])] = {
+            "interval_minutes": max(interval, 0),
+            "hour": int(row["collection_hour"] if row["collection_hour"] is not None else 2),
+            "minute": int(row["collection_minute"] if row["collection_minute"] is not None else 10),
+        }
+    return desired
+
+
+def _schedule_signature(entry: dict) -> tuple:
+    if entry["interval_minutes"] > 0:
+        return ("interval", entry["interval_minutes"])
+    return ("cron", entry["hour"], entry["minute"])
+
+
+def sync_collection_schedules(scheduler, database: V2Database, *, timezone: str) -> None:
+    """Align per-tower collection jobs with the towers table.
+
+    interval>0 的 Tower 按分钟间隔采集；interval=0 使用该 Tower 自己的每日时间
+    （修复历史遗留：UI 的每日采集时间此前从未接入调度器）。
+    """
+    desired = _desired_collection_schedule(database)
+    prefix = "collect-tower-"
+    existing = {job.id: job for job in scheduler.get_jobs() if job.id.startswith(prefix)}
+    for tower_id, entry in desired.items():
+        job_id = f"{prefix}{tower_id}"
+        signature = _schedule_signature(entry)
+        job = existing.pop(job_id, None)
+        if job is not None and getattr(job, "signature", None) == signature:
+            continue
+        if job is not None:
+            scheduler.remove_job(job_id)
+        kwargs = dict(
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=300,
+        )
+        if signature[0] == "interval":
+            scheduler.add_job(
+                _run_tower_collection,
+                "interval",
+                minutes=signature[1],
+                args=[database, tower_id],
+                id=job_id,
+                **kwargs,
+            )
+        else:
+            scheduler.add_job(
+                _run_tower_collection,
+                build_collection_trigger(timezone=timezone, hour=signature[1], minute=signature[2]),
+                args=[database, tower_id],
+                id=job_id,
+                **kwargs,
+            )
+        setattr(scheduler.get_job(job_id), "signature", signature)
+    for job_id in existing:
+        scheduler.remove_job(job_id)
+
+
+def _run_tower_collection(database: V2Database, tower_id: int) -> None:
+    try:
+        from app.v2.collection.service import CollectionService
+        from app.v2.cloudtower.service import CloudTowerService
+
+        with database.connection() as conn:
+            cluster_rows = conn.execute(
+                "SELECT cluster_id FROM clusters WHERE tower_id = ? AND enabled = 1",
+                (int(tower_id),),
+            ).fetchall()
+        target_filter = {(int(tower_id), str(row["cluster_id"])) for row in cluster_rows}
+        if not target_filter:
+            return
+        service = CollectionService(database, database.settings, CloudTowerService(database, database.settings))
+        service.run_manual_collection(trigger="scheduled", target_filter=target_filter)
+    except Exception:
+        return
+
+
+def _run_schedule_sync(scheduler, database: V2Database, *, timezone: str) -> None:
+    try:
+        sync_collection_schedules(scheduler, database, timezone=timezone)
+    except Exception:
+        return
+
+
 def main() -> None:
     settings = settings_from_environment()
     database = V2Database(settings)
@@ -246,28 +356,16 @@ def main() -> None:
     from apscheduler.schedulers.background import BackgroundScheduler
 
     scheduler = BackgroundScheduler(timezone=settings.timezone)
-    interval_minutes = int(__import__("os").environ.get("SMARTX_COLLECTION_INTERVAL_MINUTES", "60"))
-    if interval_minutes > 0:
-        scheduler.add_job(
-            lambda: run_collection(database),
-            "interval",
-            minutes=interval_minutes,
-            id="smartx-v2-collector",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-            misfire_grace_time=300,
-        )
-    else:
-        hour = int(__import__("os").environ.get("SMARTX_COLLECTION_HOUR", "2"))
-        minute = int(__import__("os").environ.get("SMARTX_COLLECTION_MINUTE", "10"))
-        scheduler.add_job(
-            lambda: run_collection(database),
-            build_collection_trigger(timezone=settings.timezone, hour=hour, minute=minute),
-            id="daily-smartx-v2-collector",
-            replace_existing=True,
-            max_instances=1,
-        )
+    scheduler.add_job(
+        lambda: _run_schedule_sync(scheduler, database, timezone=settings.timezone),
+        "interval",
+        seconds=60,
+        id="collection-schedule-sync",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
+    )
     scheduler.add_job(
         lambda: _run_capacity_alert_check(database, tasks),
         "interval",

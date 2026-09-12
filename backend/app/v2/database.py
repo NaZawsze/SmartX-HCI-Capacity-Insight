@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 import json
 from contextlib import contextmanager
@@ -177,6 +178,7 @@ class V2Database:
             _ensure_column(conn, "tasks", "seen_at", "TEXT")
             _ensure_column(conn, "tasks", "acknowledged_at", "TEXT")
             _ensure_column(conn, "towers", "collection_hour", "INTEGER")
+            _ensure_column(conn, "towers", "collection_interval_minutes", "INTEGER")
             _ensure_column(conn, "towers", "collection_minute", "INTEGER")
             _ensure_column(conn, "towers", "collection_retry_enabled", "INTEGER")
             _ensure_column(conn, "towers", "collection_retry_interval_minutes", "INTEGER")
@@ -184,6 +186,8 @@ class V2Database:
             _ensure_column(conn, "towers", "last_error", "TEXT")
             conn.execute("UPDATE towers SET collection_hour = COALESCE(collection_hour, 2)")
             conn.execute("UPDATE towers SET collection_minute = COALESCE(collection_minute, 10)")
+            default_interval = int(os.environ.get("SMARTX_COLLECTION_INTERVAL_MINUTES", "60") or 60)
+            conn.execute("UPDATE towers SET collection_interval_minutes = COALESCE(collection_interval_minutes, ?)", (max(default_interval, 0),))
             conn.execute("UPDATE towers SET collection_retry_enabled = COALESCE(collection_retry_enabled, 1)")
             conn.execute("UPDATE towers SET collection_retry_interval_minutes = COALESCE(collection_retry_interval_minutes, 15)")
             conn.execute("UPDATE towers SET collection_retry_max_attempts = COALESCE(collection_retry_max_attempts, 3)")
