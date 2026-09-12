@@ -44,14 +44,28 @@ export function setToken(token: string | null): void {
   window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
+async function request<T>(path: string, options: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
   const token = getToken();
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, { ...options, headers, signal: controller.signal });
+  } catch (exc) {
+    window.clearTimeout(timer);
+    if (exc instanceof DOMException && exc.name === "AbortError") {
+      throw new Error("请求超时");
+    }
+    throw new Error(exc instanceof Error ? exc.message : "网络请求失败");
+  }
+  window.clearTimeout(timer);
   if (!response.ok) {
     const payload = await response.json().catch(() => ({ detail: response.statusText }));
     if (response.status === 401) {

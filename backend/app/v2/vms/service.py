@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from app.v2.config import V2Settings
+from app.v2.scope import in_enabled_scope
 from app.v2.database import V2Database
 from app.v2.metrics.prometheus import PrometheusService
 from app.v2.metrics.series import labels_match, metric_value, range_values, scoped_query
@@ -30,7 +31,7 @@ class VmService:
             if not labels_match(metric, tower_id=tower_id, cluster_id=cluster_id):
                 continue
             key = _vm_key(metric)
-            if not _in_enabled_scope((key[0], key[1]), enabled_scope):
+            if not in_enabled_scope((key[0], key[1]), enabled_scope):
                 continue
             name = latest_names.get(key) or str(metric.get("vm_name") or metric.get("vm_id") or "")
             vms.append(
@@ -143,7 +144,7 @@ class VmService:
         grouped: dict[tuple[int, str, str], dict[str, Any]] = {}
         for row in rows:
             key = (int(row["tower_id"]), str(row["cluster_id"]), str(row["vm_id"]))
-            if not _in_enabled_scope((key[0], key[1]), enabled_scope):
+            if not in_enabled_scope((key[0], key[1]), enabled_scope):
                 continue
             item = grouped.setdefault(
                 key,
@@ -215,7 +216,7 @@ class VmService:
                 "used_bytes": int(row["used_bytes"] or 0),
             }
             for row in rows
-            if _in_enabled_scope((int(row["tower_id"]), str(row["cluster_id"])), enabled_scope)
+            if in_enabled_scope((int(row["tower_id"]), str(row["cluster_id"])), enabled_scope)
         ]
 
     def _enabled_cluster_scope(self, *, tower_id: int | None, cluster_id: str | None) -> set[tuple[int, str]]:
@@ -271,10 +272,6 @@ class VmService:
 
 def _vm_key(metric: dict[str, Any]) -> tuple[int, str, str]:
     return (int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""), str(metric.get("vm_id") or ""))
-
-
-def _in_enabled_scope(key: tuple[int, str], enabled_scope: set[tuple[int, str]]) -> bool:
-    return key in enabled_scope if enabled_scope else True
 
 
 def _step_for_days(days: int) -> str:

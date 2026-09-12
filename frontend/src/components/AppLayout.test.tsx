@@ -203,6 +203,18 @@ describe("AppLayout menus", () => {
     expect(onNavigate).toHaveBeenCalledWith("service");
   });
 
+  it("shows data freshness banner when summary refresh fails", () => {
+    render(<AppLayout {...baseProps} summaryFreshness={{ lastSuccessAt: "2026-09-12T08:00:00Z", lastError: "请求超时" }} />);
+    const banner = screen.getByRole("status");
+    expect(banner.textContent).toContain("数据刷新失败");
+    expect(banner.textContent).toContain("请求超时");
+  });
+
+  it("hides data freshness banner when summary refresh succeeds", () => {
+    render(<AppLayout {...baseProps} summaryFreshness={{ lastSuccessAt: "2026-09-12T08:00:00Z", lastError: null }} />);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("closes the account menu when clicking outside", async () => {
     render(<AppLayout {...baseProps} />);
 

@@ -8,6 +8,7 @@ from typing import Any
 
 from app.v2.config import V2Settings
 from app.v2.data_quality.service import DataQualityService
+from app.v2.scope import in_enabled_scope
 from app.v2.database import V2Database
 from app.v2.metrics.prometheus import PrometheusService
 from app.v2.metrics.series import labels_match, metric_value, range_values, scoped_query
@@ -125,7 +126,7 @@ class ReportService:
             series
             for series in self.prometheus.range(scoped_query(CLUSTER_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step=step)
             if labels_match(series.get("metric", {}), tower_id=tower_id, cluster_id=cluster_id)
-            and _in_enabled_scope(_cluster_key(series.get("metric", {})), enabled_scope)
+            and in_enabled_scope(_cluster_key(series.get("metric", {})), enabled_scope)
         ]
 
     def _vm_series(self, *, days: int, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]], step: str = "6h") -> list[dict[str, Any]]:
@@ -134,7 +135,7 @@ class ReportService:
             series
             for series in self.prometheus.range(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step=step)
             if labels_match(series.get("metric", {}), tower_id=tower_id, cluster_id=cluster_id)
-            and _in_enabled_scope(_cluster_key(series.get("metric", {})), enabled_scope)
+            and in_enabled_scope(_cluster_key(series.get("metric", {})), enabled_scope)
         ]
 
     def _cluster_totals(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> dict[tuple[int, str], float]:
@@ -142,7 +143,7 @@ class ReportService:
         for row in self.prometheus.instant(scoped_query(CLUSTER_TOTAL_METRIC, tower_id=tower_id, cluster_id=cluster_id)):
             metric = row.get("metric", {})
             key = _cluster_key(metric)
-            if labels_match(metric, tower_id=tower_id, cluster_id=cluster_id) and _in_enabled_scope(key, enabled_scope):
+            if labels_match(metric, tower_id=tower_id, cluster_id=cluster_id) and in_enabled_scope(key, enabled_scope):
                 totals[key] = metric_value(row)
         if totals:
             return totals
@@ -151,7 +152,7 @@ class ReportService:
             metric = series.get("metric", {})
             key = _cluster_key(metric)
             points = range_values(series)
-            if labels_match(metric, tower_id=tower_id, cluster_id=cluster_id) and _in_enabled_scope(key, enabled_scope) and points:
+            if labels_match(metric, tower_id=tower_id, cluster_id=cluster_id) and in_enabled_scope(key, enabled_scope) and points:
                 totals[key] = points[-1][1]
         return totals
 
@@ -160,7 +161,7 @@ class ReportService:
             row
             for row in self.prometheus.instant(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id))
             if labels_match(row.get("metric", {}), tower_id=tower_id, cluster_id=cluster_id)
-            and _in_enabled_scope(_cluster_key(row.get("metric", {})), enabled_scope)
+            and in_enabled_scope(_cluster_key(row.get("metric", {})), enabled_scope)
         ]
 
     def _cluster_names(self) -> dict[tuple[int, str], str]:
@@ -494,10 +495,6 @@ def _cluster_key(labels: dict[str, Any]) -> tuple[int, str]:
 
 def _vm_key(labels: dict[str, Any]) -> tuple[int, str, str]:
     return (int(labels.get("tower_id") or 0), str(labels.get("cluster_id") or ""), str(labels.get("vm_id") or ""))
-
-
-def _in_enabled_scope(key: tuple[int, str], enabled_scope: set[tuple[int, str]]) -> bool:
-    return key in enabled_scope if enabled_scope else True
 
 
 def _item_timestamp(item: dict[str, Any]) -> int | None:

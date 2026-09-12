@@ -56,6 +56,7 @@ export interface DashboardSummary {
     label: string;
     tower_id?: number | null;
     cluster_id?: string | null;
+    cluster_enabled?: boolean | null;
   };
   kpis: {
     tower_count: number;
@@ -68,6 +69,7 @@ export interface DashboardSummary {
   capacity_risk?: {
     level: "normal" | "warning" | "danger" | "high";
     title: string;
+    evaluated_at?: string | null;
     message?: string;
     description: string;
     cluster_count: number;

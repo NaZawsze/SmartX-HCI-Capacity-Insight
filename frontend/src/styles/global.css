@@ -4815,3 +4815,17 @@ button.risk-cluster-row:hover {
   }
 
 }
+
+.data-freshness-banner {
+  padding: 8px 20px;
+  font-size: 13px;
+  color: #8a5300;
+  background: #fff7e6;
+  border-bottom: 1px solid #ffe1ad;
+}
+
+.cluster-disabled-message {
+  border: 1px solid #ffe1ad;
+  background: #fff7e6;
+  color: #8a5300;
+}

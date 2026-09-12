@@ -3,6 +3,11 @@ import { AlertCircle, AlertTriangle, Bell, Building2, Check, ChevronDown, Circle
 import { api } from "../services/api";
 import type { AppTask, AppTaskLink, Cluster, DashboardScope, DashboardSummary, PageKey, Tower } from "../types";
 
+interface SummaryFreshnessState {
+  lastSuccessAt: string | null;
+  lastError: string | null;
+}
+
 interface AppLayoutProps {
   activePage: PageKey;
   onNavigate: (page: PageKey) => void;
@@ -11,6 +16,7 @@ interface AppLayoutProps {
   onScopeChange: (scope: DashboardScope) => void;
   onSummary: (summary: DashboardSummary) => void;
   summary?: DashboardSummary | null;
+  summaryFreshness?: SummaryFreshnessState;
   tasks?: AppTask[];
   onClearTasks?: () => void;
   onTasksSeen?: (taskIds: string[]) => void;
@@ -51,7 +57,7 @@ function scopeKey(scope: DashboardScope): string {
   return "all";
 }
 
-export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChange, onSummary, summary, tasks = [], onClearTasks, onTasksSeen, onTaskAck, onTaskAction, children }: AppLayoutProps) {
+export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChange, onSummary, summary, summaryFreshness, tasks = [], onClearTasks, onTasksSeen, onTaskAck, onTaskAction, children }: AppLayoutProps) {
   const towers = summary?.towers ?? emptyTowers;
   const selectedTower = scope.type === "tower" || scope.type === "cluster" ? towers.find((tower) => tower.id === scope.towerId) || towers[0] : towers[0];
   const totalClusterCount = towers.reduce((total, tower) => total + tower.clusters.length, 0);
@@ -422,6 +428,11 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
             </div>
           </div>
         </div>
+        {summaryFreshness?.lastError && (
+          <div className="data-freshness-banner" role="status">
+            {`数据刷新失败（${summaryFreshness.lastError}），当前显示 ${summaryFreshness.lastSuccessAt ? new Date(summaryFreshness.lastSuccessAt).toLocaleTimeString() : "上次"} 的数据，正在自动重试。`}
+          </div>
+        )}
       </header>
 
       {passwordDialogOpen && (

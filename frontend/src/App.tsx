@@ -9,6 +9,11 @@ import { VmsPage } from "./pages/VmsPage";
 import { AUTH_CHANGED_EVENT, api, getToken, setToken } from "./services/api";
 import type { AppTask, DashboardScope, DashboardSummary, PageKey, ServerTask } from "./types";
 
+export interface SummaryFreshness {
+  lastSuccessAt: string | null;
+  lastError: string | null;
+}
+
 export default function App() {
   const [authenticated, setAuthenticated] = useState(Boolean(getToken()));
   const [activePage, setActivePage] = useState<PageKey>("dashboard");
@@ -18,7 +23,9 @@ export default function App() {
   const [selectedVmName, setSelectedVmName] = useState("");
   const [dataRefreshKey, setDataRefreshKey] = useState(0);
   const [tasks, setTasks] = useState<AppTask[]>([]);
+  const [summaryFreshness, setSummaryFreshness] = useState<SummaryFreshness>({ lastSuccessAt: null, lastError: null });
   const completedRunKeyRef = useRef("");
+  const summaryInFlightRef = useRef(false);
 
   const handleSummary = useCallback((result: DashboardSummary) => {
     setSummary(result);
@@ -31,8 +38,18 @@ export default function App() {
   }, []);
 
   const refreshSummary = useCallback(async () => {
-    const result = await api.summary(scope);
-    handleSummary(result);
+    if (summaryInFlightRef.current) return;
+    summaryInFlightRef.current = true;
+    try {
+      const result = await api.summary(scope);
+      handleSummary(result);
+      setSummaryFreshness({ lastSuccessAt: new Date().toISOString(), lastError: null });
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "数据刷新失败";
+      setSummaryFreshness((current) => ({ ...current, lastError: message }));
+    } finally {
+      summaryInFlightRef.current = false;
+    }
   }, [handleSummary, scope]);
 
   const refreshTasks = useCallback(async () => {
@@ -152,7 +169,7 @@ export default function App() {
   }
 
   return (
-    <AppLayout activePage={activePage} onNavigate={setActivePage} onLogout={logout} summary={summary} scope={scope} onScopeChange={setScope} onSummary={handleSummary} tasks={tasks} onClearTasks={clearTasks} onTasksSeen={markTasksSeen} onTaskAck={acknowledgeTask} onTaskAction={handleTaskAction}>
+    <AppLayout activePage={activePage} onNavigate={setActivePage} onLogout={logout} summary={summary} scope={scope} onScopeChange={setScope} onSummary={handleSummary} tasks={tasks} onClearTasks={clearTasks} onTasksSeen={markTasksSeen} onTaskAck={acknowledgeTask} onTaskAction={handleTaskAction} summaryFreshness={summaryFreshness}>
       {activePage === "dashboard" && (
         <DashboardPage
           summary={summary}

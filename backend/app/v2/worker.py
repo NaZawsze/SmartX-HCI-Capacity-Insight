@@ -228,22 +228,55 @@ def _run_data_quality_check(database: V2Database, tasks: TaskService) -> None:
         return
 
 
+def _run_capacity_alert_check(database: V2Database, tasks: TaskService) -> None:
+    try:
+        from app.v2.capacity_alerts.service import CapacityAlertService
+
+        CapacityAlertService(database, database.settings, tasks=tasks).evaluate_and_alert()
+    except Exception:
+        return
+
+
 def main() -> None:
     settings = settings_from_environment()
     database = V2Database(settings)
     database.initialize()
     metrics_server = start_metrics_server(database)
+    tasks = TaskService(database)
     from apscheduler.schedulers.background import BackgroundScheduler
 
     scheduler = BackgroundScheduler(timezone=settings.timezone)
-    hour = int(__import__("os").environ.get("SMARTX_COLLECTION_HOUR", "2"))
-    minute = int(__import__("os").environ.get("SMARTX_COLLECTION_MINUTE", "10"))
+    interval_minutes = int(__import__("os").environ.get("SMARTX_COLLECTION_INTERVAL_MINUTES", "60"))
+    if interval_minutes > 0:
+        scheduler.add_job(
+            lambda: run_collection(database),
+            "interval",
+            minutes=interval_minutes,
+            id="smartx-v2-collector",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=300,
+        )
+    else:
+        hour = int(__import__("os").environ.get("SMARTX_COLLECTION_HOUR", "2"))
+        minute = int(__import__("os").environ.get("SMARTX_COLLECTION_MINUTE", "10"))
+        scheduler.add_job(
+            lambda: run_collection(database),
+            build_collection_trigger(timezone=settings.timezone, hour=hour, minute=minute),
+            id="daily-smartx-v2-collector",
+            replace_existing=True,
+            max_instances=1,
+        )
     scheduler.add_job(
-        lambda: run_collection(database),
-        build_collection_trigger(timezone=settings.timezone, hour=hour, minute=minute),
-        id="daily-smartx-v2-collector",
+        lambda: _run_capacity_alert_check(database, tasks),
+        "interval",
+        seconds=300,
+        id="capacity-alert-check",
         replace_existing=True,
         max_instances=1,
+        coalesce=True,
+        misfire_grace_time=120,
     )
     scheduler.add_job(
         lambda: run_pending_post_upgrade_collection(database),

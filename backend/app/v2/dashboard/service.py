@@ -9,6 +9,7 @@ from app.v2.database import V2Database, row_to_dict
 from app.v2.inventory.service import InventoryService
 from app.v2.metrics.prometheus import PrometheusService
 from app.v2.metrics.series import labels_match, metric_value, range_values, scoped_query
+from app.v2.scope import in_enabled_scope
 from app.v2.reports.service import forecast_series
 
 
@@ -17,6 +18,19 @@ CLUSTER_TOTAL_METRIC = "smartx_cluster_storage_total_bytes"
 VM_USED_METRIC = "smartx_vm_storage_used_bytes"
 NORMAL_RISK_MESSAGE = "当前所有集群暂无明显容量风险"
 SECONDS_PER_DAY = 86_400
+SUMMARY_CACHE_TTL_SECONDS = 60.0
+_summary_cache: dict[tuple[int | None, str | None], tuple[float, int, dict[str, Any]]] = {}
+_summary_cache_lock = __import__("threading").Lock()
+
+
+def _latest_collection_run_id(database: V2Database) -> int:
+    with database.connection() as conn:
+        row = conn.execute("SELECT id FROM collection_runs ORDER BY id DESC LIMIT 1").fetchone()
+    return int(row["id"]) if row else 0
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 class DashboardService:
@@ -25,17 +39,42 @@ class DashboardService:
         self.settings = settings
         self.prometheus = prometheus or PrometheusService(settings.prometheus_url)
         self.now_ts = int(now_ts) if now_ts is not None else int(__import__("time").time())
+        # 缓存只在生产构造路径启用（无注入依赖）；测试注入 fake prometheus/now_ts 时必须绕开，
+        # 避免跨用例读到同一模块级缓存。
+        self._cache_enabled = prometheus is None and now_ts is None
 
     def summary(self, tower_id: int | None = None, cluster_id: str | None = None) -> dict[str, Any]:
+        cache_key = (tower_id, cluster_id)
+        run_id = 0
+        if self._cache_enabled:
+            run_id = _latest_collection_run_id(self.database)
+            now = __import__("time").time()
+            with _summary_cache_lock:
+                cached = _summary_cache.get(cache_key)
+                if cached and cached[0] > now and cached[1] == run_id:
+                    return cached[2]
+        payload = self._build_summary(tower_id=tower_id, cluster_id=cluster_id)
+        if self._cache_enabled:
+            with _summary_cache_lock:
+                _summary_cache[cache_key] = (__import__("time").time() + SUMMARY_CACHE_TTL_SECONDS, run_id, payload)
+        return payload
+
+    def _build_summary(self, *, tower_id: int | None, cluster_id: str | None) -> dict[str, Any]:
         enabled_scope = self._enabled_cluster_scope(tower_id=tower_id, cluster_id=cluster_id)
         clusters = self._cluster_capacity(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         cluster_forecasts = self._cluster_forecasts(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         day_fastest_growing_vms = self._day_fastest_growing_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         month_fastest_growing_vms = self._period_fastest_growing_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, days=30, limit=100)
         towers = InventoryService(self.database, self.settings).list_towers()
+        capacity_risk = self._capacity_risk(clusters, month_fastest_growing_vms, cluster_forecasts)
+        capacity_risk["evaluated_at"] = _utc_now_iso()
         return {
-            "scope": {"tower_id": tower_id, "cluster_id": cluster_id},
-            "capacity_risk": self._capacity_risk(clusters, month_fastest_growing_vms, cluster_forecasts),
+            "scope": {
+                "tower_id": tower_id,
+                "cluster_id": cluster_id,
+                "cluster_enabled": self._cluster_enabled(tower_id=tower_id, cluster_id=cluster_id),
+            },
+            "capacity_risk": capacity_risk,
             "totals": self._totals(tower_id=tower_id, cluster_id=cluster_id),
             "storage": self._storage(clusters),
             "collection": self._latest_collection(),
@@ -44,6 +83,18 @@ class DashboardService:
             "clusters": clusters,
             "towers": [_tower_payload(tower) for tower in towers],
         }
+
+    def _cluster_enabled(self, *, tower_id: int | None, cluster_id: str | None) -> bool | None:
+        if not cluster_id:
+            return None
+        filters = "cluster_id = ?"
+        params: list[object] = [cluster_id]
+        if tower_id is not None:
+            filters += " AND tower_id = ?"
+            params.append(tower_id)
+        with self.database.connection() as conn:
+            row = conn.execute(f"SELECT enabled FROM clusters WHERE {filters}", params).fetchone()
+        return bool(row["enabled"]) if row else False
 
     def _cluster_capacity(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
         used_by_key = self._cluster_metric_map(CLUSTER_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
@@ -73,7 +124,7 @@ class DashboardService:
             if not labels_match(metric, tower_id=tower_id, cluster_id=cluster_id):
                 continue
             key = (int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""))
-            if not _in_enabled_scope(key, enabled_scope):
+            if not in_enabled_scope(key, enabled_scope):
                 continue
             values[key] = metric_value(row)
         return values
@@ -88,7 +139,7 @@ class DashboardService:
             if not labels_match(metric, tower_id=tower_id, cluster_id=cluster_id):
                 continue
             key = (int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""))
-            if not _in_enabled_scope(key, enabled_scope):
+            if not in_enabled_scope(key, enabled_scope):
                 continue
             points = grouped.setdefault(key, {})
             for timestamp, value in range_values(series):
@@ -236,7 +287,7 @@ class DashboardService:
             if not labels_match(metric, tower_id=tower_id, cluster_id=cluster_id):
                 continue
             key = (int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""), str(metric.get("vm_id") or ""))
-            if not _in_enabled_scope((key[0], key[1]), enabled_scope):
+            if not in_enabled_scope((key[0], key[1]), enabled_scope):
                 continue
             vms.append(
                 {
@@ -266,7 +317,7 @@ class DashboardService:
                 continue
             metric = series.get("metric", {})
             key = (int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""), str(metric.get("vm_id") or ""))
-            if not _in_enabled_scope((key[0], key[1]), enabled_scope):
+            if not in_enabled_scope((key[0], key[1]), enabled_scope):
                 continue
             growth = points[-1][1] - points[0][1]
             if growth <= 0:
@@ -294,7 +345,7 @@ class DashboardService:
         for series in series_list:
             metric = series.get("metric", {})
             key = _vm_key(metric)
-            if not _in_enabled_scope((key[0], key[1]), enabled_scope):
+            if not in_enabled_scope((key[0], key[1]), enabled_scope):
                 continue
             points = range_values(series)
             if not points:
@@ -320,7 +371,7 @@ class DashboardService:
             series
             for series in self.prometheus.range(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step=step)
             if labels_match(series.get("metric", {}), tower_id=tower_id, cluster_id=cluster_id)
-            and _in_enabled_scope(_cluster_key(series.get("metric", {})), enabled_scope)
+            and in_enabled_scope(_cluster_key(series.get("metric", {})), enabled_scope)
         ]
 
     def _latest_vm_value_map(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> dict[tuple[int, str, str], float]:
@@ -329,7 +380,7 @@ class DashboardService:
             metric = row.get("metric", {})
             if labels_match(metric, tower_id=tower_id, cluster_id=cluster_id):
                 key = _vm_key(metric)
-                if _in_enabled_scope((key[0], key[1]), enabled_scope):
+                if in_enabled_scope((key[0], key[1]), enabled_scope):
                     values[key] = metric_value(row)
         return values
 
@@ -365,7 +416,7 @@ class DashboardService:
                 "source": "sqlite",
             }
             for row in rows
-            if _in_enabled_scope((int(row["tower_id"]), str(row["cluster_id"])), enabled_scope)
+            if in_enabled_scope((int(row["tower_id"]), str(row["cluster_id"])), enabled_scope)
         ]
 
     def _enabled_cluster_scope(self, *, tower_id: int | None, cluster_id: str | None) -> set[tuple[int, str]]:
@@ -404,10 +455,6 @@ def _tower_payload(tower) -> dict[str, Any]:
             for cluster in tower.clusters
         ],
     }
-
-
-def _in_enabled_scope(key: tuple[int, str], enabled_scope: set[tuple[int, str]]) -> bool:
-    return key in enabled_scope if enabled_scope else True
 
 
 def _cluster_key(labels: dict[str, Any]) -> tuple[int, str]:

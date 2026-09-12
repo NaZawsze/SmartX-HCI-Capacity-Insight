@@ -23,10 +23,7 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRis
   const [message, setMessage] = useState("");
   const [growthSort, setGrowthSort] = useState<GrowthSortMode>("amount");
 
-  useEffect(() => {
-    api.summary(scope).then(onSummary).catch(() => undefined);
-  }, [onSummary, scope]);
-
+  // scope 变化与 15s 轮询由 App 统一负责，这里只保留采集运行期的 5s 局部刷新。
   useEffect(() => {
     if (summary?.latest_run?.status !== "running") {
       return;
@@ -111,8 +108,15 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRis
     if (reportScope) onOpenRiskReport?.(reportScope);
   }
 
+  const clusterDisabled = scope.type === "cluster" && summary?.scope?.cluster_enabled === false;
+
   return (
     <div className="dashboard-grid">
+      {clusterDisabled && (
+        <div className="inline-message cluster-disabled-message" role="status">
+          该集群未启用采集，暂不展示容量数据；显示的历史信息可能不是最新。
+        </div>
+      )}
       <div className="metrics-row dashboard-metrics-row">
         <button className={`metric-card capacity-risk-mini ${risk.tone} clickable-risk-card`} type="button" onClick={openRiskReport} title="查看容量风险报表">
           <div className="capacity-risk-mini-icon">

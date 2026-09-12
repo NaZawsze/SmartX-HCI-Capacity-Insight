@@ -103,6 +103,61 @@ class TaskService:
             )
         return self.get_task(task_id) or {}
 
+    def upsert_alert(
+        self,
+        task_id: str,
+        task_type: TaskType | str,
+        title: str,
+        *,
+        severity: str,
+        message: str = "",
+        logs: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Create or refresh an alert without resetting acknowledgement state.
+
+        持续告警只刷新 message/updated_at，保留 seen_at/acknowledged_at，
+        避免用户确认后同一持续条件反复弹出。
+        """
+        now = _now()
+        task_type_value = _value(task_type)
+        status_value = TaskStatus.FAILED.value
+        existing = self.get_task(task_id)
+        with self.database.connection() as conn:
+            if existing is None:
+                conn.execute(
+                    """
+                    INSERT INTO tasks (
+                        id, type, status, title, progress, message, links_json, logs_json, steps_json,
+                        severity, seen_at, acknowledged_at, created_at, updated_at, finished_at
+                    )
+                    VALUES (?, ?, ?, ?, 100, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
+                    """,
+                    (
+                        task_id,
+                        task_type_value,
+                        status_value,
+                        title,
+                        message,
+                        _json([]),
+                        _json(logs or []),
+                        _json([]),
+                        severity,
+                        now,
+                        now,
+                        now,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE tasks
+                    SET message = ?, logs_json = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (message, _json(logs or []), now, task_id),
+                )
+        return self.get_task(task_id) or {}
+
     def get_task(self, task_id: str) -> dict[str, Any] | None:
         with self.database.connection() as conn:
             row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
