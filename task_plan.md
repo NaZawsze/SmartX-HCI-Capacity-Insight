@@ -84,7 +84,7 @@ docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
 | 28 | 报表页顶部右侧紧凑信息栈 | 完成 | 无专项设计文档；UI 规则记录在本文件 |
 | 29 | 生产等价测试环境与发布验收门禁 | 交付物已实现，canary 部署验收待执行 | [docs/release-acceptance.md](docs/release-acceptance.md) |
 | 30 | Compose Project/Network 固定化 | 已实现，canary 部署/升级验收待执行 | [docs/deployment.md](docs/deployment.md)；结论记录在本文件 |
-| 31 | 报表页容量增长速率算法优化 | 已规划，待实施 | 无专项设计文档；实施口径记录在本文件 |
+| 31 | 报表页容量增长速率算法优化 | 已完成 | 无专项设计文档；实施口径记录在本文件 |
 | 32~48 | 升级链路专项（fix9~fix18、UPG-031~033、Phase 45/46 镜像版本与基线验证） | 全部完成 | [docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md) 对应章节；执行记录见 [docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)；fix10 并入 Phase 32，无独立 Phase 33 |
 | 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md) |
 
@@ -642,7 +642,7 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 后续增强：
 
 - 后续可继续补充预计耗尽时间、7 天平均增长速率和更详细的 VM 增长解释，但“从风险集群直接定位主要增长 VM”的链路已完成。
-- [待办] 预计存储耗尽算法增强：区分长期趋势预测和单日大数据量冲击，避免一次性迁入/突增导致耗尽天数突然大幅缩短后被误读为持续风险。建议同时展示 30/90 天平滑趋势、近 24 小时异常增长提示，以及排除单日突增后的稳健预测口径。
+- [已完成 2026-09-12] 预计存储耗尽算法增强：forecast_series 新增 30 天平滑斜率、稳健耗尽天数（exhaustion_days_30d）、近 24 小时净变化与 spike_detected 突增标记（>3×max(30d 斜率, 1GiB)）；Dashboard 风险行与报表预测行优先稳健口径并展示异常提示。设计见 docs/superpowers/specs/2026-09-12-exhaustion-robust-forecast-design.md。
 
 ### Phase 16 - 项目架构整理
 
@@ -1179,7 +1179,7 @@ docker network ls | grep smartx
 
 ### Phase 31 - 报表页容量增长速率算法优化
 
-状态：已规划，待实施
+状态：已完成（2026-09-12 核对：后端三窗口算法、前端三行卡片、Word/Excel 口径说明、单测均已落地）
 
 优先级：P1
 

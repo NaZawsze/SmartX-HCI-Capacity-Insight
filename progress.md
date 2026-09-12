@@ -6912,3 +6912,23 @@ release_smoke=critical 0, warning 0
 
 - TowerForm 创建/编辑组件抽取（纯重构）留待低优。
 - P1 剩余：Phase 31 增长速率算法、预计耗尽算法增强。
+
+## 2026-09-12 P1 收官：Phase 31 核对关闭 + 预计耗尽稳健预测
+
+### Phase 31（核对后关闭）
+
+- 核对发现三窗口增长速率算法（日 1h 净变化可负/月 30 天趋势/季 90 天趋势 + 样本充足标记）、前端三行卡片、Word/Excel 口径说明、单测（含负增长与样本不足用例）历史上已全部落地，仅 task_plan 状态未更新。
+- findings.md 旧口径（最近 7 天平均、负增长压 0）已修正为新口径；task_plan Phase 31 状态改已完成。
+- .3 真实数据验证：per_day/per_month/per_quarter 均有值且 sample_sufficient=true。
+
+### 预计耗尽算法增强（commit e98f4ca，设计 exhaustion-robust-forecast-design.md）
+
+- `forecast_series` 新增：smoothed_slope_per_day（近 30 天回归）、exhaustion_days_30d（稳健耗尽）、recent_day_delta、spike_detected（>3×max(30d 斜率, 1GiB)）。
+- Dashboard 风险集群行与 ReportsPage 预测行优先 exhaustion_days_30d，spike 时提示"近 24 小时增长异常，建议观察多日"；既有 exhaustion_days 语义不变。
+- 测试：稳定序列无标记、末点突增标记、下降趋势无稳健耗尽、样本不足默认值，共 4 项 + 既有回归 27 tests 远端通过。
+- .3 真实数据：e30=1202 天、spike=True（正确识别当日突增）、smoothed 斜率正常。
+
+### P1 状态
+
+- 完成：SQLite 治理、阈值统一+时区统一、Phase 31、预计耗尽增强、Tower UI 主体（B1/B2/删除确认/分区布局）。
+- 重新立项待办：compose tag 字面量渲染（Phase 49-3 修正案）；TowerForm 组件抽取（低优）。

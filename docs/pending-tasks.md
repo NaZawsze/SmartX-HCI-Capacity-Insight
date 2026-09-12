@@ -13,10 +13,10 @@
 
 | # | 事项 | 来源 | 说明 |
 | --- | --- | --- | --- |
-| 4 | 报表页容量增长速率算法优化 | Phase 31 | 已规划待实施，口径已定（日/月/季三窗口，负增长不压 0） |
-| 5 | compose 镜像 tag .env 覆盖风险（重新立项） | Phase 49-3 | 2026-09-12 尝试源码写死 tag 后回退：build_upgrade_package 依赖占位符做目标版本改写。正确修法=包构建时渲染字面量 tag（详见 p1-infra-batch-design §5），源码模板保留占位符 |
-| 6 | 预计存储耗尽算法增强 | Phase 15 待办 | 区分长期趋势与单日突增，避免迁移后耗尽天数被误读 |
-| 7 | Tower 设置页完整 UI 改版（收尾） | Phase 49-11 | 2026-09-12 已落地：创建前测试连接（B1）、删除二次确认、列表健康徽标（B2）、分区式布局。剩 TowerForm 创建/编辑组件抽取（纯重构，低优） |
+| 4 | compose 镜像 tag .env 覆盖风险（重新立项） | Phase 49-3 | 2026-09-12 尝试源码写死 tag 后回退：build_upgrade_package 依赖占位符做目标版本改写。正确修法=包构建时渲染字面量 tag（详见 p1-infra-batch-design §5），源码模板保留占位符 |
+| 5 | Tower 设置页完整 UI 改版（收尾） | Phase 49-11 | 2026-09-12 已落地：创建前测试连接（B1）、删除二次确认、列表健康徽标（B2）、分区式布局。剩 TowerForm 创建/编辑组件抽取（纯重构，低优） |
+
+P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite 治理、阈值/时区统一、Tower UI 主体）已于 2026-09-12 完成并验证，见文末"已完成"与 progress.md。
 
 ## P2 — 运维与流程
 
@@ -51,3 +51,5 @@
 - 首页总览静默陈旧：前端 30s 超时/失败横幅/单飞、summary 60s TTL 缓存、`_in_enabled_scope` 三处 fail-closed、`cluster_enabled`/`evaluated_at` 字段。
 - 采集频率：Tower 级"采集模式（每日定时/按间隔）"UI + worker 每 Tower 独立调度（含每日时间字段首次真正生效）。
 - 前端风格规范文档化（frontend-style-guide.md）与新区块 token 统一。
+- Phase 31 增长速率算法：核对确认后端三窗口（日/月/季）、前端三行卡片、Word/Excel 口径、单测均已落地（历史实现未更新状态）；findings 旧口径已修正；.3 真实数据验证三窗口输出与样本标记。
+- 预计耗尽算法增强：`forecast_series` 新增 smoothed_slope_per_day / exhaustion_days_30d / recent_day_delta / spike_detected；Dashboard 风险行与报表预测行优先 30d 稳健口径并提示"近 24 小时增长异常"；.3 真实数据验证（spike=True 正确识别当日突增）。
