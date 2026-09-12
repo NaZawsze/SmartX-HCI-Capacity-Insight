@@ -7056,3 +7056,10 @@ release_smoke=critical 0, warning 0
 - 全部 extra="allow" 过渡；金样本对比（改前/改后真实响应键集）全等；修复 3 处模型类型偏差（sample_span_days 浮点、migration health dict、component catalog dict 包装、collection 可空）。
 - 全量 317 tests 回到 10 已知环境性错误基线，零回归；前端 47 tests 通过。
 - 批次 5 重新立项：normalizer 是前后端契约兼容层（非死代码），删除需契约对齐决策，保留为兼容层。
+
+## 2026-09-13 交接状态（额度不足，49-16 留给下一个 AI）
+
+- 本地 dev2 HEAD：11a1cd3（领先 origin/dev2 42+ 个提交，按新策略未推送；origin 停在 6cab976 今日起点）。
+- 工作区干净；49-16 的一次未提交草稿（dashboard kpis/latest_run 草稿）已回退，下一个 AI 从干净状态按设计实施。
+- 交接入口：docs/ai-handoff-guide.md（环境/提交策略/测试基线/陷阱清单/设计索引）+ 三份待实施设计中 49-16 为下一项（49-13 在其后）。
+- 本会话完成并验证：P0 外的全部高优任务（容量告警、总览时效、采集调度两模式、SQLite 治理、阈值/时区统一、Phase 31 核对、预计耗尽稳健预测、Tower UI 改版、v1 死代码移除、helper 收敛、吞错清理、CORS 收紧、基线产物化、新鲜度告警、重试调度化、响应模型批次 1-4、compose tag 收尾）。
