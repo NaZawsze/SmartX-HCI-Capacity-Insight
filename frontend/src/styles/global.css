@@ -4880,3 +4880,38 @@ button.risk-cluster-row:hover {
   color: #fff;
   font-weight: 600;
 }
+
+.tower-form .tower-form-section {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px 14px;
+  margin-bottom: 12px;
+  background: #fff;
+}
+
+.tower-form-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1d4ed8;
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+}
+
+.tower-form-checks {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.tower-form.tower-edit-form {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+
+.tower-form .tower-form-section label {
+  margin-bottom: 10px;
+}
+
+.tower-form .tower-form-section label:last-child {
+  margin-bottom: 0;
+}

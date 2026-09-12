@@ -105,33 +105,45 @@ export function SettingsPage() {
   return (
     <div className="settings-grid">
       <Card title="新增 Tower">
-        <form className="settings-form" onSubmit={submit}>
-          <label>
-            名称
-            <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
-          </label>
-          <label>
-            地址
-            <input value={form.base_url} onChange={(event) => setForm({ ...form, base_url: event.target.value })} placeholder="https://tower.example.com" required />
-          </label>
-          <label>
-            用户名
-            <input value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} />
-          </label>
-          <label>
-            密码
-            <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} />
-          </label>
-          <label>
-            API Token (可选)
-            <input value={form.api_token} onChange={(event) => setForm({ ...form, api_token: event.target.value })} />
-          </label>
-          <ScheduleModeFields form={form} onChange={setForm} />
-          <RetryFields form={form} onChange={setForm} />
-          <label className="checkbox-line">
-            <input type="checkbox" checked={form.verify_tls} onChange={(event) => setForm({ ...form, verify_tls: event.target.checked })} />
-            校验 TLS 证书
-          </label>
+        <form className="settings-form tower-form" onSubmit={submit}>
+          <section className="tower-form-section">
+            <div className="tower-form-section-title">① 连接信息</div>
+            <label>
+              名称
+              <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
+            </label>
+            <label>
+              地址
+              <input value={form.base_url} onChange={(event) => setForm({ ...form, base_url: event.target.value })} placeholder="https://tower.example.com" required />
+            </label>
+            <label>
+              用户名
+              <input value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} />
+            </label>
+            <label>
+              密码
+              <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} />
+            </label>
+            <label>
+              API Token (可选)
+              <input value={form.api_token} onChange={(event) => setForm({ ...form, api_token: event.target.value })} />
+            </label>
+            <div className="tower-form-checks">
+              <label className="checkbox-line">
+                <input type="checkbox" checked={form.verify_tls} onChange={(event) => setForm({ ...form, verify_tls: event.target.checked })} />
+                校验 TLS 证书
+              </label>
+              <label className="checkbox-line">
+                <input type="checkbox" checked={form.enabled} onChange={(event) => setForm({ ...form, enabled: event.target.checked })} />
+                启用采集
+              </label>
+            </div>
+          </section>
+          <section className="tower-form-section">
+            <div className="tower-form-section-title">② 采集计划</div>
+            <ScheduleModeFields form={form} onChange={setForm} />
+            <RetryFields form={form} onChange={setForm} />
+          </section>
           {message && <div className="inline-message">{message}</div>}
           <button className="primary-button" type="submit">
             <Plus size={16} />
@@ -170,39 +182,64 @@ export function SettingsPage() {
                 </button>
               </div>
               {editingTowerId === tower.id && (
-                <form className="tower-edit-form" onSubmit={(event) => submitEdit(event, tower.id)}>
-                  <label>
-                    名称
-                    <input value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} required />
-                  </label>
-                  <label>
-                    地址
-                    <input value={editForm.base_url} onChange={(event) => setEditForm({ ...editForm, base_url: event.target.value })} required />
-                  </label>
-                  <label>
-                    用户名
-                    <input value={editForm.username} onChange={(event) => setEditForm({ ...editForm, username: event.target.value })} />
-                  </label>
-                  <label>
-                    密码
-                    <input type="password" value={editForm.password} onChange={(event) => setEditForm({ ...editForm, password: event.target.value })} placeholder="留空则不修改" />
-                  </label>
-                  <label>
-                    API Token (可选)
-                    <input value={editForm.api_token} onChange={(event) => setEditForm({ ...editForm, api_token: event.target.value })} placeholder="留空则不修改" />
-                  </label>
-                  <ScheduleModeFields form={editForm} onChange={setEditForm} />
-                  <RetryFields form={editForm} onChange={setEditForm} />
-                  <div className="tower-edit-options">
-                    <label className="checkbox-line">
-                      <input type="checkbox" checked={editForm.verify_tls} onChange={(event) => setEditForm({ ...editForm, verify_tls: event.target.checked })} />
-                      校验 TLS 证书
+                <form className="tower-edit-form tower-form" onSubmit={(event) => submitEdit(event, tower.id)}>
+                  <section className="tower-form-section">
+                    <div className="tower-form-section-title">① 连接信息</div>
+                    <label>
+                      名称
+                      <input value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} required />
                     </label>
-                    <label className="checkbox-line">
-                      <input type="checkbox" checked={editForm.enabled} onChange={(event) => setEditForm({ ...editForm, enabled: event.target.checked })} />
-                      启用采集
+                    <label>
+                      地址
+                      <input value={editForm.base_url} onChange={(event) => setEditForm({ ...editForm, base_url: event.target.value })} required />
                     </label>
-                  </div>
+                    <label>
+                      用户名
+                      <input value={editForm.username} onChange={(event) => setEditForm({ ...editForm, username: event.target.value })} />
+                    </label>
+                    <label>
+                      密码
+                      <input type="password" value={editForm.password} onChange={(event) => setEditForm({ ...editForm, password: event.target.value })} placeholder="留空则不修改" />
+                    </label>
+                    <label>
+                      API Token (可选)
+                      <input value={editForm.api_token} onChange={(event) => setEditForm({ ...editForm, api_token: event.target.value })} placeholder="留空则不修改" />
+                    </label>
+                    <div className="tower-form-checks">
+                      <label className="checkbox-line">
+                        <input type="checkbox" checked={editForm.verify_tls} onChange={(event) => setEditForm({ ...editForm, verify_tls: event.target.checked })} />
+                        校验 TLS 证书
+                      </label>
+                      <label className="checkbox-line">
+                        <input type="checkbox" checked={editForm.enabled} onChange={(event) => setEditForm({ ...editForm, enabled: event.target.checked })} />
+                        启用采集
+                      </label>
+                    </div>
+                  </section>
+                  <section className="tower-form-section">
+                    <div className="tower-form-section-title">② 采集计划</div>
+                    <ScheduleModeFields form={editForm} onChange={setEditForm} />
+                    <RetryFields form={editForm} onChange={setEditForm} />
+                  </section>
+                  <section className="tower-form-section">
+                    <div className="tower-form-section-title">③ 集群 ({tower.clusters.length})</div>
+                    {!!tower.clusters.length ? (
+                      <div className="cluster-toggle-list">
+                        {tower.clusters.map((cluster) => (
+                          <label className="cluster-toggle" key={cluster.cluster_id}>
+                            <input
+                              type="checkbox"
+                              checked={cluster.enabled}
+                              onChange={(event) => toggleCluster(tower.id, cluster.cluster_id, event.target.checked)}
+                            />
+                            <span>{cluster.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="form-hint">暂无集群，可在连接成功后同步。</div>
+                    )}
+                  </section>
                   <div className="tower-edit-actions">
                     <button className="secondary-button" type="button" onClick={() => setEditingTowerId(null)}>
                       <X size={15} />
@@ -214,20 +251,6 @@ export function SettingsPage() {
                     </button>
                   </div>
                 </form>
-              )}
-              {!!tower.clusters.length && (
-                <div className="cluster-toggle-list">
-                  {tower.clusters.map((cluster) => (
-                    <label className="cluster-toggle" key={cluster.cluster_id}>
-                      <input
-                        type="checkbox"
-                        checked={cluster.enabled}
-                        onChange={(event) => toggleCluster(tower.id, cluster.cluster_id, event.target.checked)}
-                      />
-                      <span>{cluster.name}</span>
-                    </label>
-                  ))}
-                </div>
               )}
             </div>
           ))}
