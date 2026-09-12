@@ -24,10 +24,7 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 | # | 事项 | 来源 | 说明 |
 | --- | --- | --- | --- |
 | 8 | Phase 30 部署/升级验收两项 | Phase 30 | canary 上验证固定 project/network 不产生第二套容器/网络 |
-| 9 | 标准业务基线产物化 | Phase 49-7 | SQLite+配套 .env+Prometheus 固化为可校验 SHA 的基线，杜绝数据源选错 |
-| 10 | 数据新鲜度链路告警联动 | Phase 49-10 | 采集→:9108 导出→Prometheus 抓取→summary 查询，任一环断裂纳入数据质量告警 |
-| 11 | worker 采集重试改调度排期 | Phase 49-10 | 重试循环内 `time.sleep` 最长 45 分钟阻塞线程并推迟数据质量检查 |
-| 12 | 生产现场只读定位 | Phase 49-8 残留 | 总览绿色现象复现时抓 `/api/dashboard/summary` 请求状态与 `capacity_risk.level` |
+| 9 | 生产现场只读定位 | Phase 49-8 残留 | 总览绿色现象复现时抓 `/api/dashboard/summary` 请求状态与 `capacity_risk.level` |
 | 13 | Phase 24 采集重试/缺采收尾 | Phase 24 | 已实现，待一轮真实使用验证后关闭 |
 
 ## P3 — 工程健康度（不阻塞发布）
@@ -55,3 +52,8 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 - Phase 31 增长速率算法：核对确认后端三窗口（日/月/季）、前端三行卡片、Word/Excel 口径、单测均已落地（历史实现未更新状态）；findings 旧口径已修正；.3 真实数据验证三窗口输出与样本标记。
 - 预计耗尽算法增强：`forecast_series` 新增 smoothed_slope_per_day / exhaustion_days_30d / recent_day_delta / spike_detected；Dashboard 风险行与报表预测行优先 30d 稳健口径并提示"近 24 小时增长异常"；.3 真实数据验证（spike=True 正确识别当日突增）。
 - TowerForm 组件抽取：创建/编辑表单共用 TowerForm.tsx（表单状态类型、分区、采集/重试字段、payload 归一化），SettingsPage 收敛到 190 行；DashboardPage fallback 类型补齐新字段后 tsc 通过、16 tests 通过、容器强制重建。
+- P2 批次（commit 235f905+82e31c5，设计 p2-ops-batch-design.md）：
+  - 基线产物化：`scripts/capture_baseline.py` capture/verify 闭环；.3 真机验证（vm_volumes 89636 行、SHA/integrity/counts 全过；错误路径防御拦截旧残留 /data/smartx.db）。
+  - 数据新鲜度告警：DataQualityService 自适应阈值（2×最小采集周期，env 可覆盖）+ Prometheus 样本滞后 >15 分钟检查，进入既有"数据质量需关注"通道。
+  - worker 重试调度化：统一采集结果管道（保存 metrics→数据质量→失败重试排期），三条采集路径（全局/每 Tower/升级后）共用；修复 per-tower 与升级后路径漏存 metrics 的回归（.3 实测 run 63 成功后 metric_snapshots 同步更新）；重试从 time.sleep 循环改为一次性 DateTrigger job。
+  - 防御教训：/data/smartx.db 是 v0.5.1 时代旧残留，业务库在 /data/smartx-storage-forecast/app/smartx.db；脚本已加"无业务表即失败"防御。

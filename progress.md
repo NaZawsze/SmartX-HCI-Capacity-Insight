@@ -6939,3 +6939,24 @@ release_smoke=critical 0, warning 0
 - SettingsPage 从 476 行收敛到约 190 行，只保留状态、提交处理、列表渲染、删除确认与健康徽标。
 - 部署中发现两处问题并修复：api.ts 双逗号（0c7420e，上一轮已修）；DashboardPage RiskClusterRowItem fallback 类型缺 exhaustion_days_30d/spike_detected 导致 tsc 失败（8f1d663）——该问题同时意味着此前一次部署实际未生效，本次已用 `--force-recreate` 确保新 bundle 上线。
 - 验证：前端构建通过、8080=200、SettingsPage+DashboardPage 16 tests 通过。目视刷新确认即可。
+
+## 2026-09-12 P2 运维批次（基线产物/新鲜度告警/重试调度化）与关键回归修复
+
+### 实施（commit 235f905/82e31c5，设计 p2-ops-batch-design.md）
+
+- `scripts/capture_baseline.py`：标准业务基线 capture（VACUUM INTO 一致性快照，无需停服 + tower.env 0600 + 可选 Prometheus 目录 + SHA256SUMS + manifest 行数清单）与 verify（SHA/integrity/counts）双模式；含"源库无业务表即失败"防御（/data/smartx.db 是 v0.5.1 旧残留，业务库在 /data/smartx-storage-forecast/app/smartx.db）。
+- DataQualityService 新鲜度检查：采集停摆（自适应阈值 = max(2×启用 Tower 最小采集周期, 60 分钟)，SMARTX_FRESHNESS_STALE_MINUTES 可覆盖）+ Prometheus 样本滞后 >15 分钟（导出/抓取链路断裂），进既有"数据质量需关注"告警通道；payload 增 freshness 字段。
+- worker 重试调度化 + 统一采集结果管道 `_handle_collection_outcome`（保存 metrics → 数据质量检查 → 失败重试排期/告警）：全局、每 Tower、升级后三条采集路径共用。**修复关键回归**：per-tower 调度与升级后采集此前漏存 metrics_text（metric_snapshots 不更新 → :9108/Prometheus 提供旧数据）；重试从 time.sleep 长阻塞改为一次性 DateTrigger job（无调度器调用保留内联兼容路径）。
+
+### 验证（10.20.11.3）
+
+- 基线：capture → verify 真机闭环（counts: vm_latest 590/vm_volumes 89636/collection_runs 60，integrity ok）；篡改检测用例 + 错误路径防御用例通过。
+- 新鲜度：停摆告警（600 分钟 > 阈值）、Prometheus 滞后告警（50 分钟 > 15）、新鲜采集不误报、daily 模式自适应阈值 2880 分钟，4 项测试通过。
+- worker 管道：成功路径保存 metrics 且无告警、失败注册一次性重试 job、无重试配置记录告警、重试成功只跑数据质量、终态失败记录告警，5 项测试通过。
+- 关键回归实测：临时把 Tower 间隔设 1 分钟 → run 63 scheduled success（15:21:10 完成）→ metric_snapshots updated_at 同步更新为 15:21:10（修复前停留在 11:39）；间隔已恢复 60。
+- 部署后健康检查 ok=true / 8080=200。
+
+### 遗留
+
+- 采集中断后 worker 重启丢失未执行重试 job 属设计取舍（下次计划采集全量重试）。
+- prometheus 目录复制为 live copy（head block 可能变化），manifest 已标注；如需强一致可后续接 snapshot API。

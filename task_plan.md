@@ -1330,8 +1330,9 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 ### 6. 测试机无统一一键回归 [已完成]
 - [x] 已新增 `scripts/verify_full_upgrade_chain.py`：参数化一键验证脚本，覆盖基线确认、三步升级 API、逐节点验收、post-cleanup/自动采集、报告输出。
 
-### 7. 标准业务基线未固化为产物 [待实施]
+### 7. 标准业务基线未固化为产物 [已完成 2026-09-12]
 - 多次因数据源选择错误导致误判，需把「SQLite + 配套 .env + Prometheus 数据」固化为可校验 SHA 的标准基线产物。
+- [x] `scripts/capture_baseline.py`：capture（VACUUM INTO 快照 + tower.env 600 + SHA256SUMS + manifest 行数）与 verify（SHA/integrity/counts）闭环；.3 真机验证通过。
 
 ### 8. 首页容量风险总览静默陈旧 [已实现并在 10.20.11.3 验证，生产现场定位待现象复现时执行]
 
