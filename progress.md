@@ -7040,3 +7040,10 @@ release_smoke=critical 0, warning 0
 ### 批次 2 剩余
 
 - collection/tasks/me/system 端点模型（下一轮）；批次 3-5（vms/reports、admin、删 normalize）与 49-13 拆分待续。
+
+## 2026-09-13 49-14 批次 2 完成（dashboard/collection/tasks/me/system 响应模型）
+
+- 新增模型：CollectionRunDetailResponse（列表/详情，与 POST run 的 run_id 形态区分）、TaskResponse（21 字段）、SystemHealthResponse；me 已有 UserResponse。
+- 接线：/api/collection/runs、/api/collection/runs/{id}、/api/tasks、/api/system/health 挂 response_model（全部 extra="allow" 过渡）。
+- 金样本对比（.3 改前/改后）：tasks 列表、runs 列表、health 键集全等；前端 47 tests 通过；健康正常。
+- 批次 2 全部完成。批次 3（vms/reports）、批次 4（admin 读类）、批次 5（删前端 normalize）与 49-13 拆分待续。
