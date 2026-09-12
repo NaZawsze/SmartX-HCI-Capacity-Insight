@@ -13,6 +13,8 @@ SmartX HCI Capacity Insight 是一个面向 SmartX/HCI 容量趋势、虚拟机�
 - 服务管理、服务重启。
 - 离线升级中心和组件升级。
 
+文档定位：本文件只记录稳定发现和坑点；文档总体地图见 [docs/doc-map.md](docs/doc-map.md)，各 Phase 的设计文档对照见 [task_plan.md](task_plan.md) 的「Phase 与任务设计文档对照」。
+
 ## 专项升级链路发现归档
 
 `v0.5.1 + runner v0.3.0 -> v0.5.1u2 -> runner v0.3.1 -> v0.5.2` 的详细根因、修复计划、失败记录、包记录和验证证据，统一维护在：
@@ -554,3 +556,46 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 ## 2026-08-12 v0.5.2 后续治理与风险发现
 
 参见 task_plan.md Phase 49。已处理：compose tag 模板风险（待实施）、地址扫描门禁（已完成）、cleanup 状态投影（已完成）、一键回归（已完成）、基线产物（待实施）。
+
+## 2026-09-12 容量风险 scope 不对称发现
+
+- 现象：实际环境中单个集群空间不足，点击该集群显示黄色告警，但数据中心/全部总览页仍显示"容量风险正常"（绿色）。
+- 根因：`backend/app/v2/dashboard/service.py` 的 `_in_enabled_scope()` 在 `enabled_scope` 为空集时放行所有 key（`return key in enabled_scope if enabled_scope else True`）。
+  - 集群 scope：目标集群已停用或已从纳管表移除时，`_enabled_cluster_scope()` 返回空集，该集群遗留的 Prometheus 序列被计入 `clusters`，使用率 >=75% 时 `capacity_risk=warning`，页面黄色。
+  - 数据中心/全部 scope：enabled_scope 非空，该集群不在集合内被过滤，`capacity_risk=normal`，页面绿色。
+- 连带问题：总览对已停用但空间不足的集群完全静默，无任何提示。
+- 修复方向（待用户确认实际环境集群状态后实施）：空集改为 fail closed；集群 scope 查不到启用集群时显示"集群已停用/未纳管"；决定停用集群是否在总览以弱提示参与告警。
+- 独立缺口（同场景相关但不同层）：定时采集默认每天 02:10 一次（`worker.py`），迁移当天数据滞后；Tower 原生"空间不足"告警（如 `service_disk_usage_overload`）平台未接入，collector 只拉容量指标。
+
+### 2026-09-12 v0.5.2 风险链路审计补充
+
+- 用户澄清：生产环境中集群页黄色告警本身是正确的（集群正常纳管、数据正确），问题只是总览页同时显示绿色；生产环境无法直接接入定位。
+- v0.5.2 tag 与 dev2 在整条风险链路 diff 为空（dashboard 后端、DashboardPage、api.ts、App.tsx、AppLayout）；判定规则本身一致：任一启用集群 >=75% 黄 / >=80% 红，总览与集群页同数据源。
+- v0.5.2 确认存在缺陷 A（前端静默失败）：`App.tsx` 的 `refreshSummary().catch(() => undefined)` 吞掉刷新失败；`request()` 使用裸 fetch 无超时。scope=all 的 summary 是全量无选择器查询（含 30 天 range 预测），生产数据量大时慢/挂起的概率高于带选择器的集群 scope 查询，可造成"集群页黄（刷得动）、总览长期停留旧绿数据（刷不动）"。
+- 缺陷 B（停用集群不对称，`_in_enabled_scope` 空集放行）仍成立，但需要集群停用前提，可能非本次生产现象的原因。
+- 叠加因素：定时采集每天 02:10 一次，迁移当天总览停留昨日样本的窗口最长一整天。
+- 生产现场定位方法（只读）：对比 `/api/dashboard/summary`（无参）与 `?tower_id=&cluster_id=` 返回的 `capacity_risk.level`、`clusters[].used_ratio`，或在浏览器看总览页 summary 请求是否 pending/失败/耗时。
+
+### 2026-09-12 风险链路补充审计（遗漏与设计优化）
+
+- 同类缺陷扩散：`else True` 空集放行共三处复制粘贴（dashboard/vms/reports service），虚拟机页和报表页存在同样的停用集群不对称；应抽公共函数统一修。
+- 前端静默吞错共 22 处 `catch(() => undefined)`，关键路径（summary/tasks 刷新）失败无任何用户提示。
+- 双重轮询：App 15s 轮询 summary 之外，DashboardPage 自有一路 summary 拉取（scope/latest_run 依赖），同一全量查询被放大。
+- 请求堆积：Prometheus 客户端超时 30s、前端裸 fetch 无超时 + 15s 轮询，全量查询超过 15s 时请求无限堆积，无 single-flight/AbortController。
+- summary 无缓存：日/月增长 TOP、每集群 30 天 forecast 每次轮询全量重算；应拆轻量（风险/状态）与重数据（榜单/预测）接口或加短 TTL 缓存。
+- 阈值 75/80 前后端硬编码共 7 处（后端 2、前端 5，另有 VmsPage 独立 80% VM 红线），调阈值必然漂移；应由 capacity_risk payload 下发 thresholds。
+- 时区不一致：dashboard `_day_bounds` 用服务器本地时区算日界（`datetime.fromtimestamp(now_ts)` 无 tz），项目其他处统一 UTC/settings.timezone，容器 TZ 不一致时"日增长/本日新建 VM"日界偏移。
+- capacity_risk 缺 evaluated_at/数据新鲜度字段，前端无法显示"数据截至"；payload 应补充。
+- 停用集群在总览完全隐身，修缺陷 B 时需定弱提示口径。
+
+### 2026-09-12 全项目架构与代码扫描
+
+- v1 死代码随镜像发布：app/main.py、app/api/、app/services/（约 4800 行）、app/collector/、app/core/、app/db.py、app/models.py 在 v2 web-api（app.v2.main）与 upgrade_runner 中零引用，仍被 COPY 进镜像；删除前需确认 v2 migration 对 v1 迁移包兼容不依赖旧模块。
+- v2 CORS 配置倒退：v2/main.py 用 allow_origins=["*"] + allow_credentials=True，v1 尚且用 settings.cors_origin_list。
+- SQLite 零索引、无 WAL/busy_timeout：database.py 无任何 CREATE INDEX，vm_volumes 达 9 万行级；web-api 与 collector-worker 双进程并发读写，存在全表扫描与 database is locked 风险。
+- worker 采集重试在调度线程内 time.sleep（最长约 45 分钟），数据质量检查被重试窗口推迟；应改为调度器排期重试。
+- 数据新鲜度链路长且无联动告警：每日采集 -> metric_snapshots -> :9108 导出 -> Prometheus 60s 抓取 -> summary instant 查询，任一环断裂无告警。
+- 巨型文件：reports/export.py 3720 行、upgrade/service.py 1791 行、api.py 1112 行；前端 ServicePage.tsx 2305 行（升级中心/服务管理/清理/迁移单页）。
+- helper 复制粘贴：_vm_key x5、_cluster_key x6、_number/_int_or_none 多处，应收敛公共模块。
+- API 无响应模型（dict 直出），契约靠前端 normalizeDashboardSummary 兜底，是前后端各自通过、集成失败类问题的土壤；建议 Pydantic response_model。
+- 前端 token 存 localStorage（XSS 可窃取），离线内网产品可记为已知取舍。

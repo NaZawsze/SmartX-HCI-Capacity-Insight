@@ -6,7 +6,16 @@
 
 ## 当前环境
 
-- 主要开发与验证机器：`10.20.11.3`
+- 测试与验收服务器清单：
+
+  | 地址 | 环境角色 | 主要用途 | 默认操作边界 |
+  | --- | --- | --- | --- |
+  | `10.20.11.3` | 开发/主测试机 | Python 测试、依赖安装、Docker 构建、升级包构建和完整升级链路 | 默认在此执行测试和构建 |
+  | `10.20.11.12` | 升级演练机 | 真实升级链路演练和升级前后环境核对 | 必须由用户明确授权后连接、恢复、清理或升级 |
+  | `10.20.0.6` | release canary/生产等价验收机 | 正式 tag 镜像的干净部署、发布 smoke 和升级包验收 | 默认只读；不得热修、传测试文件或清理现场 |
+
+- 服务器相关项目路径、Compose project/network、验证命令和操作限制以根目录 `AGENTS.md` 与 `docs/project-guide-for-ai.md` 为准。
+- 本项目文档只记录服务器地址和角色，不记录 SSH 密码、Token、私钥或 Tower 凭据。
 - v2 远端项目路径：`/data/smartx-storage-forecast/project`
 - v2 当前工作分支：`dev2`
 - v2 平台版本：`v0.5.2`
@@ -33,6 +42,58 @@ docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
 ```
 
 本文件只保留最终阶段摘要。详细过程、失败记录和中间包仍查专项 worklog。
+
+## Phase 与任务设计文档对照
+
+全部文档的一页式地图见 [docs/doc-map.md](docs/doc-map.md)。本节回答"某个 Phase 的设计/归档在哪"。
+
+编号体系说明：
+
+- 根 Phase（本文件）：Phase 1~31 为 v2 重建与产品化阶段；Phase 32~48 为升级链路专项阶段（详情已归档，本文件不再承载）；Phase 49 为 v0.5.2 后治理待办。
+- UPG-xxx：升级问题/修复编号，UPG-001 起在 `docs/upgrade-issues.md`；UPG-031~048 在 `docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md`。
+- Phase V2-x：v2 重建子阶段，定义在 `docs/v2-rebuild-task-plan.md`（V2-0 ~ V2-9）。
+
+| Phase | 主题 | 状态 | 关联设计/归档文档 |
+| --- | --- | --- | --- |
+| 1 | 持久化项目上下文 | 完成 | 本文件、`findings.md`、`progress.md` |
+| 2/3 | v1 历史报表改动/提交 | 归档 | 无（v1/dev 旧上下文，已被 v2 覆盖） |
+| 4 | 导出报表可读性优化 | 完成 | 无专项设计文档；口径记录在本文件与 `findings.md` |
+| 5 | 版本治理 | 完成 | [docs/version-governance.md](docs/version-governance.md) |
+| 6 | 清理空间显示 0B 修复 | 完成 | [docs/upgrade-issues.md](docs/upgrade-issues.md) UPG-013 |
+| 7 | 升级预检查步骤化与网络检查 | 完成 | [docs/upgrade-issues.md](docs/upgrade-issues.md) UPG-011/014 |
+| 8 | 升级前备份进度 | 完成 | [docs/upgrade-issues.md](docs/upgrade-issues.md) UPG-008 |
+| 9 | 平台升级 UI 去重 | 完成 | [docs/upgrade-issues.md](docs/upgrade-issues.md) UPG-010 |
+| 10 | 当前剩余工作 | 完成 | 拆分至 Phase 12/13 |
+| 11 | 报表与虚拟机口径新增需求 | 完成 | 无专项设计文档；口径记录在本文件与 `findings.md` |
+| 12 | 全新升级模式设计 | 完成第一版 | [docs/v2-upgrade-center-design.md](docs/v2-upgrade-center-design.md) |
+| 13 | 数据迁移灾备闭环 | 完成第一版 | [docs/v1-data-compatibility.md](docs/v1-data-compatibility.md) |
+| 14 | 报表产品化与客户交付 | 完成第一版 | [docs/superpowers/plans/2026-06-10-excel-summary-growth-sheets.md](docs/superpowers/plans/2026-06-10-excel-summary-growth-sheets.md)；模板基准见 `findings.md` Word/Excel 模板发现 |
+| 15 | 首页容量风险驾驶舱 | 完成第一版 | 无专项设计文档；算法口径记录在本文件与 `findings.md` |
+| 16 | 项目架构整理 | 完成第一版 | [docs/architecture.md](docs/architecture.md) |
+| 17 | dev2 受控重建 | 完成第一版 | [docs/v2-rebuild-task-plan.md](docs/v2-rebuild-task-plan.md)（其细化文档：[architecture-v2](docs/architecture-v2.md)、[v1-data-compatibility](docs/v1-data-compatibility.md)、[v2-upgrade-center-design](docs/v2-upgrade-center-design.md)、[v2-api-contracts](docs/v2-api-contracts.md)、[v2-frontend-design](docs/v2-frontend-design.md)、[v2-implementation-sequence](docs/v2-implementation-sequence.md)） |
+| 18 | 任务中心状态机与残留任务治理 | 完成第一版 | [docs/v2-upgrade-center-design.md](docs/v2-upgrade-center-design.md) |
+| 19 | 任务中心分级通知与角标治理 | 完成第一版 | 无专项设计文档；规则记录在本文件 |
+| 20 | 配置迁移包优化 | 完成第一版 | [docs/v1-data-compatibility.md](docs/v1-data-compatibility.md) |
+| 21 | Excel 客户模板固化 | 完成 | [docs/superpowers/plans/2026-06-10-excel-summary-growth-sheets.md](docs/superpowers/plans/2026-06-10-excel-summary-growth-sheets.md) |
+| 22 | 升级任务跨重启恢复 | 完成 | [docs/v2-upgrade-center-design.md](docs/v2-upgrade-center-design.md)、[docs/upgrade-runner-lifecycle.md](docs/upgrade-runner-lifecycle.md) |
+| 23 | v0.5.0 稳定化收敛 | 完成 | [docs/upgrade-issues.md](docs/upgrade-issues.md)（对应台账关闭项） |
+| 24 | 采集重试、部分成功与趋势缺采标记 | 已实现，待体验验证 | 无专项设计文档；口径记录在本文件与 `findings.md` |
+| 25 | 平台自检与升级后验收 | 已撤销 | 撤销结论记录在本文件与 `findings.md` |
+| 26 | SQLite/Prometheus 一致性与报表数据质量 | 完成 | 无专项设计文档；口径记录在本文件 |
+| 27 | 任务中心卡片四区布局 | 完成 | 无专项设计文档；UI 规则记录在本文件 |
+| 28 | 报表页顶部右侧紧凑信息栈 | 完成 | 无专项设计文档；UI 规则记录在本文件 |
+| 29 | 生产等价测试环境与发布验收门禁 | 交付物已实现，canary 部署验收待执行 | [docs/release-acceptance.md](docs/release-acceptance.md) |
+| 30 | Compose Project/Network 固定化 | 已实现，canary 部署/升级验收待执行 | [docs/deployment.md](docs/deployment.md)；结论记录在本文件 |
+| 31 | 报表页容量增长速率算法优化 | 已规划，待实施 | 无专项设计文档；实施口径记录在本文件 |
+| 32~48 | 升级链路专项（fix9~fix18、UPG-031~033、Phase 45/46 镜像版本与基线验证） | 全部完成 | [docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md) 对应章节；执行记录见 [docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)；fix10 并入 Phase 32，无独立 Phase 33 |
+| 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md) |
+
+升级后自动采集与 verification 历史查询的专项计划/设计：
+
+- [docs/superpowers/plans/2026-07-10-post-upgrade-auto-collection.md](docs/superpowers/plans/2026-07-10-post-upgrade-auto-collection.md) / [docs/superpowers/specs/2026-07-10-post-upgrade-auto-collection-design.md](docs/superpowers/specs/2026-07-10-post-upgrade-auto-collection-design.md)（UPG-041）
+- [docs/superpowers/plans/2026-07-15-upg044-verification-history.md](docs/superpowers/plans/2026-07-15-upg044-verification-history.md) / [docs/superpowers/specs/2026-07-15-upg044-verification-history-design.md](docs/superpowers/specs/2026-07-15-upg044-verification-history-design.md)（UPG-044）
+
+
 
 ## 当前执行项 - UPG-036 / UPG-037 / UPG-038 / UPG-039 v0.5.2 final chain
 
@@ -1271,3 +1332,50 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 
 ### 7. 标准业务基线未固化为产物 [待实施]
 - 多次因数据源选择错误导致误判，需把「SQLite + 配套 .env + Prometheus 数据」固化为可校验 SHA 的标准基线产物。
+
+### 8. 首页容量风险总览静默陈旧 [待实施]
+
+设计文档：[docs/superpowers/specs/2026-09-12-capacity-alert-and-overview-freshness-design.md](docs/superpowers/specs/2026-09-12-capacity-alert-and-overview-freshness-design.md)；实施计划：[docs/superpowers/plans/2026-09-12-capacity-alert-and-overview-freshness.md](docs/superpowers/plans/2026-09-12-capacity-alert-and-overview-freshness.md)。
+
+生产环境现象：单集群空间不足时集群页黄色告警正确显示，但数据中心/全部总览长期停留"容量风险正常"（绿色），无任何提示。v0.5.2 审计结论（详见 findings.md「v0.5.2 风险链路审计补充」）：
+
+- 判定规则本身无问题：总览与集群页同规则同数据源（任一启用集群 >=75% 黄 / >=80% 红），v0.5.2 与 dev2 链路 diff 为空。
+- 缺陷 A [根因待现场确认]：前端 `refreshSummary().catch(() => undefined)` 静默吞掉刷新失败；`request()` 裸 fetch 无超时；scope=all 的 summary 为无选择器全量查询（含 30 天 range 预测），生产数据量大时慢/挂起概率高于集群 scope 查询，可造成总览长期停留旧数据。叠加定时采集每天一次（02:10），旧数据窗口最长一天。
+- 缺陷 B：`_in_enabled_scope()` 空集放行（dashboard/service.py），集群停用/移除后单集群页读遗留 Prometheus 序列显示黄色、总览过滤显示绿色，不对称。
+- 修复项：
+  - [ ] 前端 summary 刷新失败/超时显示"数据截至 HH:mm，刷新失败"提示；fetch 加 30s 超时（AbortController）。
+  - [ ] 后端总览 summary 提速：容量风险与 VM 明细/预测计算拆分，避免全量 range 拖慢首页。
+  - [ ] `_in_enabled_scope` 空集 fail closed；集群 scope 查不到启用集群时明确显示"集群已停用/未纳管"。
+  - [ ] 容量相关采集频率从每天一次提高（小时级或可配置）。
+  - [ ] 主动容量告警机制：采集完成后按集群检查容量阈值（使用率比率 + 剩余绝对空间），跨阈值生成任务中心 warning 告警（复用 severity 体系，含确认去重规则）；可选接入 Tower 原生容量告警（如 service_disk_usage_overload）对齐双方口径。
+  - [ ] 生产现场定位（只读）：浏览器对比总览页 `/api/dashboard/summary`（无参）请求状态与 `capacity_risk.level`，区分"请求慢/失败"与"数据本身 normal"。
+
+### 9. 首页与风险链路设计优化 [待实施]
+
+设计文档：与第 8 项共用 [docs/superpowers/specs/2026-09-12-capacity-alert-and-overview-freshness-design.md](docs/superpowers/specs/2026-09-12-capacity-alert-and-overview-freshness-design.md)（第 3 节）。
+
+补充审计发现（详见 findings.md「风险链路补充审计」），与第 8 项同链路：
+
+- [ ] `_in_enabled_scope` 空集放行修复需覆盖三处复制粘贴：dashboard/vms/reports service，抽公共函数。
+- [ ] 前端清理静默吞错：summary/tasks 等关键路径 `catch(() => undefined)` 改为可感知的失败提示。
+- [ ] 消除双重轮询：App 与 DashboardPage 对 summary 的两路拉取合并为一路；请求加 single-flight/AbortController，避免慢查询堆积。
+- [ ] summary 接口拆分：轻量（容量风险/状态/使用率，高频轮询）与重数据（VM 榜单/预测，低频或按需），或后端短 TTL 缓存。
+- [ ] 容量阈值统一：75%/80% 由后端 capacity_risk payload 下发 thresholds，前端（DashboardPage 5 处、VmsPage VM 红线）只读后端值。
+- [ ] 时区统一：`_day_bounds` 改用 settings.timezone 计算日界，替换服务器本地时区。
+- [ ] capacity_risk payload 增加 evaluated_at 与最后采集成功时间，支撑前端"数据截至"展示。
+
+### 10. 全项目架构与代码治理 [待实施]
+
+状态：待立项设计。按 AGENTS.md 开发流程标准，实施前需先编写设计文档（建议 `docs/superpowers/specs/`，逐项拆分立项）。
+
+2026-09-12 全项目扫描结论（详见 findings.md「全项目架构与代码扫描」），按收益排序：
+
+- [ ] SQLite 治理：为 vm_latest/vm_volumes/collection_runs/tasks 按查询列建索引；连接开启 WAL 与 busy_timeout（web-api 与 collector-worker 双进程并发）。
+- [ ] 移除 v1 死代码：app/main.py、app/api/、app/services/、app/collector/、app/core/、app/db.py、app/models.py（约 4800 行，v2 与 runner 零引用）；删除前回归确认 v2 migration 的 v1 迁移包兼容不依赖旧模块。
+- [ ] v2 CORS 收紧回 settings 白名单，去掉 allow_origins=["*"] + credentials 组合。
+- [ ] 拆分巨型文件：reports/export.py（Word/Excel 分离）、upgrade/service.py、v2/api.py（按域拆 router）；前端 ServicePage.tsx 按升级中心/服务管理/清理/迁移拆组件。
+- [ ] 收敛复制粘贴 helper（_vm_key x6、_cluster_key x6、_number 等）到公共模块。
+- [ ] worker 采集重试从 time.sleep 改为调度器排期，避免阻塞线程并推迟数据质量检查。
+- [ ] 数据新鲜度链路监控：Prometheus 抓取、metric_snapshots 更新、summary 查询任一环断裂纳入数据质量告警。
+- [ ] API 增加响应模型（Pydantic response_model），逐步替代前端 normalize 兜底。
+- [ ] 已知取舍记录：前端 token 存 localStorage（内网离线产品，暂不改）。
