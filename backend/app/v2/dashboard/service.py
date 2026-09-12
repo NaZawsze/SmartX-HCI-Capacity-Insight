@@ -80,7 +80,7 @@ class DashboardService:
         kpis = {
             "tower_count": len(towers),
             "cluster_count": len(clusters),
-            "vm_count": len(self._latest_vm_items(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)),
+            "vm_count": len(self._latest_vms_from_database(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)),
             "used_bytes": used_bytes,
             "total_bytes": total_bytes,
             "used_ratio": used_bytes / total_bytes if total_bytes > 0 else 0.0,
