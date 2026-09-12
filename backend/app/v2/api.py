@@ -497,8 +497,8 @@ class MigrationHealthResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
     checks: dict = {}
     message: Optional[str] = None
-    prometheus: Optional[bool] = None
-    sqlite: Optional[bool] = None
+    prometheus: Optional[dict] = None
+    sqlite: Optional[dict] = None
 
 
 class LocalStorageResponse(BaseModel):
