@@ -407,11 +407,11 @@ class ReportGrowthItemModel(BaseModel):
     growth_amount: Optional[float] = None
     growth_ratio: Optional[float] = None
     previous_value: Optional[float] = None
-    period_days: Optional[int] = None
-    sample_span_days: Optional[int] = None
+    period_days: Optional[float] = None
+    sample_span_days: Optional[float] = None
     window_start_at: Optional[str] = None
     window_end_at: Optional[str] = None
-    age_days: Optional[int] = None
+    age_days: Optional[float] = None
     first_seen_at: Optional[str] = None
 
 
