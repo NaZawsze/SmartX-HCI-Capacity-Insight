@@ -116,6 +116,11 @@ def capture(args: argparse.Namespace) -> int:
             print(f"[warn] prometheus dir not found, skipped: {source_prom}")
 
     counts = _db_counts(snapshot)
+    if all(value < 0 for value in counts.values()):
+        shutil.rmtree(baseline_dir)
+        raise SystemExit(
+            f"source db has none of the expected business tables: {source_db} - 请确认路径是否为当前业务库（v0.5.2 布局通常为 /data/smartx-storage-forecast/app/smartx.db）"
+        )
     manifest = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "name": args.name,
