@@ -4835,9 +4835,9 @@ button.risk-cluster-row:hover {
   flex-direction: column;
   gap: 12px;
   padding: 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f8fbff;
 }
 
 .schedule-field-row {
@@ -4845,62 +4845,88 @@ button.risk-cluster-row:hover {
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
-  color: #334155;
+  color: var(--text);
 }
 
 .schedule-field-label {
-  font-weight: 500;
+  color: #52647c;
+  font-weight: 700;
 }
 
 .schedule-mode-switch {
   display: inline-flex;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
   overflow: hidden;
-  background: #fff;
+  background: var(--panel);
   width: fit-content;
 }
 
 .schedule-mode-option {
   padding: 8px 22px;
   border: none;
-  background: #fff;
-  color: #475569;
+  background: var(--panel);
+  color: var(--muted);
   font-size: 13px;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
 
+.schedule-mode-option:hover {
+  background: #f0f6ff;
+  color: var(--text);
+}
+
 .schedule-mode-option + .schedule-mode-option {
-  border-left: 1px solid #e2e8f0;
+  border-left: 1px solid var(--line);
 }
 
 .schedule-mode-option.active {
-  background: #1d4ed8;
+  background: var(--blue);
   color: #fff;
   font-weight: 600;
 }
 
 .tower-form .tower-form-section {
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
   padding: 12px 14px 14px;
   margin-bottom: 12px;
-  background: #fff;
+  background: var(--panel);
 }
 
 .tower-form-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-size: 12px;
   font-weight: 700;
-  color: #1d4ed8;
+  color: var(--blue-600);
   letter-spacing: 0.04em;
   margin-bottom: 10px;
 }
 
 .tower-form-checks {
   display: flex;
+  align-items: center;
   gap: 18px;
   flex-wrap: wrap;
+}
+
+.tower-form-checks .checkbox-line {
+  height: 28px;
+  margin: 0;
+}
+
+.tower-form input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  min-width: 15px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 
 .tower-form.tower-edit-form {
@@ -4932,6 +4958,9 @@ button.risk-cluster-row:hover {
   height: 34px;
   padding: 0 10px;
   margin: 0;
+  border: 1px solid var(--line);
+  background: #f8fbff;
+  color: var(--text);
   font-size: 13px;
 }
 
@@ -4941,34 +4970,8 @@ button.risk-cluster-row:hover {
   flex: none;
 }
 
-.tower-form-checks {
-  align-items: center;
-}
-
-.tower-form-checks .checkbox-line {
-  height: 28px;
-  margin: 0;
-}
-
-.tower-form input[type="checkbox"] {
-  width: 15px;
-  height: 15px;
-  min-width: 15px;
-  padding: 0;
-  margin: 0;
-  border: none;
-  background: transparent;
-  box-shadow: none;
-}
-
-.cluster-section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.cluster-select-all {
+.cluster-section-head .cluster-select-all {
   font-size: 12px;
   font-weight: 500;
-  color: #48617e;
+  color: var(--muted);
 }
