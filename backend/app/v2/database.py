@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Iterator
 
+from app.v2.parsing import int_or_none
 from app.v2.config import V2Settings
 from app.v2.security import hash_password
 
@@ -277,7 +278,7 @@ def _backfill_v1_latest_vm_payloads(conn: sqlite3.Connection) -> None:
     rows = conn.execute("SELECT tower_id, cluster_id, vm_id, payload_json, collected_at FROM latest_vm_volumes").fetchall()
     for row in rows:
         volumes = _loads_volume_payload(row["payload_json"])
-        used_bytes = sum(_int_or_none(volume.get("used_bytes"), volume.get("used_size")) or 0 for volume in volumes)
+        used_bytes = sum(int_or_none(volume.get("used_bytes"), volume.get("used_size")) or 0 for volume in volumes)
         conn.execute(
             """
             INSERT OR IGNORE INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes, updated_at)
@@ -301,13 +302,13 @@ def _backfill_v1_latest_vm_payloads(conn: sqlite3.Connection) -> None:
                     str(volume.get("volume_id") or volume.get("id") or f"volume-{index}"),
                     volume.get("name"),
                     volume.get("path"),
-                    _int_or_none(volume.get("size_bytes"), volume.get("size")),
-                    _int_or_none(volume.get("used_bytes"), volume.get("used_size")),
+                    int_or_none(volume.get("size_bytes"), volume.get("size")),
+                    int_or_none(volume.get("used_bytes"), volume.get("used_size")),
                     volume.get("storage_policy") or volume.get("elf_storage_policy"),
-                    _int_or_none(volume.get("replica_num"), volume.get("elf_storage_policy_replica_num")),
+                    int_or_none(volume.get("replica_num"), volume.get("elf_storage_policy_replica_num")),
                     _bool_to_int(volume.get("thin_provision", volume.get("elf_storage_policy_thin_provision"))),
-                    _int_or_none(volume.get("ec_k"), volume.get("elf_storage_policy_ec_k")),
-                    _int_or_none(volume.get("ec_m"), volume.get("elf_storage_policy_ec_m")),
+                    int_or_none(volume.get("ec_k"), volume.get("elf_storage_policy_ec_k")),
+                    int_or_none(volume.get("ec_m"), volume.get("elf_storage_policy_ec_m")),
                     row["collected_at"],
                 ),
             )
@@ -371,17 +372,6 @@ def _loads_volume_payload(payload_json: Any) -> list[dict[str, Any]]:
     if not isinstance(payload, list):
         return []
     return [item for item in payload if isinstance(item, dict)]
-
-
-def _int_or_none(*values: object) -> int | None:
-    for value in values:
-        if value is None or value == "":
-            continue
-        try:
-            return int(float(value))
-        except (TypeError, ValueError):
-            continue
-    return None
 
 
 def _bool_to_int(value: object) -> int | None:

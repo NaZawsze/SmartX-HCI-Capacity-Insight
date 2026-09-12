@@ -11,7 +11,7 @@ from app.v2.data_quality.service import DataQualityService
 from app.v2.scope import in_enabled_scope
 from app.v2.database import V2Database
 from app.v2.metrics.prometheus import PrometheusService
-from app.v2.metrics.series import labels_match, metric_value, range_values, scoped_query
+from app.v2.metrics.series import cluster_key, labels_match, metric_value, range_values, scoped_query, vm_key
 
 
 SECONDS_PER_DAY = 86_400
@@ -130,7 +130,7 @@ class ReportService:
             series
             for series in self.prometheus.range(scoped_query(CLUSTER_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step=step)
             if labels_match(series.get("metric", {}), tower_id=tower_id, cluster_id=cluster_id)
-            and in_enabled_scope(_cluster_key(series.get("metric", {})), enabled_scope)
+            and in_enabled_scope(cluster_key(series.get("metric", {})), enabled_scope)
         ]
 
     def _vm_series(self, *, days: int, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]], step: str = "6h") -> list[dict[str, Any]]:
@@ -139,14 +139,14 @@ class ReportService:
             series
             for series in self.prometheus.range(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step=step)
             if labels_match(series.get("metric", {}), tower_id=tower_id, cluster_id=cluster_id)
-            and in_enabled_scope(_cluster_key(series.get("metric", {})), enabled_scope)
+            and in_enabled_scope(cluster_key(series.get("metric", {})), enabled_scope)
         ]
 
     def _cluster_totals(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> dict[tuple[int, str], float]:
         totals = {}
         for row in self.prometheus.instant(scoped_query(CLUSTER_TOTAL_METRIC, tower_id=tower_id, cluster_id=cluster_id)):
             metric = row.get("metric", {})
-            key = _cluster_key(metric)
+            key = cluster_key(metric)
             if labels_match(metric, tower_id=tower_id, cluster_id=cluster_id) and in_enabled_scope(key, enabled_scope):
                 totals[key] = metric_value(row)
         if totals:
@@ -154,7 +154,7 @@ class ReportService:
         start = self.now_ts - 30 * SECONDS_PER_DAY
         for series in self.prometheus.range(scoped_query(CLUSTER_TOTAL_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step="1d"):
             metric = series.get("metric", {})
-            key = _cluster_key(metric)
+            key = cluster_key(metric)
             points = range_values(series)
             if labels_match(metric, tower_id=tower_id, cluster_id=cluster_id) and in_enabled_scope(key, enabled_scope) and points:
                 totals[key] = points[-1][1]
@@ -165,7 +165,7 @@ class ReportService:
             row
             for row in self.prometheus.instant(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id))
             if labels_match(row.get("metric", {}), tower_id=tower_id, cluster_id=cluster_id)
-            and in_enabled_scope(_cluster_key(row.get("metric", {})), enabled_scope)
+            and in_enabled_scope(cluster_key(row.get("metric", {})), enabled_scope)
         ]
 
     def _cluster_names(self) -> dict[tuple[int, str], str]:
@@ -273,7 +273,7 @@ def _growth_reports_from_series(
     mapped = []
     for item in latest_items:
         labels = item.get("metric", {})
-        key = _vm_key(labels)
+        key = vm_key(labels)
         points = points_by_vm.get(key) or []
         baseline = points[0] if points else None
         if baseline is None:
@@ -319,7 +319,7 @@ def _new_vm_reports_from_series(
     latest_value_by_vm: dict[tuple[int, str, str], float],
 ) -> list[dict[str, Any]]:
     mapped = []
-    latest_labels_by_key = {_vm_key(series.get("metric", {})): series.get("metric", {}) for series in series_list}
+    latest_labels_by_key = {vm_key(series.get("metric", {})): series.get("metric", {}) for series in series_list}
     for key, points in _points_by_vm(series_list).items():
         if not points:
             continue
@@ -356,7 +356,7 @@ def _cluster_growth_rate_from_series(series_list: list[dict[str, Any]]) -> float
 def _points_by_cluster(series_list: list[dict[str, Any]]) -> dict[tuple[int, str], list[tuple[int, float]]]:
     grouped: dict[tuple[int, str], dict[int, float]] = {}
     for series in series_list:
-        key = _cluster_key(series.get("metric", {}))
+        key = cluster_key(series.get("metric", {}))
         if not key[1]:
             continue
         points = grouped.setdefault(key, {})
@@ -368,7 +368,7 @@ def _points_by_cluster(series_list: list[dict[str, Any]]) -> dict[tuple[int, str
 def _points_by_vm(series_list: list[dict[str, Any]]) -> dict[tuple[int, str, str], list[tuple[int, float]]]:
     grouped: dict[tuple[int, str, str], dict[int, float]] = {}
     for series in series_list:
-        key = _vm_key(series.get("metric", {}))
+        key = vm_key(series.get("metric", {}))
         if not key[2]:
             continue
         points = grouped.setdefault(key, {})
@@ -439,7 +439,7 @@ def _trend_slope_per_day(points: list[tuple[int, float]]) -> float:
 
 
 def _latest_vm_value_map(items: list[dict[str, Any]]) -> dict[tuple[int, str, str], float]:
-    return {_vm_key(item.get("metric", {})): metric_value(item) for item in items}
+    return {vm_key(item.get("metric", {})): metric_value(item) for item in items}
 
 
 def _latest_items_from_series_tail(series_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -456,15 +456,15 @@ def _latest_items_from_series_tail(series_list: list[dict[str, Any]]) -> list[di
 def _merge_latest_items(primary: list[dict[str, Any]], fallback: list[dict[str, Any]]) -> list[dict[str, Any]]:
     merged: dict[tuple[int, str, str], dict[str, Any]] = {}
     for item in fallback:
-        merged[_vm_key(item.get("metric", {}))] = item
+        merged[vm_key(item.get("metric", {}))] = item
     for item in primary:
-        merged[_vm_key(item.get("metric", {}))] = item
+        merged[vm_key(item.get("metric", {}))] = item
     return list(merged.values())
 
 
 def _labels_with_latest_name(labels: dict[str, Any], latest_label_by_vm: dict[tuple[int, str, str], dict[str, str]]) -> dict[str, str]:
     normalized = {str(key): str(value) for key, value in labels.items()}
-    latest = latest_label_by_vm.get(_vm_key(labels))
+    latest = latest_label_by_vm.get(vm_key(labels))
     if latest:
         normalized.update(latest)
     normalized.setdefault("vm", normalized.get("vm_name") or normalized.get("vm_id", ""))
@@ -520,14 +520,6 @@ def _normalize_chart_days(chart_days: int | None) -> int:
     except (TypeError, ValueError):
         return 365
     return value if value in {7, 30, 90, 365, 720} else 365
-
-
-def _cluster_key(labels: dict[str, Any]) -> tuple[int, str]:
-    return (int(labels.get("tower_id") or 0), str(labels.get("cluster_id") or ""))
-
-
-def _vm_key(labels: dict[str, Any]) -> tuple[int, str, str]:
-    return (int(labels.get("tower_id") or 0), str(labels.get("cluster_id") or ""), str(labels.get("vm_id") or ""))
 
 
 def _item_timestamp(item: dict[str, Any]) -> int | None:

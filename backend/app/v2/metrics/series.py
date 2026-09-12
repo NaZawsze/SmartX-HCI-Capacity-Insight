@@ -49,3 +49,12 @@ def _float(value: object) -> float:
 
 def _escape_label(value: str) -> str:
     return value.replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
+
+
+def cluster_key(labels: dict[str, Any]) -> tuple[int, str]:
+    return (int(labels.get("tower_id") or 0), str(labels.get("cluster_id") or ""))
+
+
+def vm_key(labels: dict[str, Any]) -> tuple[int, str, str]:
+    tower_id, cluster_id = cluster_key(labels)
+    return (tower_id, cluster_id, str(labels.get("vm_id") or ""))

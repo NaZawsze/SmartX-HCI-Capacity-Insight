@@ -8,7 +8,7 @@ from app.v2.config import V2Settings
 from app.v2.database import V2Database, row_to_dict
 from app.v2.inventory.service import InventoryService
 from app.v2.metrics.prometheus import PrometheusService
-from app.v2.metrics.series import labels_match, metric_value, range_values, scoped_query
+from app.v2.metrics.series import cluster_key, labels_match, metric_value, range_values, scoped_query, vm_key
 from app.v2.scope import in_enabled_scope
 from app.v2.reports.service import forecast_series
 
@@ -350,7 +350,7 @@ class DashboardService:
         new_vms = []
         for series in series_list:
             metric = series.get("metric", {})
-            key = _vm_key(metric)
+            key = vm_key(metric)
             if not in_enabled_scope((key[0], key[1]), enabled_scope):
                 continue
             points = range_values(series)
@@ -377,7 +377,7 @@ class DashboardService:
             series
             for series in self.prometheus.range(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step=step)
             if labels_match(series.get("metric", {}), tower_id=tower_id, cluster_id=cluster_id)
-            and in_enabled_scope(_cluster_key(series.get("metric", {})), enabled_scope)
+            and in_enabled_scope(cluster_key(series.get("metric", {})), enabled_scope)
         ]
 
     def _latest_vm_value_map(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> dict[tuple[int, str, str], float]:
@@ -385,7 +385,7 @@ class DashboardService:
         for row in self.prometheus.instant(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id)):
             metric = row.get("metric", {})
             if labels_match(metric, tower_id=tower_id, cluster_id=cluster_id):
-                key = _vm_key(metric)
+                key = vm_key(metric)
                 if in_enabled_scope((key[0], key[1]), enabled_scope):
                     values[key] = metric_value(row)
         return values
@@ -461,14 +461,6 @@ def _tower_payload(tower) -> dict[str, Any]:
             for cluster in tower.clusters
         ],
     }
-
-
-def _cluster_key(labels: dict[str, Any]) -> tuple[int, str]:
-    return (int(labels.get("tower_id") or 0), str(labels.get("cluster_id") or ""))
-
-
-def _vm_key(labels: dict[str, Any]) -> tuple[int, str, str]:
-    return (int(labels.get("tower_id") or 0), str(labels.get("cluster_id") or ""), str(labels.get("vm_id") or ""))
 
 
 def _day_bounds(now_ts: int, tz_name: str | None = None) -> tuple[int, int]:

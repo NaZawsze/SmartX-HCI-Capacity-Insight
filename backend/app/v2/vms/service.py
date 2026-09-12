@@ -7,7 +7,7 @@ from app.v2.config import V2Settings
 from app.v2.scope import in_enabled_scope
 from app.v2.database import V2Database
 from app.v2.metrics.prometheus import PrometheusService
-from app.v2.metrics.series import labels_match, metric_value, range_values, scoped_query
+from app.v2.metrics.series import labels_match, metric_value, range_values, scoped_query, vm_key
 
 
 VM_USED_METRIC = "smartx_vm_storage_used_bytes"
@@ -30,7 +30,7 @@ class VmService:
             metric = row.get("metric", {})
             if not labels_match(metric, tower_id=tower_id, cluster_id=cluster_id):
                 continue
-            key = _vm_key(metric)
+            key = vm_key(metric)
             if not in_enabled_scope((key[0], key[1]), enabled_scope):
                 continue
             name = latest_names.get(key) or str(metric.get("vm_name") or metric.get("vm_id") or "")
@@ -268,10 +268,6 @@ class VmService:
             "gap_dates": gap_dates,
             "data_freshness": freshness,
         }
-
-
-def _vm_key(metric: dict[str, Any]) -> tuple[int, str, str]:
-    return (int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""), str(metric.get("vm_id") or ""))
 
 
 def _step_for_days(days: int) -> str:

@@ -202,6 +202,7 @@ def _number(*values: Any) -> float | None:
     return None
 
 
+# 语义与 parsing.int_or_none 不同：经 _number 取首个可解析值，保持独立实现。
 def _int_or_none(*values: Any) -> int | None:
     number = _number(*values)
     return int(number) if number is not None else None

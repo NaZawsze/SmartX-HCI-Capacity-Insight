@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from app.v2.config import V2Settings
 from app.v2.database import V2Database
 from app.v2.metrics.prometheus import PrometheusService
+from app.v2.metrics.series import cluster_key, vm_key
 from app.v2.tasks.models import TaskStatus, TaskType
 from app.v2.tasks.service import TaskService
 
@@ -73,14 +74,14 @@ class DataQualityService:
             prometheus_error = str(exc)
             messages.append(f"Prometheus 查询失败：{exc}")
         cluster_keys = {(cluster["tower_id"], cluster["cluster_id"]) for cluster in clusters}
-        vm_rows = [row for row in vm_rows if _cluster_key(row.get("metric", {})) in cluster_keys]
-        cluster_rows = [row for row in cluster_rows if _cluster_key(row.get("metric", {})) in cluster_keys]
-        prometheus_vm_count = len({_vm_key(row.get("metric", {})) for row in vm_rows if _vm_key(row.get("metric", {}))[2]})
-        prometheus_cluster_keys = {_cluster_key(row.get("metric", {})) for row in cluster_rows}
+        vm_rows = [row for row in vm_rows if cluster_key(row.get("metric", {})) in cluster_keys]
+        cluster_rows = [row for row in cluster_rows if cluster_key(row.get("metric", {})) in cluster_keys]
+        prometheus_vm_count = len({vm_key(row.get("metric", {})) for row in vm_rows if vm_key(row.get("metric", {}))[2]})
+        prometheus_cluster_keys = {cluster_key(row.get("metric", {})) for row in cluster_rows}
         latest_prometheus_ts = max([_sample_ts(row) for row in [*vm_rows, *cluster_rows]] or [None])
         latest_collection = self._latest_collection()
         missing_dates, failed_cluster_keys = self._missing_collection_dates(period_days=period_days, cluster_keys=cluster_keys)
-        range_rows = [row for row in range_rows if _cluster_key(row.get("metric", {})) in cluster_keys]
+        range_rows = [row for row in range_rows if cluster_key(row.get("metric", {})) in cluster_keys]
         actual_window = self._actual_data_window(period_days=period_days, range_rows=range_rows)
         sample_sufficient = int(actual_window.get("days") or 0) >= period_days if actual_window else False
         incomplete_clusters = []
@@ -400,18 +401,6 @@ def _normalize_period_days(period_days: int | None) -> int:
 def _requested_window(now_ts: int, days: int) -> dict[str, Any]:
     start = now_ts - days * SECONDS_PER_DAY
     return {"days": days, "start_at": datetime.fromtimestamp(start, tz=timezone.utc).isoformat(), "end_at": datetime.fromtimestamp(now_ts, tz=timezone.utc).isoformat()}
-
-
-def _cluster_key(metric: dict[str, Any]) -> tuple[int, str]:
-    try:
-        return int(metric.get("tower_id")), str(metric.get("cluster_id") or "")
-    except (TypeError, ValueError):
-        return -1, ""
-
-
-def _vm_key(metric: dict[str, Any]) -> tuple[int, str, str]:
-    tower_id, cluster_id = _cluster_key(metric)
-    return tower_id, cluster_id, str(metric.get("vm_id") or "")
 
 
 def _sample_ts(row: dict[str, Any]) -> int | None:

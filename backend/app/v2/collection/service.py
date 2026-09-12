@@ -320,6 +320,7 @@ class CollectionService:
         )
 
 
+# 语义与 parsing.int_or_none 不同：不跳过空串，保持独立实现。
 def _int_or_none(*values: object) -> int | None:
     for value in values:
         if value is None:

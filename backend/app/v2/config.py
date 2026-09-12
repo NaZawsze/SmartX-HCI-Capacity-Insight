@@ -42,6 +42,11 @@ class V2Settings:
     app_version: str = field(default_factory=lambda: read_version(IMAGE_VERSION_FILE, "SMARTX_APP_VERSION", DEFAULT_APP_VERSION))
     runner_version: str = field(default_factory=lambda: read_version(RUNNER_VERSION_FILE, "SMARTX_RUNNER_VERSION", DEFAULT_RUNNER_VERSION))
     token_ttl_minutes: int = field(default_factory=lambda: int(os.environ.get("SMARTX_TOKEN_TTL_MINUTES", "720")))
+    cors_origins: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            origin.strip() for origin in os.environ.get("SMARTX_CORS_ORIGINS", "").split(",") if origin.strip()
+        )
+    )
 
     def __post_init__(self) -> None:
         data_root = Path(self.data_root)

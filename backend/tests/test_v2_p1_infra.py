@@ -234,3 +234,58 @@ class FreshnessCheckTest(unittest.TestCase):
             inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="c", name="C", enabled=True)])
             service = DataQualityService(database, settings, prometheus=object(), now_ts=NOW_TS)
             self.assertEqual(service._freshness_threshold_minutes(), 2880)
+
+
+class CorsConfigTest(unittest.TestCase):
+    def setUp(self) -> None:
+        try:
+            import fastapi  # noqa: F401
+
+            self.fastapi_available = True
+        except ModuleNotFoundError:
+            self.fastapi_available = False
+
+    def test_cors_disabled_by_default(self):
+        if not getattr(self, "fastapi_available", False):
+            self.skipTest("fastapi not installed")
+        from app.v2.main import create_app
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["SMARTX_DATA_ROOT"] = tmpdir
+            os.environ["SMARTX_CORS_ORIGINS"] = ""
+            try:
+                app = create_app()
+                middlewares = [m.cls.__name__ for m in app.user_middleware]
+                self.assertNotIn("CORSMiddleware", middlewares)
+            finally:
+                os.environ.pop("SMARTX_DATA_ROOT", None)
+                os.environ.pop("SMARTX_CORS_ORIGINS", None)
+
+    def test_cors_enabled_with_config(self):
+        if not getattr(self, "fastapi_available", False):
+            self.skipTest("fastapi not installed")
+        from app.v2.main import create_app
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["SMARTX_DATA_ROOT"] = tmpdir
+            os.environ["SMARTX_CORS_ORIGINS"] = "https://ops.example.com, https://ops2.example.com"
+            try:
+                app = create_app()
+                middlewares = [m.cls.__name__ for m in app.user_middleware]
+                self.assertIn("CORSMiddleware", middlewares)
+                cors = next(m for m in app.user_middleware if m.cls.__name__ == "CORSMiddleware")
+                self.assertEqual(cors.kwargs["allow_origins"], ["https://ops.example.com", "https://ops2.example.com"])
+            finally:
+                os.environ.pop("SMARTX_DATA_ROOT", None)
+                os.environ.pop("SMARTX_CORS_ORIGINS", None)
+
+
+class SeriesKeysTest(unittest.TestCase):
+    def test_cluster_and_vm_key(self):
+        from app.v2.metrics.series import cluster_key, vm_key
+
+        labels = {"tower_id": "3", "cluster_id": "c-1", "vm_id": "vm-9"}
+        self.assertEqual(cluster_key(labels), (3, "c-1"))
+        self.assertEqual(vm_key(labels), (3, "c-1", "vm-9"))
+        self.assertEqual(cluster_key({}), (0, ""))
+        self.assertEqual(vm_key({}), (0, "", ""))

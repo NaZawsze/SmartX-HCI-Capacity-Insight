@@ -17,6 +17,7 @@ from urllib.parse import quote
 
 from fastapi import HTTPException, UploadFile
 
+from app.v2.parsing import int_or_none
 from app.v2.config import V2Settings
 from app.v2.database import V2Database
 from app.v2.tasks.models import TaskStatus, TaskType
@@ -820,13 +821,13 @@ def _v1_volume_to_v2(volume: dict[str, Any], index: int) -> dict[str, Any]:
         "volume_id": volume_id,
         "name": _text(volume.get("name"), volume.get("volume_name"), volume.get("path"), volume_id),
         "path": _text(volume.get("path")),
-        "size_bytes": _int_or_none(volume.get("size"), volume.get("size_bytes"), volume.get("capacity"), volume.get("capacity_bytes"), volume.get("provisioned_size"), volume.get("provisioned_size_bytes")),
-        "used_bytes": _int_or_none(volume.get("used_size"), volume.get("used_size_bytes"), volume.get("used_bytes")),
+        "size_bytes": int_or_none(volume.get("size"), volume.get("size_bytes"), volume.get("capacity"), volume.get("capacity_bytes"), volume.get("provisioned_size"), volume.get("provisioned_size_bytes")),
+        "used_bytes": int_or_none(volume.get("used_size"), volume.get("used_size_bytes"), volume.get("used_bytes")),
         "storage_policy": _text(volume.get("elf_storage_policy"), volume.get("storage_policy"), volume.get("storagePolicy"), volume.get("policy_name"), volume.get("policyName"), volume.get("policy")),
-        "replica_num": _int_or_none(volume.get("elf_storage_policy_replica_num"), volume.get("replica_num"), volume.get("replicaNum"), volume.get("replica_count"), volume.get("replicaCount")),
+        "replica_num": int_or_none(volume.get("elf_storage_policy_replica_num"), volume.get("replica_num"), volume.get("replicaNum"), volume.get("replica_count"), volume.get("replicaCount")),
         "thin_provision": _bool_to_int(volume.get("elf_storage_policy_thin_provision", volume.get("thin_provision", volume.get("thinProvision")))),
-        "ec_k": _int_or_none(volume.get("elf_storage_policy_ec_k"), volume.get("ec_data"), volume.get("ecData"), volume.get("ec_k"), volume.get("ecDataUnits")),
-        "ec_m": _int_or_none(volume.get("elf_storage_policy_ec_m"), volume.get("ec_parity"), volume.get("ecParity"), volume.get("ec_m"), volume.get("ecParityUnits")),
+        "ec_k": int_or_none(volume.get("elf_storage_policy_ec_k"), volume.get("ec_data"), volume.get("ecData"), volume.get("ec_k"), volume.get("ecDataUnits")),
+        "ec_m": int_or_none(volume.get("elf_storage_policy_ec_m"), volume.get("ec_parity"), volume.get("ecParity"), volume.get("ec_m"), volume.get("ecParityUnits")),
     }
 
 
@@ -837,17 +838,6 @@ def _text(*values: Any) -> str | None:
         text = str(value).strip()
         if text:
             return text
-    return None
-
-
-def _int_or_none(*values: Any) -> int | None:
-    for value in values:
-        if value is None or value == "":
-            continue
-        try:
-            return int(float(value))
-        except (TypeError, ValueError):
-            continue
     return None
 
 

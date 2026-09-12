@@ -17,6 +17,7 @@ interface AppLayoutProps {
   onSummary: (summary: DashboardSummary) => void;
   summary?: DashboardSummary | null;
   summaryFreshness?: SummaryFreshnessState;
+  tasksError?: string | null;
   tasks?: AppTask[];
   onClearTasks?: () => void;
   onTasksSeen?: (taskIds: string[]) => void;
@@ -57,7 +58,7 @@ function scopeKey(scope: DashboardScope): string {
   return "all";
 }
 
-export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChange, onSummary, summary, summaryFreshness, tasks = [], onClearTasks, onTasksSeen, onTaskAck, onTaskAction, children }: AppLayoutProps) {
+export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChange, onSummary, summary, summaryFreshness, tasksError, tasks = [], onClearTasks, onTasksSeen, onTaskAck, onTaskAction, children }: AppLayoutProps) {
   const towers = summary?.towers ?? emptyTowers;
   const selectedTower = scope.type === "tower" || scope.type === "cluster" ? towers.find((tower) => tower.id === scope.towerId) || towers[0] : towers[0];
   const totalClusterCount = towers.reduce((total, tower) => total + tower.clusters.length, 0);
@@ -428,9 +429,11 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
             </div>
           </div>
         </div>
-        {summaryFreshness?.lastError && (
+        {(summaryFreshness?.lastError || tasksError) && (
           <div className="data-freshness-banner" role="status">
-            {`数据刷新失败（${summaryFreshness.lastError}），当前显示 ${summaryFreshness.lastSuccessAt ? new Date(summaryFreshness.lastSuccessAt).toLocaleTimeString() : "上次"} 的数据，正在自动重试。`}
+            {summaryFreshness?.lastError
+              ? `容量数据刷新失败（${summaryFreshness.lastError}），当前显示 ${summaryFreshness.lastSuccessAt ? new Date(summaryFreshness.lastSuccessAt).toLocaleTimeString() : "上次"} 的数据，正在自动重试。`
+              : `任务列表刷新失败（${tasksError}），正在自动重试。`}
           </div>
         )}
       </header>
