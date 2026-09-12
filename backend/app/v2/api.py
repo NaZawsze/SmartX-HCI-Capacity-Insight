@@ -411,8 +411,6 @@ class ReportGrowthItemModel(BaseModel):
     sample_span_days: Optional[float] = None
     window_start_at: Optional[str] = None
     window_end_at: Optional[str] = None
-    age_days: Optional[float] = None
-    first_seen_at: Optional[str] = None
 
 
 class ClusterGrowthRateModel(BaseModel):
