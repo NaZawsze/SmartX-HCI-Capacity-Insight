@@ -33,11 +33,10 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 | --- | --- | --- | --- |
 | 14 | 移除 v1 死代码（约 4800 行） | Phase 49-10 | app/main.py、app/api/、app/services/ 等；删除前回归 v1 迁移包兼容 |
 | 15 | 拆分巨型文件 | Phase 49-10 | export.py 3720 行、upgrade/service.py 1791 行、api.py 1112 行、ServicePage.tsx 2305 行 |
-| 16 | 复制粘贴 helper 收敛 | Phase 49-10 | `_vm_key` x5、`_cluster_key` x6、`_int_or_none` 等收敛公共模块 |
-| 17 | API 增加响应模型 | Phase 49-10 | Pydantic response_model，替代前端 normalize 兜底 |
-| 18 | tasks 轮询等静默吞错清理 | Phase 49-9 残留 | summary 路径已完成；其余 `catch(() => undefined)` 路径改可感知提示 |
-| 19 | v2 CORS 收紧回白名单 | Phase 49-10 | 去掉 `allow_origins=["*"]` + credentials 组合 |
-| 20 | 低优增强 | Phase 13/14/16 | Excel 图表精修、AI 措辞层、task-worker 第 6 容器评估 |
+| 16 | API 增加响应模型 | Phase 49-10 | Pydantic response_model，替代前端 normalize 兜底 |
+| 17 | 低优增强 | Phase 13/14/16 | Excel 图表精修、AI 措辞层、task-worker 第 6 容器评估 |
+
+P3 其余项（helper 收敛、静默吞错清理、CORS 收紧）已于 2026-09-12 完成并验证，见文末"已完成"与 progress.md。
 
 ## 已完成（2026-09-12，备查）
 
@@ -52,6 +51,10 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 - Phase 31 增长速率算法：核对确认后端三窗口（日/月/季）、前端三行卡片、Word/Excel 口径、单测均已落地（历史实现未更新状态）；findings 旧口径已修正；.3 真实数据验证三窗口输出与样本标记。
 - 预计耗尽算法增强：`forecast_series` 新增 smoothed_slope_per_day / exhaustion_days_30d / recent_day_delta / spike_detected；Dashboard 风险行与报表预测行优先 30d 稳健口径并提示"近 24 小时增长异常"；.3 真实数据验证（spike=True 正确识别当日突增）。
 - TowerForm 组件抽取：创建/编辑表单共用 TowerForm.tsx（表单状态类型、分区、采集/重试字段、payload 归一化），SettingsPage 收敛到 190 行；DashboardPage fallback 类型补齐新字段后 tsc 通过、16 tests 通过、容器强制重建。
+- P3 卫生批次（commit d12028c，设计 p3-hygiene-batch-design.md）：
+  - helper 收敛：series.py 规范 cluster_key/vm_key（四处副本删除）；parsing.int_or_none（database/migration 合并，语义不同者保留并注释）；export.py 字符串键变体保留。
+  - 静默吞错：任务列表刷新失败进数据状态横幅（App tasksError 状态）；即发即忘类保留。
+  - CORS：默认不挂中间件（同源部署无需），SMARTX_CORS_ORIGINS 显式白名单才启用；.3 的 .env 遗留 `SMARTX_CORS_ORIGINS=*` 已清理，实测 0 个 access-control 头、同源代理正常。
 - P2 批次（commit 235f905+82e31c5，设计 p2-ops-batch-design.md）：
   - 基线产物化：`scripts/capture_baseline.py` capture/verify 闭环；.3 真机验证（vm_volumes 89636 行、SHA/integrity/counts 全过；错误路径防御拦截旧残留 /data/smartx.db）。
   - 数据新鲜度告警：DataQualityService 自适应阈值（2×最小采集周期，env 可覆盖）+ Prometheus 样本滞后 >15 分钟检查，进入既有"数据质量需关注"通道。

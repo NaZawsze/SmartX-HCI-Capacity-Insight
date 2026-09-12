@@ -1373,7 +1373,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 
 - [ ] SQLite 治理：为 vm_latest/vm_volumes/collection_runs/tasks 按查询列建索引；连接开启 WAL 与 busy_timeout（web-api 与 collector-worker 双进程并发）。
 - [ ] 移除 v1 死代码：app/main.py、app/api/、app/services/、app/collector/、app/core/、app/db.py、app/models.py（约 4800 行，v2 与 runner 零引用）；删除前回归确认 v2 migration 的 v1 迁移包兼容不依赖旧模块。
-- [ ] v2 CORS 收紧回 settings 白名单，去掉 allow_origins=["*"] + credentials 组合。
+- [x] v2 CORS 收紧（2026-09-12）：默认不挂 CORS 中间件，SMARTX_CORS_ORIGINS 白名单显式启用；.3 .env 遗留 * 已清理。
 - [ ] 拆分巨型文件：reports/export.py（Word/Excel 分离）、upgrade/service.py、v2/api.py（按域拆 router）；前端 ServicePage.tsx 按升级中心/服务管理/清理/迁移拆组件。
 - [ ] 收敛复制粘贴 helper（_vm_key x6、_cluster_key x6、_number 等）到公共模块。
 - [ ] worker 采集重试从 time.sleep 改为调度器排期，避免阻塞线程并推迟数据质量检查。

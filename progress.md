@@ -6960,3 +6960,23 @@ release_smoke=critical 0, warning 0
 
 - 采集中断后 worker 重启丢失未执行重试 job 属设计取舍（下次计划采集全量重试）。
 - prometheus 目录复制为 live copy（head block 可能变化），manifest 已标注；如需强一致可后续接 snapshot API。
+
+## 2026-09-12 P3 卫生批次（helper 收敛 / 吞错清理 / CORS 收紧）
+
+### 实施（commit d12028c + 73270df，设计 p3-hygiene-batch-design.md）
+
+- helper 收敛：`metrics/series.py` 新增规范 cluster_key/vm_key，dashboard/vms/reports/data_quality 四处副本删除改导入；`parsing.py` 新增 int_or_none 合并 database/migration 同语义副本；export.py 字符串键变体与 collection/client 差异变体保留并注释原因。
+- 吞错清理：任务列表刷新失败进入数据状态横幅（App tasksError → AppLayout tasksError）；ServicePage 版本号等即发即忘类保留。
+- CORS：v2 默认不挂 CORS 中间件（同源 nginx 代理部署无需），`SMARTX_CORS_ORIGINS` 显式白名单才启用；单测覆盖默认无中间件/配置后 allow_origins。
+
+### 过程问题与修复
+
+- 本地无 fastapi：CORS 测试加环境跳过。
+- .3 项目 .env 有历史遗留 `SMARTX_CORS_ORIGINS=*`（显式配置会挂中间件）：已从 .env 移除并重启验证。
+- 教训重演两次并记录：`docker compose build | tail`/grep 过滤会吞掉构建失败（一次 tsc error TS2304 未被察觉、容器未重建）；后改用显式 tsc 检查 + `up -d --force-recreate`；本地 python3.9 缺 fastapi/apscheduler 时用环境跳过。
+
+### 验证（10.20.11.3）
+
+- 后端 51 tests（CORS/SeriesKeys 新用例在内）通过。
+- CORS 实测：重建后带 Origin 请求 0 个 access-control 头；同源代理 8000/8080 健康检查正常。
+- 前端重建 + force-recreate 后 73 tests 全过。
