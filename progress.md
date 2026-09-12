@@ -6798,3 +6798,27 @@ release_smoke=critical 0, warning 0
 - 验证残留清理：删除测试产生的 collection_runs 59/60（failed）；任务中心无采集异常残留；一次性容器已移除。
 - 未完成项：生产现场 `/api/dashboard/summary` 只读定位（待现象复现）；容量阈值 payload 下发、`_day_bounds` 时区统一、tasks 轮询静默吞错清理（Phase 49-9 遗留）。
 - 未做真实浏览器 UI 点击验证；前端行为由组件测试覆盖，建议用户在浏览器抽查横幅与"未启用采集"提示。
+
+## 2026-09-12 采集频率 UI 接入修订与端到端验证
+
+### 背景
+
+用户验收指出采集间隔只在 env 层，UI 看不到；排查发现 Tower 设置页"每日采集时间"字段历史上只写库、调度器从未读取（死字段）。按流程补设计（设计文档 4.1 修订节）后实施（commit a570e18）。
+
+### 实施
+
+- `towers` 新增 `collection_interval_minutes`（迁移回填取 env，默认 60；0 = 使用本 Tower 每日采集时间）。
+- Tower API 创建/更新/响应全链路携带该字段；SettingsPage 创建/编辑表单新增"采集间隔 - 分钟"输入与说明文案。
+- worker 移除全局单一采集 job，改为 60s `collection-schedule-sync`：按启用 Tower 维护 `collect-tower-<id>` 任务（interval>0 用 interval 触发器，=0 用该 Tower 每日 cron），执行 `run_manual_collection(trigger="scheduled", target_filter=该 Tower 启用集群)`。
+
+### 验证证据（10.20.11.3，commit a570e18 部署）
+
+- 单测：`test_v2_collection_schedule_sync` 3 项（interval 任务、0=每日 cron、不变不重建/停用移除）+ 既有回归通过。
+- 三镜像重建、服务 recreate、健康检查通过（ok=true / 8080=200 / Prometheus healthy）。
+- 端到端：将 Tower 间隔临时设为 1 分钟（因无 .3 管理员凭据，经 DB 直改并如实记录；UI 字段由组件与构建覆盖）→ worker 调度同步后真实触发 scheduled 采集 run 61（11:16:44 启动，68 秒后 success，凭据链路完整）→ 恢复 60 分钟后不再连发。
+- 验证后状态：`collection_interval_minutes=60`，run 61 为真实成功采集，予以保留。
+
+### 遗留
+
+- 用户需在浏览器硬刷新（前端镜像已重建）查看 Tower 设置页新字段。
+- `SMARTX_COLLECTION_HOUR/MINUTE/INTERVAL_MINUTES` env 保留为迁移回填默认，运行时不再驱动调度（deployment.md 已更新）。

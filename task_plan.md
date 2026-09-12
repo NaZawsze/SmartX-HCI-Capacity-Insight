@@ -1346,7 +1346,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
   - [x] 前端 summary 刷新失败/超时显示"数据截至 HH:mm，刷新失败"提示；fetch 加 30s 超时（AbortController）。
   - [x] 后端总览 summary 提速：以 60s TTL 缓存 + 最新采集 run id 失效实现（设计允许的缓存方案，未拆分接口）。
   - [x] `_in_enabled_scope` 空集 fail closed；cluster scope 未启用集群显示"未启用采集"提示（dashboard/vms/reports 三处统一 `app/v2/scope.py`）。
-  - [x] 容量相关采集频率从每天一次提高：`SMARTX_COLLECTION_INTERVAL_MINUTES` 默认 60，<=0 回退每日 cron。
+  - [x] 容量相关采集频率从每天一次提高并接入 UI：Tower 设置页新增"采集间隔 - 分钟"（`towers.collection_interval_minutes`，默认 60，0 = 使用该 Tower 每日采集时间）；worker 每 60s 同步每 Tower 独立调度；顺带修复"每日采集时间"字段从未接入调度器的遗留问题。
   - [x] 主动容量告警机制：采集完成后按集群检查容量阈值（使用率比率 + 剩余绝对空间），跨阈值生成任务中心 warning/critical 告警（复用 severity 体系，确认去重、升级新建）；Tower 原生告警接入保留为后续增强。
   - [ ] 生产现场定位（只读）：浏览器对比总览页 `/api/dashboard/summary`（无参）请求状态与 `capacity_risk.level`，区分"请求慢/失败"与"数据本身 normal"；待生产现象复现时执行。
 
