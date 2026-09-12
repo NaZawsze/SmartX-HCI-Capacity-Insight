@@ -465,6 +465,78 @@ class ReportResponse(BaseModel):
     timezone: Optional[str] = None
 
 
+
+
+# ---- Batch 4: admin read response models（49-14 批次 4，extra=allow 过渡）----
+
+
+class UpgradeVerificationResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    app_version: Optional[str] = None
+    runner_version: Optional[str] = None
+    prometheus_version: Optional[str] = None
+    compose_file: Optional[str] = None
+    compose_project: Optional[str] = None
+    service_status_error: Optional[str] = None
+    services: list[dict] = []
+    package: Optional[dict] = None
+
+
+class UpgradeVersionResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    version: Optional[str] = None
+
+
+class ComponentVersionResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    component: Optional[str] = None
+    version: Optional[str] = None
+
+
+class MigrationHealthResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    checks: dict = {}
+    message: Optional[str] = None
+    prometheus: Optional[bool] = None
+    sqlite: Optional[bool] = None
+
+
+class LocalStorageResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    path: Optional[str] = None
+    total_bytes: Optional[float] = None
+    used_bytes: Optional[float] = None
+    free_bytes: Optional[float] = None
+    total_label: Optional[str] = None
+    used_label: Optional[str] = None
+    free_label: Optional[str] = None
+    used_ratio: Optional[float] = None
+    free_ratio: Optional[float] = None
+
+
+class CleanupScanResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    ok: Optional[bool] = None
+    message: Optional[str] = None
+    image_count: Optional[int] = None
+    images: list[dict] = []
+    space_reclaimable: Optional[float] = None
+    space_reclaimable_label: Optional[str] = None
+
+
+class AdminTaskResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: Optional[str] = None
+    status: Optional[str] = None
+    progress: Optional[int] = None
+    message: Optional[str] = None
+    detail: Optional[str] = None
+    severity: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    finished_at: Optional[str] = None
+
+
 def get_v2_settings() -> V2Settings:
     return settings_from_environment()
 
@@ -1040,7 +1112,7 @@ def start_migration_export(
     return migration.start_export_task()
 
 
-@router.get("/api/admin/migration/export/status/{task_id}")
+@router.get("/api/admin/migration/export/status/{task_id}", response_model=AdminTaskResponse)
 def migration_export_status(
     task_id: str,
     _: Annotated[CurrentUser, Depends(require_user)],
@@ -1061,7 +1133,7 @@ async def start_migration_import(
     return migration.start_import_task(content, filename=file.filename or "migration.tar.gz", mode=mode, confirmed=confirmed, run_inline=False)
 
 
-@router.get("/api/admin/migration/import/status/{task_id}")
+@router.get("/api/admin/migration/import/status/{task_id}", response_model=AdminTaskResponse)
 def migration_import_status(
     task_id: str,
     _: Annotated[CurrentUser, Depends(require_user)],
@@ -1081,7 +1153,7 @@ async def import_migration(
     return await migration.restore_upload(file, mode=mode, confirmed=confirmed)
 
 
-@router.get("/api/admin/migration/health")
+@router.get("/api/admin/migration/health", response_model=MigrationHealthResponse)
 def migration_health(
     _: Annotated[CurrentUser, Depends(require_user)],
     migration: Annotated[MigrationService, Depends(get_migration_service)],
@@ -1155,7 +1227,7 @@ def delete_inactive_task(
     return {"ok": True, "task_id": task_id}
 
 
-@router.get("/api/admin/system/cleanup-artifacts/scan")
+@router.get("/api/admin/system/cleanup-artifacts/scan", response_model=CleanupScanResponse)
 def scan_cleanup_artifacts(
     _: Annotated[CurrentUser, Depends(require_user)],
     cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
@@ -1163,7 +1235,7 @@ def scan_cleanup_artifacts(
     return cleanup.scan_artifacts()
 
 
-@router.get("/api/admin/system/local-storage")
+@router.get("/api/admin/system/local-storage", response_model=LocalStorageResponse)
 def local_storage_usage(
     _: Annotated[CurrentUser, Depends(require_user)],
     cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
@@ -1171,7 +1243,7 @@ def local_storage_usage(
     return cleanup.local_storage_usage()
 
 
-@router.get("/api/admin/system/sqlite-vacuum/scan")
+@router.get("/api/admin/system/sqlite-vacuum/scan", response_model=CleanupScanResponse)
 def scan_sqlite_vacuum(
     _: Annotated[CurrentUser, Depends(require_user)],
     cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
@@ -1187,7 +1259,7 @@ def sqlite_vacuum(
     return cleanup.vacuum_sqlite()
 
 
-@router.get("/api/admin/system/sqlite-backups/scan")
+@router.get("/api/admin/system/sqlite-backups/scan", response_model=CleanupScanResponse)
 def scan_sqlite_backups(
     _: Annotated[CurrentUser, Depends(require_user)],
     cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
@@ -1212,7 +1284,7 @@ def cleanup_artifacts(
     return cleanup.cleanup_artifacts()
 
 
-@router.get("/api/admin/system/cleanup-images/scan")
+@router.get("/api/admin/system/cleanup-images/scan", response_model=CleanupScanResponse)
 def scan_cleanup_images(
     _: Annotated[CurrentUser, Depends(require_user)],
     cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
@@ -1308,7 +1380,7 @@ def cancel_upgrade_package(
     return upgrade.cancel(task_id)
 
 
-@router.get("/api/admin/upgrade/status/{task_id}")
+@router.get("/api/admin/upgrade/status/{task_id}", response_model=AdminTaskResponse)
 def upgrade_status(
     task_id: str,
     _: Annotated[CurrentUser, Depends(require_user)],
@@ -1317,7 +1389,7 @@ def upgrade_status(
     return upgrade.status(task_id)
 
 
-@router.get("/api/admin/upgrade/history")
+@router.get("/api/admin/upgrade/history", response_model=list[AdminTaskResponse])
 def upgrade_history(
     _: Annotated[CurrentUser, Depends(require_user)],
     upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
@@ -1334,7 +1406,7 @@ def delete_upgrade_package(
     return upgrade.delete_package(task_id)
 
 
-@router.get("/api/admin/upgrade/version")
+@router.get("/api/admin/upgrade/version", response_model=UpgradeVersionResponse)
 def upgrade_version(
     _: Annotated[CurrentUser, Depends(require_user)],
     upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
@@ -1342,7 +1414,7 @@ def upgrade_version(
     return upgrade.version()
 
 
-@router.get("/api/admin/upgrade/verification")
+@router.get("/api/admin/upgrade/verification", response_model=UpgradeVerificationResponse)
 def upgrade_verification(
     _: Annotated[CurrentUser, Depends(require_user)],
     upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
@@ -1350,7 +1422,7 @@ def upgrade_verification(
     return upgrade.verification()
 
 
-@router.get("/api/admin/upgrade/post-cleanup/{task_id}")
+@router.get("/api/admin/upgrade/post-cleanup/{task_id}", response_model=AdminTaskResponse)
 def upgrade_post_cleanup_status(
     task_id: str,
     _: Annotated[CurrentUser, Depends(require_user)],
@@ -1396,7 +1468,7 @@ def start_component_upgrade_package(
     return upgrade.start(task_id, submit_to_runner=task.get("component") != "upgrade-runner")
 
 
-@router.get("/api/admin/component-upgrade/status/{task_id}")
+@router.get("/api/admin/component-upgrade/status/{task_id}", response_model=AdminTaskResponse)
 def component_upgrade_status(
     task_id: str,
     _: Annotated[CurrentUser, Depends(require_user)],
@@ -1414,7 +1486,7 @@ def cancel_component_upgrade_package(
     return upgrade.cancel(task_id)
 
 
-@router.get("/api/admin/component-upgrade/history")
+@router.get("/api/admin/component-upgrade/history", response_model=list[AdminTaskResponse])
 def component_upgrade_history(
     _: Annotated[CurrentUser, Depends(require_user)],
     upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
@@ -1435,7 +1507,7 @@ def delete_component_upgrade_package(
     return upgrade.delete_package(task_id)
 
 
-@router.get("/api/admin/component-upgrade/version")
+@router.get("/api/admin/component-upgrade/version", response_model=ComponentVersionResponse)
 def component_upgrade_version(
     _: Annotated[CurrentUser, Depends(require_user)],
     upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
@@ -1443,7 +1515,7 @@ def component_upgrade_version(
     return upgrade.component_version()
 
 
-@router.get("/api/admin/component-upgrade/components")
+@router.get("/api/admin/component-upgrade/components", response_model=list[dict])
 def component_upgrade_components(
     _: Annotated[CurrentUser, Depends(require_user)],
     upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
