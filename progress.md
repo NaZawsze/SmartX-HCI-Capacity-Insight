@@ -6822,3 +6822,27 @@ release_smoke=critical 0, warning 0
 
 - 用户需在浏览器硬刷新（前端镜像已重建）查看 Tower 设置页新字段。
 - `SMARTX_COLLECTION_HOUR/MINUTE/INTERVAL_MINUTES` env 保留为迁移回填默认，运行时不再驱动调度（deployment.md 已更新）。
+
+## 2026-09-12 采集调度两模式分段切换（用户确认版）
+
+### 决策
+
+- 用户澄清后确认只保留两种模式：每日定时 / 按间隔；"单次采集"经语义澄清（每日定时=每天循环、单次=只执行一次）后用户决定不做，已从设计与实现中移除。
+- 设计更新：tower-settings-ui-design.md §4.2 改为两模式分段开关（segmented control，选中蓝底白字）。
+
+### 实施（commit 6d831e0）
+
+- `towers.collection_mode TEXT`（`daily`/`interval`，迁移按旧 interval_minutes 是否为 0 回填）；interval/每日时间字段语义按模式生效。
+- worker 调度同步按模式生成触发器：daily→cron(hour,minute)；interval→interval（分钟<=0 回落 60）。
+- SettingsPage 创建/编辑表单共用 ScheduleModeFields：分段切换 + time 输入（每日）或间隔输入（按间隔）；CSS 新增 `.schedule-mode-switch` 系列。
+- Tower API 全链路携带 `collection_mode`（pattern 校验）。
+
+### 验证证据（10.20.11.3）
+
+- 单测：schedule sync（interval/daily/不变不重建/停用移除/mode 驱动）+ 相关回归 33 tests OK。
+- 部署后健康检查通过；每日定时模式实测：设 19:38（北京）→ run 62 于 11:38:00 UTC 准时触发、68 秒 success；随后恢复 interval 60（间隔模式此前已由 run 61 验证）。
+- 配置经 DB 直改完成（无 .3 管理员凭据，UI 保存按钮链路由组件与构建覆盖），已如实记录。
+
+### 用户操作
+
+- 浏览器硬刷新 10.20.11.3:8080 → Tower 设置（编辑 CHINATOWER）可见"采集模式：每日定时/按间隔"分段开关。
