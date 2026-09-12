@@ -13,7 +13,7 @@
 
 | # | 事项 | 来源 | 说明 |
 | --- | --- | --- | --- |
-| 4 | compose 镜像 tag .env 覆盖风险（重新立项） | Phase 49-3 | 2026-09-12 尝试源码写死 tag 后回退：build_upgrade_package 依赖占位符做目标版本改写。正确修法=包构建时渲染字面量 tag（详见 p1-infra-batch-design §5），源码模板保留占位符 |
+| 4 | compose 镜像 tag .env 覆盖风险（重新立项） | Phase 49-15 | 设计已定稿：[compose-literal-tags-design](superpowers/specs/2026-09-13-compose-literal-tags-design.md)——包构建时渲染字面量 tag + 反向断言；源码模板保留占位符；同批清理 runner DEFAULT_ENV_LINES 的 CORS 遗留 |
 
 P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite 治理、阈值/时区统一、Tower UI 改版含 TowerForm 抽取）已于 2026-09-12 完成并验证，见文末"已完成"与 progress.md。
 

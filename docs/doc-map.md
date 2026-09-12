@@ -56,6 +56,7 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | [superpowers/specs/2026-09-13-remove-v1-dead-code-design.md](superpowers/specs/2026-09-13-remove-v1-dead-code-design.md) | 移除 v1 死代码设计：删除集/保留集盘点（app.core.config 被构建脚本依赖）、迁移包兼容回归与镜像体积对比。 | task_plan Phase 49 第 12 项 |
 | [superpowers/specs/2026-09-13-split-giant-files-design.md](superpowers/specs/2026-09-13-split-giant-files-design.md) | 拆分巨型文件设计：api.py 域路由包、export.py common/word/excel、upgrade/service Mixin、ServicePage 四域组件。 | task_plan Phase 49 第 13 项 |
 | [superpowers/specs/2026-09-13-api-response-models-design.md](superpowers/specs/2026-09-13-api-response-models-design.md) | API 响应模型分批落地设计：五批推进、模型描述现状、金样本对比与回滚。 | task_plan Phase 49 第 14 项 |
+| [superpowers/specs/2026-09-13-compose-literal-tags-design.md](superpowers/specs/2026-09-13-compose-literal-tags-design.md) | 升级包 compose 字面量 tag 渲染设计：包构建时消除插值、反向断言防回退、runner 默认 env CORS 遗留清理。 | task_plan Phase 49 第 15 项 |
 
 ## 5. 升级链路专项文档
 
