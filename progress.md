@@ -7063,3 +7063,10 @@ release_smoke=critical 0, warning 0
 - 工作区干净；49-16 的一次未提交草稿（dashboard kpis/latest_run 草稿）已回退，下一个 AI 从干净状态按设计实施。
 - 交接入口：docs/ai-handoff-guide.md（环境/提交策略/测试基线/陷阱清单/设计索引）+ 三份待实施设计中 49-16 为下一项（49-13 在其后）。
 - 本会话完成并验证：P0 外的全部高优任务（容量告警、总览时效、采集调度两模式、SQLite 治理、阈值/时区统一、Phase 31 核对、预计耗尽稳健预测、Tower UI 改版、v1 死代码移除、helper 收敛、吞错清理、CORS 收紧、基线产物化、新鲜度告警、重试调度化、响应模型批次 1-4、compose tag 收尾）。
+
+## 2026-09-13 49-16 前后端契约对齐完成（49-14 批次 5）
+
+- 后端（dashboard/vms service）：summary 新增 kpis/latest_run/top_vms/tower_runs（纯增量，既有键保留）；growth/new-vm/clusters/vms 列表 item 新增 metric（字符串化）+ value + previous_value。
+- 前端：删除 normalizeDashboardSummary/normalizeMetricItem/normalizeCapacityRisk（兼容层使命完成）；保留 normalizeVmTrend（真转换）。
+- 验证：.3 金样本对比——既有 9 键全保留 + 新增 4 键；kpis 数值正确（vm_count 244）；latest_run 从 collection 推导；item metric/value/previous_value 到位；前端 tsc 干净 + 55 tests 通过；全量 317 tests 回到 10 已知环境性错误基线，零回归。
+- 修复：kpis vm_count 方法名笔误（_latest_vm_items → _latest_vms_from_database）。
