@@ -80,6 +80,7 @@
 | --- | --- | --- |
 | 49-13 拆分巨型文件 | [specs/2026-09-13-split-giant-files-design.md](superpowers/specs/2026-09-13-split-giant-files-design.md)（含附录 A 函数映射清单） | 顺序：api.py → ServicePage → export.py → upgrade/service.py |
 | 49-14 API 响应模型 | [specs/2026-09-13-api-response-models-design.md](superpowers/specs/2026-09-13-api-response-models-design.md)（含附录 B 契约脚本规格） | 五批；先于 49-13 的 api 拆分会导致冲突，二选一先做或协调 |
-| 49-15 compose 字面量 tag | [specs/2026-09-13-compose-literal-tags-design.md](superpowers/specs/2026-09-13-compose-literal-tags-design.md)（含附录 C 逐条命令） | 最小任务，可独立先行 |
+| 49-15 compose 字面量 tag | [specs/2026-09-13-compose-literal-tags-design.md](superpowers/specs/2026-09-13-compose-literal-tags-design.md) | ✅ 已完成（2026-09-13，见 progress.md） |
+| 49-16 前后端契约对齐 | [specs/2026-09-13-contract-alignment-design.md](superpowers/specs/2026-09-13-contract-alignment-design.md) | 49-14 批次 5；后端补发 kpis/latest_run/top_vms/tower_runs（纯增量）+ item 加 metric/value，前端删 normalizer。**实施未开始**（一次未提交的草稿已回退，从干净状态起步） |
 
-> 49-13（api.py 拆分）与 49-14（响应模型）都会动 `app/v2/api.py`——**不要并行实施**；建议先 49-15 → 49-14 批次 1-2 → 49-13（此时 api.py 已带模型再拆文件）或先 49-13 再 49-14，二选一但需串行。
+> 串行约束：49-14 批次 1-4 已完成（响应模型已在 api.py）；49-16（前端删 normalizer + 后端补字段）与 49-13（api.py 拆文件）都动 api 相关代码——**先 49-16 后 49-13**（契约对齐后再拆文件，避免二次冲突）。
