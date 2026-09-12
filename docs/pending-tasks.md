@@ -29,12 +29,11 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 
 | # | 事项 | 来源 | 说明 |
 | --- | --- | --- | --- |
-| 14 | 移除 v1 死代码（约 4800 行） | Phase 49-12 | 设计已定稿：[remove-v1-dead-code-design](superpowers/specs/2026-09-13-remove-v1-dead-code-design.md)；实施中 |
-| 15 | 拆分巨型文件 | Phase 49-10 | export.py 3720 行、upgrade/service.py 1791 行、api.py 1112 行、ServicePage.tsx 2305 行 |
-| 16 | API 增加响应模型 | Phase 49-10 | Pydantic response_model，替代前端 normalize 兜底 |
-| 17 | 低优增强 | Phase 13/14/16 | Excel 图表精修、AI 措辞层、task-worker 第 6 容器评估 |
+| 14 | 拆分巨型文件 | Phase 49-10 | export.py 3720 行、upgrade/service.py 1791 行、api.py 1112 行、ServicePage.tsx 2305 行；建议逐文件单独立项 |
+| 15 | API 增加响应模型 | Phase 49-10 | Pydantic response_model，替代前端 normalize 兜底 |
+| 16 | 低优增强 | Phase 13/14/16 | Excel 图表精修、AI 措辞层、task-worker 第 6 容器评估 |
 
-P3 其余项（helper 收敛、静默吞错清理、CORS 收紧）已于 2026-09-12 完成并验证，见文末"已完成"与 progress.md。
+P3 其余项（v1 死代码移除、helper 收敛、静默吞错清理、CORS 收紧）已于 2026-09-12/13 完成并验证，见文末"已完成"与 progress.md。
 
 ## 已完成（2026-09-12，备查）
 

@@ -1375,7 +1375,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [ ] 移除 v1 死代码：app/main.py、app/api/、app/services/、app/collector/、app/core/、app/db.py、app/models.py（约 4800 行，v2 与 runner 零引用）；删除前回归确认 v2 migration 的 v1 迁移包兼容不依赖旧模块。
 - [x] v2 CORS 收紧（2026-09-12）：默认不挂 CORS 中间件，SMARTX_CORS_ORIGINS 白名单显式启用；.3 .env 遗留 * 已清理。
 
-### 12. 移除 v1 死代码 [设计完成，实施中]
+### 12. 移除 v1 死代码 [已完成 2026-09-13]
 
 设计文档：[docs/superpowers/specs/2026-09-13-remove-v1-dead-code-design.md](docs/superpowers/specs/2026-09-13-remove-v1-dead-code-design.md)。
 

@@ -6986,3 +6986,22 @@ release_smoke=critical 0, warning 0
 - 用户确认：dev2 默认只在本地提交，推送到 origin 必须明确要求；AGENTS.md 第 4 节与 task_plan 提交策略已更新（AGENTS.md 因含凭据不入库，修订保留在本地文件）。
 - 远端回退：origin/dev2 已 force push 回退到今日起点 6cab976，移除今天全部自动推送的提交；本地 dev2 保留全部已完成并验证的工作（领先远端），后续由用户决定何时推送。
 - 同步方式说明：向 .3 同步验证代码用 git archive 打包本地提交内容，不依赖推送。
+
+## 2026-09-13 移除 v1 死代码（Phase 49-12）
+
+### 实施（commit 5b0ab9f 设计 + 2945a83 删除，设计 remove-v1-dead-code-design.md）
+
+- 删除 v1 专属模块约 4800 行：app/main.py、app/api/、app/services/、app/collector/、app/db.py、app/models.py、app/cli.py、app/upgrade/、app/core/security.py、app/core/vm_volumes.py，及 5 个 v1 专项测试（test_dashboard/test_data_migration/test_security/test_upgrade/test_forecast）。
+- 保留：app/core/config.py（build_upgrade_package.py 与 verify_upgrade_package_identity.py 依赖）、app/upgrade_protocol/、app/upgrade_runner/、app/v2/。
+- 附带修复：worker 重试的 metrics 合并基准错误——改为"service 调用前捕获旧快照、调用后合并保存"（否则重试会覆盖首采样本、per-tower 会覆盖其他 Tower 样本）；旧重试测试恢复通过，新增 5 个 worker 管道测试。
+
+### 验证（10.20.11.3）
+
+- 残余引用 grep 为空；本地 314 tests、远端 317 tests 均只剩已知环境性错误（10 个），零回归。
+- 四镜像重建 + 五容器健康；镜像体积基本持平（417/157/224/49.7MB，死代码仅约 200KB 源码）——体积收益不显著已如实记录，实际收益为维护一致性与攻击面收敛。
+- 运维教训：.3 为 tar 解压同步（不删除文件），删除型变更后必须手工清理残留（本次清理 v1 测试与源码残留）。
+
+### 流程说明
+
+- 过程中曾先删后立项，被用户指出后补齐 task_plan 立项与设计文档并拆分提交（设计 5b0ab9f 先于实现 2945a83）。
+- 提交均为本地（按 2026-09-13 新提交策略），未推送。
