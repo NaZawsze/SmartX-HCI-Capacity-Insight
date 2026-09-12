@@ -1,53 +1,50 @@
-# 升级包 compose 字面量 tag 渲染设计（Phase 49-3 修正案，任务 49-15）
+# 升级包 compose 字面量 tag——核实结论与收尾设计（Phase 49-3 修正案，任务 49-15）
 
 更新时间：2026-09-13
-状态：设计完成，待实施
-关联：task_plan.md Phase 49 第 15 项；docs/pending-tasks.md P1 #4；前次尝试与回退见 p1-infra-batch-design §5
+状态：设计完成，待实施（范围已缩小：以验证与一致性收尾为主，无管线代码改动）
+关联：task_plan.md Phase 49 第 15 项；docs/pending-tasks.md P1 #4；p1-infra-batch-design §5（前次回退记录）
 
-## 1. 机制现状（2026-09-13 读码确认）
+## 1. 核实结论（2026-09-13 读码 + 测试证据）
 
-升级包构建的版本渲染链路（`scripts/build_upgrade_package.py`）：
+升级包管线**已经**渲染字面量 tag：
 
-1. `temporary_image_version_metadata(version)` 临时改写源文件到目标包版本：VERSION/RUNNER_VERSION、config DEFAULT 常量、README、**四个 compose 的 `SMARTX_IMAGE_TAG:-<默认>` 占位符默认值**（`_replace_compose_version_tags`，保留 `${...}` 插值形态），构建后恢复。
-2. `_assert_project_files_match_version(version, project_dir)` 断言包内 project compose 含 `:<version>`（旧版本包还断言 runner `:v0.3.0` 与 legacy project/network 标识）。
-3. `check_versions(version)` 发布门禁：断言**源码** compose 占位符默认值与仓库 VERSION/RUNNER_VERSION 一致（"Version metadata OK"）。
+- `scripts/build_upgrade_package.py::_render_packaged_compose_tags`（约 853 行）将源码模板的
+  `${SMARTX_IMAGE_PREFIX:-nazawsze}/…:${SMARTX_IMAGE_TAG:-v0.5.2}` 渲染为 `nazawsze/…:v0.5.2` 字面量（runner 同理）；
+- builder 测试的 `assertNotIn("SMARTX_IMAGE_TAG", compose_text)`（test_v2_package_builders.py:238/372/1047）远端通过即为证据；
+- 升级链路另有防护：`upgrade_runner/actions.py` 升级时从目标 .env 剥离 `SMARTX_IMAGE_TAG/RUNNER_IMAGE_TAG/APP_VERSION/RUNNER_VERSION`（IMAGE_TAG_ENV_KEYS）。
 
-风险（Phase 49-3）：包内 project compose 渲染后仍是 `${SMARTX_IMAGE_TAG:-v0.5.1u2}`——现场 `.env` 或 shell 环境携带旧 tag 时，手工 `docker compose up` 会静默跑错版本。升级链路本身已有防护（`upgrade_runner/actions.py:364` `IMAGE_TAG_ENV_KEYS` 会在升级时从目标 .env 剥离这四个变量），剩余风险面即手工操作场景。
+**因此"升级包内 compose 被现场 .env 覆盖"的风险不成立**，无需管线代码改动。上一轮"源码写死 tag"失败的原因也已完全解释：占位符是 `_render_packaged_compose_tags` 正则的匹配锚点，写死后 v0.5.1u2 等旧版本包渲染不出 `:v0.5.1u2`，断言失败。
 
-前次教训：源码 compose 写死字面量会破坏 1/2 两个环节（占位符是改写与断言的锚点），已回退。
+剩余的真实风险面（很小）：
 
-## 2. 方案：包构建时渲染字面量 tag
+1. **源码直连部署**（git clone + `docker compose up`）时，`.env` 或 shell 的旧 `SMARTX_IMAGE_TAG` 仍会生效——现有缓解：`check_versions` 源码门禁、deployment.md 警告、runner 升级时剥离。可加一道低成本防呆警告。
+2. 前次实施遗留的两个真实问题（本设计收尾）：
+   - `upgrade_runner/actions.py DEFAULT_ENV_LINES` 仍含 `SMARTX_CORS_ORIGINS=*`，与 P3 CORS 收紧矛盾（runner 给新部署写默认 .env 会把 `*` 带回来）；
+   - 需要一次**真机证据**：构建真实包并确认渲染产物零插值（把"已安全"从推断变成记录在案的验证）。
 
-- **`_replace_compose_version_tags` 末尾追加字面量化两步**（该函数同时服务于临时源文件与包内 project 文件）：
+## 2. 实施项
 
-  ```python
-  text = re.sub(r"\$\{SMARTX_IMAGE_TAG:-([^}]+)\}", r"\1", text)
-  text = re.sub(r"\$\{SMARTX_RUNNER_IMAGE_TAG:-([^}]+)\}", r"\1", text)
-  ```
+| # | 内容 | 类型 |
+| --- | --- | --- |
+| 1 | 真机证据：容器内构建 v0.5.2 全量包与 v0.5.1u2 桥包，grep 包内三个 compose——断言零 `${SMARTX_IMAGE_TAG`/`${SMARTX_RUNNER_IMAGE_TAG`，且含 `:v0.5.2`/`:v0.5.1u2`、runner `:v0.3.1`/`:v0.3.0` | 验证 |
+| 2 | `upgrade_runner/actions.py DEFAULT_ENV_LINES` 移除 `SMARTX_CORS_ORIGINS=*` 行（与 CORS 收紧对齐）；对应 runner 测试如有断言默认 env 内容需同步 | 代码（小） |
+| 3 | `check_versions()` 增加防呆：检测到仓库 `.env` 定义 `SMARTX_IMAGE_TAG/RUNNER_IMAGE_TAG` 时打印警告"源码部署勿在 .env 固定镜像 tag，将被忽略/导致版本漂移"（不阻断） | 代码（小） |
+| 4 | `docs/version-governance.md` 补一段：升级包 compose 为字面量 tag（构建时渲染）；源码部署的 tag 由 VERSION/RUNNER_VERSION 经 compose 占位符默认值决定，.env 不应定义 tag 变量 | 文档 |
 
-  效果：`${SMARTX_IMAGE_TAG:-v0.5.1u2}` → `v0.5.1u2`。临时源文件与包内文件全部变为字面量，任何 .env/shell 环境都无法再覆盖包内版本。
-- **源码模板不动**：保留 `${SMARTX_IMAGE_TAG:-v0.5.2}` 占位符（`check_versions` 源码门禁与开发流程依赖；上一轮回退的原因）。
-- **断言加强**：`_assert_project_files_match_version` 追加反向断言——包内三个 compose **不得包含** `${SMARTX_IMAGE_TAG`/`${SMARTX_RUNNER_IMAGE_TAG`（fail closed，防止未来改动悄悄退回插值形态）。
-- 升级链路的 `IMAGE_TAG_ENV_KEYS` 剥离逻辑保留（纵深防御，覆盖源码直连部署场景）。
+## 3. 测试
 
-## 3. 测试影响
+- builder 现有用例回归（26 个，其中 9 个只读挂载错误为已知基线）。
+- 新增：runner 默认 env 不含 `SMARTX_CORS_ORIGINS` 的断言（actions 相关测试处）。
+- `check_versions` 警告分支单测（临时 .env 注入）。
 
-- 现有 builder 用例中断言包内 compose 含 `SMARTX_IMAGE_TAG:-<版本>` 插值形态的，改为断言字面量 `:<版本>`（`_assert_project_files_match_version` 的既有断言 `:{version}` 天然兼容字面量）。
-- 新增用例：渲染后的包 project compose 不含 `${SMARTX_IMAGE_TAG`/`${SMARTX_RUNNER_IMAGE_TAG`。
+## 4. 验收
 
-## 4. 相关一致性修复（同批）
+- [ ] .3 真机构建两包，渲染产物 grep 证据入 progress.md。
+- [ ] runner 默认 env 与 CORS 收紧一致。
+- [ ] version-governance 文档更新。
+- [ ] 全量回归零新失败。
+- 完成后 P1 #4 关闭（结论：管线已安全，收尾验证与文档化）。
 
-- `upgrade_runner/actions.py` `DEFAULT_ENV_LINES` 仍含 `SMARTX_CORS_ORIGINS=*`，与 P3 CORS 收紧（默认同源、白名单显式配置）矛盾：从默认行中移除；跨域部署按 deployment.md 显式追加。
+## 5. 回滚
 
-## 5. 验证
-
-1. 容器内运行 builder 全部用例（含新增断言）。
-2. 真实构建两个包并检查渲染产物：
-   - v0.5.2 全量包：包内三个 compose 无 `${SMARTX_IMAGE_TAG`/`${SMARTX_RUNNER_IMAGE_TAG`，含 `:v0.5.2` 与 runner `:v0.3.1`；
-   - v0.5.1u2 桥包：含 `:v0.5.1u2` 与 runner `:v0.3.0`（legacy 标识断言不变）。
-3. `check_versions` 源码门禁通过（Version metadata OK）。
-4. 构建出的包走一次升级中心上传 + 预检查（API 层即可），确认包解析不受字面量影响。
-
-## 6. 回滚
-
-单提交 revert。
+单提交 revert（涉及 actions.py/check_versions/文档）。
