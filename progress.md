@@ -6863,3 +6863,17 @@ release_smoke=critical 0, warning 0
 
 - 前端镜像重建成功（Dockerfile 内含 tsc/vite build），frontend 8080 返回 200。
 - SettingsPage 目标测试通过；用户浏览器硬刷新后目视验收（待用户确认）。
+
+## 2026-09-12 前端风格规范文档与凭据入库事故处置
+
+### 新增
+
+- 新增 `docs/frontend-style-guide.md`：`:root` 设计变量表、6/8px 圆角与阴影规则、按钮/输入/checkbox/分段开关规格、状态色语义、布局模式、AI 写 UI 的硬性规则（颜色只用变量、分区式表单、改动必跑测试与构建）。
+- 关联：AGENTS.md 开发流程第 2 步要求 UI 任务遵循该规范；v2-frontend-design.md 与 tower-ui 设计文档头部加链接；doc-map 收录。
+- `AGENTS.md` 加入 `.gitignore`（它含测试机凭据，永不入库）。
+
+### 事故记录：AGENTS.md 曾被提交并推送
+
+- commit 15f6bf5 误将含测试机密码的 AGENTS.md 提交并推送到 origin/dev2。
+- 处置：`git rm --cached` + `.gitignore` + amend 后 force push（远端 dev2 现指向 f9bc728，不再包含该文件）。
+- 残留风险：旧提交对象在 GitHub 服务端可能仍可按 SHA 访问（未被 GC 前）。凭据为本机测试机密码，是否轮换由用户决定；若轮换，需同步更新本地 AGENTS.md。
