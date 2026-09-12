@@ -42,3 +42,33 @@
 
 - 风险：response_model 序列化会**剔除未声明字段**，若模型遗漏实际返回字段则前端拿不到数据。缓解：批次内金样本对比 + `extra="allow"` 过渡 + 前端测试全绿才部署。
 - 回滚：单批单提交，revert 即恢复。
+
+
+## 附录 B：契约校验脚本规格与 normalize 清理映射
+
+### B.1 `scripts/check_response_contract.py`（批次 2 起使用，随批次 2 一并提交）
+
+- 仅标准库 + httpx（容器内已有）。
+- 用法：`python scripts/check_response_contract.py save --base http://127.0.0.1:8000 --token <TOKEN> --out contracts/`；
+  `python scripts/check_response_contract.py diff --base ... --token ... --dir contracts/`
+- save：对 `--endpoints` 清单逐个 GET（带 Bearer），响应 JSON 原样存 `contracts/<slug>.json`。
+- diff：重新拉取，与存档做**结构对比**（递归比较键集与值类型；数值只比较类型不比较值；列表比较长度模式与首元素结构），差异打印退出码 1。
+- 端点清单与 .3 登录凭据由执行者按 AGENTS.md 获取（管理员账号）。
+- `contracts/` 加入 .gitignore。
+
+### B.2 前端 normalize 清理映射（批次 5）
+
+| api.ts 函数 | 覆盖端点 | 清理动作 |
+| --- | --- | --- |
+| normalizeDashboardSummary | GET /api/dashboard/summary | 批次 2 模型落地后删除；capacityRisk 的 usedRatio 兜底、cluster_growth_rate_per_day 兼容分支同步删 |
+| normalizeMetricItem | clusters/day_fastest_growing_vms/top_vms | 同上 |
+| normalizeCapacityRisk | capacity_risk 字段 | 同上 |
+| 其余 normalize* | 对应批次 | 各自批次内删 |
+
+每个删除点必须同步更新引用它的前端测试断言（改为真实结构）。
+
+### B.3 模型字段来源
+
+- DashboardSummary 嵌套结构的字段清单以 `frontend/src/types.ts` 的 `DashboardSummary`/`capacity_risk`/`scope` 定义 + 后端 `DashboardService._build_summary` 返回键为准（两者已在 2026-09-12 对齐：含 thresholds/evaluated_at/cluster_enabled）。
+- 报表 payload 以 `ReportService.latest_report` 返回键为准（含 cluster_growth_rate 三窗口与 forecast 稳健字段）。
+- 类型不一致处（前端有、后端无）记入 findings.md 契约漂移清单，逐条裁决。

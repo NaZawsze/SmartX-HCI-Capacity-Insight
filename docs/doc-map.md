@@ -89,6 +89,7 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | 文档 | 说明 |
 | --- | --- |
 | [pending-tasks.md](pending-tasks.md) | 全项目未完成任务清单（按 P0~P3 优先级），快照式索引；逐项口径以 task_plan.md 各 Phase 为准。 |
+| [ai-handoff-guide.md](ai-handoff-guide.md) | AI 交接执行手册：.3 操作、提交策略、测试基线、陷阱清单、待实施设计索引。交接实施前必读。 |
 
 ## 8. 编号体系说明
 
