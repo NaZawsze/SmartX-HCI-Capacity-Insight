@@ -80,7 +80,13 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | [ova-delivery.md](ova-delivery.md) | OVA 交付说明：OVA 模板与升级包、迁移包的边界。 | — |
 | [project-progress-2026-08-12.md](project-progress-2026-08-12.md) | 阶段性项目进度摘要（对外可读）。 | — |
 
-## 7. 编号体系说明
+## 7. 未完成任务队列
+
+| 文档 | 说明 |
+| --- | --- |
+| [pending-tasks.md](pending-tasks.md) | 全项目未完成任务清单（按 P0~P3 优先级），快照式索引；逐项口径以 task_plan.md 各 Phase 为准。 |
+
+## 8. 编号体系说明
 
 项目存在三套并行编号，查阅时注意区分：
 
@@ -88,6 +94,6 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 - **UPG-xxx（升级问题/修复编号）**：UPG-001 起记录在 [upgrade-issues.md](upgrade-issues.md)；UPG-031~048 为升级链路修复，记录在 [upgrade-chain-worklog.md](v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)。
 - **Phase V2-x（v2 重建子阶段）**：定义在 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)（V2-0 ~ V2-9）。
 
-## 8. 资产
+## 9. 资产
 
 `docs/assets/` 保存 README 使用的界面截图（dashboard-overview、forecast-report、tower-settings、vm-storage-trend）。

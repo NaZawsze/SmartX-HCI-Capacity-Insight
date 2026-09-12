@@ -45,7 +45,7 @@ docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
 
 ## Phase 与任务设计文档对照
 
-全部文档的一页式地图见 [docs/doc-map.md](docs/doc-map.md)。本节回答"某个 Phase 的设计/归档在哪"。
+全部文档的一页式地图见 [docs/doc-map.md](docs/doc-map.md)。未完成任务的优先级队列视图见 [docs/pending-tasks.md](docs/pending-tasks.md)。本节回答"某个 Phase 的设计/归档在哪"。
 
 编号体系说明：
 
