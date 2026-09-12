@@ -74,6 +74,36 @@ class DashboardService:
             "warning_ratio": CAPACITY_WARNING_RATIO,
             "danger_ratio": CAPACITY_DANGER_RATIO,
         }
+        collection_payload = self._latest_collection()
+        total_bytes = sum(float(cluster.get("total_bytes") or 0) for cluster in clusters)
+        used_bytes = sum(float(cluster.get("used_bytes") or 0) for cluster in clusters)
+        kpis = {
+            "tower_count": len(towers),
+            "cluster_count": len(clusters),
+            "vm_count": len(self._latest_vm_items(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)),
+            "used_bytes": used_bytes,
+            "total_bytes": total_bytes,
+            "used_ratio": used_bytes / total_bytes if total_bytes > 0 else 0.0,
+        }
+        latest_run = (
+            {
+                "id": 0,
+                "started_at": "",
+                "finished_at": collection_payload.get("last_success_at"),
+                "status": collection_payload.get("status") or "unknown",
+                "message": collection_payload.get("message"),
+            }
+            if collection_payload
+            else None
+        )
+        for cluster in clusters:
+            cluster["metric"] = {
+                "tower_id": str(cluster["tower_id"]),
+                "cluster_id": str(cluster["cluster_id"]),
+                "cluster": str(cluster["name"]),
+                "cluster_name": str(cluster["name"]),
+            }
+            cluster["value"] = cluster["used_bytes"]
         return {
             "scope": {
                 "tower_id": tower_id,
@@ -83,11 +113,15 @@ class DashboardService:
             "capacity_risk": capacity_risk,
             "totals": self._totals(tower_id=tower_id, cluster_id=cluster_id),
             "storage": self._storage(clusters),
-            "collection": self._latest_collection(),
+            "collection": collection_payload,
             "day_fastest_growing_vms": day_fastest_growing_vms,
             "day_new_vms": self._day_new_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope),
             "clusters": clusters,
             "towers": [_tower_payload(tower) for tower in towers],
+            "kpis": kpis,
+            "latest_run": latest_run,
+            "top_vms": day_fastest_growing_vms,
+            "tower_runs": [],
         }
 
     def _cluster_enabled(self, *, tower_id: int | None, cluster_id: str | None) -> bool | None:
@@ -328,16 +362,26 @@ class DashboardService:
             growth = points[-1][1] - points[0][1]
             if growth <= 0:
                 continue
+            vm_name = names.get(key, str(metric.get("vm_name") or key[2]))
             result.append(
                 {
                     "tower_id": key[0],
                     "cluster_id": key[1],
                     "vm_id": key[2],
-                    "vm_name": names.get(key, str(metric.get("vm_name") or key[2])),
+                    "vm_name": vm_name,
                     "current_bytes": points[-1][1],
                     "previous_bytes": points[0][1],
+                    "previous_value": points[0][1],
                     "growth_amount": growth,
                     "growth_ratio": growth / points[0][1] if points[0][1] > 0 else None,
+                    "metric": {
+                        "tower_id": str(key[0]),
+                        "cluster_id": str(key[1]),
+                        "vm_id": str(key[2]),
+                        "vm": str(vm_name),
+                        "vm_name": str(vm_name),
+                    },
+                    "value": points[-1][1],
                 }
             )
         return sorted(result, key=lambda item: (-float(item["growth_amount"]), item["vm_name"]))[:limit]
@@ -359,14 +403,24 @@ class DashboardService:
             first_ts, first_value = sorted(points)[0]
             if first_ts < start or first_ts > end:
                 continue
+            vm_name = names.get(key, str(metric.get("vm_name") or metric.get("vm") or key[2]))
+            current_bytes = current_values.get(key, points[-1][1] if points else first_value)
             new_vms.append(
                 {
                     "tower_id": key[0],
                     "cluster_id": key[1],
                     "vm_id": key[2],
-                    "vm_name": names.get(key, str(metric.get("vm_name") or metric.get("vm") or key[2])),
-                    "current_bytes": current_values.get(key, points[-1][1] if points else first_value),
+                    "vm_name": vm_name,
+                    "current_bytes": current_bytes,
                     "first_seen_at": datetime.fromtimestamp(first_ts, tz=timezone.utc).isoformat(),
+                    "metric": {
+                        "tower_id": str(key[0]),
+                        "cluster_id": str(key[1]),
+                        "vm_id": str(key[2]),
+                        "vm": str(vm_name),
+                        "vm_name": str(vm_name),
+                    },
+                    "value": current_bytes,
                 }
             )
         return sorted(new_vms, key=lambda item: item["first_seen_at"], reverse=True)[:100]
