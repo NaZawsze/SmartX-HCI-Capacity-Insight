@@ -18,11 +18,11 @@ class InventoryService:
                 INSERT INTO towers (
                     name, base_url, username, password_encrypted, api_token_encrypted,
                     verify_tls, enabled, collection_hour, collection_minute,
-                    collection_interval_minutes,
+                    collection_interval_minutes, collection_mode,
                     collection_retry_enabled, collection_retry_interval_minutes,
                     collection_retry_max_attempts
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload.name,
@@ -35,6 +35,7 @@ class InventoryService:
                     _clamp_int(payload.collection_hour, 0, 23, 2),
                     _clamp_int(payload.collection_minute, 0, 59, 10),
                     _clamp_int(payload.collection_interval_minutes, 0, 10080, 60),
+                    payload.collection_mode,
                     int(payload.collection_retry_enabled),
                     _clamp_int(payload.collection_retry_interval_minutes, 1, 1440, 15),
                     _clamp_int(payload.collection_retry_max_attempts, 0, 10, 3),
@@ -83,6 +84,7 @@ class InventoryService:
             "collection_hour = ?",
             "collection_minute = ?",
             "collection_interval_minutes = ?",
+            "collection_mode = ?",
             "collection_retry_enabled = ?",
             "collection_retry_interval_minutes = ?",
             "collection_retry_max_attempts = ?",
@@ -97,6 +99,7 @@ class InventoryService:
             _clamp_int(payload.collection_hour, 0, 23, 2),
             _clamp_int(payload.collection_minute, 0, 59, 10),
             _clamp_int(payload.collection_interval_minutes, 0, 10080, 60),
+            payload.collection_mode,
             int(payload.collection_retry_enabled),
             _clamp_int(payload.collection_retry_interval_minutes, 1, 1440, 15),
             _clamp_int(payload.collection_retry_max_attempts, 0, 10, 3),
@@ -197,6 +200,7 @@ class InventoryService:
             collection_hour=int(row["collection_hour"] if row["collection_hour"] is not None else 2),
             collection_minute=int(row["collection_minute"] if row["collection_minute"] is not None else 10),
             collection_interval_minutes=int(row["collection_interval_minutes"] if row["collection_interval_minutes"] is not None else 60),
+            collection_mode=str(row["collection_mode"] if row["collection_mode"] is not None else "interval"),
             collection_retry_enabled=bool(row["collection_retry_enabled"] if row["collection_retry_enabled"] is not None else 1),
             collection_retry_interval_minutes=int(row["collection_retry_interval_minutes"] if row["collection_retry_interval_minutes"] is not None else 15),
             collection_retry_max_attempts=int(row["collection_retry_max_attempts"] if row["collection_retry_max_attempts"] is not None else 3),

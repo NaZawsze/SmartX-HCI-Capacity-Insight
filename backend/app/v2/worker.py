@@ -237,32 +237,18 @@ def _run_capacity_alert_check(database: V2Database, tasks: TaskService) -> None:
         return
 
 
-def _tower_schedule(database: V2Database, tower_id: int) -> dict | None:
-    with database.connection() as conn:
-        row = conn.execute(
-            "SELECT id, enabled, collection_interval_minutes, collection_hour, collection_minute FROM towers WHERE id = ?",
-            (int(tower_id),),
-        ).fetchone()
-    if row is None or not row["enabled"]:
-        return None
-    interval = int(row["collection_interval_minutes"] if row["collection_interval_minutes"] is not None else 60)
-    return {
-        "id": int(row["id"]),
-        "interval_minutes": max(interval, 0),
-        "hour": int(row["collection_hour"] if row["collection_hour"] is not None else 2),
-        "minute": int(row["collection_minute"] if row["collection_minute"] is not None else 10),
-    }
-
-
 def _desired_collection_schedule(database: V2Database) -> dict[int, dict]:
     with database.connection() as conn:
         rows = conn.execute(
-            "SELECT id, enabled, collection_interval_minutes, collection_hour, collection_minute FROM towers WHERE enabled = 1"
+            "SELECT id, enabled, collection_interval_minutes, collection_hour, collection_minute, collection_mode"
+            " FROM towers WHERE enabled = 1"
         ).fetchall()
     desired: dict[int, dict] = {}
     for row in rows:
         interval = int(row["collection_interval_minutes"] if row["collection_interval_minutes"] is not None else 60)
+        mode = str(row["collection_mode"] if row["collection_mode"] is not None else "interval")
         desired[int(row["id"])] = {
+            "mode": "daily" if mode == "daily" else "interval",
             "interval_minutes": max(interval, 0),
             "hour": int(row["collection_hour"] if row["collection_hour"] is not None else 2),
             "minute": int(row["collection_minute"] if row["collection_minute"] is not None else 10),
@@ -271,9 +257,9 @@ def _desired_collection_schedule(database: V2Database) -> dict[int, dict]:
 
 
 def _schedule_signature(entry: dict) -> tuple:
-    if entry["interval_minutes"] > 0:
-        return ("interval", entry["interval_minutes"])
-    return ("cron", entry["hour"], entry["minute"])
+    if entry["mode"] == "daily":
+        return ("cron", entry["hour"], entry["minute"])
+    return ("interval", entry["interval_minutes"] if entry["interval_minutes"] > 0 else 60)
 
 
 def sync_collection_schedules(scheduler, database: V2Database, *, timezone: str) -> None:

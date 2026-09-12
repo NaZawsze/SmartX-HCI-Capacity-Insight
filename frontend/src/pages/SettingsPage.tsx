@@ -15,6 +15,7 @@ const emptyForm = {
   collection_hour: 2,
   collection_minute: 10,
   collection_interval_minutes: 60,
+  collection_mode: "interval",
   collection_retry_enabled: true,
   collection_retry_interval_minutes: 15,
   collection_retry_max_attempts: 3
@@ -72,6 +73,7 @@ export function SettingsPage() {
       collection_hour: tower.collection_hour,
       collection_minute: tower.collection_minute,
       collection_interval_minutes: tower.collection_interval_minutes ?? 60,
+      collection_mode: tower.collection_mode === "daily" ? "daily" : "interval",
       collection_retry_enabled: tower.collection_retry_enabled ?? true,
       collection_retry_interval_minutes: tower.collection_retry_interval_minutes ?? 15,
       collection_retry_max_attempts: tower.collection_retry_max_attempts ?? 3
@@ -124,21 +126,7 @@ export function SettingsPage() {
             API Token (可选)
             <input value={form.api_token} onChange={(event) => setForm({ ...form, api_token: event.target.value })} />
           </label>
-          <label>
-            采集间隔 - 分钟
-            <input type="number" min={0} max={10080} value={form.collection_interval_minutes} onChange={(event) => setForm({ ...form, collection_interval_minutes: Number(event.target.value) })} />
-          </label>
-          <div className="form-pair">
-            <label>
-              每日采集时间 - 小时
-              <input type="number" min={0} max={23} value={form.collection_hour} onChange={(event) => setForm({ ...form, collection_hour: Number(event.target.value) })} />
-            </label>
-            <label>
-              每日采集时间 - 分钟
-              <input type="number" min={0} max={59} value={form.collection_minute} onChange={(event) => setForm({ ...form, collection_minute: Number(event.target.value) })} />
-            </label>
-          </div>
-          <div className="form-hint">采集间隔大于 0 时按该间隔定时自动采集（默认 60 = 每小时一次）；设为 0 时按下方每日采集时间每天执行一次，例如 02:10 表示每天凌晨 2 点 10 分。</div>
+          <ScheduleModeFields form={form} onChange={setForm} />
           <RetryFields form={form} onChange={setForm} />
           <label className="checkbox-line">
             <input type="checkbox" checked={form.verify_tls} onChange={(event) => setForm({ ...form, verify_tls: event.target.checked })} />
@@ -203,21 +191,7 @@ export function SettingsPage() {
                     API Token (可选)
                     <input value={editForm.api_token} onChange={(event) => setEditForm({ ...editForm, api_token: event.target.value })} placeholder="留空则不修改" />
                   </label>
-                  <label>
-                    采集间隔 - 分钟
-                    <input type="number" min={0} max={10080} value={editForm.collection_interval_minutes} onChange={(event) => setEditForm({ ...editForm, collection_interval_minutes: Number(event.target.value) })} />
-                  </label>
-                  <div className="form-pair">
-                    <label>
-                      每日采集时间 - 小时
-                      <input type="number" min={0} max={23} value={editForm.collection_hour} onChange={(event) => setEditForm({ ...editForm, collection_hour: Number(event.target.value) })} />
-                    </label>
-                    <label>
-                      每日采集时间 - 分钟
-                      <input type="number" min={0} max={59} value={editForm.collection_minute} onChange={(event) => setEditForm({ ...editForm, collection_minute: Number(event.target.value) })} />
-                    </label>
-                  </div>
-                  <div className="form-hint">密码和 API Token 留空时保留原配置。采集间隔大于 0 时按间隔定时采集（默认 60 = 每小时）；设为 0 时按每日采集时间每天执行一次。</div>
+                  <ScheduleModeFields form={editForm} onChange={setEditForm} />
                   <RetryFields form={editForm} onChange={setEditForm} />
                   <div className="tower-edit-options">
                     <label className="checkbox-line">
@@ -264,6 +238,66 @@ export function SettingsPage() {
   );
 }
 
+type ScheduleForm = typeof emptyForm;
+
+const SCHEDULE_MODES: Array<{ value: "daily" | "interval"; label: string }> = [
+  { value: "daily", label: "每日定时" },
+  { value: "interval", label: "按间隔" }
+];
+
+function ScheduleModeFields({ form, onChange }: { form: ScheduleForm; onChange: (next: ScheduleForm) => void }) {
+  const mode: "daily" | "interval" = form.collection_mode === "daily" ? "daily" : "interval";
+  return (
+    <div className="schedule-fields">
+      <div className="schedule-field-row">
+        <span className="schedule-field-label">采集模式</span>
+        <div className="schedule-mode-switch" role="tablist" aria-label="采集模式">
+          {SCHEDULE_MODES.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              role="tab"
+              aria-selected={mode === item.value}
+              className={mode === item.value ? "schedule-mode-option active" : "schedule-mode-option"}
+              onClick={() => onChange({ ...form, collection_mode: item.value })}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {mode === "daily" && (
+        <label className="schedule-field-row">
+          <span className="schedule-field-label">每日采集时间</span>
+          <input
+            type="time"
+            value={`${String(form.collection_hour).padStart(2, "0")}:${String(form.collection_minute).padStart(2, "0")}`}
+            onChange={(event) => {
+              const [hour, minute] = event.target.value.split(":").map((part) => Number(part));
+              onChange({ ...form, collection_hour: Number.isFinite(hour) ? hour : 2, collection_minute: Number.isFinite(minute) ? minute : 0 });
+            }}
+          />
+        </label>
+      )}
+      {mode === "interval" && (
+        <>
+          <label className="schedule-field-row">
+            <span className="schedule-field-label">采集间隔 - 分钟</span>
+            <input
+              type="number"
+              min={1}
+              max={10080}
+              value={form.collection_interval_minutes}
+              onChange={(event) => onChange({ ...form, collection_interval_minutes: Number(event.target.value) })}
+            />
+          </label>
+          <div className="form-hint">按固定间隔循环采集，默认 60 = 每小时一次。每日定时则每天固定钟点执行一次。</div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function normalizeTowerPayload(payload: typeof emptyForm) {
   return {
     ...payload,
@@ -285,6 +319,7 @@ function normalizeTowerUpdatePayload(payload: typeof emptyForm) {
     collection_hour: payload.collection_hour,
     collection_minute: payload.collection_minute,
     collection_interval_minutes: payload.collection_interval_minutes,
+    collection_mode: payload.collection_mode,
     collection_retry_enabled: payload.collection_retry_enabled,
     collection_retry_interval_minutes: payload.collection_retry_interval_minutes,
     collection_retry_max_attempts: payload.collection_retry_max_attempts

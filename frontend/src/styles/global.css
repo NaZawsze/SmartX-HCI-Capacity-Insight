@@ -4829,3 +4829,54 @@ button.risk-cluster-row:hover {
   background: #fff7e6;
   color: #8a5300;
 }
+
+.schedule-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.schedule-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.schedule-field-label {
+  font-weight: 500;
+}
+
+.schedule-mode-switch {
+  display: inline-flex;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+  width: fit-content;
+}
+
+.schedule-mode-option {
+  padding: 8px 22px;
+  border: none;
+  background: #fff;
+  color: #475569;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.schedule-mode-option + .schedule-mode-option {
+  border-left: 1px solid #e2e8f0;
+}
+
+.schedule-mode-option.active {
+  background: #1d4ed8;
+  color: #fff;
+  font-weight: 600;
+}

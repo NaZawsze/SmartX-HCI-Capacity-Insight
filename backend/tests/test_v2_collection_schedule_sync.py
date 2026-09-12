@@ -101,3 +101,24 @@ class V2CollectionScheduleSyncTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class V2CollectionModeScheduleTest(unittest.TestCase):
+    def test_mode_field_drives_schedule(self):
+        from app.v2.worker import _desired_collection_schedule, _schedule_signature
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from app.v2.config import V2Settings
+            from app.v2.database import V2Database
+            from app.v2.inventory.models import ClusterInput, TowerInput
+            from app.v2.inventory.service import InventoryService
+
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="mode-secret", prometheus_url="http://prometheus:9090")
+            database = V2Database(settings)
+            database.initialize()
+            inventory = InventoryService(database, settings)
+            tower = inventory.create_tower(TowerInput(name="T", base_url="https://t.example.com", username="admin", collection_mode="daily", collection_interval_minutes=60))
+            inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="c", name="C", enabled=True)])
+            desired = _desired_collection_schedule(database)
+            self.assertEqual(desired[tower.id]["mode"], "daily")
+            self.assertEqual(_schedule_signature(desired[tower.id]), ("cron", 2, 10))

@@ -22,6 +22,7 @@ export interface Tower {
   collection_hour: number;
   collection_minute: number;
   collection_interval_minutes?: number | null;
+  collection_mode?: "interval" | "daily" | string | null;
   collection_retry_enabled: boolean;
   collection_retry_interval_minutes: number;
   collection_retry_max_attempts: number;

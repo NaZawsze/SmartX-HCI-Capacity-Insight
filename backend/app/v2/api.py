@@ -78,6 +78,7 @@ class TowerPayload(BaseModel):
     collection_hour: int = Field(default=2, ge=0, le=23)
     collection_minute: int = Field(default=10, ge=0, le=59)
     collection_interval_minutes: int = Field(default=60, ge=0, le=10080)
+    collection_mode: str = Field(default="interval", pattern="^(interval|daily)$")
     collection_retry_enabled: bool = True
     collection_retry_interval_minutes: int = Field(default=15, ge=1, le=1440)
     collection_retry_max_attempts: int = Field(default=3, ge=0, le=10)
@@ -99,6 +100,7 @@ class TowerResponse(BaseModel):
     collection_hour: int
     collection_minute: int
     collection_interval_minutes: int
+    collection_mode: str
     collection_retry_enabled: bool
     collection_retry_interval_minutes: int
     collection_retry_max_attempts: int
@@ -255,6 +257,7 @@ def tower_response(tower) -> TowerResponse:
         collection_hour=tower.collection_hour,
         collection_minute=tower.collection_minute,
         collection_interval_minutes=tower.collection_interval_minutes,
+        collection_mode=tower.collection_mode,
         collection_retry_enabled=tower.collection_retry_enabled,
         collection_retry_interval_minutes=tower.collection_retry_interval_minutes,
         collection_retry_max_attempts=tower.collection_retry_max_attempts,
@@ -330,6 +333,7 @@ def create_tower(
             collection_hour=payload.collection_hour,
             collection_minute=payload.collection_minute,
             collection_interval_minutes=payload.collection_interval_minutes,
+            collection_mode=payload.collection_mode,
             collection_retry_enabled=payload.collection_retry_enabled,
             collection_retry_interval_minutes=payload.collection_retry_interval_minutes,
             collection_retry_max_attempts=payload.collection_retry_max_attempts,
@@ -360,6 +364,7 @@ def update_tower(
                     collection_hour=payload.collection_hour,
                     collection_minute=payload.collection_minute,
                     collection_interval_minutes=payload.collection_interval_minutes,
+                    collection_mode=payload.collection_mode,
                     collection_retry_enabled=payload.collection_retry_enabled,
                     collection_retry_interval_minutes=payload.collection_retry_interval_minutes,
                     collection_retry_max_attempts=payload.collection_retry_max_attempts,
