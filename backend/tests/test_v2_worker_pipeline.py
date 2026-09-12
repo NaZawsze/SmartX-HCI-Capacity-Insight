@@ -50,15 +50,16 @@ class V2WorkerPipelineTest(unittest.TestCase):
         inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="cluster-a", name="Cluster A", enabled=True)])
         return settings, database, TaskService(database), tower.id
 
-    def run_outcome(self, database, tasks, service, result, scheduler=None):
-        from app.v2.worker import _handle_collection_outcome
-
+    def run_outcome(self, database, tasks, service, result, scheduler=None, previous_metrics=""):
+        from app.v2 import worker
         from app.v2.worker import _handle_collection_outcome as handler
 
         with mock.patch("app.v2.worker._run_data_quality_check") as dq, mock.patch(
             "app.v2.worker._record_collection_warning"
-        ) as warn, mock.patch("app.v2.worker._schedule_retry_cycle") as schedule:
-            failed = handler(database, scheduler, tasks, service, result)
+        ) as warn, mock.patch("app.v2.worker._schedule_retry_cycle") as schedule, mock.patch.object(
+            worker, "metrics_body", return_value=previous_metrics.encode("utf-8")
+        ):
+            failed = handler(database, scheduler, tasks, service, result, previous_metrics)
             return {
                 "failed": failed,
                 "dq_calls": dq.call_count,

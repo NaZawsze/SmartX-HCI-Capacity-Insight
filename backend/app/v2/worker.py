@@ -35,18 +35,20 @@ def run_collection(database: V2Database, scheduler=None) -> None:
     cloudtower = CloudTowerService(database, settings)
     tasks = TaskService(database)
     service = CollectionService(database, settings, cloudtower_client=cloudtower)
+    previous_metrics = metrics_body(database).decode("utf-8")
     result = service.run_manual_collection(trigger="scheduled")
-    _handle_collection_outcome(database, scheduler, tasks, service, result)
+    _handle_collection_outcome(database, scheduler, tasks, service, result, previous_metrics)
 
 
-def _save_run_metrics(database: V2Database, metrics_text: str) -> None:
-    previous = metrics_body(database).decode("utf-8")
-    _save_metrics_text(database, _merge_metrics_text(previous, metrics_text))
+def _save_run_metrics(database: V2Database, previous_metrics: str, metrics_text: str) -> None:
+    # service.run_manual_collection 会用本次成功目标整体替换快照；
+    # 必须与采集前的旧快照合并，避免覆盖其他 Tower/集群的样本。
+    _save_metrics_text(database, _merge_metrics_text(previous_metrics, metrics_text))
 
 
-def _handle_collection_outcome(database: V2Database, scheduler, tasks: TaskService, service, result) -> list[dict]:
-    """统一的采集结果处理：保存 metrics → 数据质量检查 → 失败目标重试排期/告警。"""
-    _save_run_metrics(database, result.metrics_text)
+def _handle_collection_outcome(database: V2Database, scheduler, tasks: TaskService, service, result, previous_metrics: str) -> list[dict]:
+    """统一的采集结果处理：合并保存 metrics → 数据质量检查 → 失败目标重试排期/告警。"""
+    _save_run_metrics(database, previous_metrics, result.metrics_text)
     failed_targets = _failed_targets(database, result.run_id)
     _run_data_quality_check(database, tasks)
     if not failed_targets:
@@ -80,6 +82,7 @@ def _run_retry_cycles_inline(database: V2Database, tasks: TaskService, service, 
         if not due_targets:
             break
         interval_minutes = min((retry_plan[key]["interval_minutes"] for key in due_targets), default=15)
+        previous = metrics_body(database).decode("utf-8")
         time.sleep(max(0, interval_minutes) * 60)
         retry_result = service.run_manual_collection(
             trigger="retry",
@@ -87,7 +90,7 @@ def _run_retry_cycles_inline(database: V2Database, tasks: TaskService, service, 
             max_attempts=max_attempts,
             target_filter=due_targets,
         )
-        accumulated_metrics = _merge_metrics_text(metrics_body(database).decode("utf-8"), retry_result.metrics_text)
+        accumulated_metrics = _merge_metrics_text(previous, retry_result.metrics_text)
         _save_metrics_text(database, accumulated_metrics)
         failed_targets = _failed_targets(database, retry_result.run_id)
         if not failed_targets:
@@ -125,14 +128,14 @@ def _run_retry_cycle(scheduler, database: V2Database, *, attempt: int, max_attem
         if service is None:
             service = CollectionService(database, settings, cloudtower_client=CloudTowerService(database, settings))
         tasks = tasks or TaskService(database)
+        previous = metrics_body(database).decode("utf-8")
         retry_result = service.run_manual_collection(
             trigger="retry",
             attempt=attempt,
             max_attempts=max_attempts,
             target_filter=targets,
         )
-        previous = metrics_body(database).decode("utf-8")
-        _save_metrics_text(database, _merge_metrics_text(previous, retry_result.metrics_text))
+        _save_run_metrics(database, previous, retry_result.metrics_text)
         failed_targets = _failed_targets(database, retry_result.run_id)
         if not failed_targets:
             _run_data_quality_check(database, tasks)
@@ -266,8 +269,9 @@ def run_pending_post_upgrade_collection(database: V2Database):
             cloudtower_client=CloudTowerService(database, settings),
             tasks=tasks,
         )
+        previous_metrics = metrics_body(database).decode("utf-8")
         result = service.run_manual_collection(trigger="post_upgrade", task_id=task_id)
-        _save_run_metrics(database, result.metrics_text)
+        _save_run_metrics(database, previous_metrics, result.metrics_text)
         _run_data_quality_check(database, tasks)
         marker["status"] = "success" if result.status == "success" else "failed"
         marker["collection_status"] = result.status
@@ -405,9 +409,10 @@ def _run_tower_collection(database: V2Database, scheduler, tower_id: int) -> Non
         if not target_filter:
             return
         service = CollectionService(database, database.settings, CloudTowerService(database, database.settings))
+        previous_metrics = metrics_body(database).decode("utf-8")
         result = service.run_manual_collection(trigger="scheduled", target_filter=target_filter)
         tasks = TaskService(database)
-        _handle_collection_outcome(database, scheduler, tasks, service, result)
+        _handle_collection_outcome(database, scheduler, tasks, service, result, previous_metrics)
     except Exception:
         return
 
