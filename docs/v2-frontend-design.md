@@ -1,5 +1,7 @@
 # v2 前端设计
 
+> UI 风格规范（颜色变量、圆角、组件规格、布局模式）见 [frontend-style-guide.md](frontend-style-guide.md)；新增或修改任何界面前先读该文档。
+
 更新时间：2026-06-06
 
 ## 1. 设计原则

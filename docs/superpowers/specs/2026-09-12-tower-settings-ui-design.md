@@ -2,7 +2,7 @@
 
 更新时间：2026-09-12
 状态：设计完成，待实施
-关联：task_plan.md Phase 49 第 11 项；继承 [v2-frontend-design.md](../../v2-frontend-design.md) 的 v1 蓝白风格要求
+关联：task_plan.md Phase 49 第 11 项；继承 [v2-frontend-design.md](../../v2-frontend-design.md) 的 v1 蓝白风格要求；颜色/圆角/组件规格以 [frontend-style-guide.md](../../frontend-style-guide.md) 为准
 
 ## 1. 背景与现状问题
 

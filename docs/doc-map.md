@@ -22,6 +22,7 @@
 | [architecture.md](architecture.md) | 架构总览：5 容器职责、后端模块边界、数据职责、任务模型、升级/迁移包结构、安全边界。 | task_plan Phase 16 |
 | [architecture-v2.md](architecture-v2.md) | v2 总体架构设计：容器职责、模块边界、前端信息架构、数据职责和关键规则。 | v2-rebuild Phase V2-0 |
 | [functional-modules.md](functional-modules.md) | 功能模块归类：按功能域拆分，标注 v2 模块边界映射。 | v2-rebuild Phase V2-0 |
+| [frontend-style-guide.md](frontend-style-guide.md) | 前端 UI 风格规范：设计变量、圆角/阴影、按钮/输入/分段开关规格、状态色语义、布局模式。AI 写任何 UI 前必读。 | 全部前端任务 |
 | [api.md](api.md) | API Reference：对外接口说明。 | — |
 | [usage.md](usage.md) | 使用说明。 | — |
 | [deployment.md](deployment.md) | 部署指南：目标服务器 Compose 部署、目录、运行时配置和离线部署。 | v2-rebuild Phase V2-9 |
