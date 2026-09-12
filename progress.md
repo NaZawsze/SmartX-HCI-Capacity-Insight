@@ -6980,3 +6980,9 @@ release_smoke=critical 0, warning 0
 - 后端 51 tests（CORS/SeriesKeys 新用例在内）通过。
 - CORS 实测：重建后带 Origin 请求 0 个 access-control 头；同源代理 8000/8080 健康检查正常。
 - 前端重建 + force-recreate 后 73 tests 全过。
+
+## 2026-09-13 提交策略修订与远端回退
+
+- 用户确认：dev2 默认只在本地提交，推送到 origin 必须明确要求；AGENTS.md 第 4 节与 task_plan 提交策略已更新（AGENTS.md 因含凭据不入库，修订保留在本地文件）。
+- 远端回退：origin/dev2 已 force push 回退到今日起点 6cab976，移除今天全部自动推送的提交；本地 dev2 保留全部已完成并验证的工作（领先远端），后续由用户决定何时推送。
+- 同步方式说明：向 .3 同步验证代码用 git archive 打包本地提交内容，不依赖推送。
