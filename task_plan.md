@@ -1379,3 +1379,9 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [ ] 数据新鲜度链路监控：Prometheus 抓取、metric_snapshots 更新、summary 查询任一环断裂纳入数据质量告警。
 - [ ] API 增加响应模型（Pydantic response_model），逐步替代前端 normalize 兜底。
 - [ ] 已知取舍记录：前端 token 存 localStorage（内网离线产品，暂不改）。
+
+### 11. Tower 设置页完整 UI 改版 [设计完成待实施]
+
+设计文档：[docs/superpowers/specs/2026-09-12-tower-settings-ui-design.md](docs/superpowers/specs/2026-09-12-tower-settings-ui-design.md)。
+
+覆盖：添加 Tower 向导化分组表单（连接认证/采集策略分区、认证方式互斥、保存前测试连接）、创建/编辑共用 TowerForm 组件、集群管理独立分区、删除确认对话框（当前删除无确认）、Tower 列表健康徽标。含 3 项后端配合（创建前测试连接 API、最近采集字段、创建响应集群列表）。
