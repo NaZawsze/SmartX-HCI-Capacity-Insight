@@ -138,6 +138,54 @@ class CollectionRunRequest(BaseModel):
     task_id: Optional[str] = None
 
 
+class CollectionRunDetailResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: int
+    status: str
+    message: Optional[str] = None
+    trigger: Optional[str] = None
+    cycle_id: Optional[str] = None
+    attempt: int = 0
+    max_attempts: int = 0
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    success_targets: list[dict] = []
+    failed_targets: list[dict] = []
+    published_metrics_targets: list[dict] = []
+
+
+class TaskResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    task_id: Optional[str] = None
+    type: Optional[str] = None
+    kind: Optional[str] = None
+    title: Optional[str] = None
+    status: Optional[str] = None
+    progress: Optional[int] = None
+    message: Optional[str] = None
+    detail: Optional[str] = None
+    severity: Optional[str] = None
+    unhandled: Optional[bool] = None
+    clearable: Optional[bool] = None
+    seen_at: Optional[str] = None
+    acknowledged_at: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    links: list[dict] = []
+    logs: list[str] = []
+    steps: list[dict] = []
+
+
+class SystemHealthResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    ok: bool
+    version: str
+    runner_version: str
+    checks: dict
+
+
 class VmTrendResponse(BaseModel):
     tower_id: int
     cluster_id: str
@@ -640,7 +688,7 @@ def run_collection(
     return CollectionRunResponse(run_id=result.run_id, status=result.status, message=result.message, task_id=task_id or f"collection-run-{result.run_id}")
 
 
-@router.get("/api/collection/runs")
+@router.get("/api/collection/runs", response_model=list[CollectionRunDetailResponse])
 def collection_runs(
     _: Annotated[CurrentUser, Depends(require_user)],
     collection: Annotated[CollectionService, Depends(get_collection_service)],
@@ -649,7 +697,7 @@ def collection_runs(
     return collection.list_runs(limit=limit)
 
 
-@router.get("/api/collection/runs/{run_id}")
+@router.get("/api/collection/runs/{run_id}", response_model=CollectionRunDetailResponse)
 def collection_run_detail(
     run_id: int,
     _: Annotated[CurrentUser, Depends(require_user)],
@@ -925,7 +973,7 @@ def migration_health(
     }
 
 
-@router.get("/api/tasks")
+@router.get("/api/tasks", response_model=list[TaskResponse])
 def list_tasks(
     _: Annotated[CurrentUser, Depends(require_user)],
     tasks: Annotated[TaskService, Depends(get_task_service)],
@@ -1277,7 +1325,7 @@ def component_upgrade_components(
     return upgrade.component_catalog()
 
 
-@router.get("/api/system/health")
+@router.get("/api/system/health", response_model=SystemHealthResponse)
 def health(
     settings: Annotated[V2Settings, Depends(get_v2_settings)],
     database: Annotated[V2Database, Depends(get_v2_database)],
