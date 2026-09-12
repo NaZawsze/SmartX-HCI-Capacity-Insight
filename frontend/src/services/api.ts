@@ -219,130 +219,6 @@ function scopedQuery(scope?: DashboardScope, periodDays?: number): string {
   return query ? `?${query}` : "";
 }
 
-function normalizeMetricItem(item: unknown): MetricItem {
-  const record = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
-  const metric = record.metric && typeof record.metric === "object" ? { ...(record.metric as Record<string, string>) } : {};
-  const towerId = record.tower_id ?? metric.tower_id;
-  const clusterId = record.cluster_id ?? metric.cluster_id;
-  const vmId = record.vm_id ?? metric.vm_id;
-  const vmName = record.vm_name ?? metric.vm ?? metric.vm_name;
-  const clusterName = record.cluster_name ?? record.cluster ?? record.name ?? metric.cluster ?? metric.cluster_name;
-  if (towerId != null) metric.tower_id = String(towerId);
-  if (clusterId != null) metric.cluster_id = String(clusterId);
-  if (vmId != null) metric.vm_id = String(vmId);
-  if (vmName != null) {
-    metric.vm = String(vmName);
-    metric.vm_name = String(vmName);
-  }
-  if (clusterName != null) {
-    metric.cluster = String(clusterName);
-    metric.cluster_name = String(clusterName);
-  }
-  const value = numberish(record.value ?? record.used_bytes ?? record.current_bytes ?? record.total_bytes);
-  return {
-    metric,
-    value,
-    growth_amount: optionalNumber(record.growth_amount),
-    previous_value: optionalNumber(record.previous_value ?? record.previous_bytes),
-    growth_ratio: optionalNumber(record.growth_ratio),
-    period_days: optionalNumber(record.period_days),
-    provisioned: optionalNumber(record.provisioned),
-    total_bytes: optionalNumber(record.total_bytes),
-    used_ratio: optionalNumber(record.used_ratio),
-    guest_used: optionalNumber(record.guest_used),
-    guest_used_ratio: optionalNumber(record.guest_used_ratio)
-  };
-}
-
-function normalizeDashboardSummary(payload: DashboardSummary | Record<string, unknown>): DashboardSummary {
-  const raw = payload as Record<string, unknown>;
-  const totals = (raw.totals && typeof raw.totals === "object" ? raw.totals : {}) as Record<string, unknown>;
-  const storage = (raw.storage && typeof raw.storage === "object" ? raw.storage : {}) as Record<string, unknown>;
-  const collection = (raw.collection && typeof raw.collection === "object" ? raw.collection : undefined) as Record<string, unknown> | undefined;
-  const kpis =
-    raw.kpis && typeof raw.kpis === "object"
-      ? (raw.kpis as DashboardSummary["kpis"])
-      : {
-          tower_count: numberish(totals.towers),
-          cluster_count: numberish(totals.clusters),
-          vm_count: numberish(totals.vms),
-          used_bytes: numberish(storage.used_bytes),
-          total_bytes: numberish(storage.total_bytes),
-          used_ratio: numberish(storage.used_ratio)
-        };
-  const capacityRisk = normalizeCapacityRisk(raw.capacity_risk);
-  const clusters = Array.isArray(raw.clusters) ? raw.clusters.map(normalizeMetricItem) : [];
-  const dayFastest = Array.isArray(raw.day_fastest_growing_vms) ? raw.day_fastest_growing_vms.map(normalizeMetricItem) : undefined;
-  const dayNew = Array.isArray(raw.day_new_vms) ? raw.day_new_vms.map(normalizeMetricItem) : undefined;
-  const latestRun =
-    raw.latest_run && typeof raw.latest_run === "object"
-      ? (raw.latest_run as DashboardSummary["latest_run"])
-      : collection
-        ? {
-            id: 0,
-            started_at: "",
-            finished_at: typeof collection.last_success_at === "string" ? collection.last_success_at : undefined,
-            status: String(collection.status || "unknown"),
-            message: typeof collection.message === "string" ? collection.message : undefined
-          }
-        : undefined;
-  return {
-    ...(payload as DashboardSummary),
-    kpis,
-    capacity_risk: capacityRisk,
-    latest_run: latestRun,
-    top_vms: Array.isArray(raw.top_vms) ? raw.top_vms.map(normalizeMetricItem) : dayFastest || [],
-    day_fastest_growing_vms: dayFastest,
-    day_new_vms: dayNew,
-    clusters,
-    towers: Array.isArray(raw.towers) ? (raw.towers as DashboardSummary["towers"]) : [],
-    tower_runs: Array.isArray(raw.tower_runs) ? (raw.tower_runs as DashboardSummary["tower_runs"]) : []
-  };
-}
-
-function normalizeCapacityRisk(value: unknown): DashboardSummary["capacity_risk"] | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const raw = value as Record<string, unknown>;
-  const level = String(raw.level || "normal");
-  const normalizedLevel = level === "high" ? "danger" : level;
-  const message = String(raw.message || raw.description || "");
-  const title =
-    typeof raw.title === "string"
-      ? raw.title
-      : normalizedLevel === "danger"
-        ? "容量高风险"
-        : normalizedLevel === "warning"
-          ? "容量需关注"
-          : "容量风险正常";
-  const topClusters: NonNullable<DashboardSummary["capacity_risk"]>["top_clusters"] = Array.isArray(raw.top_clusters)
-    ? (raw.top_clusters as Array<Record<string, unknown>>).map((cluster) => ({
-        ...(cluster as NonNullable<DashboardSummary["capacity_risk"]>["top_clusters"][number]),
-        top_growth_vms: Array.isArray(cluster.top_growth_vms)
-          ? (cluster.top_growth_vms as Array<Record<string, unknown>>).map((vm) => ({
-              tower_id: vm.tower_id != null ? String(vm.tower_id) : undefined,
-              cluster_id: vm.cluster_id != null ? String(vm.cluster_id) : undefined,
-              vm_id: vm.vm_id != null ? String(vm.vm_id) : undefined,
-              vm_name: vm.vm_name != null ? String(vm.vm_name) : undefined,
-              current_bytes: optionalNumber(vm.current_bytes),
-              growth_amount: optionalNumber(vm.growth_amount),
-              growth_ratio: optionalNumber(vm.growth_ratio)
-            }))
-          : []
-      }))
-    : [];
-  return {
-    ...(raw as DashboardSummary["capacity_risk"]),
-    level: normalizedLevel as "normal" | "warning" | "danger",
-    title,
-    message,
-    description: String(raw.description || message || "当前所有集群暂无明显容量风险"),
-    cluster_count: numberish(raw.cluster_count),
-    warning_count: numberish(raw.warning_count),
-    danger_count: numberish(raw.danger_count),
-    top_clusters: topClusters
-  };
-}
-
 function normalizeVmTrend(payload: unknown, metric: string): VmTrend {
   const raw = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
   const points = Array.isArray(raw.points)
@@ -411,8 +287,7 @@ export const api = {
   async summary(scope?: DashboardScope): Promise<DashboardSummary> {
     const params = scopedParams(scope);
     const query = params.toString();
-    const payload = await request<DashboardSummary | Record<string, unknown>>(`/api/dashboard/summary${query ? `?${query}` : ""}`);
-    return normalizeDashboardSummary(payload);
+    return request<DashboardSummary>(`/api/dashboard/summary${query ? `?${query}` : ""}`);
   },
   async towers(): Promise<Tower[]> {
     return request<Tower[]>("/api/towers");
@@ -447,8 +322,7 @@ export const api = {
   async vms(scope?: DashboardScope): Promise<MetricItem[]> {
     const params = scopedParams(scope);
     const query = params.toString();
-    const payload = await request<unknown[]>(`/api/vms${query ? `?${query}` : ""}`);
-    return payload.map(normalizeMetricItem);
+    return request<MetricItem[]>(`/api/vms${query ? `?${query}` : ""}`);
   },
   async vmVolumesAll(scope?: DashboardScope): Promise<VmVolumeSet[]> {
     const params = scopedParams(scope);

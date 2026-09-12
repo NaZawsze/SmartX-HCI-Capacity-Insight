@@ -34,6 +34,7 @@ class VmService:
             if not in_enabled_scope((key[0], key[1]), enabled_scope):
                 continue
             name = latest_names.get(key) or str(metric.get("vm_name") or metric.get("vm_id") or "")
+            used_bytes = metric_value(row)
             vms.append(
                 {
                     "tower_id": int(metric.get("tower_id") or 0),
@@ -41,7 +42,17 @@ class VmService:
                     "cluster_name": cluster_names.get((key[0], key[1]), str(metric.get("cluster") or "")),
                     "vm_id": str(metric.get("vm_id") or ""),
                     "vm_name": name,
-                    "used_bytes": metric_value(row),
+                    "used_bytes": used_bytes,
+                    "metric": {
+                        "tower_id": str(metric.get("tower_id") or 0),
+                        "cluster_id": str(metric.get("cluster_id") or ""),
+                        "cluster": cluster_names.get((key[0], key[1]), str(metric.get("cluster") or "")),
+                        "cluster_name": cluster_names.get((key[0], key[1]), str(metric.get("cluster") or "")),
+                        "vm_id": str(metric.get("vm_id") or ""),
+                        "vm": str(name),
+                        "vm_name": str(name),
+                    },
+                    "value": used_bytes,
                 }
             )
         if not vms:
@@ -206,18 +217,37 @@ class VmService:
                 f"SELECT tower_id, cluster_id, vm_id, name, used_bytes FROM vm_latest {where}",
                 params,
             ).fetchall()
-        return [
-            {
-                "tower_id": int(row["tower_id"]),
-                "cluster_id": str(row["cluster_id"]),
-                "cluster_name": cluster_names.get((int(row["tower_id"]), str(row["cluster_id"])), ""),
-                "vm_id": str(row["vm_id"]),
-                "vm_name": str(row["name"]),
-                "used_bytes": int(row["used_bytes"] or 0),
-            }
-            for row in rows
-            if in_enabled_scope((int(row["tower_id"]), str(row["cluster_id"])), enabled_scope)
-        ]
+        items = []
+        for row in rows:
+            if not in_enabled_scope((int(row["tower_id"]), str(row["cluster_id"])), enabled_scope):
+                continue
+            tower_id = int(row["tower_id"])
+            cluster_id = str(row["cluster_id"])
+            vm_id = str(row["vm_id"])
+            vm_name = str(row["name"])
+            cluster_name = cluster_names.get((tower_id, cluster_id), "")
+            used_bytes = int(row["used_bytes"] or 0)
+            items.append(
+                {
+                    "tower_id": tower_id,
+                    "cluster_id": cluster_id,
+                    "cluster_name": cluster_name,
+                    "vm_id": vm_id,
+                    "vm_name": vm_name,
+                    "used_bytes": used_bytes,
+                    "metric": {
+                        "tower_id": str(tower_id),
+                        "cluster_id": cluster_id,
+                        "cluster": cluster_name,
+                        "cluster_name": cluster_name,
+                        "vm_id": vm_id,
+                        "vm": vm_name,
+                        "vm_name": vm_name,
+                    },
+                    "value": used_bytes,
+                }
+            )
+        return items
 
     def _enabled_cluster_scope(self, *, tower_id: int | None, cluster_id: str | None) -> set[tuple[int, str]]:
         filters = ["enabled = 1"]
