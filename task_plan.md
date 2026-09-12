@@ -1399,7 +1399,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 
 原则"模型描述现状"：五批推进（towers → dashboard/tasks → vms/reports → admin 读类 → 删前端 normalize），每批金样本对比（键集与类型 diff 为空）+ 单测 + 前端回归 + 独立提交部署；风险（response_model 剔除未声明字段）以 extra="allow" 过渡与金样本对比缓解。
 
-### 15. 升级包 compose 字面量 tag 渲染 [设计完成，待实施——范围已缩小为验证与一致性收尾]
+### 15. 升级包 compose 字面量 tag 渲染 [已完成 2026-09-13]
 
 设计文档：[docs/superpowers/specs/2026-09-13-compose-literal-tags-design.md](docs/superpowers/specs/2026-09-13-compose-literal-tags-design.md)。
 

@@ -15,7 +15,7 @@
 
 | # | 事项 | 来源 | 说明 |
 | --- | --- | --- | --- |
-| 4 | compose 镜像 tag 覆盖风险（收尾验证） | Phase 49-15 | 读码核实：升级包管线已渲染字面量 tag（安全），无需代码改动；剩：真机双包取证、runner 默认 env CORS 遗留清理、check_versions 防呆、文档更新。设计：[compose-literal-tags-design](superpowers/specs/2026-09-13-compose-literal-tags-design.md) |
+P1 全部完成（2026-09-13）：compose tag 覆盖风险经读码核实为「升级包管线已渲染字面量 tag」，收尾项（runner 默认 env CORS 清理、check_versions 防呆、文档、双版本渲染取证）已实施并验证。
 
 P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite 治理、阈值/时区统一、Tower UI 改版含 TowerForm 抽取）已于 2026-09-12 完成并验证，见文末"已完成"与 progress.md。
 
