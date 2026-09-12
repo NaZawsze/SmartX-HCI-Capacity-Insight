@@ -1380,7 +1380,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [ ] API 增加响应模型（Pydantic response_model），逐步替代前端 normalize 兜底。
 - [ ] 已知取舍记录：前端 token 存 localStorage（内网离线产品，暂不改）。
 
-### 11. Tower 设置页完整 UI 改版 [设计完成待实施]
+### 11. Tower 设置页完整 UI 改版 [主体已实现，剩 TowerForm 组件抽取]
 
 设计文档：[docs/superpowers/specs/2026-09-12-tower-settings-ui-design.md](docs/superpowers/specs/2026-09-12-tower-settings-ui-design.md)。
 

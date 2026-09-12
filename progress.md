@@ -6892,3 +6892,23 @@ release_smoke=critical 0, warning 0
 - 首版把源码 compose tag 写死为字面量，导致 `build_upgrade_package.py` 的 16 个 builder 用例报错：构建管线靠 `SMARTX_IMAGE_TAG:-<默认>` 占位符正则改写为目标包版本并断言 `:<version>`（v0.5.1u2/v0.3.0 等）。
 - 已回退占位符（03e94e1）并验证 builder 回到 9 个只读挂载基线错误。Phase 49-3 重新立项：包构建时渲染字面量 tag，源码模板保留占位符（pending-tasks P1 #5 更新）。
 - 教训：改发布管线（compose/打包脚本）前必须先读 build_upgrade_package 的渲染与断言逻辑。
+
+## 2026-09-12 P1 Tower UI 剩余项（B1/B2/删除确认）
+
+### 实施（commit 0122baa/0c7420e）
+
+- B1：`POST /api/towers/test` 接收临时凭据（不落盘），返回 ok/message/发现集群数；CloudTowerService.test_connection_params 直连测试；凭据缺失返回业务提示而非 500。
+- B2：TowerResponse 增加 `last_collection`（status/finished_at，从最近 20 条 collection_runs 的目标列表匹配 tower）；列表/创建/更新三个响应都携带。
+- 前端：创建表单"测试连接"按钮 + 内联成功/失败结果；删除图标改两步确认（确认删除/取消）；Tower 列表行健康徽标（✓/✗ + 相对时间，绿/橙/灰）。
+- 修复：api.ts 插入时的双逗号导致 tsc 编译失败（0c7420e）。
+
+### 验证（10.20.11.3）
+
+- 后端 12 tests（tower_ui_api 2 + inventory_api + schedule_sync + p1_infra）全部通过。
+- 前端镜像重建成功（tsc 通过）、8080=200、SettingsPage/AppLayout 24 tests 通过。
+- 用户目视验收待刷新后确认。
+
+### 遗留
+
+- TowerForm 创建/编辑组件抽取（纯重构）留待低优。
+- P1 剩余：Phase 31 增长速率算法、预计耗尽算法增强。
