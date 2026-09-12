@@ -332,7 +332,7 @@ class DashboardSummaryResponse(BaseModel):
     capacity_risk: CapacityRiskModel = CapacityRiskModel()
     totals: DashboardTotalsModel = DashboardTotalsModel()
     storage: DashboardStorageModel = DashboardStorageModel()
-    collection: DashboardCollectionModel = DashboardCollectionModel()
+    collection: Optional[DashboardCollectionModel] = None
     day_fastest_growing_vms: list[DashboardVmItemModel] = []
     day_new_vms: list[DashboardVmItemModel] = []
     clusters: list[DashboardClusterModel] = []
@@ -522,6 +522,11 @@ class CleanupScanResponse(BaseModel):
     images: list[dict] = []
     space_reclaimable: Optional[float] = None
     space_reclaimable_label: Optional[str] = None
+
+
+class ComponentCatalogResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    components: list[dict] = []
 
 
 class AdminTaskResponse(BaseModel):
@@ -1515,7 +1520,7 @@ def component_upgrade_version(
     return upgrade.component_version()
 
 
-@router.get("/api/admin/component-upgrade/components", response_model=list[dict])
+@router.get("/api/admin/component-upgrade/components", response_model=ComponentCatalogResponse)
 def component_upgrade_components(
     _: Annotated[CurrentUser, Depends(require_user)],
     upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
