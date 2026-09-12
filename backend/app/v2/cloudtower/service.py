@@ -13,6 +13,30 @@ class CloudTowerService:
         self.settings = settings
         self.inventory = InventoryService(database, settings)
 
+    def test_connection_params(
+        self,
+        *,
+        base_url: str,
+        username: str | None,
+        password: str | None,
+        api_token: str | None,
+        verify_tls: bool,
+    ) -> list[ClusterInput]:
+        """用临时凭据测试连接（不落盘），用于创建 Tower 前的连通性验证。"""
+        client = CloudTowerClient(
+            CloudTowerCredentials(
+                base_url=base_url,
+                username=username or None,
+                password=password or None,
+                api_token=api_token or None,
+                verify_tls=verify_tls,
+            )
+        )
+        try:
+            return client.get_clusters()
+        finally:
+            client.close()
+
     def test_connection(self, tower_id: int) -> list[ClusterInput]:
         tower = self.inventory.get_tower(tower_id)
         if tower is None:

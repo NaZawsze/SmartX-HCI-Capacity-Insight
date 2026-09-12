@@ -27,6 +27,9 @@ export function SettingsPage() {
   const [editingTowerId, setEditingTowerId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState(emptyForm);
   const [message, setMessage] = useState("");
+  const [testResult, setTestResult] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [deletingTowerId, setDeletingTowerId] = useState<number | null>(null);
 
   async function reload() {
     setTowers(await api.towers());
@@ -52,11 +55,6 @@ export function SettingsPage() {
   async function testTower(id: number) {
     const result = await api.testTower(id);
     setMessage(result.message);
-    await reload();
-  }
-
-  async function removeTower(id: number) {
-    await api.deleteTower(id);
     await reload();
   }
 
@@ -105,6 +103,34 @@ export function SettingsPage() {
     await reload();
   }
 
+  async function testNewTowerConnection() {
+    setTesting(true);
+    setTestResult("");
+    try {
+      const result = await api.testTowerParams({
+        base_url: form.base_url.trim(),
+        username: form.username,
+        password: form.password,
+        api_token: form.api_token,
+        verify_tls: form.verify_tls
+      });
+      setTestResult(result.ok ? `✓ ${result.message}` : `✗ ${result.message}`);
+    } catch (exc) {
+      setTestResult(exc instanceof Error ? `✗ ${exc.message}` : "✗ 测试失败");
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  async function confirmDeleteTower(id: number) {
+    try {
+      await api.deleteTower(id);
+    } finally {
+      setDeletingTowerId(null);
+      await reload();
+    }
+  }
+
 
 
   return (
@@ -143,6 +169,10 @@ export function SettingsPage() {
                 启用采集
               </label>
             </div>
+            <button className="secondary-button" type="button" disabled={testing} onClick={testNewTowerConnection}>
+              {testing ? "测试中…" : "测试连接"}
+            </button>
+            {testResult && <div className={`inline-message ${testResult.startsWith("✓") ? "test-ok" : "test-fail"}`}>{testResult}</div>}
           </section>
           <section className="tower-form-section">
             <div className="tower-form-section-title">② 采集计划</div>
@@ -176,15 +206,31 @@ export function SettingsPage() {
                 </span>
               </div>
               <div className="row-actions">
+                <span className={`tower-health ${tower.last_collection ? tower.last_collection.status : "none"}`}>
+                  {tower.last_collection
+                    ? `${tower.last_collection.status === "success" ? "✓" : "✗"} ${formatRelativeTime(tower.last_collection.finished_at)}采集`
+                    : "未采集"}
+                </span>
                 <button className="icon-button" title="编辑配置" type="button" onClick={() => startEdit(tower)}>
                   <Pencil size={16} />
                 </button>
                 <button className="icon-button" title="测试连接" type="button" onClick={() => testTower(tower.id)}>
                   <RefreshCw size={16} />
                 </button>
-                <button className="icon-button danger" title="删除" type="button" onClick={() => removeTower(tower.id)}>
-                  <Trash2 size={16} />
-                </button>
+                {deletingTowerId === tower.id ? (
+                  <>
+                    <button className="danger-confirm-button" type="button" onClick={() => confirmDeleteTower(tower.id)}>
+                      确认删除
+                    </button>
+                    <button className="secondary-button compact" type="button" onClick={() => setDeletingTowerId(null)}>
+                      取消
+                    </button>
+                  </>
+                ) : (
+                  <button className="icon-button danger" title="删除" type="button" onClick={() => setDeletingTowerId(tower.id)}>
+                    <Trash2 size={16} />
+                  </button>
+                )}
               </div>
               {editingTowerId === tower.id && (
                 <form className="tower-edit-form tower-form" onSubmit={(event) => submitEdit(event, tower.id)}>
@@ -276,6 +322,18 @@ export function SettingsPage() {
       </Card>
     </div>
   );
+}
+
+function formatRelativeTime(iso?: string | null): string {
+  if (!iso) return "";
+  const time = new Date(iso).getTime();
+  if (!Number.isFinite(time)) return "";
+  const minutes = Math.round((Date.now() - time) / 60000);
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  return `${Math.round(hours / 24)} 天前`;
 }
 
 type ScheduleForm = typeof emptyForm;

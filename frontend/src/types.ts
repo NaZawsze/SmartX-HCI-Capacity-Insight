@@ -27,6 +27,7 @@ export interface Tower {
   collection_retry_interval_minutes: number;
   collection_retry_max_attempts: number;
   last_error?: string | null;
+  last_collection?: { status: string; finished_at?: string | null } | null;
   clusters: Cluster[];
 }
 

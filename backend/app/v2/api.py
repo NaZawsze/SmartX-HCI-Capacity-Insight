@@ -105,6 +105,20 @@ class TowerResponse(BaseModel):
     collection_retry_interval_minutes: int
     collection_retry_max_attempts: int
     clusters: list[ClusterResponse]
+    last_collection: Optional[TowerCollectionStatus] = None
+
+
+class TowerTestPayload(BaseModel):
+    base_url: str
+    username: Optional[str] = None
+    password: Optional[str] = None
+    api_token: Optional[str] = None
+    verify_tls: bool = True
+
+
+class TowerCollectionStatus(BaseModel):
+    status: str
+    finished_at: Optional[str] = None
 
 
 class TowerTestResponse(BaseModel):
@@ -246,7 +260,29 @@ def require_user(
     return user
 
 
-def tower_response(tower) -> TowerResponse:
+def tower_last_collection(inventory: InventoryService, tower_id: int) -> TowerCollectionStatus | None:
+    import json as _json
+
+    with inventory.database.connection() as conn:
+        rows = conn.execute(
+            """SELECT success_targets_json, failed_targets_json, status, finished_at, started_at
+               FROM collection_runs ORDER BY id DESC LIMIT 20"""
+        ).fetchall()
+    for row in rows:
+        try:
+            success = _json.loads(row["success_targets_json"] or "[]")
+            failed = _json.loads(row["failed_targets_json"] or "[]")
+        except (TypeError, ValueError):
+            continue
+        finished = row["finished_at"] or row["started_at"]
+        if any(int(item.get("tower_id") or -1) == int(tower_id) for item in success if isinstance(item, dict)):
+            return TowerCollectionStatus(status="success", finished_at=finished)
+        if any(int(item.get("tower_id") or -1) == int(tower_id) for item in failed if isinstance(item, dict)):
+            return TowerCollectionStatus(status="failed", finished_at=finished)
+    return None
+
+
+def tower_response(tower, last_collection: TowerCollectionStatus | None = None) -> TowerResponse:
     return TowerResponse(
         id=tower.id,
         name=tower.name,
@@ -262,6 +298,7 @@ def tower_response(tower) -> TowerResponse:
         collection_retry_interval_minutes=tower.collection_retry_interval_minutes,
         collection_retry_max_attempts=tower.collection_retry_max_attempts,
         clusters=[ClusterResponse(cluster_id=cluster.cluster_id, name=cluster.name, enabled=cluster.enabled) for cluster in tower.clusters],
+        last_collection=last_collection,
     )
 
 
@@ -312,7 +349,8 @@ def list_towers(
     _: Annotated[CurrentUser, Depends(require_user)],
     inventory: Annotated[InventoryService, Depends(get_inventory_service)],
 ) -> list[TowerResponse]:
-    return [tower_response(tower) for tower in inventory.list_towers()]
+    towers = inventory.list_towers()
+    return [tower_response(tower, tower_last_collection(inventory, tower.id)) for tower in towers]
 
 
 @router.post("/api/towers", response_model=TowerResponse)
@@ -339,7 +377,7 @@ def create_tower(
             collection_retry_max_attempts=payload.collection_retry_max_attempts,
         )
     )
-    return tower_response(tower)
+    return tower_response(tower, tower_last_collection(inventory, tower.id))
 
 
 @router.put("/api/towers/{tower_id}", response_model=TowerResponse)
@@ -350,8 +388,7 @@ def update_tower(
     inventory: Annotated[InventoryService, Depends(get_inventory_service)],
 ) -> TowerResponse:
     try:
-        return tower_response(
-            inventory.update_tower(
+        updated = inventory.update_tower(
                 tower_id,
                 TowerInput(
                     name=payload.name,
@@ -370,7 +407,7 @@ def update_tower(
                     collection_retry_max_attempts=payload.collection_retry_max_attempts,
                 ),
             )
-        )
+        return tower_response(updated, tower_last_collection(inventory, updated.id))
     except KeyError:
         raise HTTPException(status_code=404, detail="Tower not found.") from None
 
@@ -401,6 +438,30 @@ def sync_clusters(
         return [cluster_response(cluster) for cluster in clusters]
     except KeyError:
         raise HTTPException(status_code=404, detail="Tower not found.") from None
+
+
+@router.post("/api/towers/test", response_model=TowerTestResponse)
+def test_tower_params(
+    payload: TowerTestPayload,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    cloudtower: Annotated[CloudTowerService, Depends(get_cloudtower_service)],
+) -> TowerTestResponse:
+    if not payload.base_url:
+        raise HTTPException(status_code=422, detail="base_url is required.")
+    if not payload.api_token and not (payload.username and payload.password):
+        return TowerTestResponse(ok=False, message="请填写用户名+密码或 API Token。", clusters=[])
+    try:
+        cluster_inputs = cloudtower.test_connection_params(
+            base_url=payload.base_url,
+            username=payload.username,
+            password=payload.password,
+            api_token=payload.api_token,
+            verify_tls=payload.verify_tls,
+        )
+    except Exception as exc:  # noqa: BLE001 - 连接失败要返回原因而不是 500
+        return TowerTestResponse(ok=False, message=str(exc)[:300], clusters=[])
+    clusters = [cluster_response(cluster_input_from_any(cluster)) for cluster in cluster_inputs]
+    return TowerTestResponse(ok=True, message=f"连接成功，发现 {len(clusters)} 个集群。", clusters=clusters)
 
 
 @router.post("/api/towers/{tower_id}/test", response_model=TowerTestResponse)
