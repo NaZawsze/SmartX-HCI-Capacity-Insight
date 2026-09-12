@@ -72,6 +72,8 @@ class V2CollectionScheduleSyncTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             settings, database, tower_id = self._seed(tmpdir, interval=0, hour=3, minute=25)
+            with database.connection() as conn:
+                conn.execute("UPDATE towers SET collection_mode = 'daily' WHERE id = ?", (tower_id,))
             scheduler = FakeScheduler()
             sync_collection_schedules(scheduler, database, timezone="Asia/Shanghai")
             trigger = scheduler.added[0][1]
