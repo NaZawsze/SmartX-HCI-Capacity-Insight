@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -127,3 +128,109 @@ class RobustForecastTest(unittest.TestCase):
         self.assertEqual(result.status, "insufficient_data")
         self.assertFalse(result.spike_detected)
         self.assertIsNone(result.exhaustion_days_30d)
+
+
+class FreshnessCheckTest(unittest.TestCase):
+    def _seed(self, tmpdir: str, *, collection_age_minutes: float | None):
+        from datetime import datetime, timedelta, timezone
+
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        settings = V2Settings(data_root=Path(tmpdir), secret_key="fresh-secret", prometheus_url="http://prometheus:9090")
+        database = V2Database(settings)
+        database.initialize()
+        inventory = InventoryService(database, settings)
+        tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com", username="admin"))
+        inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="cluster-a", name="Cluster A", enabled=True)])
+        now = datetime.now(timezone.utc)
+        if collection_age_minutes is not None:
+            finished = now - timedelta(minutes=collection_age_minutes)
+            targets = [{"tower_id": tower.id, "tower_name": "Tower A", "cluster_id": "cluster-a", "cluster_name": "Cluster A"}]
+            with database.connection() as conn:
+                conn.execute(
+                    """INSERT INTO collection_runs (status, message, started_at, finished_at, trigger, success_targets_json, failed_targets_json, published_metrics_targets_json)
+                       VALUES (?, 'ok', ?, ?, 'scheduled', ?, '[]', ?)""",
+                    (
+                        "success",
+                        (finished - timedelta(minutes=1)).isoformat(),
+                        finished.isoformat(),
+                        json.dumps(targets),
+                        json.dumps(targets),
+                    ),
+                )
+        return settings, database, tower.id, now
+
+    def _evaluate(self, database, settings, now, *, prometheus_sample_age_minutes: float | None = None, env_stale: str | None = None):
+        import os
+
+        from app.v2.data_quality.service import DataQualityService
+
+        if env_stale is not None:
+            os.environ["SMARTX_FRESHNESS_STALE_MINUTES"] = env_stale
+        try:
+
+            class P:
+                def __init__(self, age):
+                    self.age = age
+
+                def instant(self, query):
+                    if self.age is None:
+                        return []
+                    ts = int(now.timestamp()) - self.age * 60
+                    return [{"metric": {"tower_id": "1", "cluster_id": "cluster-a"}, "value": [ts, "100"]}]
+
+                def range(self, query, *, start, end, step):
+                    return []
+
+            service = DataQualityService(database, settings, prometheus=P(prometheus_sample_age_minutes), now_ts=int(now.timestamp()))
+            return service.evaluate(period_days=30)
+        finally:
+            os.environ.pop("SMARTX_FRESHNESS_STALE_MINUTES", None)
+
+    def test_stale_collection_raises_warning(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, database, tower_id, now = self._seed(tmpdir, collection_age_minutes=600)
+            result = self._evaluate(database, settings, now, prometheus_sample_age_minutes=599, env_stale="180")
+            self.assertTrue(any("超过新鲜度阈值" in m for m in result["messages"]))
+            self.assertEqual(result["freshness"]["stale_threshold_minutes"], 180)
+
+    def test_prometheus_lag_raises_warning(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, database, tower_id, now = self._seed(tmpdir, collection_age_minutes=10)
+            result = self._evaluate(database, settings, now, prometheus_sample_age_minutes=60)
+            self.assertTrue(any("滞后" in m for m in result["messages"]))
+            self.assertGreater(result["freshness"]["prometheus_lag_minutes"], 15)
+
+    def test_fresh_collection_no_warning(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, database, tower_id, now = self._seed(tmpdir, collection_age_minutes=5)
+            result = self._evaluate(database, settings, now, prometheus_sample_age_minutes=4)
+            self.assertFalse(any("新鲜度阈值" in m or "滞后" in m for m in result["messages"]))
+
+    def test_adaptive_threshold_for_daily_mode(self):
+        import tempfile
+
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.data_quality.service import DataQualityService
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="f2", prometheus_url="http://prometheus:9090")
+            database = V2Database(settings)
+            database.initialize()
+            inventory = InventoryService(database, settings)
+            tower = inventory.create_tower(TowerInput(name="T", base_url="https://t.example.com", username="admin", collection_mode="daily"))
+            inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="c", name="C", enabled=True)])
+            service = DataQualityService(database, settings, prometheus=object(), now_ts=NOW_TS)
+            self.assertEqual(service._freshness_threshold_minutes(), 2880)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -62,6 +63,11 @@ class QualityPrometheus:
 
 
 class V2DataQualityTest(unittest.TestCase):
+    def setUp(self) -> None:
+        os.environ["SMARTX_FRESHNESS_STALE_MINUTES"] = "100000000"
+
+    def tearDown(self) -> None:
+        os.environ.pop("SMARTX_FRESHNESS_STALE_MINUTES", None)
     def _seed(
         self,
         tmpdir: str,

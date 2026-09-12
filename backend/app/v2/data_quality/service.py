@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import math
 import time
 from datetime import datetime, timezone
@@ -115,6 +116,10 @@ class DataQualityService:
         if not sample_sufficient:
             status = _max_status(status, "warning")
             messages.append(f"当前实际采集样本约 {actual_window.get('days') or 0} 天，少于本报表选择的 {period_days} 天窗口。")
+        freshness, freshness_messages = self._freshness_check(latest_collection, latest_prometheus_ts)
+        messages.extend(freshness_messages)
+        for message in freshness_messages:
+            status = _max_status(status, "warning")
         if status == "ok":
             messages.append("当前报表范围内未发现明显数据缺口。")
         return self._result(
@@ -134,6 +139,7 @@ class DataQualityService:
             prometheus_error=prometheus_error,
             vm_count_difference=difference,
             vm_count_difference_ratio=difference_ratio,
+            freshness=freshness,
         )
 
     def evaluate_and_alert(self, *, tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30) -> dict[str, Any]:
@@ -185,8 +191,10 @@ class DataQualityService:
         prometheus_error: str | None = None,
         vm_count_difference: int | None = None,
         vm_count_difference_ratio: float | None = None,
+        freshness: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
+            "freshness": freshness or {"stale_threshold_minutes": int(os.environ.get("SMARTX_FRESHNESS_STALE_MINUTES", "180") or 180), "minutes_since_success": None, "prometheus_lag_minutes": None},
             "status": status,
             "actual_data_window": actual_window,
             "requested_window": requested_window,
@@ -205,6 +213,61 @@ class DataQualityService:
             "prometheus_error": prometheus_error,
             "messages": messages,
         }
+
+    def _freshness_threshold_minutes(self) -> int:
+        env = os.environ.get("SMARTX_FRESHNESS_STALE_MINUTES")
+        if env:
+            try:
+                return int(env)
+            except ValueError:
+                pass
+        with self.database.connection() as conn:
+            rows = conn.execute(
+                "SELECT collection_interval_minutes, collection_mode FROM towers WHERE enabled = 1"
+            ).fetchall()
+        intervals = []
+        for row in rows:
+            mode = str(row["collection_mode"] or "interval")
+            interval = int(row["collection_interval_minutes"] or 0)
+            intervals.append(1440 if mode == "daily" else (interval if interval > 0 else 60))
+        effective = min(intervals) if intervals else 60
+        return max(2 * effective, 60)
+
+    def _freshness_check(self, latest_collection: dict[str, Any], latest_prometheus_ts: int | None) -> tuple[dict[str, Any], list[str]]:
+        """数据新鲜度链路检查：采集停摆 + Prometheus 样本滞后（只告警，不改数据）。
+
+        阈值自适应：max(2 × 启用 Tower 最小采集周期, 60 分钟)；SMARTX_FRESHNESS_STALE_MINUTES 可覆盖。
+        """
+        threshold_minutes = self._freshness_threshold_minutes()
+        info: dict[str, Any] = {
+            "stale_threshold_minutes": threshold_minutes,
+            "minutes_since_success": None,
+            "prometheus_lag_minutes": None,
+        }
+        messages: list[str] = []
+        success_at = self._latest_success_at()
+        if not success_at:
+            return info, messages
+        try:
+            success_dt = datetime.fromisoformat(str(success_at))
+        except ValueError:
+            return info, messages
+        if success_dt.tzinfo is None:
+            success_dt = success_dt.replace(tzinfo=timezone.utc)
+        minutes_since = max((datetime.now(timezone.utc) - success_dt).total_seconds() / 60.0, 0.0)
+        info["minutes_since_success"] = round(minutes_since, 1)
+        if minutes_since > threshold_minutes:
+            messages.append(
+                f"最近成功采集距今 {minutes_since / 60:.1f} 小时，超过新鲜度阈值 {threshold_minutes} 分钟，请检查采集调度或 Tower 连接。"
+            )
+        if latest_prometheus_ts:
+            lag_minutes = (success_dt.timestamp() - latest_prometheus_ts) / 60.0
+            info["prometheus_lag_minutes"] = round(lag_minutes, 1)
+            if lag_minutes > 15:
+                messages.append(
+                    f"Prometheus 最新样本滞后最近成功采集 {lag_minutes:.0f} 分钟，:9108 导出或 Prometheus 抓取链路可能中断。"
+                )
+        return info, messages
 
     def _enabled_clusters(self, *, tower_id: int | None, cluster_id: str | None) -> list[dict[str, Any]]:
         filters = ["t.enabled = 1", "c.enabled = 1"]

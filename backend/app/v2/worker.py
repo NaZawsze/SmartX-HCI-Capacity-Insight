@@ -30,18 +30,46 @@ def build_collection_trigger(*, timezone: str, hour: int, minute: int):
     return CronTrigger(hour=hour, minute=minute, timezone=timezone)
 
 
-def run_collection(database: V2Database) -> None:
+def run_collection(database: V2Database, scheduler=None) -> None:
     settings = database.settings
     cloudtower = CloudTowerService(database, settings)
     tasks = TaskService(database)
     service = CollectionService(database, settings, cloudtower_client=cloudtower)
     result = service.run_manual_collection(trigger="scheduled")
-    accumulated_metrics = result.metrics_text
+    _handle_collection_outcome(database, scheduler, tasks, service, result)
+
+
+def _save_run_metrics(database: V2Database, metrics_text: str) -> None:
+    previous = metrics_body(database).decode("utf-8")
+    _save_metrics_text(database, _merge_metrics_text(previous, metrics_text))
+
+
+def _handle_collection_outcome(database: V2Database, scheduler, tasks: TaskService, service, result) -> list[dict]:
+    """统一的采集结果处理：保存 metrics → 数据质量检查 → 失败目标重试排期/告警。"""
+    _save_run_metrics(database, result.metrics_text)
     failed_targets = _failed_targets(database, result.run_id)
+    _run_data_quality_check(database, tasks)
     if not failed_targets:
-        _run_data_quality_check(database, tasks)
-        return
+        return []
     retry_plan = _retry_plan(database, failed_targets)
+    max_attempts = max((plan["max_attempts"] for plan in retry_plan.values()), default=0)
+    due_targets = {
+        key
+        for key, plan in retry_plan.items()
+        if plan["enabled"] and plan["max_attempts"] >= 1
+    }
+    if not due_targets:
+        _record_collection_warning(database, tasks, failed_targets, attempt=0, max_attempts=0)
+        return failed_targets
+    if scheduler is None:
+        _run_retry_cycles_inline(database, tasks, service, retry_plan, failed_targets)
+        return []
+    _schedule_retry_cycle(scheduler, database, attempt=1, max_attempts=max_attempts, targets=due_targets)
+    return failed_targets
+
+
+def _run_retry_cycles_inline(database: V2Database, tasks: TaskService, service, retry_plan: dict, failed_targets: list[dict]) -> None:
+    """无调度器时的兼容路径：内联 sleep 重试（单测/工具调用）。"""
     max_attempts = max((plan["max_attempts"] for plan in retry_plan.values()), default=0)
     for attempt in range(1, max_attempts + 1):
         due_targets = {
@@ -59,7 +87,7 @@ def run_collection(database: V2Database) -> None:
             max_attempts=max_attempts,
             target_filter=due_targets,
         )
-        accumulated_metrics = _merge_metrics_text(accumulated_metrics, retry_result.metrics_text)
+        accumulated_metrics = _merge_metrics_text(metrics_body(database).decode("utf-8"), retry_result.metrics_text)
         _save_metrics_text(database, accumulated_metrics)
         failed_targets = _failed_targets(database, retry_result.run_id)
         if not failed_targets:
@@ -67,7 +95,61 @@ def run_collection(database: V2Database) -> None:
         retry_plan = {key: retry_plan[key] for key in _target_keys(failed_targets) if key in retry_plan}
     if failed_targets:
         _record_collection_warning(database, tasks, failed_targets, attempt=max_attempts, max_attempts=max_attempts)
-    _run_data_quality_check(database, tasks)
+
+
+def _schedule_retry_cycle(scheduler, database: V2Database, *, attempt: int, max_attempts: int, targets: set[tuple[int, str]]) -> None:
+    retry_plan = _retry_plan(database, targets)
+    interval_minutes = min((plan["interval_minutes"] for plan in retry_plan.values()), default=15)
+    from datetime import datetime, timedelta, timezone
+    from apscheduler.triggers.date import DateTrigger
+
+    run_at = datetime.now(timezone.utc) + timedelta(minutes=max(interval_minutes, 1))
+    job_id = f"collection-retry-{attempt}-{int(run_at.timestamp())}"
+    scheduler.add_job(
+        _run_retry_cycle,
+        DateTrigger(run_date=run_at),
+        args=[scheduler, database, attempt, max_attempts, targets],
+        id=job_id,
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=300,
+    )
+
+
+def _run_retry_cycle(scheduler, database: V2Database, *, attempt: int, max_attempts: int, targets: set[tuple[int, str]], service=None, tasks: TaskService | None = None) -> None:
+    """单轮失败目标重试（调度器一次性 job）。worker 重启会丢失未执行的重试 job，
+    属可接受行为：下一次计划采集会对全部目标重试。"""
+    try:
+        settings = database.settings
+        if service is None:
+            service = CollectionService(database, settings, cloudtower_client=CloudTowerService(database, settings))
+        tasks = tasks or TaskService(database)
+        retry_result = service.run_manual_collection(
+            trigger="retry",
+            attempt=attempt,
+            max_attempts=max_attempts,
+            target_filter=targets,
+        )
+        previous = metrics_body(database).decode("utf-8")
+        _save_metrics_text(database, _merge_metrics_text(previous, retry_result.metrics_text))
+        failed_targets = _failed_targets(database, retry_result.run_id)
+        if not failed_targets:
+            _run_data_quality_check(database, tasks)
+            return
+        retry_plan = _retry_plan(database, failed_targets)
+        next_targets = {key for key, plan in retry_plan.items() if plan["enabled"] and (attempt + 1) <= plan["max_attempts"]}
+        if next_targets and attempt + 1 <= max_attempts:
+            if scheduler is not None:
+                _schedule_retry_cycle(scheduler, database, attempt=attempt + 1, max_attempts=max_attempts, targets=next_targets)
+                return
+            # 无调度器时继续内联剩余轮次
+            _run_retry_cycles_inline(database, tasks, service, retry_plan, failed_targets)
+            return
+        _record_collection_warning(database, tasks, failed_targets, attempt=max_attempts, max_attempts=max_attempts)
+        _run_data_quality_check(database, tasks)
+    except Exception:
+        return
 
 
 def _write_collection_marker(path: Path, marker: dict) -> None:
@@ -185,6 +267,8 @@ def run_pending_post_upgrade_collection(database: V2Database):
             tasks=tasks,
         )
         result = service.run_manual_collection(trigger="post_upgrade", task_id=task_id)
+        _save_run_metrics(database, result.metrics_text)
+        _run_data_quality_check(database, tasks)
         marker["status"] = "success" if result.status == "success" else "failed"
         marker["collection_status"] = result.status
         marker["message"] = result.message
@@ -290,7 +374,7 @@ def sync_collection_schedules(scheduler, database: V2Database, *, timezone: str)
                 _run_tower_collection,
                 "interval",
                 minutes=signature[1],
-                args=[database, tower_id],
+                args=[database, scheduler, tower_id],
                 id=job_id,
                 **kwargs,
             )
@@ -298,7 +382,7 @@ def sync_collection_schedules(scheduler, database: V2Database, *, timezone: str)
             scheduler.add_job(
                 _run_tower_collection,
                 build_collection_trigger(timezone=timezone, hour=signature[1], minute=signature[2]),
-                args=[database, tower_id],
+                args=[database, scheduler, tower_id],
                 id=job_id,
                 **kwargs,
             )
@@ -307,7 +391,7 @@ def sync_collection_schedules(scheduler, database: V2Database, *, timezone: str)
         scheduler.remove_job(job_id)
 
 
-def _run_tower_collection(database: V2Database, tower_id: int) -> None:
+def _run_tower_collection(database: V2Database, scheduler, tower_id: int) -> None:
     try:
         from app.v2.collection.service import CollectionService
         from app.v2.cloudtower.service import CloudTowerService
@@ -321,7 +405,9 @@ def _run_tower_collection(database: V2Database, tower_id: int) -> None:
         if not target_filter:
             return
         service = CollectionService(database, database.settings, CloudTowerService(database, database.settings))
-        service.run_manual_collection(trigger="scheduled", target_filter=target_filter)
+        result = service.run_manual_collection(trigger="scheduled", target_filter=target_filter)
+        tasks = TaskService(database)
+        _handle_collection_outcome(database, scheduler, tasks, service, result)
     except Exception:
         return
 
