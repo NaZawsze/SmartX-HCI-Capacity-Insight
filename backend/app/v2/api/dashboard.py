@@ -1,12 +1,33 @@
 from __future__ import annotations
 
+from pathlib import Path
+from secrets import token_hex
 from typing import Annotated, Optional, Union
+from urllib.parse import quote
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi.responses import FileResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.v2.config import V2Settings
+from app.v2.auth.service import AuthService, CurrentUser
+from app.v2.cloudtower.service import CloudTowerService
+from app.v2.cleanup.service import CleanupService
+from app.v2.collection.service import CollectionService
+from app.v2.config import V2Settings, settings_from_environment
+from app.v2.dashboard.service import DashboardService
 from app.v2.database import V2Database
+from app.v2.inventory.models import ClusterInput, TowerInput
+from app.v2.inventory.service import InventoryService
+from app.v2.migration.service import ARCHIVE_MEDIA_TYPE, MigrationService
+from app.v2.reports.export import DOCX_MEDIA_TYPE, XLSX_MEDIA_TYPE, build_report_docx, build_report_xlsx
+from app.v2.reports.service import ReportService
+from app.v2.system.control import SystemControlService
+from app.v2.system.health import check_health
+from app.v2.tasks.models import TaskStatus, TaskType
+from app.v2.tasks.service import TaskService
+from app.v2.upgrade.service import UpgradeService
+from app.v2.vms.service import VmService
 
 from app.v2.api.deps import (
     get_auth_service,
@@ -77,6 +98,8 @@ from app.v2.api.models import (
 )
 
 router = APIRouter()
+bearer = HTTPBearer(auto_error=False)
+
 
 @router.get("/api/dashboard/summary", response_model=DashboardSummaryResponse)
 def dashboard_summary(
