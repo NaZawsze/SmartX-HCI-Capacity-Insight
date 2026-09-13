@@ -1,0 +1,240 @@
+from __future__ import annotations
+
+"""Task file read/write and public task view helpers."""
+
+import io
+import json
+import tarfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from app.v2.tasks.models import TaskStatus
+from app.upgrade_runner.main import _action_steps as _runner_action_steps
+from app.upgrade_runner.store import RevisionConflict, TaskStore
+
+from ._compat import HTTPException, UploadFile
+
+from .fs import _sha256_file
+
+class TaskFileMixin:
+    def _public_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        public = dict(task)
+        public["task_id"] = str(task.get("task_id") or "")
+        public["status"] = _public_status(str(task.get("status") or ""))
+        if task.get("status") == "recovery_required" and task.get("recovery_command") in {"continue", "rollback"}:
+            public["status"] = "running"
+        public["package_filename"] = task.get("filename") or task.get("package_filename")
+        public["uploaded_at"] = task.get("created_at") or task.get("uploaded_at")
+        public["package_sha256"] = task.get("package_sha256") or task.get("uploaded_sha256") or _task_package_sha256(task)
+        public["uploaded_sha256"] = task.get("uploaded_sha256") or public["package_sha256"]
+        checks = task.get("checks") or []
+        public["precheck_ok"] = task.get("status") == "precheck_passed"
+        public["checks"] = task.get("checks") or []
+        public["steps"] = _runner_action_steps(task) if task.get("execution_plan") else task.get("steps") or []
+        public["logs"] = task.get("logs") or []
+        components = _component_types_from_task(task)
+        public["components"] = sorted(components)
+        if components and components <= {"runner"}:
+            public["kind"] = "component"
+            public["component"] = "upgrade-runner"
+        elif components and components <= {"observability"}:
+            public["kind"] = "component"
+            public["component"] = "prometheus"
+        else:
+            public["kind"] = "platform"
+            public["component"] = None
+        public["ok"] = bool(public["precheck_ok"] or public["status"] in {"succeeded", "running", "pending", "rolled_back"})
+        if task.get("status") == "success":
+            public.setdefault("finished_at", task.get("updated_at"))
+        return public
+
+
+    def _read_task_or_pending_record(self, task_id: str, task_dir: Path) -> dict[str, Any]:
+        try:
+            return _read_task_file(task_dir)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+        record = self.tasks.get_task(task_id)
+        if not record or record.get("status") != TaskStatus.PENDING.value:
+            raise HTTPException(status_code=404, detail="升级任务不存在。")
+        return {
+            "task_id": task_id,
+            "status": "pending",
+            "target_version": record.get("message") or "",
+            "components": ["platform"],
+            "checks": [],
+            "steps": [],
+            "logs": [],
+        }
+
+
+def _component_types(manifest: dict[str, Any]) -> list[str]:
+    return [str(component.get("type")) for component in manifest.get("components") or [] if component.get("type")]
+
+
+
+def _component_types_from_task(task: dict[str, Any]) -> set[str]:
+    components = {str(component) for component in task.get("components") or [] if component}
+    if components:
+        return components
+    manifest = task.get("manifest") if isinstance(task.get("manifest"), dict) else {}
+    components = set(_component_types(manifest))
+    if components:
+        return components
+    component = str(task.get("component") or "")
+    if component == "upgrade-runner":
+        return {"runner"}
+    if component == "prometheus":
+        return {"observability"}
+    return set()
+
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            try:
+                parsed = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+
+def _first_task_timestamp(task: dict[str, Any], fields: tuple[str, ...]) -> float:
+    for field in fields:
+        parsed = _parse_datetime(task.get(field))
+        if parsed is not None:
+            return parsed.timestamp()
+    return float("-inf")
+
+
+
+def _history_task_sort_key(task: dict[str, Any]) -> tuple[float, str]:
+    timestamp = _first_task_timestamp(
+        task,
+        ("created_at", "uploaded_at", "started_at", "finished_at", "updated_at"),
+    )
+    return timestamp, str(task.get("task_id") or "")
+
+
+
+def _successful_package_sort_key(task: dict[str, Any]) -> tuple[float, str]:
+    timestamp = _first_task_timestamp(
+        task,
+        ("finished_at", "uploaded_at", "created_at", "started_at", "updated_at"),
+    )
+    return timestamp, str(task.get("task_id") or "")
+
+
+
+def _task_package_sha256(task: dict[str, Any]) -> str:
+    uploaded = task.get("uploaded_path")
+    if uploaded:
+        path = Path(str(uploaded))
+        if path.is_file():
+            return _sha256_file(path)
+    return str(task.get("package_sha256") or task.get("uploaded_sha256") or "")
+
+
+
+def _step(key: str, title: str, status: str, message: str = "") -> dict[str, str]:
+    return {"key": key, "title": title, "status": status, "message": message}
+
+
+
+def _replace_step(steps: list[dict[str, Any]], key: str, status: str, message: str = "") -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for step in steps:
+        if step.get("key") == key:
+            next_step = dict(step)
+            next_step["status"] = status
+            if message:
+                next_step["message"] = message
+            result.append(next_step)
+        else:
+            result.append(step)
+    return result
+
+
+
+def _add_json(archive: tarfile.TarFile, arcname: str, payload: dict[str, Any], generated_at: datetime) -> None:
+    content = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    info = tarfile.TarInfo(arcname)
+    info.size = len(content)
+    info.mtime = int(generated_at.timestamp())
+    archive.addfile(info, io.BytesIO(content))
+
+
+
+def _add_directory(archive: tarfile.TarFile, source: Path, arcname: str, *, skip_names: set[str]) -> None:
+    if not source.exists():
+        return
+    for path in sorted(source.rglob("*")):
+        relative = path.relative_to(source)
+        if any(part in skip_names for part in relative.parts):
+            continue
+        archive.add(path, arcname=str(Path(arcname) / relative), recursive=False)
+
+
+
+def _save_task_file(task_dir: Path, task: dict[str, Any]) -> None:
+    expected_revision = int(task.get("revision") or 0) if (task_dir / "task.json").is_file() else None
+    try:
+        saved = TaskStore(task_dir).save(task, expected_revision=expected_revision)
+        task["revision"] = saved["revision"]
+    except RevisionConflict as exc:
+        raise HTTPException(status_code=409, detail="升级任务状态已变化，请刷新后重试。") from exc
+
+
+
+def _read_task_file(task_dir: Path) -> dict[str, Any]:
+    path = task_dir / "task.json"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="升级任务不存在。")
+    return TaskStore(task_dir).load()
+
+
+
+def _public_status(status: str) -> str:
+    return {
+        "uploaded": "uploaded",
+        "precheck_passed": "prechecked",
+        "precheck_failed": "failed",
+        "pending": "pending",
+        "running": "running",
+        "runner_restarting": "running",
+        "recovery_required": "recovery_required",
+        "rollback_running": "running",
+        "rollback_failed": "failed",
+        "success": "succeeded",
+        "failed": "failed",
+        "cancelled": "cancelled",
+    }.get(status, status)
+
+
+
+def _completed_runner_task_view(task: dict[str, Any]) -> dict[str, Any]:
+    actions = task.get("execution_plan", {}).get("actions") or []
+    terminal_statuses = {"success", "failed", "rollback_failed", "rolled_back", "recovery_required", "cancelled"}
+    if not actions or str(task.get("status") or "") in terminal_statuses:
+        return task
+    if not all(str(action.get("status") or "") in {"succeeded", "skipped"} for action in actions):
+        return task
+    completed = dict(task)
+    completed["status"] = "success"
+    completed["recovery_status"] = "none"
+    completed["available_recovery_actions"] = []
+    return completed
