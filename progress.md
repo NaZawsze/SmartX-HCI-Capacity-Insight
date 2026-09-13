@@ -7079,3 +7079,12 @@ release_smoke=critical 0, warning 0
 - 验证：路由集合 74=74（path+method 完全一致）；全量 317 tests 回到 10 已知环境性错误基线，零回归；health/openapi 正常。
 - 提交：61c4e85（拆分）+ 5 个修复提交。
 - 网络备注：.3 SSH 链路本轮多次断连（与 GitHub push 被拦同源），验证用重试+短连接完成。
+
+## 2026-09-13 交接：ServicePage 拆分留给新会话
+
+- 用户决定：ServicePage.tsx（2305 行）拆分在另一个会话处理；本会话已把全部工作提交到本地 dev2（HEAD 9fc144e，领先 origin 78 个提交，未推送）。
+- 新会话接手要点：
+  - 入口：docs/ai-handoff-guide.md（环境/提交策略/测试基线/陷阱清单）+ 设计 docs/superpowers/specs/2026-09-13-split-giant-files-design.md Appendix A.4（ServicePage 分区边界）。
+  - 拆分方案：6 个 render 闭包（migration/restart/space-cleanup/platform-upgrade/component-upgrade/history）抽成 components/service/ 组件；state 与处理器随分区搬移；共享助手（renderUpgradeTask/renderUpgradeRuntimeVerification/renderCleanupDialog/InfoRow 等）进 shared.tsx；ServicePage 收敛为 subnav + 分区切换。
+  - 验证：前端 tsc + 目标测试 + 部署 + 健康；每个文件独立提交。
+  - 网络备注：.3 SSH 链路不稳，验证用重试/短连接；GitHub push 需用户明确要求。
