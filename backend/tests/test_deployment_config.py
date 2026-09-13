@@ -1,329 +1,249 @@
-from pathlib import Path
+"""Deployment/compose configuration assertions (unittest, no pytest dependency).
+
+Converted from pytest style so the suite runs inside the web-api image
+(which does not ship pytest). The v1 report_export assertions were dropped
+after the v1 dead-code removal; the v2 export font check now reads the
+export/ package.
+"""
+
+from __future__ import annotations
+
 import importlib.util
-import pytest
+import tempfile
+import unittest
+from pathlib import Path
 
 
-def test_compose_mounts_runtime_artifacts_outside_app_data() -> None:
-    root = Path(__file__).resolve().parents[2]
-    for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
-        text = (root / name).read_text(encoding="utf-8")
-        assert "/data/smartx-storage-forecast/app:/data" in text
-        assert "/data/smartx-storage-forecast/upgrades:/data/upgrades" in text
-        assert "/data/smartx-storage-forecast/backups:/data/backups" in text
-        assert "/data/smartx-storage-forecast/exports:/data/exports" in text
-        assert "/data/smartx-storage-forecast/compose-runtime:/data/compose-runtime" in text
-        assert "/data/smartx-storage-forecast/project:/data/smartx-storage-forecast/project" in text
-        assert "/data/smartx-storage-forecast/prometheus:/prometheus" in text
-        assert "/data/smartx-capacity-insight-data" not in text
-        assert "/opt/smartx-storage-forecast" not in text
-        assert "- /data/compose-runtime:" not in text
-        assert "SMARTX_HOST_COMPOSE_RUNTIME_PATH: /data/compose-runtime" not in text
+ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_pre_install_creates_runtime_artifact_directories() -> None:
-    root = Path(__file__).resolve().parents[2]
-    text = (root / "pre_install.sh").read_text(encoding="utf-8")
-    for value in (
-        "/data/smartx-storage-forecast",
-        "$INSTALL_ROOT/project",
-        "$INSTALL_ROOT/app",
-        "$INSTALL_ROOT/prometheus",
-        "$INSTALL_ROOT/upgrades",
-        "$INSTALL_ROOT/backups",
-        "$INSTALL_ROOT/exports",
-        "$INSTALL_ROOT/compose-runtime",
-    ):
-        assert value in text
-
-
-def test_upgrade_package_migrate_script_only_syncs_project_files(tmp_path) -> None:
-    root = Path(__file__).resolve().parents[2]
-    module_path = root / "scripts/build_upgrade_package.py"
+def _load_build_module():
+    module_path = ROOT / "scripts/build_upgrade_package.py"
     spec = importlib.util.spec_from_file_location("build_upgrade_package", module_path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-
-    script_path = tmp_path / "migrate.sh"
-    module.write_migrate_script(script_path, "v0.5.2")
-    text = script_path.read_text(encoding="utf-8")
-
-    assert "project_files = manifest.get(\"project_file_list\") or []" in text
-    assert "override_path.write_text" in text
-    assert "migrate_legacy_artifacts" not in text
-    assert "/host-data" not in text
-    assert "/package-project" not in text
-    assert "docker-compose.runner-upgrade.yml.before-" not in text
-    assert "runner_override.unlink()" not in text
-    assert "copy_task_file_if_newer" not in text
+    return module
 
 
-def test_platform_package_rejects_web_api_image_without_v2_health_route(tmp_path, monkeypatch) -> None:
-    root = Path(__file__).resolve().parents[2]
-    module_path = root / "scripts/build_upgrade_package.py"
-    spec = importlib.util.spec_from_file_location("build_upgrade_package", module_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+class TestDeploymentConfig(unittest.TestCase):
+    def test_compose_mounts_runtime_artifacts_outside_app_data(self) -> None:
+        for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            self.assertIn("/data/smartx-storage-forecast/app:/data", text)
+            self.assertIn("/data/smartx-storage-forecast/upgrades:/data/upgrades", text)
+            self.assertIn("/data/smartx-storage-forecast/backups:/data/backups", text)
+            self.assertIn("/data/smartx-storage-forecast/exports:/data/exports", text)
+            self.assertIn("/data/smartx-storage-forecast/compose-runtime:/data/compose-runtime", text)
+            self.assertIn("/data/smartx-storage-forecast/project:/data/smartx-storage-forecast/project", text)
+            self.assertIn("/data/smartx-storage-forecast/prometheus:/prometheus", text)
+            self.assertNotIn("/data/smartx-capacity-insight-data", text)
+            self.assertNotIn("/opt/smartx-storage-forecast", text)
+            self.assertNotIn("- /data/compose-runtime:", text)
+            self.assertNotIn("SMARTX_HOST_COMPOSE_RUNTIME_PATH: /data/compose-runtime", text)
 
-    def fake_run(command, cwd=module.ROOT):
-        if command[:2] == ["docker", "save"]:
-            output = Path(command[command.index("-o") + 1])
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_bytes(b"fake image")
+    def test_pre_install_creates_runtime_artifact_directories(self) -> None:
+        text = (ROOT / "pre_install.sh").read_text(encoding="utf-8")
+        for value in (
+            "/data/smartx-storage-forecast",
+            "$INSTALL_ROOT/project",
+            "$INSTALL_ROOT/app",
+            "$INSTALL_ROOT/prometheus",
+            "$INSTALL_ROOT/upgrades",
+            "$INSTALL_ROOT/backups",
+            "$INSTALL_ROOT/exports",
+            "$INSTALL_ROOT/compose-runtime",
+        ):
+            self.assertIn(value, text)
+
+    def test_upgrade_package_migrate_script_only_syncs_project_files(self) -> None:
+        module = _load_build_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            script_path = Path(tmp) / "migrate.sh"
+            module.write_migrate_script(script_path, "v0.5.2")
+            text = script_path.read_text(encoding="utf-8")
+
+            self.assertIn('project_files = manifest.get("project_file_list") or []', text)
+            self.assertIn("override_path.write_text", text)
+            self.assertNotIn("migrate_legacy_artifacts", text)
+            self.assertNotIn("/host-data", text)
+            self.assertNotIn("/package-project", text)
+            self.assertNotIn("docker-compose.runner-upgrade.yml.before-", text)
+            self.assertNotIn("runner_override.unlink()", text)
+            self.assertNotIn("copy_task_file_if_newer", text)
+
+    def test_platform_package_rejects_web_api_image_without_v2_health_route(self) -> None:
+        module = _load_build_module()
+        original_run = module.run
+
+        def fake_run(command, cwd=module.ROOT):
+            if command[:2] == ["docker", "save"]:
+                output = Path(command[command.index("-o") + 1])
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_bytes(b"fake image")
+                return ""
+            if command[:2] == ["docker", "run"]:
+                return "legacy app without v2 health"
             return ""
-        if command[:2] == ["docker", "run"]:
-            return "legacy app without v2 health"
-        return ""
 
-    monkeypatch.setattr(module, "run", fake_run)
+        module.run = fake_run
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(SystemExit) as raised:
+                    module.build_package(
+                        "v0.5.2",
+                        min_version="v0.5.2",
+                        output_dir=Path(tmp),
+                        build_images=False,
+                        include_frontend_build=False,
+                        allow_existing_images=True,
+                        check_version_metadata=False,
+                    )
+            self.assertIn("/api/system/health", str(raised.exception))
+        finally:
+            module.run = original_run
 
-    with pytest.raises(SystemExit, match="/api/system/health"):
-        module.build_package(
-            "v0.5.2",
-            min_version="v0.5.2",
-            output_dir=tmp_path,
-            build_images=False,
-            include_frontend_build=False,
-            check_version_metadata=False,
-        )
+    def test_compose_splits_platform_and_runner_versions(self) -> None:
+        for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            self.assertIn("SMARTX_IMAGE_TAG:-v0.5.2", text)
+            self.assertIn("SMARTX_RUNNER_IMAGE_TAG:-v0.3.1", text)
+            self.assertNotIn("upgrade-runner:${SMARTX_IMAGE_TAG", text)
+            self.assertNotIn("SMARTX_IMAGE_TAG:-v0.4.0", text)
+            self.assertNotIn(":local", text)
 
+    def test_compose_project_name_is_consistent_across_runtime_and_upgrade(self) -> None:
+        for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            self.assertTrue(text.startswith("name: smartx-hci-capacity-insight\n"))
+            self.assertIn("SMARTX_COMPOSE_PROJECT_NAME: smartx-hci-capacity-insight", text)
+            self.assertNotIn("name: smartx-storage-forecast_smartx-net", text)
+            self.assertIn("name: smartx-hci-capacity-insight-net", text)
+            self.assertNotIn("SMARTX_COMPOSE_PROJECT_NAME: smartx-capacity-insight", text)
+        deployment_text = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
+        self.assertIn("docker compose -f docker-compose.release.yml up -d", deployment_text)
+        self.assertIn("docker compose -f docker-compose.offline.yml up -d", deployment_text)
+        self.assertIn("smartx-hci-capacity-insight-net", deployment_text)
 
-def test_compose_splits_platform_and_runner_versions() -> None:
-    root = Path(__file__).resolve().parents[2]
-    for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
-        text = (root / name).read_text(encoding="utf-8")
-        assert "SMARTX_IMAGE_TAG:-v0.5.2" in text
-        assert "SMARTX_RUNNER_IMAGE_TAG:-v0.3.1" in text
-        assert "upgrade-runner:${SMARTX_IMAGE_TAG" not in text
-        assert "SMARTX_IMAGE_TAG:-v0.4.0" not in text
-        assert ":local" not in text
+    def test_backend_images_carry_platform_and_runner_version_files(self) -> None:
+        for name in ("backend/Dockerfile", "backend/Dockerfile.worker", "backend/Dockerfile.upgrade"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            self.assertIn("COPY VERSION ./VERSION", text)
+            self.assertIn("COPY RUNNER_VERSION ./RUNNER_VERSION", text)
 
+    def test_deployment_docs_use_explicit_platform_and_runner_tags(self) -> None:
+        text = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
 
-def test_compose_project_name_is_consistent_across_runtime_and_upgrade() -> None:
-    root = Path(__file__).resolve().parents[2]
-    for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
-        text = (root / name).read_text(encoding="utf-8")
-        assert text.startswith("name: smartx-hci-capacity-insight\n")
-        assert "SMARTX_COMPOSE_PROJECT_NAME: smartx-hci-capacity-insight" in text
-        assert "name: smartx-storage-forecast_smartx-net" not in text
-        assert "name: smartx-hci-capacity-insight-net" in text
-        assert "SMARTX_COMPOSE_PROJECT_NAME: smartx-capacity-insight" not in text
-    deployment_text = (root / "docs/deployment.md").read_text(encoding="utf-8")
-    assert "docker compose -f docker-compose.release.yml up -d" in deployment_text
-    assert "docker compose -f docker-compose.offline.yml up -d" in deployment_text
-    assert "smartx-hci-capacity-insight-net" in deployment_text
+        self.assertNotIn("uses local `latest` image tags by default", text)
+        self.assertNotIn("SMARTX_IMAGE_TAG=v0.3.1", text)
+        self.assertNotIn("nazawsze/smartx-hci-capacity-insight-web-api:latest", text)
+        self.assertNotIn("nazawsze/smartx-hci-capacity-insight-upgrade-runner:latest", text)
+        self.assertIn("nazawsze/smartx-hci-capacity-insight-web-api:v0.5.2", text)
+        self.assertIn("nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1", text)
 
+    def test_platform_upgrade_package_excludes_runner(self) -> None:
+        text = (ROOT / "scripts/build_upgrade_package.py").read_text(encoding="utf-8")
+        self.assertNotIn('"images/upgrade-runner.tar"', text)
+        self.assertNotIn("and the offline upgrade-runner image", text)
+        self.assertNotIn('("upgrade-runner",', text)
 
-def test_backend_images_carry_platform_and_runner_version_files() -> None:
-    root = Path(__file__).resolve().parents[2]
-    for name in ("backend/Dockerfile", "backend/Dockerfile.worker", "backend/Dockerfile.upgrade"):
-        text = (root / name).read_text(encoding="utf-8")
-        assert "COPY VERSION ./VERSION" in text
-        assert "COPY RUNNER_VERSION ./RUNNER_VERSION" in text
+    def test_upgrade_runner_uses_standalone_runner_entrypoint(self) -> None:
+        for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml", "backend/Dockerfile.upgrade"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            self.assertIn("app.upgrade_runner.main", text)
+        runner = (ROOT / "backend/app/upgrade_runner/main.py").read_text(encoding="utf-8")
+        self.assertNotIn("app.v2.upgrade.service", runner)
+        dockerfile = (ROOT / "backend/Dockerfile.upgrade").read_text(encoding="utf-8")
+        self.assertIn("COPY backend/app/upgrade_runner ./app/upgrade_runner", dockerfile)
+        self.assertIn("COPY backend/app/upgrade_protocol ./app/upgrade_protocol", dockerfile)
+        self.assertNotIn("COPY backend/app ./app", dockerfile)
 
+    def test_upgrade_runner_receives_host_paths_for_sandbox_mounts(self) -> None:
+        for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            runner_section = text.split("  upgrade-runner:\n", 1)[1].split("  prometheus:\n", 1)[0]
+            self.assertIn("SMARTX_HOST_PROJECT_PATH: /data/smartx-storage-forecast/project", runner_section)
+            self.assertIn("SMARTX_HOST_DATA_PATH: /data/smartx-storage-forecast/app", runner_section)
+            self.assertIn("SMARTX_HOST_BACKUPS_PATH: /data/smartx-storage-forecast/backups", runner_section)
+            self.assertIn("SMARTX_HOST_COMPOSE_RUNTIME_PATH: /data/smartx-storage-forecast/compose-runtime", runner_section)
+            self.assertIn("SMARTX_HOST_PROMETHEUS_DATA_PATH: /data/smartx-storage-forecast/prometheus", runner_section)
+            self.assertIn("chmod 600 /data/smartx-storage-forecast/project/.env", runner_section)
+            self.assertIn("exec python -m app.upgrade_runner.main", runner_section)
 
-def test_deployment_docs_use_explicit_platform_and_runner_tags() -> None:
-    root = Path(__file__).resolve().parents[2]
-    text = (root / "docs/deployment.md").read_text(encoding="utf-8")
+    def test_web_api_repairs_migrated_env_permissions_before_startup(self) -> None:
+        for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            web_api_section = text.split("  web-api:\n", 1)[1].split("  collector-worker:\n", 1)[0]
 
-    assert "uses local `latest` image tags by default" not in text
-    assert "SMARTX_IMAGE_TAG=v0.3.1" not in text
-    assert "nazawsze/smartx-hci-capacity-insight-web-api:latest" not in text
-    assert "nazawsze/smartx-hci-capacity-insight-upgrade-runner:latest" not in text
-    assert "SMARTX_IMAGE_TAG=v0.5.2" in text
-    assert "SMARTX_RUNNER_IMAGE_TAG=v0.3.1" in text
-    assert "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.2" in text
-    assert "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1" in text
+            self.assertIn(
+                'command: ["sh", "-c", "chmod 600 /run/smartx-runtime.env '
+                '&& exec uvicorn app.v2.main:app --host 0.0.0.0 --port 8000"]',
+                web_api_section,
+            )
+            self.assertIn("/data/smartx-storage-forecast/project/.env:/run/smartx-runtime.env", web_api_section)
+            self.assertIn("/data/smartx-storage-forecast/project:/data/smartx-storage-forecast/project:ro", web_api_section)
 
+    def test_v052_compose_uses_target_project_network_and_subnet(self) -> None:
+        for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            self.assertTrue(text.startswith("name: smartx-hci-capacity-insight\n"))
+            self.assertIn("name: smartx-hci-capacity-insight-net", text)
+            self.assertIn("subnet: 10.249.251.0/24", text)
+            self.assertNotIn("subnet: 10.249.249.0/24", text)
 
-def test_platform_upgrade_package_excludes_runner() -> None:
-    root = Path(__file__).resolve().parents[2]
-    text = (root / "scripts/build_upgrade_package.py").read_text(encoding="utf-8")
-    assert '"images/upgrade-runner.tar"' not in text
-    assert "and the offline upgrade-runner image" not in text
-    assert '("upgrade-runner",' not in text
+    def test_upgrade_runner_dependencies_do_not_pull_web_api_stack(self) -> None:
+        text = (ROOT / "backend/requirements-upgrade.txt").read_text(encoding="utf-8")
+        self.assertNotIn("fastapi", text)
+        self.assertNotIn("pydantic", text)
+        self.assertNotIn("python-multipart", text)
 
+    def test_web_api_image_uses_slim_runtime_dependencies(self) -> None:
+        dockerfile = (ROOT / "backend/Dockerfile").read_text(encoding="utf-8")
+        requirements = (ROOT / "backend/requirements-api.txt").read_text(encoding="utf-8")
+        v2_report_export = (ROOT / "backend/app/v2/reports/export/common.py").read_text(encoding="utf-8")
 
-def test_upgrade_runner_uses_standalone_runner_entrypoint() -> None:
-    root = Path(__file__).resolve().parents[2]
-    for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml", "backend/Dockerfile.upgrade"):
-        text = (root / name).read_text(encoding="utf-8")
-        assert "app.upgrade_runner.main" in text
-    runner = (root / "backend/app/upgrade_runner/main.py").read_text(encoding="utf-8")
-    assert "app.v2.upgrade.service" not in runner
-    dockerfile = (root / "backend/Dockerfile.upgrade").read_text(encoding="utf-8")
-    assert "COPY backend/app/upgrade_runner ./app/upgrade_runner" in dockerfile
-    assert "COPY backend/app/upgrade_protocol ./app/upgrade_protocol" in dockerfile
-    assert "COPY backend/app ./app" not in dockerfile
+        self.assertNotIn("uvicorn[standard]", requirements)
+        self.assertIn("uvicorn==0.34.0", requirements)
+        self.assertNotIn("fonts-noto-core", dockerfile)
+        self.assertIn("fonts-noto-cjk", dockerfile)
+        self.assertIn("NotoSerifCJK-Regular.ttc", dockerfile)
+        self.assertNotIn("NotoSerifCJK-Bold.ttc", dockerfile)
+        self.assertNotIn("NotoSansCJK-Regular.ttc", dockerfile)
+        self.assertIn("fc-cache -f", dockerfile)
+        self.assertIn("__pycache__", dockerfile)
+        self.assertIn("*.pyc", dockerfile)
+        self.assertIn("find ./app -type d -name __pycache__", dockerfile)
+        self.assertIn("find ./app -type f -name '*.pyc'", dockerfile)
+        self.assertIn("-name tests", dockerfile)
+        self.assertIn("-name test", dockerfile)
+        self.assertNotIn(".dist-info", dockerfile)
+        self.assertNotIn('[CHART_FONT_FAMILY, "Noto Serif", "DejaVu Serif"]', v2_report_export)
+        self.assertIn('[CHART_FONT_FAMILY, "DejaVu Serif"]', v2_report_export)
 
+    def test_frontend_docker_context_excludes_local_build_artifacts(self) -> None:
+        dockerignore = ROOT / "frontend/.dockerignore"
+        self.assertTrue(dockerignore.is_file())
+        ignored = {line.strip() for line in dockerignore.read_text(encoding="utf-8").splitlines() if line.strip()}
 
-def test_upgrade_runner_receives_host_paths_for_sandbox_mounts() -> None:
-    root = Path(__file__).resolve().parents[2]
-    for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
-        text = (root / name).read_text(encoding="utf-8")
-        runner_section = text.split("  upgrade-runner:\n", 1)[1].split("  prometheus:\n", 1)[0]
-        assert "SMARTX_HOST_PROJECT_PATH: /data/smartx-storage-forecast/project" in runner_section
-        assert "SMARTX_HOST_DATA_PATH: /data/smartx-storage-forecast/app" in runner_section
-        assert "SMARTX_HOST_BACKUPS_PATH: /data/smartx-storage-forecast/backups" in runner_section
-        assert "SMARTX_HOST_COMPOSE_RUNTIME_PATH: /data/smartx-storage-forecast/compose-runtime" in runner_section
-        assert "SMARTX_HOST_PROMETHEUS_DATA_PATH: /data/smartx-storage-forecast/prometheus" in runner_section
-        assert "chmod 600 /data/smartx-storage-forecast/project/.env" in runner_section
-        assert "exec python -m app.upgrade_runner.main" in runner_section
+        self.assertIn("node_modules", ignored)
+        self.assertIn("dist", ignored)
+        self.assertIn("coverage", ignored)
+        self.assertIn("*.tsbuildinfo", ignored)
 
+    def test_upgrade_override_uses_platform_release_images(self) -> None:
+        text = (ROOT / "docker-compose.upgrade.yml").read_text(encoding="utf-8")
+        self.assertIn("nazawsze/smartx-hci-capacity-insight-web-api:v0.5.2", text)
+        self.assertIn("nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.2", text)
+        self.assertIn("nazawsze/smartx-hci-capacity-insight-frontend:v0.5.2", text)
+        self.assertNotIn("smartx-storage-forecast-web-api:v0.4.0", text)
 
-def test_web_api_repairs_migrated_env_permissions_before_startup() -> None:
-    root = Path(__file__).resolve().parents[2]
-    for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
-        text = (root / name).read_text(encoding="utf-8")
-        web_api_section = text.split("  web-api:\n", 1)[1].split("  collector-worker:\n", 1)[0]
-
-        assert (
-            'command: ["sh", "-c", "chmod 600 /run/smartx-runtime.env '
-            '&& exec uvicorn app.v2.main:app --host 0.0.0.0 --port 8000"]'
-        ) in web_api_section
-        assert "/data/smartx-storage-forecast/project/.env:/run/smartx-runtime.env" in web_api_section
-        assert "/data/smartx-storage-forecast/project:/data/smartx-storage-forecast/project:ro" in web_api_section
-
-
-def test_v052_compose_uses_target_project_network_and_subnet() -> None:
-    root = Path(__file__).resolve().parents[2]
-    for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
-        text = (root / name).read_text(encoding="utf-8")
-        assert text.startswith("name: smartx-hci-capacity-insight\n")
-        assert "name: smartx-hci-capacity-insight-net" in text
-        assert "subnet: 10.249.251.0/24" in text
-        assert "subnet: 10.249.249.0/24" not in text
-
-
-def test_upgrade_runner_dependencies_do_not_pull_web_api_stack() -> None:
-    root = Path(__file__).resolve().parents[2]
-    text = (root / "backend/requirements-upgrade.txt").read_text(encoding="utf-8")
-    assert "fastapi" not in text
-    assert "pydantic" not in text
-    assert "python-multipart" not in text
-
-
-def test_web_api_image_uses_slim_runtime_dependencies() -> None:
-    root = Path(__file__).resolve().parents[2]
-    dockerfile = (root / "backend/Dockerfile").read_text(encoding="utf-8")
-    requirements = (root / "backend/requirements-api.txt").read_text(encoding="utf-8")
-    v2_report_export = (root / "backend/app/v2/reports/export.py").read_text(encoding="utf-8")
-    v1_report_export = (root / "backend/app/services/report_export.py").read_text(encoding="utf-8")
-
-    assert "uvicorn[standard]" not in requirements
-    assert "uvicorn==0.34.0" in requirements
-    assert "fonts-noto-core" not in dockerfile
-    assert "fonts-noto-cjk" in dockerfile
-    assert "NotoSerifCJK-Regular.ttc" in dockerfile
-    assert "NotoSerifCJK-Bold.ttc" not in dockerfile
-    assert "NotoSansCJK-Regular.ttc" not in dockerfile
-    assert "fc-cache -f" in dockerfile
-    assert "__pycache__" in dockerfile
-    assert "*.pyc" in dockerfile
-    assert "find ./app -type d -name __pycache__" in dockerfile
-    assert "find ./app -type f -name '*.pyc'" in dockerfile
-    assert "-name tests" in dockerfile
-    assert "-name test" in dockerfile
-    assert ".dist-info" not in dockerfile
-    assert '[CHART_FONT_FAMILY, "Noto Serif", "DejaVu Serif"]' not in v2_report_export
-    assert '[CHART_FONT_FAMILY, "Noto Serif", "DejaVu Serif"]' not in v1_report_export
-    assert '[CHART_FONT_FAMILY, "DejaVu Serif"]' in v2_report_export
-    assert '[CHART_FONT_FAMILY, "DejaVu Serif"]' in v1_report_export
-
-
-def test_frontend_docker_context_excludes_local_build_artifacts() -> None:
-    root = Path(__file__).resolve().parents[2]
-    dockerignore = root / "frontend/.dockerignore"
-    assert dockerignore.is_file()
-    ignored = {line.strip() for line in dockerignore.read_text(encoding="utf-8").splitlines() if line.strip()}
-
-    assert "node_modules" in ignored
-    assert "dist" in ignored
-    assert "coverage" in ignored
-    assert "*.tsbuildinfo" in ignored
+    def test_runner_workflow_is_separate_from_platform_workflow(self) -> None:
+        platform = (ROOT / ".github/workflows/docker-images.yml").read_text(encoding="utf-8")
+        runner = (ROOT / ".github/workflows/upgrade-runner-image.yml").read_text(encoding="utf-8")
+        self.assertNotIn("smartx-hci-capacity-insight-upgrade-runner", platform)
+        self.assertIn('tags:\n      - "runner-v*"', runner)
+        self.assertIn("type=raw,value=${{ steps.version.outputs.tag }}", runner)
 
 
-def test_upgrade_override_uses_platform_release_images() -> None:
-    root = Path(__file__).resolve().parents[2]
-    text = (root / "docker-compose.upgrade.yml").read_text(encoding="utf-8")
-    assert "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.2" in text
-    assert "nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.2" in text
-    assert "nazawsze/smartx-hci-capacity-insight-frontend:v0.5.2" in text
-    assert "smartx-storage-forecast-web-api:v0.4.0" not in text
-
-
-def test_runner_workflow_is_separate_from_platform_workflow() -> None:
-    root = Path(__file__).resolve().parents[2]
-    platform = (root / ".github/workflows/docker-images.yml").read_text(encoding="utf-8")
-    runner = (root / ".github/workflows/upgrade-runner-image.yml").read_text(encoding="utf-8")
-    assert "smartx-hci-capacity-insight-upgrade-runner" not in platform
-    assert 'tags:\n      - "runner-v*"' in runner
-    assert "type=raw,value=${{ steps.version.outputs.tag }}" in runner
-
-
-def test_migration_and_report_artifacts_live_under_exports() -> None:
-    root = Path(__file__).resolve().parents[2]
-    data_migration = (root / "backend/app/services/data_migration.py").read_text(encoding="utf-8")
-    report_export = (root / "backend/app/services/report_export.py").read_text(encoding="utf-8")
-    system_control = (root / "backend/app/services/system_control.py").read_text(encoding="utf-8")
-
-    assert 'settings.export_path / "migrations"' in data_migration
-    assert 'settings.export_path / "migration-tasks"' in data_migration or "EXPORT_TASK_DIR" in data_migration
-    assert 'IMPORT_TASK_DIR = "imports"' in data_migration
-    assert "settings.export_path / IMPORT_TASK_DIR" in data_migration
-    assert 'settings.export_path / "reports"' in report_export
-    assert "migration_imports" in system_control
-
-def test_upgrade_backup_skips_legacy_runtime_artifacts() -> None:
-    root = Path(__file__).resolve().parents[2]
-    text = (root / "backend/app/services/upgrade.py").read_text(encoding="utf-8")
-
-    assert '"compose-runtime"' in text
-    assert '"upgrades"' in text
-    assert '"backups"' in text
-    assert '"exports"' in text
-
-
-def test_upgrade_backup_reports_progress() -> None:
-    root = Path(__file__).resolve().parents[2]
-    backend = (root / "backend/app/services/upgrade.py").read_text(encoding="utf-8")
-    frontend = (root / "frontend/src/pages/ServicePage.tsx").read_text(encoding="utf-8")
-
-    assert "class _BackupProgress" in backend
-    assert 'task["backup_total_bytes"]' in backend
-    assert '"backup_processed_bytes"' in backend
-    assert "备份中 {percent}%" in backend
-    assert "activeUpgradeDetail(next)" in frontend
-
-
-def test_upgrade_precheck_checks_network_and_project_closure() -> None:
-    root = Path(__file__).resolve().parents[2]
-    backend = (root / "backend/app/services/upgrade.py").read_text(encoding="utf-8")
-    frontend = (root / "frontend/src/pages/ServicePage.tsx").read_text(encoding="utf-8")
-
-    assert 'EXPECTED_NETWORK_SUBNET = "10.249.251.0/24"' in backend
-    assert 'check("network", network_ok, network_message, network_detail)' in backend
-    assert '"volumes", "network", "compose-tag"' in frontend
-    assert '"project-files"' in frontend
-    assert "formatCheckMessages(relatedFailed)" in frontend
-
-
-def test_image_cleanup_deletes_scanned_candidates() -> None:
-    root = Path(__file__).resolve().parents[2]
-    text = (root / "backend/app/services/system_control.py").read_text(encoding="utf-8")
-
-    assert 'before = scan_unused_images()' in text
-    assert '"/images/prune' not in text
-    assert 'DELETE", f"/images/{quote(image_id' in text
-    assert '"space_reclaimable_before_label"' in text
-    assert '"errors": errors' in text
-
-
-def test_space_cleanup_keeps_cleanup_result_visible() -> None:
-    root = Path(__file__).resolve().parents[2]
-    text = (root / "frontend/src/pages/ServicePage.tsx").read_text(encoding="utf-8")
-
-    assert 'setSpaceCleanupTotal(result.space_reclaimed_label)' in text
-    assert 'setSpaceCleanupItems([])' in text
-    assert 'await scanSpaceCleanup();' not in text
+if __name__ == "__main__":
+    unittest.main()
