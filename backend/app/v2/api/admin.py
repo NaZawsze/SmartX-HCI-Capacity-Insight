@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Annotated, Optional, Union
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.v2.api.deps import (
