@@ -1,5 +1,12 @@
 # SmartX HCI Capacity Insight - 工作进度
 
+## 2026-09-13 49-13 拆分巨型文件完成（文件 2-4/4：ServicePage / export.py / upgrade.service）
+
+- **ServicePage.tsx（2305 行 → 156 行，commit 844dc05）**：拆成 `frontend/src/components/service/` 六分区组件（Migration/Restart/Cleanup/PlatformUpgrade/ComponentUpgrade/History），state 与处理器随分区搬移；共享助手（UpgradeTaskDetail/UpgradeRuntimeVerification/CleanupDialog/InfoRow/PageHeader/格式化函数）进 shared.tsx；ServicePage 收敛为 subnav + 分区切换。分区组件常驻挂载、非激活返回 null，保证跨分区切换状态不丢。跨分区共享状态（upgradeHistory/componentHistory/componentInfos/runnerVersion/upgradeRunTaskRef）提升到 ServicePage 以 props 下发；历史→分区选中用 historySelection 状态。验证：tsc 干净、85 前端测试全绿（7 文件）、frontend 容器重建、健康 ok。
+- **reports/export.py（3720 行 → export/ 包，commit d0577c1）**：common.py（共享助手/常量/ReportPeriodProfile）、word.py（build_report_docx + v1/customer docx）、excel.py（build_report_xlsx + 模板写入）、legacy.py 占位；`__init__.py` 再导出 DOCX/XLSX_MEDIA_TYPE/build_report_docx/build_report_xlsx/report_period_profile，调用方零改动。消解重复 `_percent_label`（保留一个进 common）；修复 XLSX_TEMPLATE_PATH 指向新包位置；保留 build_report_docx 原 v1+customer 双定义（后者生效）。验证：全量 317 测试回 10 已知环境性错误基线、真实 Word/Excel 导出为有效客户版文件（docx 64 段、xlsx 10 个 sheet）、web-api 重建健康。
+- **upgrade/service.py（1791 行 → service/ Mixin 包，commit 32d56e7）**：`UpgradeService(IntakeMixin, PrecheckMixin, ExecutionMixin, CleanupMixin, VerificationMixin, TaskFileMixin, PathsMixin)`，构造签名不变；intake/precheck/execution/cleanup/verification/taskfile/paths 各域 + fs.py 助手 + constants.py 常量 + _compat.py（共享 fastapi HTTPException/UploadFile 兜底，保证 runner 镜像下类身份一致）。跨模块助手按 import 闭包调整避免循环（component-type/task-package 助手→taskfile、_check_package_checksums→precheck）。验证：构造签名与 20 个公开方法集合不变、127 upgrade 测试通过、全量 317 测试回基线、web-api 重建健康、upgrade version/verification 端点正常。
+- 网络备注：.3 SSH 链路多次断连、Docker Hub 拉取偶发 EOF（重试成功）；登录字段为 access_token；导出端点为 GET。
+
 ## 2026-07-08 UPG-036 本地回归验证
 
 状态：已完成

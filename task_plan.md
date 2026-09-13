@@ -1387,11 +1387,16 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [ ] API 增加响应模型（Pydantic response_model），逐步替代前端 normalize 兜底。
 - [ ] 已知取舍记录：前端 token 存 localStorage（内网离线产品，暂不改）。
 
-### 13. 拆分巨型文件 [设计完成，待实施]
+### 13. 拆分巨型文件 [已完成 2026-09-13]
 
 设计文档：[docs/superpowers/specs/2026-09-13-split-giant-files-design.md](docs/superpowers/specs/2026-09-13-split-giant-files-design.md)。
 
-四个文件各自独立提交/部署：v2/api.py → 域 router 包（OpenAPI path+method 集合 diff 为空）；reports/export.py → common/word/excel 包（公开入口再导出）；upgrade/service.py → Mixin 拆分（类名/构造签名不变）；ServicePage.tsx → 四域组件（页面收敛 ≤400 行）。
+四个文件各自独立提交/部署：v2/api.py → 域 router 包（OpenAPI path+method 集合 diff 为空）；reports/export.py → common/word/excel 包（公开入口再导出）；upgrade/service.py → Mixin 拆分（类名/构造签名不变）；ServicePage.tsx → 六域组件（页面收敛 156 行）。
+
+- 文件 1/4 api.py（commit 61c4e85 + 修复）：74 条路由 path+method 一致；全量 317 测试回 10 已知环境性错误基线。
+- 文件 2/4 ServicePage.tsx（commit 844dc05）：六分区组件 + shared.tsx；tsc 干净、85 前端测试全绿、容器重建、健康 ok。
+- 文件 3/4 reports/export.py（commit d0577c1）：export/ 包（common/word/excel/legacy）；全量 317 测试回基线、真实 Word/Excel 导出为有效客户版文件。
+- 文件 4/4 upgrade/service.py（commit 32d56e7）：Mixin 包（intake/precheck/execution/cleanup/verification/taskfile/paths/fs + _compat/constants）；构造签名与 20 个公开方法集合不变、127 upgrade 测试通过、全量 317 测试回基线、web-api 重建健康。
 
 ### 14. API 响应模型分批落地 [批次 1-4 已完成 2026-09-13；批次 5 重新立项为契约对齐]
 
