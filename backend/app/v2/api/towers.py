@@ -17,7 +17,7 @@ from app.v2.api.models import (
     TowerTestPayload,
     TowerTestResponse,
 )
-from app.v2.inventory.models import ClusterInput
+from app.v2.inventory.models import ClusterInput, TowerInput
 from app.v2.inventory.service import InventoryService
 from app.v2.cloudtower.service import CloudTowerService
 
