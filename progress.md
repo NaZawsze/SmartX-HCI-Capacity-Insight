@@ -1,5 +1,11 @@
 # SmartX HCI Capacity Insight - 工作进度
 
+## 2026-09-13 修复 10 个已知环境性测试错误（commit 5dd56d4）
+
+- **9 个 test_v2_package_builders**：根因是构建测试在 web-api 容器内跑（项目目录只读挂载 `:ro`，写 VERSION 失败）。把 `backend/tests/test_v2_package_builders.py` 移到 `backend/build_tests/`，容器内 `discover -s tests` 不再收集；宿主机跑 26 tests OK（项目目录可写）。零代码改动，纯测试运行位置调整。
+- **1 个 test_deployment_config**：根因是 `import pytest` 但 web-api 镜像无 pytest。改为 unittest 风格（无 pytest 依赖），容器内可跑。删除 6 个读已删除 v1 文件（backend/app/services/*）或拆分前 ServicePage.tsx 的过时测试（行为已由 test_v2_migration/test_v2_cleanup/test_v2_upgrade/ServicePage.test.tsx 覆盖）；适配 deployment-docs 字面量 tag 断言与 no-build 需 allow_existing_images（该测试此前从未真正跑过）。18 tests OK。
+- **验证**：.3 容器内全量 **308 tests OK（零错误）**（此前 317/10 错误）；宿主机 build_tests 26 tests OK。测试基线从"317/10 已知环境性错误"更新为"308 全绿 + 宿主机 26 构建测试全绿"。
+
 ## 2026-09-13 49-13 拆分巨型文件完成（文件 2-4/4：ServicePage / export.py / upgrade.service）
 
 - **ServicePage.tsx（2305 行 → 156 行，commit 844dc05）**：拆成 `frontend/src/components/service/` 六分区组件（Migration/Restart/Cleanup/PlatformUpgrade/ComponentUpgrade/History），state 与处理器随分区搬移；共享助手（UpgradeTaskDetail/UpgradeRuntimeVerification/CleanupDialog/InfoRow/PageHeader/格式化函数）进 shared.tsx；ServicePage 收敛为 subnav + 分区切换。分区组件常驻挂载、非激活返回 null，保证跨分区切换状态不丢。跨分区共享状态（upgradeHistory/componentHistory/componentInfos/runnerVersion/upgradeRunTaskRef）提升到 ServicePage 以 props 下发；历史→分区选中用 historySelection 状态。验证：tsc 干净、85 前端测试全绿（7 文件）、frontend 容器重建、健康 ok。

@@ -41,7 +41,7 @@
 ### 测试基线
 
 - 本地（macOS，python3.9，无 fastapi/apscheduler/cryptography/pytest）：部分测试**环境跳过或报 ModuleNotFoundError** 属正常——fastapi 依赖的测试已加 skipTest。
-- .3 容器内全量：**约 317 tests / 10 个已知环境性错误** = 9 个 `test_v2_package_builders`（需写 VERSION，撞 web-api 容器只读挂载）+ 1 个 `test_deployment_config`（镜像缺 pytest）。**除此之外出现任何新失败都是真回归。**
+- .3 容器内全量：**308 tests 全绿**（2026-09-13 起）。构建测试 `test_v2_package_builders` 已移到 `backend/build_tests/`（需写项目根 VERSION，web-api 容器只读挂载，改在宿主机跑 26 tests OK）；`test_deployment_config` 已改 unittest（无 pytest 依赖）。**任何失败都是真回归。**
 - 容器内跑法：
   ```bash
   docker compose exec -T web-api sh -lc "cd /data/smartx-storage-forecast/project/backend && PYTHONPATH=/data/smartx-storage-forecast/project/backend python -m unittest discover -s tests 2>&1 | tail -3"
