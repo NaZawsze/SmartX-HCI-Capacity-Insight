@@ -5,6 +5,7 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.v2.auth.service import CurrentUser
 from app.v2.api.deps import get_cloudtower_service, get_inventory_service, require_user
 from app.v2.api.models import (
     ClusterPayload,
