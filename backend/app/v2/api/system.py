@@ -5,6 +5,9 @@ from typing import Annotated, Optional, Union
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.v2.config import V2Settings
+from app.v2.database import V2Database
+
 from app.v2.api.deps import (
     get_auth_service,
     get_cleanup_service,
