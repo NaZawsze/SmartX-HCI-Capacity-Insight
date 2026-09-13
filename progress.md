@@ -7070,3 +7070,12 @@ release_smoke=critical 0, warning 0
 - 前端：删除 normalizeDashboardSummary/normalizeMetricItem/normalizeCapacityRisk（兼容层使命完成）；保留 normalizeVmTrend（真转换）。
 - 验证：.3 金样本对比——既有 9 键全保留 + 新增 4 键；kpis 数值正确（vm_count 244）；latest_run 从 collection 推导；item metric/value/previous_value 到位；前端 tsc 干净 + 55 tests 通过；全量 317 tests 回到 10 已知环境性错误基线，零回归。
 - 修复：kpis vm_count 方法名笔误（_latest_vm_items → _latest_vms_from_database）。
+
+## 2026-09-13 49-13 文件 1/4：api.py 拆分为域路由包（完成）
+
+- `app/v2/api.py`（1100+ 行）→ `app/v2/api/` 包：models.py（全部响应/请求模型）、deps.py（get_*_service/require_user）、towers.py（含 tower_response 等助手）、auth/dashboard/vms/reports/collection/tasks/system/admin 域路由；`__init__.py` 组装 router 并再导出 deps（测试兼容）。
+- 拆分过程修复 5 处导入问题（教训：`from __future__ import annotations` 下字符串注解求值需要模块内导入全部签名类型——V2Settings/V2Database/CurrentUser/TowerInput/FileResponse/跨模块助手）：
+  - towers.py 缺 CurrentUser/TowerInput；域模块缺 V2Settings/V2Database；admin/reports 缺 system 导出助手（download_response/record_export_task）；FileResponse 未导入。
+- 验证：路由集合 74=74（path+method 完全一致）；全量 317 tests 回到 10 已知环境性错误基线，零回归；health/openapi 正常。
+- 提交：61c4e85（拆分）+ 5 个修复提交。
+- 网络备注：.3 SSH 链路本轮多次断连（与 GitHub push 被拦同源），验证用重试+短连接完成。
