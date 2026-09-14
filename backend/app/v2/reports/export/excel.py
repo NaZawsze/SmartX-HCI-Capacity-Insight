@@ -9,15 +9,17 @@ from typing import Any
 from openpyxl.chart import BarChart, Reference
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell.cell import MergedCell
+from openpyxl.drawing.image import Image as XlsxImage
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.properties import PageSetupProperties
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from app.v2.config import V2Settings
 
 from .common import (
     ReportPeriodProfile, _capacity_risk_summary, _cluster_full_name, _cluster_key, _cluster_name, _cluster_period_growth, _cluster_scope_label, _cluster_used_ratio,
     _customer_growth_vms, _customer_key_findings, _data_quality_status_message, _data_quality_summary_rows, _days_label, _effective_report_window, _export_context, _float_or_none,
-    _growth_rate_method_lines, _is_alert_vm, _overall_risk_status, _parse_report_datetime, _percent_label, _period_window_label, _persist_report, _report_data_quality,
+    _growth_rate_method_lines, _is_alert_vm, _line_chart_image, _merged_cluster_points, _overall_risk_status, _parse_report_datetime, _percent_label, _period_window_label, _persist_report, _report_data_quality,
     _risk_level, _top_vms, _tower_scope_label, _vm_sample_window_label, _vms_by_cluster, ACCENT, ACCENT_DARK, ACCENT_LIGHT,
     ACCENT_SOFT, GROWTH_BLUE, RATIO_RED, REPORT_COVER_SUBTITLE, REPORT_COVER_TITLE, REPORT_PRODUCT_NAME, TEXT_DARK, TEXT_MUTED,
     VM_ALERT_FILL, XLSX_CLUSTER_TEMPLATE_SHEET, XLSX_FONT_NAME, XLSX_TEMPLATE_PATH,
@@ -286,6 +288,30 @@ def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: 
     sheet.row_dimensions[3].height = 16
     for row_index in range(4, sheet.max_row + 1):
         sheet.row_dimensions[row_index].height = 30
+
+    _add_capacity_trend_chart(sheet, clusters)
+    _setup_xlsx_print_layout(sheet)
+
+
+def _add_capacity_trend_chart(sheet, clusters: list[dict[str, Any]]) -> None:
+    points = _merged_cluster_points(clusters)
+    image = _line_chart_image(points, "集群容量使用趋势", "容量 (TiB)")
+    if image is None:
+        return
+    anchor_row = sheet.max_row + 2
+    xlsx_image = XlsxImage(image)
+    xlsx_image.width = 660
+    xlsx_image.height = 400
+    sheet.add_image(xlsx_image, f"A{anchor_row}")
+
+
+def _setup_xlsx_print_layout(sheet) -> None:
+    sheet.print_area = f"A1:{get_column_letter(sheet.max_column)}{sheet.max_row}"
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.fitToPage = True
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
 
 
 def _write_xlsx_data_quality_sheet(sheet, report: dict[str, Any], context: dict[str, Any]) -> None:

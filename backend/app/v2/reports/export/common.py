@@ -555,6 +555,14 @@ def _cluster_points(cluster: dict[str, Any]) -> list[tuple[int, float]]:
     return sorted(points)
 
 
+def _merged_cluster_points(clusters: list[dict[str, Any]]) -> list[tuple[int, float]]:
+    by_ts: dict[int, float] = defaultdict(float)
+    for cluster in clusters:
+        for ts, value in _cluster_points(cluster):
+            by_ts[ts] += value
+    return sorted(by_ts.items())
+
+
 def _vms_by_cluster(vms: list[dict[str, Any]]) -> dict[tuple[str, str], list[dict[str, Any]]]:
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for vm in vms:
@@ -629,7 +637,12 @@ def _line_chart_image(points: list[tuple[int, float]], title: str, ylabel: str) 
     y_min, y_max = _chart_y_limits(values)
     ax.set_ylim(y_min, y_max)
     ax.grid(axis="y", color="#E6EDF5", linewidth=0.6)
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=6))
+    span_days = (dates[-1] - dates[0]).days if len(dates) > 1 else 0
+    if span_days >= 180:
+        minticks, maxticks = 3, 5
+    else:
+        minticks, maxticks = 4, 6
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=minticks, maxticks=maxticks))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
     ax.tick_params(axis="both", labelsize=9, colors="#333333")
     fig.tight_layout()

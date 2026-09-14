@@ -989,6 +989,34 @@ class V2ReportExportDocumentTest(unittest.TestCase):
         self.assertIn("VM One", month_text)
         self.assertNotIn("Day VM", month_text)
 
+    def test_xlsx_capacity_trend_sheet_has_chart_and_print_layout(self) -> None:
+        from openpyxl import load_workbook
+
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_xlsx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="reports-xlsx-chart-secret")
+            report = FakeReportService().latest_report(period_days=30)
+            content, _, _, _ = build_report_xlsx(report, settings, period_days=30)
+            workbook = load_workbook(io.BytesIO(content))
+
+        trend = workbook["容量趋势"]
+        self.assertIn(f"A1:I{trend.max_row}", trend.print_area.replace("$", ""))
+        self.assertEqual(trend.page_setup.orientation, "landscape")
+        self.assertEqual(trend.page_setup.fitToWidth, 1)
+        self.assertEqual(trend.page_setup.fitToHeight, 0)
+        page_setup_pr = trend.sheet_properties.pageSetUpPr
+        self.assertIsNotNone(page_setup_pr)
+        self.assertTrue(page_setup_pr.fitToPage)
+        # Chart image is inserted when matplotlib is available (web-api image);
+        # skip the image assertion when matplotlib is missing locally.
+        try:
+            import matplotlib  # noqa: F401
+        except Exception:
+            return
+        self.assertGreaterEqual(len(trend._images), 1, "容量趋势 Sheet 应包含容量趋势图")
+
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2ReportExportApiTest(unittest.TestCase):
