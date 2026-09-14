@@ -31,9 +31,9 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 
 | # | 事项 | 来源 | 说明 |
 | --- | --- | --- | --- |
-| 14 | 拆分巨型文件 | Phase 49-13 | 🔄 进行中：api.py 域路由包 ✅ 已完成（74 路由一致、全量回归零新增）；**ServicePage 六域组件 / export.py common-word-excel 包 / upgrade-service Mixin 包 三个文件待新会话**（设计+函数映射+交接手册已就绪，见 ai-handoff-guide） |
+| 14 | 拆分巨型文件 | Phase 49-13 | ✅ 已完成（2026-09-13）：api.py 域路由包、ServicePage 六域组件、export.py common/word/excel 包、upgrade/service Mixin 包，四文件独立提交部署，全量回归零新增 |
 | 15 | API 增加响应模型 | Phase 49-14/49-16 | 全部完成（批次 1-4 响应模型 + 49-16 契约对齐：后端补发 kpis/latest_run/top_vms/tower_runs 与 item metric/value，前端删兼容 normalizer；金样本契约增量、55 前端测试、全量回归零新增） |
-| 16 | 低优增强 | Phase 13/14/16 | Excel 图表精修 ✅（2026-09-13，容量趋势图+打印版式+横坐标优化）；task-worker 第 6 容器评估 ✅（2026-09-13，实测不新增，见 docs/task-worker-evaluation.md）；AI 措辞层待实施 |
+| 16 | 低优增强 | Phase 13/14/16 | ✅ 已完成（2026-09-13）：Excel 图表精修（容量趋势图+打印版式+横坐标优化）、task-worker 第 6 容器评估（实测不新增，见 docs/task-worker-evaluation.md）、AI 措辞层（接口+离线回退） |
 
 P3 其余项（v1 死代码移除、helper 收敛、静默吞错清理、CORS 收紧）已于 2026-09-12/13 完成并验证，见文末"已完成"与 progress.md。
 
