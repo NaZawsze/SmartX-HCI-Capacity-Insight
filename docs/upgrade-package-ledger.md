@@ -466,3 +466,9 @@ Whenever a new package is generated, update this ledger in the same turn with:
 | VALIDATED / DELIVERY CANDIDATE | `v0.5.2-upg048-fix8` | `/home/user1/codex-build/packages-upg048-webapi-env-permission-fix8/03-v0.5.2-upg048-fix8/smartx-capacity-insight-upgrade-v0.5.2.tar.gz` | `692aca8b58ad8199c43c02a3771fa4fd7a62f1d7bbf4f198af4bd2e4b2c67733` | Repairs target `.env` mode from web-api main apply using a narrow RW file bind and startup chmod; released u2/runner remain unchanged. | `10.20.11.3` full immutable chain passed: all three main tasks, post-cleanup and auto collection succeeded; env SHA preserved at `0600 root:root`; task idempotence/history/verification, data, five containers, layout/cleanup and release smoke `0/0` passed. |
 
 Current execution rule: Python, dependencies, tests, builds and full-chain validation run only on `10.20.11.3`; `10.20.11.12` is out of scope.
+
+## 2026-09-13 v0.5.3 Platform Package
+
+| Status | Fix ID | Host Path | SHA256 | What Changed | Validation Result |
+| --- | --- | --- | --- | --- | --- |
+| VALIDATED / DELIVERY CANDIDATE | `v0.5.3` | `/data/upgrade-packages/smartx-capacity-insight-upgrade-v0.5.3.tar.gz` | `e1702435dd95121ee9419f4de8a3514ed71a5b943caa6c645084290cc1d34ab8` | v0.5.3 正式平台包：巨型文件拆分（api.py/ServicePage/export/upgrade.service）、前后端契约对齐、Excel 图表精修、AI 措辞层、测试环境治理。 | `10.20.11.3` v0.5.2 → v0.5.3 升级链路通过：预检查通过、升级成功、health v0.5.3/v0.3.1、5 容器镜像 tag v0.5.3、project/network 保持、SQLite 行数不减少、Prometheus 历史保留、.env 0600、旧目录全清理、升级后全量 310 tests OK。已知限制：.3 的 .env 被覆盖为默认模板导致 Tower 凭据 key 丢失，UPG-042 保护拦截首次升级，备份 DB 后清空测试 Tower 凭据后通过；升级后自动采集因凭据缺失失败（需重新配置 Tower）。 |
