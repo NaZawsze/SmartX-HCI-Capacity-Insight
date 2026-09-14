@@ -251,7 +251,7 @@ function formatRelativeTime(iso?: string | null): string {
 function towerHealthClass(tower: Tower): string {
   if (!tower.last_collection) return "none";
   if (tower.last_collection.status === "failed") return "failed";
-  const finished = new Date(tower.last_collection.finished_at).getTime();
+  const finished = tower.last_collection.finished_at ? new Date(tower.last_collection.finished_at).getTime() : NaN;
   if (!Number.isFinite(finished)) return "success";
   const hours = (Date.now() - finished) / 3600000;
   if (hours > 24) return "stale";
