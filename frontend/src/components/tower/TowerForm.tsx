@@ -44,7 +44,7 @@ interface TowerFormProps {
   onChange: (next: TowerFormState) => void;
   onSubmit: (event: FormEvent) => void;
   message?: string;
-  /** create-only：用当前表单值发起连接测试 */
+  /** 用当前表单值发起连接测试（create 与 edit 均可用） */
   onTestConnection?: () => void;
   testing?: boolean;
   testResult?: string;
@@ -91,7 +91,7 @@ export function TowerForm({ mode, form, onChange, onSubmit, message, onTestConne
             启用采集
           </label>
         </div>
-        {!isEdit && (
+        {onTestConnection && (
           <>
             <button className="secondary-button" type="button" disabled={testing} onClick={onTestConnection}>
               {testing ? "测试中…" : "测试连接"}

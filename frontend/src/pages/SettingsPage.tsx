@@ -10,8 +10,10 @@ export function SettingsPage() {
   const [form, setForm] = useState<TowerFormState>(emptyTowerForm());
   const [editingTowerId, setEditingTowerId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<TowerFormState>(emptyTowerForm());
-  const [message, setMessage] = useState("");
+  const [createMessage, setCreateMessage] = useState("");
+  const [editMessage, setEditMessage] = useState("");
   const [testResult, setTestResult] = useState("");
+  const [editTestResult, setEditTestResult] = useState("");
   const [testing, setTesting] = useState(false);
   const [deletingTowerId, setDeletingTowerId] = useState<number | null>(null);
 
@@ -25,21 +27,21 @@ export function SettingsPage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setMessage("");
+    setCreateMessage("");
     try {
       await api.createTower(normalizeTowerCreatePayload(form));
       setForm(emptyTowerForm());
       setTestResult("");
       await reload();
-      setMessage("Tower 已保存");
+      setCreateMessage("Tower 已保存");
     } catch (exc) {
-      setMessage(exc instanceof Error ? exc.message : "保存失败");
+      setCreateMessage(exc instanceof Error ? exc.message : "保存失败");
     }
   }
 
   async function testTower(id: number) {
     const result = await api.testTower(id);
-    setMessage(result.message);
+    setEditMessage(result.message);
     await reload();
   }
 
@@ -61,20 +63,21 @@ export function SettingsPage() {
       collection_retry_interval_minutes: tower.collection_retry_interval_minutes ?? 15,
       collection_retry_max_attempts: tower.collection_retry_max_attempts ?? 3
     });
-    setMessage("");
+    setEditMessage("");
+    setEditTestResult("");
   }
 
   async function submitEdit(event: FormEvent, towerId: number) {
     event.preventDefault();
-    setMessage("");
+    setEditMessage("");
     try {
       await api.updateTower(towerId, normalizeTowerUpdatePayload(editForm));
       setEditingTowerId(null);
       setEditForm(emptyTowerForm());
       await reload();
-      setMessage("Tower 已更新");
+      setEditMessage("Tower 已更新");
     } catch (exc) {
-      setMessage(exc instanceof Error ? exc.message : "更新失败");
+      setEditMessage(exc instanceof Error ? exc.message : "更新失败");
     }
   }
 
@@ -107,6 +110,25 @@ export function SettingsPage() {
     }
   }
 
+  async function testEditTowerConnection() {
+    setTesting(true);
+    setEditTestResult("");
+    try {
+      const result = await api.testTowerParams({
+        base_url: editForm.base_url.trim(),
+        username: editForm.username,
+        password: editForm.password,
+        api_token: editForm.api_token,
+        verify_tls: editForm.verify_tls
+      });
+      setEditTestResult(result.ok ? `✓ ${result.message}` : `✗ ${result.message}`);
+    } catch (exc) {
+      setEditTestResult(exc instanceof Error ? `✗ ${exc.message}` : "✗ 测试失败");
+    } finally {
+      setTesting(false);
+    }
+  }
+
   async function confirmDeleteTower(id: number) {
     try {
       await api.deleteTower(id);
@@ -124,7 +146,7 @@ export function SettingsPage() {
           form={form}
           onChange={setForm}
           onSubmit={submit}
-          message={message}
+          message={createMessage}
           onTestConnection={testNewTowerConnection}
           testing={testing}
           testResult={testResult}
@@ -182,7 +204,10 @@ export function SettingsPage() {
                   form={editForm}
                   onChange={setEditForm}
                   onSubmit={(event) => submitEdit(event, tower.id)}
-                  message={message}
+                  message={editMessage}
+                  onTestConnection={testEditTowerConnection}
+                  testing={testing}
+                  testResult={editTestResult}
                   tower={tower}
                   onToggleCluster={toggleCluster}
                   onSelectAllClusters={setAllClusters}
