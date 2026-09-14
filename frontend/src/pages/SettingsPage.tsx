@@ -17,7 +17,6 @@ export function SettingsPage() {
   const [createTesting, setCreateTesting] = useState(false);
   const [editTesting, setEditTesting] = useState(false);
   const [deletingTowerId, setDeletingTowerId] = useState<number | null>(null);
-  const [testResults, setTestResults] = useState<Record<number, string>>({});
 
   async function reload() {
     setTowers(await api.towers());
@@ -42,12 +41,8 @@ export function SettingsPage() {
   }
 
   async function testTower(id: number) {
-    try {
-      const result = await api.testTower(id);
-      setTestResults((prev) => ({ ...prev, [id]: result.ok ? "✓ 测试成功" : `✗ ${result.message}` }));
-    } catch (exc) {
-      setTestResults((prev) => ({ ...prev, [id]: `✗ ${exc instanceof Error ? exc.message : "测试失败"}` }));
-    }
+    const result = await api.testTower(id);
+    setEditMessage(result.message);
     await reload();
   }
 
@@ -178,18 +173,11 @@ export function SettingsPage() {
                 </span>
               </div>
               <div className="row-actions">
-                <div className="tower-health-stack">
-                  <span className={`tower-health ${towerHealthClass(tower)}`}>
-                    {tower.last_collection
-                      ? `${tower.last_collection.status === "success" ? "✓" : "✗"} ${formatRelativeTime(tower.last_collection.finished_at)}采集`
-                      : "未采集"}
-                  </span>
-                  {testResults[tower.id] && (
-                    <span className={`tower-test-result ${testResults[tower.id].startsWith("✓") ? "ok" : "fail"}`}>
-                      {testResults[tower.id]}
-                    </span>
-                  )}
-                </div>
+                <span className={`tower-health ${tower.last_collection ? tower.last_collection.status : "none"}`}>
+                  {tower.last_collection
+                    ? `${tower.last_collection.status === "success" ? "✓" : "✗"} ${formatRelativeTime(tower.last_collection.finished_at)}采集`
+                    : "未采集"}
+                </span>
                 <button className="icon-button" title="编辑配置" type="button" onClick={() => startEdit(tower)}>
                   <Pencil size={16} />
                 </button>
@@ -246,14 +234,4 @@ function formatRelativeTime(iso?: string | null): string {
   const hours = Math.round(minutes / 60);
   if (hours < 24) return `${hours} 小时前`;
   return `${Math.round(hours / 24)} 天前`;
-}
-
-function towerHealthClass(tower: Tower): string {
-  if (!tower.last_collection) return "none";
-  if (tower.last_collection.status === "failed") return "failed";
-  const finished = new Date(tower.last_collection.finished_at).getTime();
-  if (!Number.isFinite(finished)) return "success";
-  const hours = (Date.now() - finished) / 3600000;
-  if (hours > 24) return "stale";
-  return "success";
 }

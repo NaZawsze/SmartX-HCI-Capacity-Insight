@@ -1,12 +1,5 @@
 # SmartX HCI Capacity Insight - 工作进度
 
-## 2026-09-13 Tower 列表测试结果与采集新鲜度修正
-
-- **需求**：① Tower 行"测试连接"点完后，在"X小时前采集"下面显示绿色"测试成功"；② 超过 24 小时没采集才标黄（24h 内采集成功绿色、超过 24h 黄色、采集失败红色）。
-- **实施**：SettingsPage 加 `testResults` 状态（towerId → 结果），`testTower` 结果写到对应 Tower 行，显示在采集时间下面（`.tower-test-result` 绿色/红色）；新增 `towerHealthClass` 新鲜度判断（超过 24h → `stale` 黄色）；CSS 加 `.tower-health.stale`（橙）、`.tower-health.failed` 改红、`.tower-health-stack`/`.tower-test-result`。
-- **验证**：tsc + SettingsPage 测试 + frontend 部署。
-- **无专项设计文档**：小 UI 修正，口径记录于本文件（AGENTS.md 第 3 节允许合并设计并注明理由）。
-
 ## 2026-09-13 Tower 设置页测试连接修复（commit de34cac / 177583d）
 
 - **问题**：修改 Tower 时测试连接，结果显示在"新增 Tower"框下；修改框原本没有"测试连接"按钮。
