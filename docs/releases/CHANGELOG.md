@@ -2,6 +2,32 @@
 
 本文档记录 SmartX HCI Capacity Insight 各版本的主要变化。项目介绍、部署方式和基础使用说明仍以根目录 README 和 docs 文档为准。
 
+## v0.5.3
+
+发布日期：2026-09-13
+
+### 更新摘要
+
+v0.5.3 是 v0.5.2 之后的正式平台版本，主要包含工程健康度与报表产品化增强：巨型文件拆分（api.py 域路由包、ServicePage 六域组件、reports/export 包、upgrade/service Mixin 包）、前后端契约对齐、Excel 报表图表与打印版式、可选的 AI 措辞增强层，以及测试环境治理（10 个已知环境性测试错误修复，容器内全量测试全绿）。
+
+### 新增与优化
+
+- **巨型文件拆分（49-13）**：`app/v2/api.py` → 域路由包（74 条路由 path+method 一致）；`frontend/src/pages/ServicePage.tsx`（2305 行）→ `components/service/` 六域组件（页面收敛 156 行）；`app/v2/reports/export.py`（3720 行）→ `export/` 包（common/word/excel/legacy）；`app/v2/upgrade/service.py`（1791 行）→ Mixin 包（构造签名与公开方法集合不变）。纯结构重构，零行为变化。
+- **前后端契约对齐（49-14/49-16）**：后端补发 `kpis`/`latest_run`/`top_vms`/`tower_runs` 与 item `metric`/`value`/`previous_value`，前端删除兼容 normalizer。
+- **admin.py 二次拆分**：43 条路由拆成 `app/v2/api/admin/` 域子模块包（upgrade/migration/system_admin/exports）。
+- **export legacy 消化**：删除 60 个不可达死代码（v1 模板遗留），约 1264 行。
+- **Excel 报表图表精修**：容量趋势 Sheet 增加集群容量使用趋势折线图（与 Word 风格统一）、打印版式（横向/fit-to-page）、横坐标按时间跨度优化显示间隔。
+- **AI 措辞层（可选）**：新增 `app/v2/reports/wording.py` 措辞增强接口，未配置 AI 服务时回退离线规则文案（行为与现状一致）；接入点留待有 AI 服务时。
+- **task-worker 第 6 容器评估**：实测报表导出期间 web-api 响应仅 +40ms，空间清理/迁移导出无影响，结论保持 5 容器模块化单体。
+- **测试环境治理**：构建测试移到宿主机跑（26 tests OK），deployment_config 改 unittest（无 pytest 依赖），容器内全量 310 tests 全绿。
+
+### 验证说明
+
+- 全量后端测试：容器内 310 tests 全绿（含新增 Excel 图表、AI 措辞层测试）。
+- 前端：tsc 干净、85 测试全绿。
+- 真实 Word/Excel 导出验证通过（容量趋势 Sheet 含图表 + 打印版式）。
+- 升级链路：v0.5.2 → v0.5.3 走正常升级流程验证（见 progress.md）。
+
 ## v0.5.2
 
 发布日期：2026-07-17

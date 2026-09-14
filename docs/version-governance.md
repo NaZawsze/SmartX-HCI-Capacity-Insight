@@ -4,8 +4,8 @@
 
 ## 版本模型
 
-- 平台版本由根目录 `VERSION` 定义，当前为 `v0.5.2`。
-- 当前正式口径固定为 `v0.5.2`：源码版本、README、文档、正式升级包和常规镜像 tag 必须一致。
+- 平台版本由根目录 `VERSION` 定义，当前为 `v0.5.3`。
+- 当前正式口径固定为 `v0.5.3`：源码版本、README、文档、正式升级包和常规镜像 tag 必须一致。
 - 临时测试升级包可以使用不同目标版本验证升级链路，但只作为测试包元数据；不能反向修改 `VERSION`、README 或正式发布口径。
 - 平台服务包括 `web-api`、`collector-worker`、`frontend`。
 - `upgrade-runner` 是独立升级执行组件，版本由根目录 `RUNNER_VERSION` 定义，当前为 `v0.3.1`。
@@ -18,9 +18,9 @@
 平台服务镜像使用平台版本：
 
 ```text
-nazawsze/smartx-hci-capacity-insight-web-api:v0.5.2
-nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.2
-nazawsze/smartx-hci-capacity-insight-frontend:v0.5.2
+nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3
+nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.3
+nazawsze/smartx-hci-capacity-insight-frontend:v0.5.3
 ```
 
 runner 组件镜像使用 runner 组件版本：
@@ -32,7 +32,7 @@ nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1
 `docker-compose.yml`、`docker-compose.offline.yml` 和 `docker-compose.release.yml` 使用两个独立变量：
 
 ```text
-SMARTX_IMAGE_TAG          # 平台服务 tag，例如 v0.5.2
+SMARTX_IMAGE_TAG          # 平台服务 tag，例如 v0.5.3
 SMARTX_RUNNER_IMAGE_TAG   # upgrade-runner tag，例如 v0.3.1
 ```
 

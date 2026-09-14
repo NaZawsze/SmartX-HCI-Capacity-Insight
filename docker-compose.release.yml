@@ -2,7 +2,7 @@ name: smartx-hci-capacity-insight
 
 services:
   web-api:
-    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-web-api:${SMARTX_IMAGE_TAG:-v0.5.2}
+    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-web-api:${SMARTX_IMAGE_TAG:-v0.5.3}
     command: ["sh", "-c", "chmod 600 /run/smartx-runtime.env && exec uvicorn app.v2.main:app --host 0.0.0.0 --port 8000"]
     env_file:
       - .env
@@ -32,7 +32,7 @@ services:
     restart: unless-stopped
 
   collector-worker:
-    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-collector-worker:${SMARTX_IMAGE_TAG:-v0.5.2}
+    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-collector-worker:${SMARTX_IMAGE_TAG:-v0.5.3}
     command: ["python", "-m", "app.v2.worker"]
     env_file:
       - .env
@@ -54,7 +54,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-frontend:${SMARTX_IMAGE_TAG:-v0.5.2}
+    image: ${SMARTX_IMAGE_PREFIX:-docker.io/nazawsze}/smartx-hci-capacity-insight-frontend:${SMARTX_IMAGE_TAG:-v0.5.3}
     environment:
       TZ: Asia/Shanghai
     ports:

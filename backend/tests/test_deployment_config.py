@@ -106,7 +106,7 @@ class TestDeploymentConfig(unittest.TestCase):
     def test_compose_splits_platform_and_runner_versions(self) -> None:
         for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
             text = (ROOT / name).read_text(encoding="utf-8")
-            self.assertIn("SMARTX_IMAGE_TAG:-v0.5.2", text)
+            self.assertIn("SMARTX_IMAGE_TAG:-v0.5.3", text)
             self.assertIn("SMARTX_RUNNER_IMAGE_TAG:-v0.3.1", text)
             self.assertNotIn("upgrade-runner:${SMARTX_IMAGE_TAG", text)
             self.assertNotIn("SMARTX_IMAGE_TAG:-v0.4.0", text)
@@ -138,7 +138,7 @@ class TestDeploymentConfig(unittest.TestCase):
         self.assertNotIn("SMARTX_IMAGE_TAG=v0.3.1", text)
         self.assertNotIn("nazawsze/smartx-hci-capacity-insight-web-api:latest", text)
         self.assertNotIn("nazawsze/smartx-hci-capacity-insight-upgrade-runner:latest", text)
-        self.assertIn("nazawsze/smartx-hci-capacity-insight-web-api:v0.5.2", text)
+        self.assertIn("nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3", text)
         self.assertIn("nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1", text)
 
     def test_platform_upgrade_package_excludes_runner(self) -> None:
@@ -232,9 +232,9 @@ class TestDeploymentConfig(unittest.TestCase):
 
     def test_upgrade_override_uses_platform_release_images(self) -> None:
         text = (ROOT / "docker-compose.upgrade.yml").read_text(encoding="utf-8")
-        self.assertIn("nazawsze/smartx-hci-capacity-insight-web-api:v0.5.2", text)
-        self.assertIn("nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.2", text)
-        self.assertIn("nazawsze/smartx-hci-capacity-insight-frontend:v0.5.2", text)
+        self.assertIn("nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3", text)
+        self.assertIn("nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.3", text)
+        self.assertIn("nazawsze/smartx-hci-capacity-insight-frontend:v0.5.3", text)
         self.assertNotIn("smartx-storage-forecast-web-api:v0.4.0", text)
 
     def test_runner_workflow_is_separate_from_platform_workflow(self) -> None:
