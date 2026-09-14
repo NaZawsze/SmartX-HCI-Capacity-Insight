@@ -31,7 +31,7 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 
 | # | 事项 | 来源 | 说明 |
 | --- | --- | --- | --- |
-| 14 | 拆分巨型文件 | Phase 49-13 | ✅ 已完成（2026-09-13）：api.py 域路由包、ServicePage 六域组件、export.py common/word/excel 包、upgrade/service Mixin 包，四文件独立提交部署，全量回归零新增 |
+| 14 | 拆分巨型文件 | Phase 49-13 | 🔄 进行中：api.py 域路由包 ✅ 已完成（74 路由一致、全量回归零新增）；**ServicePage 六域组件 / export.py common-word-excel 包 / upgrade-service Mixin 包 三个文件待新会话**（设计+函数映射+交接手册已就绪，见 ai-handoff-guide） |
 | 15 | API 增加响应模型 | Phase 49-14/49-16 | 全部完成（批次 1-4 响应模型 + 49-16 契约对齐：后端补发 kpis/latest_run/top_vms/tower_runs 与 item metric/value，前端删兼容 normalizer；金样本契约增量、55 前端测试、全量回归零新增） |
 | 16 | 低优增强 | Phase 13/14/16 | Excel 图表精修、AI 措辞层、task-worker 第 6 容器评估 |
 
