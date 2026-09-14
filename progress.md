@@ -1,13 +1,5 @@
 # SmartX HCI Capacity Insight - 工作进度
 
-## 2026-09-13 Tower 设置页测试连接修复（commit de34cac / 177583d）
-
-- **问题**：修改 Tower 时测试连接，结果显示在"新增 Tower"框下；修改框原本没有"测试连接"按钮。
-- **根因**：`message` 和 `testing` 状态在新增/修改两个 TowerForm 间共享，Tower 行测试连接（`testTower`）把结果写到共享 `message`，同时传给新增框和修改框。
-- **修复**：拆分 `createMessage`/`editMessage`、`createTesting`/`editTesting`；修改框加"测试连接"按钮（用编辑表单值 `testTowerParams` 测试），结果显示在修改框下；Tower 行测试连接结果写到 `editMessage`。
-- **验证**：tsc 通过、SettingsPage 测试通过、frontend 容器重建、HTTP 200、health v0.5.3 正常。
-- **无专项设计文档**：小 bug 修复，口径记录于本文件（AGENTS.md 第 3 节允许合并设计并注明理由）。
-
 ## 2026-09-13 统一打包 v0.5.3（版本治理 + 完整升级链路验证）
 
 - **版本治理**：VERSION → v0.5.3（RUNNER_VERSION 保持 v0.3.1），更新 config.py 默认版本、三个 compose tag、README/README.zh-CN、ova-delivery、version-governance、CHANGELOG（新增 v0.5.3 条目）、deployment.md；`--check-version` 通过。
