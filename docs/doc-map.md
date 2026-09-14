@@ -91,6 +91,8 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | --- | --- |
 | [pending-tasks.md](pending-tasks.md) | 全项目未完成任务清单（按 P0~P3 优先级），快照式索引；逐项口径以 task_plan.md 各 Phase 为准。 |
 | [ai-handoff-guide.md](ai-handoff-guide.md) | AI 交接执行手册：.3 操作、提交策略、测试基线、陷阱清单、待实施设计索引。交接实施前必读。 |
+| [development-verification-process.md](development-verification-process.md) | 开发/打包/功能测试验证标准流程：环境机器、开发流程、打包流程、后端/前端测试、部署健康检查、升级链路验证。AI 实施前必读。 |
+| [task-worker-evaluation.md](task-worker-evaluation.md) | task-worker 第 6 容器评估报告：实测后台任务对 web-api 响应影响，结论保持 5 容器。 |
 
 ## 8. 编号体系说明
 
