@@ -659,7 +659,7 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 - 不按领域拆成多个微服务容器，避免离线部署、升级包、现场排障复杂度上升。
 - 优先在代码内部整理领域边界：Tower/cluster/VM、collection、metrics、reports、migration、upgrade、system。
 - 明确 SQLite、Prometheus 和 `/data` 文件系统的职责分层。
-- 后续如果后台耗时任务明显影响 `web-api`，再评估新增第 6 个容器 `task-worker`，用于报表生成、迁移导入导出、空间清理和批量健康检查。
+- 后续如果后台耗时任务明显影响 `web-api`，再评估新增第 6 个容器 `task-worker`，用于报表生成、迁移导入导出、空间清理和批量健康检查。✅ 已评估（2026-09-13，见 docs/task-worker-evaluation.md）：实测报表导出期间 web-api 响应仅 +40ms，空间清理/迁移导出无影响，当前不新增，保持 5 容器。
 - 输出 `docs/architecture.md`，记录数据职责、容器职责、任务模型、升级包结构、迁移包结构和安全边界。
 
 当前证据：
