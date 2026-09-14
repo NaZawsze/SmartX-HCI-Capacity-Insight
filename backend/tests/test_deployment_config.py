@@ -106,8 +106,16 @@ class TestDeploymentConfig(unittest.TestCase):
     def test_compose_splits_platform_and_runner_versions(self) -> None:
         for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
             text = (ROOT / name).read_text(encoding="utf-8")
-            self.assertIn("SMARTX_IMAGE_TAG:-v0.5.3", text)
-            self.assertIn("SMARTX_RUNNER_IMAGE_TAG:-v0.3.1", text)
+            # Source templates use ${SMARTX_IMAGE_TAG:-v0.5.3} placeholders; packaged
+            # compose (after an upgrade) renders literal tags. Accept both.
+            self.assertTrue(
+                "SMARTX_IMAGE_TAG:-v0.5.3" in text or "smartx-hci-capacity-insight-web-api:v0.5.3" in text,
+                f"{name} missing platform v0.5.3 tag",
+            )
+            self.assertTrue(
+                "SMARTX_RUNNER_IMAGE_TAG:-v0.3.1" in text or "smartx-hci-capacity-insight-upgrade-runner:v0.3.1" in text,
+                f"{name} missing runner v0.3.1 tag",
+            )
             self.assertNotIn("upgrade-runner:${SMARTX_IMAGE_TAG", text)
             self.assertNotIn("SMARTX_IMAGE_TAG:-v0.4.0", text)
             self.assertNotIn(":local", text)
