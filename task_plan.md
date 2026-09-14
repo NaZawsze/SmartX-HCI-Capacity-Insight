@@ -1161,8 +1161,8 @@ networks:
 - [已验证] 观测版本测试：Prometheus 镜像为 `prom/prometheus:v2.55.1` 时，`prometheus_version=v2.55.1`。
 - [已验证] Runner 测试：`compose.apply` 生成命令必须包含 `--project-name smartx-hci-capacity-insight`。
 - [已验证] Runner 测试：`rollback.restore` 的 stop 和 up 命令必须使用同一 project name。
-- [ ] 部署验收：在非生产 canary 上进入任意目录名，执行 `docker compose -f docker-compose.offline.yml up -d`，Docker label 必须为 `com.docker.compose.project=smartx-hci-capacity-insight`，网络必须为 `smartx-hci-capacity-insight-net`。
-- [ ] 升级验收：执行一次测试升级包，确认不会创建第二套 project 容器或第二个 smartx 网络。
+- [x] 部署验收（2026-09-15，10.20.11.12）：任意目录名部署，Docker label 为 `com.docker.compose.project=smartx-hci-capacity-insight`，网络为 `smartx-hci-capacity-insight-net`（仅 1 个）。
+- [x] 升级验收（2026-09-15，10.20.11.12）：v0.5.2 → v0.5.3 升级，无第二套 project 容器或第二个 smartx 网络。
 
 生产/现场处理规则：
 

@@ -1,5 +1,11 @@
 # SmartX HCI Capacity Insight - 工作进度
 
+## 2026-09-15 10.20.11.12 P2 #8 部署验收完成（任意目录名部署）
+
+- **验收**：在 10.20.11.12 上进入任意目录名（/tmp/deploy-test），执行 `docker compose -f docker-compose.offline.yml up -d`，验证固定 project/network。
+- **结果**：5 容器 label 全部为 `com.docker.compose.project=smartx-hci-capacity-insight`；网络只有 `smartx-hci-capacity-insight-net`（1 个，无第二套）；health v0.5.3/v0.3.1/checks=true。
+- **P2 #8 部署验收 + 升级验收均完成**（升级验收 2026-09-15 早前完成）。Phase 30 两项验收闭环。
+
 ## 2026-09-15 10.20.11.12 v0.5.1u2 + runner v0.3.1 → v0.5.3 直接升级验证
 
 - **目标**：验证 v0.5.1u2 + runner v0.3.1 可直接升级到 v0.5.3（source_compatibility 覆盖 v0.5.1u2 → v0.5.3）。
