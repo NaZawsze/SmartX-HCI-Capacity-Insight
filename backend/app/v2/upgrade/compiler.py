@@ -328,7 +328,7 @@ def compile_post_upgrade_cleanup_plan(
     legacy_cleanup: dict[str, Any],
     *,
     parent_task_id: str,
-    target_version: str = "v0.5.2",
+    target_version: str = "v0.5.3",
     target_project: str = "smartx-hci-capacity-insight",
 ) -> ExecutionPlan:
     legacy_projects = [str(project) for project in legacy_cleanup.get("legacy_projects") or [] if str(project)]
