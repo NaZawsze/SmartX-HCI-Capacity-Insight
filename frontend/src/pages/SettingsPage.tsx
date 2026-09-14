@@ -14,7 +14,8 @@ export function SettingsPage() {
   const [editMessage, setEditMessage] = useState("");
   const [testResult, setTestResult] = useState("");
   const [editTestResult, setEditTestResult] = useState("");
-  const [testing, setTesting] = useState(false);
+  const [createTesting, setCreateTesting] = useState(false);
+  const [editTesting, setEditTesting] = useState(false);
   const [deletingTowerId, setDeletingTowerId] = useState<number | null>(null);
 
   async function reload() {
@@ -92,7 +93,7 @@ export function SettingsPage() {
   }
 
   async function testNewTowerConnection() {
-    setTesting(true);
+    setCreateTesting(true);
     setTestResult("");
     try {
       const result = await api.testTowerParams({
@@ -106,12 +107,12 @@ export function SettingsPage() {
     } catch (exc) {
       setTestResult(exc instanceof Error ? `✗ ${exc.message}` : "✗ 测试失败");
     } finally {
-      setTesting(false);
+      setCreateTesting(false);
     }
   }
 
   async function testEditTowerConnection() {
-    setTesting(true);
+    setEditTesting(true);
     setEditTestResult("");
     try {
       const result = await api.testTowerParams({
@@ -125,7 +126,7 @@ export function SettingsPage() {
     } catch (exc) {
       setEditTestResult(exc instanceof Error ? `✗ ${exc.message}` : "✗ 测试失败");
     } finally {
-      setTesting(false);
+      setEditTesting(false);
     }
   }
 
@@ -148,7 +149,7 @@ export function SettingsPage() {
           onSubmit={submit}
           message={createMessage}
           onTestConnection={testNewTowerConnection}
-          testing={testing}
+          testing={createTesting}
           testResult={testResult}
         />
       </Card>
@@ -206,7 +207,7 @@ export function SettingsPage() {
                   onSubmit={(event) => submitEdit(event, tower.id)}
                   message={editMessage}
                   onTestConnection={testEditTowerConnection}
-                  testing={testing}
+                  testing={editTesting}
                   testResult={editTestResult}
                   tower={tower}
                   onToggleCluster={toggleCluster}
