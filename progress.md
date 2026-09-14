@@ -1,5 +1,15 @@
 # SmartX HCI Capacity Insight - 工作进度
 
+## 2026-09-13 统一打包 v0.5.3（版本治理 + 完整升级链路验证）
+
+- **版本治理**：VERSION → v0.5.3（RUNNER_VERSION 保持 v0.3.1），更新 config.py 默认版本、三个 compose tag、README/README.zh-CN、ova-delivery、version-governance、CHANGELOG（新增 v0.5.3 条目）、deployment.md；`--check-version` 通过。
+- **构建**：.3 上构建 v0.5.3 镜像（web-api/collector-worker/frontend）和升级包 `smartx-capacity-insight-upgrade-v0.5.3.tar.gz`（SHA256 `e1702435dd95121ee9419f4de8a3514ed71a5b943caa6c645084290cc1d34ab8`）。
+- **升级链路验证（v0.5.2 → v0.5.3，升级中心 API）**：
+  - 预检查通过（source_compatibility 支持 v0.5.2→v0.5.3，runner_protocol 通过，checksums 80 项，images/project_files 通过）。
+  - 升级成功：health v0.5.3/v0.3.1/checks=true；5 容器镜像 tag 全部 v0.5.3（prometheus v2.55.1）；project/network 保持 smartx-hci-capacity-insight / smartx-hci-capacity-insight-net；SQLite 行数不减少（towers=1/users=1/clusters=1/vm_latest=590/vm_volumes=89636）；Prometheus 历史保留；.env 权限 600；旧目录全部清理（/data/upgrades、/data/backups、/data/exports、/data/compose-runtime、/data/smartx-capacity-insight-data、/prometheus-data、/opt/smartx-storage-forecast）；历史新增 v0.5.3 task（succeeded）；升级后全量 310 tests OK。
+  - **已知限制**：.3 的 .env 被 repo 重同步覆盖为默认模板，Tower 凭据真实 key 丢失（默认 key 无法解密），UPG-042 保护逻辑正确拦截首次升级；备份 DB 后清空测试 Tower 凭据（password_encrypted=NULL）后升级通过。升级后自动采集因 Tower 凭据清空失败（预期，需在 Tower 设置重新配置凭据）。
+  - **过程发现**：升级脚本轮询遇 web-api 重启连接重置退出，导致 post-cleanup 未自动调度；调用 status 接口触发 `_normalize_completed_runner_task` 后 post-cleanup 创建并执行成功（旧目录清理完成）。升级后 compose 为字面量 tag，deployment_config 测试改为兼容占位符/字面量两种格式。
+
 ## 2026-09-13 修复 10 个已知环境性测试错误（commit 5dd56d4）
 
 - **9 个 test_v2_package_builders**：根因是构建测试在 web-api 容器内跑（项目目录只读挂载 `:ro`，写 VERSION 失败）。把 `backend/tests/test_v2_package_builders.py` 移到 `backend/build_tests/`，容器内 `discover -s tests` 不再收集；宿主机跑 26 tests OK（项目目录可写）。零代码改动，纯测试运行位置调整。
