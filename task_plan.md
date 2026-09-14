@@ -1371,8 +1371,8 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 
 2026-09-12 全项目扫描结论（详见 findings.md「全项目架构与代码扫描」），按收益排序：
 
-- [ ] SQLite 治理：为 vm_latest/vm_volumes/collection_runs/tasks 按查询列建索引；连接开启 WAL 与 busy_timeout（web-api 与 collector-worker 双进程并发）。
-- [ ] 移除 v1 死代码：app/main.py、app/api/、app/services/、app/collector/、app/core/、app/db.py、app/models.py（约 4800 行，v2 与 runner 零引用）；删除前回归确认 v2 migration 的 v1 迁移包兼容不依赖旧模块。
+- [x] SQLite 治理（2026-09-12 完成）：vm_latest/vm_volumes/collection_runs/tasks 索引 + WAL + busy_timeout 5s。
+- [x] 移除 v1 死代码（2026-09-13 完成，见 Phase 12）。
 - [x] v2 CORS 收紧（2026-09-12）：默认不挂 CORS 中间件，SMARTX_CORS_ORIGINS 白名单显式启用；.3 .env 遗留 * 已清理。
 
 ### 12. 移除 v1 死代码 [已完成 2026-09-13]
@@ -1380,11 +1380,11 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 设计文档：[docs/superpowers/specs/2026-09-13-remove-v1-dead-code-design.md](docs/superpowers/specs/2026-09-13-remove-v1-dead-code-design.md)。
 
 删除 v1 专属模块约 4800 行（app/main.py、app/api/、app/services/、app/collector/、app/db.py、app/models.py、app/cli.py、app/upgrade/、app/core/security.py、app/core/vm_volumes.py）与 5 个 v1 专项测试；**保留 app/core/config.py**（升级包构建脚本依赖）。验收：残余引用为空、全量回归、四镜像体积对比、迁移包兼容回归。
-- [ ] 拆分巨型文件：reports/export.py（Word/Excel 分离）、upgrade/service.py、v2/api.py（按域拆 router）；前端 ServicePage.tsx 按升级中心/服务管理/清理/迁移拆组件。
-- [ ] 收敛复制粘贴 helper（_vm_key x6、_cluster_key x6、_number 等）到公共模块。
-- [ ] worker 采集重试从 time.sleep 改为调度器排期，避免阻塞线程并推迟数据质量检查。
-- [ ] 数据新鲜度链路监控：Prometheus 抓取、metric_snapshots 更新、summary 查询任一环断裂纳入数据质量告警。
-- [ ] API 增加响应模型（Pydantic response_model），逐步替代前端 normalize 兜底。
+- [x] 拆分巨型文件（2026-09-13 完成，见 Phase 13）。
+- [x] 收敛复制粘贴 helper（2026-09-12 完成，P3 卫生批次）。
+- [x] worker 采集重试调度化（2026-09-12 完成，P2 批次）。
+- [x] 数据新鲜度链路监控（2026-09-12 完成，P2 批次）。
+- [x] API 增加响应模型（2026-09-13 完成，见 Phase 14/16）。
 - [ ] 已知取舍记录：前端 token 存 localStorage（内网离线产品，暂不改）。
 
 ### 13. 拆分巨型文件 [已完成 2026-09-13]
