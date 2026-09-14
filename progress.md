@@ -1,5 +1,13 @@
 # SmartX HCI Capacity Insight - 工作进度
 
+## 2026-09-15 10.20.11.12 v0.5.2 → v0.5.3 升级验收（P2 #8 升级验收）
+
+- **环境**：10.20.11.12（升级演练机，root 直连密码 password），当前 v0.5.2 + runner v0.3.1，数据保留（users=1、collection_runs=12，无 Tower 凭据）。
+- **镜像来源**：从 .3 导出 v0.5.3 镜像（web-api/collector-worker/frontend）和 v0.5.3 升级包（SHA e1702435...），传输到 10.20.11.12 加载。
+- **首次升级失败**：post_upgrade_collection 失败（Runner 不支持 post_upgrade.schedule_collection）——10.20.11.12 的 runner v0.3.1 镜像（19b8b3e445e7）是旧版本，与 .3 的（3e7c2f5e8ad5）不同。从 .3 导出 runner v0.3.1 镜像更新后，重新升级成功。
+- **升级验证通过**：health v0.5.3/v0.3.1/checks=true；5 容器镜像 tag v0.5.3（prometheus v2.55.1）；网络保持 smartx-hci-capacity-insight-net；数据保留（users=1）；collection_runs 12→13（post_upgrade_collection 成功）；旧目录全清理；历史 v0.5.3 succeeded；无 Tower 凭据故无凭证问题。
+- **P2 #8 升级验收完成**（固定 project/network 不产生第二套容器/网络）；部署验收（任意目录名全新部署）待执行。
+
 ## 2026-09-13 统一打包 v0.5.3（版本治理 + 完整升级链路验证）
 
 - **版本治理**：VERSION → v0.5.3（RUNNER_VERSION 保持 v0.3.1），更新 config.py 默认版本、三个 compose tag、README/README.zh-CN、ova-delivery、version-governance、CHANGELOG（新增 v0.5.3 条目）、deployment.md；`--check-version` 通过。
