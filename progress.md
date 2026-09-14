@@ -1,5 +1,14 @@
 # SmartX HCI Capacity Insight - 工作进度
 
+## 2026-09-15 10.20.11.12 v0.5.1u2 + runner v0.3.1 → v0.5.3 直接升级验证
+
+- **目标**：验证 v0.5.1u2 + runner v0.3.1 可直接升级到 v0.5.3（source_compatibility 覆盖 v0.5.1u2 → v0.5.3）。
+- **基线**：10.20.11.12 用标准 v0.5.1u2 桥接包（fix20，旧布局 smartx-storage-forecast）部署，runner 升级到 v0.3.1，prometheus 修复（/prometheus-data 权限）。
+- **升级**：上传 v0.5.3 升级包 → 预检查通过（source_compatibility 支持 v0.5.1u2 → v0.5.3）→ 升级成功（耗时 >15 分钟，脚本轮询超时但任务实际 success）。
+- **验证通过**：health v0.5.3/v0.3.1/checks=true；容器 web-api/collector-worker/frontend v0.5.3、prometheus v2.55.1、runner v0.3.1；网络 smartx-hci-capacity-insight-net（旧网络已清理）；数据保留（users=1、collection_runs=13）；旧目录全清理；历史 v0.5.3 succeeded。
+- **过程问题**：早期 v0.5.1u2 包不标准（无 source_compatibility）；fix20 包镜像名（新）与 compose（旧）不一致需打旧名 tag；prometheus 数据目录权限；升级 restart 需旧布局 .env 存在；升级任务在旧布局 /data/upgrades 导致 v0.5.3 web-api 找不到 post-cleanup（手动清理旧网络/目录）。
+- **结论**：v0.5.1u2 + runner v0.3.1 可直接升级到 v0.5.3（协议支持 + 实测通过）。后续新版本应保持该直升能力。
+
 ## 2026-09-15 10.20.11.12 v0.5.2 → v0.5.3 升级验收（P2 #8 升级验收）
 
 - **环境**：10.20.11.12（升级演练机，root 直连密码 password），当前 v0.5.2 + runner v0.3.1，数据保留（users=1、collection_runs=12，无 Tower 凭据）。
