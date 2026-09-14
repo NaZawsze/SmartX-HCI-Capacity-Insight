@@ -1017,6 +1017,26 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             return
         self.assertGreaterEqual(len(trend._images), 1, "容量趋势 Sheet 应包含容量趋势图")
 
+    def test_ai_wording_layer_offline_fallback(self) -> None:
+        from app.v2.reports.export import report_period_profile
+        from app.v2.reports.export.common import _customer_key_findings
+        from app.v2.reports.wording import enhance_wording
+
+        # 未配置 AI 服务时，enhance_wording 返回原文本（离线规则回退）
+        self.assertEqual(enhance_wording("规则文案"), "规则文案")
+        self.assertFalse(enhance_wording("规则文案") != "规则文案")
+
+        # _customer_key_findings 在 AI 关闭时输出规则文案（与现状一致）
+        report = FakeReportService().latest_report(period_days=30)
+        clusters = report.get("clusters") or []
+        context = {
+            "report": report,
+            "profile": report_period_profile(30),
+        }
+        findings = _customer_key_findings(clusters, report.get("month_fastest_growing_vms") or [], "无容量风险集群", context)
+        self.assertTrue(findings)
+        self.assertIn("当前导出范围已用容量", findings[0])
+
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2ReportExportApiTest(unittest.TestCase):

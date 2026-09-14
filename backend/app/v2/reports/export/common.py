@@ -14,6 +14,7 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt, RGBColor
 from app.v2.config import V2Settings
+from app.v2.reports.wording import enhance_wording
 
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -401,7 +402,7 @@ def _customer_key_findings(clusters: list[dict[str, Any]], top_vms: list[dict[st
     high_ratio = [vm for vm in top_vms if float(vm.get("growth_ratio") or 0) >= 1.0]
     if high_ratio:
         findings.append(f"增长率超过 100% 的 VM 有 {len(high_ratio)} 台，可能属于基数较小导致的增长率偏高，需结合绝对值综合评估。")
-    return findings[:5]
+    return [enhance_wording(finding, context={"report": context.get("report")}) for finding in findings[:5]]
 
 
 def _customer_risk_matrix_rows(clusters: list[dict[str, Any]], top_vms: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -479,7 +480,11 @@ def _customer_operation_advice(clusters: list[dict[str, Any]], top_vms: list[dic
     if high_clusters:
         short_items.insert(0, f"集群 {_cluster_full_name(high_clusters[0])} 已超过 80% 高风险阈值，建议立即确认扩容周期和可清理空间。")
     short_title = (profile or REPORT_PERIOD_PROFILES[30]).short_advice_title
-    return [(short_title, short_items), ("中期（1-3 个月）", middle_items), ("三个月以上", long_items)]
+    return [
+        (short_title, [enhance_wording(item) for item in short_items]),
+        ("中期（1-3 个月）", [enhance_wording(item) for item in middle_items]),
+        ("三个月以上", [enhance_wording(item) for item in long_items]),
+    ]
 
 
 def _vm_display_name(vm: dict[str, Any] | None) -> str:
