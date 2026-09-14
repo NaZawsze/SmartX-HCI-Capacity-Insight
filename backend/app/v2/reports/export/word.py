@@ -16,323 +16,15 @@ from docx.shared import Inches, Pt, RGBColor
 from app.v2.config import V2Settings
 
 from .common import (
-    _add_cluster_growth_chart, _add_figure, _bytes_label, _capacity_risk_summary, _cluster_full_name, _cluster_key, _cluster_name, _cluster_period_growth,
-    _cluster_points, _cluster_scope_label, _cluster_top_growth_bar_chart, _cluster_used_ratio, _cluster_vm_count, _customer_growth_vms, _customer_key_findings, _customer_operation_advice,
+    _bytes_label, _capacity_risk_summary, _cluster_full_name, _cluster_key, _cluster_name, _cluster_period_growth,
+    _cluster_points, _cluster_scope_label, _cluster_used_ratio, _cluster_vm_count, _customer_growth_vms, _customer_key_findings, _customer_operation_advice,
     _customer_risk_matrix_rows, _customer_window_days, _data_quality_status_message, _data_quality_summary_rows, _export_context, _float_or_none, _growth_rate_method_lines, _horizontal_bar_chart_image,
     _is_alert_vm, _line_chart_image, _merge_growth_candidates, _overall_risk_status, _percent_label, _period_window_label, _persist_report, _report_cluster_vm_counts,
-    _report_data_quality, _report_vm_count, _requested_report_window_label, _risk_level, _scope_trend_line_chart, _signed_bytes_label, _top_vms, _tower_scope_label,
+    _report_data_quality, _requested_report_window_label, _risk_level, _signed_bytes_label, _top_vms, _tower_scope_label,
     _vm_sample_window_label, _vms_by_cluster, ACCENT, ACCENT_DARK, ACCENT_LIGHT, ACCENT_SOFT, BORDER, DOCX_FONT_ASCII,
     DOCX_FONT_EAST_ASIA, EMPTY_MONTH_VM_TEXT, GROWTH_BLUE, RATIO_ORANGE, RATIO_RED, REPORT_COVER_SUBTITLE, REPORT_COVER_TITLE, REPORT_PRODUCT_NAME,
     TEXT_DARK, TEXT_MUTED, VM_ALERT_FILL,
 )
-
-def build_report_docx(report: dict[str, Any], settings: V2Settings, *, period_days: int) -> tuple[bytes, str, Path, str]:
-    context = _export_context(report, settings, period_days, "docx")
-    clusters = report.get("clusters") or []
-    month_vms = report.get("month_fastest_growing_vms") or []
-    document = Document()
-    _setup_document(document)
-    _setup_footer(document, report, context)
-    _add_cover(document, report, context, settings)
-    _add_cluster_directory(document, clusters)
-    document.add_heading("报告摘要", level=1)
-    _add_paragraph_table(
-        document,
-        [
-            ("导出范围", context["scope_label"]),
-            ("生成时间", context["generated_at"]),
-            ("统计窗口", _period_window_label(report)),
-            ("预测窗口", f"{report.get('forecast_days', 90)} 天"),
-            ("集群数量", str(len(report.get("clusters") or []))),
-            ("容量风险摘要", _capacity_risk_summary(report)),
-            ("当前软件版本", settings.app_version),
-        ],
-    )
-    _add_callout(document, "结论摘要", _overview_sentence(clusters))
-    document.add_heading("集群容量增长概览", level=1)
-    _add_cluster_growth_chart(document, clusters)
-    _add_cluster_table(document, clusters)
-    document.add_heading("日增长最快 VM", level=1)
-    _add_vm_table(document, report.get("day_fastest_growing_vms") or [], empty_text="暂无日增长 VM 数据", include_cluster=True)
-    document.add_heading("本日新建 VM", level=1)
-    _add_new_vm_table(document, report.get("day_new_vms") or [], empty_text="暂无本日新建 VM")
-    document.add_heading("本月新建 VM", level=1)
-    _add_new_vm_table(document, report.get("month_new_vms") or [], empty_text="暂无本月新建 VM")
-    document.add_heading("VM 增长明细", level=1)
-    document.add_heading("增长量全部虚拟机", level=2)
-    document.add_paragraph(f"统计窗口：{_period_window_label(report)}")
-    _add_vm_table(document, _top_vms(month_vms, "amount"), empty_text=EMPTY_MONTH_VM_TEXT, include_cluster=True)
-    document.add_heading("增长率全部虚拟机", level=2)
-    document.add_paragraph(f"统计窗口：{_period_window_label(report)}")
-    _add_vm_table(document, _top_vms(month_vms, "ratio"), empty_text=EMPTY_MONTH_VM_TEXT, include_cluster=True)
-    document.add_heading("集群专项分析", level=1)
-    figure_index = 3
-    for index, cluster in enumerate(clusters, start=1):
-        labels = cluster.get("labels", {})
-        cluster_vms = _vms_by_cluster(month_vms).get(_cluster_key(labels), [])
-        document.add_page_break()
-        document.add_heading(f"{index}. {_cluster_name(cluster)} 集群容量概览", level=1)
-        _add_single_cluster_summary(document, cluster, len(cluster_vms))
-        figure_index = _add_single_cluster_charts(document, cluster, cluster_vms, figure_index=figure_index)
-        document.add_heading("增长量全部虚拟机（按增长量降序）", level=2)
-        document.add_paragraph(f"统计窗口：{_period_window_label(report)}")
-        _add_vm_table(document, _top_vms(cluster_vms, "amount"), empty_text=EMPTY_MONTH_VM_TEXT, include_cluster=False)
-        document.add_heading("增长率全部虚拟机（按增长率降序）", level=2)
-        document.add_paragraph(f"统计窗口：{_period_window_label(report)}")
-        _add_vm_table(document, _top_vms(cluster_vms, "ratio"), empty_text=EMPTY_MONTH_VM_TEXT, include_cluster=False)
-    content = _docx_bytes(document)
-    return _persist_report(content, settings, context["filename"])
-
-
-
-def _setup_document(document: Document) -> None:
-    section = document.sections[0]
-    section.left_margin = Inches(0.62)
-    section.right_margin = Inches(0.62)
-    section.top_margin = Inches(0.66)
-    section.bottom_margin = Inches(0.64)
-    styles = document.styles
-    styles["Normal"].font.name = DOCX_FONT_ASCII
-    styles["Normal"].font.size = Pt(10.5)
-    for style_name in ["Normal", "Heading 1", "Heading 2", "Heading 3"]:
-        style = document.styles[style_name]
-        style.font.name = DOCX_FONT_ASCII
-        style._element.rPr.rFonts.set(qn("w:ascii"), DOCX_FONT_ASCII)
-        style._element.rPr.rFonts.set(qn("w:hAnsi"), DOCX_FONT_ASCII)
-        style._element.rPr.rFonts.set(qn("w:eastAsia"), DOCX_FONT_EAST_ASIA)
-
-
-
-def _add_cover(document: Document, report: dict[str, Any], context: dict[str, str], settings: V2Settings) -> None:
-    document.add_heading(REPORT_COVER_TITLE, level=0)
-    subtitle = document.add_paragraph(REPORT_COVER_SUBTITLE)
-    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    for run in subtitle.runs:
-        run.font.size = Pt(14)
-        run.font.color.rgb = RGBColor.from_string(ACCENT_DARK)
-    _add_paragraph_table(
-        document,
-        [
-            ("导出范围", context["scope_label"]),
-            ("生成时间", context["generated_at"]),
-            ("统计窗口", _period_window_label(report)),
-            ("预测窗口", f"{report.get('forecast_days', 90)} 天"),
-            ("集群数量", str(len(report.get("clusters") or []))),
-            ("当前软件版本", settings.app_version),
-        ],
-    )
-    _add_callout(document, "报告说明", "本报告基于平台采集容量样本自动生成，用于客户容量趋势复盘、风险沟通与扩容规划参考。")
-    document.add_page_break()
-
-
-
-def _add_callout(document: Document, title: str, body: str) -> None:
-    table = document.add_table(rows=1, cols=1)
-    table.style = "Table Grid"
-    cell = table.rows[0].cells[0]
-    _shade_cell(cell, ACCENT_SOFT)
-    paragraph = cell.paragraphs[0]
-    paragraph.add_run(f"{title}：").bold = True
-    paragraph.add_run(body)
-
-
-
-def _add_paragraph_table(document: Document, rows: list[tuple[str, str]]) -> None:
-    table = document.add_table(rows=1, cols=2)
-    table.style = "Table Grid"
-    table.rows[0].cells[0].text = "项目"
-    table.rows[0].cells[1].text = "内容"
-    _shade_cell(table.rows[0].cells[0], ACCENT)
-    _shade_cell(table.rows[0].cells[1], ACCENT)
-    for key, value in rows:
-        cells = table.add_row().cells
-        cells[0].text = key
-        cells[1].text = value
-
-
-
-def _add_cluster_directory(document: Document, clusters: list[dict[str, Any]]) -> None:
-    document.add_heading("报告正文目录", level=1)
-    if not clusters:
-        document.add_paragraph("暂无集群目录")
-        return
-    document.add_paragraph("1. 报告摘要")
-    document.add_paragraph("2. 集群容量增长概览")
-    document.add_paragraph("3. VM 增长与新建明细")
-    document.add_paragraph("4. 集群专项分析")
-    for index, cluster in enumerate(clusters, start=1):
-        labels = cluster.get("labels", {})
-        name = labels.get("cluster") or labels.get("cluster_id") or f"集群 {index}"
-        document.add_paragraph(f"4.{index} {name}", style="List Number")
-
-
-
-def _add_cluster_table(document: Document, clusters: list[dict[str, Any]]) -> None:
-    table = document.add_table(rows=1, cols=8)
-    table.style = "Table Grid"
-    headers = ["Tower", "集群", "当前容量", "较上月", "较上季度", "较上一年", "90 天预测", "风险"]
-    for index, header in enumerate(headers):
-        table.rows[0].cells[index].text = header
-        _shade_cell(table.rows[0].cells[index], ACCENT)
-    if not clusters:
-        row = table.add_row().cells
-        row[0].text = "当前范围暂无集群容量数据"
-        return
-    for cluster in clusters:
-        labels = cluster.get("labels", {})
-        forecast = cluster.get("forecast", {})
-        risk, fill = _risk_level(cluster)
-        values = [
-            labels.get("tower") or labels.get("tower_id") or "",
-            labels.get("cluster") or labels.get("cluster_id") or "",
-            _bytes_label(forecast.get("current")),
-            _bytes_label(_cluster_period_growth(cluster, 30)),
-            _bytes_label(_cluster_period_growth(cluster, 90)),
-            _bytes_label(_cluster_period_growth(cluster, 365)),
-            _bytes_label(forecast.get("forecast_90d")),
-            risk,
-        ]
-        row = table.add_row().cells
-        for index, value in enumerate(values):
-            row[index].text = value
-        _shade_cell(row[-1], fill)
-
-
-
-def _add_vm_table(document: Document, vms: list[dict[str, Any]], *, empty_text: str, include_cluster: bool = True) -> None:
-    headers = ["Tower", "集群", "VM", "当前容量", "期初容量", "增长量", "增长率"] if include_cluster else ["VM", "当前容量", "期初容量", "增长量", "增长率"]
-    table = document.add_table(rows=1, cols=len(headers))
-    table.style = "Table Grid"
-    for index, header in enumerate(headers):
-        table.rows[0].cells[index].text = header
-        _shade_cell(table.rows[0].cells[index], ACCENT)
-    if not vms:
-        row = table.add_row().cells
-        row[0].text = empty_text
-        return
-    for vm in vms:
-        labels = vm.get("labels", {})
-        forecast = vm.get("forecast", {})
-        values = []
-        if include_cluster:
-            values.extend([labels.get("tower") or labels.get("tower_id") or "", labels.get("cluster") or labels.get("cluster_id") or ""])
-        values.extend([
-            labels.get("vm") or labels.get("vm_name") or labels.get("vm_id") or "",
-            _bytes_label(forecast.get("current")),
-            _bytes_label(vm.get("previous_value")),
-            _bytes_label(vm.get("growth_amount")),
-            _percent_label(vm.get("growth_ratio")),
-        ])
-        row = table.add_row().cells
-        for index, value in enumerate(values):
-            row[index].text = value
-        if _is_alert_vm(vm):
-            for cell in row:
-                _shade_cell(cell, VM_ALERT_FILL)
-
-
-
-def _add_new_vm_table(document: Document, vms: list[dict[str, Any]], *, empty_text: str) -> None:
-    table = document.add_table(rows=1, cols=5)
-    table.style = "Table Grid"
-    headers = ["Tower", "集群", "VM", "当前容量", "首次出现时间"]
-    for index, header in enumerate(headers):
-        table.rows[0].cells[index].text = header
-        _shade_cell(table.rows[0].cells[index], ACCENT)
-    if not vms:
-        table.add_row().cells[0].text = empty_text
-        return
-    for vm in vms:
-        labels = vm.get("labels", {})
-        row = table.add_row().cells
-        values = [
-            labels.get("tower") or labels.get("tower_id") or "",
-            labels.get("cluster") or labels.get("cluster_id") or "",
-            labels.get("vm") or labels.get("vm_id") or "",
-            _bytes_label((vm.get("forecast") or {}).get("current")),
-            str(vm.get("first_seen_at") or ""),
-        ]
-        for index, value in enumerate(values):
-            row[index].text = value
-
-
-
-def _setup_footer(document: Document, report: dict[str, Any], context: dict[str, str]) -> None:
-    footer = document.sections[0].footer
-    paragraph = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
-    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    paragraph.text = _footer_label(report, context)
-
-
-
-def _footer_label(report: dict[str, Any], context: dict[str, str]) -> str:
-    clusters = report.get("clusters") or []
-    tower_names = sorted({str((cluster.get("labels") or {}).get("tower") or "") for cluster in clusters if (cluster.get("labels") or {}).get("tower")})
-    cluster_names = [str((cluster.get("labels") or {}).get("cluster") or (cluster.get("labels") or {}).get("cluster_id") or "") for cluster in clusters]
-    tower_label = "、".join(tower_names[:2]) if tower_names else context["scope_label"]
-    cluster_label = "、".join([name for name in cluster_names if name][:3]) if cluster_names else "全部集群"
-    if len(cluster_names) > 3:
-        cluster_label += f" 等 {len(cluster_names)} 个集群"
-    return f"{tower_label} - {cluster_label} - {context['generated_at']}"
-
-
-
-def _overview_sentence(clusters: list[dict[str, Any]]) -> str:
-    if not clusters:
-        return "当前范围内暂无可用于分析的集群容量数据。"
-    fastest = max(clusters, key=lambda item: _cluster_period_growth(item, 30))
-    risk_items = [cluster for cluster in clusters if _risk_level(cluster)[0] != "正常"]
-    text = f"当前范围共 {len(clusters)} 个集群，月增长最高的是 {_cluster_name(fastest)}，较上月增加 {_bytes_label(_cluster_period_growth(fastest, 30))}。"
-    if risk_items:
-        text += f" 有 {len(risk_items)} 个集群在 90 天预测窗口内达到或接近容量阈值，建议优先复核容量规划。"
-    else:
-        text += " 当前 90 天预测窗口内未发现明显容量阈值风险。"
-    return text
-
-
-
-def _add_single_cluster_summary(document: Document, cluster: dict[str, Any], vm_count: int) -> None:
-    forecast = cluster.get("forecast", {})
-    risk, fill = _risk_level(cluster)
-    rows = [
-        ("当前容量", _bytes_label(forecast.get("current"))),
-        ("较上月增加", _bytes_label(_cluster_period_growth(cluster, 30))),
-        ("较上季度增加", _bytes_label(_cluster_period_growth(cluster, 90))),
-        ("较上一年增加", _bytes_label(_cluster_period_growth(cluster, 365))),
-        ("90 天预测容量", _bytes_label(forecast.get("forecast_90d"))),
-        ("容量阈值", _bytes_label(cluster.get("warning"))),
-        ("风险状态", risk),
-        ("增长 VM 样本", f"{vm_count} 台"),
-    ]
-    table = document.add_table(rows=1, cols=2)
-    table.style = "Table Grid"
-    table.rows[0].cells[0].text = "项目"
-    table.rows[0].cells[1].text = "内容"
-    for key, value in rows:
-        cells = table.add_row().cells
-        cells[0].text = key
-        cells[1].text = value
-        if key == "风险状态":
-            _shade_cell(cells[1], fill)
-
-
-
-def _add_single_cluster_charts(document: Document, cluster: dict[str, Any], vms: list[dict[str, Any]], *, figure_index: int) -> int:
-    cluster_name = _cluster_name(cluster)
-    trend_chart = _cluster_trend_line_chart(cluster, "集群容量使用趋势")
-    if trend_chart is not None:
-        _add_figure(document, trend_chart, f"图 {figure_index}：{cluster_name} 容量使用趋势", width=5.9)
-    else:
-        document.add_paragraph(f"图 {figure_index}：{cluster_name} 容量使用趋势：暂无足够历史数据生成图表。")
-    figure_index += 1
-    top_chart = _vm_top_growth_bar_chart(vms, "Top 10 VM 增长量")
-    if top_chart is not None:
-        _add_figure(document, top_chart, f"图 {figure_index}：{cluster_name} Top 10 VM 增长量", width=6.4)
-    else:
-        document.add_paragraph(f"图 {figure_index}：{cluster_name} Top 10 VM 增长量：{EMPTY_MONTH_VM_TEXT}。")
-    return figure_index + 1
-
-
 
 def _risk_text_color(level: str) -> str:
     if level == "高":
@@ -340,7 +32,6 @@ def _risk_text_color(level: str) -> str:
     if level == "中":
         return RATIO_ORANGE
     return "27AE60"
-
 
 
 def _risk_word_color(label: str) -> str:
@@ -353,15 +44,6 @@ def _risk_word_color(label: str) -> str:
     return TEXT_DARK
 
 
-
-def _set_cell_text_color(cell: Any, color: str) -> None:
-    for paragraph in cell.paragraphs:
-        for run in paragraph.runs:
-            run.font.color.rgb = RGBColor.from_string(color)
-            run.bold = True
-
-
-
 def _shade_cell(cell, fill: str) -> None:
     properties = cell._tc.get_or_add_tcPr()
     shading = properties.find(qn("w:shd"))
@@ -371,17 +53,14 @@ def _shade_cell(cell, fill: str) -> None:
     shading.set(qn("w:fill"), fill)
 
 
-
 def _docx_bytes(document: Document) -> bytes:
     output = BytesIO()
     document.save(output)
     return output.getvalue()
 
 
-
 def _cluster_trend_line_chart(cluster: dict[str, Any], title: str) -> BytesIO | None:
     return _line_chart_image(_cluster_points(cluster), title=title, ylabel="容量 (TiB)")
-
 
 
 def _vm_top_growth_bar_chart(vms: list[dict[str, Any]], title: str) -> BytesIO | None:
@@ -392,7 +71,6 @@ def _vm_top_growth_bar_chart(vms: list[dict[str, Any]], title: str) -> BytesIO |
         if value:
             items.append((str(labels.get("vm") or labels.get("vm_id") or "VM"), value))
     return _horizontal_bar_chart_image(items, title=title, unit="GB", limit=10, scale="gb")
-
 
 
 def build_report_docx(report: dict[str, Any], settings: V2Settings, *, period_days: int) -> tuple[bytes, str, Path, str]:
@@ -423,7 +101,6 @@ def build_report_docx(report: dict[str, Any], settings: V2Settings, *, period_da
     return _persist_report(content, settings, context["filename"])
 
 
-
 def _customer_setup_document(document: Document) -> None:
     section = document.sections[0]
     section.page_width = Inches(8.27)
@@ -447,7 +124,6 @@ def _customer_setup_document(document: Document) -> None:
         style.font.bold = True
         style.font.color.rgb = RGBColor.from_string(ACCENT_DARK)
     _customer_enable_update_fields(document)
-
 
 
 def _customer_add_cover(document: Document, context: dict[str, Any], settings: V2Settings) -> None:
@@ -479,7 +155,6 @@ def _customer_add_cover(document: Document, context: dict[str, Any], settings: V
     _customer_centered_text(document, f"本报告由 {REPORT_PRODUCT_NAME} {settings.app_version} 自动生成", 9, TEXT_MUTED)
 
 
-
 def _customer_add_native_toc(document: Document) -> None:
     paragraph = document.add_paragraph()
     paragraph.paragraph_format.space_before = Pt(8)
@@ -494,7 +169,6 @@ def _customer_add_native_toc(document: Document) -> None:
     toc_paragraph = document.add_paragraph()
     toc_paragraph.paragraph_format.space_after = Pt(8)
     _customer_append_toc_field(toc_paragraph)
-
 
 
 def _customer_append_toc_field(paragraph: Any) -> None:
@@ -520,7 +194,6 @@ def _customer_append_toc_field(paragraph: Any) -> None:
         paragraph._p.append(run)
 
 
-
 def _customer_add_page_number_footer(section: Any) -> None:
     paragraph = section.footer.paragraphs[0]
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -531,13 +204,11 @@ def _customer_add_page_number_footer(section: Any) -> None:
     _customer_footer_text(paragraph, " 页")
 
 
-
 def _customer_footer_text(paragraph: Any, text: str) -> None:
     run = paragraph.add_run(text)
     _v1_apply_run_font(run)
     run.font.size = Pt(8)
     run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
-
 
 
 def _customer_append_field(paragraph: Any, instruction_text: str, placeholder_text: str) -> None:
@@ -570,7 +241,6 @@ def _customer_append_field(paragraph: Any, instruction_text: str, placeholder_te
         run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
 
 
-
 def _customer_enable_update_fields(document: Document) -> None:
     settings = document.settings.element
     update_fields = settings.find(qn("w:updateFields"))
@@ -578,7 +248,6 @@ def _customer_enable_update_fields(document: Document) -> None:
         update_fields = OxmlElement("w:updateFields")
         settings.append(update_fields)
     update_fields.set(qn("w:val"), "true")
-
 
 
 def _customer_add_executive_summary(document: Document, context: dict[str, Any], clusters: list[dict[str, Any]], growth_vms: list[dict[str, Any]]) -> None:
@@ -600,7 +269,6 @@ def _customer_add_executive_summary(document: Document, context: dict[str, Any],
     _customer_add_data_quality_summary(document, context["report"])
 
 
-
 def _customer_add_cluster_overview(document: Document, context: dict[str, Any], clusters: list[dict[str, Any]], vm_counts: dict[tuple[str, str], int]) -> None:
     _customer_section_title(document, "二", "集群容量概览")
     primary = clusters[0] if clusters else {}
@@ -612,7 +280,6 @@ def _customer_add_cluster_overview(document: Document, context: dict[str, Any], 
     document.add_paragraph()
     _customer_subtitle(document, "2.3  容量使用率可视化")
     _customer_usage_bars(document, clusters)
-
 
 
 def _customer_add_vm_growth_analysis(document: Document, context: dict[str, Any], clusters: list[dict[str, Any]], growth_vms: list[dict[str, Any]]) -> None:
@@ -637,7 +304,6 @@ def _customer_add_vm_growth_analysis(document: Document, context: dict[str, Any]
         top_ratio_vms = _top_vms(cluster_vms, "ratio")[:20]
         _customer_vm_window_note(document, context, top_ratio_vms, "按增长率降序排列")
         _customer_vm_table(document, top_ratio_vms, "ratio", empty_text=profile.vm_empty_text)
-
 
 
 def _customer_add_chart_section(document: Document, context: dict[str, Any], clusters: list[dict[str, Any]], growth_vms: list[dict[str, Any]]) -> None:
@@ -665,7 +331,6 @@ def _customer_add_chart_section(document: Document, context: dict[str, Any], clu
             _customer_table_note(document, f"暂无足够 VM 增长数据生成该集群 {profile.vm_growth_title} Top 10 VM 增长量图表。")
 
 
-
 def _customer_add_risk_and_advice(document: Document, context: dict[str, Any], clusters: list[dict[str, Any]], growth_vms: list[dict[str, Any]]) -> None:
     _customer_section_title(document, "五", "全集群汇总报告")
     _customer_subtitle(document, "5.1  容量风险评估矩阵")
@@ -680,7 +345,6 @@ def _customer_add_risk_and_advice(document: Document, context: dict[str, Any], c
             body.paragraph_format.space_after = Pt(5)
             _customer_add_emphasis_text(body, item, base_size=10)
     _customer_table_note(document, "声明：本报告基于平台采集容量数据自动生成，预测结果基于历史增长趋势推算，仅供容量规划参考。")
-
 
 
 def _customer_add_data_quality_summary(document: Document, report: dict[str, Any]) -> None:
@@ -714,7 +378,6 @@ def _customer_add_data_quality_summary(document: Document, report: dict[str, Any
         _customer_table_note(document, "数据不完整集群：" + "；".join(cluster_rows))
 
 
-
 def _customer_add_growth_rate_method(document: Document, report: dict[str, Any]) -> None:
     _customer_subtitle(document, "容量增长速率口径")
     for line in _growth_rate_method_lines(report):
@@ -725,7 +388,6 @@ def _customer_add_growth_rate_method(document: Document, report: dict[str, Any])
         _v1_apply_run_font(run)
         run.font.size = Pt(10)
         run.font.color.rgb = RGBColor.from_string(TEXT_DARK)
-
 
 
 def _customer_advice_title(document: Document, title: str) -> None:
@@ -742,7 +404,6 @@ def _customer_advice_title(document: Document, title: str) -> None:
     run.font.color.rgb = RGBColor.from_string(GROWTH_BLUE)
 
 
-
 def _customer_centered_text(document: Document, text: str, size: int, color: str, *, bold: bool = False, before: int = 0) -> None:
     paragraph = document.add_paragraph()
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -753,7 +414,6 @@ def _customer_centered_text(document: Document, text: str, size: int, color: str
     run.bold = bold
     run.font.size = Pt(size)
     run.font.color.rgb = RGBColor.from_string(color)
-
 
 
 def _customer_center_rule(document: Document, *, width: int) -> None:
@@ -769,7 +429,6 @@ def _customer_center_rule(document: Document, *, width: int) -> None:
             _v1_set_cell_margin(cell, margin, 0)
 
 
-
 def _customer_set_cell_height(cell: Any, height: int) -> None:
     tr_pr = cell._tc.getparent().get_or_add_trPr()
     tr_height = tr_pr.find(qn("w:trHeight"))
@@ -778,7 +437,6 @@ def _customer_set_cell_height(cell: Any, height: int) -> None:
         tr_pr.append(tr_height)
     tr_height.set(qn("w:val"), str(height))
     tr_height.set(qn("w:hRule"), "exact")
-
 
 
 def _customer_section_title(document: Document, order: str, title: str) -> None:
@@ -791,7 +449,6 @@ def _customer_section_title(document: Document, order: str, title: str) -> None:
     run.font.size = Pt(18)
     run.font.color.rgb = RGBColor.from_string(ACCENT_DARK)
     _customer_left_rule(paragraph)
-
 
 
 def _customer_left_rule(paragraph: Any) -> None:
@@ -811,7 +468,6 @@ def _customer_left_rule(paragraph: Any) -> None:
     bottom.set(qn("w:color"), GROWTH_BLUE)
 
 
-
 def _customer_subtitle(document: Document, text: str, *, level: int = 2) -> None:
     style_name = "Heading 3" if level >= 3 else "Heading 2"
     paragraph = document.add_paragraph(style=style_name)
@@ -823,7 +479,6 @@ def _customer_subtitle(document: Document, text: str, *, level: int = 2) -> None
     run.bold = True
     run.font.size = Pt(13)
     run.font.color.rgb = RGBColor.from_string(ACCENT_DARK)
-
 
 
 def _customer_cover_meta(context: dict[str, Any], settings: V2Settings) -> list[tuple[str, str]]:
@@ -840,7 +495,6 @@ def _customer_cover_meta(context: dict[str, Any], settings: V2Settings) -> list[
     ]
 
 
-
 def _customer_summary_text(context: dict[str, Any], clusters: list[dict[str, Any]]) -> str:
     clusters_label = "、".join(_cluster_full_name(cluster) for cluster in clusters[:3]) or context["scope_label"]
     if len(clusters) > 3:
@@ -851,7 +505,6 @@ def _customer_summary_text(context: dict[str, Any], clusters: list[dict[str, Any
         f"期间采集的容量数据，对集群 {clusters_label} 的存储使用情况进行分析与趋势预测。"
         f"当前容量风险状态为{risk}。"
     )
-
 
 
 def _customer_kpi_strip(document: Document, context: dict[str, Any], clusters: list[dict[str, Any]]) -> None:
@@ -877,7 +530,6 @@ def _customer_kpi_strip(document: Document, context: dict[str, Any], clusters: l
         run.font.size = Pt(11)
         run.font.color.rgb = RGBColor.from_string(TEXT_DARK)
         _customer_kpi_table(document, context, [cluster])
-
 
 
 def _customer_kpi_table(document: Document, context: dict[str, Any], clusters: list[dict[str, Any]]) -> None:
@@ -923,7 +575,6 @@ def _customer_kpi_table(document: Document, context: dict[str, Any], clusters: l
             _v1_set_cell_margin(cell, margin, 170)
 
 
-
 def _customer_cluster_info_table(
     document: Document,
     context: dict[str, Any],
@@ -958,7 +609,6 @@ def _customer_cluster_info_table(
         _v1_set_cell(table_row.cells[1], value, color=_risk_word_color(str(value)) if label == "风险状态" else TEXT_DARK, bold=label == "风险状态", font_size=10)
 
 
-
 def _customer_cluster_growth_table(document: Document, context: dict[str, Any], clusters: list[dict[str, Any]]) -> None:
     headers = ["Tower", "集群", "近 14 天样本增长", "近 30 天样本增长", "近 90 天样本增长", "90 天预测容量"]
     table = document.add_table(rows=1, cols=len(headers))
@@ -989,11 +639,9 @@ def _customer_cluster_growth_table(document: Document, context: dict[str, Any], 
     _customer_table_note(document, "说明：近 14/30/90 天样本增长按对应周期内采集样本计算；采集历史不足对应天数时显示数据不足。")
 
 
-
 def _cluster_growth_window_label(cluster: dict[str, Any], days: int) -> str:
     growth = _cluster_period_growth_with_min_span(cluster, days)
     return "数据不足" if growth is None else _signed_bytes_label(growth)
-
 
 
 def _cluster_period_growth_with_min_span(cluster: dict[str, Any], days: int) -> float | None:
@@ -1004,7 +652,6 @@ def _cluster_period_growth_with_min_span(cluster: dict[str, Any], days: int) -> 
     if sample_span_seconds < days * 86_400:
         return None
     return _cluster_period_growth(cluster, days)
-
 
 
 def _tower_count(clusters: list[dict[str, Any]]) -> int:
@@ -1019,7 +666,6 @@ def _tower_count(clusters: list[dict[str, Any]]) -> int:
         elif tower_name:
             tower_names.add(tower_name)
     return len(tower_ids or tower_names)
-
 
 
 def _customer_usage_bars(document: Document, clusters: list[dict[str, Any]]) -> None:
@@ -1040,7 +686,6 @@ def _customer_usage_bars(document: Document, clusters: list[dict[str, Any]]) -> 
     _customer_usage_bar(document, "当前使用率", current_ratio, ACCENT_DARK, threshold)
     _customer_usage_bar(document, "90 天预测使用率", future_ratio, GROWTH_BLUE, threshold)
     _customer_table_note(document, _customer_usage_summary(cluster, current_ratio, future_ratio))
-
 
 
 def _customer_usage_bar(document: Document, label: str, ratio: float, color: str, threshold: float) -> None:
@@ -1072,7 +717,6 @@ def _customer_usage_bar(document: Document, label: str, ratio: float, color: str
     threshold_run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
 
 
-
 def _customer_usage_summary(cluster: dict[str, Any], current_ratio: float, future_ratio: float) -> str:
     cluster_name = _cluster_full_name(cluster)
     if current_ratio >= 0.8:
@@ -1084,7 +728,6 @@ def _customer_usage_summary(cluster: dict[str, Any], current_ratio: float, futur
     return f"{cluster_name} 使用率较低，预测趋势线与当前基线接近，容量安全边际较充裕。"
 
 
-
 def _customer_vm_window_note(document: Document, context: dict[str, Any], vms: list[dict[str, Any]], suffix: str) -> None:
     paragraph = document.add_paragraph(f"统计窗口：{_vm_sample_window_label(vms, context['report'])} | {suffix}")
     paragraph.paragraph_format.space_after = Pt(4)
@@ -1093,7 +736,6 @@ def _customer_vm_window_note(document: Document, context: dict[str, Any], vms: l
         _v1_apply_run_font(run)
         run.font.size = Pt(9)
         run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
-
 
 
 def _customer_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode: str, *, empty_text: str) -> None:
@@ -1131,13 +773,11 @@ def _customer_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode:
         _prevent_row_split(table.rows[-1])
 
 
-
 def _customer_set_blue_headers(cells: Any, headers: list[str]) -> None:
     for cell, header in zip(cells, headers):
         _v1_set_cell(cell, header, fill=ACCENT, color="FFFFFF", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, font_size=9)
         for paragraph in cell.paragraphs:
             paragraph.paragraph_format.keep_with_next = True
-
 
 
 def _customer_table_note(document: Document, text: str) -> None:
@@ -1149,7 +789,6 @@ def _customer_table_note(document: Document, text: str) -> None:
         run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
 
 
-
 def _customer_add_emphasis_text(paragraph: Any, text: str, *, base_size: float = 10.5) -> None:
     for segment, highlight in _customer_emphasis_segments(text):
         run = paragraph.add_run(_customer_emphasis_text(segment, highlight))
@@ -1159,12 +798,10 @@ def _customer_add_emphasis_text(paragraph: Any, text: str, *, base_size: float =
         run.bold = bool(highlight)
 
 
-
 def _customer_emphasis_text(segment: str, highlight: bool) -> str:
     if highlight and _customer_is_vm_name_segment(segment):
         return f" {segment} "
     return segment
-
 
 
 def _customer_is_vm_name_segment(segment: str) -> bool:
@@ -1179,7 +816,6 @@ def _customer_is_vm_name_segment(segment: str) -> bool:
     return any(re.fullmatch(pattern, segment) for pattern in vm_patterns) or bool(segment.strip())
 
 
-
 def _customer_is_numeric_segment(segment: str) -> bool:
     numeric_patterns = [
         r"[+-]?\d+(?:\.\d+)?\s*(?:B|KB|MB|GB|TB|PB)",
@@ -1187,7 +823,6 @@ def _customer_is_numeric_segment(segment: str) -> bool:
         r"\d+\s*天",
     ]
     return any(re.fullmatch(pattern, segment) for pattern in numeric_patterns)
-
 
 
 def _customer_is_scope_segment(segment: str) -> bool:
@@ -1199,7 +834,6 @@ def _customer_is_scope_segment(segment: str) -> bool:
         r"[A-Za-z0-9_-]+(?:\s*/\s*[A-Za-z0-9_-]+)+",
     ]
     return any(re.fullmatch(pattern, segment) for pattern in scope_patterns)
-
 
 
 def _customer_emphasis_segments(text: str) -> list[tuple[str, bool]]:
@@ -1231,7 +865,6 @@ def _customer_emphasis_segments(text: str) -> list[tuple[str, bool]]:
     return segments or [(text, False)]
 
 
-
 def _customer_add_figure(document: Document, image: BytesIO, caption: str, width: float) -> None:
     paragraph = document.add_paragraph()
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -1244,7 +877,6 @@ def _customer_add_figure(document: Document, image: BytesIO, caption: str, width
     picture = document.add_paragraph()
     picture.alignment = WD_ALIGN_PARAGRAPH.CENTER
     picture.add_run().add_picture(image, width=Inches(width))
-
 
 
 def _customer_risk_matrix_table(document: Document, clusters: list[dict[str, Any]], top_vms: list[dict[str, Any]]) -> None:
@@ -1262,33 +894,11 @@ def _customer_risk_matrix_table(document: Document, clusters: list[dict[str, Any
         _v1_set_cell_text_style(row[2], _risk_text_color(row_data["level"]), bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
 
 
-
-def _v1_setup_document(document: Document, context: dict[str, Any]) -> None:
-    section = document.sections[0]
-    section.left_margin = Inches(0.62)
-    section.right_margin = Inches(0.62)
-    section.top_margin = Inches(0.66)
-    section.bottom_margin = Inches(0.64)
-    for style_name in ["Normal", "Heading 1", "Heading 2", "Heading 3"]:
-        style = document.styles[style_name]
-        _v1_apply_style_font(style)
-    document.styles["Normal"].font.size = Pt(9)
-    document.styles["Heading 1"].font.size = Pt(15)
-    document.styles["Heading 1"].font.bold = True
-    document.styles["Heading 1"].font.color.rgb = RGBColor.from_string(ACCENT_DARK)
-    document.styles["Heading 2"].font.size = Pt(11)
-    document.styles["Heading 2"].font.bold = True
-    document.styles["Heading 2"].font.color.rgb = RGBColor.from_string(ACCENT_DARK)
-    _v1_setup_header_footer(section, context)
-
-
-
 def _v1_apply_style_font(style: Any) -> None:
     style.font.name = DOCX_FONT_ASCII
     style._element.rPr.rFonts.set(qn("w:ascii"), DOCX_FONT_ASCII)
     style._element.rPr.rFonts.set(qn("w:hAnsi"), DOCX_FONT_ASCII)
     style._element.rPr.rFonts.set(qn("w:eastAsia"), DOCX_FONT_EAST_ASIA)
-
 
 
 def _v1_apply_run_font(run: Any) -> None:
@@ -1298,495 +908,14 @@ def _v1_apply_run_font(run: Any) -> None:
     run._element.rPr.rFonts.set(qn("w:eastAsia"), DOCX_FONT_EAST_ASIA)
 
 
-
-def _v1_setup_header_footer(section: Any, context: dict[str, Any], footer_label: str | None = None) -> None:
-    header = section.header.paragraphs[0]
-    header.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    run = header.add_run("SmartX Storage Forecast | 容量预测报告")
-    _v1_apply_run_font(run)
-    run.font.size = Pt(8)
-    run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
-
-    footer = section.footer.paragraphs[0]
-    footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = footer.add_run(f"{footer_label or context['scope_label']} · {context['generated_at']}")
-    _v1_apply_run_font(run)
-    run.font.size = Pt(8)
-    run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
-
-
-
-def _v1_start_section(document: Document, context: dict[str, Any], footer_label: str) -> None:
-    section = document.add_section(WD_SECTION.NEW_PAGE)
-    section.left_margin = Inches(0.62)
-    section.right_margin = Inches(0.62)
-    section.top_margin = Inches(0.66)
-    section.bottom_margin = Inches(0.64)
-    section.header.is_linked_to_previous = False
-    section.footer.is_linked_to_previous = False
-    _v1_clear_paragraph(section.header.paragraphs[0])
-    _v1_clear_paragraph(section.footer.paragraphs[0])
-    _v1_setup_header_footer(section, context, footer_label=footer_label)
-
-
-
 def _v1_clear_paragraph(paragraph: Any) -> None:
     for run in paragraph.runs:
         run._element.getparent().remove(run._element)
 
 
-
-def _v1_add_cover_brand(document: Document) -> None:
-    table = document.add_table(rows=1, cols=2)
-    table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _v1_set_table_width(table, [900, 7200])
-    _v1_set_table_borders(table, "FFFFFF")
-    _v1_set_cell(table.rows[0].cells[0], "", fill=ACCENT)
-    cell = table.rows[0].cells[1]
-    _v1_set_cell(cell, REPORT_PRODUCT_NAME, fill=ACCENT_SOFT, color=ACCENT_DARK, bold=True, font_size=9)
-    for paragraph in cell.paragraphs:
-        paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-
-
-
-def _v1_add_cover_rule(document: Document) -> None:
-    table = document.add_table(rows=1, cols=1)
-    table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _v1_set_table_width(table, [7800])
-    _v1_set_table_borders(table, "FFFFFF")
-    _shade_cell(table.rows[0].cells[0], ACCENT)
-
-
-
-def _v1_add_callout(document: Document, title: str, body: str) -> None:
-    table = document.add_table(rows=1, cols=1)
-    table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    table.style = "Table Grid"
-    _v1_set_table_width(table, [8200])
-    _v1_set_table_borders(table, BORDER)
-    cell = table.rows[0].cells[0]
-    _shade_cell(cell, ACCENT_SOFT)
-    paragraph = cell.paragraphs[0]
-    title_run = paragraph.add_run(f"{title}：")
-    _v1_apply_run_font(title_run)
-    title_run.bold = True
-    title_run.font.size = Pt(9)
-    title_run.font.color.rgb = RGBColor.from_string(ACCENT_DARK)
-    body_run = paragraph.add_run(body)
-    _v1_apply_run_font(body_run)
-    body_run.font.size = Pt(9)
-    body_run.font.color.rgb = RGBColor.from_string(TEXT_DARK)
-    document.add_paragraph()
-
-
-
-def _v1_add_figure(document: Document, image: BytesIO, caption: str, width: float) -> None:
-    paragraph = document.add_paragraph()
-    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    paragraph.paragraph_format.keep_with_next = True
-    paragraph.paragraph_format.keep_together = True
-    run = paragraph.add_run(caption)
-    _v1_apply_run_font(run)
-    run.bold = True
-    run.font.size = Pt(9)
-    run.font.color.rgb = RGBColor.from_string(TEXT_DARK)
-    paragraph.paragraph_format.space_after = Pt(2)
-    picture_paragraph = document.add_paragraph()
-    picture_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    picture_paragraph.paragraph_format.keep_together = True
-    picture_paragraph.add_run().add_picture(image, width=Inches(width))
-    document.add_paragraph()
-
-
-
-def _v1_add_cover(document: Document, context: dict[str, Any]) -> None:
-    _v1_add_cover_brand(document)
-    document.add_paragraph()
-    title = document.add_paragraph()
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = title.add_run(REPORT_COVER_TITLE)
-    _v1_apply_run_font(run)
-    run.bold = True
-    run.font.size = Pt(28)
-    run.font.color.rgb = RGBColor.from_string(ACCENT_DARK)
-
-    subtitle = document.add_paragraph()
-    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = subtitle.add_run(REPORT_COVER_SUBTITLE)
-    _v1_apply_run_font(run)
-    run.font.size = Pt(12)
-    run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
-
-    _v1_add_cover_rule(document)
-    document.add_paragraph()
-
-    table = document.add_table(rows=6, cols=2)
-    table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    table.style = "Table Grid"
-    _v1_set_table_width(table, [2300, 5400])
-    _v1_set_table_borders(table, BORDER)
-    rows = [
-        ("导出范围", context["scope_label"]),
-        ("生成时间", context["generated_at"]),
-        ("统计窗口", _v1_vm_window_label(context)),
-        ("预测窗口", f"预测 {context['report'].get('forecast_days') or 90} 天"),
-        ("集群数量", f"{len(context['clusters'])} 个"),
-        ("当前软件版本", context.get("app_version", "-")),
-    ]
-    for row, (key, value) in zip(table.rows, rows):
-        _v1_set_cell(row.cells[0], key, fill=ACCENT, color="FFFFFF", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
-        _v1_set_cell(row.cells[1], value, fill=ACCENT_SOFT, color=TEXT_DARK)
-
-    note = document.add_paragraph(f"本报告由 {REPORT_PRODUCT_NAME} {context.get('app_version', '-')} 自动生成")
-    note.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    for run in note.runs:
-        _v1_apply_run_font(run)
-        run.font.size = Pt(8)
-        run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
-
-    document.add_paragraph()
-    _v1_add_callout(
-        document,
-        "报告说明",
-        "本报告基于平台采集容量样本自动生成，用于客户容量趋势复盘、风险沟通与扩容规划参考。预测结果应结合业务上线计划和实际资源治理策略共同判断。",
-    )
-    document.add_page_break()
-
-
-
-def _v1_add_report_overview(document: Document, context: dict[str, Any]) -> None:
-    clusters = context["clusters"]
-    report = context["report"]
-    top_vms = _customer_growth_vms(report)
-    total_current = sum(float((cluster.get("forecast") or {}).get("current") or 0) for cluster in clusters)
-    total_month = sum(_cluster_period_growth(cluster, 30) for cluster in clusters)
-    total_forecast_90 = sum(float((cluster.get("forecast") or {}).get("forecast_90d") or 0) for cluster in clusters)
-    total_capacity = sum(float(cluster.get("total") or 0) for cluster in clusters)
-    total_vm_count = _report_vm_count(report)
-    risk_label, risk_fill, risk_note = _overall_risk_status(clusters)
-    document.add_heading("一  执行摘要", level=1)
-    paragraph = document.add_paragraph("报告摘要")
-    for run in paragraph.runs:
-        _v1_apply_run_font(run)
-        run.bold = True
-        run.font.color.rgb = RGBColor.from_string(ACCENT_DARK)
-    table = document.add_table(rows=1, cols=4)
-    table.style = "Table Grid"
-    table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _v1_set_table_width(table, [2050, 2050, 2050, 2050])
-    _v1_set_table_borders(table, BORDER)
-    values = [
-        ("当前已用容量", _bytes_label(total_current), f"总容量 {_bytes_label(total_capacity)}"),
-        ("较上月增长", _signed_bytes_label(total_month), ""),
-        ("90天预测容量", _bytes_label(total_forecast_90), f"预计使用率 {_percent_label(total_forecast_90 / total_capacity) if total_capacity > 0 else '-'}"),
-        ("风险状态", risk_label, f"虚拟机数量 {total_vm_count} 台"),
-    ]
-    for cell, (label, value, note) in zip(table.rows[0].cells, values):
-        cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-        _shade_cell(cell, risk_fill if label == "风险状态" else ACCENT_LIGHT)
-        paragraph = cell.paragraphs[0]
-        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = paragraph.add_run(label + "\n")
-        _v1_apply_run_font(run)
-        run.bold = False
-        run.font.size = Pt(8)
-        run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
-        value_run = paragraph.add_run(value)
-        _v1_apply_run_font(value_run)
-        value_run.bold = True
-        value_run.font.size = Pt(13)
-        value_run.font.color.rgb = RGBColor.from_string(_risk_word_color(risk_label) if label == "风险状态" else ACCENT_DARK)
-        if note:
-            note_run = paragraph.add_run("\n" + note)
-            _v1_apply_run_font(note_run)
-            note_run.font.size = Pt(8)
-            note_run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
-    risk_count = sum(1 for cluster in clusters if _risk_level(cluster)[0] != "正常")
-    paragraph = document.add_paragraph(f"容量关注集群：{risk_count} 个")
-    for run in paragraph.runs:
-        _v1_apply_run_font(run)
-        run.font.size = Pt(9)
-        run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
-    _v1_add_callout(document, "容量风险摘要", _capacity_risk_summary(context["report"]))
-    _v1_add_callout(document, "结论摘要", _overview_sentence(clusters))
-    _v1_add_key_findings(document, clusters, top_vms, risk_note, context)
-
-
-
-def _v1_add_cluster_directory(document: Document, clusters: list[dict[str, Any]]) -> None:
-    document.add_heading("目录", level=1)
-    entries: list[tuple[str, str, str, str | None]] = [
-        ("1", "执行摘要（报告摘要）", "1", None),
-        ("2", "集群容量增长概览", "1.1", None),
-        ("3", "本次统计窗口增长 VM", "1.2", None),
-        ("4", "风险评估与建议", "1.3", None),
-    ]
-    for index, cluster in enumerate(clusters, start=1):
-        labels = cluster.get("labels", {})
-        cluster_title = _v1_cluster_title(labels)
-        entries.extend(
-            [
-                (str(len(entries) + 1), cluster_title, f"2.{index}", _v1_cluster_bookmark(index)),
-                (str(len(entries) + 1), f"{cluster_title} - Top 10 VM 增长量", f"2.{index}.1", _v1_cluster_bookmark(index)),
-                (str(len(entries) + 1), f"{cluster_title} - 增长量 TOP100 虚拟机", f"2.{index}.2", _v1_cluster_bookmark(index)),
-                (str(len(entries) + 1), f"{cluster_title} - 增长率 TOP100 虚拟机", f"2.{index}.3", _v1_cluster_bookmark(index)),
-            ]
-        )
-    if not clusters:
-        entries.append(("4", "当前导出范围内暂无集群", "-", None))
-
-    table = document.add_table(rows=1, cols=3)
-    table.style = "Table Grid"
-    table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _v1_set_table_width(table, [900, 4300, 2500])
-    _v1_set_docx_headers(table.rows[0].cells, ["序号", "内容", "章节"])
-    _v1_set_table_borders(table, BORDER)
-    for row_index, (order, title, chapter, bookmark) in enumerate(entries, start=1):
-        row = table.add_row().cells
-        _v1_set_docx_row(row, [order, "", chapter])
-        if bookmark:
-            _v1_add_internal_link(row[1].paragraphs[0], bookmark, title)
-        else:
-            _v1_set_cell(row[1], title)
-        if row_index % 2 == 0:
-            _v1_shade_row(row, ACCENT_SOFT)
-    _v1_add_callout(document, "定位说明", "可通过本目录快速确认集群章节编号；Word 打开后也可使用导航窗格按标题跳转。")
-    document.add_page_break()
-
-
-
-def _v1_add_key_findings(document: Document, clusters: list[dict[str, Any]], top_vms: list[dict[str, Any]], risk_note: str, context: dict[str, Any]) -> None:
-    document.add_heading("关键发现", level=2)
-    findings = _customer_key_findings(clusters, top_vms, risk_note, context)
-    for finding in findings:
-        paragraph = document.add_paragraph(finding)
-        paragraph.paragraph_format.left_indent = Inches(0.16)
-        for run in paragraph.runs:
-            _v1_apply_run_font(run)
-            run.font.size = Pt(9)
-    document.add_paragraph()
-
-
-
-def _v1_add_risk_and_advice(document: Document, report: dict[str, Any]) -> None:
-    clusters = report.get("clusters") or []
-    top_vms = _customer_growth_vms(report)
-    document.add_heading("四  风险评估与建议", level=1)
-    document.add_heading("4.1  容量风险评估矩阵", level=2)
-    _v1_add_risk_matrix_table(document, clusters, top_vms)
-    document.add_heading("4.2  运维建议", level=2)
-    for title, items in _customer_operation_advice(clusters, top_vms):
-        _v1_add_advice_group(document, title, items)
-    _v1_add_callout(
-        document,
-        "声明",
-        "本报告基于平台采集的容量数据自动生成，预测结果基于历史增长趋势推算，仅供参考。实际容量变化受业务负载、数据写入模式等因素影响。",
-    )
-
-
-
-def _v1_add_risk_matrix_table(document: Document, clusters: list[dict[str, Any]], top_vms: list[dict[str, Any]]) -> None:
-    rows = _customer_risk_matrix_rows(clusters, top_vms)
-    table = document.add_table(rows=1, cols=4)
-    table.style = "Table Grid"
-    table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _v1_set_table_width(table, [1700, 1600, 1300, 3600])
-    _v1_set_docx_headers(table.rows[0].cells, ["风险项", "当前状态", "风险等级", "评估说明"])
-    _v1_set_table_borders(table, BORDER)
-    for index, row_data in enumerate(rows, start=1):
-        row = table.add_row().cells
-        _v1_set_docx_row(row, [row_data["item"], row_data["status"], row_data["level"], row_data["description"]])
-        if index % 2 == 0:
-            _v1_shade_row(row, ACCENT_SOFT)
-        _set_cell_text_color(row[2], _risk_text_color(row_data["level"]))
-
-
-
-def _v1_add_advice_group(document: Document, title: str, items: list[str]) -> None:
-    paragraph = document.add_paragraph()
-    run = paragraph.add_run(title)
-    _v1_apply_run_font(run)
-    run.bold = True
-    run.font.size = Pt(11)
-    run.font.color.rgb = RGBColor.from_string(GROWTH_BLUE)
-    for item in items:
-        body = document.add_paragraph(item)
-        body.paragraph_format.left_indent = Inches(0.28)
-        for run in body.runs:
-            _v1_apply_run_font(run)
-            run.font.size = Pt(9)
-
-
-
-def _v1_add_cluster_growth_chart(document: Document, clusters: list[dict[str, Any]]) -> None:
-    trend_chart = _scope_trend_line_chart(clusters, "容量使用率趋势")
-    if trend_chart is not None:
-        _v1_add_figure(document, trend_chart, "图 1：容量使用趋势", width=6.6)
-    else:
-        document.add_paragraph("暂无足够历史数据生成容量趋势图。")
-    top_chart = _cluster_top_growth_bar_chart(clusters, "Top 5 集群月增长量")
-    if top_chart is not None:
-        _v1_add_figure(document, top_chart, "图 2：Top 5 集群月增长量", width=6.8)
-
-
-
-def _v1_add_cluster_summary_table(document: Document, clusters: list[dict[str, Any]], vm_counts: dict[tuple[str, str], int] | None = None) -> None:
-    headers = ["Tower", "集群", "虚拟机数量", "当前容量", "较上月", "较上季度", "较上一年", "90天预测容量", "风险"]
-    table = document.add_table(rows=1, cols=len(headers))
-    table.style = "Table Grid"
-    table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _v1_set_table_width(table, [1000, 1550, 900, 1100, 1050, 1050, 1050, 1100, 800])
-    _v1_set_docx_headers(table.rows[0].cells, headers)
-    _v1_set_table_borders(table, BORDER)
-    if not clusters:
-        _v1_set_docx_row(table.add_row().cells, ["当前范围暂无集群容量数据"] + ["-"] * (len(headers) - 1))
-        return
-    for index, cluster in enumerate(clusters, start=1):
-        labels = cluster.get("labels", {})
-        forecast = cluster.get("forecast", {})
-        risk, fill = _risk_level(cluster)
-        vm_count = _cluster_vm_count(cluster, (vm_counts or {}).get(_cluster_key(labels)))
-        row = table.add_row().cells
-        values = [
-            labels.get("tower") or labels.get("tower_id") or "-",
-            labels.get("cluster") or labels.get("cluster_id") or "-",
-            f"{vm_count} 台",
-            _bytes_label(forecast.get("current")),
-            _signed_bytes_label(_cluster_period_growth(cluster, 30)),
-            _signed_bytes_label(_cluster_period_growth(cluster, 90)),
-            _signed_bytes_label(_cluster_period_growth(cluster, 365)),
-            _bytes_label(forecast.get("forecast_90d")),
-            risk,
-        ]
-        _v1_set_docx_row(row, values)
-        if index % 2 == 0:
-            _v1_shade_row(row, ACCENT_SOFT)
-        for amount_cell in row[4:7]:
-            _v1_set_cell_text_style(amount_cell, GROWTH_BLUE, bold=False)
-        _v1_set_cell_text_style(row[-1], _risk_word_color(risk), bold=True)
-        _shade_cell(row[-1], fill)
-
-
-
-def _v1_add_cluster_customer_summary(document: Document, cluster: dict[str, Any], vm_count: int, *, visible_vm_count: int | None = None) -> None:
-    forecast = cluster.get("forecast", {})
-    risk, fill = _risk_level(cluster)
-    total_vm_count = _cluster_vm_count(cluster, visible_vm_count if visible_vm_count is not None else vm_count)
-    table = document.add_table(rows=2, cols=4)
-    table.style = "Table Grid"
-    _v1_set_table_width(table, [2100, 2100, 2100, 2100])
-    items = [
-        ("当前已用", _bytes_label(forecast.get("current"))),
-        ("较上月增加", _signed_bytes_label(_cluster_period_growth(cluster, 30))),
-        ("较上季度增加", _signed_bytes_label(_cluster_period_growth(cluster, 90))),
-        ("较上一年增加", _signed_bytes_label(_cluster_period_growth(cluster, 365))),
-        ("90天预测容量", _bytes_label(forecast.get("forecast_90d"))),
-        ("虚拟机数量", f"{total_vm_count} 台"),
-        ("风险状态", risk),
-        ("增长VM样本", f"{vm_count} 台"),
-    ]
-    for cell, (label, value) in zip([cell for row in table.rows for cell in row.cells], items):
-        _shade_cell(cell, fill if label == "风险状态" else ACCENT_LIGHT)
-        paragraph = cell.paragraphs[0]
-        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = paragraph.add_run(label + "\n")
-        _v1_apply_run_font(run)
-        run.bold = False
-        run.font.size = Pt(8)
-        run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
-        run = paragraph.add_run(value)
-        _v1_apply_run_font(run)
-        run.bold = True
-        run.font.size = Pt(11)
-        run.font.color.rgb = RGBColor.from_string(_risk_word_color(risk) if label == "风险状态" else ACCENT_DARK)
-    document.add_paragraph(_v1_cluster_advice(cluster))
-
-
-
-def _v1_cluster_advice(cluster: dict[str, Any]) -> str:
-    risk, _ = _risk_level(cluster)
-    month = _cluster_period_growth(cluster, 30)
-    quarter = _cluster_period_growth(cluster, 90)
-    if risk == "高风险":
-        return "建议：当前容量已达到关注阈值，建议尽快确认可用容量、扩容周期和重点增长虚拟机。"
-    if risk == "需关注":
-        return "建议：90 天预测接近容量阈值，建议跟踪增长趋势并提前准备扩容或清理方案。"
-    if quarter > month * 2.5 and quarter > 0:
-        return "建议：季度增长明显高于月增长节奏，建议复核近期业务上线或批量数据写入情况。"
-    return "建议：当前容量趋势相对平稳，建议持续观察 Top 增长虚拟机并保持月度复盘。"
-
-
-
-def _v1_add_single_cluster_charts(document: Document, cluster: dict[str, Any], vms: list[dict[str, Any]], vm_chart_title: str = "Top 10 VM 增长量") -> None:
-    trend_chart = _cluster_trend_line_chart(cluster, "集群容量使用趋势")
-    if trend_chart is not None:
-        _v1_add_figure(document, trend_chart, "容量使用趋势", width=5.9)
-    top_chart = _vm_top_growth_bar_chart(vms, vm_chart_title)
-    if top_chart is not None:
-        _v1_add_figure(document, top_chart, vm_chart_title, width=6.4)
-
-
-
-def _v1_add_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode: str, include_cluster: bool = False, empty_text: str = "暂无增长数据") -> None:
-    headers = _v1_vm_headers(include_cluster=include_cluster, sort_mode=sort_mode)
-    table = document.add_table(rows=1, cols=len(headers))
-    table.style = "Table Grid"
-    widths = [560, 1050, 1350, 2600, 1050, 1050, 1050, 850] if include_cluster else [576, 3312, 1224, 1224, 1224, 1080]
-    _v1_set_table_width(table, widths)
-    _v1_set_docx_headers(table.rows[0].cells, headers)
-    _v1_set_table_borders(table, BORDER)
-    if not vms:
-        empty_row = table.add_row().cells
-        _v1_set_docx_row(empty_row, [empty_text] + ["-"] * (len(headers) - 1))
-        _v1_shade_row(empty_row, ACCENT_SOFT)
-        return
-    for index, vm in enumerate(vms, start=1):
-        row = table.add_row().cells
-        _v1_set_docx_row(row, _v1_vm_row(vm, include_cluster=include_cluster, raw=False, rank=index))
-        if index % 2 == 0:
-            _v1_shade_row(row, ACCENT_SOFT)
-        _v1_style_vm_docx_row(row, vm, include_cluster=include_cluster)
-
-
-
-def _v1_add_vm_window_note(document: Document, context: dict[str, Any], vms: list[dict[str, Any]] | None = None) -> None:
-    note = document.add_paragraph(f"统计窗口：{_vm_sample_window_label(vms or [], context['report'])}")
-    note.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    for run in note.runs:
-        _v1_apply_run_font(run)
-        run.font.size = Pt(8)
-        run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
-
-
-
-def _v1_set_docx_headers(cells: Any, headers: list[str]) -> None:
-    for cell, header in zip(cells, headers):
-        _v1_set_cell(cell, header, fill=ACCENT, color="FFFFFF", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
-
-
-
 def _v1_set_docx_row(cells: Any, values: list[Any]) -> None:
     for cell, value in zip(cells, values):
         _v1_set_cell(cell, value)
-
-
-
-def _v1_style_vm_docx_row(cells: Any, vm: dict[str, Any], *, include_cluster: bool) -> None:
-    amount_index = 6 if include_cluster else 4
-    ratio_index = 7 if include_cluster else 5
-    vm_index = 3 if include_cluster else 1
-    numeric_start = 4 if include_cluster else 2
-
-    _v1_set_cell_text_style(cells[0], TEXT_MUTED, align=WD_ALIGN_PARAGRAPH.CENTER)
-    _v1_set_cell_text_style(cells[vm_index], TEXT_DARK, align=WD_ALIGN_PARAGRAPH.LEFT)
-    for cell in cells[numeric_start:]:
-        _v1_set_cell_text_style(cell, TEXT_DARK, align=WD_ALIGN_PARAGRAPH.CENTER)
-    _v1_set_cell_text_style(cells[amount_index], GROWTH_BLUE, align=WD_ALIGN_PARAGRAPH.CENTER)
-
-    ratio = float(vm.get("growth_ratio") or 0)
-    ratio_color = RATIO_RED if ratio >= 0.5 else RATIO_ORANGE if ratio >= 0.2 else TEXT_DARK
-    _v1_set_cell_text_style(cells[ratio_index], ratio_color, align=WD_ALIGN_PARAGRAPH.CENTER)
-
 
 
 def _v1_set_cell_text_style(cell: Any, color: str, *, bold: bool | None = None, align: int | None = None) -> None:
@@ -1797,7 +926,6 @@ def _v1_set_cell_text_style(cell: Any, color: str, *, bold: bool | None = None, 
             run.font.color.rgb = RGBColor.from_string(color)
             if bold is not None:
                 run.bold = bold
-
 
 
 def _v1_set_table_borders(table: Any, color: str) -> None:
@@ -1818,7 +946,6 @@ def _v1_set_table_borders(table: Any, color: str) -> None:
         element.set(qn("w:color"), color)
 
 
-
 def _repeat_table_header(row: Any) -> None:
     tr_pr = row._tr.get_or_add_trPr()
     header = tr_pr.find(qn("w:tblHeader"))
@@ -1826,7 +953,6 @@ def _repeat_table_header(row: Any) -> None:
         header = OxmlElement("w:tblHeader")
         tr_pr.append(header)
     header.set(qn("w:val"), "true")
-
 
 
 def _prevent_row_split(row: Any) -> None:
@@ -1837,11 +963,9 @@ def _prevent_row_split(row: Any) -> None:
         tr_pr.append(cant_split)
 
 
-
 def _v1_shade_row(cells: Any, fill: str) -> None:
     for cell in cells:
         _shade_cell(cell, fill)
-
 
 
 def _v1_set_cell(
@@ -1868,47 +992,6 @@ def _v1_set_cell(
         _v1_set_cell_margin(cell, margin, 110)
 
 
-
-def _v1_add_bookmarked_heading(document: Document, text: str, bookmark_name: str, level: int, bookmark_id: int) -> None:
-    paragraph = document.add_heading(level=level)
-    start = OxmlElement("w:bookmarkStart")
-    start.set(qn("w:id"), str(bookmark_id))
-    start.set(qn("w:name"), bookmark_name)
-    paragraph._p.append(start)
-    run = paragraph.add_run(text)
-    _v1_apply_run_font(run)
-    if level == 1:
-        run.bold = True
-        run.font.size = Pt(15)
-        run.font.color.rgb = RGBColor.from_string(ACCENT_DARK)
-    end = OxmlElement("w:bookmarkEnd")
-    end.set(qn("w:id"), str(bookmark_id))
-    paragraph._p.append(end)
-
-
-
-def _v1_add_internal_link(paragraph: Any, bookmark_name: str, text: str) -> None:
-    hyperlink = OxmlElement("w:hyperlink")
-    hyperlink.set(qn("w:anchor"), bookmark_name)
-    run_element = OxmlElement("w:r")
-    properties = OxmlElement("w:rPr")
-    color = OxmlElement("w:color")
-    color.set(qn("w:val"), ACCENT)
-    underline = OxmlElement("w:u")
-    underline.set(qn("w:val"), "single")
-    properties.append(color)
-    properties.append(underline)
-    run_element.append(properties)
-    text_element = OxmlElement("w:t")
-    text_element.text = text
-    run_element.append(text_element)
-    hyperlink.append(run_element)
-    paragraph._p.append(hyperlink)
-    for run in paragraph.runs:
-        _v1_apply_run_font(run)
-
-
-
 def _v1_set_cell_margin(cell: Any, margin: str, size: int) -> None:
     tc_pr = cell._tc.get_or_add_tcPr()
     tc_mar = tc_pr.first_child_found_in("w:tcMar")
@@ -1921,7 +1004,6 @@ def _v1_set_cell_margin(cell: Any, margin: str, size: int) -> None:
         tc_mar.append(node)
     node.set(qn("w:w"), str(size))
     node.set(qn("w:type"), "dxa")
-
 
 
 def _v1_set_table_width(table: Any, widths: list[int]) -> None:
@@ -1938,69 +1020,3 @@ def _v1_set_table_width(table: Any, widths: list[int]) -> None:
             tc_w.set(qn("w:type"), "dxa")
 
 
-
-def _v1_vm_headers(include_cluster: bool, sort_mode: str) -> list[str]:
-    headers = ["排名"]
-    if include_cluster:
-        headers.extend(["Tower", "集群"])
-    headers.extend(["虚拟机名称", "当前容量", "期初容量", "增长量", "增长率"])
-    if sort_mode == "ratio":
-        headers[-1] = "增长率 ↓"
-    else:
-        headers[-2] = "增长量 ↓"
-    return headers
-
-
-
-def _v1_vm_row(vm: dict[str, Any], include_cluster: bool, raw: bool = False, rank: int | None = None) -> list[Any]:
-    labels = vm.get("labels", {})
-    forecast = vm.get("forecast", {})
-    current = forecast.get("current") or 0
-    previous = vm.get("previous_value") or 0
-    amount = vm.get("growth_amount") or 0
-    ratio = vm.get("growth_ratio") or 0
-    row: list[Any] = [rank or ""]
-    if include_cluster:
-        row.extend([labels.get("tower") or labels.get("tower_id") or "-", labels.get("cluster") or labels.get("cluster_id") or "-"])
-    row.extend([
-        labels.get("vm") or labels.get("vm_name") or labels.get("vm_id") or "-",
-        current if raw else _bytes_label(current),
-        previous if raw else _bytes_label(previous),
-        amount if raw else _bytes_label(amount),
-        ratio if raw else _percent_label(ratio),
-    ])
-    return row
-
-
-
-def _v1_cluster_title(labels: dict[str, Any]) -> str:
-    tower = labels.get("tower")
-    cluster = labels.get("cluster") or labels.get("cluster_id") or "未知集群"
-    return f"{tower} - {cluster}" if tower else str(cluster)
-
-
-
-def _v1_cluster_footer_label(labels: dict[str, Any]) -> str:
-    tower = labels.get("tower") or labels.get("tower_id") or "Tower"
-    cluster = labels.get("cluster") or labels.get("cluster_id") or "集群"
-    return f"{tower} - {cluster}"
-
-
-
-def _v1_cluster_bookmark(index: int) -> str:
-    return f"cluster_{index}"
-
-
-
-def _v1_vm_window_label(context: dict[str, Any]) -> str:
-    return f"统计窗口：{_period_window_label(context['report'])}"
-
-
-
-def _vm_growth_bucket_label(report: dict[str, Any]) -> str:
-    bucket = report.get("vm_growth_sample_bucket") or {}
-    min_days = bucket.get("min_days")
-    max_days = bucket.get("max_days")
-    if min_days is not None and max_days is not None:
-        return f"VM 增长样本跨度：{min_days} 天 <= 样本跨度 <= {max_days} 天"
-    return f"VM 增长样本跨度：当前导出周期 {report.get('window_days') or 30} 天"

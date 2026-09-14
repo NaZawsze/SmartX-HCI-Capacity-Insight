@@ -116,14 +116,12 @@ REPORT_PERIOD_PROFILES: dict[int, ReportPeriodProfile] = {
 }
 
 
-
 def report_period_profile(period_days: int | None) -> ReportPeriodProfile:
     try:
         days = int(period_days or 30)
     except (TypeError, ValueError):
         days = 30
     return REPORT_PERIOD_PROFILES.get(days, REPORT_PERIOD_PROFILES[30])
-
 
 
 def _export_context(report: dict[str, Any], settings: V2Settings, period_days: int, extension: str) -> dict[str, str]:
@@ -151,38 +149,11 @@ def _export_context(report: dict[str, Any], settings: V2Settings, period_days: i
     }
 
 
-
 def _persist_report(content: bytes, settings: V2Settings, filename: str) -> tuple[bytes, str, Path, str]:
     settings.reports_dir.mkdir(parents=True, exist_ok=True)
     path = settings.reports_dir / Path(filename).name
     path.write_bytes(content)
     return content, filename, path, f"/api/admin/exports/reports/{quote(path.name)}"
-
-
-
-def _add_cluster_growth_chart(document: Document, clusters: list[dict[str, Any]]) -> None:
-    trend_chart = _scope_trend_line_chart(clusters, "容量使用率趋势")
-    if trend_chart is not None:
-        _add_figure(document, trend_chart, "图 1：容量使用趋势", width=6.4)
-    else:
-        document.add_paragraph("暂无足够历史数据生成容量趋势图。")
-    top_chart = _cluster_top_growth_bar_chart(clusters, "Top 5 集群月增长量")
-    if top_chart is not None:
-        _add_figure(document, top_chart, "图 2：Top 5 集群月增长量", width=6.5)
-
-
-
-def _add_figure(document: Document, image: BytesIO, caption: str, width: float) -> None:
-    caption_paragraph = document.add_paragraph()
-    caption_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = caption_paragraph.add_run(caption)
-    run.bold = True
-    run.font.size = Pt(9)
-    run.font.color.rgb = RGBColor.from_string(ACCENT_DARK)
-    picture_paragraph = document.add_paragraph()
-    picture_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    picture_paragraph.add_run().add_picture(image, width=Inches(width))
-
 
 
 def _period_window_label(report: dict[str, Any]) -> str:
@@ -197,7 +168,6 @@ def _period_window_label(report: dict[str, Any]) -> str:
             return f"{parsed_start.astimezone(timezone).date().isoformat()} - {parsed_end.astimezone(timezone).date().isoformat()}"
         return f"{start[:10]} - {end[:10]}"
     return f"近 {report.get('window_days', 30)} 天"
-
 
 
 def _requested_report_window_label(report: dict[str, Any]) -> str:
@@ -223,7 +193,6 @@ def _requested_report_window_label(report: dict[str, Any]) -> str:
     return f"近 {days_value} 天"
 
 
-
 def _effective_report_window(report: dict[str, Any]) -> dict[str, Any]:
     timezone = _report_timezone(report)
     period = report.get("period_window") or {}
@@ -246,7 +215,6 @@ def _effective_report_window(report: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-
 def _vm_sample_window_label(vms: list[dict[str, Any]], report: dict[str, Any]) -> str:
     starts = [_parse_report_datetime(str(vm.get("window_start_at") or "")) for vm in vms]
     ends = [_parse_report_datetime(str(vm.get("window_end_at") or "")) for vm in vms]
@@ -258,7 +226,6 @@ def _vm_sample_window_label(vms: list[dict[str, Any]], report: dict[str, Any]) -
     return _period_window_label(report)
 
 
-
 def _parse_report_datetime(value: str) -> datetime | None:
     if not value:
         return None
@@ -268,14 +235,12 @@ def _parse_report_datetime(value: str) -> datetime | None:
         return None
 
 
-
 def _report_timezone(report: dict[str, Any]) -> ZoneInfo:
     timezone_name = str(report.get("timezone") or "Asia/Shanghai")
     try:
         return ZoneInfo(timezone_name)
     except ZoneInfoNotFoundError:
         return ZoneInfo("Asia/Shanghai")
-
 
 
 def _capacity_risk_summary(report: dict[str, Any]) -> str:
@@ -292,7 +257,6 @@ def _capacity_risk_summary(report: dict[str, Any]) -> str:
     return "当前所有集群暂无明显容量风险。"
 
 
-
 def _risk_summary_sentence(clusters: list[dict[str, Any]], suffix: str) -> str:
     names = "、".join(_cluster_name(cluster) for cluster in clusters[:3])
     if len(clusters) > 3:
@@ -300,11 +264,9 @@ def _risk_summary_sentence(clusters: list[dict[str, Any]], suffix: str) -> str:
     return f"{names} {suffix}。"
 
 
-
 def _cluster_name(cluster: dict[str, Any]) -> str:
     labels = cluster.get("labels") or {}
     return str(labels.get("cluster") or labels.get("cluster_id") or "未知集群")
-
 
 
 def _cluster_full_name(cluster: dict[str, Any]) -> str:
@@ -312,7 +274,6 @@ def _cluster_full_name(cluster: dict[str, Any]) -> str:
     tower = labels.get("tower") or labels.get("tower_id")
     cluster_name = labels.get("cluster") or labels.get("cluster_id") or "未知集群"
     return f"{tower} / {cluster_name}" if tower else str(cluster_name)
-
 
 
 def _tower_scope_label(clusters: list[dict[str, Any]], fallback: str) -> str:
@@ -329,7 +290,6 @@ def _tower_scope_label(clusters: list[dict[str, Any]], fallback: str) -> str:
     return f"全部 Tower（{len(names)} 个）"
 
 
-
 def _cluster_scope_label(clusters: list[dict[str, Any]], fallback: str) -> str:
     names = []
     for cluster in clusters:
@@ -343,14 +303,12 @@ def _cluster_scope_label(clusters: list[dict[str, Any]], fallback: str) -> str:
     return f"全部集群（{len(names)} 个）"
 
 
-
 def _cluster_used_ratio(cluster: dict[str, Any]) -> float:
     total = _float_or_none(cluster.get("total"))
     current = _float_or_none((cluster.get("forecast") or {}).get("current"))
     if total and total > 0 and current is not None:
         return current / total
     return 0.0
-
 
 
 def _risk_level(cluster: dict[str, Any]) -> tuple[str, str]:
@@ -365,7 +323,6 @@ def _risk_level(cluster: dict[str, Any]) -> tuple[str, str]:
     return "正常", SUCCESS
 
 
-
 def _overall_risk_status(clusters: list[dict[str, Any]]) -> tuple[str, str, str]:
     if not clusters:
         return "数据不足", WARNING, "当前导出范围暂无集群容量数据。"
@@ -378,15 +335,8 @@ def _overall_risk_status(clusters: list[dict[str, Any]]) -> tuple[str, str, str]
     return "正常", SUCCESS, "当前集群整体运行平稳，暂无明显容量风险。"
 
 
-
 def _customer_growth_vms(report: dict[str, Any]) -> list[dict[str, Any]]:
     return _merge_growth_candidates(report.get("window_fastest_growing_vms") or [], report.get("month_fastest_growing_vms") or [])
-
-
-
-def _report_vm_count(report: dict[str, Any]) -> int:
-    return len(_report_vm_keys(report))
-
 
 
 def _report_cluster_vm_counts(report: dict[str, Any]) -> dict[tuple[str, str], int]:
@@ -394,7 +344,6 @@ def _report_cluster_vm_counts(report: dict[str, Any]) -> dict[tuple[str, str], i
     for tower_id, cluster_id, vm_id in _report_vm_keys(report):
         grouped[(tower_id, cluster_id)].add(vm_id)
     return {key: len(vm_ids) for key, vm_ids in grouped.items()}
-
 
 
 def _cluster_vm_count(cluster: dict[str, Any], fallback: int | None) -> int:
@@ -407,7 +356,6 @@ def _cluster_vm_count(cluster: dict[str, Any], fallback: int | None) -> int:
     except (TypeError, ValueError):
         pass
     return int(fallback or 0)
-
 
 
 def _report_vm_keys(report: dict[str, Any]) -> set[tuple[str, str, str]]:
@@ -423,7 +371,6 @@ def _report_vm_keys(report: dict[str, Any]) -> set[tuple[str, str, str]]:
             if any(vm_key):
                 keys.add(vm_key)
     return keys
-
 
 
 def _customer_key_findings(clusters: list[dict[str, Any]], top_vms: list[dict[str, Any]], risk_note: str, context: dict[str, Any]) -> list[str]:
@@ -455,7 +402,6 @@ def _customer_key_findings(clusters: list[dict[str, Any]], top_vms: list[dict[st
     if high_ratio:
         findings.append(f"增长率超过 100% 的 VM 有 {len(high_ratio)} 台，可能属于基数较小导致的增长率偏高，需结合绝对值综合评估。")
     return findings[:5]
-
 
 
 def _customer_risk_matrix_rows(clusters: list[dict[str, Any]], top_vms: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -506,7 +452,6 @@ def _customer_risk_matrix_rows(clusters: list[dict[str, Any]], top_vms: list[dic
     return rows
 
 
-
 def _customer_operation_advice(clusters: list[dict[str, Any]], top_vms: list[dict[str, Any]], profile: ReportPeriodProfile | None = None) -> list[tuple[str, list[str]]]:
     top_vm = top_vms[0] if top_vms else None
     largest = _largest_vm(top_vms)
@@ -537,13 +482,11 @@ def _customer_operation_advice(clusters: list[dict[str, Any]], top_vms: list[dic
     return [(short_title, short_items), ("中期（1-3 个月）", middle_items), ("三个月以上", long_items)]
 
 
-
 def _vm_display_name(vm: dict[str, Any] | None) -> str:
     if not vm:
         return "未知 VM"
     labels = vm.get("labels") or {}
     return str(labels.get("vm") or labels.get("vm_name") or labels.get("vm_id") or "未知 VM")
-
 
 
 def _vm_full_name(vm: dict[str, Any] | None) -> str:
@@ -557,7 +500,6 @@ def _vm_full_name(vm: dict[str, Any] | None) -> str:
     return f"{prefix} / {vm_name}" if prefix else vm_name
 
 
-
 def _vm_scope_name(vm: dict[str, Any] | None) -> str:
     if not vm:
         return "未知范围"
@@ -568,12 +510,10 @@ def _vm_scope_name(vm: dict[str, Any] | None) -> str:
     return scope or "未知范围"
 
 
-
 def _vm_current_bytes(vm: dict[str, Any] | None) -> float:
     if not vm:
         return 0.0
     return float((vm.get("forecast") or {}).get("current") or 0.0)
-
 
 
 def _largest_vm(vms: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -582,14 +522,12 @@ def _largest_vm(vms: list[dict[str, Any]]) -> dict[str, Any] | None:
     return max(vms, key=_vm_current_bytes)
 
 
-
 def _exhaustion_days(cluster: dict[str, Any]) -> float:
     value = (cluster.get("forecast") or {}).get("exhaustion_days")
     try:
         return float(value)
     except (TypeError, ValueError):
         return float("inf")
-
 
 
 def _cluster_period_growth(cluster: dict[str, Any], days: int) -> float:
@@ -607,7 +545,6 @@ def _cluster_period_growth(cluster: dict[str, Any], days: int) -> float:
     return max(0.0, float(forecast.get("slope_per_day") or 0) * days)
 
 
-
 def _cluster_points(cluster: dict[str, Any]) -> list[tuple[int, float]]:
     points = []
     for point in cluster.get("points") or []:
@@ -618,16 +555,6 @@ def _cluster_points(cluster: dict[str, Any]) -> list[tuple[int, float]]:
     return sorted(points)
 
 
-
-def _merged_cluster_points(clusters: list[dict[str, Any]]) -> list[tuple[int, float]]:
-    by_ts: dict[int, float] = defaultdict(float)
-    for cluster in clusters:
-        for ts, value in _cluster_points(cluster):
-            by_ts[ts] += value
-    return sorted(by_ts.items())
-
-
-
 def _vms_by_cluster(vms: list[dict[str, Any]]) -> dict[tuple[str, str], list[dict[str, Any]]]:
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for vm in vms:
@@ -635,16 +562,13 @@ def _vms_by_cluster(vms: list[dict[str, Any]]) -> dict[tuple[str, str], list[dic
     return grouped
 
 
-
 def _cluster_key(labels: dict[str, Any]) -> tuple[str, str]:
     return (str(labels.get("tower_id") or ""), str(labels.get("cluster_id") or ""))
-
 
 
 def _top_vms(vms: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
     key = (lambda vm: float(vm.get("growth_ratio") or 0)) if mode == "ratio" else (lambda vm: float(vm.get("growth_amount") or 0))
     return sorted(vms, key=key, reverse=True)
-
 
 
 def _merge_growth_candidates(primary: list[dict[str, Any]], secondary: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -664,13 +588,11 @@ def _merge_growth_candidates(primary: list[dict[str, Any]], secondary: list[dict
     return merged
 
 
-
 def _float_or_none(value: Any) -> float | None:
     try:
         return float(value)
     except (TypeError, ValueError):
         return None
-
 
 
 def _first_cluster_name(clusters: list[dict[str, Any]]) -> str | None:
@@ -680,21 +602,8 @@ def _first_cluster_name(clusters: list[dict[str, Any]]) -> str | None:
     return labels.get("cluster") or labels.get("cluster_id")
 
 
-
 def _is_alert_vm(vm: dict[str, Any]) -> bool:
     return float(vm.get("growth_ratio") or 0) > VM_ALERT_RATIO and float(vm.get("growth_amount") or 0) > VM_ALERT_BYTES
-
-
-
-def _scope_trend_line_chart(clusters: list[dict[str, Any]], title: str) -> BytesIO | None:
-    return _line_chart_image(_merged_cluster_points(clusters), title=title, ylabel="容量 (TiB)")
-
-
-
-def _cluster_top_growth_bar_chart(clusters: list[dict[str, Any]], title: str) -> BytesIO | None:
-    items = [(_cluster_name(cluster), _cluster_period_growth(cluster, 30)) for cluster in clusters if _cluster_period_growth(cluster, 30) > 0]
-    return _horizontal_bar_chart_image(items, title=title, unit="TiB", limit=5, scale="tib")
-
 
 
 def _line_chart_image(points: list[tuple[int, float]], title: str, ylabel: str) -> BytesIO | None:
@@ -727,13 +636,6 @@ def _line_chart_image(points: list[tuple[int, float]], title: str, ylabel: str) 
     return _figure_bytes(fig, plt)
 
 
-
-def _chart_color(value: str) -> str:
-    color = value.strip()
-    return color if color.startswith("#") else f"#{color}"
-
-
-
 def _horizontal_bar_chart_image(items: list[tuple[str, float]], title: str, unit: str, limit: int, scale: str) -> BytesIO | None:
     if not items:
         return None
@@ -761,7 +663,6 @@ def _horizontal_bar_chart_image(items: list[tuple[str, float]], title: str, unit
     return _figure_bytes(fig, plt)
 
 
-
 def _configure_chart_fonts(matplotlib: Any) -> None:
     font_path = Path(CHART_FONT_PATH)
     if not font_path.exists():
@@ -773,14 +674,12 @@ def _configure_chart_fonts(matplotlib: Any) -> None:
         return
 
 
-
 def _figure_bytes(fig: Any, plt: Any) -> BytesIO:
     output = BytesIO()
     fig.savefig(output, format="png", bbox_inches="tight", facecolor="white")
     plt.close(fig)
     output.seek(0)
     return output
-
 
 
 def _chart_y_limits(values: list[float]) -> tuple[float, float]:
@@ -794,11 +693,9 @@ def _chart_y_limits(values: list[float]) -> tuple[float, float]:
     return lower, upper if upper > lower else lower + 1.0
 
 
-
 def _truncate_label(value: str, limit: int = 22) -> str:
     text = str(value)
     return text if len(text) <= limit else f"{text[:8]}...{text[-8:]}"
-
 
 
 def _bytes_to_tib(value: Any) -> float:
@@ -808,7 +705,6 @@ def _bytes_to_tib(value: Any) -> float:
         return 0.0
 
 
-
 def _bytes_to_gb(value: Any) -> float:
     try:
         return float(value or 0) / 1024**3
@@ -816,12 +712,10 @@ def _bytes_to_gb(value: Any) -> float:
         return 0.0
 
 
-
 def _chart_bar_value(value: float, scale: str) -> float:
     if scale == "gb":
         return _bytes_to_gb(value)
     return _bytes_to_tib(value)
-
 
 
 def _local_now(settings: V2Settings) -> datetime:
@@ -831,11 +725,9 @@ def _local_now(settings: V2Settings) -> datetime:
         return datetime.now()
 
 
-
 def _slug(value: str) -> str:
     normalized = "".join(char if char.isalnum() or char in {"-", "_"} else "-" for char in value.strip())
     return normalized.strip("-") or "all"
-
 
 
 def _bytes_label(value: Any) -> str:
@@ -851,7 +743,6 @@ def _bytes_label(value: Any) -> str:
     return f"{numeric:.2f} {units[index]}"
 
 
-
 def _signed_bytes_label(value: Any) -> str:
     try:
         numeric = float(value)
@@ -865,13 +756,11 @@ def _signed_bytes_label(value: Any) -> str:
     return label
 
 
-
 def _days_label(value: Any) -> str:
     try:
         return f"{float(value):.0f} 天"
     except (TypeError, ValueError):
         return "未触发"
-
 
 
 def _percent_label(value: Any) -> str:
@@ -893,13 +782,11 @@ def _growth_rate_method_lines(report: dict[str, Any]) -> list[str]:
     ]
 
 
-
 def _growth_rate_method_line(label: str, method: str, value: Any, sample_sufficient: Any, unit: str) -> str:
     value_label = _growth_rate_value_label(value, sample_sufficient, unit)
     if value is None:
         return f"{label}：{value_label}；{method}"
     return f"{label}：{method}，{value_label}"
-
 
 
 def _growth_rate_value_label(value: Any, sample_sufficient: Any, unit: str) -> str:
@@ -912,7 +799,6 @@ def _growth_rate_value_label(value: Any, sample_sufficient: Any, unit: str) -> s
     return label
 
 
-
 def _customer_window_days(report: dict[str, Any]) -> int:
     try:
         value = int(report.get("window_days") or (report.get("period_window") or {}).get("days") or 30)
@@ -921,11 +807,9 @@ def _customer_window_days(report: dict[str, Any]) -> int:
     return max(1, value)
 
 
-
 def _report_data_quality(report: dict[str, Any]) -> dict[str, Any]:
     quality = report.get("data_quality")
     return quality if isinstance(quality, dict) else {"status": "unknown", "messages": ["当前报表未包含数据质量检查结果。"]}
-
 
 
 def _data_quality_status_message(quality: dict[str, Any]) -> str:
@@ -940,11 +824,9 @@ def _data_quality_status_message(quality: dict[str, Any]) -> str:
     return str(messages[0]) if messages else "当前报表未包含数据质量检查结果。"
 
 
-
 def _data_quality_status_label(quality: dict[str, Any]) -> str:
     status = str(quality.get("status") or "unknown")
     return {"ok": "数据质量正常", "warning": "数据质量需关注", "critical": "数据质量异常"}.get(status, "数据质量未知")
-
 
 
 def _data_quality_summary_rows(report: dict[str, Any], quality: dict[str, Any]) -> list[tuple[str, str]]:
@@ -975,7 +857,6 @@ def _data_quality_summary_rows(report: dict[str, Any], quality: dict[str, Any]) 
     return rows
 
 
-
 def _data_quality_window_label(window: Any, report: dict[str, Any]) -> str:
     if not isinstance(window, dict):
         return "-"
@@ -988,7 +869,6 @@ def _data_quality_window_label(window: Any, report: dict[str, Any]) -> str:
     return "-"
 
 
-
 def _datetime_label(value: Any, report: dict[str, Any], *, date_only: bool = False) -> str:
     if value in (None, ""):
         return "-"
@@ -997,7 +877,6 @@ def _datetime_label(value: Any, report: dict[str, Any], *, date_only: bool = Fal
         return str(value)
     converted = parsed.astimezone(_report_timezone(report))
     return converted.date().isoformat() if date_only else converted.strftime("%Y-%m-%d %H:%M")
-
 
 
 def _int_label(value: Any) -> str:
