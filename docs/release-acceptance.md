@@ -26,7 +26,7 @@ Expected values:
 
 - Platform version: `v0.5.2`
 - Runner version: `v0.3.1`
-- Compose project: `smartx-storage-forecast`
+- Compose project: `smartx-hci-capacity-insight`
 - Docker network: `smartx-hci-capacity-insight-net`
 - Prometheus version: `v2.55.1`
 - Upgrade package: `smartx-capacity-insight-upgrade-v0.5.2.tar.gz`
@@ -36,7 +36,7 @@ Deployment checks:
 
 1. Place the compose files in a directory whose name is not `smartx-storage-forecast`.
 2. Run `docker compose -f docker-compose.offline.yml up -d`.
-3. Verify container labels contain `com.docker.compose.project=smartx-storage-forecast`.
+3. Verify container labels contain `com.docker.compose.project=smartx-hci-capacity-insight`.
 4. Verify Docker has exactly one SmartX runtime network named `smartx-hci-capacity-insight-net`.
 5. Verify Service Management shows `web-api`, `collector-worker`, `frontend`, `prometheus`, and `upgrade-runner`.
 6. Verify the observability component shows Prometheus `v2.55.1`.
@@ -63,7 +63,7 @@ python3 scripts/release_smoke_check.py \
   --password 'change-me' \
   --expected-version v0.5.2 \
   --expected-runner-version v0.3.1 \
-  --expected-compose-project smartx-storage-forecast \
+  --expected-compose-project smartx-hci-capacity-insight \
   --expected-network smartx-hci-capacity-insight-net
 ```
 
