@@ -1,5 +1,14 @@
 # SmartX HCI Capacity Insight - 工作进度
 
+## 2026-09-15 10.20.11.12 canary 发布验收（P0 #1，先验收再发布）
+
+- **方式**：用本地 v0.5.3 镜像在 10.20.11.12 全新部署（未推送 DockerHub，先验收再发布）。
+- **后端 smoke 全 PASS**：health v0.5.3/v0.3.1/checks=true、towers/vms/报表/任务列表、Prometheus 健康。
+- **升级包验收 PASS**：v0.5.3 升级包 SHA256 `e1702435...`，预检查通过。
+- **数据契约验收未完成**：全新部署无数据（vms=0），无法验证增长 VM 的顶层/legacy 字段。需带数据的验收数据集（.3 有真实数据：clusters=1/vm_latest=590/vm_volumes=89636，可导入）。
+- **前端 smoke 待执行**（Dashboard/报表/任务中心/服务管理/升级中心）。
+- **结论**：v0.5.3 核心功能（后端 smoke、升级包）验收通过；数据契约和前端 smoke 需带数据环境。正式发布（推送 DockerHub）待用户决定。
+
 ## 2026-09-15 10.20.11.12 P2 #8 部署验收完成（任意目录名部署）
 
 - **验收**：在 10.20.11.12 上进入任意目录名（/tmp/deploy-test），执行 `docker compose -f docker-compose.offline.yml up -d`，验证固定 project/network。
