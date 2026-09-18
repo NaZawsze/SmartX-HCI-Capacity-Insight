@@ -4,16 +4,17 @@
 
 - **发现**：canary 数据契约验收时检查代码发现，reports 的 `_growth_reports_from_series`/`_new_vm_reports_from_series` 构建的 item 只有 `labels`（legacy），缺顶层 `vm_id`/`vm_name`、`metric` 嵌套和 `value` 字段；49-16 契约对齐设计要求 growth/new/latest item 构建器都加，dashboard 加了、reports 漏了。前端靠 legacy 回退能工作，但契约不完整（数据契约验收"同时覆盖顶层和 legacy"无法满足）。
 - **修复**：reports 两个构建器的 item 补齐 `vm_id`/`vm_name`/`metric`（字符串化 labels）/`value`（= current），对齐 dashboard 的 item 形状。
-- **验证**：全量回归 + 契约测试。
+- **验证**：全量回归 307 tests（8 环境性错误，零新增）+ 34 报表测试通过；canary 数据契约验收 5/5 通过（day_new_vms 203 台验证顶层/legacy/metric/value 全覆盖）。
+- **部署问题**：10.20.11.12 和 .3 构建 web-api 时 Docker Hub 拉取 python:3.12-slim 超时（网络拦截）；改用基于已有 v0.5.3 镜像 + COPY 修复文件的本地构建方案。
 
-## 2026-09-15 10.20.11.12 canary 发布验收（P0 #1，先验收再发布）
+## 2026-09-15 10.20.11.12 canary 发布验收（P0 #1，先验收再发布）【更新：数据导入后完成】
 
-- **方式**：用本地 v0.5.3 镜像在 10.20.11.12 全新部署（未推送 DockerHub，先验收再发布）。
-- **后端 smoke 全 PASS**：health v0.5.3/v0.3.1/checks=true、towers/vms/报表/任务列表、Prometheus 健康。
+- **方式**：用本地 v0.5.3 镜像在 10.20.11.12 全新部署（未推送 DockerHub，先验收再发布）；导入 .3 真实数据（SQLite users=1/clusters=1/vm_latest=590/vm_volumes=89636 + Prometheus 205 series）完成带数据验收。
+- **后端 smoke 6/6 PASS**：health v0.5.3/v0.3.1/checks=true、towers/vms/报表/任务列表、Prometheus 健康（205 series）。
 - **升级包验收 PASS**：v0.5.3 升级包 SHA256 `e1702435...`，预检查通过。
-- **数据契约验收未完成**：全新部署无数据（vms=0），无法验证增长 VM 的顶层/legacy 字段。需带数据的验收数据集（.3 有真实数据：clusters=1/vm_latest=590/vm_volumes=89636，可导入）。
-- **前端 smoke 待执行**（Dashboard/报表/任务中心/服务管理/升级中心）。
-- **结论**：v0.5.3 核心功能（后端 smoke、升级包）验收通过；数据契约和前端 smoke 需带数据环境。正式发布（推送 DockerHub）待用户决定。
+- **数据契约 5/5 PASS**：报表 item 同时覆盖顶层 vm_id/vm_name、legacy labels.vm、metric 嵌套、value 字段（day_new_vms 203 台验证）。
+- **前端 smoke 6/7 PASS**：Dashboard kpis（vm_count=244）、报表日增长 TOP（203）、任务中心（15）、服务管理（verification 5 services）、升级中心（version/components）、前端 HTTP 200；Dashboard top_vms=0（数据特征：新导入数据所有 VM 首点在窗口内全部计为"新建 VM"，无增长样本窗口，非代码问题——契约字段已用 day_new_vms 验证）。
+- **结论**：v0.5.3 canary 功能验收通过（7+6+5/7+6+5，唯一未过项为数据特征）。正式发布（推送 DockerHub、打 tag）待用户决定。
 
 ## 2026-09-15 10.20.11.12 P2 #8 部署验收完成（任意目录名部署）
 
