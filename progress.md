@@ -4,7 +4,8 @@
 
 - **背景**：legacy 消化后 word.py 保留 10 个 `_v1_*` 工具函数（`_v1_apply_run_font`/`_v1_apply_style_font`/`_v1_clear_paragraph`/`_v1_set_cell`/`_v1_set_cell_margin`/`_v1_set_cell_text_style`/`_v1_set_docx_row`/`_v1_set_table_borders`/`_v1_set_table_width`/`_v1_shade_row`）——名字像 v1 死代码，实际被 customer 活跃代码大量调用（_customer_setup_document/_customer_kpi_table/_customer_vm_table 等 16+ 函数），后续死代码清理可能误删。
 - **修复**：全部改名 `_v1_` → `_docx_` 前缀（定义 + 68 处调用点，仅 word.py 内部，测试/其他模块零引用）。
-- **验证**：全量回归 + 导出测试。
+- **验证**：本地全量 307 tests（8 环境性错误，零新增）+ 25 报表测试；.3 全量 310 tests OK。
+- **部署备注**：.3 和 10.20.11.12 构建 web-api 时 Docker Hub 拉取 python:3.12-slim 超时（网络拦截），改用基于已有 v0.5.3 镜像 + COPY word.py 的本地构建（.3 和 10.20.11.12 均已部署修复后镜像）。正式发布时需重新走标准 Dockerfile 构建。
 
 ## 2026-09-15 Tower 设置页 UI 修复（残留任务转圈 / 测试反馈 / checkbox 对齐 / 行内测试结果）
 
