@@ -293,9 +293,14 @@ def _growth_reports_from_series(
             continue
         elapsed_days = max(sample_span_days, 1)
         slope_per_day = growth_amount / elapsed_days
+        labels_latest = _labels_with_latest_name(labels, latest_label_by_vm)
         mapped.append(
             {
-                "labels": _labels_with_latest_name(labels, latest_label_by_vm),
+                "vm_id": str(labels.get("vm_id") or ""),
+                "vm_name": str(labels_latest.get("vm") or labels_latest.get("vm_name") or ""),
+                "labels": labels_latest,
+                "metric": {key: str(value) for key, value in labels_latest.items()},
+                "value": current,
                 "growth_amount": growth_amount,
                 "previous_value": baseline_value,
                 "growth_ratio": growth_amount / baseline_value if baseline_value > 0 else None,
@@ -327,9 +332,14 @@ def _new_vm_reports_from_series(
         if first_ts < start_ts or first_ts > end_ts:
             continue
         current = latest_value_by_vm.get(key, points[-1][1])
+        labels_latest = _labels_with_latest_name(latest_labels_by_key.get(key, {}), latest_label_by_vm)
         mapped.append(
             {
-                "labels": _labels_with_latest_name(latest_labels_by_key.get(key, {}), latest_label_by_vm),
+                "vm_id": str(labels_latest.get("vm_id") or ""),
+                "vm_name": str(labels_latest.get("vm") or labels_latest.get("vm_name") or ""),
+                "labels": labels_latest,
+                "metric": {key: str(value) for key, value in labels_latest.items()},
+                "value": current,
                 "first_seen_at": datetime.fromtimestamp(first_ts, tz=timezone.utc).isoformat(),
                 "age_days": max((end_ts - first_ts) / SECONDS_PER_DAY, 0),
                 "growth_amount": max(0.0, current - first_value),

@@ -1,5 +1,11 @@
 # SmartX HCI Capacity Insight - 工作进度
 
+## 2026-09-15 发现并修复 49-16 契约遗漏：reports 增长/新建 VM item 缺顶层字段与 metric/value
+
+- **发现**：canary 数据契约验收时检查代码发现，reports 的 `_growth_reports_from_series`/`_new_vm_reports_from_series` 构建的 item 只有 `labels`（legacy），缺顶层 `vm_id`/`vm_name`、`metric` 嵌套和 `value` 字段；49-16 契约对齐设计要求 growth/new/latest item 构建器都加，dashboard 加了、reports 漏了。前端靠 legacy 回退能工作，但契约不完整（数据契约验收"同时覆盖顶层和 legacy"无法满足）。
+- **修复**：reports 两个构建器的 item 补齐 `vm_id`/`vm_name`/`metric`（字符串化 labels）/`value`（= current），对齐 dashboard 的 item 形状。
+- **验证**：全量回归 + 契约测试。
+
 ## 2026-09-15 10.20.11.12 canary 发布验收（P0 #1，先验收再发布）
 
 - **方式**：用本地 v0.5.3 镜像在 10.20.11.12 全新部署（未推送 DockerHub，先验收再发布）。
