@@ -4990,6 +4990,26 @@ button.risk-cluster-row:hover {
   color: var(--orange);
 }
 
+.tower-health-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.tower-test-result {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tower-test-result.ok {
+  color: var(--green);
+}
+
+.tower-test-result.fail {
+  color: var(--red);
+}
+
 .test-ok {
   color: var(--green);
 }

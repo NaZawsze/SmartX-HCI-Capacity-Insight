@@ -13,6 +13,8 @@ export function SettingsPage() {
   const [message, setMessage] = useState("");
   const [testResult, setTestResult] = useState("");
   const [testing, setTesting] = useState(false);
+  const [rowTesting, setRowTesting] = useState(false);
+  const [rowTestMessage, setRowTestMessage] = useState("");
   const [deletingTowerId, setDeletingTowerId] = useState<number | null>(null);
 
   async function reload() {
@@ -38,14 +40,15 @@ export function SettingsPage() {
   }
 
   async function testTower(id: number) {
-    setTesting(true);
+    setRowTesting(true);
+    setRowTestMessage("");
     try {
       const result = await api.testTower(id);
-      setMessage(result.ok ? `✓ ${result.message}` : `✗ ${result.message}`);
+      setRowTestMessage(result.ok ? `✓ ${result.message}` : `✗ ${result.message}`);
     } catch (exc) {
-      setMessage(exc instanceof Error ? `✗ ${exc.message}` : "✗ 测试失败");
+      setRowTestMessage(exc instanceof Error ? `✗ ${exc.message}` : "✗ 测试失败");
     } finally {
-      setTesting(false);
+      setRowTesting(false);
     }
     await reload();
   }
@@ -157,16 +160,23 @@ export function SettingsPage() {
                 </span>
               </div>
               <div className="row-actions">
-                <span className={`tower-health ${tower.last_collection ? tower.last_collection.status : "none"}`}>
-                  {tower.last_collection
-                    ? `${tower.last_collection.status === "success" ? "✓" : "✗"} ${formatRelativeTime(tower.last_collection.finished_at)}采集`
-                    : "未采集"}
-                </span>
+                <div className="tower-health-stack">
+                  <span className={`tower-health ${tower.last_collection ? tower.last_collection.status : "none"}`}>
+                    {tower.last_collection
+                      ? `${tower.last_collection.status === "success" ? "✓" : "✗"} ${formatRelativeTime(tower.last_collection.finished_at)}采集`
+                      : "未采集"}
+                  </span>
+                  {rowTestMessage && (
+                    <span className={`tower-test-result ${rowTestMessage.startsWith("✓") ? "ok" : "fail"}`}>
+                      {rowTestMessage}
+                    </span>
+                  )}
+                </div>
                 <button className="icon-button" title="编辑配置" type="button" onClick={() => startEdit(tower)}>
                   <Pencil size={16} />
                 </button>
-                <button className="icon-button" title={testing ? "测试中…" : "测试连接"} type="button" disabled={testing} onClick={() => testTower(tower.id)}>
-                  <RefreshCw size={16} className={testing ? "task-running-icon" : undefined} />
+                <button className="icon-button" title={rowTesting ? "测试中…" : "测试连接"} type="button" disabled={rowTesting} onClick={() => testTower(tower.id)}>
+                  <RefreshCw size={16} className={rowTesting ? "task-running-icon" : undefined} />
                 </button>
                 {deletingTowerId === tower.id ? (
                   <>
