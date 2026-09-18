@@ -38,8 +38,15 @@ export function SettingsPage() {
   }
 
   async function testTower(id: number) {
-    const result = await api.testTower(id);
-    setMessage(result.message);
+    setTesting(true);
+    try {
+      const result = await api.testTower(id);
+      setMessage(result.ok ? `✓ ${result.message}` : `✗ ${result.message}`);
+    } catch (exc) {
+      setMessage(exc instanceof Error ? `✗ ${exc.message}` : "✗ 测试失败");
+    } finally {
+      setTesting(false);
+    }
     await reload();
   }
 
@@ -158,8 +165,8 @@ export function SettingsPage() {
                 <button className="icon-button" title="编辑配置" type="button" onClick={() => startEdit(tower)}>
                   <Pencil size={16} />
                 </button>
-                <button className="icon-button" title="测试连接" type="button" onClick={() => testTower(tower.id)}>
-                  <RefreshCw size={16} />
+                <button className="icon-button" title={testing ? "测试中…" : "测试连接"} type="button" disabled={testing} onClick={() => testTower(tower.id)}>
+                  <RefreshCw size={16} className={testing ? "task-running-icon" : undefined} />
                 </button>
                 {deletingTowerId === tower.id ? (
                   <>
