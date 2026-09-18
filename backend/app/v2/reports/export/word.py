@@ -109,12 +109,12 @@ def _customer_setup_document(document: Document) -> None:
     section.right_margin = Inches(0.72)
     section.top_margin = Inches(0.78)
     section.bottom_margin = Inches(0.72)
-    _v1_clear_paragraph(section.header.paragraphs[0])
-    _v1_clear_paragraph(section.footer.paragraphs[0])
+    _docx_clear_paragraph(section.header.paragraphs[0])
+    _docx_clear_paragraph(section.footer.paragraphs[0])
     _customer_add_page_number_footer(section)
     for style_name in ["Normal", "Heading 1", "Heading 2", "Heading 3"]:
         style = document.styles[style_name]
-        _v1_apply_style_font(style)
+        _docx_apply_style_font(style)
     normal = document.styles["Normal"]
     normal.font.size = Pt(10.5)
     normal.font.color.rgb = RGBColor.from_string(TEXT_DARK)
@@ -142,11 +142,11 @@ def _customer_add_cover(document: Document, context: dict[str, Any], settings: V
         paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
         paragraph.paragraph_format.space_after = Pt(10)
         label_run = paragraph.add_run(f"{label}：")
-        _v1_apply_run_font(label_run)
+        _docx_apply_run_font(label_run)
         label_run.font.size = Pt(11)
         label_run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
         value_run = paragraph.add_run(value)
-        _v1_apply_run_font(value_run)
+        _docx_apply_run_font(value_run)
         value_run.bold = True
         value_run.font.size = Pt(11)
         value_run.font.color.rgb = RGBColor.from_string(TEXT_DARK)
@@ -160,7 +160,7 @@ def _customer_add_native_toc(document: Document) -> None:
     paragraph.paragraph_format.space_before = Pt(8)
     paragraph.paragraph_format.space_after = Pt(14)
     run = paragraph.add_run("目录")
-    _v1_apply_run_font(run)
+    _docx_apply_run_font(run)
     run.bold = True
     run.font.size = Pt(18)
     run.font.color.rgb = RGBColor.from_string(ACCENT_DARK)
@@ -206,7 +206,7 @@ def _customer_add_page_number_footer(section: Any) -> None:
 
 def _customer_footer_text(paragraph: Any, text: str) -> None:
     run = paragraph.add_run(text)
-    _v1_apply_run_font(run)
+    _docx_apply_run_font(run)
     run.font.size = Pt(8)
     run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
 
@@ -236,7 +236,7 @@ def _customer_append_field(paragraph: Any, instruction_text: str, placeholder_te
     end_run._r.append(end)
 
     for run in [begin_run, instruction_run, separate_run, end_run]:
-        _v1_apply_run_font(run)
+        _docx_apply_run_font(run)
         run.font.size = Pt(8)
         run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
 
@@ -355,14 +355,14 @@ def _customer_add_data_quality_summary(document: Document, report: dict[str, Any
     table = document.add_table(rows=1, cols=2)
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _v1_set_table_width(table, [3000, 5200])
+    _docx_set_table_width(table, [3000, 5200])
     _customer_set_blue_headers(table.rows[0].cells, ["项目", "说明"])
     for index, (label, value) in enumerate(rows, start=1):
         row = table.add_row().cells
-        _v1_set_cell(row[0], label, fill=ACCENT_LIGHT, color=ACCENT_DARK, bold=True, font_size=9)
-        _v1_set_cell(row[1], value, color=TEXT_DARK, font_size=9)
+        _docx_set_cell(row[0], label, fill=ACCENT_LIGHT, color=ACCENT_DARK, bold=True, font_size=9)
+        _docx_set_cell(row[1], value, color=TEXT_DARK, font_size=9)
         if index % 2 == 0:
-            _v1_shade_row(row, ACCENT_SOFT)
+            _docx_shade_row(row, ACCENT_SOFT)
         _prevent_row_split(table.rows[-1])
 
     incomplete_clusters = quality.get("incomplete_clusters") or []
@@ -385,7 +385,7 @@ def _customer_add_growth_rate_method(document: Document, report: dict[str, Any])
         paragraph.paragraph_format.left_indent = Inches(0.24)
         paragraph.paragraph_format.space_after = Pt(5)
         run = paragraph.add_run(line)
-        _v1_apply_run_font(run)
+        _docx_apply_run_font(run)
         run.font.size = Pt(10)
         run.font.color.rgb = RGBColor.from_string(TEXT_DARK)
 
@@ -398,7 +398,7 @@ def _customer_advice_title(document: Document, title: str) -> None:
     # A lightweight marker keeps these compact recommendation group titles
     # visually distinct from body text in Word and LibreOffice renderers.
     run = paragraph.add_run(f"· {title}")
-    _v1_apply_run_font(run)
+    _docx_apply_run_font(run)
     run.bold = True
     run.font.size = Pt(11)
     run.font.color.rgb = RGBColor.from_string(GROWTH_BLUE)
@@ -410,7 +410,7 @@ def _customer_centered_text(document: Document, text: str, size: int, color: str
     paragraph.paragraph_format.space_before = Pt(before)
     paragraph.paragraph_format.space_after = Pt(0)
     run = paragraph.add_run(text)
-    _v1_apply_run_font(run)
+    _docx_apply_run_font(run)
     run.bold = bold
     run.font.size = Pt(size)
     run.font.color.rgb = RGBColor.from_string(color)
@@ -420,13 +420,13 @@ def _customer_center_rule(document: Document, *, width: int) -> None:
     table = document.add_table(rows=1, cols=3)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     side = max(1, int((8200 - width) / 2))
-    _v1_set_table_width(table, [side, width, side])
-    _v1_set_table_borders(table, "FFFFFF")
+    _docx_set_table_width(table, [side, width, side])
+    _docx_set_table_borders(table, "FFFFFF")
     for index, cell in enumerate(table.rows[0].cells):
         _shade_cell(cell, GROWTH_BLUE if index == 1 else "FFFFFF")
         _customer_set_cell_height(cell, 28)
         for margin in ["top", "bottom", "start", "end"]:
-            _v1_set_cell_margin(cell, margin, 0)
+            _docx_set_cell_margin(cell, margin, 0)
 
 
 def _customer_set_cell_height(cell: Any, height: int) -> None:
@@ -444,7 +444,7 @@ def _customer_section_title(document: Document, order: str, title: str) -> None:
     paragraph.paragraph_format.space_before = Pt(8)
     paragraph.paragraph_format.space_after = Pt(14)
     run = paragraph.add_run(f"{order}  {title}")
-    _v1_apply_run_font(run)
+    _docx_apply_run_font(run)
     run.bold = True
     run.font.size = Pt(18)
     run.font.color.rgb = RGBColor.from_string(ACCENT_DARK)
@@ -475,7 +475,7 @@ def _customer_subtitle(document: Document, text: str, *, level: int = 2) -> None
     paragraph.paragraph_format.space_after = Pt(8)
     paragraph.paragraph_format.keep_with_next = True
     run = paragraph.add_run(text)
-    _v1_apply_run_font(run)
+    _docx_apply_run_font(run)
     run.bold = True
     run.font.size = Pt(13)
     run.font.color.rgb = RGBColor.from_string(ACCENT_DARK)
@@ -525,7 +525,7 @@ def _customer_kpi_strip(document: Document, context: dict[str, Any], clusters: l
         title.paragraph_format.space_after = Pt(5)
         title.paragraph_format.keep_with_next = True
         run = title.add_run(_cluster_full_name(cluster))
-        _v1_apply_run_font(run)
+        _docx_apply_run_font(run)
         run.bold = True
         run.font.size = Pt(11)
         run.font.color.rgb = RGBColor.from_string(TEXT_DARK)
@@ -549,8 +549,8 @@ def _customer_kpi_table(document: Document, context: dict[str, Any], clusters: l
     table = document.add_table(rows=1, cols=4)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     table.style = "Table Grid"
-    _v1_set_table_width(table, [2050, 2050, 2050, 2050])
-    _v1_set_table_borders(table, "FFFFFF")
+    _docx_set_table_width(table, [2050, 2050, 2050, 2050])
+    _docx_set_table_borders(table, "FFFFFF")
     _prevent_row_split(table.rows[0])
     for cell, (label, value, note) in zip(table.rows[0].cells, values):
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
@@ -558,21 +558,21 @@ def _customer_kpi_table(document: Document, context: dict[str, Any], clusters: l
         paragraph = cell.paragraphs[0]
         paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
         label_run = paragraph.add_run(label + "\n")
-        _v1_apply_run_font(label_run)
+        _docx_apply_run_font(label_run)
         label_run.font.size = Pt(9)
         label_run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
         value_run = paragraph.add_run(value)
-        _v1_apply_run_font(value_run)
+        _docx_apply_run_font(value_run)
         value_run.bold = True
         value_run.font.size = Pt(18)
         value_run.font.color.rgb = RGBColor.from_string(_risk_word_color(risk_label) if label == "风险状态" else ACCENT_DARK)
         if note:
             note_run = paragraph.add_run("\n" + note)
-            _v1_apply_run_font(note_run)
+            _docx_apply_run_font(note_run)
             note_run.font.size = Pt(8)
             note_run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
         for margin in ["top", "bottom", "start", "end"]:
-            _v1_set_cell_margin(cell, margin, 170)
+            _docx_set_cell_margin(cell, margin, 170)
 
 
 def _customer_cluster_info_table(
@@ -602,11 +602,11 @@ def _customer_cluster_info_table(
     table = document.add_table(rows=len(rows), cols=2)
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _v1_set_table_width(table, [3900, 4300])
-    _v1_set_table_borders(table, "000000")
+    _docx_set_table_width(table, [3900, 4300])
+    _docx_set_table_borders(table, "000000")
     for table_row, (label, value) in zip(table.rows, rows):
-        _v1_set_cell(table_row.cells[0], label, fill=ACCENT_LIGHT, color=ACCENT_DARK, bold=True, font_size=10)
-        _v1_set_cell(table_row.cells[1], value, color=_risk_word_color(str(value)) if label == "风险状态" else TEXT_DARK, bold=label == "风险状态", font_size=10)
+        _docx_set_cell(table_row.cells[0], label, fill=ACCENT_LIGHT, color=ACCENT_DARK, bold=True, font_size=10)
+        _docx_set_cell(table_row.cells[1], value, color=_risk_word_color(str(value)) if label == "风险状态" else TEXT_DARK, bold=label == "风险状态", font_size=10)
 
 
 def _customer_cluster_growth_table(document: Document, context: dict[str, Any], clusters: list[dict[str, Any]]) -> None:
@@ -614,10 +614,10 @@ def _customer_cluster_growth_table(document: Document, context: dict[str, Any], 
     table = document.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _v1_set_table_width(table, [1400, 1700, 1500, 1500, 1500, 1500])
+    _docx_set_table_width(table, [1400, 1700, 1500, 1500, 1500, 1500])
     _customer_set_blue_headers(table.rows[0].cells, headers)
     if not clusters:
-        _v1_set_docx_row(table.add_row().cells, ["当前范围暂无集群容量数据"] + ["-"] * (len(headers) - 1))
+        _docx_set_docx_row(table.add_row().cells, ["当前范围暂无集群容量数据"] + ["-"] * (len(headers) - 1))
         return
     for index, cluster in enumerate(clusters[:8], start=1):
         row = table.add_row().cells
@@ -631,11 +631,11 @@ def _customer_cluster_growth_table(document: Document, context: dict[str, Any], 
             _cluster_growth_window_label(cluster, 90),
             _bytes_label(forecast.get("forecast_90d")),
         ]
-        _v1_set_docx_row(row, values)
+        _docx_set_docx_row(row, values)
         if index % 2 == 0:
-            _v1_shade_row(row, ACCENT_SOFT)
+            _docx_shade_row(row, ACCENT_SOFT)
         for cell in row[2:5]:
-            _v1_set_cell_text_style(cell, GROWTH_BLUE, align=WD_ALIGN_PARAGRAPH.CENTER)
+            _docx_set_cell_text_style(cell, GROWTH_BLUE, align=WD_ALIGN_PARAGRAPH.CENTER)
     _customer_table_note(document, "说明：近 14/30/90 天样本增长按对应周期内采集样本计算；采集历史不足对应天数时显示数据不足。")
 
 
@@ -694,7 +694,7 @@ def _customer_usage_bar(document: Document, label: str, ratio: float, color: str
     paragraph.paragraph_format.space_after = Pt(2)
     paragraph.paragraph_format.keep_with_next = True
     run = paragraph.add_run(f"{label}   {_percent_label(ratio)}")
-    _v1_apply_run_font(run)
+    _docx_apply_run_font(run)
     run.bold = True
     run.font.size = Pt(13)
     run.font.color.rgb = RGBColor.from_string(TEXT_DARK)
@@ -708,11 +708,11 @@ def _customer_usage_bar(document: Document, label: str, ratio: float, color: str
     used = max(0, min(width, round(normalized * width)))
     blocks = "█" * used + "░" * (width - used)
     bar_run = bar.add_run(f"  {blocks}")
-    _v1_apply_run_font(bar_run)
+    _docx_apply_run_font(bar_run)
     bar_run.font.size = Pt(8)
     bar_run.font.color.rgb = RGBColor.from_string(color)
     threshold_run = bar.add_run(f"   | 容量阈值   {_bytes_label(threshold)}")
-    _v1_apply_run_font(threshold_run)
+    _docx_apply_run_font(threshold_run)
     threshold_run.font.size = Pt(9)
     threshold_run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
 
@@ -733,7 +733,7 @@ def _customer_vm_window_note(document: Document, context: dict[str, Any], vms: l
     paragraph.paragraph_format.space_after = Pt(4)
     paragraph.paragraph_format.keep_with_next = True
     for run in paragraph.runs:
-        _v1_apply_run_font(run)
+        _docx_apply_run_font(run)
         run.font.size = Pt(9)
         run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
 
@@ -743,12 +743,12 @@ def _customer_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode:
     table = document.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _v1_set_table_width(table, [900, 2200, 1500, 1500, 1500, 1300])
+    _docx_set_table_width(table, [900, 2200, 1500, 1500, 1500, 1300])
     _customer_set_blue_headers(table.rows[0].cells, headers)
     _repeat_table_header(table.rows[0])
     if not vms:
         row = table.add_row().cells
-        _v1_set_docx_row(row, [empty_text] + ["-"] * (len(headers) - 1))
+        _docx_set_docx_row(row, [empty_text] + ["-"] * (len(headers) - 1))
         _prevent_row_split(table.rows[-1])
         return
     for index, vm in enumerate(vms, start=1):
@@ -762,20 +762,20 @@ def _customer_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode:
             _bytes_label(vm.get("growth_amount")),
             _percent_label(vm.get("growth_ratio")),
         ]
-        _v1_set_docx_row(row, values)
+        _docx_set_docx_row(row, values)
         if index % 2 == 0:
-            _v1_shade_row(row, ACCENT_SOFT)
-        _v1_set_cell_text_style(row[0], TEXT_MUTED, align=WD_ALIGN_PARAGRAPH.CENTER)
-        _v1_set_cell_text_style(row[4], GROWTH_BLUE, align=WD_ALIGN_PARAGRAPH.CENTER)
+            _docx_shade_row(row, ACCENT_SOFT)
+        _docx_set_cell_text_style(row[0], TEXT_MUTED, align=WD_ALIGN_PARAGRAPH.CENTER)
+        _docx_set_cell_text_style(row[4], GROWTH_BLUE, align=WD_ALIGN_PARAGRAPH.CENTER)
         ratio = float(vm.get("growth_ratio") or 0)
         ratio_color = RATIO_RED if ratio >= 0.5 else RATIO_ORANGE if ratio >= 0.2 else TEXT_DARK
-        _v1_set_cell_text_style(row[5], ratio_color, align=WD_ALIGN_PARAGRAPH.CENTER)
+        _docx_set_cell_text_style(row[5], ratio_color, align=WD_ALIGN_PARAGRAPH.CENTER)
         _prevent_row_split(table.rows[-1])
 
 
 def _customer_set_blue_headers(cells: Any, headers: list[str]) -> None:
     for cell, header in zip(cells, headers):
-        _v1_set_cell(cell, header, fill=ACCENT, color="FFFFFF", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, font_size=9)
+        _docx_set_cell(cell, header, fill=ACCENT, color="FFFFFF", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, font_size=9)
         for paragraph in cell.paragraphs:
             paragraph.paragraph_format.keep_with_next = True
 
@@ -784,7 +784,7 @@ def _customer_table_note(document: Document, text: str) -> None:
     paragraph = document.add_paragraph(text)
     paragraph.paragraph_format.space_after = Pt(8)
     for run in paragraph.runs:
-        _v1_apply_run_font(run)
+        _docx_apply_run_font(run)
         run.font.size = Pt(9)
         run.font.color.rgb = RGBColor.from_string(TEXT_MUTED)
 
@@ -792,7 +792,7 @@ def _customer_table_note(document: Document, text: str) -> None:
 def _customer_add_emphasis_text(paragraph: Any, text: str, *, base_size: float = 10.5) -> None:
     for segment, highlight in _customer_emphasis_segments(text):
         run = paragraph.add_run(_customer_emphasis_text(segment, highlight))
-        _v1_apply_run_font(run)
+        _docx_apply_run_font(run)
         run.font.size = Pt(base_size + 1 if highlight else base_size)
         run.font.color.rgb = RGBColor.from_string(TEXT_DARK)
         run.bold = bool(highlight)
@@ -870,7 +870,7 @@ def _customer_add_figure(document: Document, image: BytesIO, caption: str, width
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     paragraph.paragraph_format.space_after = Pt(3)
     run = paragraph.add_run(caption)
-    _v1_apply_run_font(run)
+    _docx_apply_run_font(run)
     run.bold = True
     run.font.size = Pt(10)
     run.font.color.rgb = RGBColor.from_string(ACCENT_DARK)
@@ -884,41 +884,41 @@ def _customer_risk_matrix_table(document: Document, clusters: list[dict[str, Any
     table = document.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _v1_set_table_width(table, [1600, 1500, 1200, 4400])
+    _docx_set_table_width(table, [1600, 1500, 1200, 4400])
     _customer_set_blue_headers(table.rows[0].cells, headers)
     for index, row_data in enumerate(_customer_risk_matrix_rows(clusters, top_vms), start=1):
         row = table.add_row().cells
-        _v1_set_docx_row(row, [row_data["item"], row_data["status"], row_data["level"], row_data["description"]])
+        _docx_set_docx_row(row, [row_data["item"], row_data["status"], row_data["level"], row_data["description"]])
         if index % 2 == 0:
-            _v1_shade_row(row, ACCENT_SOFT)
-        _v1_set_cell_text_style(row[2], _risk_text_color(row_data["level"]), bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
+            _docx_shade_row(row, ACCENT_SOFT)
+        _docx_set_cell_text_style(row[2], _risk_text_color(row_data["level"]), bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
 
 
-def _v1_apply_style_font(style: Any) -> None:
+def _docx_apply_style_font(style: Any) -> None:
     style.font.name = DOCX_FONT_ASCII
     style._element.rPr.rFonts.set(qn("w:ascii"), DOCX_FONT_ASCII)
     style._element.rPr.rFonts.set(qn("w:hAnsi"), DOCX_FONT_ASCII)
     style._element.rPr.rFonts.set(qn("w:eastAsia"), DOCX_FONT_EAST_ASIA)
 
 
-def _v1_apply_run_font(run: Any) -> None:
+def _docx_apply_run_font(run: Any) -> None:
     run.font.name = DOCX_FONT_ASCII
     run._element.rPr.rFonts.set(qn("w:ascii"), DOCX_FONT_ASCII)
     run._element.rPr.rFonts.set(qn("w:hAnsi"), DOCX_FONT_ASCII)
     run._element.rPr.rFonts.set(qn("w:eastAsia"), DOCX_FONT_EAST_ASIA)
 
 
-def _v1_clear_paragraph(paragraph: Any) -> None:
+def _docx_clear_paragraph(paragraph: Any) -> None:
     for run in paragraph.runs:
         run._element.getparent().remove(run._element)
 
 
-def _v1_set_docx_row(cells: Any, values: list[Any]) -> None:
+def _docx_set_docx_row(cells: Any, values: list[Any]) -> None:
     for cell, value in zip(cells, values):
-        _v1_set_cell(cell, value)
+        _docx_set_cell(cell, value)
 
 
-def _v1_set_cell_text_style(cell: Any, color: str, *, bold: bool | None = None, align: int | None = None) -> None:
+def _docx_set_cell_text_style(cell: Any, color: str, *, bold: bool | None = None, align: int | None = None) -> None:
     for paragraph in cell.paragraphs:
         if align is not None:
             paragraph.alignment = align
@@ -928,7 +928,7 @@ def _v1_set_cell_text_style(cell: Any, color: str, *, bold: bool | None = None, 
                 run.bold = bold
 
 
-def _v1_set_table_borders(table: Any, color: str) -> None:
+def _docx_set_table_borders(table: Any, color: str) -> None:
     tbl_pr = table._tbl.tblPr
     borders = tbl_pr.first_child_found_in("w:tblBorders")
     if borders is None:
@@ -963,12 +963,12 @@ def _prevent_row_split(row: Any) -> None:
         tr_pr.append(cant_split)
 
 
-def _v1_shade_row(cells: Any, fill: str) -> None:
+def _docx_shade_row(cells: Any, fill: str) -> None:
     for cell in cells:
         _shade_cell(cell, fill)
 
 
-def _v1_set_cell(
+def _docx_set_cell(
     cell: Any,
     value: Any,
     fill: str | None = None,
@@ -984,15 +984,15 @@ def _v1_set_cell(
     paragraph = cell.paragraphs[0]
     paragraph.alignment = align if align is not None else WD_ALIGN_PARAGRAPH.LEFT
     run = paragraph.add_run(str(value))
-    _v1_apply_run_font(run)
+    _docx_apply_run_font(run)
     run.bold = bold
     run.font.size = Pt(font_size)
     run.font.color.rgb = RGBColor.from_string(color)
     for margin in ["top", "start", "bottom", "end"]:
-        _v1_set_cell_margin(cell, margin, 110)
+        _docx_set_cell_margin(cell, margin, 110)
 
 
-def _v1_set_cell_margin(cell: Any, margin: str, size: int) -> None:
+def _docx_set_cell_margin(cell: Any, margin: str, size: int) -> None:
     tc_pr = cell._tc.get_or_add_tcPr()
     tc_mar = tc_pr.first_child_found_in("w:tcMar")
     if tc_mar is None:
@@ -1006,7 +1006,7 @@ def _v1_set_cell_margin(cell: Any, margin: str, size: int) -> None:
     node.set(qn("w:type"), "dxa")
 
 
-def _v1_set_table_width(table: Any, widths: list[int]) -> None:
+def _docx_set_table_width(table: Any, widths: list[int]) -> None:
     table.autofit = False
     for row in table.rows:
         for cell, width in zip(row.cells, widths):

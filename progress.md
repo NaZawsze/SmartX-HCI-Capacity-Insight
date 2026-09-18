@@ -1,5 +1,11 @@
 # SmartX HCI Capacity Insight - 工作进度
 
+## 2026-09-15 export/word.py 遗留 `_v1_` 命名混淆修复（纯重命名）
+
+- **背景**：legacy 消化后 word.py 保留 10 个 `_v1_*` 工具函数（`_v1_apply_run_font`/`_v1_apply_style_font`/`_v1_clear_paragraph`/`_v1_set_cell`/`_v1_set_cell_margin`/`_v1_set_cell_text_style`/`_v1_set_docx_row`/`_v1_set_table_borders`/`_v1_set_table_width`/`_v1_shade_row`）——名字像 v1 死代码，实际被 customer 活跃代码大量调用（_customer_setup_document/_customer_kpi_table/_customer_vm_table 等 16+ 函数），后续死代码清理可能误删。
+- **修复**：全部改名 `_v1_` → `_docx_` 前缀（定义 + 68 处调用点，仅 word.py 内部，测试/其他模块零引用）。
+- **验证**：全量回归 + 导出测试。
+
 ## 2026-09-15 Tower 设置页 UI 修复（残留任务转圈 / 测试反馈 / checkbox 对齐 / 行内测试结果）
 
 - **残留 running 任务导致顶栏转圈**：两个升级演练时代任务（task.json 已清理但 DB 记录 running）卡在 running，hasActiveTask 恒真。已标记 failed，转圈停止。
