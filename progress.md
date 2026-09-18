@@ -1,5 +1,13 @@
 # SmartX HCI Capacity Insight - 工作进度
 
+## 2026-09-15 Tower 设置页 UI 修复（残留任务转圈 / 测试反馈 / checkbox 对齐 / 行内测试结果）
+
+- **残留 running 任务导致顶栏转圈**：两个升级演练时代任务（task.json 已清理但 DB 记录 running）卡在 running，hasActiveTask 恒真。已标记 failed，转圈停止。
+- **Tower 行测试按钮无反馈**：点击后无 loading（Tower 不可达时后端等 TCP 超时，像死点击）。已加 loading（旋转+禁用）和 ✓/✗ 结果。
+- **编辑表单 checkbox 垂直错位**：`.tower-form .tower-form-section label` 的 margin-bottom（specificity 0,2,1）覆盖 `.tower-form-checks .checkbox-line` 的 margin:0（0,2,0），首尾 margin 不一致破坏 flex 居中。加 !important 修复。
+- **Tower 行测试串扰新增框 + 结果不可见**：Tower 行测试用共享 testing 状态（新增框跟着转圈），结果显示在新增框最底部（用户看不到）。改为 rowTesting/rowTestMessage 独立状态，结果行内显示在"X小时前采集"下方（绿色成功/红色失败，tower-health-stack/tower-test-result）。
+- **验证**：tsc 干净、SettingsPage 测试通过、frontend 部署 HTTP 200。commits 8c017ef / ed0ca87。
+
 ## 2026-09-15 发现并修复 49-16 契约遗漏：reports 增长/新建 VM item 缺顶层字段与 metric/value
 
 - **发现**：canary 数据契约验收时检查代码发现，reports 的 `_growth_reports_from_series`/`_new_vm_reports_from_series` 构建的 item 只有 `labels`（legacy），缺顶层 `vm_id`/`vm_name`、`metric` 嵌套和 `value` 字段；49-16 契约对齐设计要求 growth/new/latest item 构建器都加，dashboard 加了、reports 漏了。前端靠 legacy 回退能工作，但契约不完整（数据契约验收"同时覆盖顶层和 legacy"无法满足）。
