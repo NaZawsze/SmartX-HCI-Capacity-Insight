@@ -86,7 +86,7 @@ docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
 | 30 | Compose Project/Network 固定化 | 已实现，canary 部署/升级验收待执行 | [docs/deployment.md](docs/deployment.md)；结论记录在本文件 |
 | 31 | 报表页容量增长速率算法优化 | 已完成 | 无专项设计文档；实施口径记录在本文件 |
 | 32~48 | 升级链路专项（fix9~fix18、UPG-031~033、Phase 45/46 镜像版本与基线验证） | 全部完成 | [docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md) 对应章节；执行记录见 [docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)；fix10 并入 Phase 32，无独立 Phase 33 |
-| 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md) |
+| 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md)；49-18/19 见 [docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md) |
 
 升级后自动采集与 verification 历史查询的专项计划/设计：
 
@@ -1431,7 +1431,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] `docs/release-acceptance.md` 增补 Release Day Steps 五步清单（版本→本地检查→.3 构建/包门禁→.12 演练→git 动作需用户明确要求）。
 - [x] `scripts/verify_api_docs.py`：api.md 与后端路由双向比对 + 契约单向校验；本地验证正例 exit=0（api.md 75 条含 /metrics 白名单 vs 后端 74 条，契约 30 条通过）、反例篡改文档 exit=1 逐条报出。
 
-### 18. 报表图表窗口移除 720 天档 [实施中 2026-09-19]
+### 18. 报表图表窗口移除 720 天档 [已完成 2026-09-19]
 
 设计文档：[docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md)（与第 19 项合并设计，理由：同批实施的两项独立小任务，各自单独成文粒度过细；影响面、测试计划与回滚在该文档 A/B 两节分开写清）。
 
@@ -1442,7 +1442,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 文档同步：v2-api-contracts.md `chart_days=7|30|90|365`、functional-modules.md、api.md。
 - [x] 验证：后端 reports 测试 + 前端 tsc/vitest + verify_api_docs.py；.3 远程全量回归。
 
-### 19. VM 页千台规模加固（分页 + 服务端卷分页 + 使用率聚合）[实施中 2026-09-19]
+### 19. VM 页千台规模加固（分页 + 服务端卷分页 + 使用率聚合）[已完成 2026-09-19]
 
 设计文档：[docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md)（B 节）。
 

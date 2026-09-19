@@ -7271,3 +7271,42 @@ release_smoke=critical 0, warning 0
 - 交接口径（用户确认）：环境绑定事项（AGENTS.md 不入库、.3 登录方式、本地未推送提交）由用户对接新 AI 时自行说明；**任何凭据不入库不入文档**。
 - runbook 中恢复/冷备命令按目标布局与现行实现编写，未在测试机实跑恢复演练（避免动 .3/.12 现网数据）；首次真机演练时按手册验证并回填。
 - dev2 本地提交（文档补全轮，见 git log），未推送（按策略等待用户要求）。
+
+## 2026-09-19 报表去 720 天档 + VM 页千台规模加固（Phase 49-18/19）
+
+任务：用户决策「第 6 条去掉 720 吧，但是要注意导出相关程序是有 720 天的，影响范围需要仔细确定」+「万一后面有几千台呢，还是希望程序能完美一点」。
+
+### 影响面核查（720）
+
+- 逐文件核实：**导出链路不受影响**——word/excel/bundle 三个导出端点只收 `period_days`（7/14/30/90/180/365），调 `latest_report` 不传 `chart_days` 走默认 365；export 代码与 `test_v2_report_exports.py` 中的"720"均为 unix 时间戳。其余 720：token TTL（分钟）、CSS px 断点，均无关。
+- 实际影响面：`_normalize_chart_days` 集合、reports API 测试、前端 ClusterCapacityChart/ReportsPage 类型与选项、ReportsPage.test mock、契约/功能模块文档。
+
+### 实施内容
+
+- **A（去 720）**：`_normalize_chart_days` → `{7,30,90,365}`（传 720 回退 365 向后兼容）；前端选项/类型删 720 + `axisInterval` 不可达分支清理；文档三处同步。提交 30035ed。
+- **B（VM 页千台规模加固）**：`/api/vm-volumes` 可选 `page/page_size/sort/order`（有 page 返回平铺分页对象 `{volumes,total,page,page_size}`，无 page 保持分组数组兼容；occupied 排序用副本/EC 系数 SQL 表达式复刻前端口径；vm 排序 JOIN vm_latest，已知限制为 SQLite 码点序）；新增 `GET /api/vm-volumes/usage-summary`（按 VM 聚合 SUM(used)/SUM(size)，跳过无有效 size/used 行，与前端逐卷口径一致）；前端 VmsPage VM 列表客户端分页 100/页（深链自动跳页+跟随）、所有虚拟卷服务端分页 200/页+服务端排序、使用率改用 summary 映射（口径不变）、新增 Pager 组件与样式（仅 :root 变量）。提交 9cabbd3。
+
+### 测试修复（3 个提交内迭代）
+
+- vm_latest 主键冲突：新测试误重复插入 seed 已有的 vm-2。
+- chart_days 断言错层：API 测试用 FakeReportService（回显参数）不含归一化，720→365 断言移到 service 级 `_normalize_chart_days` 单测。
+- 卷分页查询 `vm.name` 列缺失：SELECT 无条件引用但 JOIN 只在 sort=vm 分支——改无条件 JOIN vm_latest/clusters。
+- occupied 排序断言期望序写反（135>120>100 应为 vol-big,vol-1,vol-thin），并补 used 降序对照证明排序键独立生效。
+- 最终提交：30035ed、9cabbd3、c8117a8、JOIN 修复、c178dfc（共 5 个，均未推送）。
+
+### .3 验证证据（10.20.11.3，git archive 同步 c178dfc）
+
+- 后端全量：`Ran 315 tests in 202.966s / OK (skipped=1)`（基线 310，新增 5 用例；compose exec 标准方式）。
+- 前端：node:22-alpine 内 `npx tsc -b` exit 0；vitest 全量 `Test Files 7 passed / Tests 86 passed`。
+- 部署：三件套 build exit 0 + up -d 重建；health `{"ok":true,"version":"v0.5.3","runner_version":"v0.3.1",checks 全 true}`；:8080 HTTP 200。
+- 真实 API 冒烟：分页对象 total=89636（与库一致）且行含 vm/cluster 上下文；无参返回分组数组（244 组）；usage-summary 585 VM 聚合值合理；`chart_days=720 → 365`；sort=vm 正常；4 项参数校验全 400。
+- 门禁：`scripts/verify_api_docs.py` OK（api.md 76 条含 1 白名单 vs 后端 75 路由，新端点已入册）。
+- 页面冒烟（浏览器实测 .3:8080）：登录→VM 页正常；VM 列表「共 244 台 第 1/3 页」翻页后行数恒 100；所有虚拟卷「共 89636 个卷 第 1/449 页」；occupied 排序按钮触发重查；点卷选 VM 联动趋势卡切换且深链跟随回所在页；使用率标签（summary 口径）、缺采警示、>80% 高亮渲染正常；截图确认布局。
+- 环境注：IAB 对该应用 locator click 会挂起（登录按钮/分页按钮均复现），改用页面内 evaluate 触发点击后一切正常——为测试工具现象，非应用缺陷（原生 Chromium 用户不受影响，vitest 全部 click 正常）。
+
+### 限制与未验证项
+
+- `vm` 排序为 SQLite 码点序而非前端 localeCompare 中文拼音序（设计已知取舍，契约已注明）。
+- usage-summary 与卷分页为全表扫描聚合（8.9 万卷实测亚秒级），76 万卷量级未实测；量级上来再评估二级索引（设计 B.3 已记录）。
+- 深链跳页「自动跟随」：外部 selectedVmId 不在当前页时自动翻页，属设计行为。
+- .3 已部署本轮 dev2 代码（v0.5.3 容器内运行 dev2 源码）；未重新打包升级包（ef10a7c8 不含本轮改动，随下次打包纳入）。

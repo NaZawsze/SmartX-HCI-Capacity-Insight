@@ -626,8 +626,8 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 修复与工具：`scripts/bind-mount-recover.sh`（已部署 .3/.12）——`check` 逐容器校验 20 项挂载存在性 + health；`recover` 全服务一次性 `up -d --force-recreate`（先全停后全建，dockerd 重建挂载点目录并恢复挂载）后复验。两机均已 recover 至挂载齐全、health 全绿。
 - 运行规则（最终版）：**容器运行期禁止对 app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast} 执行 rm/mv**；这些目录为空且必须存在；如需清理其历史内容，先 `check` 确认挂载健康，再只删内容保留目录。dockerd 重启可恢复但非必需（当日两机的重启属多余操作，无损害）。
 
-## 2026-09-19 Prometheus 400d retention 与报表 720 天图表窗口口径冲突
+## 2026-09-19 Prometheus 400d retention 与报表 720 天图表窗口口径冲突 [已解决]
 
-- 结论（读码实证，待定修法）：三个 compose 的 Prometheus 均为 `--storage.tsdb.retention.time=400d`；而 `reports/service.py` 的 `_normalize_chart_days` 允许档位为 `{7, 30, 90, 365, 720}`，且图表数据 `_cluster_series(days=chart_window_days)` 直接对 Prometheus 做 range 查询。**部署运行超过 400 天后，选择 720 天图表的前约 320 天必然为空**（样本已被 retention 清除）。测试机部署时间尚短，尚未暴露。
-- 处置选项：去掉 720 档（最省事，与 400d 匹配）/ retention 提到 750d 以上（磁盘换功能）/ 在图表说明中标注窗口受 retention 限制。待用户定夺后实施。
-- 同轮核对澄清：api.md 原写"VM 列表最多 500 条"与代码不符——`vms/service.py` 的查询无 LIMIT、前端无截断，实际全量返回 `vm_latest`；api.md 已改为 "Returns all VMs (no server-side limit)"。大规模环境（数千 VM）下该接口的性能表现是后续观察点，非当前缺陷。
+- 结论（读码实证）：三个 compose 的 Prometheus 均为 `--storage.tsdb.retention.time=400d`；而 `reports/service.py` 的 `_normalize_chart_days` 曾允许档位 `{7, 30, 90, 365, 720}`，图表数据 `_cluster_series(days=chart_window_days)` 直接对 Prometheus 做 range 查询——部署运行超过 400 天后，720 天图表的前约 320 天必然为空。
+- 解决（2026-09-19，用户决策去掉 720 档）：`_normalize_chart_days` 集合改为 `{7, 30, 90, 365}`，传 720 回退 365（向后兼容不报错）；前端 ClusterCapacityChart/ReportsPage 选项与类型同步删除；`chart_days` 归一化断言落在 service 级单测（API 层测试用 FakeReportService 不含归一化，断言放 API 层会假失败——已踩过）。**导出链路不受影响**：word/excel/bundle 三个导出端点只收 `period_days`，调 `latest_report` 不传 `chart_days` 走默认 365；export 代码与测试中的"720"均为 unix 时间戳。
+- 同轮核对澄清：api.md 原写"VM 列表最多 500 条"与代码不符——实际全量返回；api.md 已改。该"观察点"同日已升级为实施项：VM 页千台规模加固（服务端卷分页 + usage-summary 聚合 + 前端分页），见 task_plan Phase 49-19 与设计文档 2026-09-19-vm-scale-and-chart-window-design.md。
