@@ -7416,3 +7416,9 @@ release_smoke=critical 0, warning 0
 - .3 验证（git archive 556a85f，root su 管道）：①覆盖前 diff live project 三个 compose 与新源码——仅 4 条 image 行模板→字面量（同值），无其他差异；②全树同步到 /data/smartx-storage-forecast/project（运行时数据不动）；③`--check-version` OK（live 树）；④build_tests 26 tests OK（EXIT=0，/root/build-49-3 独立目录，判定行以 /tmp/bt-stderr.log 为准）；⑤全量 `unittest discover -s tests` 330 tests OK (skipped=1)（compose exec 标准方式，208.5s）；⑥health {"ok":true,"version":"v0.5.3","runner_version":"v0.3.1",checks 三项 true}。
 - 文档收尾：deployment.md 移除 SMARTX_IMAGE_PREFIX .env 示例（prefix 已字面量），改为字面量示例；CHANGELOG 已知问题「源码 compose 模板 tag」销项、工程条目新增 49-3 一条；task_plan 第 3 项勾选；pending-tasks #25 完成；两份设计文档与 doc-map 状态更新。
 - 未验证项/边界：未重打交付包（e940e07c 冻结产物不受影响，本变更随下次真实打包纳入并再走全门禁）；bridge 包只做了构建渲染取证（build_tests mock 全链路），未真实构建 v0.5.1u2 包（无升级场景需要）；docker_build 的 env SMARTX_IMAGE_TAG 参数保留（build_tests:452 断言命令形态，已无 compose 消费者）。
+
+## 2026-09-20 用户决策：不采用载体目录常驻加锁，.12 解锁恢复原状
+
+- 用户指令「那就不用锁了，恢复吧，没有0.6那个是frp的tower」。执行 .12 `unlock`：6/6 载体路径 chattr -i 成功，lsattr 确认属性串仅余 e 位，`check` 0/6 锁定 + 20/20 挂载 + health 全绿（2026-09-20 02:03）。
+- 口径：lock/unlock 能力经 .12 六步协议完整验证后保留备查（脚本随 project/scripts 分发）；各机不默认加锁；10.20.0.6 为 frp Tower 主机，不在锁的范围。UPG-050 日常防线回到「规则红线 + checks.directories 秒级报警 + recover 一键恢复」三件套。
+- 文档同步：AGENTS §9（本地）、troubleshooting §2、pending-tasks #22、task_plan 49-23、设计文档状态、doc-map、CHANGELOG 运维工具条目均改为"验证通过、用户决策不采用、能力保留备查"。

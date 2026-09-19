@@ -52,14 +52,14 @@ bash scripts/bind-mount-recover.sh check
 curl -fsS http://localhost:8080/api/system/health
 ```
 
-物理锁（2026-09-20 落地，.12 已按六步验证协议实测并保持锁定）：
+物理锁（可选能力，2026-09-20 验证后按用户决策未默认启用）：
 
-- `lock` 对 6 个载体路径 `chattr +i`：rm/mv 当场报 `Operation not permitted`，与操作者是否读过文档无关；已验证 dockerd 可在锁定目录上正常建立挂载（全停全建 + 写穿透均通过）。
-- `unlock` 解锁（幂等）；**合法运维需要动这组目录时（重装/迁移/清理）先 unlock，做完再 lock**。
+- `lock` 对 6 个载体路径 `chattr +i`：rm/mv 当场报 `Operation not permitted`，与操作者是否读过文档无关；已验证 dockerd 可在锁定目录上正常建立挂载（全停全建 + 写穿透均通过）。需要时可在单台机器单独加锁。
+- `unlock` 解锁（幂等）；**加锁机器上合法运维需要动这组目录时（重装/迁移/清理）先 unlock，做完再 lock**。
 - `recover` 在锁定状态下可直接跑（自动解锁/复锁）；实测约 20-40 秒中断。
 - 锁的边界：只保护 6 个载体目录；`app/` 本身（SQLite WAL 建文件）与真实数据目录刻意不锁；锁防误删载体，**不防删库**（删库靠备份与权限纪律，见 docs/backup-recovery.md）。
 
-红线：容器运行期**禁止 rm/mv** `app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}`。这些目录为空是正常态，必须存在；已加锁的机器上 rm/mv 会被操作系统直接拒绝。
+红线：容器运行期**禁止 rm/mv** `app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}`。这些目录为空是正常态，必须存在；加锁的机器上 rm/mv 会被操作系统直接拒绝。
 
 ## 3. 数据库（SQLite）
 
