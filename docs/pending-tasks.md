@@ -26,7 +26,8 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 | 8 | Phase 30 部署/升级验收两项 | Phase 30 | ✅ 已完成（2026-09-15，10.20.11.12）：部署验收（任意目录名部署，project/network 固定）+ 升级验收（v0.5.2→v0.5.3 无第二套容器/网络） |
 | 9 | 生产现场只读定位 | Phase 49-8 残留 | 总览绿色现象复现时抓 `/api/dashboard/summary` 请求状态与 `capacity_risk.level`；待生产现象复现 |
 | 13 | Phase 24 采集重试/缺采收尾 | Phase 24 | 已实现，待一轮真实使用验证后关闭 |
-| 17 | UPG-049 残留卫生项治理 | 2026-09-19 findings.md | `.12` 的 `app/smartx-storage-forecast/` 与 `project.bak-restore-20260919/` 已于 2026-09-19 经用户确认删除；剩余：Prometheus legacy 扫描在目标为空时向嵌套目录复制的容器内路径畸变治理、runner 挂载目标路径写法与 .3 线上差异核对。不阻塞升级。 |
+| 17 | UPG-049 残留卫生项治理 | 2026-09-19 findings.md | ✅ 已完成（2026-09-19）：Prometheus legacy 扫描守卫（beb36d5+回归测试）、.12/.3 app/ 残留清理（各约 3G）、容器挂载与 .3 线上核对一致、runner 镜像 0aca32511008 更新至 .3/.12。交付包 ef10a7c8… 维持不变（prometheus 守卫随下次打包纳入） |
+| 18 | 宿主 bind mount 静默衰减治理（UPG-050） | 2026-09-19 findings.md | .3/.12 容器嵌套 bind（/data/upgrades 等）运行中静默消失，inspect 与运行时不一致；衰减后平台退化为 app 自洽畸变视图仍可用但产生垃圾。缓解=全量 `up -d --force-recreate`（禁止单服务 recreate）+ 容器内 /proc/mounts 复核；根治需用户决策（重启 dockerd / 宿主机重启 / docker 版本对齐，.12 的 29.5.2 fork 嫌疑最大）。根治前 .12 不宜再跑升级演练 |
 
 ## P3 — 工程健康度（不阻塞发布）
 

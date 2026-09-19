@@ -7208,3 +7208,26 @@ release_smoke=critical 0, warning 0
 
 - 经用户确认删除：`/data/smartx-storage-forecast/app/smartx-storage-forecast/`（9-15 演练残留 + UPG-049 修复前 prepare 误复制产物；其中任务目录在真实 `upgrades/` 均有存活副本，prometheus block 与线上不同源，DB 为同数据副本）、`/data/smartx-storage-forecast/project.bak-restore-20260919/`（本日错误部署的备份）、/tmp 下本轮传输产物。清理后 health 复验 `v0.5.3/v0.3.1` 全绿。
 - "升级完密钥丢了"澄清：升级未动 `.env`（升级前后内容逐字节一致、0600）；库中 Tower 凭据用运行时 `SMARTX_SECRET_KEY` 解密实测 OK（len=14）；`/api/towers/3/test` 实测返回 `[Errno 113] No route to host`——是 Tower `10.20.0.6` 测试网不可达，不是凭据丢失。UI 密码框不回显为设计行为。此前两次 UPG-042 报错是 UPG-049 误判 legacy 迁移所致（假阳性），并非真实密钥丢失；`.3` 上一次真实密钥丢失（9-13）是仓库同步覆盖 .env 所致。`.12` 演练环境自始使用模板密钥，库中凭据即以模板密钥加密，配对自洽。
+
+## 2026-09-19 UPG-049 残留卫生项治理 + 发现 UPG-050 宿主 bind mount 静默衰减
+
+### 完成项（用户指派「低优先级的1」= pending-tasks #17）
+
+- **Prometheus 扫描守卫**（对称 app 库守卫 a64a897）：`backend/app/upgrade_runner/actions.py` 容器内 prometheus legacy 扫描跳过与 `SMARTX_PROMETHEUS_DATA_PATH`（默认 `/prometheus-data`）同源的候选；新增回归测试 `test_filesystem_prepare_skips_legacy_prometheus_matching_live_data`。本地引擎测试 67 项全绿（1 skip 为既有）。提交 beb36d5（本地 dev2，未推送）。
+- **残留清理**：.12 `app/{upgrades(2.5G 任务镜像副本，真实 upgrades/ 有正本),backups(15M 升级前项目快照，演练环境可弃),exports,compose-runtime,smartx-storage-forecast}` 与 .3 `app/smartx-storage-forecast(3.6G，含 5 个任务目录镜像，均有真实正本)+4 个空骨架` 全部删除，各自释放约 3G（.12 磁盘 23G→20G，.3 78G→75G）。
+- **runner v0.3.1 镜像重建**：git archive beb36d5 → .3 `/root/build-v053-rebuild` 重建，新镜像 `0aca32511008`（替换 7d152590d6fd）；docker save|gzip（SHA256 754b5db7…）经本地中转 scp 至 .12 加载；.3/.12 均验证 heartbeat 与 health。交付包 ef10a7c8… 维持不变（内嵌 7d152590d6fd 已过全链路验证，prometheus 守卫随下次打包纳入）。
+- **挂载核对**：.12 升级后 compose 与容器挂载已与 .3 线上一致（`/data/upgrades` 等目标侧写法 + `/run/smartx-runtime.env` + prometheus.yml ro 挂载）。
+
+### 过程中发现并确认新缺陷：UPG-050 宿主 bind mount 静默衰减
+
+- 排查起点：清理 .12 残留后 `app/upgrades` 数秒内复现；A/B 实验（停 runner 期间不复现）→ 容器内 `/proc/mounts` 证实 web-api/collector/runner 的 `/data/upgrades`、`/data/backups`、`/data/exports`、`/data/compose-runtime`、`/data/smartx-storage-forecast/project` 挂载运行中消失，仅 `/data`、`/prometheus-data` 等顶层 bind 存活；`docker inspect` 的 Binds/Mounts 仍完整（不可信）。
+- 证据链：auditd umount2 审计仅见 dockerd 自身拆建容器的正常 MNT_DETACH（无外部 umount）；docker events 无异常动作；journal/dmesg 无挂载错误、无 OOM；RestartCount=0；.12（openEuler+docker 29.5.2 fork+cgroup v1）全量重建约 2 分钟内再衰减，.3（Debian+docker 26.1.5）上午 13 小时稳定、16:17 单服务重建 runner 后进入分钟级衰减。
+- 关键缓解发现：**全服务一次性 `up -d --force-recreate`（先全停后全建）后 .3 挂载齐全、health 全绿**；单服务重建必然触发衰减（先建新后拆旧，旧容器挂载 detach 疑经传播域波及全机——机理待宿主重启/降级验证）。受影响期数据：.12 上午升级残留（11:21-11:23 app/upgrades 镜像）即衰减态产物；health `checks.directories=false` 为正确告警。
+- 处置：.3 全量重建恢复真实挂载 + health `{"ok":true,"version":"v0.5.3","runner_version":"v0.3.1",checks 全 true}`；.12 衰减过快，按降级自洽模式补齐运行目录后 health 绿。已写入 findings.md（UPG-050）与 pending-tasks #18：根治需用户决策（重启 dockerd / 宿主重启 / docker 版本对齐），根治前 .12 不宜再跑升级演练、.3 禁止单服务 recreate。
+
+### 限制与未验证项
+
+- UPG-050 根因未根治（需用户决策的宿主操作）；衰减在 .3 的长窗稳定性（>10 分钟）未验证。
+- .12 app/ 下降级自洽运行目录为临时态，根治后应再清理一次。
+- prometheus 守卫未纳入交付包 ef10a7c8…（维持已验证包不变）；下次打包时随包验证。
+- dev2 本地提交 beb36d5（代码）+ 本轮文档提交，未推送（按策略等待用户要求）。
