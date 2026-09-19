@@ -397,9 +397,8 @@ class V2DashboardVmTest(unittest.TestCase):
             self.assertEqual([row["volume_id"] for row in page2["volumes"]], ["vol-1"])
             self.assertEqual(page2["volumes"][0]["vm_name"], "VM One Latest")
 
-            # occupied 口径：vol-big EC2+1 → 90*1.5=135；vol-1 2 副本 → 60*2=120。used 排序 vol-big 在前，occupied 排序仍 vol-big 在前，
-            # 但 used 顺序反转后 occupied 与 used 的差序可区分：asc 时 used 升序 [60, 90]，occupied 升序 [120, 135] 同序；
-            # 再造一个 used 更大但占用系数为 1 的卷验证 occupied 排序独立生效。
+            # occupied 口径：vol-big EC2+1 → 90*1.5=135；vol-1 2 副本 → 60*2=120；vol-thin 1 副本 → 100*1=100。
+            # used 降序是 [vol-thin(100), vol-big(90), vol-1(60)]，occupied 降序是 [vol-big, vol-1, vol-thin]——排序键独立生效。
             with db.connection() as conn:
                 conn.execute(
                     """
@@ -407,9 +406,11 @@ class V2DashboardVmTest(unittest.TestCase):
                     VALUES (1, 'cluster-a', 'vm-1', 'vol-thin', 'Thin', '/thin', 400, 100, 'Replica-1', 1, 1)
                     """
                 )
+            used_desc = service.all_volumes(tower_id=1, cluster_id="cluster-a", page=1, page_size=3, sort="used", order="desc")
+            self.assertEqual([row["volume_id"] for row in used_desc["volumes"]], ["vol-thin", "vol-big", "vol-1"])
             occupied_desc = service.all_volumes(tower_id=1, cluster_id="cluster-a", page=1, page_size=3, sort="occupied", order="desc")
             self.assertEqual(occupied_desc["total"], 3)
-            self.assertEqual([row["volume_id"] for row in occupied_desc["volumes"]], ["vol-thin", "vol-big", "vol-1"])
+            self.assertEqual([row["volume_id"] for row in occupied_desc["volumes"]], ["vol-big", "vol-1", "vol-thin"])
 
             vm_sorted = service.all_volumes(tower_id=1, cluster_id="cluster-a", page=1, page_size=3, sort="vm", order="asc")
             self.assertEqual([row["vm_name"] for row in vm_sorted["volumes"]], ["VM One Latest", "VM One Latest", "VM Two"])
