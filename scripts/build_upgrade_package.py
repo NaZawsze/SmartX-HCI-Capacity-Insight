@@ -94,8 +94,6 @@ LEGACY_PROJECT_FILE_VALUES = [
     (TARGET_COMPOSE_NETWORK, LEGACY_COMPOSE_NETWORK),
     (TARGET_COMPOSE_PROJECT, LEGACY_COMPOSE_PROJECT),
     ("10.249.251.0/24", "10.249.249.0/24"),
-    ("SMARTX_IMAGE_TAG:-v0.5.2", "SMARTX_IMAGE_TAG:-{version}"),
-    ("SMARTX_RUNNER_IMAGE_TAG:-v0.3.1", "SMARTX_RUNNER_IMAGE_TAG:-v0.3.0"),
 ]
 
 
@@ -126,30 +124,43 @@ def assert_contains(path: Path, expected: str) -> None:
         raise SystemExit(f"Version check failed: {path.relative_to(ROOT)} missing {expected!r}")
 
 
+SOURCE_COMPOSE_FILES = ["docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"]
+
+
+def source_compose_prefix(name: str) -> str:
+    return "docker.io/nazawsze" if name == "docker-compose.release.yml" else "nazawsze"
+
+
+def assert_source_compose_literal(version: str, runner_version: str) -> None:
+    # 49-3：源码 compose 与升级包同纪律——镜像引用（registry+tag）全字面量，
+    # 不存在可被现场 .env 覆盖的版本模板；任何人重新引入模板都会在这里 fail-fast。
+    for name in SOURCE_COMPOSE_FILES:
+        prefix = source_compose_prefix(name)
+        text = (ROOT / name).read_text(encoding="utf-8")
+        for repo in ("web-api", "collector-worker", "frontend"):
+            expected = f"{prefix}/smartx-hci-capacity-insight-{repo}:{version}"
+            if expected not in text:
+                raise SystemExit(f"{name} missing literal platform tag: {expected}")
+        expected_runner = f"{prefix}/smartx-hci-capacity-insight-upgrade-runner:{runner_version}"
+        if expected_runner not in text:
+            raise SystemExit(f"{name} missing literal runner tag: {expected_runner}")
+        for key in ("SMARTX_IMAGE_TAG", "SMARTX_RUNNER_IMAGE_TAG", "SMARTX_IMAGE_PREFIX", "SMARTX_RUNNER_IMAGE_PREFIX"):
+            if key in text:
+                raise SystemExit(f"{name} must use literal image tags; found template variable {key}.")
+        if ":latest" in text:
+            raise SystemExit(f"{name} must not reference the latest tag.")
+
+
 def check_versions(version: str) -> None:
     runner_version = read_runner_version()
     checks = [
         (ROOT / "README.md", f"Version: `{version}`"),
         (ROOT / "README.zh-CN.md", f"版本：`{version}`"),
         (ROOT / "backend/app/core/config.py", f'DEFAULT_APP_VERSION = "{version}"'),
-        (ROOT / "docker-compose.offline.yml", f"SMARTX_IMAGE_TAG:-{version}"),
-        (ROOT / "docker-compose.release.yml", f"SMARTX_IMAGE_TAG:-{version}"),
-        (ROOT / "docker-compose.offline.yml", f"SMARTX_RUNNER_IMAGE_TAG:-{runner_version}"),
-        (ROOT / "docker-compose.release.yml", f"SMARTX_RUNNER_IMAGE_TAG:-{runner_version}"),
     ]
     for path, expected in checks:
         assert_contains(path, expected)
-    offline_text = (ROOT / "docker-compose.offline.yml").read_text(encoding="utf-8")
-    if "SMARTX_IMAGE_TAG:-latest" in offline_text:
-        raise SystemExit("docker-compose.offline.yml must not default to latest.")
-    if "smartx-hci-capacity-insight-upgrade-runner:${SMARTX_IMAGE_TAG" in offline_text:
-        raise SystemExit("upgrade-runner must not use SMARTX_IMAGE_TAG.")
-    env_file = ROOT / ".env"
-    if env_file.is_file():
-        env_text = env_file.read_text(encoding="utf-8")
-        for key in ("SMARTX_IMAGE_TAG", "SMARTX_RUNNER_IMAGE_TAG", "SMARTX_APP_VERSION", "SMARTX_RUNNER_VERSION"):
-            if re.search(rf"^{key}\s*=", env_text, re.M):
-                print(f"[warn] {env_file} defines {key}; 源码部署时该值会覆盖 compose 占位符默认值，可能导致版本漂移。升级包内 compose 为字面量 tag，不受影响。")
+    assert_source_compose_literal(version, runner_version)
     upgrade_text = (ROOT / "docker-compose.upgrade.yml").read_text(encoding="utf-8")
     for service, release_repository, _, _ in PLATFORM_IMAGES:
         expected = release_image(release_repository, version)
@@ -190,6 +201,11 @@ def _replace_compose_version_tags(text: str, *, app_version: str, runner_version
     text = re.sub(
         r"smartx-hci-capacity-insight-frontend:v[0-9A-Za-z._-]+",
         f"smartx-hci-capacity-insight-frontend:{app_version}",
+        text,
+    )
+    text = re.sub(
+        r"smartx-hci-capacity-insight-upgrade-runner:v[0-9A-Za-z._-]+",
+        f"smartx-hci-capacity-insight-upgrade-runner:{runner_version}",
         text,
     )
     return text
@@ -838,10 +854,10 @@ def collect_project_files(version: str, *, check_version_metadata: bool = True) 
             raise SystemExit(f"Compiled cache refused in project package: {rel}")
     if check_version_metadata:
         offline_text = (ROOT / "docker-compose.offline.yml").read_text(encoding="utf-8")
-        if f"SMARTX_IMAGE_TAG:-{version}" not in offline_text:
-            raise SystemExit("docker-compose.offline.yml default tag does not match VERSION.")
-        if "SMARTX_IMAGE_TAG:-latest" in offline_text:
-            raise SystemExit("docker-compose.offline.yml must not default to latest.")
+        if f"nazawsze/smartx-hci-capacity-insight-web-api:{version}" not in offline_text:
+            raise SystemExit("docker-compose.offline.yml does not carry the VERSION literal tag.")
+        if "SMARTX_IMAGE_TAG" in offline_text or ":latest" in offline_text:
+            raise SystemExit("docker-compose.offline.yml must use literal version tags (no templates, no latest).")
     return result
 
 
@@ -850,6 +866,10 @@ def _project_file_override(rel: str, *, version: str) -> str | None:
         return None
     text = (ROOT / rel).read_text(encoding="utf-8")
     runner_version = _expected_web_api_runner_baseline(version)
+    # 49-3：先渲染版本 tag（模板/字面量两种源码形态，含 bridge 的 runner v0.3.0 基线），
+    # 再做 <v0.5.2 的 legacy 值替换——该替换会把 project 名一并替换进镜像 repo 名，
+    # 必须在 tag 已定稿后执行，否则字面量 tag 正则匹配不到改名后的 repo。
+    text = _replace_compose_version_tags(text, app_version=version, runner_version=runner_version)
     if _version_tuple(version) < _version_tuple("v0.5.2"):
         for old, new in LEGACY_PROJECT_FILE_VALUES:
             text = text.replace(old, new.format(version=version))

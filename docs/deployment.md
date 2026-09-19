@@ -109,10 +109,11 @@ docker load -i smartx-hci-capacity-insight-frontend.tar
 docker load -i smartx-hci-capacity-insight-upgrade-runner.tar
 ```
 
-Optional image variable for release or offline mode (registry/prefix only). Image tags are fixed in the compose files and follow `VERSION` / `RUNNER_VERSION`; they must not be overridden via `.env`:
+Image references in the compose files are fully literal (registry and tag both fixed, following `VERSION` / `RUNNER_VERSION`); they cannot be overridden via `.env`:
 
 ```text
-SMARTX_IMAGE_PREFIX=docker.io/nazawsze
+nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3        # docker-compose.yml / docker-compose.offline.yml
+docker.io/nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3   # docker-compose.release.yml
 ```
 
 Service ports:

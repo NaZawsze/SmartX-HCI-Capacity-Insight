@@ -106,19 +106,15 @@ class TestDeploymentConfig(unittest.TestCase):
     def test_compose_splits_platform_and_runner_versions(self) -> None:
         for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
             text = (ROOT / name).read_text(encoding="utf-8")
-            # Source templates use ${SMARTX_IMAGE_TAG:-v0.5.3} placeholders; packaged
-            # compose (after an upgrade) renders literal tags. Accept both.
-            self.assertTrue(
-                "SMARTX_IMAGE_TAG:-v0.5.3" in text or "smartx-hci-capacity-insight-web-api:v0.5.3" in text,
-                f"{name} missing platform v0.5.3 tag",
-            )
-            self.assertTrue(
-                "SMARTX_RUNNER_IMAGE_TAG:-v0.3.1" in text or "smartx-hci-capacity-insight-upgrade-runner:v0.3.1" in text,
-                f"{name} missing runner v0.3.1 tag",
-            )
-            self.assertNotIn("upgrade-runner:${SMARTX_IMAGE_TAG", text)
-            self.assertNotIn("SMARTX_IMAGE_TAG:-v0.4.0", text)
+            # 源码 compose 与升级包同一不变量（49-3）：镜像引用（registry+tag）全字面量，
+            # 现场 .env 无法覆盖版本。曾经的双形态断言在字面量化后收紧。
+            self.assertIn("smartx-hci-capacity-insight-web-api:v0.5.3", text, f"{name} missing platform v0.5.3 tag")
+            self.assertIn("smartx-hci-capacity-insight-upgrade-runner:v0.3.1", text, f"{name} missing runner v0.3.1 tag")
+            for key in ("SMARTX_IMAGE_TAG", "SMARTX_RUNNER_IMAGE_TAG", "SMARTX_IMAGE_PREFIX", "SMARTX_RUNNER_IMAGE_PREFIX"):
+                self.assertNotIn(key, text, f"{name} must not contain template variable {key}")
+            self.assertNotIn(":latest", text)
             self.assertNotIn(":local", text)
+            self.assertNotIn("SMARTX_IMAGE_TAG:-v0.4.0", text)
 
     def test_compose_project_name_is_consistent_across_runtime_and_upgrade(self) -> None:
         for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
