@@ -7377,3 +7377,11 @@ release_smoke=critical 0, warning 0
 - 用户指令：把 v0.5.3 的更新、修复和问题先写上去。对照 task_plan Phase 49 全部条目盘点后发现漏项：49-8/49-9（首页总览静默陈旧修复、主动容量告警、采集频率分钟级可配置）、49-11（Tower 设置页完整改版）、49-12 v1 死代码约 4800 行、SQLite 治理（WAL+索引）、CORS 收紧、worker 采集重试调度化、49-17 文档与门禁脚本等均未入 CHANGELOG。
 - 重构为「新增 8 条 / 修复 5 条 / 工程与运维 11 条」三段，全部条目与 task_plan/findings/progress 记录一一对应；已知问题节补充 3 条（49-3 源码 compose 模板 tag 风险、token localStorage 取舍、生产现场定位待复现）。
 - 更新摘要同步重写（v0.5.2 之后的正式平台版本 → 平台版本候选），与候选未发布定位一致。
+
+## 2026-09-20 AGENTS.md 更新（本地工作副本，gitignore 不入库）
+
+- §1 项目身份：补 v0.5.3 候选内容入口——更新/修复/问题全清单以 CHANGELOG v0.5.3 节为准，未解决队列见 pending-tasks。
+- §2.1 文档关系表：新增 pending-tasks、troubleshooting、backup-recovery、release-acceptance 四行（此前只靠 doc-map 间接索引）。
+- §10 测试和验收门禁：新增「标准验证工具」清单（verify_full_upgrade_chain / verify_api_docs / verify_release_docs_safe / capture_baseline / build_upgrade_package+identity / bind-mount-recover 六个脚本各自的使用场景）。
+- §11 文档维护标准：固化 CHANGELOG 版本节七段结构（状态/摘要/新增/修复/工程与运维/验证/已知问题）与候选标注规则；新增"禁止把计划中的验收写成已完成"规则（今日 CHANGELOG 纠错教训入标准）。
+- 本文件 gitignore，改动只落本地工作副本；progress 本条为留档。
