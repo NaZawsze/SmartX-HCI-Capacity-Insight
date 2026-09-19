@@ -29,3 +29,6 @@ AGENTS.md
 
 # ZCode local workspace
 .zcode/
+
+# Codex local workspace（skills/API 文档仅保留在本地）
+.codex/
