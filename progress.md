@@ -7335,3 +7335,13 @@ release_smoke=critical 0, warning 0
 - 预测带在 365 天窗口下视觉上较细（带宽 ≈2.7TiB vs Y 轴 212TiB），7 天/30 天窗口更明显；属数据尺度问题非缺陷。
 - .3 采集失败是环境问题（Tower 不可达），待用户恢复 Tower 可达性；恢复后趋势数据恢复增长，告警任务保留为历史记录。
 - 未重新打包升级包：交付包 ef10a7c8 不含本轮改动，随下次打包纳入。
+
+## 2026-09-20 UPG-050 正式关闭：两机挂载体检全绿，规则入 AGENTS，.12 补部署恢复脚本
+
+- 用户指令：暂停 v0.5.3 重打包回归/升级测试（打包机 .3 与演练机 .12 均不再动），优先彻底结束 UPG-050。
+- 复核证据（2026-09-20 00:15）：`.3` 与 `.12` 分别执行 `scripts/bind-mount-recover.sh check`——各 20 项挂载逐项 [ok]（web-api 7 / collector-worker 5 / upgrade-runner 7 / prometheus 1）+ health ok=true，CHECK_EXIT=0；两机 `app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}` 五个挂载点载体目录在位且为空，smartx.db 正常读写（-wal/-shm 在更新）。
+- 环境缺口修正：定案记录称恢复脚本已部署双机，实测 `.12` 上脚本丢失（此前清理/重建所致），已从仓库 `scripts/bind-mount-recover.sh` 补部署至 `/data/smartx-storage-forecast/project/scripts/` 并以 bash 实跑验证。
+- 文档闭环：AGENTS.md 第 9 节新增"容器运行期禁 rm/mv app/ 挂载点载体目录"运行规则与体检/恢复入口；`docs/upgrade-issues.md` UPG-050 状态改「已关闭」；task_plan 49-22 背景中"UPG-050 期间禁止单服务 recreate"的定案前旧口径更正为定案结论（自伤 rm/mv，与单服务重建、docker 版本、传播域均无关）。
+- 结论（对生产升级的含义）：UPG-050 是运维操作自伤，不是产品或宿主 docker 缺陷。正常升级链路不触碰这些目录——代码核实：runner 同步 project 时 `APP_RUNTIME_ENTRIES` 为显式跳过清单（`upgrade_runner/actions.py:362,1034`），平台空间清理只清真实数据目录的内容且不删目录本身（`v2/cleanup/service.py` `_targets` = upgrades/reports/migrations/imports 真实路径）。因此走升级中心正规流程升级（含生产）不会触发；唯一触发途径是有人对 app/ 下那组目录手工 rm/mv。即使误触发：真实数据源全程无损，health `checks.directories` 立即变红（不静默），`bind-mount-recover.sh recover` 一键恢复。
+- 测试暂停状态留档：`.12` 回归暂停于"备份完成（/root/regression-backup-20260920.tar.gz，6.7MB，0600）+ compose tag 曾换 v0.5.2 后已还原"，容器未动仍为 v0.5.3 + runner v0.3.1 全绿（.env SHA256 31a0d456… 未动）；新包 e940e07c 已中转到本地 /tmp/v053-relay/（SHA 一致），未传 .12。恢复测试时从"传包→换 tag 全量重建"继续。
+- 限制与未验证项：`recover` 路径本轮未实跑（两机均健康，无需恢复；该路径此前在 .3/.12 已演练成功）；生产机 10.20.0.6 未做任何操作（默认只读边界，且该问题与机器无关，无需上机验证）。

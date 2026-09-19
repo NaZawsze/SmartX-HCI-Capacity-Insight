@@ -507,7 +507,7 @@ compose_command docker compose -p smartx-capacity-insight -f /data/smartx-storag
 
 ## UPG-050 app/ 下运行目录"静默衰减"实为清理操作自伤（挂载点目录被 rm/mv）
 
-状态：已定案（2026-09-19，非产品缺陷；运维规则与恢复脚本落地）
+状态：已关闭（2026-09-19 定案为清理操作自伤、非产品缺陷；2026-09-20 复核 .3/.12 `bind-mount-recover.sh check` 各 20 项挂载 + health 全绿，恢复脚本确认在位并补部署 .12，操作规则已写入 AGENTS.md 第 9 节）
 
 现象：.12/.3 多次出现 `/data/smartx-storage-forecast/app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}` 目录消失或畸变，容器对应 bind 挂载失效。
 

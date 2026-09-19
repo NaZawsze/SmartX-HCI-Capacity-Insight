@@ -8,12 +8,14 @@ v0.5.3 交付包 ef10a7c8（基于 dev2 a64a897）不含其后合入的四批改
 
 ## 与上一轮（.12 演练，progress.md 7169）的差异
 
-| 维度 | 上一轮（.12） | 本轮（.3） |
+（2026-09-20 用户决策：**升级测试改在 10.20.11.12 进行，.3 打包机保持现状不动**——.3 当前已是本轮代码 + v0.5.3 目标态，无需回归。以下差异表按 .12 本轮口径修正。）
+
+| 维度 | 上一轮（.12，ef10a7c8） | 本轮（.12，新包） |
 | --- | --- | --- |
-| 基线 .env | 模板密钥（演练环境自洽） | **.3 真实 .env 逐字节保留**（Tower 凭据配对，禁止覆盖；09-13 事故教训） |
-| 基线 compose 来源 | v0.5.2 包内 compose + 路径重写 | **.3 线上 compose 原文件 + 镜像默认 tag 换回 v0.5.2**（考据：dab2e0f v0.5.2 发布以来 docker-compose.yml 仅默认 tag 变化、docker-compose-runner.yml 零变化；线上文件即真实 post-migration v0.5.2 形态，子网 10.249.251.0/24 保持） |
-| UPG-050 | .12 衰减过快 | .3 已知缓解式：**只做一次性全量 stop + up -d --force-recreate，禁止单服务 recreate**；升级后如 health.directories=false 按同法恢复并记录 |
-| 升级后自动采集 | failed（Tower 10.20.0.6 不可达，已知限制） | 同样 expected failed；.3 停摆告警（collection-freshness-stale）会持续存在，作为 49-20 特性在真实环境的正向证据 |
+| 基线 .env | 模板密钥（演练环境自洽） | 模板密钥，逐字节保留（与 .12 库中凭据配对） |
+| 基线 compose 来源 | v0.5.2 包内 compose + 路径重写 | **.12 线上 compose（已为目标路径形态）+ 镜像默认 tag 换回 v0.5.2**（考据：dab2e0f v0.5.2 发布以来 docker-compose.yml 仅默认 tag 变化） |
+| UPG-050 | .12 衰减过快 | .12 更凶（急性期全量重建后 2 分钟内也衰减）；演练前记录基线、全程监控 checks.directories，出现衰减先留证再 `bind-mount-recover.sh` 恢复，升级任务判定不受环境衰减干扰 |
+| 升级后自动采集 | failed（Tower 10.20.0.6 不可达，已知限制） | 同样 expected failed |
 
 ## 口径
 
@@ -27,10 +29,10 @@ v0.5.3 交付包 ef10a7c8（基于 dev2 a64a897）不含其后合入的四批改
   3. manifest 检查：`source_compatibility` 含 v0.5.2，含 `environment_transitions`/`directory_transition`/`legacy_cleanup`（保持 v0.5.1u2 直升能力），`minimum_runner_version` ≤ v0.3.1；
   4. 包内容检查：不含 runner/Prometheus 镜像 tar，不含 .env/SQLite/凭据等敏感文件，images/ 三件套 tar 齐全。
 
-### .3 回归 v0.5.2 基线
+### .12 回归 v0.5.2 基线
 
 - 前置记录（回归前基线留档）：health JSON、五容器镜像 ID、DB 计数（users/towers/clusters/vm_latest/vm_volumes/tasks）、Prometheus series 数、.env SHA256 与 0600 权限。
-- 动作：项目目录整体 tar 备份到 /root（可回滚）；`docker compose down`（**无 -v**，网络随 up 恢复；subnet 由 compose 显式配置保持）；compose 三处默认 tag sed 回 v0.5.2；`docker compose up -d --force-recreate` 一次性全量起（UPG-050 约束）。
+- 动作：项目目录整体 tar 备份到 /root（可回滚）；`docker compose stop` 全停（保网络）→ compose 三处默认 tag sed 回 v0.5.2 → `docker compose up -d --force-recreate` 一次性全量起。
 - 数据边界：/data/smartx-storage-forecast/{app,prometheus,upgrades,backups,exports} 全程不动；.env 不改写。
 - 基线验收：health `{"ok":true,"version":"v0.5.2","runner_version":"v0.3.1",checks.directories/database/prometheus=true}`；五容器镜像 tag 正确（三件套 v0.5.2 + runner v0.3.1 + prometheus v2.55.1）；DB 计数与回归前一致；Prometheus API 200 且 series 数不减。
 
