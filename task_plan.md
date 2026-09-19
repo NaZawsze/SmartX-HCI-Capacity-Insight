@@ -1476,7 +1476,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] Word 声明扩句、Excel 补声明行；导出图不画带。
 - [x] 验证：后端 reports 14 OK / freshness 11 OK / reports_api / p1_infra 15 OK；前端 tsc 0 错误、vitest 89/89；.3 构建部署健康绿、GUI 冒烟确认带线与文案渲染。
 
-### 22. v0.5.3 第二次重打包 + 10.20.11.12 回归 v0.5.2 升级测试 [实施中 2026-09-19]
+### 22. v0.5.3 第二次重打包 + 10.20.11.12 回归 v0.5.2 升级测试 [暂缓 2026-09-20 用户决策：暂时不升级，包备妥待命]
 
 设计文档：[docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md](docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md)。
 
