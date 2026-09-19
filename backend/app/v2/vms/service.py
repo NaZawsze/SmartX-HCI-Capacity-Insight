@@ -232,9 +232,7 @@ class VmService:
             filters.append("v.cluster_id = ?")
             params.append(cluster_id)
         where = f"WHERE {' AND '.join(filters)}" if filters else ""
-        join_vm_latest = ""
         if sort_field == "vm":
-            join_vm_latest = "LEFT JOIN vm_latest vm ON vm.tower_id = v.tower_id AND vm.cluster_id = v.cluster_id AND vm.vm_id = v.vm_id"
             order_sql = f"COALESCE(vm.name, v.vm_id) {direction}, v.name {direction}, v.volume_id {direction}"
         elif sort_field == "occupied":
             order_sql = f"{_VOLUME_OCCUPIED_SQL} {direction}, v.used_bytes {direction}, v.name {direction}"
@@ -253,7 +251,7 @@ class VmService:
                        COALESCE(vm.name, v.vm_id) AS vm_name,
                        COALESCE(cl.name, '') AS cluster_name
                 FROM vm_volumes v
-                {join_vm_latest}
+                LEFT JOIN vm_latest vm ON vm.tower_id = v.tower_id AND vm.cluster_id = v.cluster_id AND vm.vm_id = v.vm_id
                 LEFT JOIN clusters cl ON cl.tower_id = v.tower_id AND cl.cluster_id = v.cluster_id
                 {where}
                 ORDER BY {order_sql}
