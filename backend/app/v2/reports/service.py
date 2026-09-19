@@ -529,7 +529,7 @@ def _normalize_chart_days(chart_days: int | None) -> int:
         value = int(chart_days or 365)
     except (TypeError, ValueError):
         return 365
-    return value if value in {7, 30, 90, 365, 720} else 365
+    return value if value in {7, 30, 90, 365} else 365
 
 
 def _item_timestamp(item: dict[str, Any]) -> int | None:

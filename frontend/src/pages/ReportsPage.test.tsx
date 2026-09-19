@@ -22,13 +22,13 @@ vi.mock("../components/ClusterCapacityChart", () => ({
   }: {
     clusters: Array<{ labels?: Record<string, string> }>;
     rangeDays: number;
-    onRangeDaysChange: (days: 7 | 30 | 90 | 365 | 720) => void;
+    onRangeDaysChange: (days: 7 | 30 | 90 | 365) => void;
   }) => (
     <div data-testid="cluster-capacity-chart">
       <span data-testid="chart-range">{rangeDays}</span>
       <span data-testid="chart-cluster-name">chart:{clusters[0]?.labels?.cluster || "empty"}</span>
-      {[7, 30, 90, 365, 720].map((days) => (
-        <button key={days} type="button" onClick={() => onRangeDaysChange(days as 7 | 30 | 90 | 365 | 720)}>
+      {[7, 30, 90, 365].map((days) => (
+        <button key={days} type="button" onClick={() => onRangeDaysChange(days as 7 | 30 | 90 | 365)}>
           {days}天
         </button>
       ))}

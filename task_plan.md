@@ -1430,3 +1430,26 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] `docs/backup-recovery.md`：备份资产盘点、推荐策略（迁移导出包 + `.env` 配对 + capture_baseline）、手工冷备（VACUUM INTO 快照）、恢复五步与验证清单、红线。
 - [x] `docs/release-acceptance.md` 增补 Release Day Steps 五步清单（版本→本地检查→.3 构建/包门禁→.12 演练→git 动作需用户明确要求）。
 - [x] `scripts/verify_api_docs.py`：api.md 与后端路由双向比对 + 契约单向校验；本地验证正例 exit=0（api.md 75 条含 /metrics 白名单 vs 后端 74 条，契约 30 条通过）、反例篡改文档 exit=1 逐条报出。
+
+### 18. 报表图表窗口移除 720 天档 [实施中 2026-09-19]
+
+设计文档：[docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md)（与第 19 项合并设计，理由：同批实施的两项独立小任务，各自单独成文粒度过细；影响面、测试计划与回滚在该文档 A/B 两节分开写清）。
+
+背景：Prometheus retention 400d，`chart_days=720` 在部署超 400 天后图表前段必为空（pending-tasks #19）。影响面已逐文件核实：**导出链路不受影响**（word/excel/bundle 三个导出端点只收 `period_days`，调 `latest_report` 不传 `chart_days` 走默认 365；export 代码与测试中的"720"均为 unix 时间戳）。
+
+- [x] 后端 `_normalize_chart_days` 集合删 720（传 720 回退 365，向后兼容不报错）+ API 测试改断言回退行为。
+- [x] 前端 ClusterCapacityChart 选项/类型、ReportsPage 类型、ReportsPage.test 同步删 720。
+- [x] 文档同步：v2-api-contracts.md `chart_days=7|30|90|365`、functional-modules.md、api.md。
+- [x] 验证：后端 reports 测试 + 前端 tsc/vitest + verify_api_docs.py；.3 远程全量回归。
+
+### 19. VM 页千台规模加固（分页 + 服务端卷分页 + 使用率聚合）[实施中 2026-09-19]
+
+设计文档：[docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md)（B 节）。
+
+背景：当前环境 590 VM / 8.96 万卷只是小现场；按几千台 × ~150 卷/台推演，`/api/vm-volumes` 全量响应与前端全量 DOM 渲染都会失效（payload 数百 MB、DOM 数十万行）。目标：5000 VM / 76 万卷规模下 VM 页可用。
+
+- [x] 后端 `/api/vm-volumes` 增加可选 `page/page_size/sort/order` 参数（有 `page` 时返回平铺分页 `{volumes,total,page,page_size}`；无 `page` 时保持现有分组数组，向后兼容），排序支持 vm/used/occupied（occupied 用副本/EC 系数 SQL 表达式复刻前端口径）。
+- [x] 后端新增 `GET /api/vm-volumes/usage-summary`：按 VM 聚合 used/provisioned（约 5000 行摘要），支撑 VM 列表使用率标签与"使用率"排序，替代对全量卷明细的依赖。
+- [x] 前端 VmsPage：VM 列表客户端分页（100/页 + 分页器，深链选中 VM 自动跳页）；所有虚拟卷表改服务端分页+排序；使用率改用 usage-summary 映射；新增 Pager 组件与样式（遵循 frontend-style-guide，仅 :root 变量）。
+- [x] 文档同步：api.md（新参数与新端点）、v2-api-contracts.md、functional-modules.md。
+- [x] 验证：后端 vms 测试 + 前端 tsc/vitest + verify_api_docs.py；.3 远程全量回归与真实页面冒烟。

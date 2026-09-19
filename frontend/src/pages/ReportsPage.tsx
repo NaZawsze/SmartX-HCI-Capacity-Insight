@@ -341,7 +341,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
 }
 
 type GrowthSortMode = "amount" | "ratio";
-type ChartRangeDays = 7 | 30 | 90 | 365 | 720;
+type ChartRangeDays = 7 | 30 | 90 | 365;
 
 const EXPORT_PERIOD_OPTIONS = [
   { value: 7, label: "近 7 天" },

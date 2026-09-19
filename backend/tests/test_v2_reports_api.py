@@ -50,7 +50,8 @@ class V2ReportsApiTest(unittest.TestCase):
                     payload = response.json()
                     self.assertEqual(payload["scope"], {"tower_id": 1, "cluster_id": "cluster-a"})
                     self.assertEqual(payload["window_days"], 90)
-                    self.assertEqual(payload["chart_days"], 720)
+                    # Prometheus retention 400d：720 天档已移除，旧客户端传 720 回退 365。
+                    self.assertEqual(payload["chart_days"], 365)
                     self.assertEqual(payload["forecast_days"], 90)
 
                     missing_tower = client.get("/api/reports/latest?cluster_id=cluster-a", headers=headers)

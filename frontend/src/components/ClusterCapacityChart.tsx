@@ -4,7 +4,7 @@ import { formatBytes } from "../services/api";
 import type { ForecastPayload } from "../types";
 
 type ClusterReport = ForecastPayload["clusters"][number];
-type RangeDays = 7 | 30 | 90 | 365 | 720;
+type RangeDays = 7 | 30 | 90 | 365;
 
 interface ClusterCapacityChartProps {
   clusters: ClusterReport[];
@@ -29,8 +29,7 @@ const CHART_RANGE_OPTIONS: Array<{ value: RangeDays; label: string }> = [
   { value: 7, label: "7天" },
   { value: 30, label: "30天" },
   { value: 90, label: "90天" },
-  { value: 365, label: "365天" },
-  { value: 720, label: "720天" }
+  { value: 365, label: "365天" }
 ];
 
 function dayLabel(timestampSeconds: number): string {
@@ -116,8 +115,7 @@ function axisInterval(rangeDays: RangeDays): number {
   if (rangeDays <= 7) return 0;
   if (rangeDays <= 30) return 4;
   if (rangeDays <= 90) return 14;
-  if (rangeDays <= 365) return 29;
-  return 59;
+  return 29;
 }
 
 function formatAxisLabel(value: string, rangeDays: RangeDays): string {
