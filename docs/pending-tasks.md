@@ -38,6 +38,7 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 | 15 | API 增加响应模型 | Phase 49-14/49-16 | 全部完成（批次 1-4 响应模型 + 49-16 契约对齐：后端补发 kpis/latest_run/top_vms/tower_runs 与 item metric/value，前端删兼容 normalizer；金样本契约增量、55 前端测试、全量回归零新增） |
 | 16 | 低优增强 | Phase 13/14/16 | ✅ 已完成（2026-09-13）：Excel 图表精修（容量趋势图+打印版式+横坐标优化）、task-worker 第 6 容器评估（实测不新增，见 docs/task-worker-evaluation.md）、AI 措辞层（接口+离线回退） |
 | 20 | runner prepare 升级期在 app/ 下生成空骨架目录 | 2026-09-20 用户记录指令 | **仅记录，不排期修复（2026-09-20 用户决策）**：`filesystem_prepare` mkdir 循环在升级期会于 app/ 下生成空骨架目录（畸变路径、无数据复制、不阻塞升级，见 findings.md 619）。挂载健康时 mkdir 经真实挂载穿透到真实目录，无宿主可见副作用；危害仅限挂载已衰减场景下的目录噪音。若未来主动治理，方向为 mkdir 目标过滤挂载点同源候选 |
+| 21 | 测试机环境卫生低优项（2026-09-20 盘点） | 2026-09-20 progress 盘点 | 不影响功能与验证，择机处理：① .12 `/data/smartx-storage-forecast/upgrades` 历史 7.7G（旧升级包/任务目录），可清**内容**保留目录（UPG-050 规则：app/ 下载体目录永不动，真实目录内容可清）；② .12 残留旧项目名镜像 4 个 tag（`nazawsze/smartx-storage-forecast-*`，旧 bootstrap 时代遗留，无运行影响）与 .3 同类旧 tag，可 `docker rmi` 释放；③ 含 .env 的手工备份权限已现场修正（.3 `/root/project-backup-before-v052-regression.tar.gz` 664→600，.12 回归备份建档即为 600） |
 
 P3 其余项（v1 死代码移除、helper 收敛、静默吞错清理、CORS 收紧）已于 2026-09-12/13 完成并验证，见文末"已完成"与 progress.md。
 
