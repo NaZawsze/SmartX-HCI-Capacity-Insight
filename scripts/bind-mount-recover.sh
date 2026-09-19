@@ -67,7 +67,8 @@ attr_has_i() {
     esac
 }
 
-# chattr +i 语义仅验证过 ext4/xfs；其他文件系统报错退出（该机不加锁并记录）
+# chattr +i 语义仅验证过 ext 家族（ext2/ext3/ext4，不同 coreutils 对 ext4 报法不同）与 xfs；
+# 其他文件系统报错退出（该机不加锁并记录）
 fs_supports_chattr() {
     local fstype
     fstype="$(stat -f -c %T "$APP_ROOT" 2>/dev/null)" || {
@@ -75,7 +76,7 @@ fs_supports_chattr() {
         return 1
     }
     case "$fstype" in
-        ext2/ext3/ext4|xfs) return 0 ;;
+        ext2/ext3|ext2/ext3/ext4|xfs) return 0 ;;
         *)
             echo "错误：$APP_ROOT 文件系统为 $fstype，chattr +i 语义未验证；该机不加锁（记录原因后终止）" >&2
             return 1
