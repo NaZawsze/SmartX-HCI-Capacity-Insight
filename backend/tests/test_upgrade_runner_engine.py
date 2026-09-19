@@ -428,6 +428,48 @@ class UpgradeEngineTest(unittest.TestCase):
             self.assertEqual(result.get("source_db_path") or "", "")
             self.assertFalse((target_app / "smartx.db").exists())
 
+    def test_filesystem_prepare_skips_legacy_prometheus_matching_live_data(self) -> None:
+        # UPG-049：runner 把宿主机 prometheus 目录挂在 SMARTX_PROMETHEUS_DATA_PATH 时，
+        # legacy 候选解析到该路径就是在线数据自己，prepare 不得把它复制进目标目录，
+        # 否则会在目标 prometheus 目录里嵌套出畸变副本。
+        from app.upgrade_runner.actions import ActionContext, filesystem_prepare
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            live_prom = root / "prometheus"
+            block = live_prom / "01ABC00000000001"
+            block.mkdir(parents=True)
+            (block / "meta.json").write_text('{"ulid":"01ABC00000000001"}', encoding="utf-8")
+
+            target_prom = root / "target" / "prometheus"
+            previous = os.environ.get("SMARTX_PROMETHEUS_DATA_PATH")
+            os.environ["SMARTX_PROMETHEUS_DATA_PATH"] = str(live_prom)
+            try:
+                context = ActionContext.minimal(root)
+                context.data_path = root / "data"
+                result = filesystem_prepare(
+                    {
+                        "params": {
+                            "app_data_path": str(root / "target" / "app"),
+                            "prometheus_data_path": str(target_prom),
+                            "upgrades_path": str(root / "target" / "upgrades"),
+                            "backups_path": str(root / "target" / "backups"),
+                            "exports_path": str(root / "target" / "exports"),
+                            "compose_runtime_path": str(root / "target" / "compose-runtime"),
+                            "legacy_prometheus_data_paths": [str(live_prom)],
+                        }
+                    },
+                    context.as_dict(),
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop("SMARTX_PROMETHEUS_DATA_PATH", None)
+                else:
+                    os.environ["SMARTX_PROMETHEUS_DATA_PATH"] = previous
+
+            self.assertEqual(result.get("copied_prometheus_sources"), [])
+            self.assertFalse((target_prom / "01ABC00000000001").exists())
+
     def test_task_migrate_runtime_state_preserves_existing_upgrade_history(self) -> None:
         from app.upgrade_runner.actions import ActionContext, task_migrate_runtime_state
 

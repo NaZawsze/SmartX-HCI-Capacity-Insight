@@ -1118,9 +1118,17 @@ def filesystem_prepare(action: dict[str, Any], context_payload: dict[str, Any]) 
     if not copied_prometheus_sources:
         has_prometheus_blocks = any(item.is_dir() and (item / "meta.json").is_file() for item in prometheus_target.iterdir())
         if not has_prometheus_blocks:
+            # runner 把宿主机 prometheus 目录挂在 SMARTX_PROMETHEUS_DATA_PATH（默认
+            # /prometheus-data）；legacy 候选解析到该路径时就是在线数据自己，
+            # 绝不能当作 legacy 源复制，否则会在目标里嵌套出畸变副本（UPG-049）
+            live_prometheus = Path(os.environ.get("SMARTX_PROMETHEUS_DATA_PATH") or "/prometheus-data")
             for value in params.get("legacy_prometheus_data_paths") or []:
                 source = Path(str(value))
-                if not source.exists() or source.resolve() == prometheus_target.resolve():
+                try:
+                    is_live_self = source.resolve() in (prometheus_target.resolve(), live_prometheus.resolve())
+                except OSError:
+                    is_live_self = False
+                if not source.exists() or is_live_self:
                     copied = False
                 else:
                     copied = _copy_tree_missing(source, prometheus_target, skip_names=PROMETHEUS_RUNTIME_ENTRIES)
