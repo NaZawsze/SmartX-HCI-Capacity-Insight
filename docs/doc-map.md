@@ -2,7 +2,7 @@
 
 本文件是 SmartX HCI Capacity Insight 全部文档的总索引（开发/维护用，项目对外简介见根目录 [README.md](../README.md)）。开始任何代码、升级包或远程环境操作前，先按 [AGENTS.md](../AGENTS.md) 的顺序阅读根目录工作文档，再按本地图定位专项文档。
 
-当前版本边界：平台 `v0.5.2`、runner `v0.3.1`、分支 `dev2`。
+当前版本边界：平台 `v0.5.3`、runner `v0.3.1`、分支 `dev2`。
 
 ## 1. 根目录工作文档（每次会话必读）
 
@@ -22,6 +22,7 @@
 | [architecture.md](architecture.md) | 架构总览：5 容器职责、后端模块边界、数据职责、任务模型、升级/迁移包结构、安全边界。 | task_plan Phase 16 |
 | [architecture-v2.md](architecture-v2.md) | v2 总体架构设计：容器职责、模块边界、前端信息架构、数据职责和关键规则。 | v2-rebuild Phase V2-0 |
 | [functional-modules.md](functional-modules.md) | 功能模块归类：按功能域拆分，标注 v2 模块边界映射。 | v2-rebuild Phase V2-0 |
+| [module-inventory.md](module-inventory.md) | 代码模块清单：后端/前端全部代码模块、部署与测试资产的结构索引（路径、规模、职责、所属容器）。 | — |
 | [frontend-style-guide.md](frontend-style-guide.md) | 前端 UI 风格规范：设计变量、圆角/阴影、按钮/输入/分段开关规格、状态色语义、布局模式。AI 写任何 UI 前必读。 | 全部前端任务 |
 | [api.md](api.md) | API Reference：对外接口说明。 | — |
 | [usage.md](usage.md) | 使用说明。 | — |
