@@ -7345,3 +7345,9 @@ release_smoke=critical 0, warning 0
 - 结论（对生产升级的含义）：UPG-050 是运维操作自伤，不是产品或宿主 docker 缺陷。正常升级链路不触碰这些目录——代码核实：runner 同步 project 时 `APP_RUNTIME_ENTRIES` 为显式跳过清单（`upgrade_runner/actions.py:362,1034`），平台空间清理只清真实数据目录的内容且不删目录本身（`v2/cleanup/service.py` `_targets` = upgrades/reports/migrations/imports 真实路径）。因此走升级中心正规流程升级（含生产）不会触发；唯一触发途径是有人对 app/ 下那组目录手工 rm/mv。即使误触发：真实数据源全程无损，health `checks.directories` 立即变红（不静默），`bind-mount-recover.sh recover` 一键恢复。
 - 测试暂停状态留档：`.12` 回归暂停于"备份完成（/root/regression-backup-20260920.tar.gz，6.7MB，0600）+ compose tag 曾换 v0.5.2 后已还原"，容器未动仍为 v0.5.3 + runner v0.3.1 全绿（.env SHA256 31a0d456… 未动）；新包 e940e07c 已中转到本地 /tmp/v053-relay/（SHA 一致），未传 .12。恢复测试时从"传包→换 tag 全量重建"继续。
 - 限制与未验证项：`recover` 路径本轮未实跑（两机均健康，无需恢复；该路径此前在 .3/.12 已演练成功）；生产机 10.20.0.6 未做任何操作（默认只读边界，且该问题与机器无关，无需上机验证）。
+
+## 2026-09-20 问题盘点收口：全部挂着的问题登记入队列
+
+- 用户连续确认"问题都记录了吗"，通篇核对台账后补齐 pending-tasks 三个缺口条目：#22 UPG-050 物理锁（49-23，设计完成待批准）、#23 .3 Tower 可达性恢复（用户侧环境项）、#24 数据库定期自动备份能力（候选未立项，待用户决策）。
+- 至此"挂着的问题"全部有台账位置：050 本体（upgrade-issues 已关闭 + findings 定案 + AGENTS 红线）、050 加锁（49-23 设计文档 + pending-tasks #22）、runner prepare 骨架目录（#20，仅记录）、Tower 环境（findings 641 + #23）、49-22 暂停的回归/升级测试（task_plan 22，包 e940e07c 备妥）、环境卫生三项（#21，其中 .3 备份权限 664→600 已现场修正）、备份能力候选（#24）。
+- 本轮无机器操作、无代码改动，纯台账收口。

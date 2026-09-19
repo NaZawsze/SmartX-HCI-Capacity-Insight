@@ -29,6 +29,9 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 | 17 | UPG-049 残留卫生项治理 | 2026-09-19 findings.md | ✅ 已完成（2026-09-19）：Prometheus legacy 扫描守卫（beb36d5+回归测试）、.12/.3 app/ 残留清理（各约 3G）、容器挂载与 .3 线上核对一致、runner 镜像 0aca32511008 更新至 .3/.12。交付包 ef10a7c8… 维持不变（prometheus 守卫随下次打包纳入） |
 | 18 | UPG-050 app/ 挂载点目录误删致挂载消失 | 2026-09-19 findings.md | ✅ 已定案（2026-09-19）：app/{upgrades,…,smartx-storage-forecast} 为 dockerd 补建的挂载点载体（容器内被真实 bind 遮蔽），运行期 rm/mv 会拆掉全机对应挂载（当日多次"衰减"均为清理操作自伤）。已部署 `scripts/bind-mount-recover.sh`（check/recover）至 .3/.12，两机 recover 后挂载齐全、health 全绿。规则：容器运行期禁删/禁改该组目录 |
 | 19 | Prometheus 400d retention 与报表 720 天图表窗口冲突 | 2026-09-19 findings.md | ✅ 已完成（2026-09-19，用户决策去 720 档）：`_normalize_chart_days` 集合删 720（传 720 回退 365，向后兼容）、前端窗口选项/类型同步、文档同步；导出链路核实不受影响（只收 period_days）。.3 全量 315 tests OK、vitest 86/86、真实 API 冒烟 chart_days=720→365 |
+| 22 | UPG-050 载体目录物理锁（chattr +i） | task_plan 49-23 | 设计完成（[设计文档](../docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md)），**待用户批准后实施**：bind-mount-recover.sh 增 lock/unlock + recover 自动解锁复锁；.12 六步验证协议；.3/生产机逐台待确认 |
+| 23 | .3 Tower 可达性恢复（环境） | 2026-09-19 findings.md | **待用户侧处理**：CHINATOWER/SMARTX-TT-WW 自 2026-09-12 网络不可达，采集连续失败，测试环境数据停在 09-12；`collection-freshness-stale` critical 告警挂起（探针端到端验证完成）。恢复可达后趋势自然恢复，告警按设计保留 |
+| 24 | 数据库定期自动备份能力（候选，未立项） | 2026-09-20 用户问答 | **待用户决策是否立项**：现有备份为事件驱动（升级前/清理前/手工），无周期性自动备份；删库类误操作不在 UPG-050 锁保护范围。若立项，范围含备份策略（频率/保留/校验）与恢复演练 |
 
 ## P3 — 工程健康度（不阻塞发布）
 
