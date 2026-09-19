@@ -8,7 +8,7 @@ http://<server-ip>:8000
 
 When accessed through the frontend container, API requests are proxied under the same frontend origin.
 
-All business APIs require a Bearer token except `POST /api/auth/login`.
+All business APIs require a Bearer token except `POST /api/auth/login`. `GET /api/system/health` and the collector worker's `GET /metrics` (port `9108`) are public.
 
 ```http
 Authorization: Bearer <access_token>
@@ -160,6 +160,22 @@ Response:
 }
 ```
 
+### Test Tower Connection (Unsaved)
+
+```http
+POST /api/towers/test
+```
+
+Tests a Tower connection with parameters provided in the request body, so the Settings page can verify a Tower before saving it.
+
+### Sync Clusters
+
+```http
+POST /api/towers/{tower_id}/clusters/sync
+```
+
+Upserts the provided cluster entries for one Tower and returns the stored clusters.
+
 ### Update Cluster
 
 ```http
@@ -195,6 +211,22 @@ Response:
 }
 ```
 
+### Collection Runs
+
+```http
+GET /api/collection/runs?limit=30
+```
+
+Returns recent collection runs (most recent first), including status and per-Tower results.
+
+### Collection Run Detail
+
+```http
+GET /api/collection/runs/{run_id}
+```
+
+Returns one collection run with its detail state.
+
 ## Dashboard
 
 ### Summary
@@ -219,6 +251,14 @@ GET /api/vms
 ```
 
 Returns up to 500 VMs sorted by actual used storage size. Each item includes labels, actual used bytes, guest used bytes, provisioned bytes, and usage ratios when available.
+
+### VM Detail
+
+```http
+GET /api/vms/{vm_id}
+```
+
+Returns one VM's capacity summary and labels. Pass `tower_id` (and `cluster_id`) as query parameters to disambiguate the VM identity.
 
 ### VM Trend
 
@@ -330,6 +370,23 @@ Response content type:
 ```text
 application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
 ```
+
+### Export Forecast Report Bundle (Word + Excel)
+
+```http
+POST /api/reports/export/bundle
+```
+
+Optional request parameters:
+
+```text
+tower_id=<id>
+cluster_id=<cluster-id>
+period_days=30
+task_id=<task-center-id>
+```
+
+Generates both the Word document and the Excel workbook in one call and returns a JSON body with each file's name and download URL. The exports are also recorded in the task center and kept under `exports/reports/`.
 
 ## Metrics
 

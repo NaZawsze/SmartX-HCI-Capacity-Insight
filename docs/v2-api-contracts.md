@@ -248,21 +248,13 @@
 }
 ```
 
-### `POST /api/reports/export`
+### `GET /api/reports/export/word`、`GET /api/reports/export/excel`
 
-请求：
+按当前报表范围同步生成并返回文件流（query：`tower_id`、`cluster_id`、`period_days=30`，支持 `7/14/30/90/180/365`；`cluster_id` 必须搭配 `tower_id`）。导出同时记录为任务中心导出任务，文件落盘 `/data/smartx-storage-forecast/exports/reports`。
 
-```json
-{"tower_id": 1, "cluster_id": null, "days": 90, "formats": ["docx", "xlsx"]}
-```
+### `POST /api/reports/export/bundle`
 
-响应：
-
-```json
-{"task_id": "report-..."}
-```
-
-导出文件保存到 `/data/smartx-storage-forecast/exports/reports`，任务完成后通过 task artifact 下载。
+一次生成 Word + Excel 两个文件，参数同上（另支持 `task_id` 关联任务中心），响应为 JSON，包含两个文件的文件名与下载 URL。
 
 ## 8. 数据迁移
 
