@@ -1475,3 +1475,15 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 前端 ClusterCapacityChart 画"预测上限/预测下限"虚线（带宽计算抽为 services/forecastBand.ts 纯函数，图例不挤占主系列）+ 图下说明「预测值可能会有偏差，以实际为准」；ReportsPage 同句说明。
 - [x] Word 声明扩句、Excel 补声明行；导出图不画带。
 - [x] 验证：后端 reports 14 OK / freshness 11 OK / reports_api / p1_infra 15 OK；前端 tsc 0 错误、vitest 89/89；.3 构建部署健康绿、GUI 冒烟确认带线与文案渲染。
+
+### 22. v0.5.3 第二次重打包 + 10.20.11.3 回归 v0.5.2 升级测试 [实施中 2026-09-19]
+
+设计文档：[docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md](docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md)。
+
+背景：交付包 ef10a7c8（基于 a64a897）不含 49-18/19/20/21 与 Prometheus 扫描守卫（beb36d5）。用户指令：重建 v0.5.3 包 → .3 回归 v0.5.2 基线 → 正规升级流程测试。关键约束：.3 真实 .env 逐字节保留（凭据配对）；UPG-050 期间只做一次性全量重建、禁止单服务 recreate；compose 考据（dab2e0f 以来仅默认 tag 变化）支持"线上文件换 tag 即忠实基线"。
+
+- [ ] CHANGELOG v0.5.3 段补四项特性与重打包记录；构建提交归档。
+- [ ] dev2 49739c5+ → .3 构建目录，`build_upgrade_package.py` 重打包（三件套全重建）+ 包门禁（SHA/身份/manifest/敏感文件）。
+- [ ] .3 回归 v0.5.2：回归前基线留档 → 项目备份 → down（无 -v）→ tag 换 v0.5.2 → 一次性全量重建 → 基线验收（health/计数/Prometheus/.env 不动）。
+- [ ] 正规升级测试：上传→预检查→升级→post-cleanup→8 项验收 + 新特性（探针/预测带）升级后生效确认。
+- [ ] 台账（upgrade-package-ledger 新条目 SUPERSEDES ef10a7c8）+ progress + 收尾提交。
