@@ -23,8 +23,9 @@ import type {
   UpgradeVerification,
   VmDetail,
   VmTrend,
+  VmUsageSummaryItem,
   VmVolume,
-  VmVolumeSet
+  VmVolumePage
 } from "../types";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
@@ -324,10 +325,20 @@ export const api = {
     const query = params.toString();
     return request<MetricItem[]>(`/api/vms${query ? `?${query}` : ""}`);
   },
-  async vmVolumesAll(scope?: DashboardScope): Promise<VmVolumeSet[]> {
+  async vmVolumesPage(scope?: DashboardScope, options?: { page?: number; pageSize?: number; sort?: string; order?: string }): Promise<VmVolumePage> {
+    const params = scopedParams(scope);
+    if (options?.page) params.set("page", String(options.page));
+    if (options?.pageSize) params.set("page_size", String(options.pageSize));
+    if (options?.sort) params.set("sort", options.sort);
+    if (options?.order) params.set("order", options.order);
+    const query = params.toString();
+    return request<VmVolumePage>(`/api/vm-volumes${query ? `?${query}` : ""}`);
+  },
+  async vmVolumesUsageSummary(scope?: DashboardScope): Promise<VmUsageSummaryItem[]> {
     const params = scopedParams(scope);
     const query = params.toString();
-    return request<VmVolumeSet[]>(`/api/vm-volumes${query ? `?${query}` : ""}`);
+    const payload = await request<{ usages: VmUsageSummaryItem[] }>(`/api/vm-volumes/usage-summary${query ? `?${query}` : ""}`);
+    return payload.usages || [];
   },
   async vmTrend(vmId: string, metric = "used", days = 30, scope?: DashboardScope): Promise<VmTrend> {
     const params = scopedParams(scope);

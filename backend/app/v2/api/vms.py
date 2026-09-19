@@ -94,6 +94,8 @@ from app.v2.api.models import (
     UserResponse,
     VmDetailResponse,
     VmTrendResponse,
+    VmUsageSummaryResponse,
+    VmVolumePageResponse,
     VmVolumeResponse,
 )
 
@@ -161,15 +163,39 @@ def vm_volumes(
 
 
 
-@router.get("/api/vm-volumes", response_model=list[VmVolumeResponse])
+@router.get("/api/vm-volumes", response_model=Union[list[VmVolumeResponse], VmVolumePageResponse])
 def vm_volumes_all(
     _: Annotated[CurrentUser, Depends(require_user)],
     vms: Annotated[VmService, Depends(get_vm_service)],
     tower_id: Optional[int] = None,
     cluster_id: Optional[str] = None,
-) -> list[dict]:
+    page: Optional[int] = None,
+    page_size: int = 200,
+    sort: Optional[str] = None,
+    order: Optional[str] = None,
+) -> Union[list[dict], dict]:
     if cluster_id and tower_id is None:
         raise HTTPException(status_code=400, detail="cluster_id requires tower_id.")
-    return vms.all_volumes(tower_id=tower_id, cluster_id=cluster_id)
+    if page is not None and page < 1:
+        raise HTTPException(status_code=400, detail="page must be >= 1.")
+    if not 1 <= page_size <= 1000:
+        raise HTTPException(status_code=400, detail="page_size must be between 1 and 1000.")
+    if sort is not None and sort not in {"vm", "used", "occupied"}:
+        raise HTTPException(status_code=400, detail="Unsupported volume sort field.")
+    if order is not None and order not in {"asc", "desc"}:
+        raise HTTPException(status_code=400, detail="Unsupported volume sort order.")
+    return vms.all_volumes(tower_id=tower_id, cluster_id=cluster_id, page=page, page_size=page_size, sort=sort, order=order)
+
+
+@router.get("/api/vm-volumes/usage-summary", response_model=VmUsageSummaryResponse)
+def vm_volumes_usage_summary(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    vms: Annotated[VmService, Depends(get_vm_service)],
+    tower_id: Optional[int] = None,
+    cluster_id: Optional[str] = None,
+) -> dict:
+    if cluster_id and tower_id is None:
+        raise HTTPException(status_code=400, detail="cluster_id requires tower_id.")
+    return {"usages": vms.usage_summary(tower_id=tower_id, cluster_id=cluster_id)}
 
 

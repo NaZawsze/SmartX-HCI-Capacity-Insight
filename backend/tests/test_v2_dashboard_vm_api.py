@@ -44,6 +44,14 @@ class V2DashboardVmApiTest(unittest.TestCase):
             def volumes(self, *, vm_id, tower_id, cluster_id):
                 return [{"volume_id": "vol-1", "name": "Root", "size_bytes": 100, "used_bytes": 60, "storage_policy": "Replica-2", "replica_num": 2}]
 
+            def all_volumes(self, tower_id=None, cluster_id=None, page=None, page_size=200, sort=None, order=None):
+                if page is None:
+                    return [{"tower_id": 1, "cluster_id": "cluster-a", "vm_id": "vm-1", "vm_name": "VM One", "volumes": []}]
+                return {"volumes": [{"tower_id": 1, "cluster_id": "cluster-a", "vm_id": "vm-1", "vm_name": "VM One", "volume_id": "vol-1"}], "total": 1, "page": page, "page_size": page_size}
+
+            def usage_summary(self, tower_id=None, cluster_id=None):
+                return [{"tower_id": 1, "cluster_id": "cluster-a", "vm_id": "vm-1", "used_bytes": 60.0, "provisioned_bytes": 100.0}]
+
         with tempfile.TemporaryDirectory() as tmpdir:
             os.environ["SMARTX_DATA_ROOT"] = tmpdir
             os.environ["SMARTX_SECRET_KEY"] = "dashboard-api-secret"
@@ -87,6 +95,29 @@ class V2DashboardVmApiTest(unittest.TestCase):
                     volumes = client.get("/api/vms/vm-1/volumes?tower_id=1&cluster_id=cluster-a", headers=headers)
                     self.assertEqual(volumes.status_code, 200)
                     self.assertEqual(volumes.json()[0]["volume_id"], "vol-1")
+
+                    grouped_volumes = client.get("/api/vm-volumes?tower_id=1&cluster_id=cluster-a", headers=headers)
+                    self.assertEqual(grouped_volumes.status_code, 200)
+                    self.assertIsInstance(grouped_volumes.json(), list)
+
+                    paged_volumes = client.get("/api/vm-volumes?tower_id=1&page=2&page_size=50&sort=used&order=desc", headers=headers)
+                    self.assertEqual(paged_volumes.status_code, 200)
+                    payload = paged_volumes.json()
+                    self.assertEqual(payload["page"], 2)
+                    self.assertEqual(payload["page_size"], 50)
+                    self.assertEqual(payload["total"], 1)
+
+                    self.assertEqual(client.get("/api/vm-volumes?page=0", headers=headers).status_code, 400)
+                    self.assertEqual(client.get("/api/vm-volumes?page=1&page_size=1001", headers=headers).status_code, 400)
+                    self.assertEqual(client.get("/api/vm-volumes?page=1&sort=name", headers=headers).status_code, 400)
+                    self.assertEqual(client.get("/api/vm-volumes?page=1&order=up", headers=headers).status_code, 400)
+
+                    usage_summary = client.get("/api/vm-volumes/usage-summary?tower_id=1&cluster_id=cluster-a", headers=headers)
+                    self.assertEqual(usage_summary.status_code, 200)
+                    self.assertEqual(usage_summary.json()["usages"][0]["vm_id"], "vm-1")
+
+                    missing_summary_scope = client.get("/api/vm-volumes/usage-summary?cluster_id=cluster-a", headers=headers)
+                    self.assertEqual(missing_summary_scope.status_code, 400)
             finally:
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)

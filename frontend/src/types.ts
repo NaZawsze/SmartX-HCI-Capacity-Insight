@@ -182,13 +182,27 @@ export interface VmVolume {
   thin_provision?: boolean | null;
 }
 
-export interface VmVolumeSet {
+export interface VmVolumeRow extends VmVolume {
   tower_id: number;
   cluster_id: string;
   cluster_name?: string;
   vm_id: string;
   vm_name?: string;
-  volumes: VmVolume[];
+}
+
+export interface VmVolumePage {
+  volumes: VmVolumeRow[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface VmUsageSummaryItem {
+  tower_id: number;
+  cluster_id: string;
+  vm_id: string;
+  used_bytes: number;
+  provisioned_bytes: number;
 }
 
 export interface LocalStorageUsage {

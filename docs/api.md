@@ -308,6 +308,48 @@ GET /api/vm-volumes
 
 Returns the latest collected virtual volume details grouped by Tower, cluster, and VM.
 
+For large environments, add `page` to switch to server-side pagination:
+
+```http
+GET /api/vm-volumes?page=1&page_size=200&sort=used&order=desc
+```
+
+- `page`: 1-based page number. When present, the response becomes a paginated object instead of the grouped array.
+- `page_size`: rows per page (default 200, max 1000).
+- `sort`: `used` (default) | `occupied` | `vm`. `occupied` replicates the frontend replica/EC multiplier.
+- `order`: `desc` (default) | `asc`.
+
+Paginated response:
+
+```json
+{
+  "volumes": [
+    {
+      "tower_id": 1,
+      "cluster_id": "cluster-a",
+      "cluster_name": "Cluster A",
+      "vm_id": "vm-1",
+      "vm_name": "VM One",
+      "volume_id": "vol-1",
+      "name": "Root",
+      "used_bytes": 60,
+      "size_bytes": 100
+    }
+  ],
+  "total": 12345,
+  "page": 1,
+  "page_size": 200
+}
+```
+
+### VM Volume Usage Summary
+
+```http
+GET /api/vm-volumes/usage-summary
+```
+
+Returns per-VM aggregated volume usage (`used_bytes` / `provisioned_bytes` sums over `vm_volumes`, skipping rows without usable size/used values). Powers the VM list usage labels and usage sort at large scale; optional `tower_id`/`cluster_id` filters.
+
 ## Reports
 
 ### Latest Forecast Report

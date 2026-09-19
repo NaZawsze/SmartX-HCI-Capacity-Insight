@@ -371,6 +371,91 @@ class V2DashboardVmTest(unittest.TestCase):
             self.assertEqual(volume_sets[0]["vm_name"], "VM One Latest")
             self.assertEqual(volume_sets[0]["volumes"][0]["used_bytes"], 60)
 
+    def test_all_volumes_pagination_sort_and_total(self) -> None:
+        from app.v2.vms.service import VmService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            with db.connection() as conn:
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cluster-a', 'vm-2', 'VM Two', 10)")
+                conn.execute(
+                    """
+                    INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, name, path, size_bytes, used_bytes, storage_policy, ec_k, ec_m)
+                    VALUES (1, 'cluster-a', 'vm-2', 'vol-big', 'Big', '/big', 300, 90, 'EC-2+1', 2, 1)
+                    """
+                )
+            service = VmService(db, settings, prometheus=FakePrometheus(), now_ts=200)
+
+            page = service.all_volumes(tower_id=1, cluster_id="cluster-a", page=1, page_size=1, sort="used", order="desc")
+            self.assertEqual(page["total"], 2)
+            self.assertEqual(page["page"], 1)
+            self.assertEqual(page["page_size"], 1)
+            self.assertEqual([row["volume_id"] for row in page["volumes"]], ["vol-big"])
+            self.assertEqual(page["volumes"][0]["vm_name"], "VM Two")
+            self.assertEqual(page["volumes"][0]["cluster_name"], "Cluster A")
+
+            page2 = service.all_volumes(tower_id=1, cluster_id="cluster-a", page=2, page_size=1, sort="used", order="desc")
+            self.assertEqual([row["volume_id"] for row in page2["volumes"]], ["vol-1"])
+            self.assertEqual(page2["volumes"][0]["vm_name"], "VM One Latest")
+
+            # occupied 口径：vol-big EC2+1 → 90*1.5=135；vol-1 2 副本 → 60*2=120。used 排序 vol-big 在前，occupied 排序仍 vol-big 在前，
+            # 但 used 顺序反转后 occupied 与 used 的差序可区分：asc 时 used 升序 [60, 90]，occupied 升序 [120, 135] 同序；
+            # 再造一个 used 更大但占用系数为 1 的卷验证 occupied 排序独立生效。
+            with db.connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, name, path, size_bytes, used_bytes, storage_policy, replica_num, thin_provision)
+                    VALUES (1, 'cluster-a', 'vm-1', 'vol-thin', 'Thin', '/thin', 400, 100, 'Replica-1', 1, 1)
+                    """
+                )
+            occupied_desc = service.all_volumes(tower_id=1, cluster_id="cluster-a", page=1, page_size=3, sort="occupied", order="desc")
+            self.assertEqual(occupied_desc["total"], 3)
+            self.assertEqual([row["volume_id"] for row in occupied_desc["volumes"]], ["vol-thin", "vol-big", "vol-1"])
+
+            vm_sorted = service.all_volumes(tower_id=1, cluster_id="cluster-a", page=1, page_size=3, sort="vm", order="asc")
+            self.assertEqual([row["vm_name"] for row in vm_sorted["volumes"]], ["VM One Latest", "VM One Latest", "VM Two"])
+
+            unfiltered = service.all_volumes(page=1, page_size=1000)
+            self.assertEqual(unfiltered["total"], 3)
+
+    def test_usage_summary_aggregates_per_vm_with_frontend_skip_semantics(self) -> None:
+        from app.v2.vms.service import VmService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            with db.connection() as conn:
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cluster-a', 'vm-2', 'VM Two', 10)")
+                conn.execute(
+                    """
+                    INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, name, path, size_bytes, used_bytes)
+                    VALUES (1, 'cluster-a', 'vm-2', 'vol-a', 'A', '/a', 200, 40)
+                    """
+                )
+                # 应跳过的行：size 为 NULL、used 为负（与前端逐卷 skip 口径一致）。
+                conn.execute(
+                    """
+                    INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, name, path, size_bytes, used_bytes)
+                    VALUES (1, 'cluster-a', 'vm-2', 'vol-invalid-size', 'Bad', '/bad', NULL, 999)
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, name, path, size_bytes, used_bytes)
+                    VALUES (1, 'cluster-a', 'vm-2', 'vol-negative', 'Neg', '/neg', 100, -5)
+                    """
+                )
+            service = VmService(db, settings, prometheus=FakePrometheus(), now_ts=200)
+
+            usages = {item["vm_id"]: item for item in service.usage_summary(tower_id=1, cluster_id="cluster-a")}
+
+            self.assertEqual(usages["vm-1"]["used_bytes"], 60.0)
+            self.assertEqual(usages["vm-1"]["provisioned_bytes"], 100.0)
+            self.assertEqual(usages["vm-2"]["used_bytes"], 40.0)
+            self.assertEqual(usages["vm-2"]["provisioned_bytes"], 200.0)
+
+            all_usages = {item["vm_id"] for item in service.usage_summary()}
+            self.assertEqual(all_usages, {"vm-1", "vm-2"})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -163,10 +163,12 @@ CloudTower 版本范围：Tower 连接和采集通过 CloudTower v2 HTTP API（`
 - 存储策略、副本、EC 信息解析
 - 单 VM 趋势图
 - Scope 联动
+- 千台规模加固：VM 列表客户端分页（100/页）、"所有虚拟卷"服务端分页+排序（`/api/vm-volumes?page=`）、使用率来自 `/api/vm-volumes/usage-summary` 聚合
 
 相关文件：
 - `frontend/src/pages/VmsPage.tsx`
 - `frontend/src/components/TrendChart.tsx`
+- `frontend/src/components/Pager.tsx`
 - `frontend/src/services/api.ts`
 - `backend/app/v2/vms/`
 - `backend/app/v2/api/vms.py`
@@ -186,7 +188,7 @@ CloudTower 版本范围：Tower 连接和采集通过 CloudTower v2 HTTP API（`
 
 主要内容：
 - 集群容量预测
-- 7/30/90/365/720 天统计窗口
+- 7/30/90/365 天统计窗口（Prometheus retention 400d，720 天档已移除）
 - 90 天预测窗口
 - 容量增长速率，按 7 天平均增长速率提示
 - 日增长、月增长 VM 榜单

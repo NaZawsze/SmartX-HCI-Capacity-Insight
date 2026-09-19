@@ -368,6 +368,28 @@ class VmVolumeResponse(BaseModel):
     ec_m: Optional[int] = None
 
 
+class VmVolumePageResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    volumes: list[VmVolumeResponse] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 200
+
+
+class VmUsageItem(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    tower_id: int
+    cluster_id: str
+    vm_id: str
+    used_bytes: float = 0
+    provisioned_bytes: float = 0
+
+
+class VmUsageSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    usages: list[VmUsageItem] = Field(default_factory=list)
+
+
 class ReportScopeModel(BaseModel):
     model_config = ConfigDict(extra="allow")
     tower_id: Optional[int] = None

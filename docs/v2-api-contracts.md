@@ -222,6 +222,37 @@
 
 返回结构化卷列表，不返回 Tower 原始 payload。
 
+### `GET /api/vm-volumes`
+
+无 `page` 参数时返回按 Tower/集群/VM 分组的全量数组（兼容旧调用）。
+
+带 `page` 时为服务端分页，返回：
+
+```json
+{
+  "volumes": [{ "tower_id": 1, "cluster_id": "cluster-a", "vm_id": "vm-1", "vm_name": "VM One", "volume_id": "vol-1", "used_bytes": 60 }],
+  "total": 12345,
+  "page": 1,
+  "page_size": 200
+}
+```
+
+参数：`page`（≥1）、`page_size`（默认 200，上限 1000）、`sort=used|occupied|vm`（occupied 使用副本/EC 系数复刻前端口径）、`order=asc|desc`。已知限制：`vm` 排序为 SQLite 码点序，非前端 localeCompare 中文拼音序。
+
+### `GET /api/vm-volumes/usage-summary`
+
+按 VM 聚合卷使用量（`vm_volumes` 中 `SUM(used_bytes)`/`SUM(size_bytes)`，跳过无有效 size/used 的行）：
+
+```json
+{
+  "usages": [
+    { "tower_id": 1, "cluster_id": "cluster-a", "vm_id": "vm-1", "used_bytes": 60.0, "provisioned_bytes": 100.0 }
+  ]
+}
+```
+
+前端 VM 列表使用率标签与"使用率"排序以此为准（千台规模下替代全量卷明细）。
+
 ## 7. 报表
 
 ### `GET /api/reports/latest`
@@ -230,7 +261,7 @@
 
 - `tower_id`
 - `cluster_id`
-- `chart_days=7|30|90|365|720`
+- `chart_days=7|30|90|365`（Prometheus retention 400d，720 天档已移除；传 720 回退 365）
 
 响应关键字段：
 

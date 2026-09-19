@@ -8,7 +8,8 @@ const apiMock = vi.hoisted(() => ({
   vmDetail: vi.fn(),
   vmTrend: vi.fn(),
   vmVolumes: vi.fn(),
-  vmVolumesAll: vi.fn()
+  vmVolumesPage: vi.fn(),
+  vmVolumesUsageSummary: vi.fn()
 }));
 
 vi.mock("../services/api", async () => ({
@@ -23,7 +24,8 @@ vi.mock("../components/TrendChart", () => ({
 describe("VmsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    apiMock.vmVolumesAll.mockResolvedValue([]);
+    apiMock.vmVolumesPage.mockResolvedValue({ volumes: [], total: 0, page: 1, page_size: 200 });
+    apiMock.vmVolumesUsageSummary.mockResolvedValue([]);
   });
 
   it("loads v2 vm detail and volumes for the selected scoped vm", async () => {
@@ -49,6 +51,9 @@ describe("VmsPage", () => {
       vm_id: "vm-1",
       volumes: [{ volume_id: "vol-1", name: "Root", used_bytes: 60, size_bytes: 100, storage_policy: "Replica-2" }]
     });
+    apiMock.vmVolumesUsageSummary.mockResolvedValue([
+      { tower_id: 1, cluster_id: "cluster-a", vm_id: "vm-1", used_bytes: 60, provisioned_bytes: 100 }
+    ]);
 
     render(<VmsPage scope={{ type: "cluster", towerId: 1, clusterId: "cluster-a" }} selectedVmId="vm-1" />);
 
@@ -184,7 +189,7 @@ describe("VmsPage", () => {
     expect(screen.queryByText("cm551tvrv029a0858up57q8qu")).not.toBeInTheDocument();
   });
 
-  it("renders all volumes and sorts by used or occupied size", async () => {
+  it("requests server-side sorted volume pages when sort headers change", async () => {
     apiMock.vms.mockResolvedValue([
       {
         metric: { tower_id: "1", cluster_id: "cluster-a", vm_id: "vm-1", vm: "VM One", cluster: "Cluster A" },
@@ -199,55 +204,74 @@ describe("VmsPage", () => {
       used_bytes: 70
     });
     apiMock.vmTrend.mockResolvedValue({ vm_id: "vm-1", metric: "used", points: [] });
-    apiMock.vmVolumes.mockResolvedValue({
-      vm_id: "vm-1",
-      volumes: [{ volume_id: "vol-1", name: "Root", used_bytes: 60, size_bytes: 100, replica_num: 2 }]
+    apiMock.vmVolumes.mockResolvedValue({ vm_id: "vm-1", volumes: [] });
+    const rows = [
+      { tower_id: 1, cluster_id: "cluster-a", cluster_name: "Cluster A", vm_id: "vm-1", vm_name: "VM One", volume_id: "vol-small", name: "Small", used_bytes: 10, size_bytes: 100, replica_num: 2 },
+      { tower_id: 1, cluster_id: "cluster-a", cluster_name: "Cluster A", vm_id: "vm-2", vm_name: "VM Two", volume_id: "vol-large", name: "Large", used_bytes: 80, size_bytes: 100, replica_num: 1 }
+    ];
+    apiMock.vmVolumesPage.mockImplementation((_scope: unknown, options?: { page?: number; sort?: string; order?: string }) => {
+      const field = options?.sort ?? "used";
+      const desc = (options?.order ?? "desc") !== "asc";
+      const sorted = [...rows].sort((left, right) => {
+        if (field === "vm") {
+          const delta = String(left.vm_name).localeCompare(String(right.vm_name), "zh-Hans-CN", { numeric: true, sensitivity: "base" });
+          return desc ? -delta : delta;
+        }
+        const delta = Number(left.used_bytes) - Number(right.used_bytes);
+        return desc ? -delta : delta;
+      });
+      return Promise.resolve({ volumes: sorted, total: rows.length, page: options?.page ?? 1, page_size: 200 });
     });
-    apiMock.vmVolumesAll.mockResolvedValue([
-      {
-        tower_id: 1,
-        cluster_id: "cluster-a",
-        cluster_name: "Cluster A",
-        vm_id: "vm-1",
-        vm_name: "VM One",
-        volumes: [{ volume_id: "vol-small", name: "Small", used_bytes: 10, size_bytes: 100, replica_num: 2 }]
-      },
-      {
-        tower_id: 1,
-        cluster_id: "cluster-a",
-        cluster_name: "Cluster A",
-        vm_id: "vm-2",
-        vm_name: "VM Two",
-        volumes: [{ volume_id: "vol-large", name: "Large", used_bytes: 80, size_bytes: 100, replica_num: 1 }]
-      }
-    ]);
 
     render(<VmsPage scope={{ type: "cluster", towerId: 1, clusterId: "cluster-a" }} selectedVmId="vm-1" />);
 
-    await waitFor(() => expect(apiMock.vmVolumesAll).toHaveBeenCalledWith({ type: "cluster", towerId: 1, clusterId: "cluster-a" }));
     const allVolumes = await screen.findByLabelText("当前集群虚拟卷");
+    await waitFor(() =>
+      expect(apiMock.vmVolumesPage).toHaveBeenCalledWith(
+        { type: "cluster", towerId: 1, clusterId: "cluster-a" },
+        expect.objectContaining({ page: 1, pageSize: 200, sort: "used", order: "desc" })
+      )
+    );
     expect(screen.getByRole("heading", { name: "当前集群虚拟卷" })).toBeInTheDocument();
     expect(within(allVolumes).getByText("Small")).toBeInTheDocument();
     expect(within(allVolumes).getByText("Large")).toBeInTheDocument();
-
-    const namesBefore = within(allVolumes).getAllByTestId("volume-name").map((node) => node.textContent);
-    expect(namesBefore).toEqual(["Large", "Small"]);
+    expect(within(allVolumes).getAllByTestId("volume-name").map((node) => node.textContent)).toEqual(["Large", "Small"]);
 
     fireEvent.click(screen.getByRole("button", { name: "按实际使用空间升序排序" }));
-    const namesAfterUsedAsc = within(allVolumes).getAllByTestId("volume-name").map((node) => node.textContent);
-    expect(namesAfterUsedAsc).toEqual(["Small", "Large"]);
+    await waitFor(() =>
+      expect(apiMock.vmVolumesPage).toHaveBeenLastCalledWith(
+        { type: "cluster", towerId: 1, clusterId: "cluster-a" },
+        expect.objectContaining({ sort: "used", order: "asc", page: 1 })
+      )
+    );
+    expect(within(allVolumes).getAllByTestId("volume-name").map((node) => node.textContent)).toEqual(["Small", "Large"]);
 
     fireEvent.click(screen.getByRole("button", { name: "按实际占用集群空间降序排序" }));
-    const namesAfterOccupiedDesc = within(allVolumes).getAllByTestId("volume-name").map((node) => node.textContent);
-    expect(namesAfterOccupiedDesc).toEqual(["Large", "Small"]);
+    await waitFor(() =>
+      expect(apiMock.vmVolumesPage).toHaveBeenLastCalledWith(
+        { type: "cluster", towerId: 1, clusterId: "cluster-a" },
+        expect.objectContaining({ sort: "occupied", order: "desc", page: 1 })
+      )
+    );
+    expect(within(allVolumes).getAllByTestId("volume-name").map((node) => node.textContent)).toEqual(["Large", "Small"]);
 
     fireEvent.click(screen.getByRole("button", { name: "按VM升序排序" }));
-    const namesAfterVmAsc = within(allVolumes).getAllByTestId("volume-name").map((node) => node.textContent);
-    expect(namesAfterVmAsc).toEqual(["Small", "Large"]);
+    await waitFor(() =>
+      expect(apiMock.vmVolumesPage).toHaveBeenLastCalledWith(
+        { type: "cluster", towerId: 1, clusterId: "cluster-a" },
+        expect.objectContaining({ sort: "vm", order: "asc", page: 1 })
+      )
+    );
+    expect(within(allVolumes).getAllByTestId("volume-name").map((node) => node.textContent)).toEqual(["Small", "Large"]);
 
     fireEvent.click(screen.getByRole("button", { name: "按VM降序排序" }));
-    const namesAfterVmDesc = within(allVolumes).getAllByTestId("volume-name").map((node) => node.textContent);
-    expect(namesAfterVmDesc).toEqual(["Large", "Small"]);
+    await waitFor(() =>
+      expect(apiMock.vmVolumesPage).toHaveBeenLastCalledWith(
+        { type: "cluster", towerId: 1, clusterId: "cluster-a" },
+        expect.objectContaining({ sort: "vm", order: "desc", page: 1 })
+      )
+    );
+    expect(within(allVolumes).getAllByTestId("volume-name").map((node) => node.textContent)).toEqual(["Large", "Small"]);
   });
 
   it("opens the matching vm trend when clicking a vm in all volumes", async () => {
@@ -266,10 +290,15 @@ describe("VmsPage", () => {
     );
     apiMock.vmTrend.mockResolvedValue({ vm_id: "vm-1", metric: "used", points: [] });
     apiMock.vmVolumes.mockResolvedValue({ vm_id: "vm-1", volumes: [] });
-    apiMock.vmVolumesAll.mockResolvedValue([
-      { tower_id: 1, cluster_id: "cluster-a", cluster_name: "Cluster A", vm_id: "vm-1", vm_name: "VM One", volumes: [{ volume_id: "vol-1", name: "Root", used_bytes: 70, size_bytes: 100 }] },
-      { tower_id: 1, cluster_id: "cluster-a", cluster_name: "Cluster A", vm_id: "vm-2", vm_name: "VM Two", volumes: [{ volume_id: "vol-2", name: "Data", used_bytes: 85, size_bytes: 100 }] }
-    ]);
+    apiMock.vmVolumesPage.mockResolvedValue({
+      volumes: [
+        { tower_id: 1, cluster_id: "cluster-a", cluster_name: "Cluster A", vm_id: "vm-1", vm_name: "VM One", volume_id: "vol-1", name: "Root", used_bytes: 70, size_bytes: 100 },
+        { tower_id: 1, cluster_id: "cluster-a", cluster_name: "Cluster A", vm_id: "vm-2", vm_name: "VM Two", volume_id: "vol-2", name: "Data", used_bytes: 85, size_bytes: 100 }
+      ],
+      total: 2,
+      page: 1,
+      page_size: 200
+    });
 
     render(<VmsPage scope={{ type: "cluster", towerId: 1, clusterId: "cluster-a" }} selectedVmId="vm-1" />);
 
@@ -355,7 +384,7 @@ describe("VmsPage", () => {
     expect(apiMock.vms).toHaveBeenCalledWith({ type: "all" });
   });
 
-  it("shows usage percentage for every vm from all volume data and highlights over 80 percent", async () => {
+  it("shows usage percentage for every vm from the usage summary and highlights over 80 percent", async () => {
     apiMock.vms.mockResolvedValue([
       {
         metric: { tower_id: "1", cluster_id: "cluster-a", vm_id: "vm-1", vm: "VM One", cluster: "Cluster A" },
@@ -369,14 +398,41 @@ describe("VmsPage", () => {
     apiMock.vmDetail.mockResolvedValue({ tower_id: 1, cluster_id: "cluster-a", vm_id: "vm-1", vm_name: "VM One", used_bytes: 50 });
     apiMock.vmTrend.mockResolvedValue({ vm_id: "vm-1", metric: "used", points: [] });
     apiMock.vmVolumes.mockResolvedValue({ vm_id: "vm-1", volumes: [] });
-    apiMock.vmVolumesAll.mockResolvedValue([
-      { tower_id: 1, cluster_id: "cluster-a", cluster_name: "Cluster A", vm_id: "vm-1", vm_name: "VM One", volumes: [{ volume_id: "vol-1", name: "Root", used_bytes: 50, size_bytes: 100 }] },
-      { tower_id: 1, cluster_id: "cluster-a", cluster_name: "Cluster A", vm_id: "vm-2", vm_name: "VM Two", volumes: [{ volume_id: "vol-2", name: "Data", used_bytes: 85, size_bytes: 100 }] }
+    apiMock.vmVolumesUsageSummary.mockResolvedValue([
+      { tower_id: 1, cluster_id: "cluster-a", vm_id: "vm-1", used_bytes: 50, provisioned_bytes: 100 },
+      { tower_id: 1, cluster_id: "cluster-a", vm_id: "vm-2", used_bytes: 85, provisioned_bytes: 100 }
     ]);
 
     render(<VmsPage scope={{ type: "cluster", towerId: 1, clusterId: "cluster-a" }} selectedVmId="vm-1" />);
 
-    const highUsage = await screen.findByText("已使用 85.0%");
-    expect(highUsage).toHaveClass("over-limit");
+    expect(await screen.findByText("已使用 85.0%")).toHaveClass("over-limit");
+    expect(screen.getByText("已使用 50.0%")).toBeInTheDocument();
+  });
+
+  it("paginates the vm list at 100 per page and switches pages", async () => {
+    apiMock.vms.mockResolvedValue(
+      Array.from({ length: 250 }, (_, index) => ({
+        metric: { tower_id: "1", cluster_id: "cluster-a", vm_id: `vm-${index + 1}`, vm: `VM ${String(index + 1).padStart(3, "0")}`, cluster: "Cluster A" },
+        value: 1000 - index
+      }))
+    );
+    apiMock.vmDetail.mockResolvedValue({ tower_id: 1, cluster_id: "cluster-a", vm_id: "vm-1", vm_name: "VM 001", used_bytes: 1000 });
+    apiMock.vmTrend.mockResolvedValue({ vm_id: "vm-1", metric: "used", points: [] });
+    apiMock.vmVolumes.mockResolvedValue({ vm_id: "vm-1", volumes: [] });
+
+    render(<VmsPage scope={{ type: "cluster", towerId: 1, clusterId: "cluster-a" }} />);
+
+    const list = await screen.findByLabelText("虚拟机列表");
+    await waitFor(() => expect(within(list).getAllByRole("button")).toHaveLength(100));
+    expect(screen.getByText("共 250 台")).toBeInTheDocument();
+    expect(screen.getByText("第 1 / 3 页")).toBeInTheDocument();
+    expect(within(list).getByText("VM 001")).toBeInTheDocument();
+    expect(within(list).queryByText("VM 101")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+
+    expect(await within(list).findByText("VM 101")).toBeInTheDocument();
+    expect(screen.getByText("第 2 / 3 页")).toBeInTheDocument();
+    expect(within(list).queryByText("VM 001")).not.toBeInTheDocument();
   });
 });

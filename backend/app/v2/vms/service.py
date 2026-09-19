@@ -12,6 +12,14 @@ from app.v2.metrics.series import labels_match, metric_value, range_values, scop
 
 VM_USED_METRIC = "smartx_vm_storage_used_bytes"
 
+# occupied（实际占用集群空间）排序键：复刻前端 getOccupiedSize 口径（副本数 / EC 比率放大）。
+_VOLUME_OCCUPIED_SQL = (
+    "v.used_bytes * CASE "
+    "WHEN COALESCE(v.replica_num, 0) > 0 THEN v.replica_num "
+    "WHEN COALESCE(v.ec_k, 0) > 0 AND COALESCE(v.ec_m, 0) > 0 THEN (v.ec_k + v.ec_m) * 1.0 / v.ec_k "
+    "ELSE 1 END"
+)
+
 
 class VmService:
     def __init__(self, database: V2Database, settings: V2Settings, prometheus=None, now_ts: int | None = None) -> None:
@@ -126,7 +134,23 @@ class VmService:
             for row in rows
         ]
 
-    def all_volumes(self, *, tower_id: int | None = None, cluster_id: str | None = None) -> list[dict[str, Any]]:
+    def all_volumes(
+        self,
+        *,
+        tower_id: int | None = None,
+        cluster_id: str | None = None,
+        page: int | None = None,
+        page_size: int = 200,
+        sort: str | None = None,
+        order: str | None = None,
+    ) -> list[dict[str, Any]] | dict[str, Any]:
+        if page is None:
+            return self._all_volumes_grouped(tower_id=tower_id, cluster_id=cluster_id)
+        return self._all_volumes_page(
+            tower_id=tower_id, cluster_id=cluster_id, page=page, page_size=page_size, sort=sort, order=order
+        )
+
+    def _all_volumes_grouped(self, *, tower_id: int | None, cluster_id: str | None) -> list[dict[str, Any]]:
         enabled_scope = self._enabled_cluster_scope(tower_id=tower_id, cluster_id=cluster_id)
         cluster_names = self._cluster_names()
         latest_names = self._latest_vm_names()
@@ -184,6 +208,117 @@ class VmService:
                 }
             )
         return list(grouped.values())
+
+    def _all_volumes_page(
+        self,
+        *,
+        tower_id: int | None,
+        cluster_id: str | None,
+        page: int,
+        page_size: int,
+        sort: str | None,
+        order: str | None,
+    ) -> dict[str, Any]:
+        page = max(int(page), 1)
+        page_size = min(max(int(page_size), 1), 1000)
+        sort_field = sort if sort in {"vm", "used", "occupied"} else "used"
+        direction = "ASC" if str(order or "desc").lower() == "asc" else "DESC"
+        filters: list[str] = []
+        params: list[object] = []
+        if tower_id is not None:
+            filters.append("v.tower_id = ?")
+            params.append(tower_id)
+        if cluster_id:
+            filters.append("v.cluster_id = ?")
+            params.append(cluster_id)
+        where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        join_vm_latest = ""
+        if sort_field == "vm":
+            join_vm_latest = "LEFT JOIN vm_latest vm ON vm.tower_id = v.tower_id AND vm.cluster_id = v.cluster_id AND vm.vm_id = v.vm_id"
+            order_sql = f"COALESCE(vm.name, v.vm_id) {direction}, v.name {direction}, v.volume_id {direction}"
+        elif sort_field == "occupied":
+            order_sql = f"{_VOLUME_OCCUPIED_SQL} {direction}, v.used_bytes {direction}, v.name {direction}"
+        else:
+            order_sql = f"v.used_bytes {direction}, v.name {direction}, v.volume_id {direction}"
+        with self.database.connection() as conn:
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM vm_volumes v {where}",
+                params,
+            ).fetchone()[0]
+            rows = conn.execute(
+                f"""
+                SELECT v.tower_id, v.cluster_id, v.vm_id, v.volume_id, v.name, v.path,
+                       v.size_bytes, v.used_bytes, v.storage_policy, v.replica_num,
+                       v.thin_provision, v.ec_k, v.ec_m, v.updated_at,
+                       COALESCE(vm.name, v.vm_id) AS vm_name,
+                       COALESCE(cl.name, '') AS cluster_name
+                FROM vm_volumes v
+                {join_vm_latest}
+                LEFT JOIN clusters cl ON cl.tower_id = v.tower_id AND cl.cluster_id = v.cluster_id
+                {where}
+                ORDER BY {order_sql}
+                LIMIT ? OFFSET ?
+                """,
+                [*params, page_size, (page - 1) * page_size],
+            ).fetchall()
+        volumes = [
+            {
+                "tower_id": int(row["tower_id"]),
+                "cluster_id": str(row["cluster_id"]),
+                "cluster_name": str(row["cluster_name"] or row["cluster_id"]),
+                "vm_id": str(row["vm_id"]),
+                "vm_name": str(row["vm_name"]),
+                "volume_id": str(row["volume_id"]),
+                "name": row["name"],
+                "path": row["path"],
+                "size_bytes": row["size_bytes"],
+                "used_bytes": row["used_bytes"],
+                "storage_policy": row["storage_policy"],
+                "replica_num": row["replica_num"],
+                "thin_provision": bool(row["thin_provision"]) if row["thin_provision"] is not None else None,
+                "ec_k": row["ec_k"],
+                "ec_m": row["ec_m"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+        return {"volumes": volumes, "total": int(total), "page": page, "page_size": page_size}
+
+    def usage_summary(self, *, tower_id: int | None = None, cluster_id: str | None = None) -> list[dict[str, Any]]:
+        filters: list[str] = []
+        params: list[object] = []
+        if tower_id is not None:
+            filters.append("tower_id = ?")
+            params.append(tower_id)
+        if cluster_id:
+            filters.append("cluster_id = ?")
+            params.append(cluster_id)
+        # 与前端逐卷口径一致：used >= 0 且 size > 0 的卷才计入求和。
+        filters.append("used_bytes IS NOT NULL AND used_bytes >= 0")
+        filters.append("size_bytes IS NOT NULL AND size_bytes > 0")
+        where = f"WHERE {' AND '.join(filters)}"
+        with self.database.connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT tower_id, cluster_id, vm_id,
+                       SUM(used_bytes) AS used_bytes,
+                       SUM(size_bytes) AS provisioned_bytes
+                FROM vm_volumes
+                {where}
+                GROUP BY tower_id, cluster_id, vm_id
+                """,
+                params,
+            ).fetchall()
+        return [
+            {
+                "tower_id": int(row["tower_id"]),
+                "cluster_id": str(row["cluster_id"]),
+                "vm_id": str(row["vm_id"]),
+                "used_bytes": float(row["used_bytes"] or 0),
+                "provisioned_bytes": float(row["provisioned_bytes"] or 0),
+            }
+            for row in rows
+        ]
 
     def _latest_vm_names(self) -> dict[tuple[int, str, str], str]:
         with self.database.connection() as conn:

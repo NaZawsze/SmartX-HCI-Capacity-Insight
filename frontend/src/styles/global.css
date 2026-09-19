@@ -5029,3 +5029,44 @@ button.risk-cluster-row:hover {
   cursor: pointer;
   white-space: nowrap;
 }
+
+/* 分页器（VM 列表 / 所有虚拟卷表） */
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pager-total {
+  font-weight: 700;
+}
+
+.pager-status {
+  white-space: nowrap;
+}
+
+.pager-button {
+  height: 24px;
+  width: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.pager-button:disabled {
+  color: var(--line);
+  cursor: not-allowed;
+}
+
+.pager-button:not(:disabled):hover {
+  border-color: var(--blue);
+  color: var(--blue);
+}
