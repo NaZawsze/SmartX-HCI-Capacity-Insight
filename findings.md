@@ -601,3 +601,12 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - helper 复制粘贴：_vm_key x5、_cluster_key x6、_number/_int_or_none 多处，应收敛公共模块。
 - API 无响应模型（dict 直出），契约靠前端 normalizeDashboardSummary 兜底，是前后端各自通过、集成失败类问题的土壤；建议 Pydantic response_model。
 - 前端 token 存 localStorage（XSS 可窃取），离线内网产品可记为已知取舍。
+
+## 2026-09-19 UPG-049 runner filesystem.prepare 误判"从 legacy 迁移"导致凭据守卫硬失败
+
+- 现象：v0.5.2（目标布局）→ v0.5.3 正式升级在 `filesystem.prepare` 失败：`Tower XOR 凭据无法认证密钥，且未找到可保留来源配对关系的旧环境 .env`。10.20.11.12 两个任务（upgrade-53549c5fbb93ae7c、upgrade-fd1b47c6238ddc17）同样失败；10.20.11.3 的 `app/smartx-storage-forecast/` 嵌套目录证明该路径在 .3 的 v0.5.3 升级时同样发生。
+- 根因：runner 容器把宿主机 app 目录挂载在 `/data`（`- <app>:/data`）。`filesystem.prepare` 用容器内路径扫描 manifest 的 `legacy_app_data_paths`（含 `/data`），于是 `/data/smartx.db` 命中的是**目标在线 DB 自己**，被当成 legacy 源：要么把在线 DB 复制进容器内 `/data/smartx-storage-forecast/app`（宿主机 app 目录下的嵌套垃圾目录），要么发现嵌套目录已有同内容副本；两种情况都置 `database_migrated_from_legacy=True`。
+- 连锁：一旦标记"从 legacy 迁移"，`_migrate_env_file` 的 UPG-042 配对策略只允许 manifest `legacy_candidates`（`/opt/smartx-storage-forecast/.env`）作为 XOR 凭据的配对来源，**即使目标 .env 能成功解密凭据也被跳过**。目标布局机器的旧 .env 早已在 v0.5.2 post-cleanup 删除，因此必然失败。产品保存 Tower 凭据只用 XOR（`encrypt_secret`），不存在 Fernet 形态，无法通过"重新保存"绕开。
+- 结论：任何 v0.5.2 目标布局机器（runner 挂载 app:/data）+ 存在 Tower 凭据 + 无 legacy .env，升级 v0.5.3 必然硬失败。此前未暴露是因为 6 月链路测试库 towers=0、9 月 14 日 v0.5.1u2 直升时 legacy .env 尚存在。
+- 修复：`_migrate_app_data_source` 调用前跳过"`smartx.db` 与 runner 在线库（SMARTX_DB_PATH）为同一文件"的 legacy 候选（自检消除误判）；真实 legacy 机器不受影响（其迁移走 `_docker_copy_missing` 宿主机路径 docker cp 兜底）。凭据守卫语义不变。
+- 残留（后续治理）：prepare 的容器内路径畸变还会把 Prometheus 数据复制进嵌套目录（目标为空时），以及任务目录落在 `app/upgrades`（compose 挂载目标路径写法差异），均为卫生问题不阻塞升级；嵌套垃圾目录清理需用户确认。

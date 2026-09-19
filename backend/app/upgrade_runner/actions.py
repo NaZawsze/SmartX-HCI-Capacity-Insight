@@ -1050,6 +1050,15 @@ def filesystem_prepare(action: dict[str, Any], context_payload: dict[str, Any]) 
                 continue
         except OSError:
             pass
+        try:
+            # runner 把宿主机 app 目录挂载在 /data；此时 legacy 候选 "/data" 的
+            # smartx.db 就是目标在线库自己，绝不能当作 legacy 源迁移（UPG-049）
+            live_db = Path(os.environ.get("SMARTX_DB_PATH") or "/data/smartx.db")
+            candidate_db = source / "smartx.db"
+            if candidate_db.is_file() and candidate_db.resolve() == live_db.resolve():
+                continue
+        except OSError:
+            pass
         migration = _migrate_app_data_source(source, app_target)
         if not migration:
             continue

@@ -382,6 +382,52 @@ class UpgradeEngineTest(unittest.TestCase):
             self.assertTrue((target_root / "upgrade-1" / "task.json").is_file())
             self.assertNotIn("smartx-capacity-insight-data", result["mirror_task_dir"])
 
+    def test_filesystem_prepare_skips_legacy_source_matching_live_db(self) -> None:
+        # UPG-049：runner 把宿主机 app 目录挂载在 /data 时，legacy 候选 "/data" 的
+        # smartx.db 就是目标在线库自己，prepare 不得将其当作 legacy 源迁移，
+        # 否则会误置 database_migrated_from_legacy 并触发凭据配对硬失败。
+        from app.upgrade_runner.actions import ActionContext, filesystem_prepare
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app_dir = root / "app"
+            app_dir.mkdir(parents=True)
+            live_db = app_dir / "smartx.db"
+            connection = sqlite3.connect(live_db)
+            connection.execute("CREATE TABLE users (id INTEGER PRIMARY KEY)")
+            connection.commit()
+            connection.close()
+
+            target_app = root / "target" / "app"
+            previous = os.environ.get("SMARTX_DB_PATH")
+            os.environ["SMARTX_DB_PATH"] = str(live_db)
+            try:
+                context = ActionContext.minimal(root)
+                context.data_path = app_dir
+                result = filesystem_prepare(
+                    {
+                        "params": {
+                            "app_data_path": str(target_app),
+                            "prometheus_data_path": str(root / "target" / "prometheus"),
+                            "upgrades_path": str(root / "target" / "upgrades"),
+                            "backups_path": str(root / "target" / "backups"),
+                            "exports_path": str(root / "target" / "exports"),
+                            "compose_runtime_path": str(root / "target" / "compose-runtime"),
+                            "legacy_app_data_paths": [str(app_dir)],
+                        }
+                    },
+                    context.as_dict(),
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop("SMARTX_DB_PATH", None)
+                else:
+                    os.environ["SMARTX_DB_PATH"] = previous
+
+            self.assertEqual(result.get("copied_app_sources"), [])
+            self.assertEqual(result.get("source_db_path") or "", "")
+            self.assertFalse((target_app / "smartx.db").exists())
+
     def test_task_migrate_runtime_state_preserves_existing_upgrade_history(self) -> None:
         from app.upgrade_runner.actions import ActionContext, task_migrate_runtime_state
 
