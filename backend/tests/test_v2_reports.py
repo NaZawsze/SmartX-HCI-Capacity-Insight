@@ -221,6 +221,19 @@ class V2ReportsTest(unittest.TestCase):
             self.assertIn("actual_data_window", report["data_quality"])
             self.assertEqual(report["data_quality"]["sqlite_vm_count"], 2)
 
+    def test_chart_days_normalization_caps_at_365(self) -> None:
+        from app.v2.reports.service import _normalize_chart_days
+
+        self.assertEqual(_normalize_chart_days(7), 7)
+        self.assertEqual(_normalize_chart_days(30), 30)
+        self.assertEqual(_normalize_chart_days(90), 90)
+        self.assertEqual(_normalize_chart_days(365), 365)
+        # Prometheus retention 400d：720 天档已移除，旧客户端传 720 回退 365。
+        self.assertEqual(_normalize_chart_days(720), 365)
+        self.assertEqual(_normalize_chart_days(None), 365)
+        self.assertEqual(_normalize_chart_days(45), 365)
+        self.assertEqual(_normalize_chart_days("bad"), 365)
+
     def test_latest_report_uses_range_tail_when_current_vm_instant_is_empty(self) -> None:
         from app.v2.reports.service import ReportService
 

@@ -45,12 +45,11 @@ class V2ReportsApiTest(unittest.TestCase):
                     token = client.post("/api/auth/login", json={"username": "admin", "password": "password"}).json()["access_token"]
                     headers = {"Authorization": f"Bearer {token}"}
 
-                    response = client.get("/api/reports/latest?tower_id=1&cluster_id=cluster-a&period_days=90&chart_days=720", headers=headers)
+                    response = client.get("/api/reports/latest?tower_id=1&cluster_id=cluster-a&period_days=90&chart_days=365", headers=headers)
                     self.assertEqual(response.status_code, 200)
                     payload = response.json()
                     self.assertEqual(payload["scope"], {"tower_id": 1, "cluster_id": "cluster-a"})
                     self.assertEqual(payload["window_days"], 90)
-                    # Prometheus retention 400d：720 天档已移除，旧客户端传 720 回退 365。
                     self.assertEqual(payload["chart_days"], 365)
                     self.assertEqual(payload["forecast_days"], 90)
 

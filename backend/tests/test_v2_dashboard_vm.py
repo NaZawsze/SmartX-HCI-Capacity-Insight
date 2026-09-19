@@ -377,7 +377,6 @@ class V2DashboardVmTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             settings, db = self._seed_inventory(tmpdir)
             with db.connection() as conn:
-                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cluster-a', 'vm-2', 'VM Two', 10)")
                 conn.execute(
                     """
                     INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, name, path, size_bytes, used_bytes, storage_policy, ec_k, ec_m)
@@ -424,7 +423,6 @@ class V2DashboardVmTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             settings, db = self._seed_inventory(tmpdir)
             with db.connection() as conn:
-                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cluster-a', 'vm-2', 'VM Two', 10)")
                 conn.execute(
                     """
                     INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, name, path, size_bytes, used_bytes)
