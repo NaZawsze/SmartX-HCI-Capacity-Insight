@@ -7165,3 +7165,41 @@ release_smoke=critical 0, warning 0
   - 拆分方案：6 个 render 闭包（migration/restart/space-cleanup/platform-upgrade/component-upgrade/history）抽成 components/service/ 组件；state 与处理器随分区搬移；共享助手（renderUpgradeTask/renderUpgradeRuntimeVerification/renderCleanupDialog/InfoRow 等）进 shared.tsx；ServicePage 收敛为 subnav + 分区切换。
   - 验证：前端 tsc + 目标测试 + 部署 + 健康；每个文件独立提交。
   - 网络备注：.3 SSH 链路不稳，验证用重试/短连接；GitHub push 需用户明确要求。
+
+## 2026-09-19 10.20.11.12 恢复 v0.5.2 基线 + v0.5.3 重打包 + 正规流程升级验证
+
+任务：用户要求「11.12 恢复 v0.5.2，最新代码为 v0.5.3，重新打包 v0.5.3，推出升级包，走正规流程测试」。
+
+### .12 v0.5.2 基线恢复
+
+- 判定：v0.5.2 升级包内 compose 为迁移前旧路径（`/data/smartx-capacity-insight-data`），runner 升级时才重写；真实 v0.5.2 机器（post-migration）为目标布局 `/data/smartx-storage-forecast`（AGENTS.md §9 + worklog 1516-1526 证据）。
+- 恢复动作：以 .3 上 v0.5.2 包解出目录的 project 文件为底，将三份 compose 的宿主路径重写为目标路径（含 runner `SMARTX_*_PATH`、网络子网对齐 .3 线上 `10.249.251.0/24`），.env 用模板密钥 + `SMARTX_DB_PATH=/data/smartx.db`（0600），prometheus 数据 chown 65534。
+- 基线验证：5 容器（v0.5.2 三件套 + runner v0.3.1 + prometheus v2.55.1）；health `{"ok":true,"version":"v0.5.2","runner_version":"v0.3.1","checks":{directories,database,prometheus}=true}`；DB users=1/towers=1/clusters=1/vm_latest=590/vm_volumes=89636（与 .3 演练数据一致）；Prometheus API 200。
+- 教训记录：本日早间的错误部署（用了包内旧路径 compose）曾在 `/data/smartx-capacity-insight-data/app/` 生成 90KB 空库；UPG-049 修复前的第一次升级尝试（upgrade-53549c5fbb93ae7c）正是被它触发的 legacy 误判，已移除该文件后仍失败（见下），最终随 legacy cleanup 一并清理。
+
+### v0.5.3 重打包（.3，Docker Hub 已恢复）
+
+- Docker Hub 连通性恢复（registry 401 正常响应），python:3.12-slim 直接拉取成功，本次为**完整构建**（非 COPY 旧镜像方案）。
+- `python3 scripts/build_upgrade_package.py --output-dir /data/upgrade-packages/v053-rebuild-20260919`：web-api/collector-worker 镜像重建（含 _docx_ 重命名等最新代码），frontend 源码无变化缓存命中同 ID；包 SHA256 `ef10a7c8515b4b0214d8b76e99897dd145e598c8520bbce0c451a36f0335a5f8`（sha256sum -c OK）。
+- 测试证据：.3 标准方式全量 310 tests OK（skipped=1）；宿主机 build_tests 26 OK；前端 tsc + vitest 85 passed。
+- 附注：`docker run` 方式跑全量会出现 1 个失败（test_start_can_submit_task_for_runner_and_runner_executes_it），为无 compose 网络/HOSTNAME 上下文的环境性失败（progress.md 961 同类），compose exec 方式单测 OK、全量 OK，非回归。
+
+### UPG-049：正规流程失败 → 定位 → 修复 → 验证
+
+- 正规流程（API 上传→预检查→启动）两次失败（upgrade-53549c5fbb93ae7c、upgrade-fd1b47c6238ddc17），错误：`Tower XOR 凭据无法认证密钥，且未找到可保留来源配对关系的旧环境 .env`。
+- 根因（详见 findings.md UPG-049）：runner 容器把 app 目录挂在 `/data`，`filesystem.prepare` 扫描 manifest `legacy_app_data_paths`（含 `/data`）时把**目标在线库自己**当成 legacy 源，置 `database_migrated_from_legacy=True`；UPG-042 配对策略随即只认 legacy `.env`（v0.5.2 机器已清理），即使目标 .env 能解密凭据（本地实测模板密钥可解，XOR len=14）。产品保存 Tower 凭据只用 XOR，无 Fernet 形态，无法用重存绕开。.3 的 `app/smartx-storage-forecast/` 嵌套目录证明该误判在 .3 升级时同样发生（6 月链路 towers=0、9-14 直升 legacy .env 尚在，故未暴露）。
+- 修复（commit a64a897）：`backend/app/upgrade_runner/actions.py` legacy 扫描跳过「smartx.db 与 SMARTX_DB_PATH 同文件」的候选；真实 legacy 机器仍走宿主机路径 docker cp 兜底。新增回归测试 `test_filesystem_prepare_skips_legacy_source_matching_live_db`（engine 66 tests OK；缺陷场景复现验证：不匹配时会复制并置标记）。
+- runner v0.3.1 镜像同 tag 重建（.3 ID `7d152590d6fd`，RUNNER_VERSION 不变），.3 与 .12 均已更新（.12 runner 容器 recreate，.3 runner 容器 recreate 后 health 仍全绿）。
+
+### 正规流程验证通过（.12）
+
+- task `upgrade-e1fe8a62ea767ab7`：上传 succeeded → 预检查 prechecked → 升级 succeeded → post-cleanup succeeded；`post-upgrade-collection.json` 已生成（采集 failed：CHINATOWER/SMARTX-TT-WW `No route to host`，Tower 10.20.0.6 测试网不可达为已知限制）。
+- 验收：health `{"ok":true,"version":"v0.5.3","runner_version":"v0.3.1","checks":{directories,database,prometheus}=true}`；5 容器镜像 tag 正确（三件套 v0.5.3、runner v0.3.1、prometheus v2.55.1）；network `smartx-hci-capacity-insight-net`；SQLite 行数与基线完全一致（89636/590/1/1/1）；.env 0600；Prometheus 历史 block 保留；7 个 legacy 路径全部 missing；UI 8080=200；verification 接口 services 全 running。
+- 包与镜像台账已更新：docs/upgrade-package-ledger.md（2026-09-19 条目，SUPERSEDES 09-13 包）。
+
+### 限制与未验证项
+
+- 升级后自动采集因 Tower 不可达失败（环境限制，非缺陷）；Tower 10.20.0.6 恢复后需重测采集。
+- .12 上残留 drill 垃圾目录 `app/smartx-storage-forecast/`（9-15 演练残留 + 修复前 prepare 误复制产物），清理需用户确认。
+- .12 compose 由包内 compose 重写而来（目标路径），runner 挂载目标路径写法与 .3 线上存在目标/源侧差异（任务目录曾落 `app/upgrades`，task.migrate_runtime_state 已归位）；UPG-049 残留卫生项（容器内路径畸变导致的 Prometheus 嵌套复制）记录在 findings.md 待后续治理。
+- dev2 本地提交 a64a897，未推送（按策略等待用户要求）。

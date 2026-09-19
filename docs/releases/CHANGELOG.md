@@ -20,6 +20,7 @@ v0.5.3 是 v0.5.2 之后的正式平台版本，主要包含工程健康度与�
 - **AI 措辞层（可选）**：新增 `app/v2/reports/wording.py` 措辞增强接口，未配置 AI 服务时回退离线规则文案（行为与现状一致）；接入点留待有 AI 服务时。
 - **task-worker 第 6 容器评估**：实测报表导出期间 web-api 响应仅 +40ms，空间清理/迁移导出无影响，结论保持 5 容器模块化单体。
 - **测试环境治理**：构建测试移到宿主机跑（26 tests OK），deployment_config 改 unittest（无 pytest 依赖），容器内全量 310 tests 全绿。
+- **升级链路修复（UPG-049，2026-09-19 重打包纳入）**：runner `filesystem.prepare` 不再把与在线库同文件的 legacy 候选误判为 legacy 源；此前任何 v0.5.2 目标布局机器带 Tower 凭据升级 v0.5.3 会被凭据配对策略硬失败。真实 legacy 机器迁移行为不变。
 
 ### 验证说明
 
