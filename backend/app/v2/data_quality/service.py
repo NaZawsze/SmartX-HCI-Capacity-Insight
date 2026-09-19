@@ -21,6 +21,31 @@ VM_USED_METRIC = "smartx_vm_storage_used_bytes"
 CLUSTER_USED_METRIC = "smartx_cluster_storage_used_bytes"
 
 
+def freshness_threshold_minutes(database: V2Database) -> int:
+    """数据新鲜度停摆阈值：max(2 × 启用 Tower 最小生效采集周期, 60 分钟)。
+
+    SMARTX_FRESHNESS_STALE_MINUTES 可覆盖；daily 模式按 1440 分钟计。
+    供 DataQualityService 与 web-api 采集新鲜度探针共用同一口径。
+    """
+    env = os.environ.get("SMARTX_FRESHNESS_STALE_MINUTES")
+    if env:
+        try:
+            return int(env)
+        except ValueError:
+            pass
+    with database.connection() as conn:
+        rows = conn.execute(
+            "SELECT collection_interval_minutes, collection_mode FROM towers WHERE enabled = 1"
+        ).fetchall()
+    intervals = []
+    for row in rows:
+        mode = str(row["collection_mode"] or "interval")
+        interval = int(row["collection_interval_minutes"] or 0)
+        intervals.append(1440 if mode == "daily" else (interval if interval > 0 else 60))
+    effective = min(intervals) if intervals else 60
+    return max(2 * effective, 60)
+
+
 class DataQualityService:
     def __init__(
         self,
@@ -216,23 +241,7 @@ class DataQualityService:
         }
 
     def _freshness_threshold_minutes(self) -> int:
-        env = os.environ.get("SMARTX_FRESHNESS_STALE_MINUTES")
-        if env:
-            try:
-                return int(env)
-            except ValueError:
-                pass
-        with self.database.connection() as conn:
-            rows = conn.execute(
-                "SELECT collection_interval_minutes, collection_mode FROM towers WHERE enabled = 1"
-            ).fetchall()
-        intervals = []
-        for row in rows:
-            mode = str(row["collection_mode"] or "interval")
-            interval = int(row["collection_interval_minutes"] or 0)
-            intervals.append(1440 if mode == "daily" else (interval if interval > 0 else 60))
-        effective = min(intervals) if intervals else 60
-        return max(2 * effective, 60)
+        return freshness_threshold_minutes(self.database)
 
     def _freshness_check(self, latest_collection: dict[str, Any], latest_prometheus_ts: int | None) -> tuple[dict[str, Any], list[str]]:
         """数据新鲜度链路检查：采集停摆 + Prometheus 样本滞后（只告警，不改数据）。

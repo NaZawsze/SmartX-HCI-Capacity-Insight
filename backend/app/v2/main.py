@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import threading
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.v2.api import router
 from app.v2.config import settings_from_environment
 from app.v2.database import V2Database
+from app.v2.freshness import start_freshness_probe_daemon
 
 
 def create_app() -> FastAPI:
@@ -21,10 +24,19 @@ def create_app() -> FastAPI:
             allow_headers=["*"],
         )
     app.include_router(router)
+    probe_stop_event: threading.Event | None = None
 
     @app.on_event("startup")
     async def startup() -> None:
+        nonlocal probe_stop_event
         V2Database(settings).initialize()
+        # 采集新鲜度探针：web-api 侧跨容器互检，collector-worker 全挂时任务中心告警
+        probe_stop_event = start_freshness_probe_daemon(V2Database(settings))
+
+    @app.on_event("shutdown")
+    async def shutdown() -> None:
+        if probe_stop_event is not None:
+            probe_stop_event.set()
 
     return app
 
