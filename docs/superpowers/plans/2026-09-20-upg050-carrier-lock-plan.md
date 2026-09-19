@@ -7,19 +7,19 @@
 
 ## 前置条件
 
-- [ ] 用户批准设计文档（本计划的触发条件）。
-- [ ] .12 基线复查：`bind-mount-recover.sh check` 20/20 挂载 + health ok（2026-09-20 00:15 已确认通过，执行日复查一次）。
+- [x] 用户批准设计文档（2026-09-20「开始实施」）。
+- [x] .12 基线复查：`bind-mount-recover.sh check` 20/20 挂载 + health ok（2026-09-20 00:15 已确认通过，执行日复查一次）。
 
 ## 步骤 1：脚本改造（本地，单提交）
 
-- [ ] `scripts/bind-mount-recover.sh` 增加常量 `LOCK_PATHS`（6 路径）与辅助函数 `attr_has_i` / `fs_supports_chattr` / `warn_upg050`（接口按设计文档"脚本接口设计"节）。
-- [ ] 新增 `lock` 子命令：fs 前置检查 → 逐路径 mkdir 兜底 + `chattr +i`，幂等，逐路径输出，失败 exit 1。
-- [ ] 新增 `unlock` 子命令：逐路径 `chattr -i`，幂等，失败 exit 1。
-- [ ] `check` 末尾追加 6 路径锁定状态报告（仅提示，不改变退出码语义）。
-- [ ] `recover` 改造：入口自动解锁 → 现有全量重建+三轮验证不变 → 通过后自动复锁；验证失败保持解锁并大声提示；复锁失败非零退出。
-- [ ] `*` 分支用法文案更新为 `{check|recover|lock|unlock}`。
-- [ ] `bash -n` 语法检查通过。
-- [ ] 提交 dev2（仅脚本 + 本计划勾选，单提交）。
+- [x] `scripts/bind-mount-recover.sh` 增加常量 `LOCK_PATHS`（6 路径）与辅助函数 `attr_has_i` / `fs_supports_chattr` / `warn_upg050`（接口按设计文档"脚本接口设计"节）。
+- [x] 新增 `lock` 子命令：fs 前置检查 → 逐路径 mkdir 兜底 + `chattr +i`，幂等，逐路径输出，失败 exit 1。
+- [x] 新增 `unlock` 子命令：逐路径 `chattr -i`，幂等，失败 exit 1。
+- [x] `check` 末尾追加 6 路径锁定状态报告（仅提示，不改变退出码语义）。
+- [x] `recover` 改造：入口自动解锁 → 现有全量重建+三轮验证不变 → 通过后自动复锁；验证失败保持解锁并大声提示；复锁失败非零退出。
+- [x] `*` 分支用法文案更新为 `{check|recover|lock|unlock}`。
+- [x] `bash -n` 语法检查通过。
+- [x] 提交 dev2（仅脚本 + 本计划勾选，单提交）。
 
 ## 步骤 2：.12 部署与六步验证协议
 
