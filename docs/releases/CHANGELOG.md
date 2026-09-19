@@ -10,24 +10,40 @@
 
 ### 更新摘要
 
-v0.5.3 是 v0.5.2 之后的正式平台版本，主要包含工程健康度与报表产品化增强：巨型文件拆分（api.py 域路由包、ServicePage 六域组件、reports/export 包、upgrade/service Mixin 包）、前后端契约对齐、Excel 报表图表与打印版式、可选的 AI 措辞增强层，以及测试环境治理（10 个已知环境性测试错误修复，容器内全量测试全绿）。
+v0.5.3 是 v0.5.2 之后的平台版本候选（未发布），主要内容：①总览可靠性与主动告警（首页静默陈旧修复、容量阈值主动告警、采集频率分钟级可配置）；②报表产品化（预测区间、Excel 图表精修、VM 页千台规模加固）；③Tower 设置页完整改版；④升级链路修复（UPG-049）与挂载运维工具（UPG-050）；⑤工程健康度（巨型文件拆分、v1 死代码移除、SQLite 治理、CORS 收紧、前后端契约对齐、API 响应模型）与测试环境治理。
 
-### 新增与优化
+### 新增
 
-- **巨型文件拆分（49-13）**：`app/v2/api.py` → 域路由包（74 条路由 path+method 一致）；`frontend/src/pages/ServicePage.tsx`（2305 行）→ `components/service/` 六域组件（页面收敛 156 行）；`app/v2/reports/export.py`（3720 行）→ `export/` 包（common/word/excel/legacy）；`app/v2/upgrade/service.py`（1791 行）→ Mixin 包（构造签名与公开方法集合不变）。纯结构重构，零行为变化。
-- **前后端契约对齐（49-14/49-16）**：后端补发 `kpis`/`latest_run`/`top_vms`/`tower_runs` 与 item `metric`/`value`/`previous_value`，前端删除兼容 normalizer。
-- **admin.py 二次拆分**：43 条路由拆成 `app/v2/api/admin/` 域子模块包（upgrade/migration/system_admin/exports）。
-- **export legacy 消化**：删除 60 个不可达死代码（v1 模板遗留），约 1264 行。
+- **主动容量告警（49-8）**：每次采集完成后按集群检查容量阈值（使用率比率 + 剩余绝对空间），跨阈值生成任务中心 warning/critical 告警（复用 severity 体系，去重与升级新建）。
+- **采集频率分钟级可配置（49-8）**：Tower 设置页新增「采集间隔 - 分钟」（默认 60，0 = 使用该 Tower 每日计划采集时间），worker 按 Tower 独立调度；顺带修复「每日采集时间」字段从未接入调度器的遗留缺陷。
+- **采集停摆主动告警（49-20）**：web-api 新增采集新鲜度探针（默认 10 分钟周期，`SMARTX_FRESHNESS_PROBE_INTERVAL_SECONDS` 可调、≤0 关闭），太久没有成功采集记录（阈值 max(2×启用 Tower 最小采集间隔, 60 分钟)）即写任务中心告警 `collection-freshness-stale`，覆盖 collector-worker 容器整体挂掉/卡死时 worker 侧检查全部停摆的盲区。
+- **预测区间与预期管理（49-21）**：报表预测由单线改为含预测上下界（`band_half_width_now`/`band_half_width_per_day`，95% 区间线性近似），图表绘制「预测上限/预测下限」；客户文案统一为大白话「预测值可能会有偏差，以实际为准」，不引入统计术语；预测模型保持线性趋势外推（评估结论：季节性模型在数据跨度与产品定位下不采纳）。
+- **Tower 设置页完整改版（49-11）**：添加 Tower 向导化分组表单（连接认证/采集策略分区、认证方式互斥、保存前测试连接）、创建/编辑共用 TowerForm 组件、集群管理独立分区、删除确认对话框、Tower 列表健康徽标；含创建前测试连接 API、最近采集字段、创建响应集群列表三项后端配合。
+- **VM 页千台规模加固（49-19）**：`/api/vm-volumes` 支持服务端分页与 vm/used/occupied 排序（occupied 按副本/EC 系数口径），新增 `GET /api/vm-volumes/usage-summary` 聚合接口；前端 VM 列表分页（100/页）+ 全量卷表服务端分页（200/页），5000 VM / 76 万卷规模可用。
 - **Excel 报表图表精修**：容量趋势 Sheet 增加集群容量使用趋势折线图（与 Word 风格统一）、打印版式（横向/fit-to-page）、横坐标按时间跨度优化显示间隔。
 - **AI 措辞层（可选）**：新增 `app/v2/reports/wording.py` 措辞增强接口，未配置 AI 服务时回退离线规则文案（行为与现状一致）；接入点留待有 AI 服务时。
-- **task-worker 第 6 容器评估**：实测报表导出期间 web-api 响应仅 +40ms，空间清理/迁移导出无影响，结论保持 5 容器模块化单体。
-- **测试环境治理**：构建测试移到宿主机跑（26 tests OK），deployment_config 改 unittest（无 pytest 依赖），容器内全量 310 tests 全绿。
-- **升级链路修复（UPG-049，2026-09-19 重打包纳入）**：runner `filesystem.prepare` 不再把与在线库同文件的 legacy 候选误判为 legacy 源；此前任何 v0.5.2 目标布局机器带 Tower 凭据升级 v0.5.3 会被凭据配对策略硬失败。真实 legacy 机器迁移行为不变。
+
+### 修复
+
+- **首页总览静默陈旧（49-8/49-9）**：summary 刷新失败/超时显示「数据截至 HH:mm，刷新失败」提示并保留旧数据（fetch 加 30s 超时）；summary 慢查询治理（60s TTL 缓存）；消除双重轮询；`_in_enabled_scope` 空集放行改为 fail-closed 并统一 dashboard/vms/reports 三处为公共函数；容量阈值统一由后端下发（前端三处改读后端值）；`capacity_risk` payload 增加 `evaluated_at` 与最后采集成功时间。
+- **升级链路（UPG-049）**：runner `filesystem.prepare` 不再把与在线库同文件的 legacy 候选误判为 legacy 源；此前任何 v0.5.2 目标布局机器带 Tower 凭据升级 v0.5.3 会被凭据配对策略硬失败。真实 legacy 机器迁移行为不变。
+- **报表图表窗口收紧（49-18）**：Prometheus retention 400d 与 720 天图表窗口冲突（部署超 400 天后图表前段必空），`chart_days` 档位收紧为 7/30/90/365，旧客户端传 720 回退 365；导出链路（只收 `period_days`）不受影响。
+- **任务投影同步（49-5）**：`post_upgrade_cleanup_status()` 在子任务终态时回写父 task.json，修复顶层字段与 post-cleanup 子任务实际状态不一致。
+- **前后端契约对齐（49-14/49-16）**：后端补发 `kpis`/`latest_run`/`top_vms`/`tower_runs` 与 item `metric`/`value`/`previous_value`，前端删除兼容 normalizer。
+
+### 工程与运维
+
+- **巨型文件拆分（49-13）**：`app/v2/api.py` → 域路由包（74 条路由 path+method 一致）；`frontend/src/pages/ServicePage.tsx`（2305 行）→ `components/service/` 六域组件；`app/v2/reports/export.py` → `export/` 包（common/word/excel/legacy）；`app/v2/upgrade/service.py` → Mixin 包（公开方法集合不变）。`admin.py` 二次拆分为域子模块包。
+- **v1 死代码移除（49-12）**：删除 v1 专属模块约 4800 行；export legacy 消化删除 60 处不可达死代码（约 1264 行）。
+- **SQLite 治理**：vm_latest/vm_volumes/collection_runs/tasks 索引 + WAL + busy_timeout 5s（.3 实库验证）。
+- **CORS 收紧**：默认不挂 CORS 中间件，`SMARTX_CORS_ORIGINS` 白名单显式启用。
+- **采集链路健壮化**：worker 采集重试调度化；数据新鲜度链路监控。
+- **API 响应模型（49-14 批次 1-4）**：towers → dashboard/tasks → vms/reports → admin 读类分批落地，金样本对比验收。
+- **升级包 compose 字面量 tag（49-15）**：读码核实包构建管线已渲染字面量 tag；收尾 runner 默认 env CORS 遗留清理、check_versions 增 `.env` tag 防呆警告。
 - **运维工具（UPG-050 定案）**：新增 `scripts/bind-mount-recover.sh`：`app/` 下挂载点目录体检（check）与全服务一键恢复（recover）。容器运行期禁止 rm/mv `app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}`（它们是 dockerd 补建的挂载点载体）。
-- **报表图表窗口收紧（49-18，2026-09-19 第二次重打包纳入）**：Prometheus retention 400d 与 720 天图表窗口冲突，`chart_days` 档位收紧为 7/30/90/365，旧客户端传 720 回退 365；导出链路（只收 `period_days`）不受影响。
-- **VM 页千台规模加固（49-19）**：`/api/vm-volumes` 支持服务端分页与 vm/used/occupied 排序（occupied 按副本/EC 系数口径），新增 `GET /api/vm-volumes/usage-summary` 聚合接口；前端 VM 列表分页（100/页）+ 全量卷表服务端分页（200/页），5000 VM / 76 万卷规模可用。
-- **采集停摆主动告警（49-20）**：web-api 新增采集新鲜度探针（默认 10 分钟周期，`SMARTX_FRESHNESS_PROBE_INTERVAL_SECONDS` 可调、≤0 关闭），太久没有成功采集记录（阈值 max(2×启用 Tower 最小采集间隔， 60 分钟)）即写任务中心告警 `collection-freshness-stale`，覆盖 collector-worker 容器整体挂掉/卡死时 worker 侧检查全部停摆的盲区。
-- **预测区间与预期管理（49-21）**：报表预测由单线改为含预测上下界（`band_half_width_now`/`band_half_width_per_day`，95% 区间线性近似），图表绘制「预测上限/预测下限」；客户文案统一为大白话「预测值可能会有偏差，以实际为准」，不引入统计术语；预测模型保持线性趋势外推（评估结论：季节性模型在数据跨度与产品定位下不采纳）。
+- **task-worker 第 6 容器评估**：实测报表导出期间 web-api 响应仅 +40ms，空间清理/迁移导出无影响，结论保持 5 容器模块化单体。
+- **测试环境治理**：构建测试移到宿主机跑（26 tests OK），deployment_config 改 unittest（无 pytest 依赖），容器内全量测试全绿。
+- **文档与门禁（49-17 等）**：`docs/troubleshooting.md`、`docs/backup-recovery.md`、`docs/release-acceptance.md` Release Day 五步清单；`scripts/verify_api_docs.py`（API 文档防漂移）、`verify_release_docs_safe.py`（对外文档脱敏扫描）、`verify_full_upgrade_chain.py`（一键链路回归）、`capture_baseline.py`（标准业务基线固化与校验）。
 
 ### 验证说明
 
@@ -43,6 +59,9 @@ v0.5.3 是 v0.5.2 之后的正式平台版本，主要包含工程健康度与�
 - **AI 措辞层未接实际 AI 服务**：设计即为可选增强，未配置时回退离线规则文案（行为与旧版一致），接入点留待有 AI 服务。
 - **runner prepare 升级期在 app/ 下生成空骨架目录**：仅宿主机侧目录噪音，不阻塞升级、无数据复制；按用户决策仅记录不修复（pending-tasks #20）。
 - **第二次重打包的升级流程回归验收暂缓**：见发布日期说明；恢复时从 10.20.11.12 回归 v0.5.2 基线起走（task_plan 49-22）。
+- **源码 compose 模板默认 tag 可被现场 .env 覆盖**：源码 compose 仍保留 `SMARTX_IMAGE_TAG` 变量模板（升级包内已渲染为字面量、安全）；仅影响源码部署路径，Phase 49-3 待实施。
+- **已接受的取舍**：前端 token 存 localStorage（内网离线产品，暂不改）。
+- **生产现场「总览绿色」现象定位**：待生产现象复现时只读定位 `/api/dashboard/summary` 请求状态与 `capacity_risk.level`（pending-tasks #9）。
 
 ## v0.5.2
 
