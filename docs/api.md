@@ -250,7 +250,7 @@ Returns KPI data, scope information, latest collection status, Tower-level colle
 GET /api/vms
 ```
 
-Returns up to 500 VMs sorted by actual used storage size. Each item includes labels, actual used bytes, guest used bytes, provisioned bytes, and usage ratios when available.
+Returns all VMs sorted by actual used storage size (no server-side limit). Each item includes labels, actual used bytes, guest used bytes, provisioned bytes, and usage ratios when available.
 
 ### VM Detail
 

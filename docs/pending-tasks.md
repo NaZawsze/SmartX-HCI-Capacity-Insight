@@ -28,6 +28,7 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 | 13 | Phase 24 采集重试/缺采收尾 | Phase 24 | 已实现，待一轮真实使用验证后关闭 |
 | 17 | UPG-049 残留卫生项治理 | 2026-09-19 findings.md | ✅ 已完成（2026-09-19）：Prometheus legacy 扫描守卫（beb36d5+回归测试）、.12/.3 app/ 残留清理（各约 3G）、容器挂载与 .3 线上核对一致、runner 镜像 0aca32511008 更新至 .3/.12。交付包 ef10a7c8… 维持不变（prometheus 守卫随下次打包纳入） |
 | 18 | UPG-050 app/ 挂载点目录误删致挂载消失 | 2026-09-19 findings.md | ✅ 已定案（2026-09-19）：app/{upgrades,…,smartx-storage-forecast} 为 dockerd 补建的挂载点载体（容器内被真实 bind 遮蔽），运行期 rm/mv 会拆掉全机对应挂载（当日多次"衰减"均为清理操作自伤）。已部署 `scripts/bind-mount-recover.sh`（check/recover）至 .3/.12，两机 recover 后挂载齐全、health 全绿。规则：容器运行期禁删/禁改该组目录 |
+| 19 | Prometheus 400d retention 与报表 720 天图表窗口冲突 | 2026-09-19 findings.md | chart_days 允许 720 且图表数据来自 Prometheus range 查询（reports/service.py `_cluster_series`），retention 仅 400d：部署超 400 天后 720 天图表前段为空。修法三选一（去 720 档 / retention 提到 750d / 文档声明窗口受限），待用户定夺 |
 
 ## P3 — 工程健康度（不阻塞发布）
 
