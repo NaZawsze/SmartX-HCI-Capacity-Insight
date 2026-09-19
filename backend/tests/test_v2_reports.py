@@ -395,7 +395,8 @@ class V2ReportsTest(unittest.TestCase):
         # 60 天线性增长 + 有界噪声（±0.1），预测带应为正且随时间展宽
         noise = [0.1 if index % 2 == 0 else -0.1 for index in range(60)]
         points = [(index * SECONDS_PER_DAY, 1000.0 + 5.0 * index + noise[index]) for index in range(60)]
-        future_value = 1000.0 + 5.0 * 90 + 0.1
+        # 90 天预测从最后一个样本（第 59 天）起算，未来真值在第 149 天
+        future_value = 1000.0 + 5.0 * (59 + 90) + 0.1
 
         forecast = forecast_series(points, capacity=100000.0)
 
@@ -404,7 +405,8 @@ class V2ReportsTest(unittest.TestCase):
         assert forecast.band_half_width_now is not None and forecast.band_half_width_per_day is not None
         self.assertGreater(forecast.band_half_width_now, 0)
         self.assertGreater(forecast.band_half_width_per_day, 0)
-        self.assertGreater(forecast.band_half_width_per_day, forecast.band_half_width_now / 60)
+        # 90 天处区间半宽大于当前半宽（随时间展宽）
+        self.assertGreater(forecast.band_half_width_now + 90 * forecast.band_half_width_per_day, forecast.band_half_width_now)
         hw_90 = forecast.band_half_width_now + 90 * forecast.band_half_width_per_day
         forecast_90 = forecast.forecast_90d or 0.0
         self.assertLessEqual(forecast_90 - hw_90, future_value)

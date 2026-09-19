@@ -74,7 +74,7 @@ class CollectionFreshnessTest(unittest.TestCase):
             second = service.evaluate_and_alert(now=NOW)
             self.assertEqual(second["status"], "stale")
             with database.connection() as conn:
-                rows = conn.execute("SELECT task_id, status, title FROM tasks WHERE task_id = ?", (FRESHNESS_TASK_ID,)).fetchall()
+                rows = conn.execute("SELECT id, status, title FROM tasks WHERE id = ?", (FRESHNESS_TASK_ID,)).fetchall()
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["status"], "failed")
             self.assertEqual(rows[0]["title"], "采集停摆告警")
@@ -90,7 +90,7 @@ class CollectionFreshnessTest(unittest.TestCase):
             tasks = TaskService(database)
             self._service(database, tasks=tasks).evaluate_and_alert(now=NOW)
             with database.connection() as conn:
-                rows = conn.execute("SELECT task_id FROM tasks WHERE task_id = ?", (FRESHNESS_TASK_ID,)).fetchall()
+                rows = conn.execute("SELECT id FROM tasks WHERE id = ?", (FRESHNESS_TASK_ID,)).fetchall()
             self.assertEqual(rows, [])
 
     def test_skipped_when_no_enabled_towers(self) -> None:
@@ -124,7 +124,7 @@ class CollectionFreshnessTest(unittest.TestCase):
             result = self._service(database, tasks=tasks).evaluate_and_alert(now=NOW)
             self.assertEqual(result["status"], "unknown")
             with database.connection() as conn:
-                rows = conn.execute("SELECT task_id FROM tasks").fetchall()
+                rows = conn.execute("SELECT id FROM tasks").fetchall()
             self.assertEqual(rows, [])
 
     def test_daily_mode_threshold_uses_2880(self) -> None:
