@@ -51,11 +51,42 @@
 2. dockerd 容器创建：在已存在的载体目录上建立挂载，不修改目录内容；容器销毁：umount 不 rmdir（两机多轮 recreate 后载体目录仍在——实证）。锁不挡重建。
 3. 容器内全部业务写路径经挂载穿透到真实目录（容器看到的 `/data/upgrades` 就是真实 upgrades），锁定载体对容器内进程完全不可见。
 
-**脚本改造（实施时做）**：`scripts/bind-mount-recover.sh` 新增：
+#### 脚本接口设计（定稿，实施按此执行）
 
-- `lock` 子命令：对 6 路径 `chattr +i`（缺失目录先 mkdir 再锁），幂等；
-- `unlock` 子命令：对 6 路径 `chattr -i`，幂等；
-- `recover` 改造：重建前自动检测并解锁，恢复验证通过后自动复锁——保证锁定状态下 recover 依然可用，使用者无感。
+**锁定路径常量**（与上文 6 路径一致，脚本内数组）：
+
+```bash
+APP_ROOT="/data/smartx-storage-forecast/app"
+LOCK_PATHS=(
+  "$APP_ROOT/upgrades"
+  "$APP_ROOT/backups"
+  "$APP_ROOT/exports"
+  "$APP_ROOT/compose-runtime"
+  "$APP_ROOT/smartx-storage-forecast"
+  "$APP_ROOT/smartx-storage-forecast/project"
+)
+```
+
+**辅助函数**：
+
+- `attr_has_i <path>`：`lsattr -d "$path"` 输出第一段属性串含 `i` 即视为已锁；`lsattr` 报错（路径消失等）视为未锁并向调用方上抛错误。
+- `fs_supports_chattr`：`stat -f -c %T "$APP_ROOT"` 结果必须为 ext4/xfs 族；其他文件系统（不支持 chattr +i 语义）报错退出，提示该机不加锁并记录。
+- `warn_upg050`：现有 `*` 分支的两行 UPG-050 警示提升为公共函数，`lock`/`unlock`/`check`/`recover` 入口统一输出，保证任何调用者都能看到"载体目录是承重结构"。
+
+**子命令语义**：
+
+| 子命令 | 行为 | 退出码 |
+| --- | --- | --- |
+| `lock` | 前置 `fs_supports_chattr`；逐路径：缺失则 `mkdir -p` 兜底（正常流程目录必已存在）→ `chattr +i`；已锁跳过（幂等）；逐路径输出 `[locked]`/`[already]` | 任一路径失败 → 1 |
+| `unlock` | 逐路径 `chattr -i`；未锁跳过（幂等）；逐路径输出 `[unlocked]`/`[not-locked]` | 任一路径失败 → 1 |
+| `check` | 现有挂载+健康体检**不变**；末尾追加 6 路径锁定状态报告（仅提示，不改变退出码语义） | 现有语义 |
+| `recover` | 改造：入口检测 6 路径带锁 → 自动 `unlock` → 现有全量重建+三轮验证逻辑不变 → 验证通过后自动 `lock` 复锁；**验证失败保持解锁状态并大声提示**（带锁掩盖失败比无锁更危险，宁可留下解锁现场） | 现有语义 |
+
+**实现约束**：
+
+- 保持 POSIX-bash 现状（`#!/usr/bin/env bash` + `set -u`），不引入新依赖；`chattr`/`lsattr` 来自 e2fsprogs，两台测试机均已具备（验证协议第 0 步复核）。
+- `recover` 的自动复锁失败时必须以非零退出并逐路径报错，不得静默留下半锁状态。
+- 不改动 `SERVICE_MOUNTS` 观测点清单与 `container_of`/`mount_present` 现有逻辑。
 
 **验证协议（在 .12 演练机执行，约 15 分钟）**：
 

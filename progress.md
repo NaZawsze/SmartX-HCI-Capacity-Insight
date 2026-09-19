@@ -7385,3 +7385,11 @@ release_smoke=critical 0, warning 0
 - §10 测试和验收门禁：新增「标准验证工具」清单（verify_full_upgrade_chain / verify_api_docs / verify_release_docs_safe / capture_baseline / build_upgrade_package+identity / bind-mount-recover 六个脚本各自的使用场景）。
 - §11 文档维护标准：固化 CHANGELOG 版本节七段结构（状态/摘要/新增/修复/工程与运维/验证/已知问题）与候选标注规则；新增"禁止把计划中的验收写成已完成"规则（今日 CHANGELOG 纠错教训入标准）。
 - 本文件 gitignore，改动只落本地工作副本；progress 本条为留档。
+
+## 2026-09-20 两项修复设计文档完成（49-23 锁 + 49-3 源码 compose 字面量化），待批准后实施
+
+- 用户指令：开始修复刚记录的问题，但先写设计方案和对应的文档。本轮只做设计，不改代码、不动机器。
+- 49-23（UPG-050 载体目录物理锁）：设计文档补「脚本接口设计（定稿）」节——LOCK_PATHS 六路径常量、attr_has_i（lsattr 首段含 i）/fs_supports_chattr（stat -f -c %T 限 ext4/xfs）/warn_upg050 三辅助函数、lock/unlock/check/recover 四子命令语义表（recover 验证失败保持解锁并大声提示、复锁失败非零退出）；新建实施计划 docs/superpowers/plans/2026-09-20-upg050-carrier-lock-plan.md（脚本改造清单→.12 六步验证协议→文档收尾→.3/生产机逐台确认；回滚=unlock+git revert）。
+- 49-3（源码 compose 镜像 tag 字面量化）：新建设计 docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md。读码核实的事实基础：三源码 compose 模板行（docker-compose.yml:8/40/64/79、offline:5/36/59/72、release:5/35/57/69）；升级包路径已安全（_render_packaged_compose_tags :858-873 渲染字面量 + _assert_project_files_match_version :888-926 禁模板）；升级执行路径已安全（actions.py:364/420-434 剥离 .env tag 键）；版本演进无需新代码（temporary_image_version_metadata :199-239 的 _replace_compose_version_tags :175-196 同时覆盖模板与字面量形态，build_package :941 全程包裹，bridge 路径亦覆盖）。方案：三源码 compose 全字面量化（prefix+tag 一起，避免包内残留 prefix 模板口子）；唯一代码改动点 check_versions（:129-158）改为字面量断言+SMARTX_IMAGE_TAG/RUNNER_IMAGE_TAG/IMAGE_PREFIX 三键禁令（:143-152 的 latest/runner/.env 警告检查随之收紧或删除）。测试影响核实：test_deployment_config.py:109-120 已双形态（顺手收紧）、build_tests 238-243/372-377 mock 驱动不受影响、test_upgrade_runner_engine 无关；docker_build env 参数保留（build_tests:452 断言命令形态）。明确不重打交付包，e940e07c 冻结产物不受影响。
+- 登记：task_plan 第 3 项改「设计完成待批准」附四步 checklist、第 23 项补实施计划链接、对照表行补 49-3 链接；doc-map 注册 2 个新文档 + 锁设计描述补"脚本接口定稿"；pending-tasks #22 补实施计划链接、新增 #25（49-3）。
+- 状态：两项均为设计完成待用户批准；批准前不改脚本/compose/门禁代码、不对任何机器做加锁或改配操作。

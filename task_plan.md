@@ -86,7 +86,7 @@ docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
 | 30 | Compose Project/Network 固定化 | 已实现，canary 部署/升级验收待执行 | [docs/deployment.md](docs/deployment.md)；结论记录在本文件 |
 | 31 | 报表页容量增长速率算法优化 | 已完成 | 无专项设计文档；实施口径记录在本文件 |
 | 32~48 | 升级链路专项（fix9~fix18、UPG-031~033、Phase 45/46 镜像版本与基线验证） | 全部完成 | [docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md) 对应章节；执行记录见 [docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)；fix10 并入 Phase 32，无独立 Phase 33 |
-| 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md)；49-18/19 见 [docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md)；49-20 见 [docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md](docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md)；49-21 见 [docs/superpowers/specs/2026-09-19-forecast-band-design.md](docs/superpowers/specs/2026-09-19-forecast-band-design.md)；49-22 见 [docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md](docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md)；49-23 见 [docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md](docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md) |
+| 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md)；49-18/19 见 [docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md)；49-20 见 [docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md](docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md)；49-21 见 [docs/superpowers/specs/2026-09-19-forecast-band-design.md](docs/superpowers/specs/2026-09-19-forecast-band-design.md)；49-22 见 [docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md](docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md)；49-23 见 [docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md](docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md)；49-3 收尾见 [docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md](docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md) |
 
 升级后自动采集与 verification 历史查询的专项计划/设计：
 
@@ -1315,9 +1315,17 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - `pnpm-lock.yaml` / `pnpm-workspace.yaml` 已被删除；Dockerfile 实际用 npm（`package-lock.json`）。
 - [x] 已在 `79431e1` 提交中移除。
 
-### 3. compose 镜像 tag 仍可被 .env 覆盖 [待实施]
-- 源码 compose 仍用 `${SMARTX_IMAGE_TAG:-v0.5.2}` 模板，现场 `.env` 含旧 tag 时风险仍在。
-- 升级包内 compose 已固定 tag（安全）；源码模板风险待修。
+### 3. compose 镜像 tag 仍可被 .env 覆盖 [设计完成待批准 2026-09-20]
+
+设计文档：[docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md](docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md)。
+
+- 源码 compose 仍用 `${SMARTX_IMAGE_TAG:-v0.5.3}` 模板，现场 `.env` 含旧 tag 时源码部署路径会静默漂移版本；升级包内 compose 已固定 tag（安全，49-15）。
+- 方案：三个源码 compose 全字面量化（prefix+tag 一起，对齐 docker-compose.upgrade.yml 先例）；`check_versions` 门禁同步适配为字面量断言 + 模板字符串禁令；deployment 测试收紧。
+- 明确不做：不重打交付包，e940e07c 冻结产物不受影响。
+- [ ] 设计文档经用户确认批准。
+- [ ] 三个 compose 字面量化 + check_versions 适配 + deployment 测试收紧（单提交）。
+- [ ] 本地定向测试（deployment/build_tests）；.3 同步后 `build_upgrade_package.py --check-version` 通过 + 全量回归。
+- [ ] CHANGELOG 已知问题「源码 compose 模板 tag」销项 + task_plan/pending-tasks 收尾。
 
 ### 4. 测试机地址散落在内部文档 [已完成]
 - 对外发布文档（README/CHANGELOG/deployment）已清理。
@@ -1490,7 +1498,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 
 ### 23. UPG-050 载体目录物理锁（chattr +i）+ runner prepare 骨架目录问题记录 [设计完成待批准 2026-09-20]
 
-设计文档：[docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md](docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md)。
+设计文档：[docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md](docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md)；实施计划：[docs/superpowers/plans/2026-09-20-upg050-carrier-lock-plan.md](docs/superpowers/plans/2026-09-20-upg050-carrier-lock-plan.md)。
 
 背景：UPG-050 定案关闭后，剩余唯一触发途径是宿主机上人为/AI 对载体目录 rm/mv，软约束（规则文档）防不住"没读到规矩的正常操作"——本次实际肇事即一次 AI 会话清理磁盘。方案：chattr +i 锁 6 个载体路径（`app/` 本身与真实数据目录刻意不锁，SQLite WAL 需在 app/ 建文件）；`bind-mount-recover.sh` 增加 lock/unlock 子命令、recover 自动解锁/复锁；.12 按验证协议（实弹删除演练 + 全量重建 + 写穿透）实测后保持锁定，.3 与生产机逐台待用户确认。runner prepare 骨架目录问题按用户决策仅记录（pending-tasks #20），不排期修复、不纳入打包。
 
