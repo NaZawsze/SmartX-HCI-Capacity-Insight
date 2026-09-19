@@ -61,6 +61,7 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | [superpowers/specs/2026-09-13-api-response-models-design.md](superpowers/specs/2026-09-13-api-response-models-design.md) | API 响应模型分批落地设计：五批推进、模型描述现状、金样本对比与回滚。 | task_plan Phase 49 第 14 项 |
 | [superpowers/specs/2026-09-13-compose-literal-tags-design.md](superpowers/specs/2026-09-13-compose-literal-tags-design.md) | 升级包 compose 字面量 tag 渲染设计：包构建时消除插值、反向断言防回退、runner 默认 env CORS 遗留清理。 | task_plan Phase 49 第 15 项 |
 | [superpowers/specs/2026-09-13-contract-alignment-design.md](superpowers/specs/2026-09-13-contract-alignment-design.md) | 前后端契约对齐设计（49-14 批次 5）：后端补发 kpis/latest_run/metric/value 纯增量字段，前端删兼容 normalizer。 | task_plan Phase 49 第 16 项 |
+| [superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md](superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md) | UPG-050 载体目录 chattr +i 物理锁方案（锁定范围/兼容性论证/验证协议/风险回滚）+ runner prepare 骨架目录问题记录（仅记录不修复）。 | task_plan Phase 49 第 23 项 |
 
 ## 5. 升级链路专项文档
 

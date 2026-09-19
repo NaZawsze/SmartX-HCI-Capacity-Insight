@@ -86,7 +86,7 @@ docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
 | 30 | Compose Project/Network 固定化 | 已实现，canary 部署/升级验收待执行 | [docs/deployment.md](docs/deployment.md)；结论记录在本文件 |
 | 31 | 报表页容量增长速率算法优化 | 已完成 | 无专项设计文档；实施口径记录在本文件 |
 | 32~48 | 升级链路专项（fix9~fix18、UPG-031~033、Phase 45/46 镜像版本与基线验证） | 全部完成 | [docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md) 对应章节；执行记录见 [docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)；fix10 并入 Phase 32，无独立 Phase 33 |
-| 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md)；49-18/19 见 [docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md)；49-20 见 [docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md](docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md)；49-21 见 [docs/superpowers/specs/2026-09-19-forecast-band-design.md](docs/superpowers/specs/2026-09-19-forecast-band-design.md) |
+| 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md)；49-18/19 见 [docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md)；49-20 见 [docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md](docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md)；49-21 见 [docs/superpowers/specs/2026-09-19-forecast-band-design.md](docs/superpowers/specs/2026-09-19-forecast-band-design.md)；49-22 见 [docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md](docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md)；49-23 见 [docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md](docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md) |
 
 升级后自动采集与 verification 历史查询的专项计划/设计：
 
@@ -1487,3 +1487,14 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [ ] .12 回归 v0.5.2：回归前基线留档 → 项目备份 → 全停（不 -v）→ tag 换 v0.5.2 → 一次性全量重建 → 基线验收（health/计数/Prometheus/.env 不动）。
 - [ ] 正规升级测试（.12）：上传→预检查→升级→post-cleanup→8 项验收 + 新特性（探针/预测带）升级后生效确认。
 - [ ] 台账（upgrade-package-ledger 新条目 SUPERSEDES ef10a7c8）+ progress + 收尾提交。
+
+### 23. UPG-050 载体目录物理锁（chattr +i）+ runner prepare 骨架目录问题记录 [设计完成待批准 2026-09-20]
+
+设计文档：[docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md](docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md)。
+
+背景：UPG-050 定案关闭后，剩余唯一触发途径是宿主机上人为/AI 对载体目录 rm/mv，软约束（规则文档）防不住"没读到规矩的正常操作"——本次实际肇事即一次 AI 会话清理磁盘。方案：chattr +i 锁 6 个载体路径（`app/` 本身与真实数据目录刻意不锁，SQLite WAL 需在 app/ 建文件）；`bind-mount-recover.sh` 增加 lock/unlock 子命令、recover 自动解锁/复锁；.12 按验证协议（实弹删除演练 + 全量重建 + 写穿透）实测后保持锁定，.3 与生产机逐台待用户确认。runner prepare 骨架目录问题按用户决策仅记录（pending-tasks #20），不排期修复、不纳入打包。
+
+- [ ] 设计文档经用户确认批准。
+- [ ] `bind-mount-recover.sh` 改造：lock/unlock 子命令 + recover 自动解锁/复锁。
+- [ ] .12 验证协议六步全部通过并保持锁定。
+- [ ] AGENTS.md 第 9 节 / troubleshooting.md §2 补锁记录与 unlock 口径 + progress 证据 + 收尾提交。
