@@ -389,6 +389,59 @@ class V2ReportsTest(unittest.TestCase):
         self.assertGreater(forecast.slope_per_day, 0)
         self.assertGreater(forecast.forecast_90d or 0, 200.0)
 
+    def test_forecast_band_positive_and_brackets_noisy_actuals(self) -> None:
+        from app.v2.reports.service import SECONDS_PER_DAY, forecast_series
+
+        # 60 天线性增长 + 有界噪声（±0.1），预测带应为正且随时间展宽
+        noise = [0.1 if index % 2 == 0 else -0.1 for index in range(60)]
+        points = [(index * SECONDS_PER_DAY, 1000.0 + 5.0 * index + noise[index]) for index in range(60)]
+        future_value = 1000.0 + 5.0 * 90 + 0.1
+
+        forecast = forecast_series(points, capacity=100000.0)
+
+        self.assertIsNotNone(forecast.band_half_width_now)
+        self.assertIsNotNone(forecast.band_half_width_per_day)
+        assert forecast.band_half_width_now is not None and forecast.band_half_width_per_day is not None
+        self.assertGreater(forecast.band_half_width_now, 0)
+        self.assertGreater(forecast.band_half_width_per_day, 0)
+        self.assertGreater(forecast.band_half_width_per_day, forecast.band_half_width_now / 60)
+        hw_90 = forecast.band_half_width_now + 90 * forecast.band_half_width_per_day
+        forecast_90 = forecast.forecast_90d or 0.0
+        self.assertLessEqual(forecast_90 - hw_90, future_value)
+        self.assertGreaterEqual(forecast_90 + hw_90, future_value)
+
+    def test_forecast_band_zero_for_perfect_line(self) -> None:
+        from app.v2.reports.service import SECONDS_PER_DAY, forecast_series
+
+        points = [(index * SECONDS_PER_DAY, 500.0 + 10.0 * index) for index in range(20)]
+
+        forecast = forecast_series(points, capacity=100000.0)
+
+        self.assertEqual(forecast.band_half_width_now, 0.0)
+        self.assertEqual(forecast.band_half_width_per_day, 0.0)
+
+    def test_forecast_band_none_when_samples_insufficient(self) -> None:
+        from app.v2.reports.service import SECONDS_PER_DAY, forecast_series
+
+        points = [(0, 100.0), (SECONDS_PER_DAY, 110.0)]
+
+        forecast = forecast_series(points, capacity=100000.0)
+
+        self.assertIsNone(forecast.band_half_width_now)
+        self.assertIsNone(forecast.band_half_width_per_day)
+
+    def test_report_payload_includes_forecast_band_fields(self) -> None:
+        from app.v2.reports.service import ReportService
+
+        now_ts = 1_700_000_000
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            report = ReportService(db, settings, prometheus=FakePrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
+
+            forecast = report["clusters"][0]["forecast"]
+            self.assertIn("band_half_width_now", forecast)
+            self.assertIn("band_half_width_per_day", forecast)
+
 
 if __name__ == "__main__":
     unittest.main()

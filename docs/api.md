@@ -369,6 +369,8 @@ Returns cluster forecast reports, daily top-growing VM reports, monthly top-grow
 
 The report uses a 30-day historical sample window and forecasts 60 days forward. When there are not enough samples, forecast fields may indicate insufficient data.
 
+Each `clusters[i].forecast` may include optional forecast-band fields `band_half_width_now` and `band_half_width_per_day` (bytes; linear approximation `hw(t) ≈ now + t × per_day`, 95% interval; `null` when not estimable, `0` when history is perfectly collinear). The frontend renders them as forecast upper/lower bounds with the note 「预测值可能会有偏差，以实际为准」.
+
 ### Export Forecast Report as Word
 
 ```http

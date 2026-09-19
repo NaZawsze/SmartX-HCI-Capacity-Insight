@@ -316,6 +316,8 @@ export interface ForecastResult {
   exhaustion_days?: number | null;
   exhaustion_days_30d?: number | null;
   spike_detected?: boolean | null;
+  band_half_width_now?: number | null;
+  band_half_width_per_day?: number | null;
 }
 
 

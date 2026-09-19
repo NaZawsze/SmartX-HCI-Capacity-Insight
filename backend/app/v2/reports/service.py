@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import math
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from statistics import median
@@ -35,6 +36,10 @@ class ForecastResult:
     exhaustion_days_30d: float | None = None
     recent_day_delta: float | None = None
     spike_detected: bool = False
+    # 预测区间半宽线性近似：hw(t) ≈ band_half_width_now + t × band_half_width_per_day
+    # None 表示样本不足无法估计；0 表示历史完全共线（区间宽度为零）
+    band_half_width_now: float | None = None
+    band_half_width_per_day: float | None = None
 
 
 class ReportService:
@@ -221,6 +226,7 @@ def forecast_series(points: list[tuple[int, float]], capacity: float | None = No
         return ForecastResult("insufficient_data", 0.0, current, None, None, None, None)
     filtered = _drop_outliers(cleaned)
     slope, intercept = _linear_regression(filtered)
+    band_now, band_per_day = _forecast_band(filtered, slope, intercept, cleaned[-1][0])
     _, current = cleaned[-1]
     raw_elapsed_days = max((cleaned[-1][0] - cleaned[0][0]) / SECONDS_PER_DAY, 1)
     raw_slope = max(0.0, (cleaned[-1][1] - cleaned[0][1]) / raw_elapsed_days)
@@ -256,7 +262,42 @@ def forecast_series(points: list[tuple[int, float]], capacity: float | None = No
         exhaustion_days_30d=exhaustion_30d,
         recent_day_delta=recent_day_delta,
         spike_detected=spike,
+        band_half_width_now=band_now,
+        band_half_width_per_day=band_per_day,
     )
+
+
+# t(0.975, df) 单侧 95% 分位数；df>=30 近似 1.96。避免为此引入 scipy 依赖。
+_T_CRITICAL_975 = {
+    1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365, 8: 2.306,
+    9: 2.262, 10: 2.228, 11: 2.201, 12: 2.179, 13: 2.160, 14: 2.145, 15: 2.131,
+    16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093, 20: 2.086, 21: 2.080, 22: 2.074,
+    23: 2.069, 24: 2.064, 25: 2.060, 26: 2.056, 27: 2.052, 28: 2.048, 29: 2.045,
+}
+
+
+def _forecast_band(points: list[tuple[int, float]], slope: float, intercept: float, last_ts: int) -> tuple[float | None, float | None]:
+    """OLS 预测区间的线性近似参数（半宽，字节）。
+
+    hw(t) = z·s·sqrt(1 + 1/n + ((x_now + t − x̄)² / Sxx))，x 单位为天。
+    对外暴露 hw(0) 与每增量一天的近似增长率 z·s/sqrt(Sxx)；该线性近似对
+    远期 hw 略偏宽（保守方向）。样本 <3 或 Sxx=0 时无法估计，返回 None。
+    """
+    n = len(points)
+    if n < 3:
+        return None, None
+    xs = [ts / SECONDS_PER_DAY for ts, _ in points]
+    x_bar = sum(xs) / n
+    sxx = sum((x - x_bar) ** 2 for x in xs)
+    if sxx <= 0:
+        return None, None
+    residuals = [value - (intercept + slope * x) for x, (_, value) in zip(xs, points)]
+    residual_std = math.sqrt(sum(residual ** 2 for residual in residuals) / (n - 2))
+    z = _T_CRITICAL_975.get(n - 2, 1.96)
+    x_now = last_ts / SECONDS_PER_DAY
+    half_width_now = z * residual_std * math.sqrt(1 + 1 / n + (x_now - x_bar) ** 2 / sxx)
+    half_width_per_day = z * residual_std / math.sqrt(sxx)
+    return half_width_now, half_width_per_day
 
 
 def _growth_reports_from_series(

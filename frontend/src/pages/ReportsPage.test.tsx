@@ -238,6 +238,7 @@ describe("ReportsPage", () => {
     expect(screen.getByText("8 天")).toHaveClass("exhaustion-days-risk");
     expect(screen.getByText("未触发")).not.toHaveClass("exhaustion-days-risk");
     expect(screen.getByText("90 天后 1090 B")).toBeInTheDocument();
+    expect(screen.getByText("预测值可能会有偏差，以实际为准")).toBeInTheDocument();
     expect(screen.getByText("日增长最快 VM")).toBeInTheDocument();
     expect(screen.getByText("月增长最快 VM")).toBeInTheDocument();
     expect(screen.getByText("本日新建 VM")).toBeInTheDocument();

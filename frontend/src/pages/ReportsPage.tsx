@@ -198,6 +198,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
               <div className="empty-state">暂无报表数据</div>
             )}
           </div>
+          <div className="forecast-disclaimer">预测值可能会有偏差，以实际为准</div>
         </Card>
 
         <div className="report-side-stack">

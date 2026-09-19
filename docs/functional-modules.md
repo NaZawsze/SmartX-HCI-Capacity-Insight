@@ -104,11 +104,13 @@ CloudTower 版本范围：Tower 连接和采集通过 CloudTower v2 HTTP API（`
 - Prometheus 指标写入和查询
 - 采集状态展示
 - 历史指标保留周期
+- 采集新鲜度探针（web-api 侧）：周期检查"是否太久没有成功采集记录"，覆盖 collector-worker 容器整体挂掉/卡死时 worker 侧检查全部停摆的盲区；超阈值写任务中心固定告警 `collection-freshness-stale`（间隔默认 600s，env `SMARTX_FRESHNESS_PROBE_INTERVAL_SECONDS` 覆盖，≤0 关闭；阈值与 data-quality 同口径 max(2×启用 Tower 最小采集间隔, 60 分钟)）
 
 相关文件：
 - `backend/app/v2/worker.py`（collector-worker 入口）
 - `backend/app/v2/collection/`
 - `backend/app/v2/cloudtower/`
+- `backend/app/v2/freshness.py`（web-api 采集新鲜度探针）
 - `backend/app/v2/metrics/`
 - `backend/app/v2/dashboard/`
 - `backend/app/v2/api/models.py`
@@ -190,6 +192,7 @@ CloudTower 版本范围：Tower 连接和采集通过 CloudTower v2 HTTP API（`
 - 集群容量预测
 - 7/30/90/365 天统计窗口（Prometheus retention 400d，720 天档已移除）
 - 90 天预测窗口
+- 预测区间（预测上限/预测下限，由 `band_half_width_now`/`band_half_width_per_day` 线性近似展开）；客户文案固定为大白话「预测值可能会有偏差，以实际为准」，不出现统计术语
 - 容量增长速率，按 7 天平均增长速率提示
 - 日增长、月增长 VM 榜单
 - Word/Excel 导出

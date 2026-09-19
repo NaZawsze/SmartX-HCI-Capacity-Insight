@@ -1,6 +1,7 @@
 import ReactECharts from "echarts-for-react";
 import { useMemo } from "react";
 import { formatBytes } from "../services/api";
+import { forecastBandSeries } from "../services/forecastBand";
 import type { ForecastPayload } from "../types";
 
 type ClusterReport = ForecastPayload["clusters"][number];
@@ -20,6 +21,8 @@ interface ChartModel {
   total: number | null;
   warning: number | null;
   slopePerDay: number;
+  bandNow: number;
+  bandPerDay: number;
   status: "healthy" | "warning" | "risk" | "unknown";
 }
 
@@ -61,6 +64,8 @@ function aggregateClusters(clusters: ClusterReport[], title: string): ChartModel
       total,
       warning: finiteOrNull(cluster.warning) ?? (total ? total * 0.9 : null),
       slopePerDay: cluster.forecast.slope_per_day || 0,
+      bandNow: finiteOrZero(cluster.forecast.band_half_width_now),
+      bandPerDay: finiteOrZero(cluster.forecast.band_half_width_per_day),
       status: capacityStatus(current, total)
     };
   }
@@ -74,6 +79,9 @@ function aggregateClusters(clusters: ClusterReport[], title: string): ChartModel
     total,
     warning: total ? total * 0.9 : null,
     slopePerDay: clusters.reduce((sum, cluster) => sum + Math.max(0, cluster.forecast.slope_per_day || 0), 0),
+    // 多集群带宽求和（保守口径：偏宽优于偏窄）
+    bandNow: sumFinite(clusters.map((cluster) => cluster.forecast.band_half_width_now)) ?? 0,
+    bandPerDay: sumFinite(clusters.map((cluster) => cluster.forecast.band_half_width_per_day)) ?? 0,
     status: capacityStatus(current || 0, total)
   };
 }
@@ -96,6 +104,10 @@ function aggregateDailyPoints(seriesList: Array<Array<[string, number]>>): Array
 
 function finiteOrNull(value?: number | null): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function finiteOrZero(value?: number | null): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 function sumFinite(values: Array<number | null | undefined>): number | null {
@@ -134,13 +146,21 @@ function predictedHistory(points: Array<[string, number]>, slopePerDay: number):
   });
 }
 
-function futurePoints(points: Array<[string, number]>, slopePerDay: number): Array<[string, number]> {
+interface FuturePoint {
+  label: string;
+  value: number;
+  days: number;
+}
+
+function futurePoints(points: Array<[string, number]>, slopePerDay: number): FuturePoint[] {
   if (!points.length || !Number.isFinite(slopePerDay)) return [];
   const [latestLabel, latestValue] = points[points.length - 1];
   const latestTime = dateValue(latestLabel);
-  return [0, 15, 30, 45, 60].map((days) => {
-    return [dateLabel(latestTime + days * dayMs), Math.max(0, latestValue + slopePerDay * days)];
-  });
+  return [0, 15, 30, 45, 60].map((days) => ({
+    label: dateLabel(latestTime + days * dayMs),
+    value: Math.max(0, latestValue + slopePerDay * days),
+    days
+  }));
 }
 
 function dateValue(label: string): number {
@@ -176,15 +196,24 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
   const model = useMemo(() => aggregateClusters(clusters, title), [clusters, title]);
   const actualPoints = model.points;
   const historyPoints = predictedHistory(actualPoints, model.slopePerDay);
-  const projectedPoints = futurePoints(actualPoints, model.slopePerDay);
-  const labels = [...actualPoints.map(([label]) => label), ...projectedPoints.slice(1).map(([label]) => label)];
+  const projected = futurePoints(actualPoints, model.slopePerDay);
+  const labels = [...actualPoints.map(([label]) => label), ...projected.slice(1).map((point) => point.label)];
   const actualByLabel = new Map(actualPoints);
   const historyByLabel = new Map(historyPoints);
-  const futureByLabel = new Map(projectedPoints);
+  const futureByLabel = new Map(projected.map((point) => [point.label, point.value] as [string, number]));
+  const hasBand = model.bandNow > 0 || model.bandPerDay > 0;
+  const bandUpper = new Map<string, number>();
+  const bandLower = new Map<string, number>();
+  if (hasBand) {
+    const series = forecastBandSeries(projected, model.bandNow, model.bandPerDay);
+    for (const [label, value] of series.upper) bandUpper.set(label, value);
+    for (const [label, value] of series.lower) bandLower.set(label, value);
+  }
   const max = yAxisMax([
     ...actualPoints.map(([, value]) => value),
     ...historyPoints.map(([, value]) => value),
-    ...projectedPoints.map(([, value]) => value),
+    ...projected.map((point) => point.value),
+    ...(hasBand ? [...bandUpper.values()] : []),
     model.total,
     model.warning
   ]);
@@ -197,9 +226,11 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
         actualPoints.map(([, value]) => value).join(","),
         model.total ?? "",
         model.warning ?? "",
-        model.slopePerDay
+        model.slopePerDay,
+        model.bandNow,
+        model.bandPerDay
       ].join("|"),
-    [actualPoints, model.slopePerDay, model.total, model.warning, rangeDays, title]
+    [actualPoints, model.slopePerDay, model.total, model.warning, model.bandNow, model.bandPerDay, rangeDays, title]
   );
 
   const option = {
@@ -210,6 +241,7 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
       right: 0,
       itemWidth: 18,
       itemHeight: 8,
+      data: ["实际容量使用", "历史预测", "未来预测", "告警阈值", "存储卷有效容量"],
       textStyle: { color: "#5b6472", fontSize: 12 }
     },
     tooltip: {
@@ -262,6 +294,26 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
         data: labels.map((label) => futureByLabel.get(label) ?? null),
         lineStyle: { width: 2, type: "dashed" }
       },
+      ...(hasBand
+        ? [
+            {
+              name: "预测上限",
+              type: "line",
+              showSymbol: false,
+              data: labels.map((label) => bandUpper.get(label) ?? null),
+              lineStyle: { width: 1.4, type: "dashed", color: "#9aa7b8" },
+              itemStyle: { color: "#9aa7b8" }
+            },
+            {
+              name: "预测下限",
+              type: "line",
+              showSymbol: false,
+              data: labels.map((label) => bandLower.get(label) ?? null),
+              lineStyle: { width: 1.4, type: "dashed", color: "#9aa7b8" },
+              itemStyle: { color: "#9aa7b8" }
+            }
+          ]
+        : []),
       {
         name: "告警阈值",
         type: "line",
@@ -292,6 +344,7 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
     <div className="cluster-chart-shell">
       <ClusterChartToolbar title={model.title} status={model.status} rangeDays={rangeDays} onRangeDaysChange={onRangeDaysChange} />
       <ReactECharts key={chartKey} option={option} style={{ height }} notMerge />
+      <div className="forecast-disclaimer">预测值可能会有偏差，以实际为准</div>
     </div>
   );
 }

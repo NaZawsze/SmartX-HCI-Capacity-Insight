@@ -344,7 +344,7 @@ def _customer_add_risk_and_advice(document: Document, context: dict[str, Any], c
             body.paragraph_format.left_indent = Inches(0.24)
             body.paragraph_format.space_after = Pt(5)
             _customer_add_emphasis_text(body, item, base_size=10)
-    _customer_table_note(document, "声明：本报告基于平台采集容量数据自动生成，预测结果基于历史增长趋势推算，仅供容量规划参考。")
+    _customer_table_note(document, "声明：本报告基于平台采集容量数据自动生成，预测结果基于历史增长趋势推算，预测值可能会有偏差，仅供参考，请以实际使用情况为准。")
 
 
 def _customer_add_data_quality_summary(document: Document, report: dict[str, Any]) -> None:

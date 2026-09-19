@@ -5070,3 +5070,9 @@ button.risk-cluster-row:hover {
   border-color: var(--blue);
   color: var(--blue);
 }
+
+.forecast-disclaimer {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}

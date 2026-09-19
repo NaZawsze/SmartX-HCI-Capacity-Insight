@@ -411,6 +411,8 @@ class ForecastModel(BaseModel):
     smoothed_slope_per_day: Optional[float] = None
     recent_day_delta: Optional[float] = None
     spike_detected: Optional[bool] = None
+    band_half_width_now: Optional[float] = None
+    band_half_width_per_day: Optional[float] = None
 
 
 class ReportClusterModel(BaseModel):

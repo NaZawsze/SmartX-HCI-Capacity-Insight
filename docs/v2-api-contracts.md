@@ -279,6 +279,8 @@
 }
 ```
 
+每个 `clusters[i].forecast` 额外包含可选预测区间字段 `band_half_width_now` / `band_half_width_per_day`（字节；线性近似 `hw(t) ≈ now + t × per_day`，95% 区间；样本 <3 或不可估时为 `null`，完全共线时为 `0`）。前端图表据此绘制「预测上限/预测下限」，客户文案统一为「预测值可能会有偏差，以实际为准」。
+
 ### `GET /api/reports/export/word`、`GET /api/reports/export/excel`
 
 按当前报表范围同步生成并返回文件流（query：`tower_id`、`cluster_id`、`period_days=30`，支持 `7/14/30/90/180/365`；`cluster_id` 必须搭配 `tower_id`）。导出同时记录为任务中心导出任务，文件落盘 `/data/smartx-storage-forecast/exports/reports`。

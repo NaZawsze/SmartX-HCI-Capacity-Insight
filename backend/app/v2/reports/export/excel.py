@@ -213,9 +213,18 @@ def _write_xlsx_template_summary(
     _set_xlsx_cell(sheet, "A15", f"当前软件版本：{settings.app_version}", size=10, color=TEXT_MUTED)
     _set_xlsx_cell(sheet, "A16", _profile_sample_notice(report, profile), size=10, color=TEXT_MUTED)
     _set_xlsx_cell(sheet, "A18", "容量增长速率口径", size=14, bold=True, color=ACCENT_DARK)
-    for offset, line in enumerate(_growth_rate_method_lines(report), start=19):
+    growth_lines = list(_growth_rate_method_lines(report))
+    for offset, line in enumerate(growth_lines, start=19):
         _set_xlsx_cell(sheet, f"A{offset}", line, size=10, color=TEXT_DARK)
-    for row in [1, 2, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21]:
+    disclaimer_row = 19 + len(growth_lines) + 1
+    _set_xlsx_cell(
+        sheet,
+        f"A{disclaimer_row}",
+        "声明：预测结果基于历史增长趋势推算，预测值可能会有偏差，仅供参考，请以实际使用情况为准。",
+        size=10,
+        color=TEXT_MUTED,
+    )
+    for row in [1, 2, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, disclaimer_row]:
         _merge_title_row(sheet, row, 1, 6)
     for column, width in {"A": 50, "B": 20.5, "C": 18, "D": 38.83203125, "E": 16}.items():
         sheet.column_dimensions[column].width = width
