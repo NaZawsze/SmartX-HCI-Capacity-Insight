@@ -1496,13 +1496,15 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [ ] 正规升级测试（.12）：上传→预检查→升级→post-cleanup→8 项验收 + 新特性（探针/预测带）升级后生效确认。
 - [ ] 台账（upgrade-package-ledger 新条目 SUPERSEDES ef10a7c8）+ progress + 收尾提交。
 
-### 23. UPG-050 载体目录物理锁（chattr +i）+ runner prepare 骨架目录问题记录 [设计完成待批准 2026-09-20]
+### 23. UPG-050 载体目录物理锁（chattr +i）+ runner prepare 骨架目录问题记录 [.12 已实施验证 2026-09-20；.3/生产机逐台待确认]
 
 设计文档：[docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md](docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md)；实施计划：[docs/superpowers/plans/2026-09-20-upg050-carrier-lock-plan.md](docs/superpowers/plans/2026-09-20-upg050-carrier-lock-plan.md)。
 
 背景：UPG-050 定案关闭后，剩余唯一触发途径是宿主机上人为/AI 对载体目录 rm/mv，软约束（规则文档）防不住"没读到规矩的正常操作"——本次实际肇事即一次 AI 会话清理磁盘。方案：chattr +i 锁 6 个载体路径（`app/` 本身与真实数据目录刻意不锁，SQLite WAL 需在 app/ 建文件）；`bind-mount-recover.sh` 增加 lock/unlock 子命令、recover 自动解锁/复锁；.12 按验证协议（实弹删除演练 + 全量重建 + 写穿透）实测后保持锁定，.3 与生产机逐台待用户确认。runner prepare 骨架目录问题按用户决策仅记录（pending-tasks #20），不排期修复、不纳入打包。
 
-- [ ] 设计文档经用户确认批准。
-- [ ] `bind-mount-recover.sh` 改造：lock/unlock 子命令 + recover 自动解锁/复锁。
-- [ ] .12 验证协议六步全部通过并保持锁定。
-- [ ] AGENTS.md 第 9 节 / troubleshooting.md §2 补锁记录与 unlock 口径 + progress 证据 + 收尾提交。
+- [x] 设计文档经用户确认批准（2026-09-20「开始实施」）。
+- [x] `bind-mount-recover.sh` 改造：lock/unlock 子命令 + recover 自动解锁/复锁（127c31c；fs 守卫修正 84d5c2f——.12 coreutils 将 ext4 报为 ext2/ext3，守卫 fail-closed 拦截后修正为两种 ext 报法均接受）。
+- [x] .12 验证协议六步全部通过并保持锁定（2026-09-20 01:38-01:40）：实弹 rm/mv 均报 Operation not permitted 且挂载无损；锁定状态全停全建成功（dockerd 可在 +i 目录建立挂载）；写穿透正常；recover 闭环（自动解锁→重建→第 1 次验证通过→自动复锁）；终态 6/6 锁定 + check 全绿。
+- [x] AGENTS.md 第 9 节 / troubleshooting.md §2 补锁记录与 unlock 口径 + progress 证据 + 收尾提交。
+- [ ] .3 加锁：用户确认后执行（避开升级/打包窗口）。
+- [ ] 10.20.0.6 加锁：只读边界，需用户批准具体命令。

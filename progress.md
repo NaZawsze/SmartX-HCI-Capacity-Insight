@@ -7393,3 +7393,17 @@ release_smoke=critical 0, warning 0
 - 49-3（源码 compose 镜像 tag 字面量化）：新建设计 docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md。读码核实的事实基础：三源码 compose 模板行（docker-compose.yml:8/40/64/79、offline:5/36/59/72、release:5/35/57/69）；升级包路径已安全（_render_packaged_compose_tags :858-873 渲染字面量 + _assert_project_files_match_version :888-926 禁模板）；升级执行路径已安全（actions.py:364/420-434 剥离 .env tag 键）；版本演进无需新代码（temporary_image_version_metadata :199-239 的 _replace_compose_version_tags :175-196 同时覆盖模板与字面量形态，build_package :941 全程包裹，bridge 路径亦覆盖）。方案：三源码 compose 全字面量化（prefix+tag 一起，避免包内残留 prefix 模板口子）；唯一代码改动点 check_versions（:129-158）改为字面量断言+SMARTX_IMAGE_TAG/RUNNER_IMAGE_TAG/IMAGE_PREFIX 三键禁令（:143-152 的 latest/runner/.env 警告检查随之收紧或删除）。测试影响核实：test_deployment_config.py:109-120 已双形态（顺手收紧）、build_tests 238-243/372-377 mock 驱动不受影响、test_upgrade_runner_engine 无关；docker_build env 参数保留（build_tests:452 断言命令形态）。明确不重打交付包，e940e07c 冻结产物不受影响。
 - 登记：task_plan 第 3 项改「设计完成待批准」附四步 checklist、第 23 项补实施计划链接、对照表行补 49-3 链接；doc-map 注册 2 个新文档 + 锁设计描述补"脚本接口定稿"；pending-tasks #22 补实施计划链接、新增 #25（49-3）。
 - 状态：两项均为设计完成待用户批准；批准前不改脚本/compose/门禁代码、不对任何机器做加锁或改配操作。
+
+## 2026-09-20 49-23 UPG-050 载体目录物理锁实施：脚本改造 + .12 六步验证协议全部通过（.12 保持锁定）
+
+- 用户指令「开始实施」。步骤 1 脚本改造提交 127c31c：LOCK_PATHS 六路径常量、attr_has_i（lsattr 首段含 i，失败返回 2）、fs_supports_chattr（stat -f -c %T 白名单）、warn_upg050 公共警示；lock/unlock 子命令（幂等、逐路径输出、失败 exit 1）；check 末尾附锁状态报告（不改变退出码语义）；recover 改为自动检测锁→自动解锁→一次性全量重建→验证通过后自动复锁，验证失败保持解锁并大声提示、复锁失败非零退出。bash -n 通过。
+- 步骤 2 部署 .12（git archive 127c31c → project/scripts/）后六步验证（时间 2026-09-20 01:38-01:40）：
+  - ① 基线：check 20/20 挂载 + health ok=true + 0/6 锁基线，CHECK_EXIT=0。
+  - ② 首次 lock 被 fs 守卫拦截（LOCK_EXIT=1）：.12 coreutils 将 /data（openEuler-root LVM，df 确认 ext4）报为 `ext2/ext3`，不在白名单 `ext2/ext3/ext4|xfs` 内——fail-closed 行为符合设计。修正守卫为两种 ext 报法均接受（提交 84d5c2f），重部署后 lock 成功：6/6 载体路径 `----i---------e-------`；刻意不锁路径核实未带锁（app/ 本身、真实 upgrades 等）。
+  - ③ 实弹：`rm -rf app/upgrades` RM_EXIT=1（Operation not permitted）；`mv app/backups /tmp/backups-hostile` MV_EXIT=1（Operation not permitted）；目录原在、/tmp 无残留搬移；check 仍 CHECK_EXIT=0、20 项 [ok] 全绿、无 MISS/FAIL。
+  - ④ 锁定状态全停全建：`docker compose stop` + `up -d --force-recreate`（不带服务参数）STOP/UP 均 exit 0；check 20/20 + health 绿，锁保持——**dockerd 可在 +i 锁定目录上正常建立挂载（方案唯一实证未知项实测关闭）**。
+  - ⑤ 写穿透：容器内写 /data/upgrades/upg050-lock-probe.txt → 宿主真实目录 /data/smartx-storage-forecast/upgrades/ 同内容可见 → 两侧清理干净。
+  - ⑥ recover 闭环：锁定状态真跑 recover → 自动解锁 6/6 → 一次性重建 5 容器 → 第 1 次验证通过（health {"ok":true,"version":"v0.5.3","runner_version":"v0.3.1",checks 三项 true}）→ 自动复锁 6/6 → RECOVER_EXIT=0。
+  - 终态：lsattr 6/6 +i，check 全绿，.12 保持锁定。
+- 收尾：troubleshooting.md §2 补锁记录与 unlock 口径（恢复指引改为直接用 recover）；AGENTS.md（本地）§9 补锁边界与逐台推进状态、§10 工具清单更新；pending-tasks #22 已实施验证；task_plan 49-23 勾选（余 .3/生产机逐台待确认）；CHANGELOG v0.5.3 运维工具条目补 lock/unlock；实施计划勾选至步骤 2。
+- 未验证项/边界：.3 与 10.20.0.6 未加锁（逐台待用户确认）；recover 的"验证失败保持解锁"分支未真触发（演练环境一次通过，属预期）；btrfs 等其他文件系统未验证（守卫会拒绝并记录）。

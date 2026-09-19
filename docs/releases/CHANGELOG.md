@@ -40,7 +40,7 @@ v0.5.3 是 v0.5.2 之后的平台版本候选（未发布），主要内容：�
 - **采集链路健壮化**：worker 采集重试调度化；数据新鲜度链路监控。
 - **API 响应模型（49-14 批次 1-4）**：towers → dashboard/tasks → vms/reports → admin 读类分批落地，金样本对比验收。
 - **升级包 compose 字面量 tag（49-15）**：读码核实包构建管线已渲染字面量 tag；收尾 runner 默认 env CORS 遗留清理、check_versions 增 `.env` tag 防呆警告。
-- **运维工具（UPG-050 定案）**：新增 `scripts/bind-mount-recover.sh`：`app/` 下挂载点目录体检（check）与全服务一键恢复（recover）。容器运行期禁止 rm/mv `app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}`（它们是 dockerd 补建的挂载点载体）。
+- **运维工具（UPG-050 定案）**：新增 `scripts/bind-mount-recover.sh`：`app/` 下挂载点目录体检（check，附锁状态报告）与全服务一键恢复（recover，自动解锁→重建→自动复锁），以及载体目录物理锁（lock/unlock，chattr +i，防误删载体；实测 dockerd 可在锁定目录正常建立挂载）。容器运行期禁止 rm/mv `app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}`（它们是 dockerd 补建的挂载点载体）。
 - **task-worker 第 6 容器评估**：实测报表导出期间 web-api 响应仅 +40ms，空间清理/迁移导出无影响，结论保持 5 容器模块化单体。
 - **测试环境治理**：构建测试移到宿主机跑（26 tests OK），deployment_config 改 unittest（无 pytest 依赖），容器内全量测试全绿。
 - **文档与门禁（49-17 等）**：`docs/troubleshooting.md`、`docs/backup-recovery.md`、`docs/release-acceptance.md` Release Day 五步清单；`scripts/verify_api_docs.py`（API 文档防漂移）、`verify_release_docs_safe.py`（对外文档脱敏扫描）、`verify_full_upgrade_chain.py`（一键链路回归）、`capture_baseline.py`（标准业务基线固化与校验）。

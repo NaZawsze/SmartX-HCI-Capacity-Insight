@@ -25,14 +25,16 @@
 
 传输方式：`git archive` 打包本地确切提交内容 → scp → 解压覆盖 `.12:/data/smartx-storage-forecast/project/scripts/`（.12 不是 git 检出，不依赖推送）。
 
-- [ ] ① 基线复查：`check` 20/20 + health ok。
-- [ ] ② `lock` 后 `lsattr -d` 逐路径确认 `+i`（含 `smartx-storage-forecast` 父目录与 `project` 子目录）；`app/` 本身与真实数据目录确认**未**带锁。
-- [ ] ③ 实弹演练：`rm -rf app/upgrades` 与 `mv app/backups /tmp/` 必须报 `Operation not permitted`；随后 `check` 仍 20/20（挂载无损）。
-- [ ] ④ 全量重建：`docker compose stop` + `up -d --force-recreate`（一次性、不带服务参数）成功；`check` 20/20 + health ok——验证 dockerd 可在锁定目录上正常建立挂载。
-- [ ] ⑤ 写穿透：容器内写 `/data/upgrades/` 探针文件 → 宿主真实目录 `/data/smartx-storage-forecast/upgrades/` 可见 → 清理探针。
-- [ ] ⑥ recover 闭环：锁定状态下真跑一次 `recover`（.12 无业务，30-60 秒中断可接受），确认自动解锁 → 重建 → 验证通过 → 自动复锁全链路；终态 `lsattr` 仍 +i、`check` 全绿。
-- [ ] 结论：.12 保持锁定；记录 lsattr 终态与全部命令输出。
+- [x] ① 基线复查：`check` 20/20 + health ok。
+- [x] ② `lock` 后 `lsattr -d` 逐路径确认 `+i`（含 `smartx-storage-forecast` 父目录与 `project` 子目录）；`app/` 本身与真实数据目录确认**未**带锁。
+- [x] ③ 实弹演练：`rm -rf app/upgrades` 与 `mv app/backups /tmp/` 必须报 `Operation not permitted`；随后 `check` 仍 20/20（挂载无损）。
+- [x] ④ 全量重建：`docker compose stop` + `up -d --force-recreate`（一次性、不带服务参数）成功；`check` 20/20 + health ok——验证 dockerd 可在锁定目录上正常建立挂载。
+- [x] ⑤ 写穿透：容器内写 `/data/upgrades/` 探针文件 → 宿主真实目录 `/data/smartx-storage-forecast/upgrades/` 可见 → 清理探针。
+- [x] ⑥ recover 闭环：锁定状态下真跑一次 `recover`（.12 无业务，30-60 秒中断可接受），确认自动解锁 → 重建 → 验证通过 → 自动复锁全链路；终态 `lsattr` 仍 +i、`check` 全绿。
+- [x] 结论：.12 保持锁定；记录 lsattr 终态与全部命令输出。
 
+
+执行记录（2026-09-20 01:38-01:40）：步骤② 首次 lock 被 fs 守卫拦截——.12 coreutils 将 ext4 报为 ext2/ext3，守卫修正为两种 ext 报法均接受（提交 84d5c2f），fail-closed 行为符合设计。六步全部通过，.12 终态 = 6/6 锁定 + check 全绿。
 ## 步骤 3：文档与收尾（单提交）
 
 - [ ] AGENTS.md（本地文件，不入库）第 9 节补锁记录：锁定范围、unlock 口径、recover 自动解锁/复锁行为。

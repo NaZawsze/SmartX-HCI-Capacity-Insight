@@ -41,17 +41,25 @@ health 返回 `checks` 三项的含义：
 处理：
 
 ```bash
-# 体检：应为 20 项挂载全部 OK（web-api 7 + collector-worker 5 + runner 7 + prometheus 1）
+# 体检：应为 20 项挂载全部 OK（web-api 7 + collector-worker 5 + runner 7 + prometheus 1）；
+# 末尾附带载体目录锁状态报告（仅提示，不影响退出码）
 bash scripts/bind-mount-recover.sh check
-# 恢复：全服务一次性重建，不带任何服务参数（单服务重建不修复共享 bind）
-cd /data/smartx-storage-forecast/project
-docker compose -f docker-compose.offline.yml up -d --force-recreate
+# 恢复：自动解锁（如带锁）→ 全服务一次性重建 → 验证 → 自动复锁；
+# 不带任何服务参数（单服务重建不修复共享 bind）；验证失败会保持解锁并明确提示
+bash scripts/bind-mount-recover.sh recover
 # 复验
 bash scripts/bind-mount-recover.sh check
 curl -fsS http://localhost:8080/api/system/health
 ```
 
-红线：容器运行期**禁止 rm/mv** `app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}`。这些目录为空是正常态，必须存在。
+物理锁（2026-09-20 落地，.12 已按六步验证协议实测并保持锁定）：
+
+- `lock` 对 6 个载体路径 `chattr +i`：rm/mv 当场报 `Operation not permitted`，与操作者是否读过文档无关；已验证 dockerd 可在锁定目录上正常建立挂载（全停全建 + 写穿透均通过）。
+- `unlock` 解锁（幂等）；**合法运维需要动这组目录时（重装/迁移/清理）先 unlock，做完再 lock**。
+- `recover` 在锁定状态下可直接跑（自动解锁/复锁）；实测约 20-40 秒中断。
+- 锁的边界：只保护 6 个载体目录；`app/` 本身（SQLite WAL 建文件）与真实数据目录刻意不锁；锁防误删载体，**不防删库**（删库靠备份与权限纪律，见 docs/backup-recovery.md）。
+
+红线：容器运行期**禁止 rm/mv** `app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}`。这些目录为空是正常态，必须存在；已加锁的机器上 rm/mv 会被操作系统直接拒绝。
 
 ## 3. 数据库（SQLite）
 
