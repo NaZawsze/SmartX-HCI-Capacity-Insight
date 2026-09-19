@@ -86,7 +86,7 @@ docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
 | 30 | Compose Project/Network 固定化 | 已实现，canary 部署/升级验收待执行 | [docs/deployment.md](docs/deployment.md)；结论记录在本文件 |
 | 31 | 报表页容量增长速率算法优化 | 已完成 | 无专项设计文档；实施口径记录在本文件 |
 | 32~48 | 升级链路专项（fix9~fix18、UPG-031~033、Phase 45/46 镜像版本与基线验证） | 全部完成 | [docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md) 对应章节；执行记录见 [docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)；fix10 并入 Phase 32，无独立 Phase 33 |
-| 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md)；49-18/19 见 [docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md) |
+| 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md)；49-18/19 见 [docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md)；49-20 见 [docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md](docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md)；49-21 见 [docs/superpowers/specs/2026-09-19-forecast-band-design.md](docs/superpowers/specs/2026-09-19-forecast-band-design.md) |
 
 升级后自动采集与 verification 历史查询的专项计划/设计：
 
@@ -1454,24 +1454,24 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 文档同步：api.md（新参数与新端点）、v2-api-contracts.md、functional-modules.md。
 - [x] 验证：后端 vms 测试 + 前端 tsc/vitest + verify_api_docs.py；.3 远程全量回归与真实页面冒烟。
 
-### 20. web-api 采集新鲜度探针（worker 全挂盲区告警）[实施中 2026-09-19]
+### 20. web-api 采集新鲜度探针（worker 全挂盲区告警）[已完成 2026-09-19]
 
 设计文档：[docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md](docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md)。
 
 背景：data-quality 检查接线在 worker 采集结束路径（中段断裂 ≤1 采集间隔即告警，已覆盖）；但 worker 容器整体挂掉/卡死时所有检查同停，任务中心静默。web-api 独立存活，加轻量周期探针跨容器互检：太久没有成功采集记录 → 任务中心告警。
 
-- [ ] 阈值口径抽取为模块级函数与 data_quality 共用；新增 freshness 服务（evaluate 三态 + 固定 task_id `collection-freshness-stale` 告警）。
-- [ ] web-api startup 启动 daemon 线程（默认 600s，env `SMARTX_FRESHNESS_PROBE_INTERVAL_SECONDS` 覆盖，≤0 关闭），shutdown 停止。
-- [ ] 单测：ok/stale/skipped/unknown、从未成功采集超阈值告警、告警替换语义。
-- [ ] 验证：本地定向测试；.3 全量回归 + 部署后探针状态核对（不杀 worker 做破坏性验证）。
+- [x] 阈值口径抽取为模块级函数与 data_quality 共用；新增 freshness 服务（evaluate 三态 + 固定 task_id `collection-freshness-stale` 告警）。
+- [x] web-api startup 启动 daemon 线程（默认 600s，env `SMARTX_FRESHNESS_PROBE_INTERVAL_SECONDS` 覆盖，≤0 关闭），shutdown 停止。
+- [x] 单测：ok/stale/skipped/unknown、从未成功采集超阈值告警、告警替换语义（11 项，.3 实跑 OK）。
+- [x] 验证：.3 全量回归 330 OK；部署后探针首轮即捕获真实停摆（.3 采集自 09-12 起失败，No route to host），告警置顶任务中心——端到端真实告警验证，无需杀容器。
 
-### 21. 预测区间（预测带）+ 大白话"以实际为准"措辞 [实施中 2026-09-19]
+### 21. 预测区间（预测带）+ 大白话"以实际为准"措辞 [已完成 2026-09-19]
 
 设计文档：[docs/superpowers/specs/2026-09-19-forecast-band-design.md](docs/superpowers/specs/2026-09-19-forecast-band-design.md)。
 
 背景：预测为线性外推（不上季节性模型，评估结论见 findings.md 2026-09-19 条目）；单线表达在摆动环境下被读成"预测不准"。做预测带 + 固定大白话说明管理预期，不引入统计术语（用户明确要求）。
 
-- [ ] 后端 `forecast_series` 计算预测区间半宽参数（`band_half_width_now` / `band_half_width_per_day`，t 分布小样本修正），ForecastResult/models/契约透传。
-- [ ] 前端 ClusterCapacityChart 画"预测上限/预测下限"虚线 + 图下说明「预测值可能会有偏差，以实际为准」；ReportsPage 同句说明。
-- [ ] Word 声明扩句、Excel 补声明；导出图不画带。
-- [ ] 验证：后端/前端单测；.3 全量回归 + 冒烟确认新字段与页面呈现。
+- [x] 后端 `forecast_series` 计算预测区间半宽参数（`band_half_width_now` / `band_half_width_per_day`，t 分布小样本修正），ForecastResult/models/契约透传；真实 API 冒烟 band_now≈849GB / band_per_day≈31GB/天。
+- [x] 前端 ClusterCapacityChart 画"预测上限/预测下限"虚线（带宽计算抽为 services/forecastBand.ts 纯函数，图例不挤占主系列）+ 图下说明「预测值可能会有偏差，以实际为准」；ReportsPage 同句说明。
+- [x] Word 声明扩句、Excel 补声明行；导出图不画带。
+- [x] 验证：后端 reports 14 OK / freshness 11 OK / reports_api / p1_infra 15 OK；前端 tsc 0 错误、vitest 89/89；.3 构建部署健康绿、GUI 冒烟确认带线与文案渲染。

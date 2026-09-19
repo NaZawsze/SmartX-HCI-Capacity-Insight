@@ -7310,3 +7310,28 @@ release_smoke=critical 0, warning 0
 - usage-summary 与卷分页为全表扫描聚合（8.9 万卷实测亚秒级），76 万卷量级未实测；量级上来再评估二级索引（设计 B.3 已记录）。
 - 深链跳页「自动跟随」：外部 selectedVmId 不在当前页时自动翻页，属设计行为。
 - .3 已部署本轮 dev2 代码（v0.5.3 容器内运行 dev2 源码）；未重新打包升级包（ef10a7c8 不含本轮改动，随下次打包纳入）。
+
+## 2026-09-19 Round：web-api 采集新鲜度探针（49-20）+ 预测区间与"以实际为准"措辞（49-21）
+
+任务来源：用户确认两项——①补 worker 全挂盲区（web-api 侧新鲜度探针）；②预测加置信区间但客户文案用大白话、不上统计术语、不做季节性模型。评估与决策记录见 findings.md 同日两条。
+
+提交：
+- `2f591d9` feat: web-api 采集新鲜度探针（freshness.py + main.py 接线 + data_quality 阈值抽公共函数 + 11 项单测 + 设计文档）
+- `34d3eb0` feat: 预测区间 + 大白话措辞（forecast_series 带宽参数 + ForecastModel 字段 + ClusterCapacityChart 上下界虚线 + forecastBand.ts 纯函数 + Word/Excel 声明 + api.md/契约/functional-modules 文档）
+- `7141b86` fix: .3 实跑发现的测试断言修正（tasks 主键列名 id；预测起算点对齐）
+
+.3 验证证据（10.20.11.3，git archive 34d3eb0 + 手动同步 7141b86 两个测试文件后验证）：
+- 定向：test_v2_freshness 11 OK；test_v2_reports 14 OK；test_v2_reports_api 1 OK；test_v2_p1_infra 15 OK（阈值 2880 断言通过，重构未破坏）。
+- 全量：后端 `unittest discover` 330 tests OK (skipped=1)。
+- 前端：node:22-alpine `npm ci` + `tsc --noEmit` 0 错误 + `vitest run` 89/89（含 forecastBand 3 项）。
+- 构建部署：web-api/collector-worker/frontend 三镜像重建（tag v0.5.3），`up -d` 后五容器 Up；`/api/system/health` OK。
+- 冒烟：`/api/reports/latest` 真实响应含 `band_half_width_now≈8.49e11`、`band_half_width_per_day≈3.13e10`（约 849GB / 31GB/天）。
+- 探针端到端真实验证：部署后探针首轮即在任务中心创建 `collection-freshness-stale`（failed）——.3 的 CHINATOWER/SMARTX-TT-WW 自 09-12 起采集失败（No route to host，run 64/65 failed），此前无人主动提醒；探针日志 `collection freshness stale: minutes_since_success=10094.4`。未做杀容器破坏性验证（环境真实告警已覆盖该证据）。
+- 文档门禁：verify_api_docs.py OK（api.md 76 条 vs 后端 75 路由）。
+- GUI 冒烟（IAB 浏览器）：报表页「预测值可能会有偏差，以实际为准」两处可见；集群容量趋势图 5 个主系列图例正常（带线按设计不进图例）；365 天/7 天窗口切换正常，预测线右端可见带包络；任务徽标显示 3（含新告警）。
+
+限制与未验证项：
+- 探针告警的"恢复后不自动消除"行为与 data-quality 口径一致（设计决策），未单独验证恢复路径；阈值自适应（daily 2880）有单测覆盖。
+- 预测带在 365 天窗口下视觉上较细（带宽 ≈2.7TiB vs Y 轴 212TiB），7 天/30 天窗口更明显；属数据尺度问题非缺陷。
+- .3 采集失败是环境问题（Tower 不可达），待用户恢复 Tower 可达性；恢复后趋势数据恢复增长，告警任务保留为历史记录。
+- 未重新打包升级包：交付包 ef10a7c8 不含本轮改动，随下次打包纳入。

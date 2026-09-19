@@ -631,3 +631,11 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 结论（读码实证）：三个 compose 的 Prometheus 均为 `--storage.tsdb.retention.time=400d`；而 `reports/service.py` 的 `_normalize_chart_days` 曾允许档位 `{7, 30, 90, 365, 720}`，图表数据 `_cluster_series(days=chart_window_days)` 直接对 Prometheus 做 range 查询——部署运行超过 400 天后，720 天图表的前约 320 天必然为空。
 - 解决（2026-09-19，用户决策去掉 720 档）：`_normalize_chart_days` 集合改为 `{7, 30, 90, 365}`，传 720 回退 365（向后兼容不报错）；前端 ClusterCapacityChart/ReportsPage 选项与类型同步删除；`chart_days` 归一化断言落在 service 级单测（API 层测试用 FakeReportService 不含归一化，断言放 API 层会假失败——已踩过）。**导出链路不受影响**：word/excel/bundle 三个导出端点只收 `period_days`，调 `latest_report` 不传 `chart_days` 走默认 365；export 代码与测试中的"720"均为 unix 时间戳。
 - 同轮核对澄清：api.md 原写"VM 列表最多 500 条"与代码不符——实际全量返回；api.md 已改。该"观察点"同日已升级为实施项：VM 页千台规模加固（服务端卷分页 + usage-summary 聚合 + 前端分页），见 task_plan Phase 49-19 与设计文档 2026-09-19-vm-scale-and-chart-window-design.md。
+
+## 2026-09-19 链路断裂告警覆盖盘点与预测优化决策（不上季节性）
+
+- 中段断裂（worker 活、采集显示成功、Prometheus 抓取断）并非无人提醒：`DataQualityService.evaluate_and_alert`（v0.5.1 前已入主干）在每次采集结束对账，「采集成功但 Prometheus 当前样本为空」→ 任务中心 critical（固定 task_id INSERT OR REPLACE，不刷屏、未读重置）。剩余真盲区是 worker 容器整体挂掉/卡死（所有检查同停）→ 已由 49-20 web-api 新鲜度探针补上（阈值 max(2×启用 Tower 最小采集间隔, 60 分钟)，与 data-quality 同口径共用 `freshness_threshold_minutes`）。
+- 季节性预测决策：不上模型。理由：容量规划核心用途下周内周期均值≈0；月度周期需 ≥2 完整周期数据（当前环境数据跨度不足，数学上不可拟合）；过拟合风险大于收益；不希望程序变重。以预测带（49-21）+ 大白话「预测值可能会有偏差，以实际为准」管理预期，客户文案不出现任何统计术语。
+- 预测带口径：`forecast_series` OLS 残差 → `hw(t) = z·s·sqrt(1+1/n+((x_now+t−x̄)²/Sxx))`，对外暴露线性近似参数 `band_half_width_now`/`band_half_width_per_day`（对远期略偏宽，保守方向）；样本 <3 为 None，完全共线为 0；前端多集群带宽求和（保守）。
+- 测试教训：`.3 实跑发现` tasks 表主键列名是 `id` 不是 `task_id`；预测带测试中「90 天预测」从最后一个样本起算（未来真值在第 n-1+90 天，不是第 90 天）——写预测类断言时先对齐起算点。
+- `.3 环境现状（待用户处理）`：CHINATOWER/SMARTX-TT-WW 自 2026-09-12 起采集失败（No route to host，最近两次 run 09-14/09-18 均 failed），探针部署首轮即捕获并置顶任务中心 `collection-freshness-stale` 告警——这是探针端到端真实告警验证，同时意味着测试环境当前数据截至 09-12。Tower 可达性恢复后告警场景自然解除（告警不自动消除，与 data-quality 口径一致）。
