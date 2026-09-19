@@ -6,9 +6,9 @@ This document defines the release gate for SmartX HCI Capacity Insight. A releas
 
 - `dev/debug`: use `10.20.11.3`. Local builds, temporary patches, dirty data, container inspection, and quick rebuilds are allowed. This environment is not a release pass.
 - `upgrade rehearsal`: use `10.20.11.12`. Use it for upgrade package rehearsal such as `v0.5.1u2 -> v0.5.3`, `v0.5.2 -> v0.5.3`, and `v0.5.3 -> v0.5.3`. Record the starting version, image tags, upgrade package sha256, and database state before every run.
-- `release canary`: use a dedicated clean host when available. It must use the final `main` tag, DockerHub tag images, release compose files, and GitHub Release upgrade packages. Do not treat hot-patched containers as accepted.
+- `release canary`: use a dedicated clean host when available. It must use the final `main` tag, DockerHub tag images, release compose files, and GitHub Release upgrade packages. Do not treat hot-patched containers as accepted. **Current standing (2026-09-20, per user): `10.20.0.6` is the frp Tower host and is NOT a canary target; the upgrade-rehearsal host `10.20.11.12` carries the production-equivalent acceptance duty (Phase 30 fresh-deploy validation plus multiple real upgrade runs) until a dedicated clean canary host exists.**
 
-Production-like hosts such as `10.20.0.6` are read-only by default. Any file write, container recreate, cleanup, recovery, or deployment action must be listed first and explicitly approved.
+Production-like hosts are read-only by default. Any file write, container recreate, cleanup, recovery, or deployment action must be listed first and explicitly approved.
 
 ## Anti-Pollution Rules
 
@@ -30,9 +30,9 @@ Expected values:
 - Docker network: `smartx-hci-capacity-insight-net`
 - Prometheus version: `v2.55.1`
 - Upgrade package: `smartx-capacity-insight-upgrade-v0.5.3.tar.gz`
-- Upgrade package sha256: `ef10a7c8515b4b0214d8b76e99897dd145e598c8520bbce0c451a36f0335a5f8`
+- Upgrade package sha256: `6accea95ed817ce95ed7f41fdd90077ed11520eb3c74281a77ddee48a0042c77` (2026-09-20 fresh full build from dev2 `ff1bd52`, supersedes `ef10a7c8…`/`e940e07c…`)
 
-Validated on `10.20.11.12` on 2026-09-19 (task `upgrade-e1fe8a62ea767ab7`); package identity and evidence live in [upgrade-package-ledger.md](upgrade-package-ledger.md).
+Validated on `10.20.11.12` on 2026-09-20 (task `upgrade-b45996653f6955b6`, v0.5.2 baseline restored then normal upgrade path; main task and post-cleanup succeeded, 8-item acceptance passed); earlier validation on 2026-09-19 used `ef10a7c8…` (task `upgrade-e1fe8a62ea767ab7`). Package identity and evidence live in [upgrade-package-ledger.md](upgrade-package-ledger.md).
 
 Deployment checks:
 

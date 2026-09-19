@@ -168,9 +168,38 @@ curl -fsSL "https://hub.docker.com/v2/repositories/${NAMESPACE}/${REPO}/tags?pag
 - 升级包以 GitHub Release asset 的 SHA256 为准，不以 git tag 源码为准。
 
 
-## 升级包 compose 与源码部署的 tag 规则（2026-09-13 补充）
+## 升级包与源码 compose 的字面量 tag 规则（2026-09-20 更新，49-3）
 
-- 升级包内 compose 为**字面量 tag**：`build_upgrade_package.py::_render_packaged_compose_tags` 在包构建时把 `${SMARTX_IMAGE_PREFIX:-…}/…:${SMARTX_IMAGE_TAG:-…}` 渲染为 `仓库/镜像:版本`，现场 .env 无法覆盖包内版本。
-- 源码模板保留 `${SMARTX_IMAGE_TAG:-v0.5.3}` 占位符（`check_versions` 门禁与开发流程依赖）。
-- 源码直连部署（git clone + docker compose up）时，`.env` 或 shell 若定义 `SMARTX_IMAGE_TAG/RUNNER_IMAGE_TAG/APP_VERSION/RUNNER_VERSION` 会覆盖占位符默认值——**不应在 .env 定义这四个变量**；`check_versions` 检测到会打印警告。
-- 升级链路纵深防御：runner 升级时从目标 .env 剥离上述四个变量（`upgrade_runner/actions.py IMAGE_TAG_ENV_KEYS`）。
+- **源码 compose 与升级包内 compose 均为字面量 tag**（registry+tag 全写死，与 `VERSION`/`RUNNER_VERSION` 一致）：49-3 起三个源码 compose 的镜像引用全部字面量化，现场 `.env` 无法让源码部署静默漂移到旧镜像。
+- `check_versions` 门禁断言三源码 compose 字面量 tag 与 VERSION 一致，并**禁止出现** `SMARTX_IMAGE_TAG`/`SMARTX_RUNNER_IMAGE_TAG`/`SMARTX_IMAGE_PREFIX`/`SMARTX_RUNNER_IMAGE_PREFIX` 模板变量与 `:latest`（模板回潮即构建失败，fail-fast）。
+- 版本晋升时同步改 `VERSION`/`RUNNER_VERSION`/compose 字面量/README/CHANGELOG（见发版检查清单）；构建期 `temporary_image_version_metadata` 会临时改写 compose 渲染目标版本，构建后还原。
+- `.env` 不应定义 `SMARTX_IMAGE_TAG/RUNNER_IMAGE_TAG/APP_VERSION/RUNNER_VERSION`（对字面量 compose 无效，徒增误导）；升级链路纵深防御保留：runner 升级时从目标 .env 剥离上述四个变量（`upgrade_runner/actions.py IMAGE_TAG_ENV_KEYS`）。
+
+## 发布节奏（2026-09-20 定）
+
+**发版模式：攒批发版，无固定日历周期。** 满足其一即开一个发版批次：
+
+1. 积累 3~5 个已完成并验证的功能/修复（task_plan 有验收证据）；
+2. 出现必须尽快交付的缺陷修复——hotfix 不受攒批限制，单独出 patch 版本走完整门禁；
+3. 用户指定时间点（如现场部署计划）。
+
+**发版硬门禁（每批必过，不省略）**：
+
+- 全量测试回基线（后端 unittest + 前端 tsc/vitest）+ `build_upgrade_package.py --check-version`；
+- .3 全新完整构建升级包（非增量重打）+ `verify_upgrade_package_identity` + 包内 compose 字面量不变量 + 台账记录；
+- 10.20.11.12 从真实旧版本基线走正规升级链路（上传→预检查→升级→post-cleanup→8 项验收），任务 ID 与证据入 progress.md；
+- CHANGELOG（七段结构）/版本治理/台账同步更新。
+
+**环境角色（2026-09-20 更新）**：`10.20.0.6` 确认为 frp Tower 主机，**不再是 release canary 目标**；"生产等价"验收职责由 10.20.11.12 代行（Phase 30 全新部署验收 + 多轮真实升级验收已覆盖）。如未来获得专用干净 canary 主机，恢复 release-acceptance.md 的 canary 全新部署门禁。
+
+**版本号规则**：bug/治理批次走 patch（v0.5.x）；含面向用户新能力的批次升 minor（v0.6.0）；runner 保持独立版本线（`runner-v*` tag 单独构建，不随平台 tag）。
+
+**发布动作链（仅用户明确说"发布 v X.Y.Z"后执行）**：
+
+1. 推送 dev2 到 origin；
+2. main 对齐 dev2（fast-forward）并推送；
+3. 打 tag `v X.Y.Z`（tag 名必须与提交内 VERSION 一致，不一致禁止打 tag）；
+4. GitHub Release 附升级包 tar.gz 与 SHA256（Release asset 是升级包权威来源）；
+5. 确认 DockerHub 镜像 tag（平台三件套 vX.Y.Z；runner 按其独立版本）；
+6. CHANGELOG 状态"候选，未发布"→"已发布"，version-governance 已发布版本翻转；
+7. 生产升级窗口：生产环境走正常升级链路（升级前基线留档+自动备份，升级后 8 项验收）；生产环境地址与当前版本由用户提供。
