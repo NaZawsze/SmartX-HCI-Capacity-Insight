@@ -5,7 +5,7 @@ This document defines the release gate for SmartX HCI Capacity Insight. A releas
 ## Environment Roles
 
 - `dev/debug`: use `10.20.11.3`. Local builds, temporary patches, dirty data, container inspection, and quick rebuilds are allowed. This environment is not a release pass.
-- `upgrade rehearsal`: use `10.20.11.12`. Use it for upgrade package rehearsal such as `v0.5.0 -> v0.5.2`, `v0.5.1 -> v0.5.2`, and `v0.5.2 -> v0.5.2`. Record the starting version, image tags, upgrade package sha256, and database state before every run.
+- `upgrade rehearsal`: use `10.20.11.12`. Use it for upgrade package rehearsal such as `v0.5.1u2 -> v0.5.3`, `v0.5.2 -> v0.5.3`, and `v0.5.3 -> v0.5.3`. Record the starting version, image tags, upgrade package sha256, and database state before every run.
 - `release canary`: use a dedicated clean host when available. It must use the final `main` tag, DockerHub tag images, release compose files, and GitHub Release upgrade packages. Do not treat hot-patched containers as accepted.
 
 Production-like hosts such as `10.20.0.6` are read-only by default. Any file write, container recreate, cleanup, recovery, or deployment action must be listed first and explicitly approved.
@@ -18,19 +18,21 @@ Production-like hosts such as `10.20.0.6` are read-only by default. Any file wri
 - If a canary issue requires diagnosis, fix it in `dev2`, push to `main`, create or move the test tag, rebuild images, and redeploy canary from zero.
 - Every release pass must record platform version, Runner version, image tags, image digests when available, upgrade package sha256, data source, timestamp, and failed checks.
 
-## v0.5.2 Gate
+## v0.5.3 Gate
 
-The `v0.5.2` release gate verifies the compose project/network fix and the upgrade package path.
+The `v0.5.3` release gate verifies the compose project/network fix, the single-root directory layout, and the upgrade package path.
 
 Expected values:
 
-- Platform version: `v0.5.2`
+- Platform version: `v0.5.3`
 - Runner version: `v0.3.1`
 - Compose project: `smartx-hci-capacity-insight`
 - Docker network: `smartx-hci-capacity-insight-net`
 - Prometheus version: `v2.55.1`
-- Upgrade package: `smartx-capacity-insight-upgrade-v0.5.2.tar.gz`
-- Upgrade package sha256: `5544a0e2bf67ea59141312e99630de1f1a3082484e4f70f45646454250c6aef2`
+- Upgrade package: `smartx-capacity-insight-upgrade-v0.5.3.tar.gz`
+- Upgrade package sha256: `ef10a7c8515b4b0214d8b76e99897dd145e598c8520bbce0c451a36f0335a5f8`
+
+Validated on `10.20.11.12` on 2026-09-19 (task `upgrade-e1fe8a62ea767ab7`); package identity and evidence live in [upgrade-package-ledger.md](upgrade-package-ledger.md).
 
 Deployment checks:
 
@@ -43,8 +45,8 @@ Deployment checks:
 
 Upgrade checks:
 
-1. Start from `v0.5.0`, `v0.5.1`, or `v0.5.2`; the `v0.5.2 -> v0.5.2` path is a repair/re-sync install and must not run duplicate SQLite migrations.
-2. Upload the `v0.5.2` upgrade package.
+1. Start from `v0.5.0`, `v0.5.1`, `v0.5.1u2`, or `v0.5.2`; the `v0.5.3 -> v0.5.3` path is a repair/re-sync install and must not run duplicate SQLite migrations. From `v0.5.1u2` the upgrade performs the project/network and directory transition in one step.
+2. Upload the `v0.5.3` upgrade package.
 3. Confirm upload and precheck show the package sha256.
 4. Start the upgrade and confirm progress reaches completion.
 5. Confirm no second compose project or second SmartX network is created.
@@ -61,7 +63,7 @@ python3 scripts/release_smoke_check.py \
   --prometheus-url http://127.0.0.1:9090 \
   --username admin \
   --password 'change-me' \
-  --expected-version v0.5.2 \
+  --expected-version v0.5.3 \
   --expected-runner-version v0.3.1 \
   --expected-compose-project smartx-hci-capacity-insight \
   --expected-network smartx-hci-capacity-insight-net

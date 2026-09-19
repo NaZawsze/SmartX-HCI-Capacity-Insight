@@ -1,6 +1,6 @@
 # AI 交接执行手册（接手待办任务前必读）
 
-更新时间：2026-09-13
+更新时间：2026-09-19
 用途：本项目的待办任务（见 [pending-tasks.md](pending-tasks.md)）可能交给不同的 AI 会话实施。本文档是交接执行的总纲——执行环境、流程、基线、陷阱。**三份待实施设计文档（49-13/49-14/49-15）都假设你已读完本文。**
 
 ## 1. 入口与必读顺序
@@ -41,7 +41,7 @@
 ### 测试基线
 
 - 本地（macOS，python3.9，无 fastapi/apscheduler/cryptography/pytest）：部分测试**环境跳过或报 ModuleNotFoundError** 属正常——fastapi 依赖的测试已加 skipTest。
-- .3 容器内全量：**308 tests 全绿**（2026-09-13 起）。构建测试 `test_v2_package_builders` 已移到 `backend/build_tests/`（需写项目根 VERSION，web-api 容器只读挂载，改在宿主机跑 26 tests OK）；`test_deployment_config` 已改 unittest（无 pytest 依赖）。**任何失败都是真回归。**
+- .3 容器内全量：**310 tests 全绿**（2026-09-19 起；2026-09-13 时点 308）。构建测试 `test_v2_package_builders` 已移到 `backend/build_tests/`（需写项目根 VERSION，web-api 容器只读挂载，改在宿主机跑 26 tests OK）；`test_deployment_config` 已改 unittest（无 pytest 依赖）。**任何失败都是真回归。**
 - 容器内跑法：
   ```bash
   docker compose exec -T web-api sh -lc "cd /data/smartx-storage-forecast/project/backend && PYTHONPATH=/data/smartx-storage-forecast/project/backend python -m unittest discover -s tests 2>&1 | tail -3"
@@ -60,12 +60,13 @@
 | `.env` 权限 600 且属 root | user1 跑 `docker compose` 读 .env 失败 | 一律 su root 执行 compose 命令 |
 | unittest.TestCase 里定义 `_outcome` 等框架内部名 | 被框架覆盖，报诡异 TypeError | 避免框架保留名 |
 | 业务库路径 | 真库在 `/data/smartx-storage-forecast/app/smartx.db`（容器内 /data/smartx.db）；宿主机 `/data/smartx.db` 是 v0.5.1 旧残留（无业务表） | 操作前核对路径 |
+| 容器运行期 rm/mv `app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}` | 这些是 dockerd 补建的挂载点载体，删/移即拆掉全机容器的对应挂载（UPG-050） | 运行期禁删禁移；衰减后全服务 `docker compose up -d --force-recreate` 恢复，用 `scripts/bind-mount-recover.sh` 体检 |
 | GitHub push 偶发被代理拦截 | push 失败 | 重试即可；本地提交不丢 |
 
 ### 版本事实
 
-- 平台 v0.5.2 / runner v0.3.1 / 分支 dev2（当前本地领先 origin，推送需用户要求）。
-- compose 镜像 tag 源码为 `${SMARTX_IMAGE_TAG:-v0.5.2}` 占位符——**是 build_upgrade_package.py 的改写锚点，不得写死**（详见 p1-infra-batch-design §5 的回退教训）。
+- 平台 v0.5.3 / runner v0.3.1 / 分支 dev2（当前本地领先 origin，推送需用户要求）。
+- compose 镜像 tag 源码为 `${SMARTX_IMAGE_TAG:-v0.5.3}` 占位符——**是 build_upgrade_package.py 的改写锚点，不得写死**（详见 p1-infra-batch-design §5 的回退教训）。
 - `CollectionService.run_manual_collection` 会用本次成功目标**整体替换** metric_snapshots——调用方必须"采集前捕获旧快照、采集后合并保存"（worker 已统一实现，新增采集路径必须遵循）。
 
 ## 5. 流程要求
@@ -74,13 +75,13 @@
 - 测试基线外的新失败：先停下记录根因，禁止静默重试。
 - 完成判定必须有 .3 实际验证输出，"应该没问题"不算。
 
-## 6. 当前待实施设计
+## 6. 近期设计实施状态（49-13~49-16 均已完成）
 
 | 任务 | 设计文档 | 备注 |
 | --- | --- | --- |
-| 49-13 拆分巨型文件 | [specs/2026-09-13-split-giant-files-design.md](superpowers/specs/2026-09-13-split-giant-files-design.md)（含附录 A 函数映射清单） | 顺序：api.py → ServicePage → export.py → upgrade/service.py |
-| 49-14 API 响应模型 | [specs/2026-09-13-api-response-models-design.md](superpowers/specs/2026-09-13-api-response-models-design.md)（含附录 B 契约脚本规格） | 五批；先于 49-13 的 api 拆分会导致冲突，二选一先做或协调 |
+| 49-13 拆分巨型文件 | [specs/2026-09-13-split-giant-files-design.md](superpowers/specs/2026-09-13-split-giant-files-design.md)（含附录 A 函数映射清单） | ✅ 已完成（2026-09-13，api.py/ServicePage/export.py/upgrade/service.py 四项独立提交+部署，回归零新增） |
+| 49-14 API 响应模型 | [specs/2026-09-13-api-response-models-design.md](superpowers/specs/2026-09-13-api-response-models-design.md)（含附录 B 契约脚本规格） | ✅ 已完成（五批响应模型落地） |
 | 49-15 compose 字面量 tag | [specs/2026-09-13-compose-literal-tags-design.md](superpowers/specs/2026-09-13-compose-literal-tags-design.md) | ✅ 已完成（2026-09-13，见 progress.md） |
-| 49-16 前后端契约对齐 | [specs/2026-09-13-contract-alignment-design.md](superpowers/specs/2026-09-13-contract-alignment-design.md) | 49-14 批次 5；后端补发 kpis/latest_run/top_vms/tower_runs（纯增量）+ item 加 metric/value，前端删 normalizer。**实施未开始**（一次未提交的草稿已回退，从干净状态起步） |
+| 49-16 前后端契约对齐 | [specs/2026-09-13-contract-alignment-design.md](superpowers/specs/2026-09-13-contract-alignment-design.md) | ✅ 已完成（2026-09-13：后端补发 kpis/latest_run/top_vms/tower_runs + item metric/value，前端删 normalizer） |
 
-> 串行约束：49-14 批次 1-4 已完成（响应模型已在 api.py）；49-16（前端删 normalizer + 后端补字段）与 49-13（api.py 拆文件）都动 api 相关代码——**先 49-16 后 49-13**（契约对齐后再拆文件，避免二次冲突）。
+> 以上四项均已完成（2026-09-13~19，见 progress.md）；当前待办以 [pending-tasks.md](pending-tasks.md) 为准。

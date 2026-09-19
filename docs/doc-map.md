@@ -62,7 +62,7 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 
 ## 5. 升级链路专项文档
 
-固定升级链路：`v0.5.1 + runner v0.3.0 -> v0.5.1u2 -> runner v0.3.1 -> v0.5.2`。
+固定升级链路：`v0.5.1 + runner v0.3.0 -> v0.5.1u2 -> runner v0.3.1 -> v0.5.2 -> v0.5.3`。
 
 | 文档 | 说明 | 关联任务 |
 | --- | --- | --- |
@@ -100,7 +100,7 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 项目存在三套并行编号，查阅时注意区分：
 
 - **根 Phase（task_plan.md）**：Phase 1~31 为 v2 重建与产品化阶段；Phase 32~48 是升级链路专项阶段，详情归档在 [v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md](v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md)（fix10 并入 Phase 32，无独立 Phase 33）；Phase 49 为 v0.5.2 后治理待办。逐项对照见 [task_plan.md](../task_plan.md) 的「Phase 与任务设计文档对照」。
-- **UPG-xxx（升级问题/修复编号）**：UPG-001 起记录在 [upgrade-issues.md](upgrade-issues.md)；UPG-031~048 为升级链路修复，记录在 [upgrade-chain-worklog.md](v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)。
+- **UPG-xxx（升级问题/修复编号）**：UPG-001 起记录在 [upgrade-issues.md](upgrade-issues.md)；UPG-031~048 为升级链路修复，记录在 [upgrade-chain-worklog.md](v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)；UPG-049/050（2026-09-19）记录在 [upgrade-issues.md](upgrade-issues.md)，详细证据在 [findings.md](../findings.md) 与 progress.md。
 - **Phase V2-x（v2 重建子阶段）**：定义在 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)（V2-0 ~ V2-9）。
 
 ## 9. 资产

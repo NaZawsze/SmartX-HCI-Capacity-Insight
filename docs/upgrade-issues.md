@@ -493,6 +493,28 @@ compose_command docker compose -p smartx-capacity-insight -f /data/smartx-storag
 - 最终任务中心可读 v0.5.2 升级成功状态和清理明细。
 - 旧容器、旧 network、旧目录和误写残留已删除，或以 skipped 形式记录明确原因。
 
+## UPG-049 runner filesystem.prepare 把在线数据误判为 legacy 源，凭据守卫硬失败
+
+状态：已修复（2026-09-19，纳入 v0.5.3 重打包 `ef10a7c8…`；runner v0.3.1 镜像重建，已同步 .3/.12）
+
+现象：v0.5.2（目标布局）→ v0.5.3 正式升级在 `filesystem.prepare` 失败：`Tower XOR 凭据无法认证密钥，且未找到可保留来源配对关系的旧环境 .env`。10.20.11.12 两个任务与 10.20.11.3 均复现。
+
+根因：runner 容器把宿主机 app 目录挂载在 `/data`，`filesystem.prepare` 用容器内路径扫描 manifest `legacy_app_data_paths`（含 `/data`）时命中目标在线库自身，误置 `database_migrated_from_legacy=true`；随后 UPG-042 凭据配对策略只接受 manifest legacy candidates 作为 XOR 凭据来源，即使目标 .env 能成功解密也被跳过，因此必然失败。
+
+修复：`_migrate_app_data_source` 跳过与在线库（`SMARTX_DB_PATH`）为同一文件的 legacy 候选；`filesystem.prepare` 的 Prometheus legacy 扫描同样跳过与目标/`SMARTX_PROMETHEUS_DATA_PATH` 相同的在线数据，防止向嵌套目录复制。真实 legacy 机器迁移行为不变，凭据守卫语义不变。
+
+验证：engine 回归测试（含 UPG-049 守卫用例）通过；10.20.11.12 以重打包完成 v0.5.2→v0.5.3 正规升级全流程 succeeded。详细证据见 `findings.md` 2026-09-19、`progress.md`、`docs/releases/CHANGELOG.md` v0.5.3。
+
+## UPG-050 app/ 下运行目录"静默衰减"实为清理操作自伤（挂载点目录被 rm/mv）
+
+状态：已定案（2026-09-19，非产品缺陷；运维规则与恢复脚本落地）
+
+现象：.12/.3 多次出现 `/data/smartx-storage-forecast/app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}` 目录消失或畸变，容器对应 bind 挂载失效。
+
+根因：这些目录是 dockerd 经 app bind 在容器创建时补建的挂载点载体（容器内被 `upgrades:/data/upgrades` 等真实 bind 遮蔽）。mountinfo 实证：宿主机 `mv` 会把共享该 bind 的所有容器的挂载搬移到新路径，`rm -rf` 使挂载彻底消失；历次"衰减"均为清理操作自伤，与 docker 版本、单服务重建、传播域无关，真实数据源全程无损。
+
+规则/工具：容器运行期禁止 rm/mv 这些目录；衰减后用全服务 `docker compose up -d --force-recreate` 恢复（不带服务参数），并以容器内 `/proc/mounts`（而非 docker inspect）验证。体检/恢复工具：`scripts/bind-mount-recover.sh`（check/recover）。详细证据见 `findings.md` UPG-050 定案节。
+
 ## v2 升级中心规避策略
 
 v2 不继续兼容旧升级路径，而是在 `dev2` 上重新设计升级中心。历史问题在 v2 中按下面方式规避。

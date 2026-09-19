@@ -4,7 +4,7 @@
 
 ## v0.5.3
 
-发布日期：2026-09-13
+发布日期：2026-09-19（2026-09-13 首次打包；2026-09-19 因 UPG-049 修复重打包，升级包 `smartx-capacity-insight-upgrade-v0.5.3.tar.gz` SHA256 `ef10a7c8…`，并以该包在 10.20.11.12 完成 v0.5.2→v0.5.3 全链路验收）
 
 ### 更新摘要
 
@@ -21,6 +21,7 @@ v0.5.3 是 v0.5.2 之后的正式平台版本，主要包含工程健康度与�
 - **task-worker 第 6 容器评估**：实测报表导出期间 web-api 响应仅 +40ms，空间清理/迁移导出无影响，结论保持 5 容器模块化单体。
 - **测试环境治理**：构建测试移到宿主机跑（26 tests OK），deployment_config 改 unittest（无 pytest 依赖），容器内全量 310 tests 全绿。
 - **升级链路修复（UPG-049，2026-09-19 重打包纳入）**：runner `filesystem.prepare` 不再把与在线库同文件的 legacy 候选误判为 legacy 源；此前任何 v0.5.2 目标布局机器带 Tower 凭据升级 v0.5.3 会被凭据配对策略硬失败。真实 legacy 机器迁移行为不变。
+- **运维工具（UPG-050 定案）**：新增 `scripts/bind-mount-recover.sh`：`app/` 下挂载点目录体检（check）与全服务一键恢复（recover）。容器运行期禁止 rm/mv `app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}`（它们是 dockerd 补建的挂载点载体）。
 
 ### 验证说明
 

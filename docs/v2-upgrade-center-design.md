@@ -6,7 +6,7 @@
 
 v2 升级中心重新设计，不兼容旧升级路径。目标是一次上传后，由 manifest 自动识别升级内容，完成预检查、备份、执行、健康检查、历史记录和回滚准备。
 
-当前正式平台版本统一为 `v0.5.2`，`upgrade-runner` 组件版本统一为 `v0.3.1`。临时测试升级包的目标版本只用于验证升级链路，不代表正式版本变化。
+当前正式平台版本统一为 `v0.5.3`，`upgrade-runner` 组件版本统一为 `v0.3.1`。临时测试升级包的目标版本只用于验证升级链路，不代表正式版本变化。
 
 支持升级对象：
 
@@ -55,7 +55,7 @@ smartx-capacity-insight-platform-upgrade-v0.5.x.tar.gz
 - `images/` 中只包含平台三件套镜像。
 - `project/` 包含允许同步到项目目录的白名单文件。
 - `migrations/run_migrations.py` 仅在来源版本到目标版本之间存在已登记 SQLite 迁移步骤时包含并执行。
-- 无 schema 变化的当前 `v0.5.2` 正式包不包含迁移脚本。
+- 无 schema 变化的正式包（如 `v0.5.2`、`v0.5.3`）不包含迁移脚本。
 - 跨版本升级包必须是累计迁移包：只要来源版本到目标版本之间存在已登记 schema 迁移，就必须包含并执行这些中间迁移。
 - 同版本应用允许，例如 `v0.5.2 -> v0.5.2`，用于修复安装或重同步镜像、项目文件和 runtime override；迁移选择仍按 `source_version < step.version <= target_version`，不会重复选择迁移步骤。
 - 平台升级包不默认包含 `upgrade-runner.tar` 或 `prometheus.tar`。

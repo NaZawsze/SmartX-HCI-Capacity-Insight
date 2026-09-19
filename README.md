@@ -136,7 +136,7 @@ Compatibility: the `v0.5.3` upgrade package targets the v2 upgrade flow only. It
 Recommended package structure:
 
 ```text
-smartx-capacity-insight-v0.5.3-upgrade.tar.gz
+smartx-capacity-insight-upgrade-v0.5.3.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md                 # optional

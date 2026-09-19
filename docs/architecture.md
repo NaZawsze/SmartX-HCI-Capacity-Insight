@@ -109,7 +109,7 @@ v2 升级包使用统一 `.tar.gz` 格式，由 `manifest.json` 自动识别组�
 平台升级包：
 
 ```text
-smartx-capacity-insight-v0.5.2-upgrade.tar.gz
+smartx-capacity-insight-upgrade-v0.5.3.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md
@@ -164,7 +164,7 @@ images/
 平台和观测组合包：
 
 ```text
-smartx-capacity-insight-bundle-v0.5.2.tar.gz
+smartx-capacity-insight-bundle-v0.5.3.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── platform/
@@ -234,9 +234,9 @@ overwrite 只用于明确恢复场景，并要求用户显式确认。
 
 ## 9. 当前版本边界
 
-- 平台版本：`v0.5.2`
+- 平台版本：`v0.5.3`
 - runner 组件版本：`v0.3.1`
 - Prometheus 镜像版本：`prom/prometheus:v2.55.1`
 - 当前重建分支：`dev2`
 
-`v0.5.2` 平台升级包只面向 v2 同架构后续升级。v1/v0.4.x 现场通过“全新部署 v2 + 数据迁移包导入”兼容，不走原地升级。
+`v0.5.2` 起的平台升级包只面向 v2 同架构后续升级。v1/v0.4.x 现场通过“全新部署 v2 + 数据迁移包导入”兼容，不走原地升级。

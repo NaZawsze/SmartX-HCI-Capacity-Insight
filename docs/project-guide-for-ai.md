@@ -14,7 +14,7 @@ SmartX HCI Capacity Insight 是面向 SmartX 超融合环境的容量监控与�
 - Tower 配置、账号管理、数据迁移和离线升级。
 - 升级任务中心、升级历史、备份、健康检查和旧环境清理。
 
-当前平台版本是 v0.5.2，独立升级执行器是 runner v0.3.1。项目目前处于测试阶段，生产使用必须以真实业务数据链路验证为前提。
+当前平台版本是 v0.5.3，独立升级执行器是 runner v0.3.1。项目目前处于测试阶段，生产使用必须以真实业务数据链路验证为前提。
 
 ### 环境角色
 
@@ -147,6 +147,7 @@ v0.5.1 + runner v0.3.0
   -> v0.5.1u2
   -> runner v0.3.1
   -> v0.5.2
+  -> v0.5.3
 ~~~
 
 ### 节点职责
@@ -157,6 +158,9 @@ v0.5.1 + runner v0.3.0
 | v0.5.1u2 | 桥接旧平台，使旧 runner 能提交/编译后续升级任务，并兼容来源版本 | 不切平台 project/network，不清理旧目录，不升级 runner 自身 |
 | runner v0.3.1 | 切换 runner 执行环境，提供 project migration、handoff、路径归一化和恢复能力 | 不迁移平台三件套，不删除旧平台目录 |
 | v0.5.2 | 迁移平台目录、Compose project/network、SQLite、Prometheus，重建五个容器，健康后清理旧环境 | 不跳过数据门禁，不用手工覆盖 Compose 模拟成功 |
+| v0.5.3 | 保持 v0.5.2 目标布局（project/network/目录不变），仅更新平台镜像与项目文件 | 无新增迁移，不重复目录切换 |
+
+v0.5.1u2 + runner v0.3.1 也可以用 v0.5.3 包一步直升最新版本：v0.5.3 manifest 的 `source_compatibility` 覆盖 v0.5.0~v0.5.3，并携带 `environment_transitions`/`directory_transition`/`legacy_cleanup`（2026-09-15/2026-09-19 验证）。
 
 ### 状态变化
 
@@ -209,6 +213,8 @@ v0.5.2 执行计划的逻辑顺序是：备份、加载镜像、准备文件系�
 - v0.5.2 只按平台三件套执行 Compose，旧 Prometheus 被删除后没有新 Prometheus。修复原则是目标 Compose 必须声明 Prometheus，并将其纳入平台服务启动和健康检查。
 - 升级后没有自动采集，导致恢复的数据和当前 VM 名称不刷新。修复原则是生成独立的 post-upgrade-collection-<task_id> 任务并验证结果。
 - 任务历史按文件 mtime 排序或读取时触发清理，导致顺序错乱和读取副作用。修复原则是使用任务内时间字段排序，查询接口必须只读。
+- runner 容器把宿主机 app 目录挂载在 `/data`，`filesystem.prepare` 用容器内路径扫描 legacy 候选时会命中在线数据自身（UPG-049）。修复原则是 legacy 候选解析结果与 `SMARTX_DB_PATH`/`SMARTX_PROMETHEUS_DATA_PATH` 指向同一文件时跳过，凭据配对守卫语义不变。
+- `app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}` 是 dockerd 经 app bind 补建的挂载点载体：容器运行期 `rm`/`mv` 会拆掉共享该 bind 的全部容器的对应挂载（UPG-050）。修复原则是这些目录只保留不清理；衰减后用全服务 `docker compose up -d --force-recreate` 恢复，并以容器内 `/proc/mounts`（而非 docker inspect）验证，工具见 `scripts/bind-mount-recover.sh`。
 
 ## 9. AI 应查阅的文档地图
 
@@ -266,7 +272,7 @@ curl -fsS http://127.0.0.1:9090/-/healthy
 
 截至本项目进度文档记录的最近一次闭环：
 
-- 正常升级链路已在测试环境完成：v0.5.1 + runner v0.3.0 -> v0.5.1u2 -> runner v0.3.1 -> v0.5.2。
+- 正常升级链路已在测试环境完成：v0.5.1 + runner v0.3.0 -> v0.5.1u2 -> runner v0.3.1 -> v0.5.2 -> v0.5.3（2026-09-19，v0.5.1u2 + runner v0.3.1 直升路径同样已验证）。
 - 目标健康检查包含目录、数据库和 Prometheus，最终 runner 为 v0.3.1。
 - v0.5.2 目标 project/network 为 smartx-hci-capacity-insight / smartx-hci-capacity-insight-net。
 - 升级后清理和升级后自动采集均属于验收范围。

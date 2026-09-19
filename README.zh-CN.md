@@ -139,7 +139,7 @@ OVA 文件名必须带正式平台版本，例如 `smartx-capacity-insight-v0.5.
 平台升级包目录结构：
 
 ```text
-smartx-capacity-insight-v0.5.3-upgrade.tar.gz
+smartx-capacity-insight-upgrade-v0.5.3.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md                 # 可选
