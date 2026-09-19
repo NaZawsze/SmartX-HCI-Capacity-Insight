@@ -26,7 +26,7 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 | 8 | Phase 30 部署/升级验收两项 | Phase 30 | ✅ 已完成（2026-09-15，10.20.11.12）：部署验收（任意目录名部署，project/network 固定）+ 升级验收（v0.5.2→v0.5.3 无第二套容器/网络） |
 | 9 | 生产现场只读定位 | Phase 49-8 残留 | 总览绿色现象复现时抓 `/api/dashboard/summary` 请求状态与 `capacity_risk.level`；待生产现象复现 |
 | 13 | Phase 24 采集重试/缺采收尾 | Phase 24 | 已实现，待一轮真实使用验证后关闭 |
-| 17 | UPG-049 残留卫生项治理 | 2026-09-19 findings.md | runner 容器内路径畸变的后续治理：Prometheus legacy 扫描在目标为空时会向嵌套目录复制数据（本次未触发）；`.12` 上 `app/smartx-storage-forecast/` 演练垃圾目录清理需用户确认；runner 挂载目标路径写法与 .3 线上差异核对。不阻塞升级。 |
+| 17 | UPG-049 残留卫生项治理 | 2026-09-19 findings.md | `.12` 的 `app/smartx-storage-forecast/` 与 `project.bak-restore-20260919/` 已于 2026-09-19 经用户确认删除；剩余：Prometheus legacy 扫描在目标为空时向嵌套目录复制的容器内路径畸变治理、runner 挂载目标路径写法与 .3 线上差异核对。不阻塞升级。 |
 
 ## P3 — 工程健康度（不阻塞发布）
 

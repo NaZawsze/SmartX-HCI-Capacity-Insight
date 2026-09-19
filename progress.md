@@ -7203,3 +7203,8 @@ release_smoke=critical 0, warning 0
 - .12 上残留 drill 垃圾目录 `app/smartx-storage-forecast/`（9-15 演练残留 + 修复前 prepare 误复制产物），清理需用户确认。
 - .12 compose 由包内 compose 重写而来（目标路径），runner 挂载目标路径写法与 .3 线上存在目标/源侧差异（任务目录曾落 `app/upgrades`，task.migrate_runtime_state 已归位）；UPG-049 残留卫生项（容器内路径畸变导致的 Prometheus 嵌套复制）记录在 findings.md 待后续治理。
 - dev2 本地提交 a64a897，未推送（按策略等待用户要求）。
+
+### 2026-09-19 补充：.12 垃圾清理与"密钥丢失"澄清
+
+- 经用户确认删除：`/data/smartx-storage-forecast/app/smartx-storage-forecast/`（9-15 演练残留 + UPG-049 修复前 prepare 误复制产物；其中任务目录在真实 `upgrades/` 均有存活副本，prometheus block 与线上不同源，DB 为同数据副本）、`/data/smartx-storage-forecast/project.bak-restore-20260919/`（本日错误部署的备份）、/tmp 下本轮传输产物。清理后 health 复验 `v0.5.3/v0.3.1` 全绿。
+- "升级完密钥丢了"澄清：升级未动 `.env`（升级前后内容逐字节一致、0600）；库中 Tower 凭据用运行时 `SMARTX_SECRET_KEY` 解密实测 OK（len=14）；`/api/towers/3/test` 实测返回 `[Errno 113] No route to host`——是 Tower `10.20.0.6` 测试网不可达，不是凭据丢失。UI 密码框不回显为设计行为。此前两次 UPG-042 报错是 UPG-049 误判 legacy 迁移所致（假阳性），并非真实密钥丢失；`.3` 上一次真实密钥丢失（9-13）是仓库同步覆盖 .env 所致。`.12` 演练环境自始使用模板密钥，库中凭据即以模板密钥加密，配对自洽。
