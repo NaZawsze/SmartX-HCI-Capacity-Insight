@@ -614,15 +614,14 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 ### 2026-09-19 UPG-049 收尾：Prometheus 扫描同款守卫 + 残留清理 + 挂载对齐（已完成）
 
 - Prometheus 守卫：`filesystem.prepare` 容器内 prometheus 扫描跳过与 `SMARTX_PROMETHEUS_DATA_PATH`（默认 `/prometheus-data`）同源的候选，不再把在线 prometheus 数据复制进嵌套畸变目录（beb36d5；回归测试 `test_filesystem_prepare_skips_legacy_prometheus_matching_live_data`，引擎 67 测试全绿）。
-- .12/.3 的 `app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}` 残留已清理：.3 释放约 3G（嵌套 3.6G 为旧升级任务镜像副本，真实 `upgrades/` 均有正本），.12 释放约 3G。
+- .12/.3 的 `app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}` **内容**已清理（约 3G/机）：任务镜像副本、升级前项目快照等历史产物，真实 `upgrades/`、`backups/` 均有正本。**注意（UPG-050 定案后更正）：这些目录本身不是垃圾——它们是 dockerd 补建的挂载点载体，必须保留**，见下节。
 - runner v0.3.1 镜像重建为 0aca32511008（含 a64a897 app 守卫 + beb36d5 prometheus 守卫），已更新 .3/.12 并验证 heartbeat/health。交付包 ef10a7c8… 内嵌 runner 镜像仍为 7d152590d6fd（app 守卫版，已过 .12 全链路验证）——prometheus 守卫属卫生修复，随下次打包纳入，不重打已验证包。
-- prepare 的 mkdir 循环仍会在升级期于 app/ 下创建空骨架目录（畸变路径 mkdir，无数据复制），升级后可清理，不阻塞升级。
+- prepare 的 mkdir 循环仍会在升级期于 app/ 下创建空骨架目录（畸变路径 mkdir，无数据复制），升级后可清理**内容**，不阻塞升级。
 
-## 2026-09-19 UPG-050 宿主 bind mount 静默衰减（.3/.12 共同环境缺陷，待用户决策）
+## 2026-09-19 UPG-050 "bind mount 静默衰减"定案：app/ 下为 dockerd 补建的挂载点目录，rm/mv 即拆挂载（自伤，非环境缺陷）
 
-- 现象：容器运行中，**目的路径嵌套在其它 bind 之下的挂载**（/data/upgrades、/data/backups、/data/exports、/data/compose-runtime、/data/smartx-storage-forecast/project）会静默消失，仅 /data（app）、/prometheus-data、/run/smartx-runtime.env 等顶层 bind 存活。`docker inspect` 的 Binds/Mounts 仍完整列出（配置与运行时不一致，**inspect 不可信**），唯一可信判据是容器内 `grep " /data" /proc/mounts` 计数（健康时应为 web-api=6 / collector=5 / runner=6）。
-- 触发与速度：伴随 docker/compose 容器重建操作发生并扩散；.3（Debian 13 + docker 26.1.5）上午还保持 13 小时级稳定，16:17 重建 runner 后进入分钟级衰减；.12（openEuler 24.03 + docker 29.5.2 fork + cgroup v1）更凶，全量重建也在约 2 分钟内衰减。审计 umount2 仅见 dockerd 自身拆建容器的正常 MNT_DETACH（无外部 umount 进程）；journal/dmesg 无挂载错误、无 OOM、RestartCount=0。
-- 最吻合机理（假设，待宿主重启/降级验证）：单服务 force-recreate 是"先建新容器、后拆旧容器"，旧容器挂载的 detach 经挂载传播域波及所有容器内的同路径挂载。旁证：**全服务一次性 `up -d --force-recreate`（先全停后全建）后 .3 挂载齐全且短窗稳定；单服务重建必然触发衰减**。
-- 平台影响：衰减后 web-api/collector/runner 退化为 app 挂载自洽畸变视图（任务/备份/导出读写落入 app/ 下目录并持续产生垃圾），DB 与采集仍正常；`checks.directories` 翻 false 属正确告警（必需目录可写探测失败）。2026-09-19 上午 .12 升级残留（11:21-11:23 的 app/upgrades 任务镜像等）即当时容器已处衰减态所致——上一节"挂载目标路径写法差异"子项实为本缺陷的表现，非产品挂载写法问题。
-- 运行规则（根治前缓解）：.3/.12 禁止单服务 recreate；任何 compose 操作后以容器内 /proc/mounts 计数 + `/api/system/health` 复核；发现衰减立即全量 `up -d --force-recreate`。根治需用户决策：重启 dockerd / 宿主机重启 / docker 版本对齐（.12 的 29.5.2 fork 嫌疑最大）。
-- 当前状态（2026-09-19 17:10）：.3 全量重建后真实挂载齐全、health 绿；.12 衰减过快，已按降级自洽模式恢复 health 绿（运行目录落在 app/ 下），根治前不宜再跑升级演练。
+- 现象（当日反复出现）：对宿主机 `/data/smartx-storage-forecast/app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}` 执行 `rm -rf` 或 `mv` 后数十秒内，**全机所有容器**的对应嵌套挂载（/data/upgrades、/data/backups、/data/exports、/data/compose-runtime、/data/smartx-storage-forecast/project，连带 /run/smartx-runtime.env）从容器内 /proc/mounts 消失；`docker inspect` 的 Binds/Mounts 仍完整显示（不可信）。100% 确定性复现（recover→体检通过→rm→20 秒后 15 项挂载全失）。
+- 真因（mountinfo 实证）：容器创建时 dockerd 会穿过 `/data`（app bind）**自动补建嵌套挂载点目录**，宿主机侧即上述 app/ 下目录；它们在容器内被真实 bind 遮蔽，但**挂载附着在这些目录的 inode 上**。宿主机 `mv app/upgrades .trash1` 会把三个容器的 `/data/upgrades` 挂载整体搬移为 `/data/.trash1`（mountinfo 实证：`/data/smartx-storage-forecast/upgrades /data/.trash1`）；`rm -rf` 则使挂载失去附着点直接消失。真实数据源（/data/smartx-storage-forecast/{upgrades,…}）全程无损，仅挂载位置/存在性被破坏。当日每一次"衰减"都紧跟一次 app/ 清理操作，均为自伤。
+- 排除项：docker 版本（.3 Debian+26.1.5 与 .12 openEuler+29.5.2 行为一致）、umount 进程（auditd 无外部 umount2）、compose 单服务重建（16:17 .3 单服务重建后 health 仍绿直至其后的人工 rm）、传播域假设（无传播，是同一 inode 的挂载点被改名/删除）。
+- 修复与工具：`scripts/bind-mount-recover.sh`（已部署 .3/.12）——`check` 逐容器校验 20 项挂载存在性 + health；`recover` 全服务一次性 `up -d --force-recreate`（先全停后全建，dockerd 重建挂载点目录并恢复挂载）后复验。两机均已 recover 至挂载齐全、health 全绿。
+- 运行规则（最终版）：**容器运行期禁止对 app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast} 执行 rm/mv**；这些目录为空且必须存在；如需清理其历史内容，先 `check` 确认挂载健康，再只删内容保留目录。dockerd 重启可恢复但非必需（当日两机的重启属多余操作，无损害）。

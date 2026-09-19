@@ -7231,3 +7231,23 @@ release_smoke=critical 0, warning 0
 - .12 app/ 下降级自洽运行目录为临时态，根治后应再清理一次。
 - prometheus 守卫未纳入交付包 ef10a7c8…（维持已验证包不变）；下次打包时随包验证。
 - dev2 本地提交 beb36d5（代码）+ 本轮文档提交，未推送（按策略等待用户要求）。
+
+## 2026-09-19 UPG-050 修复定案：真因为 app/ 挂载点目录被 rm/mv（自伤），一键修复脚本已部署双机
+
+### 真因定位（推翻前一轮"宿主 docker 缺陷"假设）
+
+- 决定性实验：recover→体检通过→`mv app/upgrades .trash1`→15 秒后**恰好三个容器的 /data/upgrades 挂载消失**；容器内 mountinfo 实证 `/data/smartx-storage-forecast/upgrades` 的挂载点变成了 **/data/.trash1**——挂载附着在目录 inode 上，宿主机 mv 把挂载点一起搬走；`rm -rf` 则使挂载失去附着点消失。100% 确定性复现。
+- 结论：`/data/smartx-storage-forecast/app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}` 是 dockerd 容器创建时**穿过 /data（app bind）自动补建的挂载点目录**（容器内被真实 bind 遮蔽、宿主机侧可见为"空骨架"）。它们不是垃圾，是挂载载体。当日每一次"静默衰减"都紧跟一次 app/ 清理（rm/mv），均为运维操作自伤；docker 版本（26.1.5/29.5.2）、单服务重建、传播域等此前假设全部排除。真实数据源全程无损。
+- 前一轮文档中的"宿主 docker 环境缺陷/需重启 dockerd/宿主重启/docker 版本对齐"结论作废；dockerd 重启当日做过两次，属多余但无损害。
+
+### 修复交付
+
+- **一键脚本 `scripts/bind-mount-recover.sh`**（提交入库，已部署 .3:/tmp、.12:/tmp）：`check` 逐容器校验 20 项挂载（web-api 7 项/collector 5 项/runner 7 项/prometheus 1 项）+ health；`recover` 全服务一次性 `up -d --force-recreate`（dockerd 重建挂载点目录并恢复挂载）后自动复验（3 次重试）。脚本头与用法报错中写明"运行期禁删/禁改 app/ 挂载点目录"。
+- **双机恢复验证**：.3、.12 均 recover 成功——20 项挂载齐全、health `{"ok":true,"version":"v0.5.3","runner_version":"v0.3.1",checks 全 true}`；.12 回到真实挂载（不再需要降级自洽模式）；.3 顺带清掉实验遗留 app/.trash1（新容器挂载已重建后安全）。
+- **.codex 排除**：.gitignore 增加 `.codex/` 并 `git rm -r --cached .codex`（本地文件保留），提交 9d6e27d。
+
+### 限制与未验证项
+
+- app/ 挂载点目录今后常驻（为空、必须存在）；其历史内容的清理已在前一轮完成，目录本身保留。
+- 交付包 ef10a7c8… 不变（prometheus 守卫随下次打包纳入）。
+- dev2 本地提交：beb36d5（UPG-049 prometheus 守卫）、9d6e27d（.codex 排除）、本轮脚本+文档提交，均未推送（按策略等待用户要求）。
