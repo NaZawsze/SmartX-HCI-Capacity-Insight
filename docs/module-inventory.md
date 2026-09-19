@@ -44,7 +44,7 @@
 | `towers.py` | 244 | Tower 配置 CRUD/测试 |
 | `collection.py` | 137 | 采集触发/调度/记录接口 |
 | `tasks.py` | 164 | 任务中心接口（含通知确认/删除） |
-| `system.py` | 140 | 健康/版本/运行时接口 |
+| `system.py` | 140 | 健康检查（ok/version/runner_version/checks 探测） |
 | `admin/` | 484 | 管理接口子包：`upgrade.py`(234，平台/组件升级 24 条)、`migration.py`(99)、`system_admin.py`(95)、`exports.py`(33) |
 
 ### 2.3 业务域包（`app/v2/<域>/`）

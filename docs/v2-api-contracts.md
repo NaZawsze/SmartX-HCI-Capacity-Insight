@@ -182,6 +182,11 @@
 - 任一集群使用率 `75%-80%` 为 `warning`。
 - 否则为 `normal`。
 
+49-16 契约对齐（2026-09-13）后的纯增量字段，前端已删除兼容 normalizer：
+
+- 顶层新增聚合字段 `kpis`（指标卡聚合）、`latest_run`（最近一次采集运行）、`top_vms`（增长榜结构化条目）、`tower_runs`（按 Tower 的最近采集状态）。
+- 增长榜/新建 VM 条目新增 `metric`、`value`、`previous_value` 字段。
+
 ## 6. VM
 
 ### `GET /api/vms?tower_id=&cluster_id=`
@@ -388,68 +393,32 @@
 
 ## 9. 升级中心
 
-### `POST /api/upgrade/upload`
-
-上传升级包。后端保存、解包、解析 manifest。
-
-### `GET /api/upgrade/packages`
-
-列出已上传升级包和识别到的组件。
-
-### `POST /api/upgrade/precheck`
-
-请求：
-
-```json
-{"package_id": "pkg-..."}
-```
-
-响应包含步骤化检查结果。
-
-### `POST /api/upgrade/start`
-
-创建升级任务。
-
-### `GET /api/upgrade/status/{task_id}`
-
-查询升级状态、步骤、日志和回滚入口。
-
-### `POST /api/upgrade/rollback/{task_id}`
-
-执行手动回滚。
-
-### `GET /api/upgrade/history`
-
-返回升级历史。
+实际路由前缀为 `/api/admin/upgrade/*` 与 `/api/admin/component-upgrade/*`（2026-09-13 admin 域拆分后的现行路径；本节早期起草的 `/api/upgrade/*` 路径已不存在）。平台升级按 `upload -> precheck/{task_id} -> start/{task_id} -> status/{task_id}` 推进，完成后查询 `GET /api/admin/upgrade/verification` 与 `GET /api/admin/upgrade/post-cleanup/{task_id}`；runner/Prometheus 组件走 `component-upgrade/*` 同构流程；`recovery_required` 任务用 `recovery/{task_id}/continue|rollback|fail` 处理。完整端点清单见 [api.md](api.md)。
 
 ## 10. 任务中心
 
 ### `GET /api/tasks`
 
-返回最近任务列表。
+返回最近任务列表。任务字段包含 `task_id`、`type`、`status`、`progress`、`message`、`steps`，以及通知语义字段 `severity`（`info|warning|critical`）、`seen_at`、`acknowledged_at`（`info` 打开即读；`warning`/`critical` 需确认或删除才消除角标）。
 
-### `GET /api/tasks/{task_id}`
+### `POST /api/tasks/seen`
 
-返回任务详情。
+批量标记 info 任务已读。
 
-任务字段：
+### `POST /api/tasks/{task_id}/ack`
 
-```json
-{
-  "task_id": "task-...",
-  "type": "report|migration_export|migration_import|upgrade|cleanup|collection",
-  "status": "pending|running|success|failed|cancelled",
-  "progress": 42,
-  "message": "正在处理",
-  "steps": [],
-  "artifacts": []
-}
-```
+确认一条 warning/critical 任务。
 
-### `GET /api/tasks/{task_id}/logs`
+### `DELETE /api/tasks/finished`
 
-返回任务日志。
+删除已结束任务。
 
-### `GET /api/tasks/{task_id}/artifacts/{artifact_id}`
+### `DELETE /api/tasks/clearable`
 
-下载任务产物。
+清空可清除任务（已读 info + 已确认告警/严重告警）。
+
+### `DELETE /api/tasks/{task_id}`
+
+删除单条非 active 任务。
+
+说明：早期起草的 `GET /api/tasks/{task_id}`、`GET /api/tasks/{task_id}/logs`、`GET /api/tasks/{task_id}/artifacts/{artifact_id}` 未实现；任务步骤/日志按任务类型经对应状态接口返回（如升级任务 `GET /api/admin/upgrade/status/{task_id}`），导出产物经 `GET /api/admin/exports/{category}/{filename}` 下载。

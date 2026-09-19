@@ -50,12 +50,13 @@
 - 密码修改位置和交互
 
 相关文件：
-- `backend/app/api/deps.py`
-- `backend/app/core/security.py`
-- `backend/app/services/users.py`
-- `backend/app/api/routes.py`
+- `backend/app/v2/api/deps.py`
+- `backend/app/v2/security.py`
+- `backend/app/v2/auth/`
+- `backend/app/v2/api/auth.py`
 - `frontend/src/App.tsx`
 - `frontend/src/components/AppLayout.tsx`
+- `frontend/src/v2/components/AccountMenu.tsx`
 - `frontend/src/pages/LoginPage.tsx`
 - `frontend/src/services/api.ts`
 
@@ -79,12 +80,11 @@ CloudTower 版本范围：Tower 连接和采集通过 CloudTower v2 HTTP API（`
 - 页面 scope 切换：全部、Tower、单集群
 
 相关文件：
-- `backend/app/services/towers.py`
-- `backend/app/services/cloudtower.py`
-- `backend/app/models.py`
-- `backend/app/api/routes.py`
+- `backend/app/v2/api/towers.py`
+- `backend/app/v2/cloudtower/`
+- `backend/app/v2/api/models.py`
 - `frontend/src/pages/SettingsPage.tsx`
-- `frontend/src/App.tsx`
+- `frontend/src/components/tower/TowerForm.tsx`
 - `frontend/src/types.ts`
 
 常见问题：
@@ -106,12 +106,12 @@ CloudTower 版本范围：Tower 连接和采集通过 CloudTower v2 HTTP API（`
 - 历史指标保留周期
 
 相关文件：
-- `backend/app/collector/collector.py`
-- `backend/app/collector/worker.py`
-- `backend/app/services/cloudtower.py`
-- `backend/app/services/prometheus.py`
-- `backend/app/services/dashboard.py`
-- `backend/app/models.py`
+- `backend/app/v2/worker.py`（collector-worker 入口）
+- `backend/app/v2/collection/`
+- `backend/app/v2/cloudtower/`
+- `backend/app/v2/metrics/`
+- `backend/app/v2/dashboard/`
+- `backend/app/v2/api/models.py`
 - `prometheus/prometheus.yml`
 - `frontend/src/pages/DashboardPage.tsx`
 
@@ -140,7 +140,7 @@ CloudTower 版本范围：Tower 连接和采集通过 CloudTower v2 HTTP API（`
 - `frontend/src/components/StorageBar.tsx`
 - `frontend/src/components/StatusPill.tsx`
 - `frontend/src/styles/global.css`
-- `backend/app/services/dashboard.py`
+- `backend/app/v2/dashboard/`（kpis/风险/增长计算）
 
 常见问题：
 - [已解决] 顶部卡片宽度错位：容量风险、Tower、集群卡片按固定比例调整
@@ -168,8 +168,8 @@ CloudTower 版本范围：Tower 连接和采集通过 CloudTower v2 HTTP API（`
 - `frontend/src/pages/VmsPage.tsx`
 - `frontend/src/components/TrendChart.tsx`
 - `frontend/src/services/api.ts`
-- `backend/app/services/dashboard.py`
-- `backend/app/api/routes.py`
+- `backend/app/v2/vms/`
+- `backend/app/v2/api/vms.py`
 
 常见问题：
 - 切换 Tower/集群后 VM 列表未刷新
@@ -194,10 +194,9 @@ CloudTower 版本范围：Tower 连接和采集通过 CloudTower v2 HTTP API（`
 - 报表图表、目录、分页、页脚、字体和客户展示风格
 
 相关文件：
-- `backend/app/services/forecast.py`
-- `backend/app/services/dashboard.py`
-- `backend/app/services/report_export.py`
-- `backend/app/api/routes.py`
+- `backend/app/v2/dashboard/`（预测/风险/增长计算）
+- `backend/app/v2/reports/`（含 `export/` Word/Excel 生成与 `wording.py` 措辞层）
+- `backend/app/v2/api/reports.py`
 - `frontend/src/pages/ReportsPage.tsx`
 - `frontend/src/components/ClusterCapacityChart.tsx`
 - `frontend/src/components/TrendChart.tsx`
@@ -228,9 +227,9 @@ CloudTower 版本范围：Tower 连接和采集通过 CloudTower v2 HTTP API（`
 - 导入后提示重启数据服务
 
 相关文件：
-- `backend/app/services/data_migration.py`
-- `backend/app/api/routes.py`
-- `frontend/src/pages/ServicePage.tsx`
+- `backend/app/v2/migration/`
+- `backend/app/v2/api/admin/migration.py`
+- `frontend/src/pages/ServicePage.tsx`（壳）+ `frontend/src/components/service/MigrationSection.tsx`
 - `frontend/src/services/api.ts`
 
 常见问题：
@@ -257,12 +256,13 @@ CloudTower 版本范围：Tower 连接和采集通过 CloudTower v2 HTTP API（`
 - 任务中心联动
 
 相关文件：
-- `frontend/src/pages/ServicePage.tsx`
+- `frontend/src/pages/ServicePage.tsx`（壳）+ `frontend/src/components/service/`（六域组件）
 - `frontend/src/components/AppLayout.tsx`
 - `frontend/src/styles/global.css`
-- `backend/app/v2/system/control.py`
-- `backend/app/v2/upgrade/service.py`
-- `backend/app/v2/api.py`
+- `backend/app/v2/api/admin/system_admin.py`
+- `backend/app/v2/cleanup/`
+- `backend/app/v2/upgrade/service/`
+- `backend/app/v2/api/admin/`
 
 常见问题：
 - 服务管理和集群选择无关，切换页面时左侧集群栏需要收起或居中
@@ -292,14 +292,14 @@ CloudTower 版本范围：Tower 连接和采集通过 CloudTower v2 HTTP API（`
 - 升级历史和升级后核验
 
 相关文件：
-- `backend/app/v2/upgrade/service.py`
+- `backend/app/v2/upgrade/service/`
 - `backend/app/v2/upgrade/compiler.py`
 - `backend/app/upgrade_protocol/`
 - `backend/app/upgrade_runner/`
 - `scripts/build_upgrade_package.py`
 - `docker-compose.upgrade.yml`
 - `docs/upgrade-runner-lifecycle.md`
-- `frontend/src/pages/ServicePage.tsx`
+- `frontend/src/components/service/PlatformUpgradeSection.tsx`
 
 升级包结构：
 
@@ -351,11 +351,11 @@ observability/images/prometheus.tar  # 可选，仅离线镜像包包含
 - 平台升级包一般不包含 runner
 
 相关文件：
-- `backend/app/v2/upgrade/service.py`
+- `backend/app/v2/upgrade/service/`
 - `backend/app/upgrade_runner/`
 - `backend/Dockerfile.upgrade`
 - `docs/upgrade-runner-lifecycle.md`
-- `frontend/src/pages/ServicePage.tsx`
+- `frontend/src/components/service/ComponentUpgradeSection.tsx`
 
 常见问题：
 - 平台升级包为什么不升级 runner
@@ -438,12 +438,12 @@ observability/images/prometheus.tar  # 可选，仅离线镜像包包含
 - 错误返回和 401 处理
 
 相关文件：
-- `backend/app/api/routes.py`
-- `backend/app/models.py`
-- `backend/app/db.py`
+- `backend/app/v2/api/`
+- `backend/app/v2/api/models.py`
+- `backend/app/v2/database.py`
 - `frontend/src/types.ts`
 - `frontend/src/services/api.ts`
-- `docs/api.md`
+- `docs/api.md`、`docs/v2-api-contracts.md`
 
 常见问题：
 - 后端字段存在但前端类型没更新
@@ -493,11 +493,7 @@ observability/images/prometheus.tar  # 可选，仅离线镜像包包含
 
 ## 当前已知遗留点
 
-- 远端 `dev` 当前仍有未提交的服务管理 UI 和 compose 时区改动。
-- 前端全量测试存在既有失败：`._DashboardPage.test.tsx` AppleDouble 文件被 Vitest 扫描，Dashboard 测试里 `50.00%` 文本重复。
-- 项目目录存在若干 macOS `._*` 文件和历史 `.bak.*` 文件，后续应单独清理和确认 `.gitignore`。
-- 升级任务如果执行中重建 `upgrade-runner`，可能停留在 running 状态，需要补充任务恢复或超时失败机制。
-- 后续若需要升级 Prometheus，需要明确是平台升级包支持 Prometheus 镜像，还是单独作为组件/基础服务升级。
+本节原为 v1 时期快照（dev 未提交改动、macOS 垃圾文件、runner 重建卡 running、Prometheus 升级策略未定义等），所列问题已分别解决或移交归档。当前遗留项以 [pending-tasks.md](pending-tasks.md) 为准；升级模块问题以 [upgrade-issues.md](upgrade-issues.md) 为准。
 
 ## v2 模块边界映射
 

@@ -342,3 +342,102 @@ GET /metrics
 Returns the latest capacity metrics in Prometheus text format.
 
 The collector worker exposes metrics on port `9108` for Prometheus scraping.
+
+## System
+
+### Health
+
+```http
+GET /api/system/health
+```
+
+Returns platform/runner identity and dependency checks:
+
+```json
+{
+  "ok": true,
+  "version": "v0.5.3",
+  "runner_version": "v0.3.1",
+  "checks": {"directories": true, "database": true, "prometheus": true}
+}
+```
+
+## Tasks
+
+Task center records for upgrades, migrations, cleanups, and collections. Notification state (`severity` = `info|warning|critical`, seen/acknowledged timestamps) is persisted in SQLite; the badge counts unhandled notifications.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/tasks` | List tasks with steps and notification state |
+| DELETE | `/api/tasks/finished` | Delete finished tasks |
+| POST | `/api/tasks/seen` | Mark info-level notifications as seen |
+| POST | `/api/tasks/{task_id}/ack` | Acknowledge a warning/critical task |
+| DELETE | `/api/tasks/clearable` | Clear seen info and acknowledged tasks |
+| DELETE | `/api/tasks/{task_id}` | Delete one non-active task |
+
+## Admin (Service Management)
+
+Admin endpoints require an admin token. Platform upgrade follows upload → precheck → start → status/verification → post-cleanup.
+
+### Platform upgrade
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/api/admin/upgrade/upload` | Upload a platform upgrade package |
+| POST | `/api/admin/upgrade/precheck/{task_id}` | Run prechecks |
+| POST | `/api/admin/upgrade/start/{task_id}` | Start the upgrade |
+| GET | `/api/admin/upgrade/status/{task_id}` | Task status, steps, and logs |
+| POST | `/api/admin/upgrade/cancel/{task_id}` | Cancel a task |
+| POST | `/api/admin/upgrade/rollback/{task_id}` | Trigger rollback |
+| POST | `/api/admin/upgrade/recovery/{task_id}/continue` | Continue a `recovery_required` task |
+| POST | `/api/admin/upgrade/recovery/{task_id}/rollback` | Roll back a `recovery_required` task |
+| POST | `/api/admin/upgrade/recovery/{task_id}/fail` | Fail a `recovery_required` task |
+| GET | `/api/admin/upgrade/history` | Upgrade task history |
+| DELETE | `/api/admin/upgrade/package/{task_id}` | Delete an uploaded package |
+| GET | `/api/admin/upgrade/version` | Current platform/package version info |
+| GET | `/api/admin/upgrade/verification` | Post-upgrade service verification |
+| GET | `/api/admin/upgrade/post-cleanup/{task_id}` | Legacy cleanup result |
+| POST | `/api/admin/upgrade/post-cleanup/{task_id}/retry` | Retry legacy cleanup |
+
+### Component upgrade
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/api/admin/component-upgrade/upload` | Upload a component package (runner / Prometheus) |
+| POST | `/api/admin/component-upgrade/precheck/{task_id}` | Component prechecks |
+| POST | `/api/admin/component-upgrade/start/{task_id}` | Start component upgrade |
+| GET | `/api/admin/component-upgrade/status/{task_id}` | Component task status |
+| POST | `/api/admin/component-upgrade/cancel/{task_id}` | Cancel component task |
+| GET | `/api/admin/component-upgrade/history` | Component upgrade history |
+| DELETE | `/api/admin/component-upgrade/package/{task_id}` | Delete component package |
+| GET | `/api/admin/component-upgrade/version` | Active runner version info |
+| GET | `/api/admin/component-upgrade/components` | Component catalog |
+
+### Migration
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/admin/migration/export` | Download migration package (synchronous export) |
+| GET | `/api/admin/migration/config/export` | Download configuration export |
+| POST | `/api/admin/migration/export/start` | Start asynchronous export task |
+| GET | `/api/admin/migration/export/status/{task_id}` | Export task status |
+| POST | `/api/admin/migration/import/start` | Start asynchronous import task |
+| GET | `/api/admin/migration/import/status/{task_id}` | Import task status |
+| POST | `/api/admin/migration/import` | Upload and import a migration package |
+| GET | `/api/admin/migration/health` | Migration environment health |
+
+### System administration
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/admin/system/local-storage` | Local storage usage |
+| GET | `/api/admin/system/cleanup-artifacts/scan` | Scan cleanable runtime artifacts |
+| POST | `/api/admin/system/cleanup-artifacts` | Delete scanned artifacts |
+| GET | `/api/admin/system/cleanup-images/scan` | Scan unused images |
+| POST | `/api/admin/system/cleanup-images` | Delete scanned images |
+| GET | `/api/admin/system/sqlite-vacuum/scan` | Scan SQLite free pages |
+| POST | `/api/admin/system/sqlite-vacuum` | Run VACUUM |
+| GET | `/api/admin/system/sqlite-backups/scan` | Scan SQLite backups |
+| POST | `/api/admin/system/sqlite-backups/delete` | Delete selected backups |
+| POST | `/api/admin/system/restart` | Restart data services (web-api / collector-worker) |
+| GET | `/api/admin/exports/{category}/{filename}` | Download a server-side export file |

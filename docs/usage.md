@@ -53,10 +53,12 @@ Collection status is shown at Tower level. If a collection is running, wait unti
 
 The dashboard provides:
 
+- Capacity risk overview for the selected scope (normal / warning / high).
 - Total capacity overview for the selected scope.
 - Used capacity and total capacity.
 - Tower and cluster count.
 - Daily fastest-growing VMs.
+- Daily new VMs.
 - Tower-level collection state.
 
 The daily fastest-growing VM ranking supports sorting by:
@@ -158,3 +160,16 @@ docker compose exec web-api python -m app.cli reset-password --username admin --
 ```
 
 After reset, log out and log in again with the new password.
+
+## 10. Service Management
+
+Open `Service` in the left navigation. The page is independent of the cluster scope and provides six sections:
+
+- **Platform Upgrade**: upload an offline platform package, run prechecks, start the upgrade, and follow step progress; the page shows the active platform version and post-upgrade verification results.
+- **Component Upgrade**: upgrade `upgrade-runner` or the Prometheus observability component from a component package.
+- **Migration**: export current data as a migration package, or import one; import runs a pre-backup and supports merge/overwrite modes.
+- **Cleanup**: scan and delete leftover runtime artifacts, unused images, and SQLite backups, and run SQLite vacuum.
+- **Restart**: restart data services.
+- **History**: task history with status, steps, and downloadable results.
+
+A task-center menu shows background task notifications. Info-level tasks clear when read; warning and critical failures stay until acknowledged or deleted.
