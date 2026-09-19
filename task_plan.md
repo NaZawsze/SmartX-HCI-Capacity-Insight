@@ -1421,3 +1421,12 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 设计文档：[docs/superpowers/specs/2026-09-12-tower-settings-ui-design.md](docs/superpowers/specs/2026-09-12-tower-settings-ui-design.md)。
 
 覆盖：添加 Tower 向导化分组表单（连接认证/采集策略分区、认证方式互斥、保存前测试连接）、创建/编辑共用 TowerForm 组件、集群管理独立分区、删除确认对话框（当前删除无确认）、Tower 列表健康徽标。含 3 项后端配合（创建前测试连接 API、最近采集字段、创建响应集群列表）。
+
+### 17. 文档补全：故障排查/备份恢复 runbook、发布 checklist、API 文档防漂移脚本 [已完成 2026-09-19]
+
+无专项设计文档，口径记录于本文件（理由：纯文档与只读校验脚本，不涉及运行时行为变更）。
+
+- [x] `docs/troubleshooting.md`：症状→检查→处理（健康分诊、UPG-050 挂载衰减、SQLite、采集/Tower 报错分类、Prometheus 链路定位、升级失败取证、前端/API、磁盘、密码重置）。
+- [x] `docs/backup-recovery.md`：备份资产盘点、推荐策略（迁移导出包 + `.env` 配对 + capture_baseline）、手工冷备（VACUUM INTO 快照）、恢复五步与验证清单、红线。
+- [x] `docs/release-acceptance.md` 增补 Release Day Steps 五步清单（版本→本地检查→.3 构建/包门禁→.12 演练→git 动作需用户明确要求）。
+- [x] `scripts/verify_api_docs.py`：api.md 与后端路由双向比对 + 契约单向校验；本地验证正例 exit=0（api.md 75 条含 /metrics 白名单 vs 后端 74 条，契约 30 条通过）、反例篡改文档 exit=1 逐条报出。

@@ -136,13 +136,14 @@
 | `verify_upgrade_center_v050.py` | 升级中心 API 流程验证 |
 | `verify_full_upgrade_chain.py` | 完整升级链路验证 |
 | `verify_release_docs_safe.py` | 发布文档一致性检查 |
+| `verify_api_docs.py` | api.md 与后端路由双向比对 + 契约单向校验（API 文档防漂移门禁） |
 | `release_smoke_check.py` | 发布冒烟检查 |
 | `capture_baseline.py` | 升级前基线采集（DB 计数、容器、目录） |
 | `bind-mount-recover.sh` | UPG-050 嵌套挂载体检与一键恢复（check/recover；运行期禁删 app/ 挂载点目录） |
 
 ## 7. 文档（docs/）
 
-完整分类与用途见 [doc-map.md](doc-map.md)。主要分组：架构与指南（`architecture-v2.md`、`project-guide-for-ai.md`、`api.md`、`v2-api-contracts.md`、`deployment.md`、`usage.md`、`ova-delivery.md`、`frontend-style-guide.md`）、升级链路（`upgrade-issues.md`、`v0.5.1-to-v0.5.2-upgrade-chain-worklog.md`、`upgrade-package-ledger.md`、`upgrade-runner-lifecycle.md`、`v2-upgrade-center-design.md`、`version-governance.md`）、流程（`development-verification-process.md`、`ai-handoff-guide.md`、`release-acceptance.md`）、发布（`releases/CHANGELOG.md`）、设计与计划（`superpowers/specs/`、`superpowers/plans/`）。
+完整分类与用途见 [doc-map.md](doc-map.md)。主要分组：架构与指南（`architecture-v2.md`、`project-guide-for-ai.md`、`api.md`、`v2-api-contracts.md`、`deployment.md`、`usage.md`、`ova-delivery.md`、`frontend-style-guide.md`）、升级链路（`upgrade-issues.md`、`v0.5.1-to-v0.5.2-upgrade-chain-worklog.md`、`upgrade-package-ledger.md`、`upgrade-runner-lifecycle.md`、`v2-upgrade-center-design.md`、`version-governance.md`）、流程（`development-verification-process.md`、`ai-handoff-guide.md`、`release-acceptance.md`）、运维（`troubleshooting.md`、`backup-recovery.md`）、发布（`releases/CHANGELOG.md`）、设计与计划（`superpowers/specs/`、`superpowers/plans/`）。
 
 ## 8. 不入库的本地文件
 

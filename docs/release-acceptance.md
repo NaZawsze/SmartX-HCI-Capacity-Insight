@@ -86,3 +86,13 @@ Without `--username` and `--password`, the script only checks public endpoints s
 - Report growth contract:
   - Daily and monthly Top VM items must not render empty VM names.
   - Both top-level `vm_name/vm_id` and legacy `labels.vm/labels.vm_id` must remain accepted by the frontend.
+
+## Release Day Steps
+
+Ordered checklist for cutting a platform release. Rules and boundaries live in `AGENTS.md` and `docs/version-governance.md`; this fixes the step order.
+
+1. **Version bump**: root `VERSION`, `backend/app/core/config.py` and `backend/app/v2/config.py` defaults, compose default tags, `README.md` / `README.zh-CN.md`, `docs/releases/CHANGELOG.md`, `docs/version-governance.md`.
+2. **Local checks**: backend unittest (environment skips allowed), frontend `npx tsc -b` + vitest.
+3. **Build on `10.20.11.3`**: build images, run the full backend suite (current baseline 310 tests), build the upgrade package with `scripts/build_upgrade_package.py`, run `scripts/verify_upgrade_package_identity.py`, record package path and SHA256.
+4. **Rehearse on `10.20.11.12`**: real upgrade from a supported source version via the upgrade center (upload → precheck → start → verification → post-cleanup); record task ID, health output, and evidence in `progress.md`; add the package row to `docs/upgrade-package-ledger.md`.
+5. **Git release actions (push / tag / GitHub Release) happen only after the user explicitly asks.** Package delivery is complete before any git release action, never because of it.

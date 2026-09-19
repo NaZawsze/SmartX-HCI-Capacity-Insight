@@ -1,0 +1,126 @@
+# 故障排查手册（Troubleshooting Runbook）
+
+适用版本：平台 v0.5.3 / runner v0.3.1。读者：运维与接手的开发/AI。
+
+通用原则（详见 AGENTS.md）：
+
+- **先记录后动手**：任何失败先记录 task ID、原始错误、当时容器/目录/数据库状态和包 SHA，再处理；禁止静默重试同一操作。
+- **容器内 `/proc/mounts` 是挂载唯一真相**，`docker inspect` 的 Binds/Mounts 不可靠。
+- 禁止 `docker compose down -v`；禁止删除目标数据库、Prometheus 数据和 `app/` 下的挂载点目录（见 §2）。
+- 业务库在 `/data/smartx-storage-forecast/app/smartx.db`（容器内 `/data/smartx.db`）；宿主机 `/data/smartx.db` 是 v0.5.1 旧残留（无业务表），操作前核对路径。
+- compose 命令一律 `su - root` 执行（user1 不在 docker 组）；`.env` 为 root:0600。
+- 版本身份以镜像内 `/app/VERSION`、`/app/RUNNER_VERSION`、runner heartbeat 和实际容器为准，`.env` 不是版本真相源。
+
+## 1. 第一分钟：快速分诊
+
+```bash
+# 健康与版本（前端代理，免 token）
+curl -fsS http://localhost:8080/api/system/health | python3 -m json.tool
+# 容器状态
+cd /data/smartx-storage-forecast/project && docker compose -f docker-compose.offline.yml ps
+# 磁盘
+df -h /data
+# 挂载体检（UPG-050 专用工具）
+bash /tmp/bind-mount-recover.sh check   # 或项目内 scripts/bind-mount-recover.sh
+```
+
+health 返回 `checks` 三项的含义：
+
+| check | 含义 | 典型故障方向 |
+| --- | --- | --- |
+| `directories` | 目标目录（upgrades/backups/exports/compose-runtime 等）可访问 | 挂载衰减（§2）、目录权限 |
+| `database` | SQLite 可打开、可查询 | 库文件损坏/路径错（§3） |
+| `prometheus` | Prometheus 查询可达 | 容器未起/目标掉线（§5） |
+
+## 2. 挂载"衰减"：app/ 下目录消失或内容畸变（UPG-050）
+
+现象：`/data/smartx-storage-forecast/app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}` 目录消失、为空、或出现嵌套畸变副本；升级任务找不到目录、容器内对应挂载点失效。
+
+机制（已定案，详见 findings.md UPG-050）：这些目录是 dockerd 经 app bind 在容器创建时**补建的挂载点载体**（容器内被 `upgrades:/data/upgrades` 等真实 bind 遮蔽）。宿主机 `rm` 会让共享该 bind 的全部容器挂载彻底消失；`mv` 会把挂载搬到新路径。历次"衰减"均为清理操作自伤。
+
+处理：
+
+```bash
+# 体检：应为 20 项挂载全部 OK（web-api 7 + collector-worker 5 + runner 7 + prometheus 1）
+bash scripts/bind-mount-recover.sh check
+# 恢复：全服务一次性重建，不带任何服务参数（单服务重建不修复共享 bind）
+cd /data/smartx-storage-forecast/project
+docker compose -f docker-compose.offline.yml up -d --force-recreate
+# 复验
+bash scripts/bind-mount-recover.sh check
+curl -fsS http://localhost:8080/api/system/health
+```
+
+红线：容器运行期**禁止 rm/mv** `app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}`。这些目录为空是正常态，必须存在。
+
+## 3. 数据库（SQLite）
+
+现象：`database is locked`、写入超时、查询慢。
+
+- v2 已配置 WAL + `busy_timeout` 5s，并在 `tasks.updated_at`、`collection_runs.started_at/finished_at` 建索引（见 findings.md 2026-09-12 治理记录）。偶发锁等待先观察，持续报锁再查：
+- 检查：是否有异常长连接/手工 sqlite 会话未提交；web-api 与 collector-worker 双进程并发是设计行为。
+- **禁止删除 `-wal`/`-shm` 文件**；不要在业务高峰直接 `VACUUM`（管理页的 SQLite VACUUM 会先扫描再执行）。
+- 完整性核对：`sqlite3 /data/smartx-storage-forecast/app/smartx.db 'PRAGMA integrity_check;'`（应返回 `ok`）。
+- 行数基线对比用 `scripts/capture_baseline.py verify`（capture 时的 SHA256SUMS + manifest 行数）。
+
+## 4. 采集与 Tower
+
+按 `/api/towers/{id}/test` 与采集任务的报错分类：
+
+| 报错 | 方向 | 处理 |
+| --- | --- | --- |
+| `No route to host` / 连接超时 | Tower 网络不可达 | 测试网 Tower `10.20.0.6` 不可达是已知环境限制；生产地址核对防火墙/路由 |
+| 401/登录失败 | Tower 账号或 API token | Tower 侧核对账号；UI 密码框不回显是设计行为，不代表凭据丢失 |
+| `Tower XOR 凭据无法认证密钥` | `.env` 与库中凭据不配对 | 确认 `SMARTX_SECRET_KEY` 与入库时一致；在 Tower 设置重新保存密码即可重建配对 |
+| 部分集群成功部分失败 | 单集群数据问题 | 看采集 run 明细（`GET /api/collection/runs/{run_id}`）；部分成功是设计行为，不回滚整体 |
+
+背景结论：升级不会动 `.env`（升级前后逐字节一致）；"升级完密钥丢了"历史上是 UPG-049 误判 legacy 迁移的假阳性（已修复）或 .env 被仓库同步覆盖（9-13 事故），不是升级流程本身丢密钥。
+
+定时采集未触发：Tower 级调度由"采集间隔（分钟）"控制（默认 60，0 = 使用每日采集时间 `collection_hour`）；worker 每 60s 同步一次调度，看 collector-worker 日志与 `collection_runs`。
+
+## 5. Prometheus 与趋势为空
+
+数据链路：worker 采集 → SQLite `metric_snapshots` → worker `:9108 /metrics` 导出 → Prometheus 60s 抓取 → 页面 instant/range 查询。任一环断了趋势就空。
+
+定位顺序：
+
+```bash
+curl -fsS http://localhost:9108/metrics | head          # worker 是否在导出
+curl -fsS http://localhost:9090/-/healthy               # Prometheus 本体
+curl -fsS 'http://localhost:9090/api/v1/targets' | grep -o '"health":"[a-z]*"'   # 抓取目标 up
+sqlite3 /data/smartx-storage-forecast/app/smartx.db 'SELECT COUNT(*) FROM metric_snapshots;'
+```
+
+- 迁移/导入后趋势为空：迁移包必须包含 Prometheus 历史 block；补全导入后需等一个抓取周期，必要时在服务管理重启数据服务。
+- Prometheus 容器循环重启：多为数据目录权限，`pre_install.sh` 负责修正；核对 `PROMETHEUS_DATA` 实际挂载（容器内 `/prometheus`）。
+
+## 6. 平台升级失败
+
+- **先取证再动手**：记录任务 ID（任务中心）、失败步骤、runner 日志、`upgrades/<task_id>/task.json`、包 SHA256；对照 `docs/upgrade-package-ledger.md` 确认包身份。失败后不得在半升级现场反复重跑，修复后从干净基线重新走链路（AGENTS §10）。
+- `Tower XOR 凭据无法认证密钥，且未找到可保留来源配对关系的旧环境 .env`：凭据守卫 fail-closed 是设计（UPG-042）；若发生在 v0.5.2→v0.5.3 且从未配置 Tower 凭据可继续，配置过凭据的机器在 Tower 设置重新保存后重试。UPG-049 误判场景已在 v0.5.3 重打包修复（runner 镜像 `7d152590d6fd` 之后）。
+- `recovery_required` 状态：用任务中心的恢复入口（`recovery/{task_id}/continue|rollback|fail`）按提示处理，不要手工改 task.json。
+- 升级中**不要 recreate upgrade-runner**：会让 running 任务失去执行者（checkpoint/租约可恢复，但应避免）。
+- 升级"成功"但版本没变：核对镜像内 `docker exec web-api cat /app/VERSION`、compose 镜像 tag 是否字面量正确、是否用了 `docker compose restart`（restart 不换镜像，必须 build + `up -d`）。
+
+## 7. 前端与 API
+
+- 前端不可达：`docker compose ps` 看 frontend/web-api；容器内 Nginx 代理 `/api` 到 web-api:8000。
+- 401：token 过期，重新登录；改密后旧 token 失效属预期。
+- 总览数据陈旧：页面会显示"数据截至 HH:mm，刷新失败"；后端 summary 有 60s TTL 缓存，采集完成后按 run id 失效。若长期不刷新，按 §5 查采集与 Prometheus 链路。
+- 上传大包报 Request Entity Too Large：使用分块/后台任务上传入口（迁移导入已支持进度与后台任务）。
+
+## 8. 磁盘与空间
+
+- 先用服务管理 → 清理：四类扫描（运行产物 artifacts、未使用镜像、SQLite 备份）+ SQLite VACUUM，先扫描后删除。
+- 大头通常在 `/data/smartx-storage-forecast/{upgrades,backups,exports}`（升级包、升级前备份、报表/迁移留档）。
+- `app/` 下的同名目录是挂载点载体（§2），**不是清理对象**。
+
+## 9. 管理员密码重置
+
+```bash
+cd /data/smartx-storage-forecast/project
+docker compose exec web-api python -m app.cli reset-password --username admin            # 交互式
+docker compose exec web-api python -m app.cli reset-password --username admin --password '<new>'  # 非交互
+```
+
+重置后重新登录。

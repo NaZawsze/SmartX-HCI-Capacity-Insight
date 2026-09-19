@@ -7251,3 +7251,23 @@ release_smoke=critical 0, warning 0
 - app/ 挂载点目录今后常驻（为空、必须存在）；其历史内容的清理已在前一轮完成，目录本身保留。
 - 交付包 ef10a7c8… 不变（prometheus 守卫随下次打包纳入）。
 - dev2 本地提交：beb36d5（UPG-049 prometheus 守卫）、9d6e27d（.codex 排除）、本轮脚本+文档提交，均未推送（按策略等待用户要求）。
+
+## 2026-09-19 文档补全轮：故障排查/备份恢复 runbook、发布 checklist、API 文档防漂移脚本
+
+背景：全仓文档盘点（本日 e4f0936/fcaecc7/7131b4b/f70fd3c 四个提交）完成后做缺口评估，确认三份缺失文档与一个防漂移工具，经用户确认后补齐（task_plan Phase 49 第 17 项；无专项设计文档，纯文档+只读校验脚本）。
+
+### 交付
+
+- `docs/troubleshooting.md`：症状→检查→处理手册（第一分钟分诊命令、health checks 含义、UPG-050 挂载衰减恢复、SQLite locked/integrity、采集与 Tower 报错分类表、Prometheus 链路五步定位、升级失败取证与 recovery_required、前端/磁盘、密码重置）。内容全部取自 findings/AGENTS/已验证结论，未新造事实。
+- `docs/backup-recovery.md`：备份资产盘点（升级前备份/导入前备份/迁移导出包/capture_baseline/清理 API）、推荐策略（迁移包 + `.env` 配对 0600）、手工冷备（web-api 容器 `VACUUM INTO` 一致性快照 + prometheus 目录 + project/.env + 行数/SHA256）、恢复五步（旧库 `*.pre-restore-*` 留证不直删）与六项验证清单、红线（禁 down -v 等）。
+- `docs/release-acceptance.md` 新增 **Release Day Steps** 五步清单：版本→本地检查→.3 构建+包身份门禁→.12 演练+台账→git 动作必须等用户明确要求。
+- `scripts/verify_api_docs.py`：api.md 与后端路由双向比对 + 契约文档单向校验（查询串归一、`GET /metrics` 白名单）。本地验证证据：
+  - 正例 `--contract docs/v2-api-contracts.md`：`OK: api.md 75 条（含 1 条白名单豁免）与后端 74 条路由一致；契约 30 条校验通过`，exit=0；
+  - 反例（篡改副本追加 `POST /api/bogus/nonexistent`）：exit=1 并逐条报出。
+- 登记：doc-map §2 新增 troubleshooting/backup-recovery 两行；module-inventory §6 脚本表 + §7 文档分组更新；task_plan Phase 49 第 17 项勾选完成。
+
+### 口径与限制
+
+- 交接口径（用户确认）：环境绑定事项（AGENTS.md 不入库、.3 登录方式、本地未推送提交）由用户对接新 AI 时自行说明；**任何凭据不入库不入文档**。
+- runbook 中恢复/冷备命令按目标布局与现行实现编写，未在测试机实跑恢复演练（避免动 .3/.12 现网数据）；首次真机演练时按手册验证并回填。
+- dev2 本地提交（文档补全轮，见 git log），未推送（按策略等待用户要求）。
