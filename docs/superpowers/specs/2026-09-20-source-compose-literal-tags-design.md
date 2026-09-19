@@ -1,7 +1,7 @@
 # 源码 compose 镜像 tag 字面量化设计（Phase 49-3 收尾）
 
 日期：2026-09-20
-状态：**设计完成，待用户批准后实施**（批准前不改任何文件）
+状态：**已实施并验证（2026-09-20，提交 556a85f）**
 关联：task_plan.md Phase 49 第 3 项（compose 镜像 tag 仍可被 .env 覆盖 [待实施]）与第 15 项（包侧字面量渲染，已完成）、CHANGELOG v0.5.3 已知问题「源码 compose 模板默认 tag 可被现场 .env 覆盖」、docs/superpowers/specs/2026-09-13-compose-literal-tags-design.md（前置设计）
 
 ## 1. 背景与问题

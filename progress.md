@@ -7407,3 +7407,12 @@ release_smoke=critical 0, warning 0
   - 终态：lsattr 6/6 +i，check 全绿，.12 保持锁定。
 - 收尾：troubleshooting.md §2 补锁记录与 unlock 口径（恢复指引改为直接用 recover）；AGENTS.md（本地）§9 补锁边界与逐台推进状态、§10 工具清单更新；pending-tasks #22 已实施验证；task_plan 49-23 勾选（余 .3/生产机逐台待确认）；CHANGELOG v0.5.3 运维工具条目补 lock/unlock；实施计划勾选至步骤 2。
 - 未验证项/边界：.3 与 10.20.0.6 未加锁（逐台待用户确认）；recover 的"验证失败保持解锁"分支未真触发（演练环境一次通过，属预期）；btrfs 等其他文件系统未验证（守卫会拒绝并记录）。
+
+## 2026-09-20 49-3 源码 compose 字面量化实施：门禁适配 + bridge 打包修复，本地与 .3 全绿
+
+- 用户指令「开始实施」。代码提交 556a85f：三源码 compose（docker-compose.yml/offline/release）镜像行全部字面量化（offline/yml 用 nazawsze 前缀、release 用 docker.io/nazawsze，值与 VERSION/RUNNER_VERSION 一致）；`check_versions` 重构为 `assert_source_compose_literal`（三文件断言字面量 tag + 禁 SMARTX_IMAGE_TAG/RUNNER_IMAGE_TAG/IMAGE_PREFIX/RUNNER_IMAGE_PREFIX + 禁 :latest，模板回潮 fail-fast），删除已失效的 .env 防呆警告；`collect_project_files` 源检查同步对齐。
+- **build_tests 暴露 bridge 打包真问题并修复**：v0.5.1u2 桥接包断言失败。根因：legacy 分支的 project 名值替换会把镜像 repo 名一并改掉（smartx-hci-capacity-insight-* → smartx-storage-forecast-*），原模板正则在改名后仍可渲染 tag，而字面量正则匹配不到改名后的 repo。修复：`_replace_compose_version_tags` 补 runner 字面量正则；`_project_file_override` 改为先渲染版本 tag（模板/字面量两种源码形态、含 bridge 的 runner v0.3.0 基线）再做 legacy 值替换；LEGACY_PROJECT_FILE_VALUES 两条 tag 替换项（本就依赖 v0.5.2 默认值的死代码）移除。渲染取证：v0.5.1u2 → docker.io/nazawsze/smartx-storage-forecast-*:v0.5.1u2 + runner :v0.3.0；v0.5.3 → smartx-hci-capacity-insight-*:v0.5.3 + runner :v0.3.1，两代口径均正确。
+- 本地门禁：`--check-version` OK；backend deployment 18 OK；build_tests 26 OK。
+- .3 验证（git archive 556a85f，root su 管道）：①覆盖前 diff live project 三个 compose 与新源码——仅 4 条 image 行模板→字面量（同值），无其他差异；②全树同步到 /data/smartx-storage-forecast/project（运行时数据不动）；③`--check-version` OK（live 树）；④build_tests 26 tests OK（EXIT=0，/root/build-49-3 独立目录，判定行以 /tmp/bt-stderr.log 为准）；⑤全量 `unittest discover -s tests` 330 tests OK (skipped=1)（compose exec 标准方式，208.5s）；⑥health {"ok":true,"version":"v0.5.3","runner_version":"v0.3.1",checks 三项 true}。
+- 文档收尾：deployment.md 移除 SMARTX_IMAGE_PREFIX .env 示例（prefix 已字面量），改为字面量示例；CHANGELOG 已知问题「源码 compose 模板 tag」销项、工程条目新增 49-3 一条；task_plan 第 3 项勾选；pending-tasks #25 完成；两份设计文档与 doc-map 状态更新。
+- 未验证项/边界：未重打交付包（e940e07c 冻结产物不受影响，本变更随下次真实打包纳入并再走全门禁）；bridge 包只做了构建渲染取证（build_tests mock 全链路），未真实构建 v0.5.1u2 包（无升级场景需要）；docker_build 的 env SMARTX_IMAGE_TAG 参数保留（build_tests:452 断言命令形态，已无 compose 消费者）。

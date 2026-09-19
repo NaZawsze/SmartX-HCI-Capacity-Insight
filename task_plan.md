@@ -1315,17 +1315,17 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - `pnpm-lock.yaml` / `pnpm-workspace.yaml` 已被删除；Dockerfile 实际用 npm（`package-lock.json`）。
 - [x] 已在 `79431e1` 提交中移除。
 
-### 3. compose 镜像 tag 仍可被 .env 覆盖 [设计完成待批准 2026-09-20]
+### 3. compose 镜像 tag 仍可被 .env 覆盖 [已实施并验证 2026-09-20]
 
 设计文档：[docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md](docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md)。
 
 - 源码 compose 仍用 `${SMARTX_IMAGE_TAG:-v0.5.3}` 模板，现场 `.env` 含旧 tag 时源码部署路径会静默漂移版本；升级包内 compose 已固定 tag（安全，49-15）。
 - 方案：三个源码 compose 全字面量化（prefix+tag 一起，对齐 docker-compose.upgrade.yml 先例）；`check_versions` 门禁同步适配为字面量断言 + 模板字符串禁令；deployment 测试收紧。
 - 明确不做：不重打交付包，e940e07c 冻结产物不受影响。
-- [ ] 设计文档经用户确认批准。
-- [ ] 三个 compose 字面量化 + check_versions 适配 + deployment 测试收紧（单提交）。
-- [ ] 本地定向测试（deployment/build_tests）；.3 同步后 `build_upgrade_package.py --check-version` 通过 + 全量回归。
-- [ ] CHANGELOG 已知问题「源码 compose 模板 tag」销项 + task_plan/pending-tasks 收尾。
+- [x] 设计文档经用户确认批准（2026-09-20「开始实施」）。
+- [x] 三个 compose 字面量化 + check_versions 适配 + deployment 测试收紧（提交 556a85f；含 build_tests 暴露的 bridge 渲染修复：`_project_file_override` 先渲染 tag 再做 legacy 值替换，`_replace_compose_version_tags` 补 runner 字面量正则，LEGACY 列表两条 tag 替换项移除）。
+- [x] 本地定向测试（deployment 18 OK / build_tests 26 OK / --check-version OK）；.3 同步 556a85f 后 `--check-version` OK、build_tests 26 OK（宿主独立 build dir）、全量 330 tests OK (skipped=1)（compose exec 标准方式）、health 全绿；覆盖前 diff 确认 live compose 与新源码仅差 4 条 image 行（模板→字面量同值）。
+- [x] CHANGELOG 已知问题「源码 compose 模板 tag」销项（移入新增/工程条目）+ task_plan/pending-tasks 收尾。
 
 ### 4. 测试机地址散落在内部文档 [已完成]
 - 对外发布文档（README/CHANGELOG/deployment）已清理。

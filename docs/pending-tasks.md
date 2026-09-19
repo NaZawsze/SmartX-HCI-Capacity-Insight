@@ -30,7 +30,7 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 | 18 | UPG-050 app/ 挂载点目录误删致挂载消失 | 2026-09-19 findings.md | ✅ 已定案（2026-09-19）：app/{upgrades,…,smartx-storage-forecast} 为 dockerd 补建的挂载点载体（容器内被真实 bind 遮蔽），运行期 rm/mv 会拆掉全机对应挂载（当日多次"衰减"均为清理操作自伤）。已部署 `scripts/bind-mount-recover.sh`（check/recover）至 .3/.12，两机 recover 后挂载齐全、health 全绿。规则：容器运行期禁删/禁改该组目录 |
 | 19 | Prometheus 400d retention 与报表 720 天图表窗口冲突 | 2026-09-19 findings.md | ✅ 已完成（2026-09-19，用户决策去 720 档）：`_normalize_chart_days` 集合删 720（传 720 回退 365，向后兼容）、前端窗口选项/类型同步、文档同步；导出链路核实不受影响（只收 period_days）。.3 全量 315 tests OK、vitest 86/86、真实 API 冒烟 chart_days=720→365 |
 | 22 | UPG-050 载体目录物理锁（chattr +i） | task_plan 49-23 | ✅ 已实施并验证（2026-09-20）：bind-mount-recover.sh 增 lock/unlock + recover 自动解锁/复锁（127c31c+84d5c2f）；.12 六步验证协议全部通过（实弹 rm/mv 被系统拒绝且挂载无损、锁定状态全停全建成功、写穿透正常、recover 闭环），**.12 保持锁定（6/6）**；.3 与生产机（10.20.0.6）逐台待用户确认后加锁 |
-| 25 | 源码 compose 镜像 tag 字面量化（49-3 收尾） | task_plan Phase 49 第 3 项 | 设计完成（[设计文档](../docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md)），**待用户批准后实施**：三个源码 compose 全字面量化（prefix+tag，对齐 docker-compose.upgrade.yml 先例）、check_versions 门禁适配为字面量断言+模板禁令、deployment 测试收紧；不重打交付包，e940e07c 冻结产物不受影响 |
+| 25 | 源码 compose 镜像 tag 字面量化（49-3 收尾） | task_plan Phase 49 第 3 项 | ✅ 已实施并验证（2026-09-20，提交 556a85f）：三源码 compose 全字面量化、check_versions 字面量断言+模板禁令、bridge 打包渲染修复并验证；.3 门禁 + build_tests 26 OK + 全量 330 OK；不重打交付包，e940e07c 冻结产物不受影响（随下次打包纳入） |
 | 23 | .3 Tower 可达性恢复（环境） | 2026-09-19 findings.md | **待用户侧处理**：CHINATOWER/SMARTX-TT-WW 自 2026-09-12 网络不可达，采集连续失败，测试环境数据停在 09-12；`collection-freshness-stale` critical 告警挂起（探针端到端验证完成）。恢复可达后趋势自然恢复，告警按设计保留 |
 | 24 | 数据库定期自动备份能力（候选，未立项） | 2026-09-20 用户问答 | **待用户决策是否立项**：现有备份为事件驱动（升级前/清理前/手工），无周期性自动备份；删库类误操作不在 UPG-050 锁保护范围。若立项，范围含备份策略（频率/保留/校验）与恢复演练 |
 

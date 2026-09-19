@@ -39,7 +39,8 @@ v0.5.3 是 v0.5.2 之后的平台版本候选（未发布），主要内容：�
 - **CORS 收紧**：默认不挂 CORS 中间件，`SMARTX_CORS_ORIGINS` 白名单显式启用。
 - **采集链路健壮化**：worker 采集重试调度化；数据新鲜度链路监控。
 - **API 响应模型（49-14 批次 1-4）**：towers → dashboard/tasks → vms/reports → admin 读类分批落地，金样本对比验收。
-- **升级包 compose 字面量 tag（49-15）**：读码核实包构建管线已渲染字面量 tag；收尾 runner 默认 env CORS 遗留清理、check_versions 增 `.env` tag 防呆警告。
+- **升级包 compose 字面量 tag（49-15）**：读码核实包构建管线已渲染字面量 tag；收尾 runner 默认 env CORS 遗留清理。
+- **源码 compose 全字面量化（49-3）**：三个源码 compose 的镜像引用（registry+tag）全部字面量化，与升级包同一不变量——现场 `.env` 无法再让源码部署静默漂移到旧镜像；`check_versions` 门禁改为字面量断言 + 模板变量禁令（模板回潮即 fail-fast）；bridge（<v0.5.2）打包路径验证保持 legacy 命名与 runner v0.3.0 基线。
 - **运维工具（UPG-050 定案）**：新增 `scripts/bind-mount-recover.sh`：`app/` 下挂载点目录体检（check，附锁状态报告）与全服务一键恢复（recover，自动解锁→重建→自动复锁），以及载体目录物理锁（lock/unlock，chattr +i，防误删载体；实测 dockerd 可在锁定目录正常建立挂载）。容器运行期禁止 rm/mv `app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}`（它们是 dockerd 补建的挂载点载体）。
 - **task-worker 第 6 容器评估**：实测报表导出期间 web-api 响应仅 +40ms，空间清理/迁移导出无影响，结论保持 5 容器模块化单体。
 - **测试环境治理**：构建测试移到宿主机跑（26 tests OK），deployment_config 改 unittest（无 pytest 依赖），容器内全量测试全绿。
@@ -59,7 +60,6 @@ v0.5.3 是 v0.5.2 之后的平台版本候选（未发布），主要内容：�
 - **AI 措辞层未接实际 AI 服务**：设计即为可选增强，未配置时回退离线规则文案（行为与旧版一致），接入点留待有 AI 服务。
 - **runner prepare 升级期在 app/ 下生成空骨架目录**：仅宿主机侧目录噪音，不阻塞升级、无数据复制；按用户决策仅记录不修复（pending-tasks #20）。
 - **第二次重打包的升级流程回归验收暂缓**：见发布日期说明；恢复时从 10.20.11.12 回归 v0.5.2 基线起走（task_plan 49-22）。
-- **源码 compose 模板默认 tag 可被现场 .env 覆盖**：源码 compose 仍保留 `SMARTX_IMAGE_TAG` 变量模板（升级包内已渲染为字面量、安全）；仅影响源码部署路径，Phase 49-3 待实施。
 - **已接受的取舍**：前端 token 存 localStorage（内网离线产品，暂不改）。
 - **生产现场「总览绿色」现象定位**：待生产现象复现时只读定位 `/api/dashboard/summary` 请求状态与 `capacity_risk.level`（pending-tasks #9）。
 
