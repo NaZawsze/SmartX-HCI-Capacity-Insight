@@ -1484,17 +1484,18 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] Word 声明扩句、Excel 补声明行；导出图不画带。
 - [x] 验证：后端 reports 14 OK / freshness 11 OK / reports_api / p1_infra 15 OK；前端 tsc 0 错误、vitest 89/89；.3 构建部署健康绿、GUI 冒烟确认带线与文案渲染。
 
-### 22. v0.5.3 第二次重打包 + 10.20.11.12 回归 v0.5.2 升级测试 [暂缓 2026-09-20 用户决策：暂时不升级，包备妥待命]
+### 22. v0.5.3 第二次重打包 + 10.20.11.12 回归 v0.5.2 升级测试 [已完成 2026-09-20：全新包 6accea95 替代 e940e07c，.12 全流程验收通过]
 
 设计文档：[docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md](docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md)。
 
 背景：交付包 ef10a7c8（基于 a64a897）不含 49-18/19/20/21 与 Prometheus 扫描守卫（beb36d5）。用户指令：重建 v0.5.3 包 → 回归 v0.5.2 基线 → 正规升级流程测试。**2026-09-20 用户决策：升级测试改在 10.20.11.12（升级演练机）进行，.3 打包机保持现状不动**；.12 回归到 v0.5.2 用"线上 compose 文件 + tag 换 v0.5.2"口径，.env 逐字节保留（凭据配对）。UPG-050 已定案关闭（清理操作自伤 rm/mv app/ 挂载点载体目录，非宿主 docker 缺陷、与单服务重建无关），操作纪律为容器运行期禁 rm/mv 那组目录、体检/恢复用 `scripts/bind-mount-recover.sh`（2026-09-20 两机 check 全绿，规则已入 AGENTS.md 第 9 节）。compose 考据（dab2e0f 以来仅默认 tag 变化）支持"线上文件换 tag 即忠实基线"。
 
 - [x] CHANGELOG v0.5.3 段补四项特性与重打包记录；构建提交归档。
-- [x] dev2 9b247a5 → .3 构建目录，`build_upgrade_package.py` 重打包（三件套全重建）+ 包门禁全过（新包 SHA256 e940e07c…，身份/manifest/敏感文件门禁通过）。
-- [ ] .12 回归 v0.5.2：回归前基线留档 → 项目备份 → 全停（不 -v）→ tag 换 v0.5.2 → 一次性全量重建 → 基线验收（health/计数/Prometheus/.env 不动）。
-- [ ] 正规升级测试（.12）：上传→预检查→升级→post-cleanup→8 项验收 + 新特性（探针/预测带）升级后生效确认。
-- [ ] 台账（upgrade-package-ledger 新条目 SUPERSEDES ef10a7c8）+ progress + 收尾提交。
+- [x] dev2 9b247a5 → .3 构建目录，`build_upgrade_package.py` 重打包（三件套全重建）+ 包门禁全过（SHA256 e940e07c…）；该包升级验收暂缓未执行，2026-09-20 补记台账后由新包取代。
+- [x] 用户 2026-09-20 指令「开始打包 0.5.3 全新版本」：dev2 ff1bd52 → .3 全新完整构建，包 SHA256 6accea95…，身份/manifest/敏感文件/包内 compose 字面量门禁全绿（bridge 兼容与直升能力保持），台账补 e940e07c + 新增 6accea95 双条目。
+- [x] .12 回归 v0.5.2：基线留档（89636/590/63/21、Prom 210 series、.env sha 31a0d456… 0600）→ 配置留档 → 全停（不 -v）→ tag 换 v0.5.2 → 一次性全量重建 → 基线验收全过（health v0.5.2/v0.3.1、计数/ integrity/.env/Prometheus 全部保全）。
+- [x] 正规升级测试（.12）：上传→预检查→升级（02:13:47-02:19:13 succeeded）→post-cleanup succeeded→验收 8 项全过 + 新特性生效确认（探针告警 collection-freshness-stale、预测带字段、数据质量告警）；升级后自动采集触发但 failed（Tower 10.20.0.6 frp 网络不可达，环境已知限制）。
+- [x] 台账（upgrade-package-ledger 双条目）+ CHANGELOG（构建验证记录/验证说明/已知问题销项）+ progress 证据 + 收尾提交。
 
 ### 23. UPG-050 载体目录物理锁（chattr +i）+ runner prepare 骨架目录问题记录 [.12 验证通过后用户决策不采用，已解锁恢复 2026-09-20]
 
