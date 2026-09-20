@@ -130,6 +130,44 @@ describe("ReportsPage", () => {
     expect(screen.queryByText("chart:30天趋势")).not.toBeInTheDocument();
   });
 
+  it("keeps the previous chart view until the new range data arrives to avoid double redraw", async () => {
+    const thirtyDays = deferred<ReturnType<typeof reportWithCluster>>();
+    apiMock.report.mockImplementation((_scope, _periodDays, chartDays) => {
+      if (chartDays === 365) return Promise.resolve(reportWithCluster("365天趋势", 365));
+      if (chartDays === 30) return thirtyDays.promise;
+      return Promise.resolve(reportWithCluster(`${chartDays}天趋势`, chartDays));
+    });
+
+    render(
+      <ReportsPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 1, vm_count: 0, total_bytes: 0, used_bytes: 0, used_ratio: 0 },
+          top_vms: [],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSelectVm={vi.fn()}
+        addTask={vi.fn()}
+        updateTask={vi.fn()}
+      />
+    );
+
+    await waitFor(() => expect(screen.getByTestId("chart-cluster-name")).toHaveTextContent("chart:365天趋势"));
+    fireEvent.click(screen.getByRole("button", { name: "30天" }));
+    await waitFor(() => expect(apiMock.report).toHaveBeenCalledWith(undefined, undefined, 30));
+    expect(screen.getByTestId("chart-range")).toHaveTextContent("365");
+    expect(screen.getByTestId("chart-cluster-name")).toHaveTextContent("chart:365天趋势");
+
+    await act(async () => {
+      thirtyDays.resolve(reportWithCluster("30天趋势", 30));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("chart-range")).toHaveTextContent("30");
+      expect(screen.getByTestId("chart-cluster-name")).toHaveTextContent("chart:30天趋势");
+    });
+  });
+
   it("renders v2 report contract and lets vm rows jump to the vm page", async () => {
     const onSelectVm = vi.fn();
     apiMock.report.mockResolvedValue({

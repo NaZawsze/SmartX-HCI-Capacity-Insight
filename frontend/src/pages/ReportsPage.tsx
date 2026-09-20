@@ -57,6 +57,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportPeriodDays, setExportPeriodDays] = useState(30);
   const [chartDays, setChartDays] = useState<ChartRangeDays>(365);
+  const [appliedChartDays, setAppliedChartDays] = useState<ChartRangeDays>(365);
   const [exportError, setExportError] = useState("");
   const reportRequestSeq = useRef(0);
   const clusterOptions = useMemo(
@@ -91,6 +92,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
       .then((payload) => {
         if (reportRequestSeq.current === requestSeq) {
           setReport(payload);
+          setAppliedChartDays(chartDays);
         }
       })
       .catch(() => {
@@ -226,7 +228,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
       </div>
 
       <Card title="集群容量趋势" subtitle="实际容量、预测趋势与容量阈值" className="cluster-chart-card">
-        <ClusterCapacityChart clusters={report?.clusters || []} title={selectedClusterLabel} rangeDays={chartDays} onRangeDaysChange={setChartDays} />
+        <ClusterCapacityChart clusters={report?.clusters || []} title={selectedClusterLabel} rangeDays={appliedChartDays} onRangeDaysChange={setChartDays} />
       </Card>
 
       {exportDialogOpen && (
