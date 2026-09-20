@@ -1558,3 +1558,12 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 升级页：「升级中心组件版本」+「Runner 当前状态」合并为一行「Runner 版本 v0.3.x（满足/不满足平台要求）」，满足绿（--green）/不满足红（--red，InfoRow 新增 bad tone）；「目标版本」升级为「升级路径 当前 → 目标」，箭头与目标版本绿色（.upgrade-path-arrow）。
 - [x] .3 验证：tsc exit 0、vitest 8 files 89 passed（node:20-alpine）；:8081 预览 dist 已重建供用户复核。
 - 边界：整包升级支持未实施（见任务 27）；历史表/组件升级卡片的「目标版本」字段未动。
+
+### 29. 恢复密钥下载密码确认 + 弹窗按钮一致（pending-tasks #26 追加三）[已实施并验证 2026-09-20]
+
+来源：2026-09-20 用户看预览反馈「下载密钥需要重新输入这个平台的密码」「弹窗两个按钮大小不一样」。
+
+- 实施：`GET /api/admin/migration/env-file` 改为 `POST` 并要求 body `password`——后端新增 `AuthService.confirm_password`，校验当前登录用户密码（复用登录 pbkdf2 口径），空/错密码 403，文件缺失 404，GET 405；前端弹窗改为「风险提示 + 平台密码输入框（回车提交）+ 行内错误提示 + 确认下载」，按钮统一 34px 高（migration-key-dialog-actions 覆盖主/次按钮内边距）。
+- 测试：test_v2_migration.py API 用例改为 405（旧 GET）/403（空、错密码）/200（正确密码返回 .env 内容）/404（文件缺失）；api.md 行同步 POST。
+- [x] .3 验证：migration 定向 9 tests OK；全量 335 tests OK (skipped=1)；verify_api_docs 77 条一致；tsc exit 0、vitest 8 files 89 passed；dist 重建（23:10）预览生效。
+- 边界：live web-api 仍为旧镜像（GET 仍在、POST 404），随 v0.5.3 正式包收编；无专项设计文档，口径记录于本条（小任务合并设计）。

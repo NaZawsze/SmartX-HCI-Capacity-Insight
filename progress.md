@@ -7533,3 +7533,12 @@ release_smoke=critical 0, warning 0
 - 用户反馈：「不要叫 Runner 版本，就叫升级中心组件和组件升级界面保持一致」。
 - 实施：PlatformUpgradeSection 当前状态区合并行标签「Runner 版本」→「升级中心组件」（值保持 `v0.3.x（满足平台要求）`绿 / `（不满足平台要求，请检查 Runner 心跳或升级 Runner）`红）；ServicePage.test.tsx 断言同步。
 - .3 验证：tsc exit 0；vitest 8 files 89 passed；dist 重建（22:26）含「升级中心组件」×2（状态行 + 组件升级卡），:8081 预览直接生效。
+
+## 49-26f（2026-09-20）恢复密钥下载加平台密码确认 + 弹窗按钮统一
+
+- 用户反馈（看 :8081 预览弹窗截图）：① 弹窗「取消」与「我已了解，下载密钥」按钮大小不一样（根因：全局 .primary-button 38px/16px vs .secondary-button 32px/12px）；② 下载密钥应重新输入平台密码。
+- 实施：
+  - 后端：`GET /api/admin/migration/env-file` → `POST`（body `{"password": ...}`）；`AuthService.confirm_password(username, password)`（pbkdf2 与登录同口径，查 users 表当前用户）；空/错密码 403「平台密码不正确，无法下载恢复密钥」，文件缺失 404，残留 GET 405。模型 `EnvFileDownloadRequest`；api.md 行更新（77 条一致）。
+  - 前端：MigrationSection 密钥弹窗改为风险提示 + 密码输入框（type=password、回车提交、行内 migration-key-error 错误提示）+「确认下载」；api.downloadEnvFile(password) 走 POST JSON；CSS：migration-key-form/migration-key-password/migration-key-error，且 .migration-key-dialog-actions 内主/次按钮统一 height 34px / padding 0 14px。
+- .3 验证（root 经 docker exec web-api，PYTHONPATH 指向挂载的 project/backend 新代码）：test_v2_migration 定向 9 tests OK（新断言 405/403×2/200 内容比对/404）；全量 335 tests OK (skipped=1)；verify_api_docs「api.md 77 条（含 1 条白名单豁免）与后端 76 条路由一致」；前端 tsc exit 0、vitest 8 files 89 passed（node:20-alpine）；npm run build 重建 dist（23:10 index-CZWVZahU.js），:8081 预览容器直接生效。
+- 边界与未验证项：live web-api 仍跑 v0.5.3 候选镜像旧代码（现场仍暴露旧 GET，POST 需等下次发包）；真实浏览器端到端（输错密码提示/正确下载）待用户在预览验证（预览后端为 live 旧代码，POST 会 404——预览仅可看 UI 形态，功能验证以后端测试 + 下次发包为准）。
