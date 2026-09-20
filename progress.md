@@ -7572,3 +7572,10 @@ release_smoke=critical 0, warning 0
 - 实施（c84aae5，ReportsPage）：内存缓存 `reportCacheRef`（Map<scope|days, ForecastPayload>）；主请求成功后 `warmReportCache` 静默预热其余三档（chartDaysRef 跳过当前档、in-flight 去重）；**缓存命中秒出**——切档瞬间直接 setReport(缓存)+appliedChartDays（加载遮罩完全不出现），同时仍发起请求静默刷新，新数据到达后 setReport（形变动画消化差异，49-26i）；失效规则：refreshKey（手动刷新）或 scope prop 变化即清空缓存（prevCacheBusterRef 对比）；请求失败且无缓存才落空态，有缓存则保留旧视图。CHART_RANGES/reportCacheKey 提为模块级（ChartRangeDays 上移，删除底部重复声明）。
 - .3 验证：tsc exit 0；vitest 8 files 90 passed（49-26g/h 回归用例不变通过：无缓存首切仍显示加载态、数据到达切换；竞态用例照常）；build 重建 dist（23:38 index-CvDxg6G_.js），:8081 预览生效。
 - 语义与边界：缓存仅存活于页面会话内存（刷新页面即空、不写 localStorage）；每个档位每个会话首次查看仍走请求+加载遮罩；每次进报表页后台共发 4 次报表请求（1 主 + 3 预热），对单管理员内网产品可接受；切换到缓存档位先见秒出的缓存数据，后台刷新完成后若数据有变化以形变动画过渡到最新值。
+
+## 49-26k（2026-09-20）报表接口基线测量（.3，只读诊断）
+
+- 背景：用户问「后端优化你做了吗」——未做（49-26g~j 全为前端）。按「先量耗时」口径在 .3 做 1 集群规模基线。
+- 方法：web-api 容器内 python 脚本走真实 HTTP（127.0.0.1:8000，凭据从容器的 /run/smartx-runtime.env 读取、不回显），GET /api/reports/latest?chart_days=N，两轮测量。
+- 结果（1 Tower / 1 集群 / 590 VM）：四档耗时 620-732ms（pass1 728/732/656/636，pass2 622/690/620/665），payload 均 ~463KB（chart_days 仅带来 ~300B 差异——趋势点并非 payload 大头）。
+- 结论：① 用户感知的「卡一会」是真实后端耗时（~650ms@最小规模），非纯心理作用；前端缓存命中绕开的正是这段。② payload 463KB 恒定，切档几乎不减体积，传输+JSON 解析成本固定。③ 后端确有优化空间（耗时构成待 profile：Prometheus 查询/预测计算/序列化），生产多集群规模会放大。登记 pending-tasks #28，待用户排期。
