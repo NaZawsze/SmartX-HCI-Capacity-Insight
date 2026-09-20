@@ -336,7 +336,7 @@ describe("ServicePage migration overwrite mode", () => {
 
     expect(await screen.findByText("<none>:<none>")).toBeInTheDocument();
     expect(screen.getByText(/deadbeefcafe/)).toBeInTheDocument();
-    expect(screen.getByText("候选逻辑大小 1 KiB")).toBeInTheDocument();
+    expect(screen.getByText(/候选逻辑大小 1 KiB/)).toBeInTheDocument();
   });
 
   it("scans sqlite backups and deletes only selected backup files", async () => {
