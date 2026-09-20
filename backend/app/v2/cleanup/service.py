@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from app.v2.auto_backup import AUTO_BACKUP_DIR_PREFIX
 from app.v2.config import V2Settings
 from app.v2.tasks.models import TaskStatus, TaskType
 from app.v2.tasks.service import TaskService
@@ -249,6 +250,21 @@ class CleanupService:
         self.settings.backups_dir.mkdir(parents=True, exist_ok=True)
         items: list[dict[str, Any]] = []
         for path in sorted(self.settings.backups_dir.iterdir(), key=lambda item: item.stat().st_mtime if item.exists() else 0, reverse=True):
+            if path.is_dir():
+                if not path.name.startswith(AUTO_BACKUP_DIR_PREFIX):
+                    continue
+                size = sum(child.stat().st_size for child in path.rglob("*") if child.is_file())
+                items.append(
+                    {
+                        "filename": path.name,
+                        "path": str(path),
+                        "size": int(size),
+                        "size_label": _size_label(int(size)),
+                        "modified_at": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(),
+                        "kind": "auto_backup_set",
+                    }
+                )
+                continue
             if not path.is_file() or not _is_sqlite_backup_file(path):
                 continue
             stat = path.stat()
@@ -279,6 +295,13 @@ class CleanupService:
         logs: list[str] = []
         for filename in selected:
             path = self.settings.backups_dir / filename
+            if path.is_dir() and path.name.startswith(AUTO_BACKUP_DIR_PREFIX):
+                size = sum(child.stat().st_size for child in path.rglob("*") if child.is_file())
+                shutil.rmtree(path)
+                deleted_count += 1
+                reclaimed += int(size)
+                logs.append(f"{filename}：删除整个自动备份集（数据库快照与配对 .env 一并删除），释放 {_size_label(int(size))}")
+                continue
             if not path.is_file() or not _is_sqlite_backup_file(path):
                 logs.append(f"{filename}：不存在或不是 SQLite 数据库备份，已跳过")
                 continue

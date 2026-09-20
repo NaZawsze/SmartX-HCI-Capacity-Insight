@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 
 from app.v2.auth.service import CurrentUser
+from fastapi.responses import FileResponse
+
 from app.v2.migration.service import ARCHIVE_MEDIA_TYPE, MigrationService
 
 from app.v2.api.deps import get_migration_service, require_user
@@ -97,3 +99,15 @@ def migration_health(
         "sqlite": health["sqlite"],
         "prometheus": health["prometheus"],
     }
+
+
+@router.get("/api/admin/migration/env-file")
+def download_current_env_file(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    migration: Annotated[MigrationService, Depends(get_migration_service)],
+) -> FileResponse:
+    """下载当前 project/.env（管理员显式动作）；恢复历史导出包时按需与包配对使用。"""
+    env_path = migration.settings.env_file_path
+    if not env_path.is_file():
+        raise HTTPException(status_code=404, detail="未找到 project/.env 文件。")
+    return FileResponse(env_path, filename="project.env")

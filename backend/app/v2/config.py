@@ -31,6 +31,9 @@ class V2Settings:
     prometheus_data_path_override: Path | None = field(
         default_factory=lambda: Path(value) if (value := os.environ.get("SMARTX_PROMETHEUS_DATA_PATH")) else None
     )
+    project_path_override: Path | None = field(
+        default_factory=lambda: Path(value) if (value := os.environ.get("SMARTX_PROJECT_PATH")) else None
+    )
     secret_key: str = field(default_factory=lambda: os.environ.get("SMARTX_SECRET_KEY", "change-me-in-production"))
     credential_key: str | None = field(default_factory=lambda: os.environ.get("SMARTX_CREDENTIAL_KEY"))
     admin_user: str = field(default_factory=lambda: os.environ.get("SMARTX_ADMIN_USER", "admin"))
@@ -117,6 +120,16 @@ class V2Settings:
     @property
     def compose_runtime_dir(self) -> Path:
         return self.data_root / "compose-runtime"
+
+    @property
+    def project_path(self) -> Path:
+        if self.project_path_override is not None:
+            return self.project_path_override
+        return Path(os.environ.get("SMARTX_PROJECT_PATH", "/data/smartx-storage-forecast/project"))
+
+    @property
+    def env_file_path(self) -> Path:
+        return self.project_path / ".env"
 
     def required_directories(self) -> list[Path]:
         return [

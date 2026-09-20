@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import hashlib
+import os
 import shutil
 import sqlite3
 import tarfile
@@ -84,18 +85,41 @@ class MigrationService:
         self.settings.migrations_dir.mkdir(parents=True, exist_ok=True)
         path = self.settings.migrations_dir / filename
         path.write_bytes(content)
+        env_snapshot = self._snapshot_env_for_bundle(path)
         download_url = f"/api/admin/exports/migrations/{quote(filename)}"
         if record_task:
+            links = [{"label": "迁移包", "filename": filename, "url": download_url, "path": str(path)}]
+            if env_snapshot is not None:
+                links.append(self._env_link(env_snapshot))
             self.tasks.create_task(
                 f"migration-export-{token_hex(8)}",
                 TaskType.MIGRATION_EXPORT,
                 "导出迁移包",
                 status=TaskStatus.SUCCESS,
                 progress=100,
-                message="迁移包已生成",
-                links=[{"label": "迁移包", "filename": filename, "url": download_url, "path": str(path)}],
+                message="迁移包已生成" + ("，已生成配对 .env 快照" if env_snapshot is not None else "（警告：未找到 .env，未生成配对密钥快照）"),
+                links=links,
             )
         return content, filename, path, download_url
+
+    def _snapshot_env_for_bundle(self, bundle_path: Path) -> Path | None:
+        """把当前 .env 快照到导出留档目录，与迁移包同名（.env 后缀），恢复时同代配对使用。"""
+        env_path = self.settings.env_file_path
+        if not env_path.is_file():
+            return None
+        target = bundle_path.with_suffix(".env")
+        shutil.copy2(env_path, target)
+        os.chmod(target, 0o600)
+        return target
+
+    @staticmethod
+    def _env_link(env_snapshot: Path) -> dict[str, str]:
+        return {
+            "label": "配对 .env（恢复时必须同代使用）",
+            "filename": env_snapshot.name,
+            "url": f"/api/admin/exports/migrations/{quote(env_snapshot.name)}",
+            "path": str(env_snapshot),
+        }
 
     def build_config_export_archive(self, *, record_task: bool = True) -> tuple[bytes, str, Path, str]:
         generated_at = _now()
@@ -122,8 +146,12 @@ class MigrationService:
         self.settings.migrations_dir.mkdir(parents=True, exist_ok=True)
         path = self.settings.migrations_dir / filename
         path.write_bytes(content)
+        env_snapshot = self._snapshot_env_for_bundle(path)
         download_url = f"/api/admin/exports/migrations/{quote(filename)}"
         if record_task:
+            links = [{"label": "配置迁移包", "filename": filename, "url": download_url, "path": str(path), "scope": CONFIG_SCOPE}]
+            if env_snapshot is not None:
+                links.append(self._env_link(env_snapshot))
             self.tasks.create_task(
                 f"migration-config-export-{token_hex(8)}",
                 TaskType.MIGRATION_EXPORT,
@@ -131,7 +159,7 @@ class MigrationService:
                 status=TaskStatus.SUCCESS,
                 progress=100,
                 message="配置迁移包已生成",
-                links=[{"label": "配置迁移包", "filename": filename, "url": download_url, "path": str(path), "scope": CONFIG_SCOPE}],
+                links=links,
             )
         return content, filename, path, download_url
 
@@ -214,12 +242,16 @@ class MigrationService:
         steps = _replace_step(steps, "archive", "succeeded", f"已处理 {_size_label(processed_bytes)}")
         steps = _replace_step(steps, "save", "succeeded", str(path))
         steps = _replace_step(steps, "finish", "succeeded", download_url)
+        links = [{"label": "迁移包", "filename": filename, "url": download_url, "path": str(path), "processed_bytes": processed_bytes, "total_bytes": total_bytes}]
+        env_snapshot = path.with_suffix(".env")
+        if env_snapshot.is_file():
+            links.append(self._env_link(env_snapshot))
         task = self.tasks.update_task(
             task_id,
             status=TaskStatus.SUCCESS,
             progress=100,
             message="迁移包已生成",
-            links=[{"label": "迁移包", "filename": filename, "url": download_url, "path": str(path), "processed_bytes": processed_bytes, "total_bytes": total_bytes}],
+            links=links,
             logs=logs + [f"服务器留档：{path}"],
             steps=steps,
         )

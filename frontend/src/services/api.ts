@@ -440,6 +440,9 @@ export const api = {
     const ids = (imageIds || []).filter((id) => id.trim());
     return request<{ ok: boolean; deleted_count: number; space_reclaimed: number; space_reclaimed_label?: string; space_reclaimable_before?: number; space_reclaimable_before_label?: string; errors?: string[]; logs?: string[]; message: string }>("/api/admin/system/cleanup-images", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image_ids: ids }) });
   },
+  async downloadEnvFile(): Promise<DownloadResult> {
+    return download("/api/admin/migration/env-file");
+  },
   async scanSpaceCleanup(): Promise<SpaceCleanupScanResult> {
     return request<SpaceCleanupScanResult>("/api/admin/system/cleanup-artifacts/scan");
   },

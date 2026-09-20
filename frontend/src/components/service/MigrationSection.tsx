@@ -130,6 +130,17 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
     }
   }
 
+  async function downloadEnvFile() {
+    setMigrationMessage("");
+    try {
+      const result = await api.downloadEnvFile();
+      saveBlob(result.blob, result.filename || "project.env");
+      setMigrationMessage("已下载当前 .env；恢复历史迁移包时请与其同代配对使用。");
+    } catch (exc) {
+      setMigrationMessage(exc instanceof Error ? exc.message : "下载 .env 失败");
+    }
+  }
+
   async function checkMigrationHealth() {
     setMigrationMessage("");
     setMigrationHealthMessage("");
@@ -163,6 +174,10 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
             <Info size={16} />
             健康检查
           </button>
+          <button className="secondary-button service-header-button" type="button" onClick={downloadEnvFile}>
+            <Download size={16} />
+            下载当前 .env
+          </button>
           <button className="secondary-button service-header-button" type="button" onClick={exportConfigMigration} disabled={migrationBusy}>
             <Download size={16} />
             导出配置迁移包
@@ -177,7 +192,7 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
         <div className="service-operation-head">
           <div>
             <strong>迁移包导入</strong>
-            <span>默认补全缺失数据；覆盖导入会替换当前业务库和历史指标数据。</span>
+            <span>默认补全缺失数据；覆盖导入会替换当前业务库和历史指标数据。导出任务会自动生成配对 .env 快照（任务中心可下载）；恢复历史导出包可用「下载当前 .env」补配对。</span>
           </div>
         </div>
         <div className="migration-import service-migration-import">

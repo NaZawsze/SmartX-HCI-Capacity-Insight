@@ -268,6 +268,7 @@ def _frontend_kind(task_type: str) -> str:
         TaskType.UPGRADE.value: "upgrade",
         TaskType.CLEANUP.value: "upgrade",
         TaskType.COLLECTION.value: "download",
+        TaskType.BACKUP.value: "download",
     }.get(task_type, "download")
 
 

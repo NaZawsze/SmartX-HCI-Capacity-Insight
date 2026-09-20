@@ -164,6 +164,51 @@ class V2MigrationServiceTest(unittest.TestCase):
             self.assertEqual(tasks[0]["type"], "migration_export")
             self.assertEqual(tasks[0]["links"][0]["url"], download_url)
 
+    def test_export_archives_create_paired_env_snapshot_with_task_link(self) -> None:
+        import stat
+
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import TowerInput
+        from app.v2.inventory.service import InventoryService
+        from app.v2.migration.service import MigrationService
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir) / "project"
+            project_dir.mkdir()
+            env_content = "SMARTX_SECRET_KEY=migration-secret\n"
+            (project_dir / ".env").write_text(env_content, encoding="utf-8")
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="migration-secret", project_path_override=project_dir)
+            database = V2Database(settings)
+            database.initialize()
+            InventoryService(database, settings).create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            tasks = TaskService(database)
+            service = MigrationService(database, settings, tasks)
+
+            _, _, bundle_path, _ = service.build_export_archive()
+            env_snapshot = bundle_path.with_suffix(".env")
+            self.assertTrue(env_snapshot.is_file())
+            self.assertEqual(env_snapshot.parent, settings.migrations_dir)
+            self.assertEqual(env_snapshot.read_text(encoding="utf-8"), env_content)
+            self.assertEqual(stat.S_IMODE(env_snapshot.stat().st_mode), 0o600)
+            links = tasks.list_tasks()[0]["links"]
+            env_link = next(link for link in links if link["label"].startswith("配对 .env"))
+            self.assertEqual(env_link["filename"], env_snapshot.name)
+            self.assertEqual(env_link["url"], f"/api/admin/exports/migrations/{env_snapshot.name}")
+
+            _, _, config_path, _ = service.build_config_export_archive()
+            config_env = config_path.with_suffix(".env")
+            self.assertTrue(config_env.is_file())
+            self.assertEqual(stat.S_IMODE(config_env.stat().st_mode), 0o600)
+            config_links = tasks.list_tasks()[0]["links"]
+            self.assertTrue(any(link["label"].startswith("配对 .env") for link in config_links))
+
+            inline = service.start_export_task(run_inline=True)
+            self.assertEqual(inline["status"], "succeeded")
+            inline_links = inline["links"]
+            self.assertTrue(any(link["label"].startswith("配对 .env") for link in inline_links))
+
     def test_import_merge_creates_backup_and_does_not_overwrite_existing_cluster(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
@@ -350,6 +395,11 @@ class V2MigrationApiTest(unittest.TestCase):
             os.environ["SMARTX_DATA_ROOT"] = tmpdir
             os.environ["SMARTX_SECRET_KEY"] = "migration-api-secret"
             os.environ["SMARTX_ADMIN_PASSWORD"] = "password"
+            project_dir = Path(tmpdir) / "project"
+            project_dir.mkdir()
+            os.environ["SMARTX_PROJECT_PATH"] = str(project_dir)
+            env_content = "SMARTX_SECRET_KEY=migration-api-secret\n"
+            (project_dir / ".env").write_text(env_content, encoding="utf-8")
             try:
                 app = create_app()
                 with TestClient(app) as client:
@@ -442,10 +492,18 @@ class V2MigrationApiTest(unittest.TestCase):
                     )
                     self.assertEqual(overwrite_without_confirm.status_code, 400)
                     self.assertIn("覆盖导入会清空当前系统数据", overwrite_without_confirm.json()["detail"])
+
+                    self.assertEqual(client.get("/api/admin/migration/env-file").status_code, 401)
+                    env_download = client.get("/api/admin/migration/env-file", headers=headers)
+                    self.assertEqual(env_download.status_code, 200)
+                    self.assertEqual(env_download.text, env_content)
+                    (project_dir / ".env").unlink()
+                    self.assertEqual(client.get("/api/admin/migration/env-file", headers=headers).status_code, 404)
             finally:
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)
                 os.environ.pop("SMARTX_ADMIN_PASSWORD", None)
+                os.environ.pop("SMARTX_PROJECT_PATH", None)
 
 
 if __name__ == "__main__":

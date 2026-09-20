@@ -526,6 +526,7 @@ Admin endpoints require an admin token. Platform upgrade follows upload → prec
 | GET | `/api/admin/migration/import/status/{task_id}` | Import task status |
 | POST | `/api/admin/migration/import` | Upload and import a migration package |
 | GET | `/api/admin/migration/health` | Migration environment health |
+| GET | `/api/admin/migration/env-file` | Download current `project/.env` for pairing with exported packages |
 
 ### System administration
 
