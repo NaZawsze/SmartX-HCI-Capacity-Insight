@@ -7452,3 +7452,12 @@ release_smoke=critical 0, warning 0
 
 - 用户重申：10.20.11.12 是发布机器，严格按真实环境对待；上一轮提出的"对 .12 手工 docker rmi 旧项目名镜像"口径错误，已撤回。
 - 规则固化：.12 宿主上不做任何手工运维变更（docker rmi/手工清理/改文件一律不做），一切变更走产品流程（升级中心、产品功能）；测试机卫生类需求（pending-tasks #21①②）在 .12 上只能等含 49-24 的 v0.5.3 正式包升级后用「系统运维→空间清理」完成。已写入 version-governance.md「发布节奏→环境角色」、release-acceptance.md Environment Roles、pending-tasks #21。
+
+## 2026-09-20 .12 磁盘清理走产品功能完成（用户口径：清理必须走正常功能）
+
+- 用户两次纠正后定案：.12 是发布机器严格真实环境；不是"不做清理"，而是**清理必须走产品自身功能**，宿主手工运维（docker rmi/手工删目录）一律不做。
+- .12 现状：v0.5.3（6accea95 包）五容器健康全绿。用 .12 在跑产品自带的「系统运维→空间清理」API（与页面按钮同一链路）执行：
+  1. 运行产物清理：产品扫描 16 项 8.45G → POST cleanup-artifacts 删除 16 项，释放 8.45G；磁盘 57%（30G used）→41%；upgrades/ 清空（15 个历史任务目录+1 散项，含升级包副本与任务现场；任务中心 SQLite 记录保留，包 SHA 在 ledger 可追溯）。
+  2. 悬空镜像清理：产品扫描 60 个 dangling 12.88G → POST cleanup-images 删除 60 个，释放 12.88G；复扫 0。所有有 tag 镜像（v0.5.1~v0.5.3 各版本、runner v0.3.0/v0.3.1、4 个旧项目名 nazawsze/smartx-storage-forecast-* tag、prom/prometheus）原样保留——旧版本平台镜像按回滚依赖保留是 49-24 设计边界；旧项目名 tag 需等 49-24 能力随发版火车交付后走产品「清理未使用镜像」。
+- 清理后健康检查 ok=true（v0.5.3/v0.3.1，directories/database/prometheus 全 true），五容器 Up 不变。
+- 合计释放约 21.3G，全程零宿主手工运维命令，全部走产品功能 API。
