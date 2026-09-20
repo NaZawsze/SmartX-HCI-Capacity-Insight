@@ -1,5 +1,6 @@
 import ReactECharts from "echarts-for-react";
 import { useMemo } from "react";
+import { LoaderCircle } from "lucide-react";
 import { formatBytes } from "../services/api";
 import { forecastBandSeries } from "../services/forecastBand";
 import type { ForecastPayload } from "../types";
@@ -12,6 +13,7 @@ interface ClusterCapacityChartProps {
   title: string;
   height?: number;
   rangeDays: RangeDays;
+  loading?: boolean;
   onRangeDaysChange: (days: RangeDays) => void;
 }
 
@@ -192,7 +194,7 @@ function statusLabel(status: ChartModel["status"]): string {
   return "未知";
 }
 
-export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays, onRangeDaysChange }: ClusterCapacityChartProps) {
+export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays, loading = false, onRangeDaysChange }: ClusterCapacityChartProps) {
   const model = useMemo(() => aggregateClusters(clusters, title), [clusters, title]);
   const actualPoints = model.points;
   const historyPoints = predictedHistory(actualPoints, model.slopePerDay);
@@ -335,7 +337,10 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
     return (
       <div className="cluster-chart-shell">
         <ClusterChartToolbar title={model.title} status={model.status} rangeDays={rangeDays} onRangeDaysChange={onRangeDaysChange} />
-        <div className="empty-chart">暂无集群趋势数据</div>
+        <div className="cluster-chart-body">
+          <div className="empty-chart">暂无集群趋势数据</div>
+          {loading && <ChartLoadingOverlay />}
+        </div>
       </div>
     );
   }
@@ -343,8 +348,20 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
   return (
     <div className="cluster-chart-shell">
       <ClusterChartToolbar title={model.title} status={model.status} rangeDays={rangeDays} onRangeDaysChange={onRangeDaysChange} />
-      <ReactECharts key={chartKey} option={option} style={{ height }} notMerge />
+      <div className="cluster-chart-body">
+        <ReactECharts key={chartKey} option={option} style={{ height }} notMerge />
+        {loading && <ChartLoadingOverlay />}
+      </div>
       <div className="forecast-disclaimer">预测值可能会有偏差，以实际为准</div>
+    </div>
+  );
+}
+
+function ChartLoadingOverlay() {
+  return (
+    <div className="chart-loading-overlay" role="status" aria-live="polite">
+      <LoaderCircle size={16} className="chart-loading-icon" />
+      正在加载趋势数据…
     </div>
   );
 }

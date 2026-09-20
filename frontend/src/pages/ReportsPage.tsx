@@ -98,6 +98,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
       .catch(() => {
         if (reportRequestSeq.current === requestSeq) {
           setReport(null);
+          setAppliedChartDays(chartDays);
         }
       });
   }, [chartDays, refreshKey, reportScope]);
@@ -228,7 +229,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
       </div>
 
       <Card title="集群容量趋势" subtitle="实际容量、预测趋势与容量阈值" className="cluster-chart-card">
-        <ClusterCapacityChart clusters={report?.clusters || []} title={selectedClusterLabel} rangeDays={appliedChartDays} onRangeDaysChange={setChartDays} />
+        <ClusterCapacityChart clusters={report?.clusters || []} title={selectedClusterLabel} rangeDays={appliedChartDays} loading={chartDays !== appliedChartDays} onRangeDaysChange={setChartDays} />
       </Card>
 
       {exportDialogOpen && (

@@ -18,14 +18,17 @@ vi.mock("../components/ClusterCapacityChart", () => ({
   ClusterCapacityChart: ({
     clusters,
     rangeDays,
+    loading,
     onRangeDaysChange
   }: {
     clusters: Array<{ labels?: Record<string, string> }>;
     rangeDays: number;
+    loading?: boolean;
     onRangeDaysChange: (days: 7 | 30 | 90 | 365) => void;
   }) => (
     <div data-testid="cluster-capacity-chart">
       <span data-testid="chart-range">{rangeDays}</span>
+      {loading ? <span data-testid="chart-loading">loading</span> : null}
       <span data-testid="chart-cluster-name">chart:{clusters[0]?.labels?.cluster || "empty"}</span>
       {[7, 30, 90, 365].map((days) => (
         <button key={days} type="button" onClick={() => onRangeDaysChange(days as 7 | 30 | 90 | 365)}>
@@ -158,6 +161,7 @@ describe("ReportsPage", () => {
     await waitFor(() => expect(apiMock.report).toHaveBeenCalledWith(undefined, undefined, 30));
     expect(screen.getByTestId("chart-range")).toHaveTextContent("365");
     expect(screen.getByTestId("chart-cluster-name")).toHaveTextContent("chart:365天趋势");
+    expect(screen.getByTestId("chart-loading")).toBeInTheDocument();
 
     await act(async () => {
       thirtyDays.resolve(reportWithCluster("30天趋势", 30));
@@ -166,6 +170,7 @@ describe("ReportsPage", () => {
       expect(screen.getByTestId("chart-range")).toHaveTextContent("30");
       expect(screen.getByTestId("chart-cluster-name")).toHaveTextContent("chart:30天趋势");
     });
+    expect(screen.queryByTestId("chart-loading")).not.toBeInTheDocument();
   });
 
   it("renders v2 report contract and lets vm rows jump to the vm page", async () => {
