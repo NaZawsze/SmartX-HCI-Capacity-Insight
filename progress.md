@@ -7551,3 +7551,10 @@ release_smoke=critical 0, warning 0
 - 测试：ReportsPage.test.tsx 新增用例「keeps the previous chart view until the new range data arrives to avoid double redraw」（点击 30 天后数据到达前 chart-range 仍为 365、数据到达后一次性切到 30）；原有 30→7 快速切换竞态用例不变通过。
 - .3 验证：tsc exit 0；vitest 8 files 90 passed（新增 1 例）；npm run build 重建 dist（23:21 index-Cs4IZEq_.js），:8081 预览生效。
 - 边界：数据到达后的那次重绘是必要更新（新数据集）；本修复消除的是切换瞬间的旧数据重画与轴错位闪烁。
+
+## 49-26h（2026-09-20）趋势图切换加载态（49-26g 后续）
+
+- 用户反馈：双画修复后「点击后明显感觉会卡一会才出来」——旧视图原地不动等数据，点击瞬间缺少反馈。
+- 实施（93ca2ee）：ReportsPage 传 `loading={chartDays !== appliedChartDays}`（请求失败路径同样落 appliedChartDays 结束加载态）；ClusterCapacityChart 增加 `loading` prop，图Body 包 `.cluster-chart-body`，加载时叠加 `.chart-loading-overlay`（半透明白 + 转圈 + 「正在加载趋势数据…」，复用全局 @keyframes spin）——点击立即有反馈，旧图保持变暗显示，数据到达一次性换图且加载态消失；空数据分支同样覆盖。
+- 测试：mock 组件透出 chart-loading，49-26g 回归用例补断言（点击后加载态在场、数据到达后消失）。
+- .3 验证：tsc exit 0；vitest 8 files 90 passed；build 重建 dist（23:25 index-Byf59ADl.js，含 chart-loading-overlay），:8081 预览生效。
