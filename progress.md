@@ -7558,3 +7558,10 @@ release_smoke=critical 0, warning 0
 - 实施（93ca2ee）：ReportsPage 传 `loading={chartDays !== appliedChartDays}`（请求失败路径同样落 appliedChartDays 结束加载态）；ClusterCapacityChart 增加 `loading` prop，图Body 包 `.cluster-chart-body`，加载时叠加 `.chart-loading-overlay`（半透明白 + 转圈 + 「正在加载趋势数据…」，复用全局 @keyframes spin）——点击立即有反馈，旧图保持变暗显示，数据到达一次性换图且加载态消失；空数据分支同样覆盖。
 - 测试：mock 组件透出 chart-loading，49-26g 回归用例补断言（点击后加载态在场、数据到达后消失）。
 - .3 验证：tsc exit 0；vitest 8 files 90 passed；build 重建 dist（23:25 index-Byf59ADl.js，含 chart-loading-overlay），:8081 预览生效。
+
+## 49-26i（2026-09-20）趋势图切换形变动画（49-26g/h 后续）
+
+- 用户提议：「不能从前端努力下，让客户觉得快吗？比如做个动画，点击就是线往前跑，后面落在对应位置上？」
+- 实施（2fdafc2）：ClusterCapacityChart 去掉 `key={chartKey}` 强制重挂载（新实例只能闪现终态、无过渡），改为原地 notMerge 更新 + ECharts 内置形变动画——`animationDuration: 700`（首次进入，线从左往右画出）、`animationDurationUpdate: 550`（数据/轴更新时旧线平滑滑到新位置）、easing cubicOut。切换天数、切换集群、刷新数据三种场景都获得连续过渡动画；加载遮罩（49-26h）保持不变，数据到达后遮罩消失、线条滑入新形态。
+- .3 验证：tsc exit 0；vitest 8 files 90 passed；build 重建 dist（23:32 index-BSsT1MQX.js），:8081 预览生效。动画视觉效果待用户预览确认（自动化测试只覆盖数据逻辑，不覆盖动画观感）。
+- 说明：删除 chartKey useMemo（原仅用于强制重挂载）；hasBand 增删系列由 notMerge 全量替换保证不残留。

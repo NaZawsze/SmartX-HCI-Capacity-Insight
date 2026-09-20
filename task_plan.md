@@ -1573,3 +1573,4 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 来源：2026-09-20 用户反馈「切换天数后，折线统计图会重画两次」。根因与修复见 progress.md 49-26g（appliedChartDays 数据到达才应用，提交 2b7868c）；新增回归测试 1 例，.3 vitest 90 passed。
 
 后续（49-26h，提交 93ca2ee）：用户反馈切换后「卡一会才出来」→ 增加 chart-loading-overlay 加载态（点击立即反馈，数据到达一次性换图），.3 vitest 90 passed。
+后续（49-26i，提交 2fdafc2）：按用户提议加形变动画——去掉 key 重挂载改原地更新，ECharts 内置动画实现「线滑到新位置」，.3 vitest 90 passed。
