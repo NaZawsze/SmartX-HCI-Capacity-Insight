@@ -4,7 +4,7 @@ import type { TransferProgress } from "../../services/api";
 import type { AppTask, ComponentInfo, LocalStorageUsage, MigrationExportTask, MigrationImportTask, UpgradePostCleanupStatus, UpgradeTask, UpgradeVerification } from "../../types";
 
 export type ServiceSection = "migration" | "restart" | "space-cleanup" | "platform-upgrade" | "component-upgrade" | "history";
-export type CleanupScanImage = { id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string; reclaimable_size?: number; reclaimable_size_label?: string; created_at?: number | string };
+export type CleanupScanImage = { id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string; reclaimable_size?: number; reclaimable_size_label?: string; created_at?: number | string; category?: "dangling" | "unused" };
 export type UpgradeCheck = UpgradeTask["checks"][number];
 export type PrecheckStepDefinition = { key: string; title: string; checks: string[] };
 export type DisplayStep = { key: string; title: string; status: string; message?: string };
@@ -693,6 +693,10 @@ export interface CleanupDialogProps {
   progress: number;
   logs: string[];
   images: CleanupScanImage[];
+  protectedImages: CleanupScanImage[];
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
+  onToggleAll: () => void;
   reclaimable: string;
   actualReclaimed: string;
   onClose: () => void;
@@ -700,19 +704,24 @@ export interface CleanupDialogProps {
   onCleanup: () => void;
 }
 
-export function CleanupDialog({ busy, scanBusy, progress, logs, images, reclaimable, actualReclaimed, onClose, onScan, onCleanup }: CleanupDialogProps) {
+function cleanupCategoryLabel(image: CleanupScanImage): string {
+  return image.category === "dangling" ? "悬空镜像" : "未使用镜像";
+}
+
+export function CleanupDialog({ busy, scanBusy, progress, logs, images, protectedImages, selectedIds, onToggle, onToggleAll, reclaimable, actualReclaimed, onClose, onScan, onCleanup }: CleanupDialogProps) {
+  const allSelected = images.length > 0 && selectedIds.size === images.length;
   return (
     <div className="modal-backdrop" role="presentation" onClick={() => !busy && onClose()}>
       <div className="cleanup-dialog" role="dialog" aria-modal="true" aria-labelledby="cleanup-dialog-title" onClick={(event) => event.stopPropagation()}>
         <div className="export-dialog-head">
           <div>
-            <strong id="cleanup-dialog-title">清理旧版本镜像</strong>
-            <span>清理未被任何容器使用的 Docker 镜像，当前运行中的镜像不会被删除。</span>
+            <strong id="cleanup-dialog-title">清理未使用镜像</strong>
+            <span>清理未被任何容器使用的 Docker 镜像；平台/组件仓库镜像受回滚保护，不会出现在可清理列表。</span>
           </div>
         </div>
         <div className="cleanup-warning">
           <Info size={16} />
-          该操作可能移除旧版本镜像，清理后如果需要回滚到旧镜像，可能需要重新上传或重新加载对应升级包。
+          只删除勾选的镜像；当前运行中的镜像不会被删除。删除前服务端会重新校验镜像状态，被容器引用或受保护的镜像会被跳过。
         </div>
         <div className="cleanup-progress" aria-label={`${progress}%`}>
           <span style={{ width: `${progress}%` }} />
@@ -723,24 +732,54 @@ export function CleanupDialog({ busy, scanBusy, progress, logs, images, reclaima
           <CleanupStep active={false} done={progress >= 100 && !busy} label="输出清理结果" />
         </div>
         <div className="cleanup-summary">
-          <strong>{images.length} 个未使用镜像</strong>
-          <span>候选逻辑大小 {reclaimable}</span>
+          <strong>{images.length} 个可清理镜像</strong>
+          <span>已选 {selectedIds.size} 个 · 候选逻辑大小 {reclaimable}</span>
           {actualReclaimed && <span>实际释放 {actualReclaimed}</span>}
         </div>
         <div className="cleanup-image-list auto-scrollbar">
           {images.length ? (
-            images.map((image) => (
-              <div className="cleanup-image-row" key={image.id}>
+            <>
+              <label className="cleanup-image-row cleanup-image-check-row cleanup-image-select-head">
+                <input type="checkbox" checked={allSelected} onChange={onToggleAll} disabled={busy || scanBusy} />
                 <div>
-                  <strong>{image.display_name}</strong>
-                  <small>{image.short_id}{image.created_at ? ` · ${formatUnixTime(image.created_at)}` : ""}</small>
+                  <strong>{allSelected ? "取消全选" : "全选可清理镜像"}</strong>
+                  <small>悬空镜像与未被容器使用的非平台镜像</small>
                 </div>
-                <span>{image.reclaimable_size_label ?? image.size_label}</span>
-              </div>
-            ))
+                <span>{images.length} 个</span>
+              </label>
+              {images.map((image) => (
+                <label className="cleanup-image-row cleanup-image-check-row" key={image.id}>
+                  <input type="checkbox" checked={selectedIds.has(image.id)} onChange={() => onToggle(image.id)} disabled={busy || scanBusy} />
+                  <div>
+                    <strong>{image.display_name}</strong>
+                    <small>{cleanupCategoryLabel(image)} · {image.short_id}{image.created_at ? ` · ${formatUnixTime(image.created_at)}` : ""}</small>
+                  </div>
+                  <span>{image.reclaimable_size_label ?? image.size_label}</span>
+                </label>
+              ))}
+            </>
           ) : (
             <div className="cleanup-image-empty">{progress >= 45 ? "没有可清理的未使用镜像。" : "请先扫描未使用镜像。"}</div>
           )}
+          {protectedImages.length ? (
+            <>
+              <div className="cleanup-image-row cleanup-image-protected-head">
+                <div>
+                  <strong>{protectedImages.length} 个受回滚保护的镜像（不参与清理）</strong>
+                  <small>平台/组件仓库的旧版本镜像，回滚时需要从本地加载，产品内不提供删除。</small>
+                </div>
+              </div>
+              {protectedImages.map((image) => (
+                <div className="cleanup-image-row" key={image.id}>
+                  <div>
+                    <strong>{image.display_name}</strong>
+                    <small>回滚保护 · {image.short_id}</small>
+                  </div>
+                  <span>{image.size_label}</span>
+                </div>
+              ))}
+            </>
+          ) : null}
         </div>
         <pre className="cleanup-log auto-scrollbar">{logs.length ? logs.join("\n") : "等待开始清理..."}</pre>
         <div className="export-dialog-actions">
@@ -751,9 +790,9 @@ export function CleanupDialog({ busy, scanBusy, progress, logs, images, reclaima
             <RefreshCw size={15} />
             {scanBusy ? "扫描中" : "扫描"}
           </button>
-          <button className="secondary-button cleanup-action-button cleanup-danger-button" type="button" onClick={onCleanup} disabled={busy || scanBusy || images.length === 0}>
+          <button className="secondary-button cleanup-action-button cleanup-danger-button" type="button" onClick={onCleanup} disabled={busy || scanBusy || selectedIds.size === 0}>
             <RefreshCw size={15} />
-            {busy ? "清理中" : "开始清理"}
+            {busy ? "清理中" : "清理选中镜像"}
           </button>
         </div>
       </div>

@@ -76,6 +76,8 @@ export function PlatformUpgradeSection({
   const [cleanupProgress, setCleanupProgress] = useState(0);
   const [cleanupLogs, setCleanupLogs] = useState<string[]>([]);
   const [cleanupImagesList, setCleanupImagesList] = useState<CleanupScanImage[]>([]);
+  const [cleanupProtectedImages, setCleanupProtectedImages] = useState<CleanupScanImage[]>([]);
+  const [cleanupSelectedIds, setCleanupSelectedIds] = useState<Set<string>>(new Set());
   const [cleanupReclaimable, setCleanupReclaimable] = useState("0 B");
   const [cleanupActualReclaimed, setCleanupActualReclaimed] = useState("");
   const [precheckExpanded, setPrecheckExpanded] = useState(true);
@@ -212,6 +214,8 @@ export function PlatformUpgradeSection({
     try {
       const result = await api.scanUnusedImages();
       setCleanupImagesList(result.images);
+      setCleanupProtectedImages(result.protected_images || []);
+      setCleanupSelectedIds(new Set(result.images.map((image) => image.id)));
       setCleanupReclaimable(result.space_reclaimable_label);
       setCleanupActualReclaimed("");
       setCleanupProgress(45);
@@ -226,28 +230,48 @@ export function PlatformUpgradeSection({
     }
   }
 
+  function toggleCleanupImage(imageId: string) {
+    setCleanupSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(imageId)) next.delete(imageId);
+      else next.add(imageId);
+      return next;
+    });
+  }
+
+  function toggleAllCleanupImages() {
+    if (!cleanupImagesList.length) return;
+    setCleanupSelectedIds((current) => {
+      if (current.size === cleanupImagesList.length) return new Set();
+      return new Set(cleanupImagesList.map((image) => image.id));
+    });
+  }
+
   async function cleanupImages() {
+    const selectedCount = cleanupSelectedIds.size;
     setCleanupMessage("");
     setCleanupLogs((current) => [
       ...current,
-      `准备清理 ${cleanupImagesList.length} 个未使用镜像，预计释放 ${cleanupReclaimable}。`,
+      `准备清理 ${selectedCount} 个选中镜像，预计释放 ${cleanupReclaimable}。`,
       "正在执行镜像清理..."
     ]);
     setCleanupProgress(70);
     setCleanupBusy(true);
     const id = taskId("cleanup-images");
-    addTask({ id, kind: "upgrade", title: "清理旧版本镜像", detail: "正在清理未使用 Docker 镜像", status: "running", progress: 60 });
+    addTask({ id, kind: "upgrade", title: "清理未使用镜像", detail: `正在清理 ${selectedCount} 个选中的未使用 Docker 镜像`, status: "running", progress: 60 });
     try {
-      const result = await api.cleanupUnusedImages();
+      const result = await api.cleanupUnusedImages(Array.from(cleanupSelectedIds));
       setCleanupProgress(100);
-      updateTask(id, { status: "succeeded", progress: 100, detail: result.message });
-      setCleanupLogs((current) => [...current, result.message, ...(result.errors || []), "清理完成。"]);
+      updateTask(id, { status: result.ok ? "succeeded" : "failed", progress: 100, detail: result.message, logs: result.logs });
+      setCleanupLogs((current) => [...current, ...(result.logs || []), result.message, ...(result.errors || []), "清理完成。"]);
       setCleanupMessage(result.message);
       setCleanupActualReclaimed(result.space_reclaimed_label ?? formatBytes(result.space_reclaimed));
       setCleanupReclaimable(result.space_reclaimable_before_label ?? cleanupReclaimable);
       setCleanupImagesList([]);
+      setCleanupProtectedImages([]);
+      setCleanupSelectedIds(new Set());
     } catch (exc) {
-      const message = exc instanceof Error ? exc.message : "清理旧版本镜像失败";
+      const message = exc instanceof Error ? exc.message : "清理未使用镜像失败";
       updateTask(id, { status: "failed", progress: 100, detail: message });
       setCleanupProgress(100);
       setCleanupLogs((current) => [...current, message]);
@@ -525,6 +549,10 @@ export function PlatformUpgradeSection({
           progress={cleanupProgress}
           logs={cleanupLogs}
           images={cleanupImagesList}
+          protectedImages={cleanupProtectedImages}
+          selectedIds={cleanupSelectedIds}
+          onToggle={toggleCleanupImage}
+          onToggleAll={toggleAllCleanupImages}
           reclaimable={cleanupReclaimable}
           actualReclaimed={cleanupActualReclaimed}
           onClose={() => setCleanupDialogOpen(false)}

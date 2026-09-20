@@ -9,7 +9,13 @@ from app.v2.cleanup.service import CleanupService
 from app.v2.system.control import SystemControlService
 
 from app.v2.api.deps import get_cleanup_service, get_system_control_service, require_user
-from app.v2.api.models import CleanupScanResponse, LocalStorageResponse, SqliteBackupDeleteRequest
+from app.v2.api.models import (
+    CleanupArtifactsRequest,
+    CleanupImagesRequest,
+    CleanupScanResponse,
+    LocalStorageResponse,
+    SqliteBackupDeleteRequest,
+)
 
 router = APIRouter()
 
@@ -67,8 +73,9 @@ def delete_sqlite_backups(
 def cleanup_artifacts(
     _: Annotated[CurrentUser, Depends(require_user)],
     cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
+    payload: CleanupArtifactsRequest | None = None,
 ) -> dict:
-    return cleanup.cleanup_artifacts()
+    return cleanup.cleanup_artifacts(keep_recent_upgrades=payload.keep_recent_upgrades if payload else 0)
 
 
 @router.get("/api/admin/system/cleanup-images/scan", response_model=CleanupScanResponse)
@@ -83,8 +90,9 @@ def scan_cleanup_images(
 def cleanup_images(
     _: Annotated[CurrentUser, Depends(require_user)],
     cleanup: Annotated[CleanupService, Depends(get_cleanup_service)],
+    payload: CleanupImagesRequest | None = None,
 ) -> dict:
-    return cleanup.cleanup_unused_images()
+    return cleanup.cleanup_unused_images(image_ids=payload.image_ids if payload else None)
 
 
 @router.post("/api/admin/system/restart")

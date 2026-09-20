@@ -433,17 +433,18 @@ export const api = {
   async restartSystemServices(): Promise<{ ok: boolean; services: string[]; message: string }> {
     return request<{ ok: boolean; services: string[]; message: string }>("/api/admin/system/restart", { method: "POST" });
   },
-  async scanUnusedImages(): Promise<{ ok: boolean; images: Array<{ id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string; reclaimable_size?: number; reclaimable_size_label?: string; created_at?: number | string }>; image_count: number; space_reclaimable: number; space_reclaimable_label: string; message: string }> {
-    return request<{ ok: boolean; images: Array<{ id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string; reclaimable_size?: number; reclaimable_size_label?: string; created_at?: number | string }>; image_count: number; space_reclaimable: number; space_reclaimable_label: string; message: string }>("/api/admin/system/cleanup-images/scan");
+  async scanUnusedImages(): Promise<{ ok: boolean; images: Array<{ id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string; reclaimable_size?: number; reclaimable_size_label?: string; created_at?: number | string; category?: "dangling" | "unused" }>; protected_images?: Array<{ id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string }>; protected_count?: number; protected_size_label?: string; image_count: number; space_reclaimable: number; space_reclaimable_label: string; message: string }> {
+    return request<{ ok: boolean; images: Array<{ id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string; reclaimable_size?: number; reclaimable_size_label?: string; created_at?: number | string; category?: "dangling" | "unused" }>; protected_images?: Array<{ id: string; short_id: string; repo_tags: string[]; display_name: string; size: number; size_label: string }>; protected_count?: number; protected_size_label?: string; image_count: number; space_reclaimable: number; space_reclaimable_label: string; message: string }>("/api/admin/system/cleanup-images/scan");
   },
-  async cleanupUnusedImages(): Promise<{ ok: boolean; deleted_count: number; space_reclaimed: number; space_reclaimed_label?: string; space_reclaimable_before?: number; space_reclaimable_before_label?: string; errors?: string[]; message: string }> {
-    return request<{ ok: boolean; deleted_count: number; space_reclaimed: number; space_reclaimed_label?: string; space_reclaimable_before?: number; space_reclaimable_before_label?: string; errors?: string[]; message: string }>("/api/admin/system/cleanup-images", { method: "POST" });
+  async cleanupUnusedImages(imageIds?: string[]): Promise<{ ok: boolean; deleted_count: number; space_reclaimed: number; space_reclaimed_label?: string; space_reclaimable_before?: number; space_reclaimable_before_label?: string; errors?: string[]; logs?: string[]; message: string }> {
+    const ids = (imageIds || []).filter((id) => id.trim());
+    return request<{ ok: boolean; deleted_count: number; space_reclaimed: number; space_reclaimed_label?: string; space_reclaimable_before?: number; space_reclaimable_before_label?: string; errors?: string[]; logs?: string[]; message: string }>("/api/admin/system/cleanup-images", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image_ids: ids }) });
   },
   async scanSpaceCleanup(): Promise<SpaceCleanupScanResult> {
     return request<SpaceCleanupScanResult>("/api/admin/system/cleanup-artifacts/scan");
   },
-  async cleanupSpaceArtifacts(): Promise<SpaceCleanupResult> {
-    return request<SpaceCleanupResult>("/api/admin/system/cleanup-artifacts", { method: "POST" });
+  async cleanupSpaceArtifacts(keepRecentUpgrades = 0): Promise<SpaceCleanupResult> {
+    return request<SpaceCleanupResult>("/api/admin/system/cleanup-artifacts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep_recent_upgrades: Math.max(0, Math.min(100, Math.floor(keepRecentUpgrades) || 0)) }) });
   },
   async localStorageUsage(): Promise<LocalStorageUsage> {
     return request<LocalStorageUsage>("/api/admin/system/local-storage");

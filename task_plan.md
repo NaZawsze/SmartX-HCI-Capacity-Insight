@@ -1508,3 +1508,14 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] .12 验证协议六步全部通过（2026-09-20 01:38-01:40）：实弹 rm/mv 均报 Operation not permitted 且挂载无损；锁定状态全停全建成功（dockerd 可在 +i 目录建立挂载）；写穿透正常；recover 闭环（自动解锁→重建→第 1 次验证通过→自动复锁）。
 - [x] AGENTS.md 第 9 节 / troubleshooting.md §2 补锁记录与 unlock 口径 + progress 证据 + 收尾提交。
 - [x] 用户决策（2026-09-20「那就不用锁了，恢复吧」）：不采用常驻加锁，.12 已 `unlock` 恢复原状（lsattr 0/6、check 全绿）；10.20.0.6 为 frp Tower 主机不在范围；脚本 lock/unlock 能力保留备查。
+
+### 24. 空间清理能力扩展（pending-tasks #21 产品化收尾）[已实施并验证 2026-09-20]
+
+设计文档：[docs/superpowers/specs/2026-09-20-cleanup-capability-extension-design.md](docs/superpowers/specs/2026-09-20-cleanup-capability-extension-design.md)。
+
+- 背景：产品空间清理只删 dangling 镜像（旧项目名等"有 tag 未使用"镜像清理不了，#21②），运行产物清理为全清且无在跑任务守卫（#21① 副作用）。
+- 方案：镜像清理扩展为"悬空 ∪ 未被容器引用且非保护仓库"（保护仓库 = `smartx-hci-capacity-insight-*`，因 rollback_restore 依赖本地旧版本镜像），支持按 image_ids 选择删除并 fail-closed 复核；cleanup-artifacts 增加 `keep_recent_upgrades`（默认 0=现行全清）与升级任务在跑守卫；前端镜像对话框加选择、产物卡片加保留数输入。
+- [x] 设计文档（2026-09-20，用户指令「拓展 #21 能力」）。
+- [x] 后端 service/API + 单测扩展 + api.md 同步（提交见 git log）。
+- [x] 前端 CleanupSection/CleanupDialog/api/types + tsc/vitest。
+- [x] .3 验证：全量测试回基线、verify_api_docs、真实镜像扫描/删除与 keep 参数执行。

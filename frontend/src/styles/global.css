@@ -4808,6 +4808,52 @@ button.risk-cluster-row:hover {
   background: #eef6ff;
 }
 
+.cleanup-image-check-row {
+  cursor: pointer;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+}
+
+.cleanup-image-check-row input {
+  accent-color: var(--blue);
+}
+
+.cleanup-image-check-row:has(input:checked) {
+  background: var(--sidebar);
+}
+
+.cleanup-image-select-head strong {
+  font-size: 12px;
+}
+
+.cleanup-image-protected-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+  background: var(--line-soft);
+}
+
+.cleanup-image-protected-head strong {
+  font-size: 12px;
+  color: var(--muted);
+}
+.cleanup-keep-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.cleanup-keep-control input {
+  width: 64px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel);
+}
+
+
 @media (max-width: 560px) {
   .service-migration-actions,
   .service-migration-actions .service-header-button {

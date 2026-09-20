@@ -207,6 +207,14 @@ class SqliteBackupDeleteRequest(BaseModel):
     filenames: list[str] = Field(default_factory=list)
 
 
+class CleanupArtifactsRequest(BaseModel):
+    keep_recent_upgrades: int = Field(default=0, ge=0, le=100)
+
+
+class CleanupImagesRequest(BaseModel):
+    image_ids: list[str] = Field(default_factory=list)
+
+
 
 
 # ---- Dashboard summary response models（49-14 批次 2；extra=allow 过渡期保证零字段丢失）----

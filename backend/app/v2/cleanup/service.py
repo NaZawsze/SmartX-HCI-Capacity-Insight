@@ -13,12 +13,20 @@ from app.v2.config import V2Settings
 from app.v2.tasks.models import TaskStatus, TaskType
 from app.v2.tasks.service import TaskService
 
+ACTIVE_UPGRADE_STATUSES = {"pending", "running"}
+PROTECTED_IMAGE_REPOSITORY_KEYWORD = "smartx-hci-capacity-insight-"
+
 
 class CleanupCommandExecutor:
     def output(self, command: list[str]) -> str:
         if os.environ.get("SMARTX_UPGRADE_DRY_RUN") == "1":
             return ""
-        return subprocess.check_output(command, text=True)
+        result = subprocess.run(command, text=True, capture_output=True)
+        if result.returncode != 0:
+            detail = (result.stderr or "").strip().splitlines()
+            reason = detail[-1] if detail else f"exit code {result.returncode}"
+            raise RuntimeError(f"{command[-1]}: {reason}")
+        return result.stdout
 
 
 class CleanupService:
@@ -64,21 +72,48 @@ class CleanupService:
             "free_label": _size_label(free),
         }
 
-    def cleanup_artifacts(self) -> dict[str, Any]:
+    def cleanup_artifacts(self, keep_recent_upgrades: int = 0) -> dict[str, Any]:
+        active_tasks = self._active_upgrade_tasks()
+        if active_tasks:
+            active_ids = ", ".join(sorted({str(task.get("id") or "") for task in active_tasks if task.get("id")}))
+            message = f"存在正在执行的升级任务（{active_ids or '进行中'}），已拒绝清理运行产物。"
+            return {
+                "ok": False,
+                "deleted_count": 0,
+                "space_reclaimed": 0,
+                "space_reclaimed_label": _size_label(0),
+                "logs": [message],
+                "message": message,
+            }
+        keep_recent = max(0, min(int(keep_recent_upgrades or 0), 100))
         scan = self.scan_artifacts()
         logs: list[str] = []
         deleted_count = 0
+        kept_count = 0
         for item in scan["items"]:
             path = Path(item["path"])
             if not path.exists():
                 continue
-            for child in path.iterdir():
+            children = sorted(
+                path.iterdir(),
+                key=lambda child: child.stat().st_mtime if child.exists() else 0,
+                reverse=True,
+            )
+            if item["key"] == "upgrades" and keep_recent > 0:
+                kept = children[:keep_recent]
+                children = children[keep_recent:]
+                kept_count += len(kept)
+                if kept:
+                    logs.append(f"{item['label']}：按设置保留最近 {len(kept)} 项")
+            for child in children:
                 if child.is_dir():
                     shutil.rmtree(child)
                 else:
                     child.unlink()
                 deleted_count += 1
-            logs.append(f"{item['label']}：清理 {item['count']} 项，释放 {item['size_label']}")
+            logs.append(f"{item['label']}：清理 {len(children)} 项，释放 {item['size_label']}")
+        if kept_count:
+            logs.append(f"共保留最近 {kept_count} 个升级任务项")
         self.tasks.create_task(
             f"cleanup-artifacts-{deleted_count}-{int(scan['total_size'])}",
             TaskType.CLEANUP,
@@ -91,11 +126,23 @@ class CleanupService:
         return {
             "ok": True,
             "deleted_count": deleted_count,
+            "kept_count": kept_count,
             "space_reclaimed": scan["total_size"],
             "space_reclaimed_label": scan["total_size_label"],
             "logs": logs,
             "message": f"清理完成，释放 {scan['total_size_label']}。",
         }
+
+    def _active_upgrade_tasks(self) -> list[dict[str, Any]]:
+        try:
+            tasks = self.tasks.list_tasks(limit=200)
+        except Exception:
+            return []
+        return [
+            task
+            for task in tasks
+            if str(task.get("type")) == TaskType.UPGRADE.value and str(task.get("status")) in ACTIVE_UPGRADE_STATUSES
+        ]
 
     def scan_sqlite_vacuum(self) -> dict[str, Any]:
         path = self.settings.sqlite_path
@@ -260,69 +307,127 @@ class CleanupService:
 
     def scan_unused_images(self) -> dict[str, Any]:
         try:
-            raw = self.executor.output(["docker", "image", "ls", "--filter", "dangling=true", "--format", "{{json .}}"])
+            raw_all = self.executor.output(["docker", "image", "ls", "--format", "{{json .}}"])
+            raw_dangling = self.executor.output(["docker", "image", "ls", "--filter", "dangling=true", "--format", "{{json .}}"])
+            raw_containers = self.executor.output(["docker", "ps", "-a", "--format", "{{json .}}"])
         except Exception as exc:
-            return {"ok": False, "images": [], "image_count": 0, "space_reclaimable": 0, "space_reclaimable_label": "0B", "message": f"扫描 Docker 镜像失败：{exc}"}
+            return {
+                "ok": False,
+                "images": [],
+                "image_count": 0,
+                "space_reclaimable": 0,
+                "space_reclaimable_label": "0B",
+                "protected_images": [],
+                "protected_count": 0,
+                "protected_size": 0,
+                "protected_size_label": "0B",
+                "message": f"扫描 Docker 镜像失败：{exc}",
+            }
+        dangling_ids = {_docker_image_id(item) for item in _parse_docker_json_lines(raw_dangling)}
+        used_refs = {str(item.get("Image") or "").strip() for item in _parse_docker_json_lines(raw_containers)}
+        used_refs.discard("")
         images: list[dict[str, Any]] = []
-        for item in _parse_docker_json_lines(raw):
-            image_id = str(item.get("ID") or item.get("ID".lower()) or "")
+        protected: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for item in _parse_docker_json_lines(raw_all):
+            image_id = _docker_image_id(item)
+            if not image_id or image_id in seen_ids:
+                continue
+            seen_ids.add(image_id)
             detail = self._inspect_image(image_id)
             size = int(detail.get("Size") or 0)
-            repo_tags = detail.get("RepoTags") or []
-            display_name = repo_tags[0] if repo_tags else f"{item.get('Repository', '<none>')}:{item.get('Tag', '<none>')}"
-            images.append(
-                {
-                    "id": image_id,
-                    "short_id": image_id.replace("sha256:", "")[:12],
-                    "repo_tags": repo_tags,
-                    "display_name": display_name,
-                    "size": size,
-                    "size_label": _size_label(size),
-                    "reclaimable_size": size,
-                    "reclaimable_size_label": _size_label(size),
-                    "created_at": item.get("CreatedAt"),
-                }
-            )
+            repo_tags = [str(tag) for tag in (detail.get("RepoTags") or []) if tag and tag != "<none>:<none>"]
+            is_dangling = image_id in dangling_ids or not repo_tags
+            if _image_in_use(image_id, repo_tags, used_refs):
+                continue
+            entry = {
+                "id": image_id,
+                "short_id": image_id.replace("sha256:", "")[:12],
+                "repo_tags": repo_tags,
+                "display_name": repo_tags[0] if repo_tags else f"{item.get('Repository', '<none>')}:{item.get('Tag', '<none>')}",
+                "size": size,
+                "size_label": _size_label(size),
+                "reclaimable_size": size,
+                "reclaimable_size_label": _size_label(size),
+                "created_at": item.get("CreatedAt"),
+                "category": "dangling" if is_dangling else "unused",
+            }
+            if is_dangling:
+                images.append(entry)
+            elif _is_protected_repository(repo_tags):
+                protected.append(entry)
+            else:
+                images.append(entry)
         total = sum(int(image["reclaimable_size"]) for image in images)
+        protected_size = sum(int(image["size"]) for image in protected)
+        message = f"发现 {len(images)} 个可清理镜像，可释放 {_size_label(total)}。"
+        if protected:
+            message += f"另有 {len(protected)} 个平台/组件镜像受回滚保护，不参与清理（{_size_label(protected_size)}）。"
         return {
             "ok": True,
             "images": images,
             "image_count": len(images),
             "space_reclaimable": total,
             "space_reclaimable_label": _size_label(total),
-            "message": f"发现 {len(images)} 个未使用镜像，可释放 {_size_label(total)}。",
+            "protected_images": protected,
+            "protected_count": len(protected),
+            "protected_size": protected_size,
+            "protected_size_label": _size_label(protected_size),
+            "message": message,
         }
 
-    def cleanup_unused_images(self) -> dict[str, Any]:
+    def cleanup_unused_images(self, image_ids: list[str] | None = None) -> dict[str, Any]:
         scan = self.scan_unused_images()
         logs: list[str] = [scan["message"]]
+        candidates = {str(image["id"]): image for image in scan["images"]}
+        short_index = {str(image["short_id"]): image for image in scan["images"]}
+        selected: list[dict[str, Any]] = []
+        selected_ids: set[str] = set()
+        requested = [str(raw or "").strip() for raw in (image_ids or [])]
+        requested = [key for key in requested if key]
+        if not requested:
+            selected = list(candidates.values())
+        else:
+            for key in requested:
+                image = candidates.get(key) or short_index.get(key)
+                if image is None:
+                    logs.append(f"{key}：不是可清理镜像（不存在、正被容器使用或受回滚保护），已跳过")
+                    continue
+                if str(image["id"]) in selected_ids:
+                    continue
+                selected_ids.add(str(image["id"]))
+                selected.append(image)
         deleted = 0
+        reclaimed = 0
         errors: list[str] = []
-        for image in scan["images"]:
+        for image in selected:
             try:
                 output = self.executor.output(["docker", "image", "rm", str(image["id"])])
                 logs.extend([line for line in output.splitlines() if line.strip()])
                 deleted += 1
+                reclaimed += int(image.get("reclaimable_size") or 0)
             except Exception as exc:
                 errors.append(f"{image['display_name']}：{exc}")
+        message = f"镜像清理完成，删除 {deleted} 个，释放 {_size_label(reclaimed)}。"
         self.tasks.create_task(
-            f"cleanup-images-{deleted}-{int(scan['space_reclaimable'])}",
+            f"cleanup-images-{deleted}-{int(reclaimed)}",
             TaskType.CLEANUP,
             "清理旧版本镜像",
             status=TaskStatus.SUCCESS if not errors else TaskStatus.FAILED,
             progress=100,
-            message=f"镜像清理完成，释放 {scan['space_reclaimable_label']}",
+            message=message,
             logs=logs + errors,
         )
         return {
             "ok": not errors,
             "deleted_count": deleted,
-            "space_reclaimed": scan["space_reclaimable"],
-            "space_reclaimed_label": scan["space_reclaimable_label"],
+            "space_reclaimed": reclaimed,
+            "space_reclaimed_label": _size_label(reclaimed),
             "space_reclaimable_before": scan["space_reclaimable"],
             "space_reclaimable_before_label": scan["space_reclaimable_label"],
             "errors": errors,
-            "message": f"镜像清理完成，释放 {scan['space_reclaimable_label']}。",
+            "logs": logs + errors,
+            "message": message,
         }
 
     def _inspect_image(self, image_id: str) -> dict[str, Any]:
@@ -362,6 +467,22 @@ def _scan_item(key: str, label: str, path: Path) -> dict[str, Any]:
         "size": size,
         "size_label": _size_label(size),
     }
+
+
+def _docker_image_id(item: dict[str, Any]) -> str:
+    return str(item.get("ID") or item.get("Id") or "")
+
+
+def _image_in_use(image_id: str, repo_tags: list[str], used_refs: set[str]) -> bool:
+    if not used_refs:
+        return False
+    short = image_id.replace("sha256:", "")
+    candidates = set(repo_tags) | {image_id, short, short[:12]}
+    return bool(candidates & used_refs)
+
+
+def _is_protected_repository(repo_tags: list[str]) -> bool:
+    return any(PROTECTED_IMAGE_REPOSITORY_KEYWORD in str(tag) for tag in repo_tags)
 
 
 def _is_sqlite_backup_file(path: Path) -> bool:

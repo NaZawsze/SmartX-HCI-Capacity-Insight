@@ -17,6 +17,7 @@ export function CleanupSection({ active, addTask, updateTask }: CleanupSectionPr
   const [spaceCleanupItems, setSpaceCleanupItems] = useState<SpaceCleanupScanItem[]>([]);
   const [spaceCleanupTotal, setSpaceCleanupTotal] = useState("0 B");
   const [spaceCleanupLogs, setSpaceCleanupLogs] = useState<string[]>([]);
+  const [spaceCleanupKeepCount, setSpaceCleanupKeepCount] = useState(0);
   const [localStorage, setLocalStorage] = useState<LocalStorageUsage | null>(null);
   const [localStorageMessage, setLocalStorageMessage] = useState("");
   const [sqliteVacuumScan, setSqliteVacuumScan] = useState<SqliteVacuumScan | null>(null);
@@ -85,7 +86,7 @@ export function CleanupSection({ active, addTask, updateTask }: CleanupSectionPr
     const id = taskId("space-cleanup");
     addTask({ id, kind: "upgrade", title: "空间清理", detail: "正在清理升级包和导出留档", status: "running", progress: 30, logs: ["开始清理服务器留档文件"] });
     try {
-      const result = await api.cleanupSpaceArtifacts();
+      const result = await api.cleanupSpaceArtifacts(spaceCleanupKeepCount);
       setSpaceCleanupLogs((current) => [...current, ...(result.logs || []), result.message]);
       setSpaceCleanupMessage(result.message);
       setSpaceCleanupTotal(result.space_reclaimed_label);
@@ -225,6 +226,17 @@ export function CleanupSection({ active, addTask, updateTask }: CleanupSectionPr
                   <RefreshCw size={16} />
                   {spaceCleanupScanBusy ? "扫描中" : "扫描"}
                 </button>
+                <label className="cleanup-keep-control">
+                  <span>保留最近</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={spaceCleanupKeepCount}
+                    onChange={(event) => setSpaceCleanupKeepCount(Math.max(0, Math.min(100, Number(event.target.value) || 0)))}
+                  />
+                  <span>个升级任务</span>
+                </label>
                 <button className="secondary-button danger-button service-header-button" type="button" onClick={cleanupSpaceArtifacts} disabled={spaceCleanupBusy || spaceCleanupScanBusy || totalCount === 0}>
                   <Trash2 size={16} />
                   {spaceCleanupBusy ? "清理中" : "一键清理"}
@@ -234,7 +246,7 @@ export function CleanupSection({ active, addTask, updateTask }: CleanupSectionPr
           </div>
           <div className="cleanup-warning">
             <Info size={16} />
-            一键清理会删除已上传升级包、数据迁移导出包和报表导出文件；需要保留的文件请先下载到本地。
+            一键清理会删除已上传升级包、数据迁移导出包和报表导出文件；需要保留的文件请先下载到本地。「保留最近 N 个升级任务」只作用于升级包目录（按时间保留最近 N 项，0 = 全部清理）；存在正在执行的升级任务时会拒绝清理。
           </div>
           <div className="cleanup-result-panel cleanup-image-list space-cleanup-list auto-scrollbar">
             {spaceCleanupItems.length ? (

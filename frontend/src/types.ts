@@ -426,6 +426,7 @@ export interface SpaceCleanupScanResult {
 export interface SpaceCleanupResult {
   ok: boolean;
   deleted_count: number;
+  kept_count?: number;
   space_reclaimed: number;
   space_reclaimed_label: string;
   logs: string[];

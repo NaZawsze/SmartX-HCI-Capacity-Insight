@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -46,6 +47,155 @@ class V2CleanupServiceTest(unittest.TestCase):
             self.assertEqual(task["type"], "cleanup")
             self.assertEqual(task["status"], "success")
             self.assertGreater(task["progress"], 0)
+
+    def test_cleanup_keep_recent_upgrades_preserves_newest_task_dirs(self) -> None:
+        import os
+
+        from app.v2.cleanup.service import CleanupService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="cleanup-secret")
+            database = V2Database(settings)
+            database.initialize()
+            dirs = []
+            for index, age in enumerate((300, 200, 100)):
+                task_dir = settings.upgrades_dir / f"upgrade-task-{index}"
+                task_dir.mkdir(parents=True)
+                (task_dir / "package.tar.gz").write_bytes(b"x" * 10)
+                stamp = (datetime.now().timestamp()) - age
+                os.utime(task_dir, (stamp, stamp))
+                dirs.append(task_dir)
+            (settings.reports_dir / "report.xlsx").write_bytes(b"report")
+
+            cleanup = CleanupService(settings, TaskService(database))
+            result = cleanup.cleanup_artifacts(keep_recent_upgrades=2)
+
+            self.assertEqual(result["deleted_count"], 2)
+            self.assertEqual(result["kept_count"], 2)
+            self.assertFalse(dirs[0].exists())
+            self.assertTrue(dirs[1].exists())
+            self.assertTrue(dirs[2].exists())
+            self.assertFalse((settings.reports_dir / "report.xlsx").exists())
+
+    def test_cleanup_artifacts_refuses_while_upgrade_task_active(self) -> None:
+        from app.v2.cleanup.service import CleanupService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.models import TaskStatus, TaskType
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="cleanup-secret")
+            database = V2Database(settings)
+            database.initialize()
+            tasks = TaskService(database)
+            tasks.create_task("upgrade-live", TaskType.UPGRADE, "平台升级", status=TaskStatus.RUNNING, progress=10)
+            package = settings.upgrades_dir / "pkg.tar.gz"
+            package.write_bytes(b"upgrade")
+
+            cleanup = CleanupService(settings, tasks)
+            result = cleanup.cleanup_artifacts()
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["deleted_count"], 0)
+            self.assertTrue(package.exists())
+            self.assertIn("upgrade-live", result["message"])
+
+    def test_image_cleanup_classifies_unused_protected_and_in_use_images(self) -> None:
+        from app.v2.cleanup.service import CleanupService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+
+        class FakeExecutor:
+            def __init__(self) -> None:
+                self.rm_calls: list[str] = []
+
+            def output(self, command: list[str]) -> str:
+                if command[:3] == ["docker", "image", "ls"]:
+                    if "--filter" in command:
+                        return '[{"ID":"aaa111","Repository":"<none>","Tag":"<none>","CreatedAt":"2026-01-01"}]'
+                    return (
+                        '[{"ID":"aaa111","Repository":"<none>","Tag":"<none>","CreatedAt":"2026-01-01"},'
+                        '{"ID":"bbb222","Repository":"nazawsze/smartx-storage-forecast-web-api","Tag":"v0.4.0","CreatedAt":"2026-01-02"},'
+                        '{"ID":"ccc333","Repository":"nazawsze/smartx-hci-capacity-insight-web-api","Tag":"v0.5.2","CreatedAt":"2026-01-03"},'
+                        '{"ID":"ddd444","Repository":"thirdparty/tool","Tag":"1.0","CreatedAt":"2026-01-04"}]'
+                    )
+                if command[:3] == ["docker", "ps", "-a"]:
+                    return '[{"Image":"nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3"},{"Image":"thirdparty/tool:1.0"}]'
+                if command[:3] == ["docker", "image", "inspect"]:
+                    image_id = command[3]
+                    payloads = {
+                        "aaa111": {"Id": "aaa111", "Size": 1048576, "RepoTags": None},
+                        "bbb222": {"Id": "bbb222", "Size": 2097152, "RepoTags": ["nazawsze/smartx-storage-forecast-web-api:v0.4.0"]},
+                        "ccc333": {"Id": "ccc333", "Size": 4194304, "RepoTags": ["nazawsze/smartx-hci-capacity-insight-web-api:v0.5.2"]},
+                        "ddd444": {"Id": "ddd444", "Size": 8388608, "RepoTags": ["thirdparty/tool:1.0"]},
+                    }
+                    return f"[{json.dumps(payloads.get(image_id, {}))}]"
+                if command[:3] == ["docker", "image", "rm"]:
+                    self.rm_calls.append(command[3])
+                    return f"Untagged: {command[3]}\n"
+                return ""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="cleanup-secret")
+            database = V2Database(settings)
+            database.initialize()
+            executor = FakeExecutor()
+            cleanup = CleanupService(settings, TaskService(database), executor=executor)
+
+            scan = cleanup.scan_unused_images()
+            self.assertEqual({image["id"] for image in scan["images"]}, {"aaa111", "bbb222"})
+            categories = {image["id"]: image["category"] for image in scan["images"]}
+            self.assertEqual(categories["aaa111"], "dangling")
+            self.assertEqual(categories["bbb222"], "unused")
+            self.assertEqual([image["id"] for image in scan["protected_images"]], ["ccc333"])
+            self.assertEqual(scan["protected_count"], 1)
+            self.assertEqual(scan["space_reclaimable"], 1048576 + 2097152)
+            self.assertIn("回滚保护", scan["message"])
+
+            result = cleanup.cleanup_unused_images(image_ids=["bbb222", "ccc333", "missing999"])
+            self.assertEqual(result["deleted_count"], 1)
+            self.assertEqual(executor.rm_calls, ["bbb222"])
+            self.assertEqual(result["space_reclaimed"], 2097152)
+            self.assertEqual(result["errors"], [])
+            self.assertTrue(any("ccc333" in log for log in result["logs"]))
+
+    def test_image_cleanup_without_ids_removes_all_candidates(self) -> None:
+        from app.v2.cleanup.service import CleanupService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+
+        class FakeExecutor:
+            def __init__(self) -> None:
+                self.rm_calls: list[str] = []
+
+            def output(self, command: list[str]) -> str:
+                if command[:3] == ["docker", "image", "ls"]:
+                    if "--filter" in command:
+                        return '[{"ID":"aaa111","Repository":"<none>","Tag":"<none>","CreatedAt":"2026-01-01"}]'
+                    return '[{"ID":"aaa111","Repository":"<none>","Tag":"<none>","CreatedAt":"2026-01-01"}]'
+                if command[:3] == ["docker", "image", "inspect"]:
+                    return '[{"Id":"aaa111","Size":1048576,"RepoTags":null}]'
+                if command[:3] == ["docker", "image", "rm"]:
+                    self.rm_calls.append(command[3])
+                    return "Untagged: aaa111\n"
+                return ""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="cleanup-secret")
+            database = V2Database(settings)
+            database.initialize()
+            executor = FakeExecutor()
+            cleanup = CleanupService(settings, TaskService(database), executor=executor)
+
+            result = cleanup.cleanup_unused_images()
+            self.assertEqual(result["deleted_count"], 1)
+            self.assertEqual(executor.rm_calls, ["aaa111"])
 
     def test_image_cleanup_scans_and_cleans_with_executor_output(self) -> None:
         from app.v2.cleanup.service import CleanupService
