@@ -28,7 +28,7 @@
 | [usage.md](usage.md) | 使用说明。 | — |
 | [deployment.md](deployment.md) | 部署指南：目标服务器 Compose 部署、目录、运行时配置和离线部署。 | v2-rebuild Phase V2-9 |
 | [troubleshooting.md](troubleshooting.md) | 故障排查手册：健康分诊、挂载衰减（UPG-050）、数据库、采集/Tower、Prometheus 链路、升级失败取证的症状→检查→处理。 | 运维 |
-| [backup-recovery.md](backup-recovery.md) | 备份与恢复手册：备份资产盘点、迁移包/基线策略、手工冷备步骤、恢复五步与验证清单。 | 运维 |
+| [backup-recovery.md](backup-recovery.md) | 备份与恢复手册：备份资产盘点、自动数据库备份（SQLite+.env 成对滚动快照）、迁移包/基线策略、手工冷备步骤、恢复步骤与验证清单。 | 运维 |
 
 ## 3. v2 受控重建任务与设计文档
 
