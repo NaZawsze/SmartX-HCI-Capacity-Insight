@@ -7565,3 +7565,10 @@ release_smoke=critical 0, warning 0
 - 实施（2fdafc2）：ClusterCapacityChart 去掉 `key={chartKey}` 强制重挂载（新实例只能闪现终态、无过渡），改为原地 notMerge 更新 + ECharts 内置形变动画——`animationDuration: 700`（首次进入，线从左往右画出）、`animationDurationUpdate: 550`（数据/轴更新时旧线平滑滑到新位置）、easing cubicOut。切换天数、切换集群、刷新数据三种场景都获得连续过渡动画；加载遮罩（49-26h）保持不变，数据到达后遮罩消失、线条滑入新形态。
 - .3 验证：tsc exit 0；vitest 8 files 90 passed；build 重建 dist（23:32 index-BSsT1MQX.js），:8081 预览生效。动画视觉效果待用户预览确认（自动化测试只覆盖数据逻辑，不覆盖动画观感）。
 - 说明：删除 chartKey useMemo（原仅用于强制重挂载）；hasBand 增删系列由 notMerge 全量替换保证不残留。
+
+## 49-26j（2026-09-20）报表档位缓存：切档秒出（49-26g/h/i 后续）
+
+- 用户反馈：「但是你这个加载还在啊，还是感觉卡」；追问内存/卡顿成本后用户问「你觉得哪种更好」，我给的建议是保持现状；用户随后提出前端动画（49-26i 已做），仍反馈「加载还在、感觉卡」→ 实施档位缓存方案。
+- 实施（c84aae5，ReportsPage）：内存缓存 `reportCacheRef`（Map<scope|days, ForecastPayload>）；主请求成功后 `warmReportCache` 静默预热其余三档（chartDaysRef 跳过当前档、in-flight 去重）；**缓存命中秒出**——切档瞬间直接 setReport(缓存)+appliedChartDays（加载遮罩完全不出现），同时仍发起请求静默刷新，新数据到达后 setReport（形变动画消化差异，49-26i）；失效规则：refreshKey（手动刷新）或 scope prop 变化即清空缓存（prevCacheBusterRef 对比）；请求失败且无缓存才落空态，有缓存则保留旧视图。CHART_RANGES/reportCacheKey 提为模块级（ChartRangeDays 上移，删除底部重复声明）。
+- .3 验证：tsc exit 0；vitest 8 files 90 passed（49-26g/h 回归用例不变通过：无缓存首切仍显示加载态、数据到达切换；竞态用例照常）；build 重建 dist（23:38 index-CvDxg6G_.js），:8081 预览生效。
+- 语义与边界：缓存仅存活于页面会话内存（刷新页面即空、不写 localStorage）；每个档位每个会话首次查看仍走请求+加载遮罩；每次进报表页后台共发 4 次报表请求（1 主 + 3 预热），对单管理员内网产品可接受；切换到缓存档位先见秒出的缓存数据，后台刷新完成后若数据有变化以形变动画过渡到最新值。
