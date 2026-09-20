@@ -7527,3 +7527,9 @@ release_smoke=critical 0, warning 0
 - **配色逻辑说明（回复用户）**：「导出迁移包」蓝色主按钮是全站主操作色（同上传升级包/开始升级），导出是只读安全操作保留蓝色；侧栏「数据迁移」高亮是全站导航选中态（所有页面同一样式），非迁移页特有；新增的警示色仅用于密钥行（orange 图标）与不满足红字。
 - .3 验证：tsc exit 0；vitest 8 files 89 passed（node:20-alpine 容器，源码经 tar 流+root cp 覆盖 project/frontend/src，仅源码文件、不动运行时数据）；dist 重建（21:17 index-DQVm5tFK.js）后 :8081 预览容器（upgrade-preview，Up）直接生效供用户复核。后端无改动，未重复全量后端回归（本轮纯前端 + 文档）。
 - 边界与未验证项：整包升级功能未实施（pending-tasks #27 待立项）；:8081 预览为一次性容器（nginx:alpine + project dist 挂载），用户复核完即 `docker rm -f upgrade-preview` 撤下；live 前端仍为镜像内 v0.5.3 旧构建，本轮 UI 随下次正式构建收编。
+
+## 49-26e（2026-09-20）升级页状态行标签按用户口径调整
+
+- 用户反馈：「不要叫 Runner 版本，就叫升级中心组件和组件升级界面保持一致」。
+- 实施：PlatformUpgradeSection 当前状态区合并行标签「Runner 版本」→「升级中心组件」（值保持 `v0.3.x（满足平台要求）`绿 / `（不满足平台要求，请检查 Runner 心跳或升级 Runner）`红）；ServicePage.test.tsx 断言同步。
+- .3 验证：tsc exit 0；vitest 8 files 89 passed；dist 重建（22:26）含「升级中心组件」×2（状态行 + 组件升级卡），:8081 预览直接生效。

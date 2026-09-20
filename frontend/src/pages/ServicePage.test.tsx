@@ -501,7 +501,7 @@ describe("ServicePage upgrade center", () => {
     fireEvent.click(await screen.findByRole("button", { name: /smartx-capacity-insight-upgrade-v0\.5\.2/ }));
     expect(screen.getByText("平台现在运行的是什么：版本、Runner 兼容性和五个服务的实时状态。")).toBeInTheDocument();
     expect(screen.getByText("当前版本")).toBeInTheDocument();
-    expect(screen.getByText("Runner 版本")).toBeInTheDocument();
+    expect(screen.getByText("升级中心组件")).toBeInTheDocument();
     expect(screen.getByText("观测组件版本")).toBeInTheDocument();
     expect(screen.getAllByText("v0.5.0").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("最近成功包")).toBeInTheDocument();

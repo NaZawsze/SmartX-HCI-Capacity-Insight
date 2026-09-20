@@ -485,7 +485,7 @@ export function PlatformUpgradeSection({
         <div className="service-upgrade-status-grid service-upgrade-status-grid-wide">
           <InfoRow label="当前版本" value={formatVersionForDisplay(upgradeVerification?.app_version ?? appVersion)} />
           <InfoRow
-            label="Runner 版本"
+            label="升级中心组件"
             value={
               runnerCompatible === undefined
                 ? formatVersionForDisplay(runnerInfo?.version || upgradeVerification?.runner_version || runnerVersion)
