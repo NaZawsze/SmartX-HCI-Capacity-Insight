@@ -7438,3 +7438,12 @@ release_smoke=critical 0, warning 0
 - version-governance.md 新增「发布节奏」节：①攒批发版无固定周期（触发=3~5 个已验证条目 / hotfix 单独 patch / 用户指定时间点）；②发版硬门禁四件（全量回基线+check-version、.3 全新构建+包身份+字面量不变量、.12 真实基线正规升级 8 项、文档三件套同步）；③环境角色更新——10.20.0.6 为 frp Tower 主机不再是 canary 目标，生产等价验收由 .12 代行（Phase 30 + 两轮真实升级验收），未来有专用干净 canary 再恢复该门禁；④版本号规则（patch/minor 划分、runner 独立版本线）；⑤发布动作链七步（push dev2→main 对齐→tag（名与 VERSION 一致性强制）→GitHub Release 附包+SHA→DockerHub tag 确认→CHANGELOG/治理状态翻转→生产窗口，仅用户明确「发布 v X.Y.Z」后执行）。
 - 同步修正：version-governance「升级包与源码 compose 的字面量 tag 规则」节按 49-3 实施后口径重写（源码 compose 已字面量化、check_versions 模板禁令、旧"源码模板保留占位符/check_versions 打印警告"表述废弃）；release-acceptance.md canary 角色更新 + v0.5.3 Gate 包 SHA 更新为 6accea95（替代 ef10a7c8）并补 2026-09-20 .12 验收记录；pending-tasks #1 口径闭环（剩余=发布指令+生产窗口信息）；AGENTS §1 补"可发布待指令"状态与节奏入口。
 - v0.5.3 当前状态：发版硬门禁全部通过，**可发布待用户指令**。发布动作本身预计 ≤30 分钟；生产升级窗口需用户提供生产环境地址与当前版本。
+
+## 2026-09-20 空间清理能力扩展（49-24，用户指令「拓展 #21 能力」）
+
+- 提交：de77cef（feat: extend space cleanup - unused image deletion and artifact retention；含设计文档 docs/superpowers/specs/2026-09-20-cleanup-capability-extension-design.md，task_plan 49-24）。
+- 内容：①镜像清理由 dangling-only 扩展为「悬空 ∪ 未被容器引用且非保护仓库」；保护仓库=smartx-hci-capacity-insight-*（rollback_restore 依赖本地旧版本镜像，扫读 actions.py:2400 确认），保护镜像只读列出（protected_images）；删除接口支持 image_ids 选择+服务端复核 fail-closed，docker rm 不带 -f。②cleanup-artifacts 增加 keep_recent_upgrades（0~100，默认 0=现行全清，按 mtime 保留最近 N 项）与升级任务在跑守卫（type=upgrade 且 pending/running 时拒绝）。③前端镜像对话框复选选择+保护区只读展示，产物卡片保留数输入。④executor 改 subprocess.run 捕获 stderr（.3 上 docker 拒删信息可读化）。
+- 本地：cleanup 定向 11 tests OK（skipped=1）。.3（de77cef 经 git archive→/root/build-cleanup-ext，变更文件同步 project 目录）：全量 334 tests OK (skipped=1)；tsc exit 0、vitest 89 passed（node:20-alpine 容器跑，.3 宿主无 node；ServicePage.test 一处旧文案断言同步为正则匹配）；verify_api_docs OK（76 条一致）。
+- 真实功能验证（一次性容器跑新代码+真 docker.sock+真数据目录，live 服务保持镜像 v0.5.3 代码不动，49-24 随下次打包纳入）：扫描分类正确（node:20-alpine=unused 候选；11 个平台/组件旧版本镜像 2.05GB 全部进保护清单；两个 <none> dangling 实为运行容器按 ID 持有的镜像，used 判定正确排除——旧代码曾误列，docker 守卫拦截）；按 ID 删除 node:20-alpine 释放 129.40MB；请求保护 ID 被跳过（日志明确）；keep_recent_upgrades=2 合成目录验证保留最近 2 项；合成 running 升级任务时清理被拒且目录无损。
+- 插曲与教训：①.3 live web-api 跑镜像内 /app 代码而非挂载 project 目录——第一轮 API 验证（旧代码）把 keep 参数当无效、并按旧语义全清了 upgrades 全部 7 个任务目录（3.55G，台账有 SHA，#21① 口径内可清，无数据损失）；功能验证改为一次性容器方案，符合"live 身份不被热改"边界。②首轮脚本 KeyError 均为旧代码响应缺新字段所致，修正脚本后复跑全绿。
+- 状态：49-24 完成；v0.5.3 发布时全新构建将收编本特性（发布门禁按节奏文档重走）。.12 磁盘清理（#21①②）仍待用户指令。

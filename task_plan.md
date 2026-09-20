@@ -1516,6 +1516,6 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - 背景：产品空间清理只删 dangling 镜像（旧项目名等"有 tag 未使用"镜像清理不了，#21②），运行产物清理为全清且无在跑任务守卫（#21① 副作用）。
 - 方案：镜像清理扩展为"悬空 ∪ 未被容器引用且非保护仓库"（保护仓库 = `smartx-hci-capacity-insight-*`，因 rollback_restore 依赖本地旧版本镜像），支持按 image_ids 选择删除并 fail-closed 复核；cleanup-artifacts 增加 `keep_recent_upgrades`（默认 0=现行全清）与升级任务在跑守卫；前端镜像对话框加选择、产物卡片加保留数输入。
 - [x] 设计文档（2026-09-20，用户指令「拓展 #21 能力」）。
-- [x] 后端 service/API + 单测扩展 + api.md 同步（提交见 git log）。
-- [x] 前端 CleanupSection/CleanupDialog/api/types + tsc/vitest。
-- [x] .3 验证：全量测试回基线、verify_api_docs、真实镜像扫描/删除与 keep 参数执行。
+- [x] 后端 service/API + 单测扩展（提交 de77cef；路由不变，请求体/响应扩展，api.md 路由表无需变更，verify_api_docs 76 条一致）。
+- [x] 前端 CleanupSection/CleanupDialog/api/types + tsc exit 0 / vitest 89 passed（.3 node:20-alpine 容器；ServicePage.test 旧文案断言同步）。
+- [x] .3 验证：全量 334 tests OK (skipped=1)；真实功能验证六步（一次性容器+新代码+真 docker.sock）：分类/保护清单/按 ID 删除 129.40MB/保护守卫拒绝/keep=2 保留/在跑任务拒绝，全绿。live 服务保持 v0.5.3 镜像代码，本特性随发布时全新构建收编。
