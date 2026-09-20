@@ -240,7 +240,7 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
       trigger: "axis",
       formatter(params: Array<{ axisValue: string; seriesName: string; value: number | null }>) {
         const rows = params
-          .filter((item) => typeof item.value === "number")
+          .filter((item) => typeof item.value === "number" && item.seriesName !== "当日容量")
           .map((item) => `${item.seriesName}: ${formatBytes(item.value as number)}`)
           .join("<br/>");
         return `${params[0]?.axisValue || ""}<br/>${rows}`;
@@ -319,6 +319,23 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
         showSymbol: false,
         data: horizontalLine(labels, model.total),
         lineStyle: { width: 1.8, type: "dashed" }
+      },
+      {
+        name: "当日容量",
+        type: "scatter",
+        symbol: "circle",
+        symbolSize: 9,
+        data: actualPoints.length ? [[actualPoints[actualPoints.length - 1][0], actualPoints[actualPoints.length - 1][1]]] : [],
+        itemStyle: { color: "#eab308" },
+        label: {
+          show: true,
+          position: "top",
+          distance: 8,
+          color: "#eab308",
+          fontWeight: 700,
+          formatter: () => formatBytes(actualPoints.length ? actualPoints[actualPoints.length - 1][1] : 0)
+        },
+        z: 6
       }
     ]
   };

@@ -1575,3 +1575,13 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 后续（49-26h，提交 93ca2ee）：用户反馈切换后「卡一会才出来」→ 增加 chart-loading-overlay 加载态（点击立即反馈，数据到达一次性换图），.3 vitest 90 passed。
 后续（49-26i，提交 2fdafc2）：按用户提议加形变动画——去掉 key 重挂载改原地更新，ECharts 内置动画实现「线滑到新位置」，.3 vitest 90 passed。
 后续（49-26j，提交 c84aae5）：用户仍反馈加载等待 → 实施档位内存缓存（命中秒出无加载层+后台静默刷新，手动刷新/范围切换清缓存），.3 vitest 90 passed。
+
+### 31. 报表图当日节点黄色标注 + 报表接口请求内查询去重（pending-tasks #26 追加五 / #28 第一阶段）[已实施并验证 2026-09-20]
+
+来源：2026-09-20 用户两项指示：①「这 4 个维度，都需要显示当日一个节点，用黄色的字最好」；②引用「先量生产规模下报表接口实际耗时……慢了就优化查询和 payload，那才是治本。这个你优化了？」并指示把这个优化做了。
+
+- 当日节点（49-26l）：ClusterCapacityChart 新增「当日容量」散点系列（#eab308 黄点 + 顶部黄色加粗数值标签，取实际序列末点），图例与 tooltip 均排除该系列；四档（7/30/90/365）通吃（各档序列末点即当日）。.3 验证：tsc 0 / vitest 90 passed / build 重建（01:58）+ 预览 8081 四档逐档截图目视确认。
+- 报表接口查询去重（49-26m，pending-tasks #28 第一阶段）：设计 docs/superpowers/specs/2026-09-20-report-latency-optimization-design.md；`_MemoPrometheus` 请求内包装（range 按 (query,start,end,step)、instant 按 query 去重，其余属性透传），latest_report 入口换装 try/finally 恢复，DataQualityService 经 prometheus=self.prometheus 共享同一 memo；零行为变化。单测：CountingPrometheus 断言去重后底层 range/instant 调用无重复键 + 与裸调用输出一致 + 调用后 self.prometheus 还原。
+- [x] .3 A/B 实测（同进程同数据，5 次取中位）：无 memo 555ms → memo 288ms（-48%），Prometheus 调用 15→10（去重后全部唯一）；payload 不变（437KB，month_new_vms 277KB 占 63%，留给 #28 第二阶段）。
+- [x] .3 测试：reports 三套件 42 OK；全量 337 OK (skipped=1)。
+- 待办（#28 第二阶段，未排期）：payload 瘦身（month_new_vms 288KB 全量列表，导出链路需全列表，需契约参数）+ 剩余 ~45ms 小查询可选并行。

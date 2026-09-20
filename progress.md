@@ -7579,3 +7579,19 @@ release_smoke=critical 0, warning 0
 - 方法：web-api 容器内 python 脚本走真实 HTTP（127.0.0.1:8000，凭据从容器的 /run/smartx-runtime.env 读取、不回显），GET /api/reports/latest?chart_days=N，两轮测量。
 - 结果（1 Tower / 1 集群 / 590 VM）：四档耗时 620-732ms（pass1 728/732/656/636，pass2 622/690/620/665），payload 均 ~463KB（chart_days 仅带来 ~300B 差异——趋势点并非 payload 大头）。
 - 结论：① 用户感知的「卡一会」是真实后端耗时（~650ms@最小规模），非纯心理作用；前端缓存命中绕开的正是这段。② payload 463KB 恒定，切档几乎不减体积，传输+JSON 解析成本固定。③ 后端确有优化空间（耗时构成待 profile：Prometheus 查询/预测计算/序列化），生产多集群规模会放大。登记 pending-tasks #28，待用户排期。
+
+## 49-26l（2026-09-20）报表趋势图当日节点黄色标注（pending-tasks #26 追加五）
+
+- 用户指示：「这 4 个维度，都需要显示当日一个节点，用黄色的字最好」。
+- 实施：ClusterCapacityChart 新增「当日容量」散点系列（symbolSize 9、color #eab308，取实际容量序列末点=当日），series label 顶部黄色加粗显示当日容量值（formatBytes）；图例为显式五系列名单故该系列自动不进图例；tooltip formatter 过滤 seriesName !== "当日容量"，悬停其它系列时不串显。
+- .3 验证：tsc exit 0；vitest 8 files 90 passed；build 重建 dist（01:58 index-BdCcENNh.js）；:8081 预览登录后逐档截图目视——7/30/90/365 四档均在实际线末端与预测线交界处显示黄点 + 黄色加粗数值标注（34.35 TiB），图例无「当日容量」项；缓存命中切档即时生效。
+
+## 49-26m（2026-09-20）报表接口请求内查询去重（pending-tasks #28 第一阶段）
+
+- 用户指示（引用「先量生产规模下报表接口实际耗时……慢了就优化查询和 payload，那才是治本」并问「这个你优化了？」）→ 把后端优化做了。
+- profile（.3，1 Tower/1 集群/590 VM，容器内 in-process）：latest_report 593ms，其中 Prometheus 471ms/15 次调用；三条完全相同的 VM 6h/30d range 查询（窗口统计/日新建/月新建共用同一序列）合计 395ms；cluster 30d 序列被重复查 3 次（~26ms/次）。payload 437KB 中 month_new_vms 277KB（63%，全量新建 VM 列表，Word/Excel 导出依赖全列表）。
+- 设计：docs/superpowers/specs/2026-09-20-report-latency-optimization-design.md——`_MemoPrometheus` 请求内包装（range 按 (query,start,end,step)、instant 按 query 去重，`__getattr__` 透传其余属性），latest_report 入口换装、finally 还原（ReportService 为请求级实例，DataQualityService 经 prometheus=self.prometheus 共享同一 memo）；返回序列无任何调用方原地修改（grep 核实），可安全共享；零行为变化。
+- 实施：backend/app/v2/reports/service.py 增 `_MemoPrometheus` + latest_report 拆薄壳/`_latest_report` 主体；tests/test_v2_reports.py 增 CountingPrometheus + V2ReportsQueryDedupTest 两用例（底层调用无重复键、输出与裸调用一致、调用后 self.prometheus 还原）。
+- .3 A/B 实测（同进程同数据各 5 次取中位）：无 memo 555ms（543-615）→ memo 288ms（222-307），**-48%**；Prometheus 调用 15→10（去重后全部唯一）；payload 与内容逐字节不变（437504 bytes）。
+- .3 测试：tests.test_v2_reports + test_v2_reports_api + test_v2_report_exports 42 OK；全量 337 OK (skipped=1)。
+- 遗留（#28 第二阶段，未排期）：payload 瘦身（month_new_vms 277KB，需服务级 limit 契约参数，导出链路兼容）；剩余 ~45ms 小查询可选并行化。
