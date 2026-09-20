@@ -3731,6 +3731,19 @@ button.risk-cluster-row:hover {
   color: var(--orange);
 }
 
+.upgrade-package-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 4px 0 12px;
+}
+
+.upgrade-package-toolbar-hint {
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .service-upgrade-actions {
   display: flex;
   flex-wrap: wrap;

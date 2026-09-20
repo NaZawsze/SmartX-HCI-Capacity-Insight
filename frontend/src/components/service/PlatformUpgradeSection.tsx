@@ -1,4 +1,4 @@
-import { FileArchive, Info, ListChecks, RefreshCw, RotateCcw, Upload, X } from "lucide-react";
+import { FileArchive, ListChecks, RefreshCw, RotateCcw, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { api } from "../../services/api";
 import type { AppTask, ComponentInfo, UpgradePostCleanupStatus, UpgradeTask, UpgradeVerification } from "../../types";
@@ -470,47 +470,12 @@ export function PlatformUpgradeSection({
   const runnerRequirementWarn = runnerRequirement.startsWith("缺少") || runnerRequirement.startsWith("需要");
   return (
     <>
-      <PageHeader
-        eyebrow="平台升级"
-        title="平台升级"
-        action={(
-          <>
-            <input
-              ref={fileInputRef}
-              className="visually-hidden"
-              type="file"
-              accept=".gz,.tgz,.tar.gz,application/gzip"
-              onChange={(event) => {
-                const file = event.target.files?.[0] ?? null;
-                setUpgradeFile(file);
-                if (file) uploadUpgrade(file).catch(() => undefined);
-                event.currentTarget.value = "";
-              }}
-              disabled={upgradeBusy || isRunning}
-            />
-            <button className="primary-button service-header-button" type="button" onClick={() => fileInputRef.current?.click()} disabled={upgradeBusy || isRunning}>
-              <FileArchive size={16} />
-              上传升级包
-            </button>
-            <button className="secondary-button service-header-button" type="button" onClick={() => {
-              setCleanupDialogOpen(true);
-              setCleanupProgress(0);
-              setCleanupLogs([]);
-              setCleanupImagesList([]);
-              setCleanupReclaimable("0 B");
-              setCleanupActualReclaimed("");
-            }} disabled={cleanupBusy || isRunning}>
-              <RefreshCw size={16} />
-              {cleanupBusy ? "清理中" : "清理旧版本"}
-            </button>
-          </>
-        )}
-      />
+      <PageHeader eyebrow="平台升级" title="平台升级" />
       <section className="upgrade-platform-status">
         <div className="upgrade-platform-status-head">
           <div>
-            <strong>平台状态</strong>
-            <span>版本、升级包和当前运行服务集中展示。</span>
+            <strong>当前状态</strong>
+            <span>平台现在运行的是什么：版本、Runner 兼容性和五个服务的实时状态。</span>
           </div>
           <button className="secondary-button service-header-button" type="button" onClick={() => reloadUpgradeVerification().catch((exc) => setUpgradeMessage(exc instanceof Error ? exc.message : "刷新核验失败"))} disabled={verificationBusy}>
             <RefreshCw size={16} />
@@ -519,23 +484,15 @@ export function PlatformUpgradeSection({
         </div>
         <div className="service-upgrade-status-grid service-upgrade-status-grid-wide">
           <InfoRow label="当前版本" value={formatVersionForDisplay(upgradeVerification?.app_version ?? appVersion)} />
-          <InfoRow label="目标版本" value={formatVersionForDisplay(upgradeTask?.target_version)} />
-          <InfoRow label="已选升级包" value={upgradeTask?.package_filename ?? "未选择"} />
           <InfoRow label="升级中心组件版本" value={formatVersionForDisplay(upgradeVerification?.runner_version ?? runnerVersion)} />
           <InfoRow
             label="Runner 当前状态"
             value={runnerCompatible === undefined ? "-" : runnerCompatible ? "满足平台要求" : "不满足平台要求，请检查 Runner 心跳或升级 Runner"}
             tone={runnerCompatible === undefined ? undefined : runnerCompatible ? "ok" : "warn"}
           />
-          <InfoRow
-            label="升级包 Runner 要求"
-            value={upgradeTask ? runnerRequirement : "未选择升级包"}
-            tone={runnerRequirementWarn ? "warn" : undefined}
-          />
           <InfoRow label="观测组件版本" value={formatVersionForDisplay(upgradeVerification?.prometheus_version)} />
           <InfoRow label="Compose 项目" value={upgradeVerification?.compose_project ?? "-"} />
           <InfoRow label="最近成功包" value={packageInfo ? `${formatVersionForDisplay(packageInfo.version)} · ${packageInfo.filename || "-"}` : "暂无成功升级记录"} />
-          <InfoRow label="已选升级包 SHA256" value={selectedPackageSha ? shortSha(selectedPackageSha) : "-"} />
           <InfoRow label="最近成功包 SHA256" value={packageInfo?.sha256 ? shortSha(packageInfo.sha256) : "-"} />
           <InfoRow label="旧环境清理" value={postCleanupStatusText(postCleanupStatus)} />
         </div>
@@ -549,36 +506,32 @@ export function PlatformUpgradeSection({
         )}
         <UpgradeRuntimeVerification verification={upgradeVerification} />
       </section>
-      <div className="service-notice">
-        <Info size={16} />
-        升级包会保存到系统升级目录；选中一个升级包后可执行预检查、升级、取消选择或删除。
-      </div>
-      {cleanupMessage && <div className="inline-message">{cleanupMessage}</div>}
-      {upgradeMessage && <div className="inline-message">{upgradeMessage}</div>}
-      {cleanupDialogOpen && (
-        <CleanupDialog
-          busy={cleanupBusy}
-          scanBusy={cleanupScanBusy}
-          progress={cleanupProgress}
-          logs={cleanupLogs}
-          images={cleanupImagesList}
-          protectedImages={cleanupProtectedImages}
-          selectedIds={cleanupSelectedIds}
-          onToggle={toggleCleanupImage}
-          onToggleAll={toggleAllCleanupImages}
-          reclaimable={cleanupReclaimable}
-          actualReclaimed={cleanupActualReclaimed}
-          onClose={() => setCleanupDialogOpen(false)}
-          onScan={scanCleanupImages}
-          onCleanup={cleanupImages}
-        />
-      )}
       <section className="upgrade-package-section">
         <div className="service-operation-head">
           <div>
-            <strong>可升级版本</strong>
-            <span>上传后的离线升级包会保存在系统目录中，选中后再执行升级动作。</span>
+            <strong>升级包</strong>
+            <span>① 上传或选择升级包 → ② 核对包信息与 Runner 要求 → ③ 预检查通过后开始升级。</span>
           </div>
+        </div>
+        <div className="upgrade-package-toolbar">
+          <input
+            ref={fileInputRef}
+            className="visually-hidden"
+            type="file"
+            accept=".gz,.tgz,.tar.gz,application/gzip"
+            onChange={(event) => {
+              const file = event.target.files?.[0] ?? null;
+              setUpgradeFile(file);
+              if (file) uploadUpgrade(file).catch(() => undefined);
+              event.currentTarget.value = "";
+            }}
+            disabled={upgradeBusy || isRunning}
+          />
+          <button className="primary-button" type="button" onClick={() => fileInputRef.current?.click()} disabled={upgradeBusy || isRunning}>
+            <FileArchive size={16} />
+            上传升级包
+          </button>
+          <span className="upgrade-package-toolbar-hint">升级包会保存到系统升级目录，上传后自动出现在下方列表。</span>
         </div>
         {availablePackages.length ? (
           <div className="upgrade-package-list">
@@ -593,11 +546,26 @@ export function PlatformUpgradeSection({
             ))}
           </div>
         ) : (
-          <EmptyUpgrade />
+          <EmptyUpgrade message="还没有升级包。点击“上传升级包”添加，选中后即可查看该包的要求并执行升级。" />
         )}
       </section>
       {upgradeTask && (
-        <>
+        <section className="service-operation-card upgrade-selected-card">
+          <div className="service-operation-head">
+            <div>
+              <strong>已选升级包</strong>
+              <span>{upgradeTask.package_filename || "-"} · 先核对信息与要求，预检查通过后再执行升级。</span>
+            </div>
+          </div>
+          <div className="service-upgrade-status-grid service-upgrade-status-grid-wide">
+            <InfoRow label="目标版本" value={formatVersionForDisplay(upgradeTask?.target_version)} />
+            <InfoRow label="已选升级包 SHA256" value={selectedPackageSha ? shortSha(selectedPackageSha) : "-"} />
+            <InfoRow
+              label="升级包 Runner 要求"
+              value={upgradeTask ? runnerRequirement : "未选择升级包"}
+              tone={runnerRequirementWarn ? "warn" : undefined}
+            />
+          </div>
           <div className="service-upgrade-actions">
             <button className="secondary-button" type="button" onClick={precheckUpgrade} disabled={upgradeBusy || isRunning || needsRecovery}>
               <ListChecks size={16} />
@@ -635,7 +603,48 @@ export function PlatformUpgradeSection({
             upgradeBusy={upgradeBusy}
             onRecovery={handleUpgradeRecovery}
           />
-        </>
+        </section>
+      )}
+      <section className="service-operation-card upgrade-maintenance-card">
+        <div className="service-operation-head">
+          <div>
+            <strong>维护</strong>
+            <span>低频操作：清理旧版本镜像和历史升级包，执行前请确认不再需要回滚到旧版本。</span>
+          </div>
+        </div>
+        <div className="upgrade-package-toolbar">
+          <button className="secondary-button danger-button" type="button" onClick={() => {
+            setCleanupDialogOpen(true);
+            setCleanupProgress(0);
+            setCleanupLogs([]);
+            setCleanupImagesList([]);
+            setCleanupReclaimable("0 B");
+            setCleanupActualReclaimed("");
+          }} disabled={cleanupBusy || isRunning}>
+            <RefreshCw size={16} />
+            {cleanupBusy ? "清理中" : "清理旧版本"}
+          </button>
+        </div>
+      </section>
+      {cleanupMessage && <div className="inline-message">{cleanupMessage}</div>}
+      {upgradeMessage && <div className="inline-message">{upgradeMessage}</div>}
+      {cleanupDialogOpen && (
+        <CleanupDialog
+          busy={cleanupBusy}
+          scanBusy={cleanupScanBusy}
+          progress={cleanupProgress}
+          logs={cleanupLogs}
+          images={cleanupImagesList}
+          protectedImages={cleanupProtectedImages}
+          selectedIds={cleanupSelectedIds}
+          onToggle={toggleCleanupImage}
+          onToggleAll={toggleAllCleanupImages}
+          reclaimable={cleanupReclaimable}
+          actualReclaimed={cleanupActualReclaimed}
+          onClose={() => setCleanupDialogOpen(false)}
+          onScan={scanCleanupImages}
+          onCleanup={cleanupImages}
+        />
       )}
     </>
   );

@@ -203,7 +203,7 @@ describe("ServicePage migration overwrite mode", () => {
     mockServicePageBootstrap();
     render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
 
-    expect(await screen.findByText("平台状态")).toBeInTheDocument();
+    expect(await screen.findByText("当前状态")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "数据迁移" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "服务重启" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "空间清理" })).toBeInTheDocument();
@@ -330,7 +330,7 @@ describe("ServicePage migration overwrite mode", () => {
 
     render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
 
-    await waitFor(() => expect(screen.getByText("平台状态")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("当前状态")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "清理旧版本" }));
     fireEvent.click(screen.getByRole("button", { name: "扫描" }));
 
@@ -497,9 +497,9 @@ describe("ServicePage upgrade center", () => {
 
     render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
 
-    expect(await screen.findByText("平台状态")).toBeInTheDocument();
+    expect(await screen.findByText("当前状态")).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: /smartx-capacity-insight-upgrade-v0\.5\.2/ }));
-    expect(screen.getByText("版本、升级包和当前运行服务集中展示。")).toBeInTheDocument();
+    expect(screen.getByText("平台现在运行的是什么：版本、Runner 兼容性和五个服务的实时状态。")).toBeInTheDocument();
     expect(screen.getByText("当前版本")).toBeInTheDocument();
     expect(screen.getByText("升级中心组件版本")).toBeInTheDocument();
     expect(screen.getByText("观测组件版本")).toBeInTheDocument();
@@ -520,7 +520,7 @@ describe("ServicePage upgrade center", () => {
 
     render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
 
-    expect(await screen.findByText("平台状态")).toBeInTheDocument();
+    expect(await screen.findByText("当前状态")).toBeInTheDocument();
     expect(screen.queryByText("平台自检")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "快速自检" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "深度自检" })).not.toBeInTheDocument();
