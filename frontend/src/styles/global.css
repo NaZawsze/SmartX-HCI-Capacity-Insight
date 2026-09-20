@@ -3723,6 +3723,14 @@ button.risk-cluster-row:hover {
   word-break: break-word;
 }
 
+.service-info-value-ok {
+  color: var(--green);
+}
+
+.service-info-value-warn {
+  color: var(--orange);
+}
+
 .service-upgrade-actions {
   display: flex;
   flex-wrap: wrap;

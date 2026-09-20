@@ -464,6 +464,10 @@ export function PlatformUpgradeSection({
   const availablePackages = upgradeHistory.filter((task) => !task.started_at);
   const packageInfo = upgradeVerification?.package;
   const selectedPackageSha = upgradeTask?.package_sha256 || upgradeTask?.uploaded_sha256;
+  const runnerInfo = componentInfos.find((component) => component.service === "upgrade-runner");
+  const runnerCompatible = runnerInfo?.compatible;
+  const runnerRequirement = upgradeTask ? runnerRequirementLabel(upgradeTask, runnerInfo) : "";
+  const runnerRequirementWarn = runnerRequirement.startsWith("缺少") || runnerRequirement.startsWith("需要");
   return (
     <>
       <PageHeader
@@ -518,7 +522,16 @@ export function PlatformUpgradeSection({
           <InfoRow label="目标版本" value={formatVersionForDisplay(upgradeTask?.target_version)} />
           <InfoRow label="已选升级包" value={upgradeTask?.package_filename ?? "未选择"} />
           <InfoRow label="升级中心组件版本" value={formatVersionForDisplay(upgradeVerification?.runner_version ?? runnerVersion)} />
-          <InfoRow label="Runner 要求" value={runnerRequirementLabel(upgradeTask, componentInfos.find((component) => component.service === "upgrade-runner"))} />
+          <InfoRow
+            label="Runner 当前状态"
+            value={runnerCompatible === undefined ? "-" : runnerCompatible ? "满足平台要求" : "不满足平台要求，请检查 Runner 心跳或升级 Runner"}
+            tone={runnerCompatible === undefined ? undefined : runnerCompatible ? "ok" : "warn"}
+          />
+          <InfoRow
+            label="升级包 Runner 要求"
+            value={upgradeTask ? runnerRequirement : "未选择升级包"}
+            tone={runnerRequirementWarn ? "warn" : undefined}
+          />
           <InfoRow label="观测组件版本" value={formatVersionForDisplay(upgradeVerification?.prometheus_version)} />
           <InfoRow label="Compose 项目" value={upgradeVerification?.compose_project ?? "-"} />
           <InfoRow label="最近成功包" value={packageInfo ? `${formatVersionForDisplay(packageInfo.version)} · ${packageInfo.filename || "-"}` : "暂无成功升级记录"} />
