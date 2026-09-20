@@ -193,7 +193,7 @@ class V2MigrationServiceTest(unittest.TestCase):
             self.assertEqual(env_snapshot.read_text(encoding="utf-8"), env_content)
             self.assertEqual(stat.S_IMODE(env_snapshot.stat().st_mode), 0o600)
             links = tasks.list_tasks()[0]["links"]
-            env_link = next(link for link in links if link["label"].startswith("配对 .env"))
+            env_link = next(link for link in links if link["label"].startswith("恢复密钥"))
             self.assertEqual(env_link["filename"], env_snapshot.name)
             self.assertEqual(env_link["url"], f"/api/admin/exports/migrations/{env_snapshot.name}")
 
@@ -202,14 +202,14 @@ class V2MigrationServiceTest(unittest.TestCase):
             self.assertTrue(config_env.is_file())
             self.assertEqual(stat.S_IMODE(config_env.stat().st_mode), 0o600)
             config_links = tasks.list_tasks()[0]["links"]
-            self.assertTrue(any(link["label"].startswith("配对 .env") for link in config_links))
+            self.assertTrue(any(link["label"].startswith("恢复密钥") for link in config_links))
 
             inline = service.start_export_task(run_inline=True)
             self.assertEqual(inline["status"], "succeeded")
             inline_task = tasks.get_task(inline["task_id"])
             self.assertIsNotNone(inline_task)
             inline_links = inline_task["links"] if inline_task else []
-            self.assertTrue(any(link["label"].startswith("配对 .env") for link in inline_links))
+            self.assertTrue(any(link["label"].startswith("恢复密钥") for link in inline_links))
 
     def test_import_merge_creates_backup_and_does_not_overwrite_existing_cluster(self) -> None:
         from app.v2.config import V2Settings

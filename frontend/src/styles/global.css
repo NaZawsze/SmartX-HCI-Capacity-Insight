@@ -2735,6 +2735,36 @@ button.risk-cluster-row:hover {
   opacity: 0.6;
 }
 
+.migration-mode-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.service-migration-guide {
+  display: grid;
+  gap: 10px;
+}
+
+.service-migration-guide > strong {
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.service-migration-guide ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.service-migration-guide li strong {
+  color: var(--ink);
+}
+
 .migration-confirm {
   align-items: flex-start;
   color: #a33d3d !important;

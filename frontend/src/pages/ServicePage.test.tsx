@@ -235,12 +235,12 @@ describe("ServicePage migration overwrite mode", () => {
     expect(input).not.toBeNull();
     fireEvent.change(input!, { target: { files: [file] } });
 
-    fireEvent.click(screen.getByRole("button", { name: "覆盖导入" }));
+    fireEvent.click(screen.getByRole("button", { name: "整库替换" }));
     const importButton = screen.getByRole("button", { name: /导入迁移包/ });
     expect(importButton).toBeDisabled();
     expect(apiMock.startMigrationImport).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByLabelText("我确认覆盖当前系统数据"));
+    fireEvent.click(screen.getByLabelText("我确认清空并替换当前系统数据"));
     expect(importButton).not.toBeDisabled();
     fireEvent.click(importButton);
 
@@ -263,10 +263,10 @@ describe("ServicePage migration overwrite mode", () => {
     render(<ServicePage addTask={addTask} updateTask={updateTask} />);
 
     fireEvent.click(screen.getByRole("button", { name: "数据迁移" }));
-    fireEvent.click(await screen.findByRole("button", { name: "导出配置迁移包" }));
+    fireEvent.click(await screen.findByRole("button", { name: "仅导出 Tower 配置" }));
 
     await waitFor(() => expect(apiMock.exportConfigMigration).toHaveBeenCalled());
-    expect(addTask).toHaveBeenCalledWith(expect.objectContaining({ kind: "export", title: "导出配置迁移包" }));
+    expect(addTask).toHaveBeenCalledWith(expect.objectContaining({ kind: "export", title: "仅导出 Tower 配置" }));
     expect(updateTask).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: "succeeded", detail: "smartx-config-migration-20260607120000.tar.gz" }));
   });
 
@@ -423,7 +423,7 @@ describe("ServicePage migration overwrite mode", () => {
     fireEvent.click(screen.getByRole("button", { name: "数据迁移" }));
 
     expect(await screen.findByRole("button", { name: "健康检查" })).toHaveClass("service-header-button");
-    expect(screen.getByRole("button", { name: "导出配置迁移包" })).toHaveClass("service-header-button");
+    expect(screen.getByRole("button", { name: "仅导出 Tower 配置" })).toHaveClass("service-header-button");
     expect(screen.getByRole("button", { name: "导出迁移包" })).toHaveClass("service-header-button");
   });
 

@@ -50,7 +50,7 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
         logs: ["迁移包已生成", task.saved_path ? `服务器留档：${task.saved_path}` : "已完成浏览器下载"],
         links: [{ label: "下载", filename: task.filename, url: task.download_url, path: task.saved_path }]
       });
-      setMigrationMessage("迁移包已生成");
+      setMigrationMessage("迁移包已生成。恢复密钥已同步生成，可在任务中心下载，两份文件请一起保存。");
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "导出失败";
       updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["导出失败", message] });
@@ -64,24 +64,24 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
     setMigrationMessage("");
     setMigrationBusy(true);
     const id = taskId("config-migration-export");
-    addTask({ id, kind: "export", title: "导出配置迁移包", detail: "正在导出 Tower 和集群配置", status: "running", progress: 30, logs: ["配置迁移只包含 Tower 与集群配置"] });
+    addTask({ id, kind: "export", title: "仅导出 Tower 配置", detail: "正在导出 Tower 和集群配置", status: "running", progress: 30, logs: ["此导出不包含历史数据"] });
     try {
       const result = await api.exportConfigMigration((progress) => {
         const value = transferProgressValue(progress);
-        updateTask(id, { progress: Math.max(30, Math.min(95, value)), detail: "正在下载配置迁移包" });
+        updateTask(id, { progress: Math.max(30, Math.min(95, value)), detail: "正在下载配置文件" });
       });
       saveBlob(result.blob, result.filename || "smartx-config-migration.tar.gz");
       updateTask(id, {
         status: "succeeded",
         progress: 100,
-        detail: result.filename || "配置迁移包已生成",
-        logs: ["配置迁移包已生成", result.savedPath ? `服务器留档：${result.savedPath}` : "已完成浏览器下载"],
+        detail: result.filename || "Tower 配置已导出",
+        logs: ["Tower 配置已导出", result.savedPath ? `服务器留档：${result.savedPath}` : "已完成浏览器下载"],
         links: result.downloadUrl ? [{ label: "下载", filename: result.filename, url: result.downloadUrl, path: result.savedPath }] : undefined
       });
-      setMigrationMessage("配置迁移包已生成，仅包含 Tower 和集群配置");
+      setMigrationMessage("Tower 配置已导出（不含历史数据）");
     } catch (exc) {
-      const message = exc instanceof Error ? exc.message : "配置迁移包导出失败";
-      updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["配置迁移包导出失败", message] });
+      const message = exc instanceof Error ? exc.message : "Tower 配置导出失败";
+      updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["Tower 配置导出失败", message] });
       setMigrationMessage(message);
     } finally {
       setMigrationBusy(false);
@@ -95,7 +95,7 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
       return;
     }
     if (migrationMode === "overwrite" && !migrationConfirmed) {
-      setMigrationMessage("覆盖导入会清空当前数据，请先勾选确认");
+      setMigrationMessage("整库替换会清空当前数据，请先勾选确认");
       return;
     }
     setMigrationBusy(true);
@@ -135,9 +135,9 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
     try {
       const result = await api.downloadEnvFile();
       saveBlob(result.blob, result.filename || "project.env");
-      setMigrationMessage("已下载当前 .env；恢复历史迁移包时请与其同代配对使用。");
+      setMigrationMessage("已下载恢复密钥。恢复迁移包时请与其一同使用；若没有密钥，也可导入后在 Tower 设置中重新输入密码。");
     } catch (exc) {
-      setMigrationMessage(exc instanceof Error ? exc.message : "下载 .env 失败");
+      setMigrationMessage(exc instanceof Error ? exc.message : "下载恢复密钥失败");
     }
   }
 
@@ -174,13 +174,13 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
             <Info size={16} />
             健康检查
           </button>
-          <button className="secondary-button service-header-button" type="button" onClick={downloadEnvFile}>
-            <Download size={16} />
-            下载当前 .env
-          </button>
           <button className="secondary-button service-header-button" type="button" onClick={exportConfigMigration} disabled={migrationBusy}>
             <Download size={16} />
-            导出配置迁移包
+            仅导出 Tower 配置
+          </button>
+          <button className="secondary-button service-header-button" type="button" onClick={downloadEnvFile}>
+            <Download size={16} />
+            下载恢复密钥
           </button>
           <button className="primary-button service-header-button" type="button" onClick={exportMigration} disabled={migrationBusy}>
             <Download size={16} />
@@ -192,7 +192,7 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
         <div className="service-operation-head">
           <div>
             <strong>迁移包导入</strong>
-            <span>默认补全缺失数据；覆盖导入会替换当前业务库和历史指标数据。导出任务会自动生成配对 .env 快照（任务中心可下载）；恢复历史导出包可用「下载当前 .env」补配对。</span>
+            <span>选择本系统导出的迁移包装回数据。默认“合并数据”，只补缺的、不动现有内容；如需整体替换请选“整库替换”，会清空现有数据。</span>
           </div>
         </div>
         <div className="migration-import service-migration-import">
@@ -206,23 +206,28 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
           />
           <UploadPanel
             title={migrationFile ? migrationFile.name : "选择迁移包"}
-            description={migrationFile ? "已选择迁移包，可选择导入方式后开始导入。" : "支持 .tar.gz / .tgz 数据迁移包，默认补全缺失数据。"}
+            description={migrationFile ? "已选择迁移包，可选择导入方式后开始导入。" : "选择本系统导出的 .tar.gz / .tgz 迁移包文件。"}
             actionText={migrationFile ? "重新选择" : "选择文件"}
             disabled={migrationBusy}
             onClick={() => migrationFileInputRef.current?.click()}
           />
           <div className="migration-mode-group" role="radiogroup" aria-label="导入方式">
             <button className={migrationMode === "merge" ? "active" : ""} type="button" onClick={() => setMigrationMode("merge")} disabled={migrationBusy}>
-              补全缺失数据
+              合并数据
             </button>
             <button className={migrationMode === "overwrite" ? "active" : ""} type="button" onClick={() => setMigrationMode("overwrite")} disabled={migrationBusy}>
-              覆盖导入
+              整库替换
             </button>
           </div>
+          <p className="migration-mode-hint">
+            {migrationMode === "merge"
+              ? "只添加缺少的数据，现有的 Tower、集群和历史数据保持不变。"
+              : "将清空并替换现有的业务数据和历史指标；操作前会自动生成导入前备份，可用于回退。"}
+          </p>
           {migrationMode === "overwrite" && (
             <label className="checkbox-line migration-confirm">
               <input type="checkbox" checked={migrationConfirmed} onChange={(event) => setMigrationConfirmed(event.target.checked)} disabled={migrationBusy} />
-              我确认覆盖当前系统数据
+              我确认清空并替换当前系统数据
             </label>
           )}
           <button className={migrationMode === "overwrite" ? "secondary-button danger-button service-header-button" : "secondary-button service-header-button"} type="button" onClick={importMigration} disabled={migrationBusy || !migrationFile || (migrationMode === "overwrite" && !migrationConfirmed)}>
@@ -232,10 +237,20 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
         </div>
         <div className="service-notice">
           <Info size={16} />
-          导入后请在本页执行“服务重启”，使 web-api、collector-worker 和 Prometheus 完全加载补全后的数据。
+          导入完成后，请在本页执行“服务重启”，新数据才会完全生效。
         </div>
         {migrationHealthMessage && <div className="inline-message">{migrationHealthMessage}</div>}
         {migrationMessage && <div className="inline-message">{migrationMessage}</div>}
+      </div>
+      <div className="service-operation-card service-migration-guide">
+        <strong>使用说明</strong>
+        <ul>
+          <li><strong>导出迁移包</strong>：把 Tower 配置和全部历史数据打包下载，用于备份或搬到另一台服务器。导出时会自动生成一份“恢复密钥”，请与迁移包一起保存。</li>
+          <li><strong>仅导出 Tower 配置</strong>：只导配置、不带历史数据，适合让新环境快速接入同一批 Tower。</li>
+          <li><strong>恢复密钥</strong>：迁移包里的 Tower 密码是加密保存的，恢复时必须配上导出时的密钥才能解开；没带密钥也可以在导入后到 Tower 设置里重新输入密码。</li>
+          <li><strong>导入</strong>：选择文件 → 选导入方式 → 导入 → 服务重启。“合并数据”只补缺的、最安全；“整库替换”会清空现有数据，请确认后再用。</li>
+          <li><strong>健康检查</strong>：查看当前数据是否完整，只查看、不修改任何内容。</li>
+        </ul>
       </div>
     </>
   );

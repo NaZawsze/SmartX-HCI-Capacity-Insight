@@ -97,7 +97,7 @@ class MigrationService:
                 "导出迁移包",
                 status=TaskStatus.SUCCESS,
                 progress=100,
-                message="迁移包已生成" + ("，已生成配对 .env 快照" if env_snapshot is not None else "（警告：未找到 .env，未生成配对密钥快照）"),
+                message="迁移包已生成" + ("，已同步生成恢复密钥（任务中心可下载）" if env_snapshot is not None else "（警告：未找到密钥文件，未生成恢复密钥）"),
                 links=links,
             )
         return content, filename, path, download_url
@@ -115,7 +115,7 @@ class MigrationService:
     @staticmethod
     def _env_link(env_snapshot: Path) -> dict[str, str]:
         return {
-            "label": "配对 .env（恢复时必须同代使用）",
+            "label": "恢复密钥（与迁移包成对使用）",
             "filename": env_snapshot.name,
             "url": f"/api/admin/exports/migrations/{quote(env_snapshot.name)}",
             "path": str(env_snapshot),
@@ -149,16 +149,16 @@ class MigrationService:
         env_snapshot = self._snapshot_env_for_bundle(path)
         download_url = f"/api/admin/exports/migrations/{quote(filename)}"
         if record_task:
-            links = [{"label": "配置迁移包", "filename": filename, "url": download_url, "path": str(path), "scope": CONFIG_SCOPE}]
+            links = [{"label": "Tower 配置", "filename": filename, "url": download_url, "path": str(path), "scope": CONFIG_SCOPE}]
             if env_snapshot is not None:
                 links.append(self._env_link(env_snapshot))
             self.tasks.create_task(
                 f"migration-config-export-{token_hex(8)}",
                 TaskType.MIGRATION_EXPORT,
-                "导出配置迁移包",
+                "仅导出 Tower 配置",
                 status=TaskStatus.SUCCESS,
                 progress=100,
-                message="配置迁移包已生成",
+                message="Tower 配置已导出（不含历史数据）",
                 links=links,
             )
         return content, filename, path, download_url
@@ -401,7 +401,7 @@ class MigrationService:
                 summary["sqlite"] = self._merge_config_sqlite(source_db)
                 restored.append("smartx_db")
                 logs.append(f"SQLite：配置合并导入 {summary['sqlite']['inserted']} 条记录")
-            logs.append("Prometheus：配置迁移包不包含历史指标，已跳过")
+            logs.append("Prometheus：此导出不包含历史数据，已跳过")
             return {"restored": restored, "summary": summary, "logs": logs}
         if mode == OVERWRITE_MODE:
             if source_db and source_db.exists():
