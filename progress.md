@@ -7479,3 +7479,10 @@ release_smoke=critical 0, warning 0
 - 记录性保留：设计文档 docs/superpowers/specs/2026-09-20-auto-backup-and-env-pairing-design.md 不删（即「记录」载体）；本文件 49-25 节保留两轮实现与验证证据；恢复时按设计文档 + git 历史 216acb0 可直接复用。
 - 本地：cleanup 11 tests OK（skipped=1）+ 编译检查过。pending-tasks #24、task_plan 49-25、backup-recovery §2 推荐策略均已写入决策记录。
 - .3 复验：见 49-25a 节（撤下后全量 335 tests OK，导出配对 live 复验 200）。
+
+## 2026-09-20a 49-25a：撤下后 .3 复验
+
+- .3（3e37e6b 经 git archive 全树同步，删除 auto_backup.py 与 test_v2_auto_backup.py）：全量 335 tests OK (skipped=1)（334 基线 + 1 导出配对新用例）。
+- 导出配对复验（一次性容器跑新代码）：config 导出包生成同名 .tar.env（0600，与 live .env 逐字节一致）。
+- backups/ 复查：仅存验证期产生的 2 个 auto-backup-* 集合（20260920T073713Z/073743Z），撤下后无新增——守护线程确已不在；这 2 个目录为普通文件，后续走产品空间清理（散装 .db 扫描不含目录）或随磁盘治理处理，无害留存。
+- /api/system/health 200（v0.5.3/v0.3.1）。前端与 api.md 无变化（env-file 路由与入口保留）。
