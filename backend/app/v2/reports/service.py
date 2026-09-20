@@ -42,6 +42,35 @@ class ForecastResult:
     band_half_width_per_day: float | None = None
 
 
+class _MemoPrometheus:
+    """请求内 Prometheus 查询去重包装。
+
+    latest_report 单次请求内会以相同 (query, start, end, step) 重复查询同一指标
+    （如 VM 30 天序列被窗口统计/日新建/月新建三处共用）。此包装把首次结果按 key
+    缓存，命中后不再打底层；其余属性透传给内部实例。返回的序列不被调用方原地
+    修改，可安全共享。
+    """
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+        self._range_cache: dict[tuple[str, int, int, str], Any] = {}
+        self._instant_cache: dict[str, Any] = {}
+
+    def range(self, query: str, *, start: int, end: int, step: str):
+        key = (query, int(start), int(end), step)
+        if key not in self._range_cache:
+            self._range_cache[key] = self._inner.range(query, start=start, end=end, step=step)
+        return self._range_cache[key]
+
+    def instant(self, query: str):
+        if query not in self._instant_cache:
+            self._instant_cache[query] = self._inner.instant(query)
+        return self._instant_cache[query]
+
+    def __getattr__(self, name: str):
+        return getattr(self._inner, name)
+
+
 class ReportService:
     def __init__(self, database: V2Database, settings: V2Settings, prometheus=None, now_ts: int | None = None) -> None:
         self.database = database
@@ -50,6 +79,16 @@ class ReportService:
         self.now_ts = int(now_ts) if now_ts is not None else int(time.time())
 
     def latest_report(self, tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, chart_days: int = 365) -> dict[str, Any]:
+        # ReportService 为请求级实例；包一层请求内去重，DataQualityService 通过
+        # prometheus=self.prometheus 共享同一 memo。
+        original_prometheus = self.prometheus
+        self.prometheus = _MemoPrometheus(original_prometheus)
+        try:
+            return self._latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days, chart_days=chart_days)
+        finally:
+            self.prometheus = original_prometheus
+
+    def _latest_report(self, tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, chart_days: int = 365) -> dict[str, Any]:
         window_days = _normalize_period_days(period_days)
         chart_window_days = _normalize_chart_days(chart_days)
         enabled_scope = self._enabled_cluster_scope(tower_id=tower_id, cluster_id=cluster_id)

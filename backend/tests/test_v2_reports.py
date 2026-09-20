@@ -445,5 +445,69 @@ class V2ReportsTest(unittest.TestCase):
             self.assertIn("band_half_width_per_day", forecast)
 
 
+class CountingPrometheus:
+    """记录底层调用次数的包装，用于验证 latest_report 的请求内查询去重。"""
+
+    def __init__(self, inner) -> None:
+        self.inner = inner
+        self.range_calls: list[tuple[str, int, int, str]] = []
+        self.instant_calls: list[str] = []
+
+    def range(self, query: str, *, start: int, end: int, step: str):
+        self.range_calls.append((query, int(start), int(end), step))
+        return self.inner.range(query, start=start, end=end, step=step)
+
+    def instant(self, query: str):
+        self.instant_calls.append(query)
+        return self.inner.instant(query)
+
+
+class V2ReportsQueryDedupTest(unittest.TestCase):
+    def _seed_inventory(self, tmpdir: str):
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        settings = V2Settings(data_root=Path(tmpdir), secret_key="reports-secret")
+        db = V2Database(settings)
+        db.initialize()
+        inventory = InventoryService(db, settings)
+        tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com", username="admin"))
+        inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="cluster-a", name="Cluster A", enabled=True)])
+        with db.connection() as conn:
+            conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cluster-a', 'vm-old', 'Old Latest', 300)")
+            conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cluster-a', 'vm-new', 'New Latest', 50)")
+        return settings, db
+
+    def test_latest_report_deduplicates_identical_prometheus_queries(self) -> None:
+        from app.v2.reports.service import ReportService
+
+        now_ts = 1_700_000_000
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            counting = CountingPrometheus(FakePrometheus(now_ts))
+            report = ReportService(db, settings, prometheus=counting, now_ts=now_ts).latest_report(period_days=30, chart_days=90)
+
+            self.assertTrue(counting.range_calls)
+            self.assertEqual(len(counting.range_calls), len(set(counting.range_calls)), "identical range queries must hit Prometheus once per request")
+            self.assertEqual(len(counting.instant_calls), len(set(counting.instant_calls)), "identical instant queries must hit Prometheus once per request")
+            # 去重不得改变输出：与不包装的裸调用结果一致
+            plain = ReportService(db, settings, prometheus=FakePrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
+            self.assertEqual(report, plain)
+
+    def test_latest_report_restores_original_prometheus_after_call(self) -> None:
+        from app.v2.reports.service import ReportService
+
+        now_ts = 1_700_000_000
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            inner = FakePrometheus(now_ts)
+            service = ReportService(db, settings, prometheus=inner, now_ts=now_ts)
+            service.latest_report(period_days=30, chart_days=90)
+
+            self.assertIs(service.prometheus, inner)
+
+
 if __name__ == "__main__":
     unittest.main()
