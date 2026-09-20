@@ -2765,6 +2765,56 @@ button.risk-cluster-row:hover {
   color: var(--ink);
 }
 
+.migration-guide-key-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.migration-guide-key-row > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.migration-guide-key-row svg {
+  flex-shrink: 0;
+  color: var(--orange);
+}
+
+.migration-key-dialog {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 22px 24px;
+  width: min(540px, calc(100vw - 48px));
+  display: grid;
+  gap: 10px;
+}
+
+.migration-key-dialog > strong {
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.migration-key-dialog p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.migration-key-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
 .migration-confirm {
   align-items: flex-start;
   color: #a33d3d !important;
@@ -3729,6 +3779,15 @@ button.risk-cluster-row:hover {
 
 .service-info-value-warn {
   color: var(--orange);
+}
+
+.service-info-value-bad {
+  color: var(--red);
+}
+
+.upgrade-path-arrow {
+  color: var(--green);
+  font-weight: 700;
 }
 
 .upgrade-package-toolbar {

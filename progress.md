@@ -7513,3 +7513,17 @@ release_smoke=critical 0, warning 0
 - 实施（287af58）：①「当前状态」区只放现场事实（当前版本/升级中心组件版本/Runner 当前状态着色/观测组件版本/Compose 项目/最近成功包+SHA/旧环境清理）+ 服务实时表格；②「升级包」区改为三步动线——①上传或选择（上传按钮从页头移入动线，含"保存到系统升级目录"提示）→②选中包后独立「已选升级包」卡片集中展示目标版本/SHA/升级包 Runner 要求（着色）+操作按钮+预检查/执行步骤/日志/恢复面板，包的需求跟着包走、不再混进平台状态→③预检查通过后开始升级；③「维护」区把清理旧版本降级为低频危险操作（副标题说明回滚前提）。头部不再堆全局按钮；原 12 行混合状态网格按"现场事实 vs 包信息"拆分。
 - 测试：.3 tsc exit 0、vitest 8 files 89 passed（断言同步：平台状态→当前状态、新副标题、EmptyUpgrade 文案）。无后端/路由变更；所有升级动作（预检查/升级/取消/删除/回滚/恢复/清理）功能与守卫不变。
 - 边界：live 页面为镜像旧构建，随 v0.5.3 正式构建收编。
+
+## 49-26d（2026-09-20）迁移/升级页 UX 第二轮：密钥移位+风险弹窗、Runner 合并行、升级路径箭头；整包升级现状查证
+
+- 用户反馈（看 :8081 预览后）：① 下载密钥位置不对且把两个导出按钮隔开；下载密钥要有风险提示+保管安全提示；质疑迁移页蓝色配色逻辑。② 升级页「Runner 当前状态」与升级中心版本应并一行加括号满足/不满足（绿/红）；选包后应显示 v0.5.2→v0.5.3 绿色箭头；要支持含 runner 的大包、由包决定升级顺序。
+- **整包升级查证（用户中途指示「先看平台支不支持整包升级」）**：不支持，显式拒绝。混合包可上传（intake 不校验组件组合）、预检查可通过（precheck.py 仅查 version/components/兼容性/镜像），但 start→compile_execution_plan（compiler.py:36-37）对含 runner 组件的包抛 `UpgradeCompilationError("upgrade-runner 组件必须由 web-api 直接升级。")`→HTTP 400。根因：平台升级计划由 upgrade-runner 自身执行（api/admin/upgrade.py:46 submit_to_runner=True），runner 无法在任务执行中重建自身容器；runner 组件升级仅走 web-api 直执行（execution.py `_runner_only`：写 runner-only override→up→`runner_restarting`→新 runner 心跳接续 `_resume_runner_upgrade`）。结论与两阶段任务链方向登记 pending-tasks #27 / task_plan 27，待用户确认后立项设计（涉及 AGENTS §6 边界修订），本轮不实施。
+- **实施（本轮提交）**：
+  - MigrationSection.tsx：页头动作归组为「健康检查 / 仅导出 Tower 配置 / 导出迁移包（primary）」，两个导出按钮相邻；「下载恢复密钥」移入使用说明卡（恢复密钥条目下方的 migration-guide-key-row：ShieldAlert 图标+风险说明+按钮）；点击弹确认框（migration-key-dialog：密钥等同全部 Tower 凭据的钥匙、勿走不安全渠道传输、怀疑泄露立即重置 Tower 密码；取消/我已了解下载密钥）。
+  - PlatformUpgradeSection.tsx：「升级中心组件版本」「Runner 当前状态」两行合并为「Runner 版本」，值 `v0.3.x（满足平台要求）`/`v0.3.x（不满足平台要求，请检查 Runner 心跳或升级 Runner）`，tone ok=绿/bad=红（无心跳时仅显示版本不着色）；已选升级包卡「目标版本」改为「升级路径」，值 `v0.5.2 → v0.5.3`（upgrade-path-arrow 类：箭头+目标版本绿色加粗）。
+  - shared.tsx：InfoRow value 放宽为 ReactNode、tone 新增 "bad"（service-info-value-bad=var(--red)）。
+  - global.css：新增 .migration-guide-key-row/.migration-key-dialog(+actions)/.service-info-value-bad/.upgrade-path-arrow。
+  - ServicePage.test.tsx：「升级中心组件版本」断言改「Runner 版本」。
+- **配色逻辑说明（回复用户）**：「导出迁移包」蓝色主按钮是全站主操作色（同上传升级包/开始升级），导出是只读安全操作保留蓝色；侧栏「数据迁移」高亮是全站导航选中态（所有页面同一样式），非迁移页特有；新增的警示色仅用于密钥行（orange 图标）与不满足红字。
+- .3 验证：tsc exit 0；vitest 8 files 89 passed（node:20-alpine 容器，源码经 tar 流+root cp 覆盖 project/frontend/src，仅源码文件、不动运行时数据）；dist 重建（21:17 index-DQVm5tFK.js）后 :8081 预览容器（upgrade-preview，Up）直接生效供用户复核。后端无改动，未重复全量后端回归（本轮纯前端 + 文档）。
+- 边界与未验证项：整包升级功能未实施（pending-tasks #27 待立项）；:8081 预览为一次性容器（nginx:alpine + project dist 挂载），用户复核完即 `docker rm -f upgrade-preview` 撤下；live 前端仍为镜像内 v0.5.3 旧构建，本轮 UI 随下次正式构建收编。

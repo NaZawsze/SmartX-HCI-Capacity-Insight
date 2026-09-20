@@ -1,4 +1,4 @@
-import { Download, Info, Upload } from "lucide-react";
+import { Download, Info, ShieldAlert, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { api } from "../../services/api";
 import type { AppTask } from "../../types";
@@ -17,6 +17,7 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
   const [migrationMode, setMigrationMode] = useState<"merge" | "overwrite">("merge");
   const [migrationConfirmed, setMigrationConfirmed] = useState(false);
   const [migrationHealthMessage, setMigrationHealthMessage] = useState("");
+  const [keyDialogOpen, setKeyDialogOpen] = useState(false);
   const migrationFileInputRef = useRef<HTMLInputElement | null>(null);
 
   async function exportMigration() {
@@ -178,10 +179,6 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
             <Download size={16} />
             仅导出 Tower 配置
           </button>
-          <button className="secondary-button service-header-button" type="button" onClick={downloadEnvFile}>
-            <Download size={16} />
-            下载恢复密钥
-          </button>
           <button className="primary-button service-header-button" type="button" onClick={exportMigration} disabled={migrationBusy}>
             <Download size={16} />
             导出迁移包
@@ -251,7 +248,28 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
           <li><strong>导入</strong>：选择文件 → 选导入方式 → 导入 → 服务重启。“合并数据”只补缺的、最安全；“整库替换”会清空现有数据，请确认后再用。</li>
           <li><strong>健康检查</strong>：查看当前数据是否完整，只查看、不修改任何内容。</li>
         </ul>
+        <div className="migration-guide-key-row">
+          <ShieldAlert size={16} />
+          <span>恢复密钥是打开迁移包里 Tower 密码的钥匙：拿到它就能解开全部 Tower 凭据。请妥善保管，不要放在公开位置或通过聊天工具、邮箱等不安全渠道传输。</span>
+          <button className="secondary-button" type="button" onClick={() => setKeyDialogOpen(true)} disabled={migrationBusy}>
+            <Download size={15} />
+            下载恢复密钥
+          </button>
+        </div>
       </div>
+      {keyDialogOpen && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setKeyDialogOpen(false)}>
+          <div className="migration-key-dialog" role="dialog" aria-modal="true" aria-labelledby="migration-key-dialog-title" onClick={(event) => event.stopPropagation()}>
+            <strong id="migration-key-dialog-title">下载恢复密钥</strong>
+            <p>恢复密钥等同于本系统全部 Tower 密码的钥匙：任何拿到它的人都能解开迁移包中的 Tower 凭据并登录对应集群。</p>
+            <p>请只保存在受控的存储位置，不要通过聊天工具、邮箱等不安全渠道传输；如果怀疑泄露，请立即在 Tower 设置中重置相关密码。</p>
+            <div className="migration-key-dialog-actions">
+              <button className="secondary-button" type="button" onClick={() => setKeyDialogOpen(false)}>取消</button>
+              <button className="primary-button" type="button" onClick={() => { setKeyDialogOpen(false); downloadEnvFile(); }}>我已了解，下载密钥</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

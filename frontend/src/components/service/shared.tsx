@@ -465,11 +465,11 @@ export function PageHeader({ eyebrow, title, action }: { eyebrow: string; title:
   );
 }
 
-export function InfoRow({ label, value, tone }: { label: string; value: string; tone?: "ok" | "warn" }) {
+export function InfoRow({ label, value, tone }: { label: string; value: ReactNode; tone?: "ok" | "warn" | "bad" }) {
   return (
     <div className="service-info-row">
       <span>{label}</span>
-      <strong className={tone === "ok" ? "service-info-value-ok" : tone === "warn" ? "service-info-value-warn" : undefined}>{value}</strong>
+      <strong className={tone === "ok" ? "service-info-value-ok" : tone === "warn" ? "service-info-value-warn" : tone === "bad" ? "service-info-value-bad" : undefined}>{value}</strong>
     </div>
   );
 }

@@ -484,11 +484,14 @@ export function PlatformUpgradeSection({
         </div>
         <div className="service-upgrade-status-grid service-upgrade-status-grid-wide">
           <InfoRow label="当前版本" value={formatVersionForDisplay(upgradeVerification?.app_version ?? appVersion)} />
-          <InfoRow label="升级中心组件版本" value={formatVersionForDisplay(upgradeVerification?.runner_version ?? runnerVersion)} />
           <InfoRow
-            label="Runner 当前状态"
-            value={runnerCompatible === undefined ? "-" : runnerCompatible ? "满足平台要求" : "不满足平台要求，请检查 Runner 心跳或升级 Runner"}
-            tone={runnerCompatible === undefined ? undefined : runnerCompatible ? "ok" : "warn"}
+            label="Runner 版本"
+            value={
+              runnerCompatible === undefined
+                ? formatVersionForDisplay(runnerInfo?.version || upgradeVerification?.runner_version || runnerVersion)
+                : `${formatVersionForDisplay(runnerInfo?.version || upgradeVerification?.runner_version || runnerVersion)}（${runnerCompatible ? "满足平台要求" : "不满足平台要求，请检查 Runner 心跳或升级 Runner"}）`
+            }
+            tone={runnerCompatible === undefined ? undefined : runnerCompatible ? "ok" : "bad"}
           />
           <InfoRow label="观测组件版本" value={formatVersionForDisplay(upgradeVerification?.prometheus_version)} />
           <InfoRow label="Compose 项目" value={upgradeVerification?.compose_project ?? "-"} />
@@ -558,7 +561,16 @@ export function PlatformUpgradeSection({
             </div>
           </div>
           <div className="service-upgrade-status-grid service-upgrade-status-grid-wide">
-            <InfoRow label="目标版本" value={formatVersionForDisplay(upgradeTask?.target_version)} />
+            <InfoRow
+              label="升级路径"
+              value={
+                <span>
+                  {formatVersionForDisplay(upgradeVerification?.app_version ?? appVersion)}
+                  {" "}
+                  <span className="upgrade-path-arrow">→ {formatVersionForDisplay(upgradeTask?.target_version)}</span>
+                </span>
+              }
+            />
             <InfoRow label="已选升级包 SHA256" value={selectedPackageSha ? shortSha(selectedPackageSha) : "-"} />
             <InfoRow
               label="升级包 Runner 要求"
