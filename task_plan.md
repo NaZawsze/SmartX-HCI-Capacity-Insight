@@ -1543,12 +1543,12 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 登记 doc-map/pending-tasks #26/progress；review 文档状态行更新。
 - 边界：无路由变更（verify_api_docs 不受影响）；live 前端为镜像内旧构建，新文案随 v0.5.3 正式构建收编。
 
-### 27. 升级大包支持（平台+Runner 合一包）[已查证现状，待用户确认立项]
+### 27. 升级大包支持（平台+Runner 合一包）[已查证现状；用户决策暂不实施（2026-09-20）]
 
 来源：2026-09-20 用户反馈「要支持升级大包，大包里包含 runner，根据升级包的关系由升级包选择先升级 runner 还是其他组件」。
 
 - [x] 现状查证（2026-09-20）：当前不支持且显式拒绝——混合包上传/预检查可通过，但开始升级编译执行计划时 compiler.py 抛 `UpgradeCompilationError("upgrade-runner 组件必须由 web-api 直接升级。")`（HTTP 400）。根因为平台计划由 upgrade-runner 自身执行、无法中途重建自身；runner 组件仅可走 web-api 直执行路径（`_runner_only` + 心跳接续）。证据：backend/app/v2/upgrade/compiler.py:36、api/admin/upgrade.py:46/179、execution.py:359-385。
-- [ ] 方向（待用户确认后出设计）：两阶段任务链——web-api 先执行包内 runner 阶段（复用 web-api 直执行流程），新 runner 心跳就绪后编译剩余平台阶段交新 runner 执行；manifest 声明组件构成与升级顺序（runner 先行默认）。涉及 AGENTS §6 边界修订，需设计文档 + 完整链路重验证。登记：pending-tasks #27。
+- [ ] 方向（2026-09-20 用户决策「不支持就先不动吧」：暂不实施，仅保留方向备查）：两阶段任务链——web-api 先执行包内 runner 阶段（复用 web-api 直执行流程），新 runner 心跳就绪后编译剩余平台阶段交新 runner 执行；manifest 声明组件构成与升级顺序（runner 先行默认）。涉及 AGENTS §6 边界修订，需设计文档 + 完整链路重验证。登记：pending-tasks #27。
 
 ### 28. 迁移页/升级页 UX 第二轮反馈落地 [已实施并验证 2026-09-20]
 
