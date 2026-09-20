@@ -234,44 +234,6 @@ class V2CleanupServiceTest(unittest.TestCase):
             self.assertEqual(result["space_reclaimed"], 134217728)
             self.assertTrue(any(command[:3] == ["docker", "image", "rm"] for command in executor.commands))
 
-    def test_sqlite_backup_cleanup_includes_auto_backup_sets_and_deletes_them_whole(self) -> None:
-        from app.v2.cleanup.service import CleanupService
-        from app.v2.config import V2Settings
-        from app.v2.database import V2Database
-        from app.v2.tasks.service import TaskService
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            settings = V2Settings(data_root=Path(tmpdir), secret_key="cleanup-secret")
-            database = V2Database(settings)
-            database.initialize()
-            backup_set = settings.backups_dir / "auto-backup-20260920T060000Z"
-            backup_set.mkdir(parents=True)
-            (backup_set / "smartx.db").write_bytes(b"a" * 30)
-            (backup_set / "project.env").write_bytes(b"b" * 10)
-            (backup_set / "manifest.json").write_bytes(b"c" * 5)
-            plain_file = settings.backups_dir / "sqlite-before-cleanup-test.db"
-            plain_file.write_bytes(b"d" * 7)
-            unrelated_dir = settings.backups_dir / "upgrade-v0.5.0-before-20260606"
-            unrelated_dir.mkdir()
-            (unrelated_dir / "keep.bin").write_bytes(b"e")
-
-            cleanup = CleanupService(settings, TaskService(database))
-            scan = cleanup.scan_sqlite_backups()
-
-            names = {item["filename"]: item for item in scan["items"]}
-            self.assertIn(backup_set.name, names)
-            self.assertEqual(names[backup_set.name]["kind"], "auto_backup_set")
-            self.assertEqual(names[backup_set.name]["size"], 45)
-            self.assertNotIn(unrelated_dir.name, names)
-
-            result = cleanup.cleanup_sqlite_backups([backup_set.name, plain_file.name])
-
-            self.assertEqual(result["deleted_count"], 2)
-            self.assertEqual(result["space_reclaimed"], 52)
-            self.assertFalse(backup_set.exists())
-            self.assertFalse(plain_file.exists())
-            self.assertTrue(unrelated_dir.exists())
-
     def test_local_storage_usage_uses_data_root_filesystem(self) -> None:
         from app.v2.cleanup.service import CleanupService
         from app.v2.config import V2Settings

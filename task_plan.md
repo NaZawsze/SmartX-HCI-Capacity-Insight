@@ -1520,13 +1520,14 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 前端 CleanupSection/CleanupDialog/api/types + tsc exit 0 / vitest 89 passed（.3 node:20-alpine 容器；ServicePage.test 旧文案断言同步）。
 - [x] .3 验证：全量 334 tests OK (skipped=1)；真实功能验证六步（一次性容器+新代码+真 docker.sock）：分类/保护清单/按 ID 删除 129.40MB/保护守卫拒绝/keep=2 保留/在跑任务拒绝，全绿。live 服务保持 v0.5.3 镜像代码，本特性随发布时全新构建收编。
 
-### 25. 数据库自动备份 + 导出 .env 配对终态（#24 立项）[已实施并验证 2026-09-20]
+### 25. 数据库自动备份 + 导出 .env 配对终态（#24 立项）[自动备份部分按用户决策撤下（2026-09-20）；导出 .env 配对已实现并验证]
 
 设计文档：[docs/superpowers/specs/2026-09-20-auto-backup-and-env-pairing-design.md](docs/superpowers/specs/2026-09-20-auto-backup-and-env-pairing-design.md)。
 
 - 背景：#24 评估后用户拍板「我要终态」——不再停留在评估，直接实现自动备份能力 + 消掉导出恢复的 SSH 手工拷 .env。
 - 方案：①web-api 守护线程每日 `VACUUM INTO` 快照，与 `.env` 副本成对落入 `backups/auto-backup-*/`（0600，manifest 含 SHA），滚动保留 7 份（env 可调/可关），「SQLite 备份清理」成对管理；②导出打包后自动快照同代 `.env`（同目录同名 .env 后缀，不进 tar——包/钥匙分离不变量保持），任务中心加配对下载链接，另加 `GET /api/admin/migration/env-file` 与前端「下载当前 .env」入口。
 - [x] 设计文档（2026-09-20 用户指令「我要终态」）。
-- [x] 后端 auto_backup 模块 + TaskType.BACKUP + 调度接入 + 清理集成 + 导出快照/下载 API + 单测。
+- [x] 后端 auto_backup 模块 + TaskType.BACKUP + 调度接入 + 清理集成 + 导出快照/下载 API + 单测（216acb0）。
 - [x] 前端 MigrationSection「下载当前 .env」入口 + tsc/vitest。
-- [x] .3 验证：全量测试回基线、verify_api_docs、真实 run_backup + 导出配对下载。
+- [x] .3 验证：全量 341 tests OK、verify_api_docs 77 条、真实 run_backup + 导出配对下载全绿（progress.md 49-25）。
+- [x] **用户决策（2026-09-20「自动数据库备份暂时不做，只做记录」）**：自动备份部分撤下（main.py 调度/auto_backup.py/TaskType.BACKUP/清理集成/单测移除），能力作为记录保留（设计文档 + 两轮验证证据），后续按需恢复；**导出 .env 配对保留交付**。撤下后 .3 全量 335 tests OK（progress.md 49-25a）。

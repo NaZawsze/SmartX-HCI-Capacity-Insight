@@ -15,43 +15,17 @@
 | 平台升级前备份 | 升级流程自动 | `backups/upgrade-<版本>-before-<时间>.tar.gz` | 升级包执行 `backup.create` 生成；回滚依赖它 |
 | 迁移导入前备份 | 导入任务自动 | 导入任务记录的备份路径 | 备份失败默认阻止导入；导入结果与任务中心显示备份路径 |
 | 数据迁移导出包 | 服务管理 → 数据迁移 → 导出 | 下载 + `exports/migrations/` 留档 | **业务库 + Prometheus 历史 block 成对全量导出**，推荐的全量备份手段；导出时自动生成与迁移包同名的 `.env` 配对快照（0600），任务中心附「配对 .env」下载链接 |
-| 自动数据库备份（49-25） | web-api 内置守护线程周期执行 | `backups/auto-backup-<YYYYmmddTHHMMSSZ>/` | SQLite 快照 + 同代 `.env`（0600）+ manifest 三件成套；见 §2 |
-| SQLite 备份扫描/删除 | 服务管理 → 清理 | — | 管理**已有**备份文件（含自动备份集，按整集删除）的清理，不创建备份 |
+| SQLite 备份扫描/删除 | 服务管理 → 清理 | — | 管理**已有**备份文件的清理，不创建备份 |
 | 标准基线产物 | `scripts/capture_baseline.py capture` | 快照 + `SHA256SUMS` + manifest 行数 | 升级/大改前固化"SQLite + 配套 .env + Prometheus"可校验基线（Phase 49 第 7 项） |
 
-## 2. 自动数据库备份（v0.5.3 起）
+## 2. 推荐备份策略
 
-web-api 内置自动备份守护线程，对**同机** `app/smartx.db` 做周期快照，并与当前 `project/.env` 成对保管：
-
-- **产物**：`/data/smartx-storage-forecast/backups/auto-backup-<时间戳>/`，固定三件：
-  - `smartx.db`：在线 `VACUUM INTO` 一致性快照，写入后立即 `PRAGMA integrity_check`（失败即删除整集并记失败任务）；
-  - `project.env`：当前 `project/.env` 副本（0600），与快照**同代配对**，恢复时天然满足凭据解密约束；
-  - `manifest.json`：格式 `smartx-auto-backup`，含数据库/env 的 sha256 与来源路径，可校验完整性。
-- **节奏与环境变量**（`project/.env` 配置，改后重启 web-api 生效）：
-  - `SMARTX_AUTO_BACKUP_INTERVAL_HOURS`：间隔小时数，默认 24；**设为 0 或负数关闭自动备份**；
-  - `SMARTX_AUTO_BACKUP_KEEP`：滚动保留份数，默认 7，超出的最老备份集自动删除；
-  - `SMARTX_AUTO_BACKUP_INITIAL_DELAY_SECONDS`：web-api 启动后首跑延迟，默认 60。
-- **磁盘护栏**：可用空间不足 `2×(库+env)` 时跳过本次备份并在任务中心记录原因。
-- **任务中心**：每轮备份产生一条「自动数据库备份」任务（类型 `backup`），成功/失败与三件产物路径可查。
-- **清理集成**：服务管理 → 清理 → 空间清理的「SQLite 备份」扫描会把 `auto-backup-*` 目录识别为备份集，删除时**整集删除**（快照 + .env + manifest 一并），不会留下解不开凭据的孤儿快照。
-- **边界**：自动备份只覆盖 **SQLite + .env**，**不含 Prometheus 历史**；完整备份（含历史指标）仍用「迁移导出包」或 `capture_baseline.py`。
-
-### 从自动备份集恢复
-
-按 §5 恢复步骤执行，两处来源替换为备份集内文件即可：
-
-1. `smartx.db` 用备份集内的 `smartx.db`（恢复前先 `sha256sum` 与 `manifest.json` 中 `database.sha256` 比对，再 `PRAGMA integrity_check`）；
-2. `project/.env` 用同集的 `project.env`（与快照同代，无需再手工另存）；
-3. Prometheus 历史不在自动备份范围内，无需替换（若连历史一起回滚，改用迁移导出包恢复）。
-
-## 3. 推荐备份策略
-
-- **日常**：自动备份（§2）覆盖 SQLite + .env 的同机滚动快照，无需人工干预。
-- **常规（每周或大变更前）**：走产品正规流程生成迁移导出包并下载到异地（含 Prometheus 历史 + 自动配对的 .env 快照）；建议把导出包与配对 `.env` 一起转存异地，同机自动备份不防整机故障。
+- **常规（每周或大变更前）**：走产品正规流程生成迁移导出包并下载到异地（自动含配对 `.env` 快照，可一并转存）。迁移包恢复时必须与同代 `.env` 配对，才能解密 Tower 凭据；产品内也可单独下载当前 `.env`（数据迁移页「下载当前 .env」）。
 - **升级前**：升级流程自带备份即可，另用 `capture_baseline.py capture` 固化基线，升级后 `verify` 比对。
 - **保留期**：`backups/` 与 `exports/` 会持续增长，用服务管理 → 清理定期回收；不要手工 rm（尤其不要碰 `app/` 下的挂载点目录，见 troubleshooting.md §2）。
+- **周期性自动备份**：暂不启用（用户 2026-09-20 决策）。能力已完成设计与实现验证（SQLite 快照 + 同代 .env 成对滚动保管，见 docs/superpowers/specs/2026-09-20-auto-backup-and-env-pairing-design.md 与 progress.md 49-25），代码已撤下待后续按需恢复；现阶段自动化备份需求由迁移导出包 + 基线脚本覆盖。
 
-## 4. 手工冷备步骤（不依赖页面）
+## 3. 手工冷备步骤（不依赖页面）
 
 ```bash
 cd /data/smartx-storage-forecast/project
@@ -83,7 +57,7 @@ docker compose -f docker-compose.offline.yml start collector-worker
 
 完成后把 `$D` 传输到异地存储，并记录日期、版本（`docker exec web-api cat /app/VERSION`）、各表行数。
 
-## 5. 恢复步骤
+## 4. 恢复步骤
 
 前置：新环境先按 `pre_install.sh` 与 `docs/deployment.md` 完成目录与镜像准备；记录恢复前基线（容器、目录、如目标库存在则记行数）。**目标机器上已有业务数据时，先确认要被覆盖的范围并报告用户，不得静默覆盖。**
 
@@ -120,7 +94,7 @@ docker compose -f docker-compose.offline.yml up -d --force-recreate
 5. Prometheus 历史可查：任选一个历史时间点的容量序列能返回旧样本。
 6. 登录 UI 抽查总览/虚拟机/报表页面数据；确认旧库备份（`*.pre-restore-*`）妥善留存后再决定清理。
 
-## 6. 红线与事故口径
+## 5. 红线与事故口径
 
 - 禁止 `docker compose down -v`；禁止删除目标根目录、目标数据库、Prometheus 数据。
 - 恢复类操作先确认目标路径与基线，完成后报告：动了什么、删了什么（及是否可从 `*.pre-restore-*` 挽回）。

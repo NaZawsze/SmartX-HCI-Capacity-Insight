@@ -23,7 +23,6 @@ class TaskType(str, Enum):
     UPGRADE = "upgrade"
     CLEANUP = "cleanup"
     COLLECTION = "collection"
-    BACKUP = "backup"
 
 
 @dataclass(frozen=True)

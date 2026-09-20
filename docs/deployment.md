@@ -50,7 +50,6 @@ Production recommendations:
 - 采集频率在 Tower 设置页按 Tower 配置："采集间隔 - 分钟"默认 `60`（每小时一次），设为 `0` 时按该 Tower 的"每日采集时间"每天执行一次。`SMARTX_COLLECTION_INTERVAL_MINUTES` 仅作为存量数据库迁移时的初始回填值，运行时以 Tower 配置为准（worker 每 60 秒同步一次调度）。
 - `SMARTX_FRESHNESS_STALE_MINUTES` 控制数据新鲜度告警阈值（分钟，默认自适应 = 2 × 启用 Tower 最小采集周期且不低于 60）：最近成功采集超过阈值、或 Prometheus 样本滞后最近成功采集 15 分钟以上时，生成"数据质量需关注"告警。
 - `SMARTX_CAPACITY_ALERT_*` 控制集群容量告警：使用率 >= `WARNING_RATIO`（默认 75%）生成"需关注"告警，>= `CRITICAL_RATIO`（默认 80%）生成"高风险"告警；`MIN_FREE_BYTES` 大于 0 时，剩余空间低于该值也会生成"需关注"告警。告警在任务中心展示，同一持续条件确认后不会重复弹出，等级升级（需关注→高风险）会生成新告警。
-- 自动数据库备份：`SMARTX_AUTO_BACKUP_INTERVAL_HOURS`（默认 24，设 0/负数关闭）、`SMARTX_AUTO_BACKUP_KEEP`（滚动保留份数，默认 7）、`SMARTX_AUTO_BACKUP_INITIAL_DELAY_SECONDS`（web-api 启动后首跑延迟，默认 60）。备份集写入 `backups/auto-backup-<时间戳>/`（SQLite 快照 + 同代 .env 0600 + manifest），详见 docs/backup-recovery.md §2。
 - 定时采集失败时，平台按 Tower 配置只重试失败 Tower/集群；默认每 15 分钟重试一次，最多额外重试 3 次。
 - 部分 Tower/集群采集成功时，成功目标仍写入 SQLite 当前态和 Prometheus；失败目标不写新样本，虚拟机趋势图会显示缺采和 `非最新` 提示。
 - Change `SMARTX_CREDENTIAL_KEY`.

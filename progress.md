@@ -7470,3 +7470,12 @@ release_smoke=critical 0, warning 0
 - 真实功能验证（一次性容器 v0.5.3 镜像 + PYTHONPATH 指向新代码 + 真数据目录/env，live 服务不动）：run_backup 两次成功——backups/auto-backup-20260920T073713Z 与 073743Z 各含 smartx.db（~33.8MB，integrity_check=ok，towers=1）/project.env（0600，与 live .env 逐字节一致）/manifest.json（sha256 匹配）；任务中心产生「自动数据库备份」backup 任务（三链接）。导出配对：config+full 两包各生成同名 .tar.env（0600，与 live .env 一致），任务链接含「配对 .env（恢复时必须同代使用）」；live web-api 经 /api/admin/exports/migrations/<name>.tar.env 下载 200、内容含 SMARTX_SECRET_KEY（343 字节与盘上快照一致）。
 - 收尾验证：/api/system/health ok=true（v0.5.3/v0.3.1，checks 三项 true）；远端临时脚本/归档已清理。文档：backup-recovery.md 新增 §2 自动备份（位置/节奏/护栏/整集清理/从备份集恢复）并重排章节、deployment.md 补三个环境变量、CHANGELOG v0.5.3 新增两条、pending-tasks #24 闭环、doc-map 同步。
 - 状态：49-25 完成；随 v0.5.3 正式构建收编。验证期间在 .3 产生真实备份集 2 个（auto-backup-20260920T073713Z/073743Z，各约 33.9MB）与迁移导出包 2 个（含配对 .env），均为产品功能正常产物，留存可查（后续可走产品空间清理回收）。
+
+## 2026-09-20 自动数据库备份撤下（用户决策「暂时不做，只做记录」）
+
+- 用户决策：自动数据库备份暂不启用，只做记录；导出 .env 配对保留（用户询问其含义，已解释）。
+- 撤下范围：backend/app/v2/auto_backup.py 与 tests/test_v2_auto_backup.py 删除；main.py 移除守护线程接入；TaskType.BACKUP 与前端 kind 映射移除；cleanup 恢复为仅扫描/删除散装 .db 备份文件（auto-backup-* 整集识别逻辑移除）；deployment.md 移除 SMARTX_AUTO_BACKUP_*；backup-recovery.md 移除 §2 自动备份专节并恢复原章节编号；CHANGELOG 移除自动备份条目。
+- 保留范围：导出 .env 配对全链路（_snapshot_env_for_bundle 同步/异步/配置导出 + env-file API + 前端入口）；config.py env_file_path/project_path_override（配对依赖）。
+- 记录性保留：设计文档 docs/superpowers/specs/2026-09-20-auto-backup-and-env-pairing-design.md 不删（即「记录」载体）；本文件 49-25 节保留两轮实现与验证证据；恢复时按设计文档 + git 历史 216acb0 可直接复用。
+- 本地：cleanup 11 tests OK（skipped=1）+ 编译检查过。pending-tasks #24、task_plan 49-25、backup-recovery §2 推荐策略均已写入决策记录。
+- .3 复验：见 49-25a 节（撤下后全量 335 tests OK，导出配对 live 复验 200）。
