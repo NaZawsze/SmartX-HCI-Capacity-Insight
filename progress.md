@@ -7486,3 +7486,9 @@ release_smoke=critical 0, warning 0
 - 导出配对复验（一次性容器跑新代码）：config 导出包生成同名 .tar.env（0600，与 live .env 逐字节一致）。
 - backups/ 复查：仅存验证期产生的 2 个 auto-backup-* 集合（20260920T073713Z/073743Z），撤下后无新增——守护线程确已不在；这 2 个目录为普通文件，后续走产品空间清理（散装 .db 扫描不含目录）或随磁盘治理处理，无害留存。
 - /api/system/health 200（v0.5.3/v0.3.1）。前端与 api.md 无变化（env-file 路由与入口保留）。
+
+## 2026-09-20 数据迁移页面梳理（用户反馈「界面不明所以」，UI 优化输入）
+
+- 产出：docs/superpowers/specs/2026-09-20-migration-page-ux-review.md（梳理稿，未改任何代码）。逐条核对 migration/service.py 与 MigrationSection.tsx 后写就，含：页面定位（业务数据搬出/搬进/体检，与升级无关）、迁移包两种规格的真实内容（两种包 SQLite 载荷均仅 towers/clusters；全量另含 Prometheus 历史；vm_latest 等当前态表不随包走、导入后由下次采集重建）、恢复密钥（.env）与包的配对关系、每个界面元素的真实行为与常见误解、元素关系图、5 个典型场景剧本、现状 8 条问题清单、UI 优化方向（三区重组/后果化命名/去 .env 黑话/健康检查常驻化）与改版验收基准。
+- 登记：doc-map 新增该档条目；pending-tasks 新增 #26（数据迁移页 UI/文案优化，待立项实施）。
+- 说明：本次仅梳理不改码；改版按 pending-tasks #26 走立项→设计→实施流程。
