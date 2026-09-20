@@ -7542,3 +7542,12 @@ release_smoke=critical 0, warning 0
   - 前端：MigrationSection 密钥弹窗改为风险提示 + 密码输入框（type=password、回车提交、行内 migration-key-error 错误提示）+「确认下载」；api.downloadEnvFile(password) 走 POST JSON；CSS：migration-key-form/migration-key-password/migration-key-error，且 .migration-key-dialog-actions 内主/次按钮统一 height 34px / padding 0 14px。
 - .3 验证（root 经 docker exec web-api，PYTHONPATH 指向挂载的 project/backend 新代码）：test_v2_migration 定向 9 tests OK（新断言 405/403×2/200 内容比对/404）；全量 335 tests OK (skipped=1)；verify_api_docs「api.md 77 条（含 1 条白名单豁免）与后端 76 条路由一致」；前端 tsc exit 0、vitest 8 files 89 passed（node:20-alpine）；npm run build 重建 dist（23:10 index-CZWVZahU.js），:8081 预览容器直接生效。
 - 边界与未验证项：live web-api 仍跑 v0.5.3 候选镜像旧代码（现场仍暴露旧 GET，POST 需等下次发包）；真实浏览器端到端（输错密码提示/正确下载）待用户在预览验证（预览后端为 live 旧代码，POST 会 404——预览仅可看 UI 形态，功能验证以后端测试 + 下次发包为准）。
+
+## 49-26g（2026-09-20）报表趋势图切换天数双画修复
+
+- 用户反馈（报表页截图）：「切换天数后，折线统计图会重画两次」。
+- 根因（代码定位）：切换天数时 `chartDays` 变化使 ClusterCapacityChart 的 `key`（含 rangeDays）变化 → ECharts 整图销毁重建第一画（此时数据还是旧天数的，只有轴先变）；随后 `[chartDays]` effect 重新请求报表，数据到达再变 key → 第二画。即「旧数据先画一遍、新数据再画一遍」。
+- 修复（2b7868c）：ReportsPage 增加 `appliedChartDays`，仅在按新天数请求成功（seq 守卫内 setReport 的同一处）时更新；图表 `rangeDays` 改传 appliedChartDays——切换瞬间图表保持旧视图不动，新数据+新轴一次性应用，单次重绘。onRangeDaysChange 仍写 chartDays（发起请求+按钮高亮不受影响）。
+- 测试：ReportsPage.test.tsx 新增用例「keeps the previous chart view until the new range data arrives to avoid double redraw」（点击 30 天后数据到达前 chart-range 仍为 365、数据到达后一次性切到 30）；原有 30→7 快速切换竞态用例不变通过。
+- .3 验证：tsc exit 0；vitest 8 files 90 passed（新增 1 例）；npm run build 重建 dist（23:21 index-Cs4IZEq_.js），:8081 预览生效。
+- 边界：数据到达后的那次重绘是必要更新（新数据集）；本修复消除的是切换瞬间的旧数据重画与轴错位闪烁。

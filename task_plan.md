@@ -1567,3 +1567,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - 测试：test_v2_migration.py API 用例改为 405（旧 GET）/403（空、错密码）/200（正确密码返回 .env 内容）/404（文件缺失）；api.md 行同步 POST。
 - [x] .3 验证：migration 定向 9 tests OK；全量 335 tests OK (skipped=1)；verify_api_docs 77 条一致；tsc exit 0、vitest 8 files 89 passed；dist 重建（23:10）预览生效。
 - 边界：live web-api 仍为旧镜像（GET 仍在、POST 404），随 v0.5.3 正式包收编；无专项设计文档，口径记录于本条（小任务合并设计）。
+
+### 30. 报表趋势图切换天数双画修复（pending-tasks #26 追加四）[已实施并验证 2026-09-20]
+
+来源：2026-09-20 用户反馈「切换天数后，折线统计图会重画两次」。根因与修复见 progress.md 49-26g（appliedChartDays 数据到达才应用，提交 2b7868c）；新增回归测试 1 例，.3 vitest 90 passed。
