@@ -5,7 +5,7 @@ This document defines the release gate for SmartX HCI Capacity Insight. A releas
 ## Environment Roles
 
 - `dev/debug`: use `10.20.11.3`. Local builds, temporary patches, dirty data, container inspection, and quick rebuilds are allowed. This environment is not a release pass.
-- `upgrade rehearsal`: use `10.20.11.12`. Use it for upgrade package rehearsal such as `v0.5.1u2 -> v0.5.3`, `v0.5.2 -> v0.5.3`, and `v0.5.3 -> v0.5.3`. Record the starting version, image tags, upgrade package sha256, and database state before every run.
+- `upgrade rehearsal`: use `10.20.11.12`. Use it for upgrade package rehearsal such as `v0.5.1u2 -> v0.5.3`, `v0.5.2 -> v0.5.3`, and `v0.5.3 -> v0.5.3`. Record the starting version, image tags, upgrade package sha256, and database state before every run. **Strict real-environment discipline (user, 2026-09-20): no manual host-side changes on .12 — no hand `docker rmi`, no manual directory cleanup, no file edits. Everything on .12 goes through product flows only (upgrade center, in-product features).**
 - `release canary`: use a dedicated clean host when available. It must use the final `main` tag, DockerHub tag images, release compose files, and GitHub Release upgrade packages. Do not treat hot-patched containers as accepted. **Current standing (2026-09-20, per user): `10.20.0.6` is the frp Tower host and is NOT a canary target; the upgrade-rehearsal host `10.20.11.12` carries the production-equivalent acceptance duty (Phase 30 fresh-deploy validation plus multiple real upgrade runs) until a dedicated clean canary host exists.**
 
 Production-like hosts are read-only by default. Any file write, container recreate, cleanup, recovery, or deployment action must be listed first and explicitly approved.
