@@ -206,7 +206,9 @@ class V2MigrationServiceTest(unittest.TestCase):
 
             inline = service.start_export_task(run_inline=True)
             self.assertEqual(inline["status"], "succeeded")
-            inline_links = inline["links"]
+            inline_task = tasks.get_task(inline["task_id"])
+            self.assertIsNotNone(inline_task)
+            inline_links = inline_task["links"] if inline_task else []
             self.assertTrue(any(link["label"].startswith("配对 .env") for link in inline_links))
 
     def test_import_merge_creates_backup_and_does_not_overwrite_existing_cluster(self) -> None:
