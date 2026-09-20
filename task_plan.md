@@ -1531,3 +1531,14 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 前端 MigrationSection「下载当前 .env」入口 + tsc/vitest。
 - [x] .3 验证：全量 341 tests OK、verify_api_docs 77 条、真实 run_backup + 导出配对下载全绿（progress.md 49-25）。
 - [x] **用户决策（2026-09-20「自动数据库备份暂时不做，只做记录」）**：自动备份部分撤下（main.py 调度/auto_backup.py/TaskType.BACKUP/清理集成/单测移除），能力作为记录保留（设计文档 + 两轮验证证据），后续按需恢复；**导出 .env 配对保留交付**。撤下后 .3 全量 335 tests OK（progress.md 49-25a）。
+
+### 26. 数据迁移页客户化文案与使用说明（pending-tasks #26 第一批）[已实施并验证 2026-09-20]
+
+设计输入：[docs/superpowers/specs/2026-09-20-migration-page-ux-review.md](docs/superpowers/specs/2026-09-20-migration-page-ux-review.md)（梳理稿 §5 问题清单 / §6 优化方向；本批为其中"术语客户化 + 页底说明"切片，三区结构重组留待后续批次）。
+
+- 背景：用户反馈「界面不明所以，我自己都忘了做什么用的」「词语对客户不一定能懂，需要更简洁明了，页面下写个说明」。
+- 实施（ff7c553）：导出按钮「导出配置迁移包→仅导出 Tower 配置」「下载当前 .env→下载恢复密钥」；导入模式「补全缺失数据/覆盖导入→合并数据/整库替换」+动态后果提示行；确认勾选、提示语同步；页面底部新增「使用说明」卡（导出/仅导出配置/恢复密钥/导入/健康检查五条大白话，含包+密钥成对保存与忘记密钥补救路径）；全量导出成功提示引导成对保存；后端任务标题与配对链接标签同步（「恢复密钥（与迁移包成对使用）」）；UI 层 .env 字样全部退场（.env 不进包/0600/需登录的安全边界不变）。
+- [x] 本地编译 + cleanup 套件 OK（skipped=1）。
+- [x] .3（ff7c553 git archive 同步）：tsc exit 0；vitest 8 files 89 passed；全量后端 335 tests OK (skipped=1)。
+- [x] 登记 doc-map/pending-tasks #26/progress；review 文档状态行更新。
+- 边界：无路由变更（verify_api_docs 不受影响）；live 前端为镜像内旧构建，新文案随 v0.5.3 正式构建收编。

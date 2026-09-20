@@ -7492,3 +7492,10 @@ release_smoke=critical 0, warning 0
 - 产出：docs/superpowers/specs/2026-09-20-migration-page-ux-review.md（梳理稿，未改任何代码）。逐条核对 migration/service.py 与 MigrationSection.tsx 后写就，含：页面定位（业务数据搬出/搬进/体检，与升级无关）、迁移包两种规格的真实内容（两种包 SQLite 载荷均仅 towers/clusters；全量另含 Prometheus 历史；vm_latest 等当前态表不随包走、导入后由下次采集重建）、恢复密钥（.env）与包的配对关系、每个界面元素的真实行为与常见误解、元素关系图、5 个典型场景剧本、现状 8 条问题清单、UI 优化方向（三区重组/后果化命名/去 .env 黑话/健康检查常驻化）与改版验收基准。
 - 登记：doc-map 新增该档条目；pending-tasks 新增 #26（数据迁移页 UI/文案优化，待立项实施）。
 - 说明：本次仅梳理不改码；改版按 pending-tasks #26 走立项→设计→实施流程。
+
+## 2026-09-20 数据迁移页客户化文案 + 使用说明（49-26 第一批，用户反馈「界面不明所以/词语客户看不懂」）
+
+- 提交：ff7c553（feat: customer-friendly migration page copy and usage guide；task_plan 49-26，设计输入 docs/superpowers/specs/2026-09-20-migration-page-ux-review.md §5/§6）。
+- 内容：①导出按钮改客户语言——「导出配置迁移包→仅导出 Tower 配置」「下载当前 .env→下载恢复密钥」，头部按钮重排（健康检查/仅导出 Tower 配置/下载恢复密钥/导出迁移包主按钮）；②导入模式后果化——「补全缺失数据/覆盖导入→合并数据/整库替换」，模式下方新增动态后果提示行（合并=现有内容不动；替换=清空并自动备份可回退），确认勾选与拦截提示同步；③页面底部新增「使用说明」卡：导出迁移包/仅导出 Tower 配置/恢复密钥/导入/健康检查五条大白话（含"导出时自动生成恢复密钥、两份文件一起保存""没带密钥可在 Tower 设置重输密码"的引导）；④全量导出成功提示改为引导成对保存；⑤后端任务标题/消息/配对链接标签同步（「恢复密钥（与迁移包成对使用）」「仅导出 Tower 配置」），UI 层 .env 字样全部退场；安全边界不变（密钥不进包、0600、下载需登录）。
+- 测试：本地编译 + cleanup 11 OK（skipped=1）。.3（ff7c553 git archive 同步）：tsc exit 0；vitest 8 files 89 passed（ServicePage.test 断言同步：整库替换/仅导出 Tower 配置/新确认文案）；全量后端 335 tests OK (skipped=1)（test_v2_migration 配对标签断言同步）。
+- 边界：无路由变更（api.md/verify_api_docs 不受影响）；live 前端为镜像内旧构建，新文案随 v0.5.3 正式构建收编。剩余后续批次：三区结构重组、健康检查结果常驻化（pending-tasks #26）。
