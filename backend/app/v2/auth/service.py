@@ -56,3 +56,8 @@ class AuthService:
                 (hash_password(new_password), username),
             )
         return True
+
+    def confirm_password(self, username: str, password: str) -> bool:
+        with self.database.connection() as conn:
+            user = row_to_dict(conn.execute("SELECT password_hash FROM users WHERE username = ?", (username,)).fetchone())
+        return user is not None and verify_password(password, user["password_hash"])

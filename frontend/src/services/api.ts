@@ -97,13 +97,21 @@ export interface DownloadResult {
   downloadUrl?: string;
 }
 
-async function download(path: string, onProgress?: ProgressCallback): Promise<DownloadResult> {
+async function download(path: string, onProgress?: ProgressCallback, init?: { method?: string; jsonBody?: unknown }): Promise<DownloadResult> {
   const token = getToken();
   const headers = new Headers();
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  const response = await fetch(`${API_BASE}${path}`, { headers });
+  const hasBody = init?.jsonBody !== undefined;
+  if (hasBody) {
+    headers.set("Content-Type", "application/json");
+  }
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers,
+    method: init?.method ?? "GET",
+    body: hasBody ? JSON.stringify(init?.jsonBody) : undefined
+  });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({ detail: response.statusText }));
     if (response.status === 401) {
@@ -440,8 +448,8 @@ export const api = {
     const ids = (imageIds || []).filter((id) => id.trim());
     return request<{ ok: boolean; deleted_count: number; space_reclaimed: number; space_reclaimed_label?: string; space_reclaimable_before?: number; space_reclaimable_before_label?: string; errors?: string[]; logs?: string[]; message: string }>("/api/admin/system/cleanup-images", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image_ids: ids }) });
   },
-  async downloadEnvFile(): Promise<DownloadResult> {
-    return download("/api/admin/migration/env-file");
+  async downloadEnvFile(password: string): Promise<DownloadResult> {
+    return download("/api/admin/migration/env-file", undefined, { method: "POST", jsonBody: { password } });
   },
   async scanSpaceCleanup(): Promise<SpaceCleanupScanResult> {
     return request<SpaceCleanupScanResult>("/api/admin/system/cleanup-artifacts/scan");

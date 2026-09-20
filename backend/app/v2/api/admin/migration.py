@@ -9,8 +9,9 @@ from fastapi.responses import FileResponse
 
 from app.v2.migration.service import ARCHIVE_MEDIA_TYPE, MigrationService
 
-from app.v2.api.deps import get_migration_service, require_user
-from app.v2.api.models import AdminTaskResponse, MigrationHealthResponse
+from app.v2.api.deps import get_auth_service, get_migration_service, require_user
+from app.v2.api.models import AdminTaskResponse, EnvFileDownloadRequest, MigrationHealthResponse
+from app.v2.auth.service import AuthService
 from app.v2.api.system import download_response
 
 router = APIRouter()
@@ -101,12 +102,16 @@ def migration_health(
     }
 
 
-@router.get("/api/admin/migration/env-file")
+@router.post("/api/admin/migration/env-file")
 def download_current_env_file(
-    _: Annotated[CurrentUser, Depends(require_user)],
+    payload: EnvFileDownloadRequest,
+    user: Annotated[CurrentUser, Depends(require_user)],
     migration: Annotated[MigrationService, Depends(get_migration_service)],
+    auth: Annotated[AuthService, Depends(get_auth_service)],
 ) -> FileResponse:
-    """下载当前 project/.env（管理员显式动作）；恢复历史导出包时按需与包配对使用。"""
+    """下载当前 project/.env（需重新输入平台密码确认身份）；恢复历史导出包时按需与包配对使用。"""
+    if not payload.password or not auth.confirm_password(user.username, payload.password):
+        raise HTTPException(status_code=403, detail="平台密码不正确，无法下载恢复密钥。")
     env_path = migration.settings.env_file_path
     if not env_path.is_file():
         raise HTTPException(status_code=404, detail="未找到 project/.env 文件。")

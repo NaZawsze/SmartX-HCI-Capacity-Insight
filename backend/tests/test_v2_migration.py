@@ -495,12 +495,20 @@ class V2MigrationApiTest(unittest.TestCase):
                     self.assertEqual(overwrite_without_confirm.status_code, 400)
                     self.assertIn("覆盖导入会清空当前系统数据", overwrite_without_confirm.json()["detail"])
 
-                    self.assertEqual(client.get("/api/admin/migration/env-file").status_code, 401)
-                    env_download = client.get("/api/admin/migration/env-file", headers=headers)
+                    self.assertEqual(client.get("/api/admin/migration/env-file").status_code, 405)
+                    self.assertEqual(client.post("/api/admin/migration/env-file", headers=headers, json={}).status_code, 403)
+                    self.assertEqual(
+                        client.post("/api/admin/migration/env-file", headers=headers, json={"password": "wrong-password"}).status_code,
+                        403,
+                    )
+                    env_download = client.post("/api/admin/migration/env-file", headers=headers, json={"password": "password"})
                     self.assertEqual(env_download.status_code, 200)
                     self.assertEqual(env_download.text, env_content)
                     (project_dir / ".env").unlink()
-                    self.assertEqual(client.get("/api/admin/migration/env-file", headers=headers).status_code, 404)
+                    self.assertEqual(
+                        client.post("/api/admin/migration/env-file", headers=headers, json={"password": "password"}).status_code,
+                        404,
+                    )
             finally:
                 os.environ.pop("SMARTX_DATA_ROOT", None)
                 os.environ.pop("SMARTX_SECRET_KEY", None)

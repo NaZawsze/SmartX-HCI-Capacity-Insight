@@ -18,6 +18,9 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
   const [migrationConfirmed, setMigrationConfirmed] = useState(false);
   const [migrationHealthMessage, setMigrationHealthMessage] = useState("");
   const [keyDialogOpen, setKeyDialogOpen] = useState(false);
+  const [keyPassword, setKeyPassword] = useState("");
+  const [keyError, setKeyError] = useState("");
+  const [keyBusy, setKeyBusy] = useState(false);
   const migrationFileInputRef = useRef<HTMLInputElement | null>(null);
 
   async function exportMigration() {
@@ -133,12 +136,22 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
 
   async function downloadEnvFile() {
     setMigrationMessage("");
+    if (!keyPassword) {
+      setKeyError("请输入平台登录密码");
+      return;
+    }
+    setKeyBusy(true);
+    setKeyError("");
     try {
-      const result = await api.downloadEnvFile();
+      const result = await api.downloadEnvFile(keyPassword);
       saveBlob(result.blob, result.filename || "project.env");
+      setKeyDialogOpen(false);
+      setKeyPassword("");
       setMigrationMessage("已下载恢复密钥。恢复迁移包时请与其一同使用；若没有密钥，也可导入后在 Tower 设置中重新输入密码。");
     } catch (exc) {
-      setMigrationMessage(exc instanceof Error ? exc.message : "下载恢复密钥失败");
+      setKeyError(exc instanceof Error ? exc.message : "下载恢复密钥失败");
+    } finally {
+      setKeyBusy(false);
     }
   }
 
@@ -258,15 +271,27 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
         </div>
       </div>
       {keyDialogOpen && (
-        <div className="modal-backdrop" role="presentation" onClick={() => setKeyDialogOpen(false)}>
+        <div className="modal-backdrop" role="presentation" onClick={() => { if (!keyBusy) setKeyDialogOpen(false); }}>
           <div className="migration-key-dialog" role="dialog" aria-modal="true" aria-labelledby="migration-key-dialog-title" onClick={(event) => event.stopPropagation()}>
             <strong id="migration-key-dialog-title">下载恢复密钥</strong>
             <p>恢复密钥等同于本系统全部 Tower 密码的钥匙：任何拿到它的人都能解开迁移包中的 Tower 凭据并登录对应集群。</p>
             <p>请只保存在受控的存储位置，不要通过聊天工具、邮箱等不安全渠道传输；如果怀疑泄露，请立即在 Tower 设置中重置相关密码。</p>
-            <div className="migration-key-dialog-actions">
-              <button className="secondary-button" type="button" onClick={() => setKeyDialogOpen(false)}>取消</button>
-              <button className="primary-button" type="button" onClick={() => { setKeyDialogOpen(false); downloadEnvFile(); }}>我已了解，下载密钥</button>
-            </div>
+            <form className="migration-key-form" onSubmit={(event) => { event.preventDefault(); downloadEnvFile(); }}>
+              <input
+                type="password"
+                className="migration-key-password"
+                placeholder="请输入平台登录密码确认身份"
+                value={keyPassword}
+                autoComplete="current-password"
+                disabled={keyBusy}
+                onChange={(event) => { setKeyPassword(event.target.value); setKeyError(""); }}
+              />
+              {keyError && <span className="migration-key-error" role="alert">{keyError}</span>}
+              <div className="migration-key-dialog-actions">
+                <button className="secondary-button" type="button" onClick={() => setKeyDialogOpen(false)} disabled={keyBusy}>取消</button>
+                <button className="primary-button" type="submit" disabled={keyBusy}>确认下载</button>
+              </div>
+            </form>
           </div>
         </div>
       )}

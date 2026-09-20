@@ -2815,6 +2815,37 @@ button.risk-cluster-row:hover {
   margin-top: 4px;
 }
 
+.migration-key-dialog-actions .primary-button,
+.migration-key-dialog-actions .secondary-button {
+  height: 34px;
+  padding: 0 14px;
+}
+
+.migration-key-form {
+  display: grid;
+  gap: 8px;
+}
+
+.migration-key-password {
+  height: 36px;
+  border: 1px solid #cfd9e8;
+  border-radius: 6px;
+  padding: 0 10px;
+  outline: none;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.migration-key-password:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.12);
+}
+
+.migration-key-error {
+  color: var(--red);
+  font-size: 12px;
+}
+
 .migration-confirm {
   align-items: flex-start;
   color: #a33d3d !important;
