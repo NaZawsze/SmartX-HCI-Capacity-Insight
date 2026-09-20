@@ -125,15 +125,15 @@ function capacityStatus(current: number, total: number | null): ChartModel["stat
   return "healthy";
 }
 
-function axisInterval(rangeDays: RangeDays): number {
-  if (rangeDays <= 7) return 0;
-  if (rangeDays <= 30) return 4;
-  if (rangeDays <= 90) return 14;
-  return 29;
+// 横轴标签按实际类目数自适应：数据历史短于窗口时（新部署环境常态）类目少，
+// 固定按名义窗口天数给间隔会导致 hideOverlap 藏掉几乎所有日期标签。
+function axisInterval(labelCount: number): number {
+  if (labelCount <= 12) return 0;
+  return Math.ceil(labelCount / 10) - 1;
 }
 
-function formatAxisLabel(value: string, rangeDays: RangeDays): string {
-  if (rangeDays <= 90) return value.slice(5);
+function formatAxisLabel(value: string, rangeDays: RangeDays, spanDays: number): string {
+  if (rangeDays <= 90 || spanDays < 180) return value.slice(5);
   const date = new Date(`${value}T00:00:00Z`);
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
@@ -204,6 +204,9 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
   const historyByLabel = new Map(historyPoints);
   const futureByLabel = new Map(projected.map((point) => [point.label, point.value] as [string, number]));
   const hasBand = model.bandNow > 0 || model.bandPerDay > 0;
+  const axisSpanDays = actualPoints.length > 1
+    ? (dateValue(actualPoints[actualPoints.length - 1][0]) - dateValue(actualPoints[0][0])) / dayMs
+    : 0;
   const bandUpper = new Map<string, number>();
   const bandLower = new Map<string, number>();
   if (hasBand) {
@@ -251,7 +254,7 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
       boundaryGap: false,
       data: labels,
       axisLine: { lineStyle: { color: "#d6dee9" } },
-      axisLabel: { color: "#718096", hideOverlap: true, interval: axisInterval(rangeDays), formatter: (value: string) => formatAxisLabel(value, rangeDays) }
+      axisLabel: { color: "#718096", hideOverlap: true, interval: axisInterval(labels.length), formatter: (value: string) => formatAxisLabel(value, rangeDays, axisSpanDays) }
     },
     yAxis: {
       type: "value",

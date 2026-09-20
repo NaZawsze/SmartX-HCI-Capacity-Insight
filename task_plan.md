@@ -1581,6 +1581,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 来源：2026-09-20 用户两项指示：①「这 4 个维度，都需要显示当日一个节点，用黄色的字最好」；②引用「先量生产规模下报表接口实际耗时……慢了就优化查询和 payload，那才是治本。这个你优化了？」并指示把这个优化做了。
 
 - 当日节点（49-26l）：ClusterCapacityChart 新增「当日容量」散点系列（#eab308 黄点 + 顶部黄色加粗数值标签，取实际序列末点），图例与 tooltip 均排除该系列；四档（7/30/90/365）通吃（各档序列末点即当日）。.3 验证：tsc 0 / vitest 90 passed / build 重建（01:58）+ 预览 8081 四档逐档截图目视确认。
+- 横轴日期标签自适应（49-26n，用户反馈「下面时间刻度显示的时间太少」）：`axisInterval` 由按名义窗口天数固定间隔改为按实际类目数自适应（≤12 全显，否则每 ⌈n/10⌉ 一个，目标约 10 个标签）；365 天档标签跨度感知（跨度 <180 天显示月-日）。.3 四档截图目视均 10 个标签（progress.md 49-26n）。
 - 报表接口查询去重（49-26m，pending-tasks #28 第一阶段）：设计 docs/superpowers/specs/2026-09-20-report-latency-optimization-design.md；`_MemoPrometheus` 请求内包装（range 按 (query,start,end,step)、instant 按 query 去重，其余属性透传），latest_report 入口换装 try/finally 恢复，DataQualityService 经 prometheus=self.prometheus 共享同一 memo；零行为变化。单测：CountingPrometheus 断言去重后底层 range/instant 调用无重复键 + 与裸调用输出一致 + 调用后 self.prometheus 还原。
 - [x] .3 A/B 实测（同进程同数据，5 次取中位）：无 memo 555ms → memo 288ms（-48%），Prometheus 调用 15→10（去重后全部唯一）；payload 不变（437KB，month_new_vms 277KB 占 63%，留给 #28 第二阶段）。
 - [x] .3 测试：reports 三套件 42 OK；全量 337 OK (skipped=1)。
