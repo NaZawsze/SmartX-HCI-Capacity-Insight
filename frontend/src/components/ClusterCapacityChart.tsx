@@ -219,24 +219,14 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
     model.total,
     model.warning
   ]);
-  const chartKey = useMemo(
-    () =>
-      [
-        rangeDays,
-        title,
-        actualPoints.map(([label]) => label).join(","),
-        actualPoints.map(([, value]) => value).join(","),
-        model.total ?? "",
-        model.warning ?? "",
-        model.slopePerDay,
-        model.bandNow,
-        model.bandPerDay
-      ].join("|"),
-    [actualPoints, model.slopePerDay, model.total, model.warning, model.bandNow, model.bandPerDay, rangeDays, title]
-  );
 
   const option = {
     color: ["#0f9fbf", "#8792a2", "#29354d", "#f59e0b", "#ef4444"],
+    animation: true,
+    animationDuration: 700,
+    animationEasing: "cubicOut",
+    animationDurationUpdate: 550,
+    animationEasingUpdate: "cubicOut",
     grid: { left: 76, right: 30, top: 52, bottom: 46 },
     legend: {
       top: 4,
@@ -349,7 +339,7 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
     <div className="cluster-chart-shell">
       <ClusterChartToolbar title={model.title} status={model.status} rangeDays={rangeDays} onRangeDaysChange={onRangeDaysChange} />
       <div className="cluster-chart-body">
-        <ReactECharts key={chartKey} option={option} style={{ height }} notMerge />
+        <ReactECharts option={option} style={{ height }} notMerge />
         {loading && <ChartLoadingOverlay />}
       </div>
       <div className="forecast-disclaimer">预测值可能会有偏差，以实际为准</div>
