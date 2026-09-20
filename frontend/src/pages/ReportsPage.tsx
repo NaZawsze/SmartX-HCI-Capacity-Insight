@@ -48,6 +48,14 @@ function quarterlyGrowth(value?: number | null): number {
   return (value || 0) * 90;
 }
 
+type ChartRangeDays = 7 | 30 | 90 | 365;
+
+const CHART_RANGES: ChartRangeDays[] = [7, 30, 90, 365];
+
+function reportCacheKey(scope: DashboardScope | undefined, days: ChartRangeDays): string {
+  return `${JSON.stringify(scope ?? null)}|${days}`;
+}
+
 export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTask, updateTask }: ReportsPageProps) {
   const [report, setReport] = useState<ForecastPayload | null>(null);
   const [selectedCluster, setSelectedCluster] = useState(scopedClusterValue(scope));
@@ -60,6 +68,10 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
   const [appliedChartDays, setAppliedChartDays] = useState<ChartRangeDays>(365);
   const [exportError, setExportError] = useState("");
   const reportRequestSeq = useRef(0);
+  const reportCacheRef = useRef(new Map<string, ForecastPayload>());
+  const chartDaysRef = useRef<ChartRangeDays>(chartDays);
+  const prefetchInFlightRef = useRef(new Set<string>());
+  const prevCacheBusterRef = useRef({ refreshKey, scope });
   const clusterOptions = useMemo(
     () =>
       (summary?.towers || []).flatMap((tower) =>
@@ -85,22 +97,65 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
   }, [scope]);
 
   useEffect(() => {
+    const prev = prevCacheBusterRef.current;
+    if (prev.refreshKey !== refreshKey || prev.scope !== scope) {
+      reportCacheRef.current.clear();
+      prevCacheBusterRef.current = { refreshKey, scope };
+    }
+  }, [refreshKey, scope]);
+
+  useEffect(() => {
+    chartDaysRef.current = chartDays;
+  }, [chartDays]);
+
+  function warmReportCache(scopeValue: DashboardScope | undefined) {
+    for (const days of CHART_RANGES) {
+      if (days === chartDaysRef.current) continue;
+      const key = reportCacheKey(scopeValue, days);
+      if (reportCacheRef.current.has(key) || prefetchInFlightRef.current.has(key)) continue;
+      prefetchInFlightRef.current.add(key);
+      api
+        .report(scopeValue, undefined, days)
+        .then((payload) => {
+          reportCacheRef.current.set(key, payload);
+        })
+        .catch(() => {
+          reportCacheRef.current.delete(key);
+        })
+        .finally(() => {
+          prefetchInFlightRef.current.delete(key);
+        });
+    }
+  }
+
+  useEffect(() => {
+    const cacheKey = reportCacheKey(reportScope, chartDays);
+    const cached = reportCacheRef.current.get(cacheKey);
+    if (cached) {
+      setReport(cached);
+      setAppliedChartDays(chartDays);
+    }
     const requestSeq = reportRequestSeq.current + 1;
     reportRequestSeq.current = requestSeq;
     api
       .report(reportScope, undefined, chartDays)
       .then((payload) => {
+        reportCacheRef.current.set(cacheKey, payload);
         if (reportRequestSeq.current === requestSeq) {
           setReport(payload);
           setAppliedChartDays(chartDays);
+          warmReportCache(reportScope);
         }
       })
       .catch(() => {
         if (reportRequestSeq.current === requestSeq) {
-          setReport(null);
-          setAppliedChartDays(chartDays);
+          if (!cached) {
+            setReport(null);
+            setAppliedChartDays(chartDays);
+          }
         }
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartDays, refreshKey, reportScope]);
 
   async function handleExportBundle() {
@@ -345,7 +400,6 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
 }
 
 type GrowthSortMode = "amount" | "ratio";
-type ChartRangeDays = 7 | 30 | 90 | 365;
 
 const EXPORT_PERIOD_OPTIONS = [
   { value: 7, label: "近 7 天" },
