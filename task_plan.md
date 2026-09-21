@@ -1586,3 +1586,9 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] .3 A/B 实测（同进程同数据，5 次取中位）：无 memo 555ms → memo 288ms（-48%），Prometheus 调用 15→10（去重后全部唯一）；payload 不变（437KB，month_new_vms 277KB 占 63%，留给 #28 第二阶段）。
 - [x] .3 测试：reports 三套件 42 OK；全量 337 OK (skipped=1)。
 - 待办（#28 第二阶段，未排期）：payload 瘦身（month_new_vms 288KB 全量列表，导出链路需全列表，需契约参数）+ 剩余 ~45ms 小查询可选并行。
+
+### 32. 空间清理去掉「保留最近 N 个升级任务」界面选项（用户反馈）[已实施并验证 2026-09-21]
+
+来源：2026-09-21 用户反馈「不保留吧，保留什么作用吗」「太麻烦了，客户不会用啊」。
+- 实施：CleanupSection 删除保留数量输入与状态（固定默认 0=全部清理）与警告解释句；global.css 删除 .cleanup-keep-control。后端 `keep_recent_upgrades` 参数保留（默认 0，行为不变），仅 API 层能力，UI 不暴露。无专项设计文档，口径记录于本条（单点 UI 简化）。
+- [x] .3 验证：tsc 0 / vitest 90 passed / build exit 0；预览目视空间清理页只剩扫描/一键清理（progress.md 49-26o）。
