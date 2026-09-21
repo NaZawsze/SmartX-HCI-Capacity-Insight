@@ -1,30 +1,46 @@
-import { Download, Info, ShieldAlert, Upload } from "lucide-react";
-import { useRef, useState } from "react";
+import { Download, Info, RefreshCw, ShieldAlert, Upload } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../services/api";
-import type { AppTask } from "../../types";
-import { PageHeader, UploadPanel, migrationExportTaskPatch, migrationImportTaskPatch, saveBlob, sleep, taskId, transferProgressValue, uploadProgressTaskPatch } from "./shared";
+import type { AppTask, MigrationHealth } from "../../types";
+import { InfoRow, PageHeader, UploadPanel, migrationExportTaskPatch, migrationImportTaskPatch, saveBlob, sleep, taskId, transferProgressValue, uploadProgressTaskPatch, type ServiceSection } from "./shared";
 
 interface MigrationSectionProps {
   active: boolean;
+  onNavigate?: (section: ServiceSection) => void;
   addTask: (task: Omit<AppTask, "createdAt" | "updatedAt">) => void;
   updateTask: (id: string, patch: Partial<Omit<AppTask, "id" | "createdAt">>) => void;
 }
 
-export function MigrationSection({ active, addTask, updateTask }: MigrationSectionProps) {
-  const [migrationMessage, setMigrationMessage] = useState("");
+type EnvStatusState = "idle" | "checking" | "ready" | "error";
+
+export function MigrationSection({ active, onNavigate, addTask, updateTask }: MigrationSectionProps) {
+  const [exportMessage, setExportMessage] = useState("");
+  const [exportPairedNotice, setExportPairedNotice] = useState(false);
+  const [importMessage, setImportMessage] = useState("");
   const [migrationBusy, setMigrationBusy] = useState(false);
   const [migrationFile, setMigrationFile] = useState<File | null>(null);
   const [migrationMode, setMigrationMode] = useState<"merge" | "overwrite">("merge");
   const [migrationConfirmed, setMigrationConfirmed] = useState(false);
-  const [migrationHealthMessage, setMigrationHealthMessage] = useState("");
+  const [envStatus, setEnvStatus] = useState<MigrationHealth | null>(null);
+  const [envStatusState, setEnvStatusState] = useState<EnvStatusState>("idle");
+  const [envStatusError, setEnvStatusError] = useState("");
   const [keyDialogOpen, setKeyDialogOpen] = useState(false);
   const [keyPassword, setKeyPassword] = useState("");
   const [keyError, setKeyError] = useState("");
   const [keyBusy, setKeyBusy] = useState(false);
   const migrationFileInputRef = useRef<HTMLInputElement | null>(null);
+  const envStatusCheckedRef = useRef(false);
+
+  useEffect(() => {
+    if (!active || envStatusCheckedRef.current) return;
+    envStatusCheckedRef.current = true;
+    void checkMigrationHealth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
 
   async function exportMigration() {
-    setMigrationMessage("");
+    setExportMessage("");
+    setExportPairedNotice(false);
     setMigrationBusy(true);
     const id = taskId("migration-export");
     addTask({ id, kind: "export", title: "导出迁移包", detail: "正在创建导出任务", status: "running", progress: 1, logs: ["正在创建后台导出任务"] });
@@ -39,7 +55,7 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
       if (task.status !== "succeeded" || !task.download_url) {
         const message = task.detail || "导出失败";
         updateTask(id, { status: "failed", progress: 100, detail: message, logs: task.logs || [message] });
-        setMigrationMessage(message);
+        setExportMessage(message);
         return;
       }
       const result = await api.downloadSavedExport(task.download_url, (progress) => {
@@ -54,18 +70,19 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
         logs: ["迁移包已生成", task.saved_path ? `服务器留档：${task.saved_path}` : "已完成浏览器下载"],
         links: [{ label: "下载", filename: task.filename, url: task.download_url, path: task.saved_path }]
       });
-      setMigrationMessage("迁移包已生成。恢复密钥已同步生成，可在任务中心下载，两份文件请一起保存。");
+      setExportPairedNotice(true);
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "导出失败";
       updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["导出失败", message] });
-      setMigrationMessage(message);
+      setExportMessage(message);
     } finally {
       setMigrationBusy(false);
     }
   }
 
   async function exportConfigMigration() {
-    setMigrationMessage("");
+    setExportMessage("");
+    setExportPairedNotice(false);
     setMigrationBusy(true);
     const id = taskId("config-migration-export");
     addTask({ id, kind: "export", title: "仅导出 Tower 配置", detail: "正在导出 Tower 和集群配置", status: "running", progress: 30, logs: ["此导出不包含历史数据"] });
@@ -82,24 +99,24 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
         logs: ["Tower 配置已导出", result.savedPath ? `服务器留档：${result.savedPath}` : "已完成浏览器下载"],
         links: result.downloadUrl ? [{ label: "下载", filename: result.filename, url: result.downloadUrl, path: result.savedPath }] : undefined
       });
-      setMigrationMessage("Tower 配置已导出（不含历史数据）");
+      setExportMessage("Tower 配置已导出（不含历史数据）。配置包里的 Tower 密码同样是加密的，恢复时需要恢复密钥。");
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "Tower 配置导出失败";
       updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["Tower 配置导出失败", message] });
-      setMigrationMessage(message);
+      setExportMessage(message);
     } finally {
       setMigrationBusy(false);
     }
   }
 
   async function importMigration() {
-    setMigrationMessage("");
+    setImportMessage("");
     if (!migrationFile) {
-      setMigrationMessage("请选择迁移包文件");
+      setImportMessage("请选择迁移包文件");
       return;
     }
     if (migrationMode === "overwrite" && !migrationConfirmed) {
-      setMigrationMessage("整库替换会清空当前数据，请先勾选确认");
+      setImportMessage("整库替换会清空当前数据，请先勾选确认");
       return;
     }
     setMigrationBusy(true);
@@ -120,7 +137,7 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
       const backupLog = task.backup_path ? `导入前备份：${task.backup_path}` : "";
       const healthLog = task.summary?.health?.message || "";
       updateTask(id, { ...migrationImportTaskPatch(task), status: "succeeded", progress: 100, detail: healthLog || "数据迁移导入完成" });
-      setMigrationMessage(["数据迁移导入完成", backupLog, healthLog].filter(Boolean).join(" "));
+      setImportMessage(["数据迁移导入完成", backupLog, healthLog].filter(Boolean).join(" "));
       setMigrationFile(null);
       if (migrationFileInputRef.current) migrationFileInputRef.current.value = "";
       setMigrationMode("merge");
@@ -128,14 +145,13 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "导入失败";
       updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["导入失败", message] });
-      setMigrationMessage(message);
+      setImportMessage(message);
     } finally {
       setMigrationBusy(false);
     }
   }
 
   async function downloadEnvFile() {
-    setMigrationMessage("");
     if (!keyPassword) {
       setKeyError("请输入平台登录密码");
       return;
@@ -147,7 +163,7 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
       saveBlob(result.blob, result.filename || "project.env");
       setKeyDialogOpen(false);
       setKeyPassword("");
-      setMigrationMessage("已下载恢复密钥。恢复迁移包时请与其一同使用；若没有密钥，也可导入后在 Tower 设置中重新输入密码。");
+      setExportMessage("已下载恢复密钥。恢复迁移包时请与其一同使用；若没有密钥，也可导入后在 Tower 设置中重新输入密码。");
     } catch (exc) {
       setKeyError(exc instanceof Error ? exc.message : "下载恢复密钥失败");
     } finally {
@@ -156,53 +172,64 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
   }
 
   async function checkMigrationHealth() {
-    setMigrationMessage("");
-    setMigrationHealthMessage("");
-    const id = taskId("migration-health");
-    addTask({ id, kind: "import", title: "迁移健康检查", detail: "正在检查业务库和历史指标", status: "running", progress: 20 });
+    setEnvStatusState("checking");
+    setEnvStatusError("");
     try {
       const result = await api.migrationHealth();
-      const failed = Object.entries(result.checks || {}).filter(([, ok]) => !ok).map(([name]) => name);
-      const logs = [
-        result.message,
-        `SQLite 表数量：${Object.keys(result.sqlite?.tables || {}).length}`,
-        `Prometheus block：${result.prometheus?.block_count ?? 0}`,
-        failed.length ? `未通过项：${failed.join(", ")}` : "所有检查项均通过"
-      ];
-      updateTask(id, { status: failed.length ? "failed" : "succeeded", progress: 100, detail: result.message, logs });
-      setMigrationHealthMessage(result.message);
+      setEnvStatus(result);
+      setEnvStatusState("ready");
     } catch (exc) {
-      const message = exc instanceof Error ? exc.message : "迁移健康检查失败";
-      updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["迁移健康检查失败", message] });
-      setMigrationHealthMessage(message);
+      const message = exc instanceof Error ? exc.message : "环境状态检查失败";
+      setEnvStatusError(message);
+      setEnvStatusState("error");
     }
   }
 
   if (!active) return null;
 
+  const tableCount = envStatus ? Object.keys(envStatus.sqlite?.tables || {}).length : 0;
+  const blockCount = envStatus?.prometheus?.block_count ?? 0;
+  const complete = envStatus?.complete ?? false;
+
   return (
     <>
-      <PageHeader eyebrow="系统运维" title="数据迁移" action={(
-        <div className="service-header-actions service-migration-actions">
-          <button className="secondary-button service-header-button" type="button" onClick={checkMigrationHealth} disabled={migrationBusy}>
-            <Info size={16} />
-            健康检查
-          </button>
-          <button className="secondary-button service-header-button" type="button" onClick={exportConfigMigration} disabled={migrationBusy}>
-            <Download size={16} />
-            仅导出 Tower 配置
-          </button>
+      <PageHeader eyebrow="系统运维" title="数据迁移" />
+      <div className="service-operation-card service-migration-card">
+        <div className="service-operation-head">
+          <div>
+            <strong>导出迁移包</strong>
+            <span>包含 Tower 配置与全部历史数据的备份文件，用于备份或搬到另一台服务器。</span>
+          </div>
+        </div>
+        <div className="migration-export-actions">
           <button className="primary-button service-header-button" type="button" onClick={exportMigration} disabled={migrationBusy}>
             <Download size={16} />
             导出迁移包
           </button>
+          <div className="migration-export-secondary">
+            <button className="secondary-button service-header-button" type="button" onClick={exportConfigMigration} disabled={migrationBusy}>
+              <Download size={15} />
+              仅导出 Tower 配置
+            </button>
+            <span>不带历史数据，适合让新环境快速接入同一批 Tower。</span>
+          </div>
         </div>
-      )} />
+        {exportPairedNotice && (
+          <div className="migration-paired-notice" role="status">
+            <ShieldAlert size={16} />
+            <div>
+              <strong>恢复需要两份文件，请一起保存：</strong>
+              <span>① 迁移包（已开始下载）② 恢复密钥（已自动生成，任务中心可下载）。只有迁移包、没有密钥，恢复后 Tower 密码无法解开。</span>
+            </div>
+          </div>
+        )}
+        {exportMessage && <div className="inline-message">{exportMessage}</div>}
+      </div>
       <div className="service-operation-card service-migration-card">
         <div className="service-operation-head">
           <div>
             <strong>迁移包导入</strong>
-            <span>选择本系统导出的迁移包装回数据。默认“合并数据”，只补缺的、不动现有内容；如需整体替换请选“整库替换”，会清空现有数据。</span>
+            <span>选择本系统导出的迁移包装回数据。先选导入方式，再开始导入。</span>
           </div>
         </div>
         <div className="migration-import service-migration-import">
@@ -221,19 +248,35 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
             disabled={migrationBusy}
             onClick={() => migrationFileInputRef.current?.click()}
           />
-          <div className="migration-mode-group" role="radiogroup" aria-label="导入方式">
-            <button className={migrationMode === "merge" ? "active" : ""} type="button" onClick={() => setMigrationMode("merge")} disabled={migrationBusy}>
-              合并数据
+          <div className="migration-mode-cards" role="radiogroup" aria-label="导入方式">
+            <button
+              className={migrationMode === "merge" ? "migration-mode-card active" : "migration-mode-card"}
+              type="button"
+              role="radio"
+              aria-checked={migrationMode === "merge"}
+              onClick={() => setMigrationMode("merge")}
+              disabled={migrationBusy}
+            >
+              <strong>合并数据</strong>
+              <span>只补缺的，现有的 Tower、集群和历史数据保持不动。最安全，默认选择。</span>
             </button>
-            <button className={migrationMode === "overwrite" ? "active" : ""} type="button" onClick={() => setMigrationMode("overwrite")} disabled={migrationBusy}>
-              整库替换
+            <button
+              className={migrationMode === "overwrite" ? "migration-mode-card danger active" : "migration-mode-card danger"}
+              type="button"
+              role="radio"
+              aria-checked={migrationMode === "overwrite"}
+              onClick={() => setMigrationMode("overwrite")}
+              disabled={migrationBusy}
+            >
+              <strong>整库替换</strong>
+              <span>清空并替换现有业务数据和历史指标。操作前会自动生成导入前备份。</span>
             </button>
           </div>
-          <p className="migration-mode-hint">
-            {migrationMode === "merge"
-              ? "只添加缺少的数据，现有的 Tower、集群和历史数据保持不变。"
-              : "将清空并替换现有的业务数据和历史指标；操作前会自动生成导入前备份，可用于回退。"}
-          </p>
+          {migrationMode === "overwrite" && (
+            <p className="migration-mode-hint migration-mode-hint-danger">
+              整库替换会清空当前系统的业务数据和历史指标，且不可撤销（只能用导入前备份回退）。
+            </p>
+          )}
           {migrationMode === "overwrite" && (
             <label className="checkbox-line migration-confirm">
               <input type="checkbox" checked={migrationConfirmed} onChange={(event) => setMigrationConfirmed(event.target.checked)} disabled={migrationBusy} />
@@ -247,10 +290,59 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
         </div>
         <div className="service-notice">
           <Info size={16} />
-          导入完成后，请在本页执行“服务重启”，新数据才会完全生效。
+          <span>导入完成后，需要执行“服务重启”，新数据才会完全生效。</span>
+          {onNavigate && (
+            <button className="secondary-button service-restart-link" type="button" onClick={() => onNavigate("restart")}>
+              去服务重启
+            </button>
+          )}
         </div>
-        {migrationHealthMessage && <div className="inline-message">{migrationHealthMessage}</div>}
-        {migrationMessage && <div className="inline-message">{migrationMessage}</div>}
+        {importMessage && <div className="inline-message">{importMessage}</div>}
+      </div>
+      <div className="service-operation-card service-migration-card">
+        <div className="service-operation-head">
+          <div>
+            <strong>环境状态</strong>
+            <span>当前环境数据完整性的只读体检：业务库、历史指标是否齐全。只查看、不修改任何内容。</span>
+          </div>
+          <button className="secondary-button service-header-button" type="button" onClick={checkMigrationHealth} disabled={envStatusState === "checking"}>
+            <RefreshCw size={16} className={envStatusState === "checking" ? "spin-icon" : undefined} />
+            {envStatusState === "checking" ? "检查中" : "重新检查"}
+          </button>
+        </div>
+        <div className="service-upgrade-status-grid service-upgrade-status-grid-wide">
+          <InfoRow
+            label="业务库"
+            tone={envStatusState === "ready" ? (envStatus?.sqlite?.exists ? "ok" : "bad") : undefined}
+            value={
+              envStatusState === "checking"
+                ? "检查中…"
+                : envStatusState === "error"
+                  ? "检查失败"
+                  : envStatus?.sqlite?.exists
+                    ? `正常 · ${tableCount} 张表`
+                    : "未找到业务库文件"
+            }
+          />
+          <InfoRow
+            label="历史指标"
+            tone={envStatusState === "ready" ? (blockCount > 0 ? "ok" : "bad") : undefined}
+            value={envStatusState === "checking" ? "检查中…" : envStatusState === "error" ? "检查失败" : `${blockCount} 个数据块`}
+          />
+          <InfoRow
+            label="完整性"
+            tone={envStatusState === "ready" ? (complete ? "ok" : "bad") : undefined}
+            value={
+              envStatusState === "checking"
+                ? "检查中…"
+                : envStatusState === "error"
+                  ? envStatusError || "检查失败"
+                  : complete
+                    ? "业务库和历史指标齐全"
+                    : envStatus?.message || "不完整"
+            }
+          />
+        </div>
       </div>
       <div className="service-operation-card service-migration-guide">
         <strong>使用说明</strong>
@@ -259,7 +351,7 @@ export function MigrationSection({ active, addTask, updateTask }: MigrationSecti
           <li><strong>仅导出 Tower 配置</strong>：只导配置、不带历史数据，适合让新环境快速接入同一批 Tower。</li>
           <li><strong>恢复密钥</strong>：迁移包里的 Tower 密码是加密保存的，恢复时必须配上导出时的密钥才能解开；没带密钥也可以在导入后到 Tower 设置里重新输入密码。</li>
           <li><strong>导入</strong>：选择文件 → 选导入方式 → 导入 → 服务重启。“合并数据”只补缺的、最安全；“整库替换”会清空现有数据，请确认后再用。</li>
-          <li><strong>健康检查</strong>：查看当前数据是否完整，只查看、不修改任何内容。</li>
+          <li><strong>环境状态</strong>：进入页面自动检查一次，也可随时“重新检查”；只查看、不修改任何内容。</li>
         </ul>
         <div className="migration-guide-key-row">
           <ShieldAlert size={16} />

@@ -477,6 +477,7 @@ export interface MigrationImportTask {
 export interface MigrationHealth {
   checks: Record<string, boolean>;
   message: string;
+  complete?: boolean;
   sqlite?: {
     exists?: boolean;
     size_bytes?: number;

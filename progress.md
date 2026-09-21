@@ -7608,3 +7608,11 @@ release_smoke=critical 0, warning 0
 - 用户反馈：「不保留吧，保留什么作用吗」「太麻烦了，客户不会用啊」——决定客户界面不暴露保留选项。
 - 实施：CleanupSection 删除保留数量输入与状态（清理固定走默认 0=全部清理），警告文案删去对应解释句；global.css 删除 .cleanup-keep-control 样式。后端 `keep_recent_upgrades` 参数保留（默认 0，行为与现行一致），仅作为 API 层能力供运维/脚本使用，UI 不暴露。
 - .3 验证：tsc exit 0；vitest 90 passed（01:35）；build exit 0；预览 :8081 目视——空间清理页只剩「扫描 / 一键清理」，提示语一句话，布局正常。
+
+## 49-26p（2026-09-21）数据迁移页三区结构重组 + 健康检查常驻化（pending-tasks #26 收尾批次）
+
+- 依据：docs/superpowers/specs/2026-09-20-migration-page-ux-review.md §6.1；设计 docs/superpowers/specs/2026-09-21-migration-page-three-zone-design.md。
+- 实施：MigrationSection 重组为三区——①导出区：主按钮「导出迁移包」+「仅导出 Tower 配置」次要入口（含"不带历史数据"说明），导出成功后卡内常驻「恢复需要两份文件，请一起保存」成对引导；头部三按钮撤除。②导入区：导入方式改为可选卡片（合并数据=默认蓝色选中态 / 整库替换=红色边框+红色后果行+确认勾选不变），提示条新增「去服务重启」直达按钮（ServicePage 传 onNavigate=selectSection）。③环境状态区：健康检查常驻化——进入页面自动执行一次只读体检（GET /api/admin/migration/health 零改动），InfoRow 常驻展示业务库（在/不在+表数）、历史指标 block 数、完整性结论，「健康检查」降级为「重新检查」。global.css 新增 mode-card/export-secondary/paired-notice/restart-link/spin-icon 样式；types.ts 补 MigrationHealth.complete。
+- 测试：ServicePage.test.tsx 补 migrationHealth/startMigrationExport/migrationExportStatus mock；新增环境状态常驻+重新检查、导出成对引导两用例；整库替换断言改 radio 角色。92 passed（8 files）。
+- .3 验证：tsc 0（修复 MigrationHealth.complete 缺失后过）；vitest 92 passed；build exit 0；预览 8081 目视——三区布局正确、整库替换选中红框红字+后果行、去服务重启按钮在位、环境状态自动加载（业务库 正常·11 张表 / 历史指标 7 个数据块 / 完整性齐全）、使用说明含环境状态条目。
+- 后端零改动（无路由/契约变更，api.md 不动）；#26 全部批次完成。

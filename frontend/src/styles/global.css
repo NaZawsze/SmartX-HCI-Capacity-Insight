@@ -2756,6 +2756,110 @@ button.risk-cluster-row:hover {
   opacity: 0.6;
 }
 
+.migration-mode-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.migration-mode-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid #d7e1ee;
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.migration-mode-card strong {
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.migration-mode-card span {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.migration-mode-card.active {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1px var(--blue) inset;
+}
+
+.migration-mode-card.danger.active {
+  border-color: var(--red);
+  box-shadow: 0 0 0 1px var(--red) inset;
+}
+
+.migration-mode-card.danger.active strong {
+  color: var(--red);
+}
+
+.migration-mode-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.migration-mode-hint-danger {
+  color: var(--red);
+  font-weight: 700;
+}
+
+.migration-export-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.migration-export-secondary {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.migration-export-secondary span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.migration-paired-notice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid #f1d592;
+  border-radius: 8px;
+  background: #fdf6e7;
+  color: var(--ink);
+  line-height: 1.6;
+}
+
+.migration-paired-notice svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #b7791f;
+}
+
+.migration-paired-notice div {
+  display: grid;
+  gap: 2px;
+}
+
+.service-restart-link {
+  margin-left: auto;
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.spin-icon {
+  animation: spin 0.9s linear infinite;
+}
+
 .migration-mode-hint {
   margin: 0;
   font-size: 13px;

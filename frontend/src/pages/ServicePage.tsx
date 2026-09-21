@@ -105,7 +105,7 @@ export function ServicePage({ addTask, updateTask }: ServicePageProps) {
       </aside>
 
       <main ref={contentPanelRef} className="service-content-panel auto-scrollbar">
-        <MigrationSection active={section === "migration"} addTask={addTask} updateTask={updateTask} />
+        <MigrationSection active={section === "migration"} onNavigate={selectSection} addTask={addTask} updateTask={updateTask} />
         <RestartSection active={section === "restart"} />
         <CleanupSection active={section === "space-cleanup"} addTask={addTask} updateTask={updateTask} />
         <PlatformUpgradeSection

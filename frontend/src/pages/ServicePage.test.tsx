@@ -23,6 +23,9 @@ const apiMock = vi.hoisted(() => ({
   importMigration: vi.fn(),
   startMigrationImport: vi.fn(),
   migrationImportStatus: vi.fn(),
+  migrationHealth: vi.fn(),
+  startMigrationExport: vi.fn(),
+  migrationExportStatus: vi.fn(),
   exportConfigMigration: vi.fn(),
   downloadSavedExport: vi.fn(),
   scanSpaceCleanup: vi.fn(),
@@ -105,6 +108,13 @@ function mockServicePageBootstrap() {
     total_label: "1000 B",
     used_label: "850 B",
     free_label: "150 B"
+  });
+  apiMock.migrationHealth.mockResolvedValue({
+    checks: { sqlite: true, prometheus: true },
+    message: "业务库和 Prometheus 历史指标完整",
+    complete: true,
+    sqlite: { exists: true, size_bytes: 4096, tables: { towers: 1, clusters: 1, vm_latest: 1 } },
+    prometheus: { exists: true, block_count: 2, blocks: ["01A", "01B"] }
   });
   apiMock.scanSqliteVacuum.mockResolvedValue({
     ok: true,
@@ -235,7 +245,7 @@ describe("ServicePage migration overwrite mode", () => {
     expect(input).not.toBeNull();
     fireEvent.change(input!, { target: { files: [file] } });
 
-    fireEvent.click(screen.getByRole("button", { name: "整库替换" }));
+    fireEvent.click(screen.getByRole("radio", { name: /整库替换/ }));
     const importButton = screen.getByRole("button", { name: /导入迁移包/ });
     expect(importButton).toBeDisabled();
     expect(apiMock.startMigrationImport).not.toHaveBeenCalled();
@@ -268,6 +278,41 @@ describe("ServicePage migration overwrite mode", () => {
     await waitFor(() => expect(apiMock.exportConfigMigration).toHaveBeenCalled());
     expect(addTask).toHaveBeenCalledWith(expect.objectContaining({ kind: "export", title: "仅导出 Tower 配置" }));
     expect(updateTask).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: "succeeded", detail: "smartx-config-migration-20260607120000.tar.gz" }));
+  });
+
+  it("shows persistent environment status after entering migration page and supports re-check", async () => {
+    mockServicePageBootstrap();
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "数据迁移" }));
+
+    await waitFor(() => expect(apiMock.migrationHealth).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("业务库和历史指标齐全")).toBeInTheDocument();
+    expect(screen.getByText("正常 · 3 张表")).toBeInTheDocument();
+    expect(screen.getByText("2 个数据块")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "重新检查" }));
+    await waitFor(() => expect(apiMock.migrationHealth).toHaveBeenCalledTimes(2));
+  });
+
+  it("guides paired saving of package and recovery key after full export", async () => {
+    mockServicePageBootstrap();
+    apiMock.startMigrationExport.mockResolvedValue({
+      task_id: "migration-export-1",
+      status: "succeeded",
+      progress: 100,
+      filename: "smartx-storage-migration.tar.gz",
+      download_url: "/api/admin/exports/migrations/smartx-storage-migration.tar.gz",
+      saved_path: "/data/exports/migrations/smartx-storage-migration.tar.gz"
+    });
+    apiMock.downloadSavedExport.mockResolvedValue({ blob: new Blob(["pkg"]), filename: "smartx-storage-migration.tar.gz" });
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "数据迁移" }));
+    fireEvent.click(await screen.findByRole("button", { name: "导出迁移包" }));
+
+    expect(await screen.findByText("恢复需要两份文件，请一起保存：")).toBeInTheDocument();
+    expect(screen.getByText(/② 恢复密钥（已自动生成，任务中心可下载）/)).toBeInTheDocument();
   });
 
   it("renders artifact cleanup and sqlite cleanup with matching result and log panels", async () => {
@@ -416,15 +461,15 @@ describe("ServicePage migration overwrite mode", () => {
     expect(updateTask).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: "succeeded", detail: "SQLite 备份清理完成，释放 33.9 MB。" }));
   });
 
-  it("uses the same header button sizing for migration actions", async () => {
+  it("uses the same button sizing for migration actions", async () => {
     mockServicePageBootstrap();
     render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "数据迁移" }));
 
-    expect(await screen.findByRole("button", { name: "健康检查" })).toHaveClass("service-header-button");
+    expect(await screen.findByRole("button", { name: "导出迁移包" })).toHaveClass("service-header-button");
     expect(screen.getByRole("button", { name: "仅导出 Tower 配置" })).toHaveClass("service-header-button");
-    expect(screen.getByRole("button", { name: "导出迁移包" })).toHaveClass("service-header-button");
+    expect(screen.getByRole("button", { name: "重新检查" })).toHaveClass("service-header-button");
   });
 
   it("loads local host storage usage on the space cleanup page and warns when free space is low", async () => {
