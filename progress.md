@@ -7616,3 +7616,16 @@ release_smoke=critical 0, warning 0
 - 测试：ServicePage.test.tsx 补 migrationHealth/startMigrationExport/migrationExportStatus mock；新增环境状态常驻+重新检查、导出成对引导两用例；整库替换断言改 radio 角色。92 passed（8 files）。
 - .3 验证：tsc 0（修复 MigrationHealth.complete 缺失后过）；vitest 92 passed；build exit 0；预览 8081 目视——三区布局正确、整库替换选中红框红字+后果行、去服务重启按钮在位、环境状态自动加载（业务库 正常·11 张表 / 历史指标 7 个数据块 / 完整性齐全）、使用说明含环境状态条目。
 - 后端零改动（无路由/契约变更，api.md 不动）；#26 全部批次完成。
+
+## 49-26q（2026-09-21）迁移页三处修订：导出按钮回右侧 + 使用说明字体统一 + 导出后密钥确认弹窗（49-26p 用户反馈）
+
+- 用户反馈（附迁移页截图，三条）：①「导出迁移包/仅导出 Tower 配置 跑左边来了，不如上一版右边好看」；②「字体大小有问题」（指使用说明区）；③「导出迁移包自动下载密钥，那你下载密钥需要验证密码还有什么意义呢？去掉导出迁移包自动下载密钥，并且点击导出迁移包后弹窗提示需要下载恢复密钥，并提供下载恢复密钥按钮和取消，下载恢复密钥按钮点击后需要进行输入密码才允许下载」。
+- 设计：docs/superpowers/specs/2026-09-21-migration-page-key-flow-and-layout-revision.md（逐条核对现状代码后写，含后端范围说明）。
+- 实施（前端 MigrationSection.tsx + global.css）：
+  - ① 导出按钮移回 `PageHeader` 的 `action`（`.service-header-actions.service-migration-actions`，右对齐），删除卡内左对齐 `.migration-export-actions`；「重新检查」保持在环境状态区（三区设计刻意改动，用户未异议）。
+  - ② 使用说明卡头改成与其它三区一致的 `.service-operation-head`（标题继承 16px + 底部分隔线 + 副标题），删除 `.service-migration-guide > strong`（原 15px 不一致来源）。
+  - ③ 密钥流程重做：删除「已自动生成，任务中心可下载」行内提示（`exportPairedNotice`）→ 改为导出成功后弹「迁移包已下载，还需下载恢复密钥」确认弹窗（`exportKeyPrompt`），含「下载恢复密钥」(primary→打开既有密码弹窗 `keyDialogOpen`，需输平台登录密码) 与「取消」；密码弹窗下载成功后同时关闭两弹窗并提示「已下载恢复密钥」。仅导出 Tower 配置不弹此弹窗。使用说明文案同步改「导出完成后需再单独下载恢复密钥（需验证平台密码）」。
+- 后端零改动：`_snapshot_env_for_bundle`（服务器留档配对 .env + 任务中心链接）与 `POST /api/admin/migration/env-file`（密码门控）保留不变——用户反馈针对的是前端「自动给出密钥 + 行内提示」的表述与流程，非删除服务器留档；无路由/契约变更。
+- 测试：ServicePage.test.tsx 补 `downloadEnvFile` mock + `within` 导入；原「成对引导」用例重写为三条——全量导出后弹密钥确认弹窗（`within(prompt)` 断言两按钮、未下载）→点「下载恢复密钥」→密码弹窗→输密码→`downloadEnvFile` 被调用且两弹窗关闭→提示已下载；「取消」不下载即关；仅配置导出不弹。94 passed（8 files）。
+- .3 验证：tsc 0；vitest 94 passed（03:49）；build exit 0（dist 11:47 重建）。预览 :8081 实测：程序化测量两导出按钮在 `.service-page-action` 内、x=818/996、右缘 1164（主内容右缘 1231）确认右侧；四卡标题（导出迁移包/迁移包导入/环境状态/使用说明）computed 字号均 16px、使用说明卡头底部分隔线 1px；真实点「导出迁移包」→真实打包+浏览器下载→弹「迁移包已下载，还需下载恢复密钥」→点「下载恢复密钥」→弹密码框（有密码输入框+确认下载，无密码不可下载）→取消→两弹窗均关闭。
+- 注：验证时触发了一次真实全量导出（在 .3 exports/migrations/ 留档一份迁移包 + 配对 .env 快照 + 任务中心任务），为正常非破坏性产品动作，用户可自行清理。

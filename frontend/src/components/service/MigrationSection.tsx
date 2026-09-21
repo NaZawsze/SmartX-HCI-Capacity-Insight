@@ -15,7 +15,7 @@ type EnvStatusState = "idle" | "checking" | "ready" | "error";
 
 export function MigrationSection({ active, onNavigate, addTask, updateTask }: MigrationSectionProps) {
   const [exportMessage, setExportMessage] = useState("");
-  const [exportPairedNotice, setExportPairedNotice] = useState(false);
+  const [exportKeyPrompt, setExportKeyPrompt] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const [migrationBusy, setMigrationBusy] = useState(false);
   const [migrationFile, setMigrationFile] = useState<File | null>(null);
@@ -40,7 +40,7 @@ export function MigrationSection({ active, onNavigate, addTask, updateTask }: Mi
 
   async function exportMigration() {
     setExportMessage("");
-    setExportPairedNotice(false);
+    setExportKeyPrompt(false);
     setMigrationBusy(true);
     const id = taskId("migration-export");
     addTask({ id, kind: "export", title: "导出迁移包", detail: "正在创建导出任务", status: "running", progress: 1, logs: ["正在创建后台导出任务"] });
@@ -67,10 +67,10 @@ export function MigrationSection({ active, onNavigate, addTask, updateTask }: Mi
         status: "succeeded",
         progress: 100,
         detail: task.filename || "迁移包已生成",
-        logs: ["迁移包已生成", task.saved_path ? `服务器留档：${task.saved_path}` : "已完成浏览器下载"],
+        logs: ["迁移包已生成", "恢复还需单独下载恢复密钥（需验证平台密码）", task.saved_path ? `服务器留档：${task.saved_path}` : "已完成浏览器下载"],
         links: [{ label: "下载", filename: task.filename, url: task.download_url, path: task.saved_path }]
       });
-      setExportPairedNotice(true);
+      setExportKeyPrompt(true);
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "导出失败";
       updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["导出失败", message] });
@@ -82,7 +82,7 @@ export function MigrationSection({ active, onNavigate, addTask, updateTask }: Mi
 
   async function exportConfigMigration() {
     setExportMessage("");
-    setExportPairedNotice(false);
+    setExportKeyPrompt(false);
     setMigrationBusy(true);
     const id = taskId("config-migration-export");
     addTask({ id, kind: "export", title: "仅导出 Tower 配置", detail: "正在导出 Tower 和集群配置", status: "running", progress: 30, logs: ["此导出不包含历史数据"] });
@@ -162,6 +162,7 @@ export function MigrationSection({ active, onNavigate, addTask, updateTask }: Mi
       const result = await api.downloadEnvFile(keyPassword);
       saveBlob(result.blob, result.filename || "project.env");
       setKeyDialogOpen(false);
+      setExportKeyPrompt(false);
       setKeyPassword("");
       setExportMessage("已下载恢复密钥。恢复迁移包时请与其一同使用；若没有密钥，也可导入后在 Tower 设置中重新输入密码。");
     } catch (exc) {
@@ -193,36 +194,26 @@ export function MigrationSection({ active, onNavigate, addTask, updateTask }: Mi
 
   return (
     <>
-      <PageHeader eyebrow="系统运维" title="数据迁移" />
-      <div className="service-operation-card service-migration-card">
-        <div className="service-operation-head">
-          <div>
-            <strong>导出迁移包</strong>
-            <span>包含 Tower 配置与全部历史数据的备份文件，用于备份或搬到另一台服务器。</span>
-          </div>
-        </div>
-        <div className="migration-export-actions">
+      <PageHeader eyebrow="系统运维" title="数据迁移" action={(
+        <div className="service-header-actions service-migration-actions">
+          <button className="secondary-button service-header-button" type="button" onClick={exportConfigMigration} disabled={migrationBusy}>
+            <Download size={15} />
+            仅导出 Tower 配置
+          </button>
           <button className="primary-button service-header-button" type="button" onClick={exportMigration} disabled={migrationBusy}>
             <Download size={16} />
             导出迁移包
           </button>
-          <div className="migration-export-secondary">
-            <button className="secondary-button service-header-button" type="button" onClick={exportConfigMigration} disabled={migrationBusy}>
-              <Download size={15} />
-              仅导出 Tower 配置
-            </button>
-            <span>不带历史数据，适合让新环境快速接入同一批 Tower。</span>
+        </div>
+      )} />
+      <div className="service-operation-card service-migration-card">
+        <div className="service-operation-head">
+          <div>
+            <strong>导出迁移包</strong>
+            <span>包含 Tower 配置与全部历史数据的备份文件，用于备份或搬到另一台服务器。导出后还需单独下载“恢复密钥”，两者一起保存才能完整恢复。</span>
           </div>
         </div>
-        {exportPairedNotice && (
-          <div className="migration-paired-notice" role="status">
-            <ShieldAlert size={16} />
-            <div>
-              <strong>恢复需要两份文件，请一起保存：</strong>
-              <span>① 迁移包（已开始下载）② 恢复密钥（已自动生成，任务中心可下载）。只有迁移包、没有密钥，恢复后 Tower 密码无法解开。</span>
-            </div>
-          </div>
-        )}
+        <p className="migration-export-hint">“仅导出 Tower 配置”只导配置、不带历史数据，适合让新环境快速接入同一批 Tower；两种导出都需再单独下载恢复密钥。</p>
         {exportMessage && <div className="inline-message">{exportMessage}</div>}
       </div>
       <div className="service-operation-card service-migration-card">
@@ -345,9 +336,14 @@ export function MigrationSection({ active, onNavigate, addTask, updateTask }: Mi
         </div>
       </div>
       <div className="service-operation-card service-migration-guide">
-        <strong>使用说明</strong>
+        <div className="service-operation-head">
+          <div>
+            <strong>使用说明</strong>
+            <span>迁移包、恢复密钥与导入操作的说明，按需参考。</span>
+          </div>
+        </div>
         <ul>
-          <li><strong>导出迁移包</strong>：把 Tower 配置和全部历史数据打包下载，用于备份或搬到另一台服务器。导出时会自动生成一份“恢复密钥”，请与迁移包一起保存。</li>
+          <li><strong>导出迁移包</strong>：把 Tower 配置和全部历史数据打包下载，用于备份或搬到另一台服务器。导出完成后需再单独下载“恢复密钥”（需验证平台密码），请与迁移包一起保存。</li>
           <li><strong>仅导出 Tower 配置</strong>：只导配置、不带历史数据，适合让新环境快速接入同一批 Tower。</li>
           <li><strong>恢复密钥</strong>：迁移包里的 Tower 密码是加密保存的，恢复时必须配上导出时的密钥才能解开；没带密钥也可以在导入后到 Tower 设置里重新输入密码。</li>
           <li><strong>导入</strong>：选择文件 → 选导入方式 → 导入 → 服务重启。“合并数据”只补缺的、最安全；“整库替换”会清空现有数据，请确认后再用。</li>
@@ -362,6 +358,22 @@ export function MigrationSection({ active, onNavigate, addTask, updateTask }: Mi
           </button>
         </div>
       </div>
+      {exportKeyPrompt && (
+        <div className="modal-backdrop" role="presentation" onClick={() => { if (!keyBusy) setExportKeyPrompt(false); }}>
+          <div className="migration-key-prompt" role="dialog" aria-modal="true" aria-labelledby="migration-key-prompt-title" onClick={(event) => event.stopPropagation()}>
+            <div className="migration-key-prompt-icon"><ShieldAlert size={20} /></div>
+            <strong id="migration-key-prompt-title">迁移包已下载，还需下载恢复密钥</strong>
+            <p>迁移包里只含加密数据，恢复时还需要“恢复密钥”才能解开 Tower 密码。密钥不打进迁移包里，需要单独下载并和迁移包一起保存。</p>
+            <div className="migration-key-prompt-actions">
+              <button className="secondary-button" type="button" onClick={() => setExportKeyPrompt(false)} disabled={keyBusy}>取消</button>
+              <button className="primary-button" type="button" onClick={() => setKeyDialogOpen(true)} disabled={keyBusy}>
+                <Download size={15} />
+                下载恢复密钥
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {keyDialogOpen && (
         <div className="modal-backdrop" role="presentation" onClick={() => { if (!keyBusy) setKeyDialogOpen(false); }}>
           <div className="migration-key-dialog" role="dialog" aria-modal="true" aria-labelledby="migration-key-dialog-title" onClick={(event) => event.stopPropagation()}>

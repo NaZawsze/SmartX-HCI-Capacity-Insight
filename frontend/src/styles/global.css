@@ -2808,45 +2808,11 @@ button.risk-cluster-row:hover {
   font-weight: 700;
 }
 
-.migration-export-actions {
-  display: flex;
-  align-items: flex-start;
-  gap: 18px;
-  flex-wrap: wrap;
-}
-
-.migration-export-secondary {
-  display: grid;
-  gap: 6px;
-  justify-items: start;
-}
-
-.migration-export-secondary span {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.migration-paired-notice {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  padding: 12px 14px;
-  border: 1px solid #f1d592;
-  border-radius: 8px;
-  background: #fdf6e7;
-  color: var(--ink);
+.migration-export-hint {
+  margin: 0;
+  font-size: 13px;
   line-height: 1.6;
-}
-
-.migration-paired-notice svg {
-  flex-shrink: 0;
-  margin-top: 2px;
-  color: #b7791f;
-}
-
-.migration-paired-notice div {
-  display: grid;
-  gap: 2px;
+  color: var(--muted);
 }
 
 .service-restart-link {
@@ -2868,12 +2834,7 @@ button.risk-cluster-row:hover {
 
 .service-migration-guide {
   display: grid;
-  gap: 10px;
-}
-
-.service-migration-guide > strong {
-  font-size: 15px;
-  color: var(--ink);
+  gap: 14px;
 }
 
 .service-migration-guide ul {
@@ -2969,6 +2930,53 @@ button.risk-cluster-row:hover {
 .migration-key-error {
   color: var(--red);
   font-size: 12px;
+}
+
+.migration-key-prompt {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 24px;
+  width: min(500px, calc(100vw - 48px));
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.migration-key-prompt-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #fff7e8;
+  color: #b7791f;
+}
+
+.migration-key-prompt > strong {
+  font-size: 16px;
+  color: var(--ink);
+}
+
+.migration-key-prompt p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.migration-key-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.migration-key-prompt-actions .primary-button,
+.migration-key-prompt-actions .secondary-button {
+  height: 36px;
+  padding: 0 16px;
 }
 
 .migration-confirm {

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { displayUpgradeSteps, formatVersionForDisplay } from "./ServicePage";
 import { ServicePage } from "./ServicePage";
@@ -28,6 +28,7 @@ const apiMock = vi.hoisted(() => ({
   migrationExportStatus: vi.fn(),
   exportConfigMigration: vi.fn(),
   downloadSavedExport: vi.fn(),
+  downloadEnvFile: vi.fn(),
   scanSpaceCleanup: vi.fn(),
   scanSqliteVacuum: vi.fn(),
   vacuumSqlite: vi.fn(),
@@ -295,10 +296,44 @@ describe("ServicePage migration overwrite mode", () => {
     await waitFor(() => expect(apiMock.migrationHealth).toHaveBeenCalledTimes(2));
   });
 
-  it("guides paired saving of package and recovery key after full export", async () => {
+  it("prompts for recovery key download after full export and gates it behind the password", async () => {
     mockServicePageBootstrap();
     apiMock.startMigrationExport.mockResolvedValue({
       task_id: "migration-export-1",
+      status: "succeeded",
+      progress: 100,
+      filename: "smartx-storage-migration.tar.gz",
+      download_url: "/api/admin/exports/migrations/smartx-storage-migration.tar.gz",
+      saved_path: "/data/exports/migrations/smartx-storage-migration.tar.gz"
+    });
+    apiMock.downloadSavedExport.mockResolvedValue({ blob: new Blob(["pkg"]), filename: "smartx-storage-migration.tar.gz" });
+    apiMock.downloadEnvFile.mockResolvedValue({ blob: new Blob(["env"]), filename: "project.env" });
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "数据迁移" }));
+    fireEvent.click(await screen.findByRole("button", { name: "导出迁移包" }));
+
+    // 导出成功后弹“还需下载恢复密钥”确认弹窗，此时尚未下载密钥
+    const prompt = await screen.findByRole("dialog", { name: "迁移包已下载，还需下载恢复密钥" });
+    expect(within(prompt).getByRole("button", { name: /下载恢复密钥/ })).toBeInTheDocument();
+    expect(within(prompt).getByRole("button", { name: "取消" })).toBeInTheDocument();
+    expect(apiMock.downloadEnvFile).not.toHaveBeenCalled();
+
+    // 点“下载恢复密钥”→ 打开密码弹窗，需输入平台密码
+    fireEvent.click(within(prompt).getByRole("button", { name: /下载恢复密钥/ }));
+    const passwordInput = await screen.findByPlaceholderText(/平台登录密码/);
+    fireEvent.change(passwordInput, { target: { value: "secret-pass" } });
+    fireEvent.click(screen.getByRole("button", { name: "确认下载" }));
+    await waitFor(() => expect(apiMock.downloadEnvFile).toHaveBeenCalledWith("secret-pass"));
+    // 两个弹窗都关闭，导出结果提示出现
+    await waitFor(() => expect(screen.queryByText("迁移包已下载，还需下载恢复密钥")).not.toBeInTheDocument());
+    expect(screen.getByText(/已下载恢复密钥/)).toBeInTheDocument();
+  });
+
+  it("closes the recovery key prompt without downloading on cancel", async () => {
+    mockServicePageBootstrap();
+    apiMock.startMigrationExport.mockResolvedValue({
+      task_id: "migration-export-2",
       status: "succeeded",
       progress: 100,
       filename: "smartx-storage-migration.tar.gz",
@@ -310,9 +345,24 @@ describe("ServicePage migration overwrite mode", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "数据迁移" }));
     fireEvent.click(await screen.findByRole("button", { name: "导出迁移包" }));
+    await screen.findByText("迁移包已下载，还需下载恢复密钥");
 
-    expect(await screen.findByText("恢复需要两份文件，请一起保存：")).toBeInTheDocument();
-    expect(screen.getByText(/② 恢复密钥（已自动生成，任务中心可下载）/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.queryByText("迁移包已下载，还需下载恢复密钥")).not.toBeInTheDocument());
+    expect(apiMock.downloadEnvFile).not.toHaveBeenCalled();
+  });
+
+  it("does not prompt for recovery key on config-only export", async () => {
+    mockServicePageBootstrap();
+    apiMock.exportConfigMigration.mockResolvedValue({ blob: new Blob(["cfg"]), filename: "smartx-config-migration.tar.gz" });
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "数据迁移" }));
+    fireEvent.click(await screen.findByRole("button", { name: "仅导出 Tower 配置" }));
+
+    await waitFor(() => expect(apiMock.exportConfigMigration).toHaveBeenCalled());
+    expect(screen.queryByText("迁移包已下载，还需下载恢复密钥")).not.toBeInTheDocument();
+    expect(apiMock.downloadEnvFile).not.toHaveBeenCalled();
   });
 
   it("renders artifact cleanup and sqlite cleanup with matching result and log panels", async () => {

@@ -65,6 +65,8 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | [superpowers/plans/2026-09-20-upg050-carrier-lock-plan.md](superpowers/plans/2026-09-20-upg050-carrier-lock-plan.md) | UPG-050 载体目录锁实施计划：脚本改造清单、.12 六步验证协议、文档收尾、.3/生产机逐台确认与回滚。 | task_plan Phase 49 第 23 项 |
 | [superpowers/specs/2026-09-20-source-compose-literal-tags-design.md](superpowers/specs/2026-09-20-source-compose-literal-tags-design.md) | 源码 compose 镜像 tag 字面量化设计（49-3 收尾）：三个源码 compose 全字面量化（prefix+tag）、check_versions 门禁适配、不重打 e940e07c。✅ 已实施并验证（2026-09-20，见 progress.md）。 | task_plan Phase 49 第 3 项 |
 | [superpowers/specs/2026-09-20-migration-page-ux-review.md](superpowers/specs/2026-09-20-migration-page-ux-review.md) | 数据迁移页面梳理与 UI 优化输入：逐元素核对代码后的真实行为、迁移包/恢复密钥概念、两种导出两种导入的关系、现状问题清单与改版方向（供后续 UI 优化立项）。 | pending-tasks #26 |
+| [superpowers/specs/2026-09-21-migration-page-three-zone-design.md](superpowers/specs/2026-09-21-migration-page-three-zone-design.md) | 数据迁移页三区结构重组设计（导出/导入/环境状态 + 健康检查常驻化），49-26p 已实施并验证。 | task_plan 第 33 项 |
+| [superpowers/specs/2026-09-21-migration-page-key-flow-and-layout-revision.md](superpowers/specs/2026-09-21-migration-page-key-flow-and-layout-revision.md) | 数据迁移页三处修订设计：导出按钮回页头右侧、使用说明字体统一、导出后「需下载恢复密钥」确认框 + 密码门控；后端范围说明。49-26q 已实施并验证。 | task_plan 第 34 项 |
 
 ## 5. 升级链路专项文档
 
