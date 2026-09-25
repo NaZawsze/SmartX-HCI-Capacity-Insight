@@ -226,6 +226,8 @@ class EnvFileDownloadRequest(BaseModel):
 
 class DashboardScopeModel(BaseModel):
     model_config = ConfigDict(extra="allow")
+    type: Optional[str] = None
+    label: Optional[str] = None
     tower_id: Optional[int] = None
     cluster_id: Optional[str] = None
     cluster_enabled: Optional[bool] = None

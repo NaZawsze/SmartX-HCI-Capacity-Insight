@@ -7639,3 +7639,12 @@ release_smoke=critical 0, warning 0
 - 包门禁：`verify_upgrade_package_identity` 全绿（web-api 身份 v0.5.3/v0.3.1 四处一致、加载镜像 nazawsze/…:v0.5.3）；manifest `source_compatibility` v0.5.0~v0.5.3 直升能力保持 + environment_transitions/directory_transition/legacy_cleanup 齐备；包内三份 compose 零模板变量（49-3 不变量）；compose image tag 三件套 v0.5.3 + runner v0.3.1 + prometheus v2.55.1；敏感成员扫描无 .env/密钥类文件。
 - `verify_release_docs_safe` 修正后 PASS：①`docs/upgrade-issues.md` 按 AGENTS §11 定位为内部问题台账，移出 PUBLIC_DOCS（与自述豁免规则一致）；②清理 8 处外发文档内网 IP（CHANGELOG 2 处改为「发布测试机/frp 接入主机」、functional-modules/v2-implementation-sequence/v2-rebuild-task-plan 6 处改「测试机」）。
 - 未验证项/边界：**新包 4a3c7bbd 的 .12 正规升级验收未执行**（需用户授权连接 .12），发版硬门禁第三件待补跑；6accea95 仍为最后完成升级验收的包（其源码 ff1bd52 为本包严格祖先，已被本包取代）；本地 dev2 领先 origin 204+ 提交，GitHub SSH 经 198.18.0.4 代理不可达，推送待网络恢复。
+
+## 49-35（2026-09-25）仪表盘 scope.label 缺失修复：存储概览副标题随数据中心/集群选择变化
+
+- 用户反馈（截图）：左侧选中集群 SMARTX-TT-WW，右侧「存储预测概览」卡片副标题仍为「全部数据中心」。根因：前端 `DashboardPage.tsx` 读 `summary.scope.label`（types.ts 声明必填），后端 `_build_summary` 的 scope 只返回 `tower_id/cluster_id/cluster_enabled`，无 `label`/`type`，前端恒走兜底；「当前集群容量」卡副标题同病。
+- 口径（首轮实施后 2026-09-25 用户二次反馈「只显示集群了，不显示数据中心」，改为两级）：all→「全部数据中心」、tower（=数据中心）→数据中心名、cluster→「数据中心名 / 集群名」，清单缺失按 `Tower {id}` / `{数据中心} / {cluster_id}` 分级回退。
+- 实施：`backend/app/v2/dashboard/service.py` scope payload 补 `type`+`label`（数据来源 `InventoryService.list_towers()`，复用既有 towers 查询零额外开销）；`api/models.py` `DashboardScopeModel` 显式声明两字段（extra=allow 向后兼容，无路由变更）；单测 `test_v2_p1_infra.test_summary_scope_type_and_label` 覆盖 5 种场景；`test_v2_dashboard_vm_api` scope 等值断言同步为含 type/label null。
+- 测试：本地 16 tests OK；.3 定向 17/16 OK、**全量 338 tests OK (skipped=1)**（较修复前 337 +1）。
+- .3 部署与真实库直读（web-api 镜像重建 + up -d，health v0.5.3 三 checks true）：ALL → `{'type':'all','label':'全部数据中心'}`；TOWER → `{'type':'tower','label':'CHINATOWER'}`；CLUSTER → `{'type':'cluster','label':'CHINATOWER / SMARTX-TT-WW','cluster_enabled':True}`（tower id=3，cluster `cm551tvrv029a0858up57q8qu`）。
+- 未完成项：用户 UI 复现路径目视确认（task_plan 49-35 第三项待勾选）。

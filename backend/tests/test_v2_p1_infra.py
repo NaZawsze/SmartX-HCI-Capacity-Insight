@@ -55,6 +55,56 @@ class V2P1InfraTest(unittest.TestCase):
         start_fallback, _ = _day_bounds(NOW_TS, "Not/AZone")
         self.assertEqual(start_fallback, start_utc)
 
+    def test_summary_scope_type_and_label(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from app.v2.config import V2Settings
+            from app.v2.dashboard.service import DashboardService
+            from app.v2.database import V2Database
+
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="p1-secret", prometheus_url="http://prometheus:9090")
+            database = V2Database(settings)
+            database.initialize()
+
+            class EmptyPrometheus:
+                def instant(self, query: str):
+                    return []
+
+                def range(self, query: str, *, start: int, end: int, step: str):
+                    return []
+
+            with database.connection() as conn:
+                cursor = conn.execute(
+                    "INSERT INTO towers (name, base_url) VALUES (?, ?)",
+                    ("CHINATOWER", "https://tower.example"),
+                )
+                tower_id = cursor.lastrowid
+                conn.execute(
+                    "INSERT INTO clusters (tower_id, cluster_id, name) VALUES (?, ?, ?)",
+                    (tower_id, "cluster-a", "SMARTX-TT-WW"),
+                )
+
+            dashboard = DashboardService(database, settings, prometheus=EmptyPrometheus(), now_ts=NOW_TS)
+
+            all_scope = dashboard.summary()["scope"]
+            self.assertEqual(all_scope["type"], "all")
+            self.assertEqual(all_scope["label"], "全部数据中心")
+
+            tower_scope = dashboard.summary(tower_id=tower_id)["scope"]
+            self.assertEqual(tower_scope["type"], "tower")
+            self.assertEqual(tower_scope["label"], "CHINATOWER")
+
+            cluster_scope = dashboard.summary(tower_id=tower_id, cluster_id="cluster-a")["scope"]
+            self.assertEqual(cluster_scope["type"], "cluster")
+            self.assertEqual(cluster_scope["label"], "CHINATOWER / SMARTX-TT-WW")
+
+            missing_tower = dashboard.summary(tower_id=999)["scope"]
+            self.assertEqual(missing_tower["type"], "tower")
+            self.assertEqual(missing_tower["label"], "Tower 999")
+
+            missing_cluster = dashboard.summary(tower_id=tower_id, cluster_id="cluster-x")["scope"]
+            self.assertEqual(missing_cluster["type"], "cluster")
+            self.assertEqual(missing_cluster["label"], "CHINATOWER / cluster-x")
+
     def test_capacity_risk_thresholds_payload(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             from app.v2.config import V2Settings

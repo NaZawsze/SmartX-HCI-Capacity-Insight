@@ -1605,3 +1605,12 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 设计：docs/superpowers/specs/2026-09-21-migration-page-key-flow-and-layout-revision.md。
 - 实施：①两导出按钮移回 `PageHeader` action（右侧），删卡内 `.migration-export-actions`；②「使用说明」卡头改 `.service-operation-head`（标题 16px+分隔线+副标题），删 `.service-migration-guide > strong`（原 15px）；③删「已自动生成，任务中心可下载」行内提示，改为导出成功弹「迁移包已下载，还需下载恢复密钥」确认框（[下载恢复密钥]→打开既有密码弹窗 `keyDialogOpen`，须输平台登录密码 / [取消]），密码下载成功后两弹窗均关并提示已下载；仅配置导出不弹；使用说明文案同步。后端零改动（服务器配对 .env 留档 + `env-file` 密码接口保留，无路由/契约变更）。
 - [x] .3 验证：tsc 0 / vitest 94 passed / build exit 0；预览 :8081 程序化测量两按钮在 `.service-page-action`（右侧）、四卡标题均 16px、使用说明卡头 1px 分隔线；真实导出→弹密钥确认框→点下载弹密码框（无密码不可下载）→取消均关（progress.md 49-26q）。
+
+### 35. 仪表盘存储概览副标题不随集群选择变化（scope.label 缺失）[已实施并部署 .3，余用户 UI 目视确认]
+
+来源：2026-09-25 用户反馈（截图）——左侧选中集群 SMARTX-TT-WW，右侧「存储预测概览」卡片副标题仍显示「全部数据中心」。
+根因：前端 `DashboardPage.tsx` 读 `summary.scope.label`（`types.ts` 声明为必填 string），后端 `dashboard/service.py::_build_summary` 的 scope 只返回 `tower_id/cluster_id/cluster_enabled`，从不返回 `label`（也未返回 `type`），前端恒走「全部数据中心」兜底；同页「当前集群容量」卡副标题同病。
+无专项设计文档，口径记录于本条（单点契约补齐，缺陷修复非新能力，无路由/响应结构破坏性变更，`extra="allow"` 向后兼容）。
+- [x] 后端 scope payload 补 `type`（all/tower/cluster）与 `label`：all→「全部数据中心」、tower→数据中心名（Tower 名）、cluster→「数据中心名 / 集群名」（清单缺失时按 cluster_id 分级回退）；`DashboardScopeModel` 同步声明。（首轮仅集群名，2026-09-25 用户反馈缺数据中心层级后改为两级口径）
+- [x] 单测覆盖 all/tower/cluster 三种 scope 的 type/label（含清单缺失回退）；`test_v2_dashboard_vm_api` scope 等值断言同步（response_model 补字段后含 null）。
+- [ ] .3 验证：web-api 镜像重建部署 + 真实库三种 scope 直读 scope 字段 + 全量回归（338 OK）均已完成；余用户 UI 复现路径确认。

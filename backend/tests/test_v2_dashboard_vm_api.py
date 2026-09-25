@@ -68,7 +68,7 @@ class V2DashboardVmApiTest(unittest.TestCase):
 
                     summary = client.get("/api/dashboard/summary?tower_id=1&cluster_id=cluster-a", headers=headers)
                     self.assertEqual(summary.status_code, 200)
-                    self.assertEqual(summary.json()["scope"], {"tower_id": 1, "cluster_id": "cluster-a", "cluster_enabled": None})
+                    self.assertEqual(summary.json()["scope"], {"type": None, "label": None, "tower_id": 1, "cluster_id": "cluster-a", "cluster_enabled": None})
 
                     vms = client.get("/api/vms?tower_id=1&cluster_id=cluster-a", headers=headers)
                     self.assertEqual(vms.status_code, 200)

@@ -104,8 +104,23 @@ class DashboardService:
                 "cluster_name": str(cluster["name"]),
             }
             cluster["value"] = cluster["used_bytes"]
+        scope_type = "all" if tower_id is None else ("cluster" if cluster_id else "tower")
+        scope_label = "全部数据中心"
+        if tower_id is not None:
+            scope_tower = next((t for t in towers if t.id == tower_id), None)
+            tower_name = scope_tower.name if scope_tower else f"Tower {tower_id}"
+            if cluster_id:
+                scope_cluster = next(
+                    (c for c in scope_tower.clusters if c.cluster_id == cluster_id),
+                    None,
+                ) if scope_tower else None
+                scope_label = f"{tower_name} / {scope_cluster.name if scope_cluster else cluster_id}"
+            else:
+                scope_label = tower_name
         return {
             "scope": {
+                "type": scope_type,
+                "label": scope_label,
                 "tower_id": tower_id,
                 "cluster_id": cluster_id,
                 "cluster_enabled": self._cluster_enabled(tower_id=tower_id, cluster_id=cluster_id),
