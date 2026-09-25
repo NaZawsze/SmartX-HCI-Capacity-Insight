@@ -20,26 +20,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# 只检查对外发布文档（README/CHANGELOG/deployment/architecture 等），
-# 不检查内部工作记录（progress/findings/worklog/UPG 计划）。
+# 只检查对外发布文档（README/deployment/usage/architecture 等），
+# 不检查内部工作记录（progress/findings/worklog/UPG 计划/问题台账）与
+# 内部开发/发布记录文档（CHANGELOG 构建记录、功能模块、v2 计划——用户决策保留内网 IP，2026-09-25）。
 PUBLIC_DOCS: list[str] = [
     "README.md",
     "README.zh-CN.md",
-    "docs/releases/CHANGELOG.md",
     "docs/deployment.md",
     "docs/usage.md",
     "docs/architecture.md",
     "docs/architecture-v2.md",
-    "docs/functional-modules.md",
     "docs/v2-api-contracts.md",
     "docs/v2-frontend-design.md",
-    "docs/v2-implementation-sequence.md",
-    "docs/v2-rebuild-task-plan.md",
     "docs/v2-upgrade-center-design.md",
     "docs/v1-data-compatibility.md",
     "docs/ova-delivery.md",
     "docs/upgrade-runner-lifecycle.md",
-    "docs/upgrade-issues.md",
 ]
 
 # 明确允许的子网（docker 网络、Docker 默认 bridge）
@@ -113,7 +109,7 @@ def main() -> None:
         print("\n规则:")
         print("  - 对外发布文档不得含内网/测试机 IP 或业务地址。")
         print("  - Docker 网络子网 (10.249.x) 除外。")
-        print("  - 内部排障文档 (progress/findings/worklog) 不在扫描范围。")
+        print("  - 内部工作/记录文档 (progress/findings/worklog/upgrade-issues/CHANGELOG/功能模块/v2 计划) 不在扫描范围。")
         sys.exit(1)
 
     print("[PASS] 对外发布文档安全扫描通过")

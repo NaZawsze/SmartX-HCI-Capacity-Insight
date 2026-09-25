@@ -30,7 +30,7 @@ Expected values:
 - Docker network: `smartx-hci-capacity-insight-net`
 - Prometheus version: `v2.55.1`
 - Upgrade package: `smartx-capacity-insight-upgrade-v0.5.3.tar.gz`
-- Upgrade package sha256: `6accea95ed817ce95ed7f41fdd90077ed11520eb3c74281a77ddee48a0042c77` (2026-09-20 fresh full build from dev2 `ff1bd52`, supersedes `ef10a7c8…`/`e940e07c…`)
+- Upgrade package sha256: `4a3c7bbd40baa1fe1f88690f504328853b92edd77735f0059af5870cac898db6` (2026-09-25 rebuild from dev2 `cdfe600`, all package gates passed on 10.20.11.3; **.12 normal-upgrade acceptance pending** — previous validated package `6accea95…` from dev2 `ff1bd52` completed acceptance 2026-09-20 and is the strict ancestor of this build)
 
 Validated on `10.20.11.12` on 2026-09-20 (task `upgrade-b45996653f6955b6`, v0.5.2 baseline restored then normal upgrade path; main task and post-cleanup succeeded, 8-item acceptance passed); earlier validation on 2026-09-19 used `ef10a7c8…` (task `upgrade-e1fe8a62ea767ab7`). Package identity and evidence live in [upgrade-package-ledger.md](upgrade-package-ledger.md).
 

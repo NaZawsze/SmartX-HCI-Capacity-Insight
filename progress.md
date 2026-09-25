@@ -7629,3 +7629,13 @@ release_smoke=critical 0, warning 0
 - 测试：ServicePage.test.tsx 补 `downloadEnvFile` mock + `within` 导入；原「成对引导」用例重写为三条——全量导出后弹密钥确认弹窗（`within(prompt)` 断言两按钮、未下载）→点「下载恢复密钥」→密码弹窗→输密码→`downloadEnvFile` 被调用且两弹窗关闭→提示已下载；「取消」不下载即关；仅配置导出不弹。94 passed（8 files）。
 - .3 验证：tsc 0；vitest 94 passed（03:49）；build exit 0（dist 11:47 重建）。预览 :8081 实测：程序化测量两导出按钮在 `.service-page-action` 内、x=818/996、右缘 1164（主内容右缘 1231）确认右侧；四卡标题（导出迁移包/迁移包导入/环境状态/使用说明）computed 字号均 16px、使用说明卡头底部分隔线 1px；真实点「导出迁移包」→真实打包+浏览器下载→弹「迁移包已下载，还需下载恢复密钥」→点「下载恢复密钥」→弹密码框（有密码输入框+确认下载，无密码不可下载）→取消→两弹窗均关闭。
 - 注：验证时触发了一次真实全量导出（在 .3 exports/migrations/ 留档一份迁移包 + 配对 .env 快照 + 任务中心任务），为正常非破坏性产品动作，用户可自行清理。
+
+## 2026-09-25 v0.5.3 重打包 4a3c7bbd（收编 dev2 cdfe600，用户指令「重新打包 v0.5.3」）
+
+- 背景：8081 = .3 上 `upgrade-preview`（nginx:alpine）预览容器跑新代码；用户指令按当前 dev2 HEAD 重新打包 v0.5.3。范围：`ff1bd52..cdfe600` 共 40 提交（迁移页三区重构+恢复密钥密码门控、报表趋势图四档优化/区间缓存/当日节点/横轴自适应、Prometheus 查询去重、容量告警与首页新鲜度、采集间隔设置、清理 UI 去留最近输入等），非 docs 文件 25 个。
+- 同步：本地 `git archive HEAD` → `/tmp/v053-src-cdfe600.tar.gz`（SHA256 `0e54a4bf…`）→ .3 `/root/build-v053-20260922` 解压 + `/data/smartx-storage-forecast/project` 全树覆盖解压（ff1bd52..cdfe600 无删除型变更，无需残留清理）；project `.env` 同步前后 SHA 一致 0600 root:root；抽样 4 文件同步前差异=0（project 此前已是 cdfe600 源码）。
+- 测试门禁（.3，全部通过）：`--check-version` OK（v0.5.3）；宿主机 build_tests **26 OK**；web-api 容器全量 **337 tests OK (skipped=1)**，228s；`verify_api_docs` 77 条=76 路由一致；前端 `npx tsc -b` exit 0、vitest **94 passed（8 files）**、`npm run build` dist 重建；health `{"ok":true,"version":"v0.5.3","runner_version":"v0.3.1"}` 三 checks 全 true。
+- 构建：`python3 scripts/build_upgrade_package.py --output-dir /data/upgrade-packages/v053-rebuild-20260922`（三镜像全新重建），包 `/data/upgrade-packages/v053-rebuild-20260922/smartx-capacity-insight-upgrade-v0.5.3.tar.gz`，**SHA256 `4a3c7bbd40baa1fe1f88690f504328853b92edd77735f0059af5870cac898db6`**（`.sha256` 落盘，sha256sum -c OK）。
+- 包门禁：`verify_upgrade_package_identity` 全绿（web-api 身份 v0.5.3/v0.3.1 四处一致、加载镜像 nazawsze/…:v0.5.3）；manifest `source_compatibility` v0.5.0~v0.5.3 直升能力保持 + environment_transitions/directory_transition/legacy_cleanup 齐备；包内三份 compose 零模板变量（49-3 不变量）；compose image tag 三件套 v0.5.3 + runner v0.3.1 + prometheus v2.55.1；敏感成员扫描无 .env/密钥类文件。
+- `verify_release_docs_safe` 修正后 PASS：①`docs/upgrade-issues.md` 按 AGENTS §11 定位为内部问题台账，移出 PUBLIC_DOCS（与自述豁免规则一致）；②清理 8 处外发文档内网 IP（CHANGELOG 2 处改为「发布测试机/frp 接入主机」、functional-modules/v2-implementation-sequence/v2-rebuild-task-plan 6 处改「测试机」）。
+- 未验证项/边界：**新包 4a3c7bbd 的 .12 正规升级验收未执行**（需用户授权连接 .12），发版硬门禁第三件待补跑；6accea95 仍为最后完成升级验收的包（其源码 ff1bd52 为本包严格祖先，已被本包取代）；本地 dev2 领先 origin 204+ 提交，GitHub SSH 经 198.18.0.4 代理不可达，推送待网络恢复。
