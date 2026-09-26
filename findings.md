@@ -706,3 +706,10 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - **保留期**：回收站设置 `retain`（天）到期 Tower 自动彻底删除；本地策略 = **回收站期间记录（标记/原名/删除时间），`get-vms` 取不到即同步删行**（用户 2026-09-26 澄清，覆盖此前"只增不删"的表述）。
 - **安全闸门**：删除核对只在该塔/集群**采集成功**后执行，且只删 `in_recycle_bin=1` 的行——否则一次采集失败会把整集群误判为"全部删除"。
 - **坑**：49-40 曾在采集侧直接丢弃回收站 VM → 既不记录、也导致"回收后保留旧名"的行躲过名称过滤；49-47 撤回丢弃改记录后，名称过滤与标记两道都成立。
+
+## 2026-09-27 ECharts 调色板按「未显式配色的系列」顺序发色（49-48b）[已修复]
+
+- `option.color` 调色板**不是**按 series 下标取色，而是：只有 series 没有 `itemStyle.color` 时才去取，且用 `paletteIdx` **顺序消耗**（`echarts/lib/visual/style.js::seriesStyleTask` 注释原文：「series 指定了颜色就不让它影响调色板」+ `model/mixin/palette.js::getFromPalette`）。
+- 后果：把任一前排 series 改成显式色，后面所有未显式配色的 series 会**整体前移一格**——49-48 首版只给「实际容量使用」换色，就让历史预测落到调色板第 0 槽 `#0f9fbf`（与显式青色的已分配容量撞色），未来预测/告警阈值/存储卷有效容量也各自错位一格。
+- 稳定做法：图表里**每个系列都显式写 `lineStyle.color` + `itemStyle.color`**，颜色常量集中在定义处；调色板数组只当兜底，不作为配色来源。
+- 取证技巧（.3 nginx 容器）：`grep -o 'name:"<系列名>",type.\{0,220\}' bundle.js` 直接读出每个系列绑定的色值变量；busybox grep 的 `\{0,N\}` 里 N 不能 >255，否则报 `Invalid contents of {}`。

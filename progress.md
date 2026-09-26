@@ -7814,3 +7814,34 @@ release_smoke=critical 0, warning 0
 - 用户要求：图表里加分配容量线、**命名为「已分配容量」**、**默认不显示**（图例可开）。
 - 实现：`ChartModel.allocated`（单集群取值/多集群求和）+ 2px 深蓝虚线（`cssVar("--blue","#1677ff")` 从 `:root` 取色，不用浅蓝做细线的原因是白底对比度仅约 1.4:1）+ `legend.data` 含「已分配容量」且 `selected: {已分配容量: false}` 默认关闭 + `onEvents.legendselectchanged` 同步可见性，**仅打开时才把 allocated 计入 y 轴上限**（否则已分配>总容量会把实际容量曲线压扁）。
 - 验证：`tsc -b` 0、vitest 107 passed、前端产物含「已分配容量」；默认关闭/点开行为待用户 UI 目视。
+
+## 49-48（2026-09-27）趋势图「实际容量 / 已分配容量」颜色互换
+
+- 来源：用户建议「集群容量趋势（实际容量、预测趋势与容量阈值）图表里的已分配容量和实际容量交换一下颜色」。
+- 设计：无专项设计文档（纯配色微调，无接口/取数/口径变化），口径记录于 task_plan.md Phase 49 第 48 条；配色遵循 frontend-style-guide（实际容量主色取 `:root --blue`，青色 `#0f9fbf` 为该图既有调色板色值，未新增色系）。
+- 实施（`frontend/src/components/ClusterCapacityChart.tsx`，4 处）：
+  - 实际容量使用：`lineStyle`/`itemStyle` 显式指定 `cssVar("--blue","#1677ff")`，`areaStyle` `rgba(15, 159, 191, 0.12)` → `rgba(22, 119, 255, 0.12)`；
+  - 已分配容量：`lineStyle`/`itemStyle` 主蓝 → `#0f9fbf`（抽成 `actualColor`/`allocatedColor` 两个常量，避免散落字面量）；
+  - 调色板数组、历史/未来预测、告警阈值、存储卷有效容量、预测带、当日容量黄点均未改动。
+- 同步：.3 `project/frontend/src/components/ClusterCapacityChart.tsx` 与本地改动前状态逐行 diff 完全一致（远端 md5 `006c0861…`），确认无其它会话冲突后单文件覆盖。
+- 验证（.3）：
+  - `node:22-alpine` 容器 `npx tsc -b` **exit 0**、`npx vitest run` **107 passed（11 files，12.32s）**。
+  - `docker compose build frontend`：首版 **失败**（`nginx:1.27-alpine` registry `TLS handshake timeout`，非代码问题，已记录），重试 attempt=1 成功 → 镜像 `nazawsze/smartx-hci-capacity-insight-frontend:v0.5.3`（layer `sha256:9f4c1c1b…`）、`up -d frontend` recreate 完成。
+  - `curl -fsSI http://127.0.0.1:8080` → `HTTP/1.1 200 OK`；`/api/system/health` → `{"ok":true,"version":"v0.5.3","runner_version":"v0.3.1","checks":{directories/database/prometheus 全 true}}`。
+  - 产物 `assets/index-D86UFt-K.js`：含 `rgba(22, 119, 255, 0.12)`、旧 `rgba(15, 159, 191…)` **已消失**、`已分配容量` 在位、`#0f9fbf` 2 处（调色板 + 已分配虚线）。
+- 余：用户 UI 目视确认（实际容量蓝色实线；图例打开「已分配容量」后为青色虚线）；提交待批准。
+
+## 49-48b（2026-09-27）调色板错位修复：历史预测与已分配容量同色
+
+- 用户反馈：「你怎么把历史预测和已分配容量颜色弄成一样了」。
+- 根因（读 echarts 源码定位，非猜测）：`node_modules/echarts/lib/visual/style.js::seriesStyleTask` 只有在 series **没有** `itemStyle.color` 时才调用 `getColorFromPalette`，且注释明确写着「series 指定了颜色就不让它影响调色板」；`model/mixin/palette.js::getFromPalette` 用 `paletteIdx` **顺序消耗**。因此 49-48 首版把「实际容量使用」改成显式色后，它不再消耗调色板，后续未显式配色的系列整体前移一位：
+  - 历史预测 `#8792a2` → 调色板第 0 槽 `#0f9fbf`（与已分配容量显式青色撞色）
+  - 未来预测 `#29354d` → `#8792a2`；告警阈值 `#f59e0b` → `#29354d`；存储卷有效容量 `#ef4444` → `#f59e0b`
+- 修复：全部系列显式给色（`actualColor/allocatedColor/historyColor/futureColor/warningColor/totalColor` 六个常量），恢复交换前的原始配色语义：实际=主蓝、历史预测=灰 `#8792a2`、未来预测=深蓝 `#29354d`、告警阈值=琥珀 `#f59e0b`、存储卷有效容量=红 `#ef4444`、已分配=青 `#0f9fbf`、预测带/当日容量原本即显式色不动；调色板数组保留作兜底并在代码里写明「不显式给色会错位」的规则。
+- 验证（.3）：同步文件 → `tsc -b` **exit 0**、vitest **107 passed（11 files，11.99s）**；`docker compose build frontend` attempt=1 成功、`up -d` 后 `HTTP/1.1 200 OK`；产物 `index-BGljRmQ-.js` 逐系列取证（`grep -o 'name:"X",type…'`）：
+  - `实际容量使用 …color:C`、`C=Gle("--blue","#1677ff")`、`areaStyle rgba(22, 119, 255, 0.12)`
+  - `历史预测 …color:A`、`A="#8792a2"`；`未来预测 …color:D`、`D="#29354d"`
+  - `告警阈值 …color:k`、`k="#f59e0b"`；`存储卷有效容量 …color:I`、`I="#ef4444"`
+  - `已分配容量 …color:M`、`M="#0f9fbf"` → 六色互不相同，历史预测不再与已分配同色。
+- 排查副产物：busybox grep 的区间正则 `\{0,N\}` N 不能超过 255（`.\{0,260\}` 会报 `Invalid contents of {}`），取证时用 `.\{0,220\}` 才通过。
+- 余：用户 UI 目视确认；提交待批准。

@@ -242,6 +242,17 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
     ...(showAllocated && model.allocated != null ? [model.allocated] : [])
   ]);
 
+  // 2026-09-27 用户要求：实际容量与已分配容量互换颜色（实际容量=主蓝，已分配容量=原青色）。
+  // 全部系列都必须显式给色：ECharts 调色板只给「未指定 itemStyle.color」的系列按顺序发色
+  // （echarts visual/style.js seriesStyleTask + model/mixin/palette.js paletteIdx），
+  // 任一 series 改为显式色都会让后续系列整体错位——49-48 首版即因此把历史预测挤到调色板
+  // 第 0 槽 #0f9fbf，与已分配容量同色，未来预测/告警阈值/存储卷有效容量也跟着错位。
+  const actualColor = cssVar("--blue", "#1677ff");
+  const allocatedColor = "#0f9fbf";
+  const historyColor = "#8792a2";
+  const futureColor = "#29354d";
+  const warningColor = "#f59e0b";
+  const totalColor = "#ef4444";
   const option = {
     color: ["#0f9fbf", "#8792a2", "#29354d", "#f59e0b", "#ef4444"],
     animation: true,
@@ -290,8 +301,9 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
         smooth: true,
         showSymbol: actualPoints.length <= 14,
         data: labels.map((label) => actualByLabel.get(label) ?? null),
-        lineStyle: { width: 2.6 },
-        areaStyle: { color: "rgba(15, 159, 191, 0.12)" }
+        lineStyle: { width: 2.6, color: actualColor },
+        itemStyle: { color: actualColor },
+        areaStyle: { color: "rgba(22, 119, 255, 0.12)" }
       },
       {
         name: "历史预测",
@@ -299,7 +311,8 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
         smooth: true,
         showSymbol: false,
         data: labels.map((label) => historyByLabel.get(label) ?? null),
-        lineStyle: { width: 2, type: "dashed" }
+        lineStyle: { width: 2, type: "dashed", color: historyColor },
+        itemStyle: { color: historyColor }
       },
       {
         name: "未来预测",
@@ -307,7 +320,8 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
         smooth: true,
         showSymbol: false,
         data: labels.map((label) => futureByLabel.get(label) ?? null),
-        lineStyle: { width: 2, type: "dashed" }
+        lineStyle: { width: 2, type: "dashed", color: futureColor },
+        itemStyle: { color: futureColor }
       },
       ...(hasBand
         ? [
@@ -334,14 +348,16 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
         type: "line",
         showSymbol: false,
         data: horizontalLine(labels, model.warning),
-        lineStyle: { width: 1.8, type: "dashed" }
+        lineStyle: { width: 1.8, type: "dashed", color: warningColor },
+        itemStyle: { color: warningColor }
       },
       {
         name: "存储卷有效容量",
         type: "line",
         showSymbol: false,
         data: horizontalLine(labels, model.total),
-        lineStyle: { width: 1.8, type: "dashed" }
+        lineStyle: { width: 1.8, type: "dashed", color: totalColor },
+        itemStyle: { color: totalColor }
       },
       ...(hasAllocated
         ? [
@@ -350,8 +366,8 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
               type: "line",
               showSymbol: false,
               data: horizontalLine(labels, model.allocated),
-              lineStyle: { width: 2, type: "dashed", color: cssVar("--blue", "#1677ff") },
-              itemStyle: { color: cssVar("--blue", "#1677ff") }
+              lineStyle: { width: 2, type: "dashed", color: allocatedColor },
+              itemStyle: { color: allocatedColor }
             }
           ]
         : []),
