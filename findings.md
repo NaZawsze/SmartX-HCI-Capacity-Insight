@@ -639,3 +639,63 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 预测带口径：`forecast_series` OLS 残差 → `hw(t) = z·s·sqrt(1+1/n+((x_now+t−x̄)²/Sxx))`，对外暴露线性近似参数 `band_half_width_now`/`band_half_width_per_day`（对远期略偏宽，保守方向）；样本 <3 为 None，完全共线为 0；前端多集群带宽求和（保守）。
 - 测试教训：`.3 实跑发现` tasks 表主键列名是 `id` 不是 `task_id`；预测带测试中「90 天预测」从最后一个样本起算（未来真值在第 n-1+90 天，不是第 90 天）——写预测类断言时先对齐起算点。
 - `.3 环境现状（待用户处理）`：CHINATOWER/SMARTX-TT-WW 自 2026-09-12 起采集失败（No route to host，最近两次 run 09-14/09-18 均 failed），探针部署首轮即捕获并置顶任务中心 `collection-freshness-stale` 告警——这是探针端到端真实告警验证，同时意味着测试环境当前数据截至 09-12。Tower 可达性恢复后告警场景自然解除（告警不自动消除，与 data-quality 口径一致）。
+
+## 2026-09-25 手动采集失败清空 metric_snapshots 导致看板归零（49-37）[已修复]
+
+- 现象：.3 看板容量/集群数全归零（集群 0、已用/总量 0、0.00%），虚拟机数仍显示 244——用户理解为"数据过期把看板停了"。实际是**数据被清空**，不是停止渲染。
+- 根因链（已取证）：`POST /api/collection/run` 直调 `CollectionService.run_manual_collection`，其末尾 `_save_metrics_text(metrics_text)` 对 `metric_snapshots`(id=1) **整体替换**；只有 worker 调度/重试/升级后路径在调用方做了 `merge(旧, 新)` 保护（`worker.py:46/93/138/274/415`，`ai-handoff-guide.md` 第 4 节也写过该约束）。2026-09-18 17:43 一次 trigger=manual 全失败采集（No route to host，`collection_runs` id=65）把快照抹成 357 字节 HELP/TYPE 表头（`updated_at` 与该 run 结束时间一致）→ collector-worker `/metrics` 无样本 → Prometheus 抓取断 → 仪表盘 instant 查询空 → 归零。虚拟机 KPI 读 SQLite `vm_latest` 故仍 244，容量/集群读 Prometheus 故为 0——两者数据源不同才出现割裂。
+- 影响面：**API 手动采集只要部分/全部失败就抹掉其他成功集群与历史最后值**；定时路径不受影响。凡手动点过「立即采集」且有失败目标，展示数据即被破坏。
+- 修复（49-37）：`merge_metrics_text` 下沉 `metrics/formatter.py`，`run_manual_collection` 采集前抓旧快照、落库时合并（worker 外层合并保留为双保险，幂等）；失败/被过滤目标沿用最后已知样本。看板侧补「最后成功采集」标注（`_latest_collection` 新增 `threshold_minutes`/`data_freshness`，采集状态卡常驻时间行 + stale 顶部提示条与「数据过期」徽标），数据过期不再表现为归零。
+- 验证（.3）：后端全量 **343 tests OK (skipped=1)**（基线 338 + 新增 5）、前端 `tsc -b` exit 0 + vitest **96 passed**（基线 94 + 新增 2）、三镜像重建部署后 health 三 checks 全 true、真实 API payload `{'last_success_at': '2026-09-12 15:21:10', 'threshold_minutes': 120, 'data_freshness': 'stale'}`、真实手动采集 failed（No route to host）且快照长度保持 357 字节不变。
+- 局限：.3 快照当前本就是空表头，"失败不丢非空快照"的端到端证明需快照回填（pending-tasks #32，待用户确认）或 Tower 恢复后的成功采集；单元测试已在真实 sqlite 上覆盖该路径。
+- 补充（2026-09-25 回填已完成）：从 Prometheus `last_over_time[400d]` 取各序列最后真实样本重建 metrics 文本写回 `metric_snapshots`（357 → 37639 字节 / 235 行），看板恢复 `cluster_count=1 / used 37.76 TB / 16.18%`；回填是恢复显示的唯一路径，49-37 只保证"不再被抹空"。
+
+## 2026-09-25 集群「已分配容量」字段来源与口径（49-36）[已实施]
+
+- 唯一可信来源：`POST /v2/api/get-clusters` 响应 `Cluster.perf_allocated_data_space`（int64、optional）。**`get-cluster-storage-info` 不含该字段**，其中的 `allocable_storage_capacity` 是「可分配」而非「已分配」，混用会显示错误数值。三处文档一致（本地 skills/cloudtower-api 4.8.0 `Cluster.md:69`、GitHub cloudtower-python-sdk master、PyPI cloudtower-sdk 2.22.1 `models/cluster.py:89`）。
+- 语义：已分配 = 含所有副本 + 精简盘按厚制备计，**可超物理总容量**（如 270%），所以「已分配%」必须单独以总容量为分母、允许 >100%；容量条中浅蓝段必须封顶（`min(已分配,总)-已使用`），否则条会溢出。
+- 缺失/null 一律记 0（不显示"数据不足"）；已分配取数失败不阻断采集（best-effort），否则会让一次 Tower 侧字段异常放大成整次采集失败。
+- 实现要点：新指标 `smartx_cluster_storage_allocated_bytes` 与 used/total 同标签，可复用 `merge_metrics_text` 的 sample-key 合并与 `_cluster_metric_map` 的 instant 读取；`get-clusters` 用 `where.id_in` 每塔取一次。
+
+## 2026-09-26 快照回填会让"旧值平坦重复"被当成当日增长（报表增长速率）[已修复]
+
+- 现象：`.3` 执行快照回填后，报表「容量增长速率」的「日」由 `数据不足 + 样本不足` 变成 `0 B/天`；Prometheus 明文无新采集，但回填值以**当前时间**被抓取。
+- 根因：`reports/service.py::_summed_window_rate` 只看样本点数（日窗口 `len(points)>=2`），且 `elapsed_days=max(跨度/86400,1)` 把分钟级跨度钳成 1 天 → 斜率 0、`sufficient=True` → `per_day` 由 `null` 变 `0.0`。
+- 修复（49-39，用户确认口径）：增长窗口长度 日 1 / 月 30 / 季度 90 天并**锚定最后一次成功采集**（`窗口 = [last_success - N 天, last_success]`），只用真实采集样本；窗口内真实样本 < 2 个即样本不足，UI 不足项显示 `-/天`、`-/月`、`-/季度`，标题旁黄色「数据不足」。实现：`ReportService._last_success_collection_ts()` + `_cluster_series(end_ts=...)`（锚定起止 + 双端裁剪）。**两次试错结论**：既不能用「窗口内是否出现过成功采集」（30/90 天窗口总会包含很久前的一次成功，会把陈旧平坦值算成假 0），也不能用「窗口末尾宽限期」（会让月/季度仅仅一天没采集就消失）；正确做法是把**窗口右端钉在最后一次成功采集**上。
+- 结论/教训：**任何"只补展示数据"的运维动作（如快照回填）都要考虑时序分析口径**——回填值带当前时间戳，会让按时间窗口计算的增长率/趋势把旧值当成新样本。同类动作后需回归检查报表/趋势/预测读数。
+
+## 2026-09-26 回收站 VM 命名与"新建 VM"误判（49-40）[已修复]
+
+- Tower 把回收站中的 VM 命名为 `in-recycle-bin-<uuid>`；VM 进回收站改名会让 Prometheus 出现**新序列**（新 label set），首次出现时间变成"改名时刻"。
+- 报表「本日/本月新建 VM」按"序列首次出现落在窗口内"判定 → 回收站 VM 被当成新建（`.3` 实测 day 25 台、month 228 台，`vm_name` 全是 `in-recycle-bin-*`）。
+- 修复：采集侧丢弃 `in-recycle-bin-` 前缀 VM（`RECYCLE_BIN_VM_PREFIX`），展示侧 `_latest_vm_items`/`_new_vm_reports_from_series` 过滤。
+- 残留（非本次口径问题）：平台数据自 2026-08-12 起，本月窗口内几乎所有 VM 序列都"首次出现"，因此 `month_new_vms` 仍会偏大（199 台）；要准确判断"VM 真正新建"需另立口径（如以首次采集到的 `vm_latest` 入库时间对比）。
+
+## 2026-09-26 「新建 VM」口径是"窗口内首次出现"，断档即误判（待 Tower 恢复后升级）
+
+- 现状实现：`_new_vm_reports_from_series` 判定"该 VM 的序列首次出现在 今日/本月窗口内" = 新建。
+- 测出的误判（`.3`，2026-09-26）：近 30 天窗口内 228 个 VM 序列，**203 个首见日期 = 2026-09-12**（08-21~09-11 采集断档后恢复采集的第一天）、25 个 = 09-25（回收站 VM，已被 49-40 过滤）→ 报表显示"本月新建 199 台"（假）。
+- 机制：序列"首次出现"受三件事污染——① 查询窗口截断（`days=max(window_days,30)`，窗口外历史看不到）；② 采集断档（恢复后首个样本成为"首见"）；③ VM 改名/进回收站（label 变化生成新序列）。
+- 正确来源（本地 CloudTower API 4.8.0 文档已确认）：`Vm.local_created_at`（真实创建时间）判"新建"；`Vm.in_recycle_bin`（权威回收站标记，`VmWhereInput.in_recycle_bin` 可服务端过滤，替代名称前缀）；`Vm.original_name`（回收前名字，用于展示）。
+- 折中修复（49-42，2026-09-26，已部署）：新建判定改为**按 vm_id 聚合的全历史最早样本**（400 天窗口，`VM_FIRST_SEEN_WINDOW_DAYS`），不再用「当前报表窗口内首见」。`.3` 结果：本月新建 **199 → 6 台**、本日 0；按 vm_id 聚合同时消除了改名/换 label 造成的假新序列。
+- 仍待升级（pending #36/#37）：折中的是「平台首次纳管时间」（断档期间创建的 VM 只能归到恢复采集当天）；Tower `10.20.0.6` 恢复后用 `Vm.local_created_at` 判真实创建日、`Vm.in_recycle_bin` 做权威回收站过滤（替代 49-40 的名称前缀）、`Vm.original_name` 显示回收前名字。
+
+## 2026-09-26 同名指标两套实现导致概览/报表不一致（49-43）[已修复]
+
+- 现象：概览「本日新建 VM」与报表「本日新建 VM」数字不同（49-42 只修了报表）。
+- 根因：`dashboard/service.py::_day_new_vms` 与 `reports/service.py::_new_vm_reports_from_series` 是两份独立实现，其中一份升级口径后另一份留在旧逻辑，必然漂移。
+- 修复：口径下沉共享模块 `app/v2/vms/new_vm.py`（`collect_vm_first_seen` / `is_recycled_vm_name` / `vm_display_name`），两侧同源，并用 `test_dashboard_and_report_day_new_vms_share_first_seen_and_recycle_rules` 锁定「两侧结果必须相等」。
+- 教训：**同一业务概念（如"新建 VM"）在多个页面/服务出现时，必须共用一个实现 + 一条断言一致的测试**，不要各自维护一份相似逻辑。
+
+## 2026-09-26 报表增长列表被 series tail 兜底泄漏（49-44）[已修复]
+
+- 49-40 只在 `_latest_vm_items`（instant 路径）与新建 VM 列表过滤回收站 VM，但 `reports/service.py:162` 的 `latest_vms = _merge_latest_items(latest_vms, _latest_items_from_series_tail(vm_series))` 会把 series tail 兜底项**无过滤**合并进来 → 回收站 VM 重新进入全部增长列表（`.3` 实测「本月增长最快」第 3 名为 `in-recycle-bin-e3d8d755…`）。
+- 修复：tail 合并处与 `_growth_reports_from_series`（`_labels_with_latest_name` 解析后）两处过滤；回归测试 `test_growth_vm_lists_exclude_recycle_bin_vms_from_series_tail`（instant 返回空，只能走 tail 兜底）。
+- 教训：**过滤类口径必须覆盖该实体的所有数据入口**（instant / series tail / DB 兜底），只挡一处必然在另一处漏出来。
+
+## 2026-09-26 同名业务列表两套实现的统一方法（49-45）[已修复]
+
+- 「增长最快 VM」在概览与报表各有一套实现，四处不同（窗口 days/step、当前值来源、样本跨度字段、前端过滤规则），导致同 30 天窗口一个 0 条、一个 66 条。
+- 统一方法：把**窗口定义 + 计算逻辑**下沉到共享模块 `app/v2/vms/growth.py`，两侧只做各自的 payload 映射；**前端展示规则**（样本跨度过滤、Top N 截断）也抽到共享 `services/growth.ts`；用一条断言「两侧 vm_id + 增长值完全相等」的测试锁死。
+- 统一时必须接受的口径收敛（已在设计文档记录）：月窗口固定 30 天（不随 period 放大）；当前值一律以 instant 为准（会改变仅存在于序列末端的旧值场景）；侧栏字段补齐。
+- 教训：①批量删除旧实现要用 AST/函数清单核对（本次误删 `_new_vm_reports_from_series`，编译期不报错）；②同名指标/列表的统一，**测试断言"两边必须相等"比断言各自数值更能防漂移**。

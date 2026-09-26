@@ -67,7 +67,7 @@
 
 - 平台 v0.5.3 / runner v0.3.1 / 分支 dev2（当前本地领先 origin，推送需用户要求）。
 - compose 镜像 tag 源码为 `${SMARTX_IMAGE_TAG:-v0.5.3}` 占位符——**是 build_upgrade_package.py 的改写锚点，不得写死**（详见 p1-infra-batch-design §5 的回退教训）。
-- `CollectionService.run_manual_collection` 会用本次成功目标**整体替换** metric_snapshots——调用方必须"采集前捕获旧快照、采集后合并保存"（worker 已统一实现，新增采集路径必须遵循）。
+- `CollectionService.run_manual_collection` 落库前**已在内部与采集前的旧快照合并**（49-37，2026-09-25 起）：失败/被过滤目标沿用最后已知样本，任何调用路径（含 API 手动采集）都不会再整体替换 `metric_snapshots` 抹掉历史样本；worker 外层的 `merge` 保留为双保险（幂等）。新增采集路径无需再自行合并。
 
 ## 5. 流程要求
 

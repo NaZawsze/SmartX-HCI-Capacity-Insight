@@ -7648,3 +7648,136 @@ release_smoke=critical 0, warning 0
 - 测试：本地 16 tests OK；.3 定向 17/16 OK、**全量 338 tests OK (skipped=1)**（较修复前 337 +1）。
 - .3 部署与真实库直读（web-api 镜像重建 + up -d，health v0.5.3 三 checks true）：ALL → `{'type':'all','label':'全部数据中心'}`；TOWER → `{'type':'tower','label':'CHINATOWER'}`；CLUSTER → `{'type':'cluster','label':'CHINATOWER / SMARTX-TT-WW','cluster_enabled':True}`（tower id=3，cluster `cm551tvrv029a0858up57q8qu`）。
 - 未完成项：用户 UI 复现路径目视确认（task_plan 49-35 第三项待勾选）。
+
+## 49-37（2026-09-25）手动采集失败清空指标快照修复 + 仪表盘数据过期标注
+
+- 来源：用户反馈「有段时间没获取到数据就把我整个看板停了，应该标注最后更新时间」+ 看板归零截图。根因（取证见 findings.md 2026-09-25 条）：`run_manual_collection` 对 `metric_snapshots` 整体替换、API 手动采集路径缺 worker 侧合并保护，2026-09-18 17:43 全失败手动采集把快照抹成 357 字节表头 → `/metrics` 无样本 → Prometheus instant 空 → 看板归零（虚拟机读 SQLite 故仍 244）。
+- 设计：docs/superpowers/specs/2026-09-25-collection-snapshot-merge-and-stale-annotation-design.md；立项 task_plan Phase 49 第 37 条、pending-tasks #30、doc-map 已同步。
+- 实施：`metrics/formatter.py` 新增 `merge_metrics_text`（worker 本地实现改为别名引用，3 处调用点不变）；`collection/service.py::run_manual_collection` 采集前抓旧快照、落库合并（`CollectionResult.metrics_text` 即落库文本）；`dashboard/service.py::_latest_collection` 补 `threshold_minutes`（复用 `freshness_threshold_minutes`）与 `data_freshness`（fresh/stale/unknown，时间解析复用 `freshness.parse_db_time` 新公共别名）；`api/models.py::DashboardCollectionModel` 补两字段；前端 `types.ts` 补 `collection` 契约、`DashboardPage.tsx` 采集状态卡常驻「最后成功采集」行 + stale 徽标 + 顶部「数据未更新…」提示条（复用 `.freshness-badge.stale` 与 `.cluster-disabled-message` 同组样式，未新增硬编码色值）。
+- 测试（.3，全部通过）：后端全量 **343 tests OK (skipped=1)**（基线 338 + 新增 5：全失败不清空、部分失败保留失败目标样本、过滤重试保留其他目标、merge 语义单测、dashboard freshness 三态）；前端 `npx tsc -b` exit 0、vitest **96 passed（8 files）**（基线 94 + 新增 2：stale 渲染过期提示/徽标、fresh 不渲染）。
+- 部署与运行时证据（.3 三镜像重建 + up -d）：health `{"ok":true,"version":"v0.5.3","runner_version":"v0.3.1"}` 三 checks 全 true；5 容器 Up；真实库 summary payload `{'status': 'failed', 'last_success_at': '2026-09-12 15:21:10', 'threshold_minutes': 120, 'data_freshness': 'stale'}`；真实手动采集 failed（`No route to host`）后 `metric_snapshots` 长度仍 357 字节、md5 `98fcae20…` 未变；collector-worker/web-api 日志无异常。
+- 未完成项：①提交待用户明确批准；②UI 目视确认（过期提示条/最后成功采集行）；③端到端"非空快照失败不丢"证据待快照回填（pending-tasks #32，需用户单独确认）或 Tower 恢复。
+
+### 49-37 UI 修正（2026-09-25，用户截图反馈「前端处理有什么问题」）
+
+- 识别问题：①顶部过期横幅占 4 列网格中的 1 列 → 挤成 3 行（`grid-column` 缺失，`.cluster-disabled-message` 同病）；②「数据过期」徽标被 `.run-state span { overflow-wrap:anywhere }` 断词压成两行；③「最后成功采集」标签与时间折行（同规则使 span 可收缩）；④文案与画面矛盾——横幅称「看板显示的是最后一次采集的数据」，但快照仍为空表头、看板全 0，回填前该句不成立。
+- 修正（①②③）：`.cluster-disabled-message/.data-stale-message` 加 `grid-column: 1/-1`；`.collection-last-success span` 加 `flex:0 0 auto; white-space:nowrap; overflow-wrap:normal` + 行容器 `flex-wrap:wrap`（覆盖 `.run-state span` 的断词规则）。
+- .3 复验：`npx tsc -b` exit 0、vitest **96 passed（8 files）**、前端镜像重建 + up -d + `HTTP/1.1 200 OK`。
+- 待办：④依赖快照回填（pending-tasks #32，待用户确认）；另有既有问题「数据缺失时风险提示仍显示容量风险正常」建议单独立项。
+
+### 49-37 UI 二次调整（2026-09-25，用户反馈）
+
+- 用户要求：①「数据未更新…」不要顶部带框横幅，改放 SmartX ZBS 标题后、黄色字体、无边框；②采集状态卡去掉「数据过期」徽标，只把最后采集时间标黄。
+- 实施：`Card` 加可选 `notice` prop（渲染在 `h2` 标题文字之后）；`DashboardPage` 撤顶部横幅、ZBS 卡标题后渲染 `.stale-title-notice`（`color: var(--orange)`，无边框无底色）；采集状态卡删徽标，时间行 `.stale-time`（stale 时黄色加粗，fresh 时常态）；CSS 删 `.data-stale-message` 规则（`.cluster-disabled-message` 保留跨列修复）；两条前端用例同步（徽标断言改为 notice/stale-time 类断言）。
+- .3 复验：`npx tsc -b` exit 0、vitest **96 passed（8 files）**、前端镜像重建 + up -d + `HTTP/1.1 200 OK`。
+
+## 49-37 附带（2026-09-25）`.3` 指标快照回填（一次性运维动作）
+
+- 触发：用户反馈「这里还是没有数据，而且没有已分配」——「没有数据」即快照仍为空表头（49-37 修的是"不再被抹空"，不自动恢复已丢失值），回填是恢复的唯一路径；「没有已分配」= 49-36 未实施。
+- 做法：容器内脚本从 Prometheus 取各序列最后真实样本（`last_over_time(<metric>[400d])`：`smartx_cluster_storage_used_bytes`/`total_bytes` 1 集群 + `smartx_vm_storage_used_bytes` 233 VM），用 `render_capacity_metrics` 重建 metrics 文本，写回 `metric_snapshots`（id=1）。仅动展示用快照表，不改业务库、不改 Prometheus，值全部来自真实历史样本。
+- 结果：快照 357 字节 → **37639 字节 / 235 样本行**；worker `/metrics` 恢复输出（235 行 `smartx_*`）；等待抓取后 Prometheus instant 恢复 `smartx_cluster_storage_used_bytes{tower_id="3",cluster_id="cm551tvrv029a0858up57q8qu"}=37765008588800`；看板 summary 恢复 `cluster_count=1 / used_bytes=37.76 TB / total=233.46 TB / used_ratio=16.18%`、集群 `SMARTX-TT-WW`，虚拟机 244 不变；`data_freshness=stale`（最后成功采集 2026-09-12 15:21:10）符合预期。
+- 边界：回填值的时间语义是"09-12 最后成功采集值"，不是新采集；Tower 恢复后下一次成功采集会自然覆盖。
+
+## 49-36（2026-09-25）仪表盘「已分配容量」展示（perf_allocated_data_space）
+
+- 来源：用户要求容量条体现已分配容量；口径（字段/语义/画法/分母/缺失兜底/链路）已逐项确认，见 task_plan Phase 49 第 36 条与设计文档。
+- 设计：docs/superpowers/specs/2026-09-25-allocated-capacity-bar-design.md。
+- 实施（后端）：`CloudTowerClient.get_cluster_allocations(cluster_ids)`（`get-clusters` + `where.id_in`，取 `perf_allocated_data_space`，缺失/null 记 0，空列表不发请求）；`CloudTowerService.cluster_allocations(tower)`；`CloudTowerCollector` Protocol 增加该方法；`run_manual_collection` 每塔预取一次（best-effort：异常 → {} 记 0，不阻断采集）；`ClusterCapacitySample.allocated_bytes=0` 默认值；`render_capacity_metrics` 新增 `smartx_cluster_storage_allocated_bytes`（HELP/TYPE + 同标签样本，`merge_metrics_text` 天然兼容）；`dashboard/service.py` 新增 `CLUSTER_ALLOCATED_METRIC`、集群并集含 allocated、`_storage`/`kpis` 补 `allocated_bytes`+`allocated_ratio`（分母为总容量）；`api/models.py` `DashboardStorageModel`/`DashboardClusterModel` 补字段（`extra="allow"` 向后兼容，无路由变更）。
+- 实施（前端）：`types.ts` kpis 补可选 `allocated_bytes/allocated_ratio`、`MetricItem.allocated_bytes`；`StorageBar` 三段（深蓝已使用 → 浅蓝 `min(已分配,总)-已使用` 且段长封顶 → 余灰）+ 数值区三段「已使用 X · p% ｜ 总容量 Y ｜ 已分配 Z · q%」（两个比例分母均为总容量，已分配% 可 >100%）；`:root` 新增 `--blue-soft: #cfe3ff`（并在 frontend-style-guide §2 补说明，无组件内硬编码色值）；`.storage-meta` 改三列 + 分隔线（移动端回退单列去线）。
+- 测试（.3，全部通过）：后端全量 **348 tests OK (skipped=1)**（基线 343 + 新增 5：`get_cluster_allocations` 解析与空列表不请求、采集写入 allocated 指标、allocated 取数失败不阻断采集、dashboard allocated 比例分母为总容量）；前端 `npx tsc -b --force` exit 0、vitest **100 passed（9 files）**（基线 96 + 新增 4 StorageBar 用例；同步修正 DashboardPage 既有「50.00%」整文断言为「已使用 100 B · 50.00%」+ 新增「已分配 0 B · 0.00%」断言）。首轮 vitest 暴露浮点宽度 "30.000000000000004%" → 段宽按 1e-6 取整修复后 4/4 通过。
+- 部署与运行时证据（.3 三镜像重建 + up -d）：health `{"ok":true,"version":"v0.5.3","runner_version":"v0.3.1"}` 三 checks（directories/database/prometheus）全 true；5 容器 Up；真实库 summary `kpis.allocated_bytes=0.0 / allocated_ratio=0.0`、`storage.allocated_bytes=0.0`、集群 `SMARTX-TT-WW allocated_bytes=0.0`（Tower `10.20.0.6` 不可达 → 无 allocated 序列，属预期）；前端 nginx 产物 `/usr/share/nginx/html/assets/index-CwOadYsq.js` 含「已分配」；Prometheus `smartx_cluster_storage_allocated_bytes` 查询为空（同上）。
+- 未完成项：①真实 `perf_allocated_data_space` 对账（Tower 恢复后）；②提交（待用户明确批准）；③UI 目视确认（三段条 + 「已分配 Z · 270%」）。
+
+### 49-36 UI 调整（2026-09-26，用户反馈数值区难看）
+
+- 用户反馈：「已使用 34.35 TiB · 16.18% / 总容量 212.33 TiB / 已分配 0 B · 0.00%」这几个一行三段全灰字难看。
+- 实施：`StorageBar` 数值区改为三列、每列标签在上（`--muted` 12px）/ 数值在下（`--ink` 15px 加粗）：已使用 `X · p%`、总容量 `Y`、已分配 `Z · q%`（口径不变：p/q 分母均为总容量）；CSS 换 `.storage-meta-item/-label/-value` 三规则 + 列间 `var(--line)` 分隔线，移动端单列去线；删除旧 `.storage-meta span + span`/`.storage-meta strong`（含 media query 残留）。
+- .3 复验：`npx tsc -b --force` exit 0、vitest **100 passed（9 files）**（StorageBar 用例改断言标签/数值分层，DashboardPage 用例改断言值字符串）；前端镜像重建 + up -d，`http://127.0.0.1:8080/` 200，新 bundle `index-RFrrf62V.js` 含 `storage-meta-item`（注：frontend 宿主端口为 8080 非 80）；日志见用户浏览器会话正常访问。
+
+## 49-38 回退（2026-09-26，用户指令「关于容量增长速率的操作全部回退」）
+
+- 回退清单：`ReportsPage.tsx`（`GrowthRateItem` 恢复原实现 `value == null → 「数据不足」`，去掉 `growth-rate-missing` 类）、`global.css`（删 `.growth-rate-item strong.growth-rate-missing` 规则）、`ReportsPage.test.tsx`（恢复「数据不足」断言，去掉 `-`/同行断言）、`task_plan.md` 删除第 38 条、progress.md 删除 49-38 原始条目。
+- .3 复验：`npx tsc -b --force` exit 0、vitest **100 passed（9 files）**；前端镜像重建（image `sha256:751aca3a…`，与 49-38 之前那次构建一致）、部署后 `http://127.0.0.1:8080/` 200、bundle 回到 `index-RFrrf62V.js`、`growth-rate-missing=0`（`数据不足`=5、`样本不足`=3）。
+- 重要说明（数据侧，与 49-38 无关）：回退后「日」**不会**自动回到「数据不足」。.3 实测 report payload：`{"per_day":0.0,"per_month":0.0,"per_quarter":13005856488632.03,"day_sample_sufficient":true,"month_sample_sufficient":true,"quarter_sample_sufficient":true}`。原因是**快照回填**后 Prometheus 近 1 天/30 天窗口内已有 ≥2 个同值样本（回填值 + 当前抓取），斜率算得 0 且样本判定充足 → 前端显示「0 B/天 / 0 B/月」且不再出现「样本不足」；回填前这些窗口无样本 → `per_day=null` → 「数据不足」。
+- 待用户决定：是否引入「窗口内样本时间跨度不足则判为样本不足/不给数值」的口径（day/month 需覆盖窗口一定比例），或把回填值从报表增长计算中排除，或维持现状。
+
+## 49-39（2026-09-26）报表容量增长率：窗口内需有真实成功采集 + 不足项「-/单位」与标题黄色「数据不足」
+
+- 来源：用户反馈 `.3` 快照回填后报表「容量增长速率」的「日」由 `数据不足 + 样本不足` 变成 `0 B/天`；用户二次明确 UI 口径：不足项按项显示 `-/天`、`-/月`、`-/季度`（其他项有数据照常显示），并在「容量增长速率」标题旁加黄色「数据不足」，逐项黄色「样本不足」保留。（49-38 的「-」实现已按要求先全部回退。）
+- 根因：回填值以当前时间进入 Prometheus，「近 1 天」窗口出现 ≥2 个同值样本 → `_summed_window_rate` 把分钟级跨度钳到 1 天 → 斜率 0 且 `sufficient=True` → `per_day` 由 `null` 变 `0.0`。
+- 设计：docs/superpowers/specs/2026-09-26-reports-growth-window-requires-successful-collection-design.md。
+- 实施（后端 `reports/service.py`）：新增 `ReportService._last_success_collection_ts()`（口径同看板：`collection_runs` 中 `success/partial_failed` 且有成功目标的最新 `finished_at`，`parse_db_time` 按 UTC 解析）与 `_window_covered_by_success()`；`_cluster_growth_rates` 增加 `day_covered/month_covered/quarter_covered`；`_summed_window_rate` 增加 `window_covered`（False → `(None, False)`）。
+- 实施（前端 `ReportsPage.tsx` + `global.css`）：`GrowthRateItem` 不足时 `-{unit}` 且加 `growth-rate-missing` 灰态；卡片标题旁 `Card.notice` 渲染黄色「数据不足」（`growth-rate-insufficient-notice`，`var(--orange)`，与 49-37 `.stale-title-notice` 同风格）；逐项「样本不足」不动。
+- 测试（.3）：后端定向 43 OK；**后端全量 349 tests OK (skipped=1)**（基线 348 + 新增「日窗口无成功采集」用例；另有 2 条既有增长用例补与 `now_ts` 对齐的成功采集种子）；前端 `npx tsc -b --force` exit 0、vitest **100 passed（9 files）**（增长卡用例改为断言 `-/季度` + 标题 `数据不足` 类）。
+- 部署与运行时证据（.3，web-api + frontend 重建 + up -d）：真实 payload `{"per_day":null,"per_month":0.0,"per_quarter":12471888094763.64,"day_sample_sufficient":false,"month_sample_sufficient":true,"quarter_sample_sufficient":true}`；`cluster_growth_rate_per_day=None`；前端产物 `index-B6x-Fw4Y.js` 与 CSS 均含 `growth-rate-insufficient-notice`；`http://127.0.0.1:8080/` 200。
+- 预期显示：日=`-/天` + 黄色`样本不足`，月=`0 B/月`，季度≈`11.35 TiB/季度`，标题旁黄色`数据不足`。
+- 未完成项：①用户 UI 目视确认；②提交（待用户明确批准）。
+
+### 49-39 口径最终版（2026-09-26，用户「就这吧」确认锚定口径）
+
+- 用户选定：增长窗口长度 日 1 / 月 30 / 季度 90 天，**锚定最后一次成功采集**（`窗口 = [last_success - N 天, last_success]`），即用户所说"月用最后一次成功采集往前 30 天来算"。
+- 实现：`_cluster_series` 在给定 `end_ts`（增长速度）时 `end = min(end_ts, now)`、`start = end - days*86400`，再按 `start <= ts <= end` 双端裁剪（`end_ts=None` 时仍按"现在"回算，供图表/预测/VM 使用）；`_latest_report` 在无成功采集时直接把三个增长序列置空。前两版尝试（窗口末尾宽限期、从"现在"回算 + 只裁右端）均已废弃。
+- 后端用例：`test_cluster_growth_rate_anchors_windows_on_last_success_and_ignores_backfilled_tail` + `StaleBackfillPrometheus`（真实样本分布在 20~30 天前与 14 天前，其后只有平坦回填值）→ 日窗口仅 1 点判样本不足、月/季度为非 0 真实值。
+- 验证（.3）：后端全量 **349 tests OK (skipped=1)**（reports 17 OK）、web-api 重建部署后真实 payload `{"per_day":3921044307968.0,"per_month":4883984786550.18,"per_quarter":14904154136950.08,...}`，三项 `*_sample_sufficient` 全 true。
+- 预期显示：日≈`3.57 TiB/天`、月≈`4.44 TiB/月`、季度≈`13.55 TiB/季度`，无「数据不足」提示。日值偏高系 09-12 那次采集把 08-20 一直沿用的旧值（33.84 TB）刷新为 37.76 TB 的跳变（真实抓取样本，但代表三周累计），采集恢复日常节奏后回归正常。
+
+## 49-40（2026-09-26）回收站 VM 排除（本日/本月新建与增长 VM 统计）
+
+- 来源：用户反馈报表「本日新建 VM」「本月新建 VM」显示一堆 `in-recycle-bin-<uuid>`。根因：Tower 把回收站 VM 命名为 `in-recycle-bin-<uuid>`，改名后 Prometheus 出现新序列，首次出现落在今日/本月 → 被"首次出现=新建"误判（`.3` 实测 day 25 台 / month 228 台，前排全是回收站 VM）。
+- 实施：`cloudtower/client.py` 新增 `RECYCLE_BIN_VM_PREFIX` 且 `_normalize_vm` 命中前缀返回 `None`；`reports/service.py` 新增 `_is_recycled_vm_name`/`_vm_display_name`，`_latest_vm_items` 与 `_new_vm_reports_from_series` 过滤。
+- 测试：新增 `RecycledVmPrometheus` + `test_new_vm_lists_exclude_recycle_bin_vms`；.3 后端全量 **350 tests OK (skipped=1)**。
+- 部署实测：`day_new_vms` 25 → **0**、`month_new_vms` 228 → **199**，均无 `in-recycle-bin`。
+- 边界：看板「虚拟机」KPI 仍含回收站 VM；未清理既有 SQLite/Prometheus 记录（展示侧过滤即可）。
+
+## 49-41（2026-09-26）集群容量趋势图断档断开 + 只画真实采集数据
+
+- 来源：用户反馈「没收集到数据，实际使用容量应该断开」。根因：类目轴只含有数据的日期，相邻类目直接连线 → 跨断档画假斜线；且序列仍"从现在回算"，把回填假点画在最后。
+- 实施：前端新增 `services/chartGrid.ts::buildDailyGrid`（稀疏日点补连续日、缺失填 `null`），`ClusterCapacityChart` 横轴改连续日、实际容量在缺数据处断开、`predictedHistory` 改为按连续类目用公式逐点算（模型线保持连续）；后端 `chart_series` 用 `end_ts=last_success_ts` 截到最后一次成功采集。
+- 测试：新增 `frontend/src/services/chartGrid.test.ts`（4 例）→ tsc exit 0、vitest **103 passed（10 files）**；后端 `DuplicateClusterLabelPrometheus` 用例补成功采集种子 → 全量 **350 tests OK (skipped=1)**。
+- 部署实测：`clusters[0].points` 10 个点，`08-12 → 09-12`（不再含 09-13~09-18 平坦尾巴与 09-26 回填点）；前端 bundle 含连续日网格逻辑。
+
+### 49-39/49-40/49-41 部署汇总（2026-09-26）
+
+- web-api + frontend 重建部署，`http://127.0.0.1:8080/` 200；真实 payload：`growth {per_day: null(日=样本不足), per_month: 4.88e12(≈4.44 TiB), per_quarter: 1.49e13(≈13.55 TiB)}`；`day_new_vms`=0、`month_new_vms`=199（无回收站 VM）。
+- 已知残留：`month_new_vms` 199 台仍偏高，因为平台数据自 08-12 起、本月窗口内所有 VM 序列都"首次出现"；属数据历史效应，非本次口径问题（需要另立口径才能区分"平台首次采集"与"VM 真正新建"）。
+
+## 49-42（2026-09-26）新建 VM 口径修正：按 vm_id 全历史最早样本
+
+- 来源：用户追问「本月新增应该按日期来（9.1 到现在新增的 VM），查不出来吗」。旧口径「序列在当前报表窗口内首见」因 08-21~09-11 采集断档把 203 个老 VM 的「首见」顶到恢复采集日 09-12 → 本月新建显示 199 台。
+- 实施：`VM_FIRST_SEEN_WINDOW_DAYS=400` + `ReportService._vm_first_seen()`（按 `vm_key` 聚合全历史最早样本）；`_new_vm_reports_from_series` 增参 `first_seen_by_vm` 并用其判定新建/计算 `previous_value`、`growth_amount`、`first_seen_at`、`age_days`。
+- 测试：新增 `GapRecoveryVmPrometheus` + `test_new_vm_uses_full_history_first_seen_not_window_first_point`（老 VM 窗口内「首见=今天」但全历史有 60 天前样本 → 不计入新建；真正的新 VM 保留）→ .3 后端全量 **351 tests OK (skipped=1)**。
+- 部署验证：web-api 重建部署后 `day_new_vms` **0**、`month_new_vms` **6**（虚拟化平台授权机、业支-蜜罐01~05，首见 2026-09-12 14:31），回收站 VM 已排除。
+- 局限/待办：折中口径是「平台首次纳管时间」，断档期间创建的 VM 归到恢复采集当天；真实创建时间需 Tower `local_created_at` + `in_recycle_bin`/`original_name`（pending-tasks #36/#37，待 Tower 恢复）。
+
+## 49-43（2026-09-26）概览与报表「本日新建 VM」同源
+
+- 来源：用户质疑「概览里有本日新建 VM，报表里没有（数字不同），这两个不应该是一个东西吗」。根因是**两套独立实现**：报表（49-42 已升级）用 vm_id 全历史首见 + 回收站过滤，概览 `dashboard/service.py::_day_new_vms` 还是旧口径（30 天窗口内首见、无回收站过滤）。
+- 实施：口径下沉共享模块 `backend/app/v2/vms/new_vm.py`（`collect_vm_first_seen` / `is_recycled_vm_name` / `vm_display_name`，`VM_FIRST_SEEN_WINDOW_DAYS=400`），`ReportService` 与 `DashboardService` 改为调用，删除各自私有实现；`RECYCLE_BIN_VM_PREFIX` 保留在 `cloudtower/client.py`。
+- 测试：新增 `GapAndRecycleVmPrometheus` + `test_dashboard_and_report_day_new_vms_share_first_seen_and_recycle_rules`（断档假新建 + 回收站假新建，两侧结果必须相等）→ .3 全量 **352 tests OK (skipped=1)**（dashboard+reports 定向 34 OK）。
+- 部署验证：web-api 重建部署后 `dashboard_day_new = 0`、`report_day_new = 0`、`equal = True`；`month_new_vms` 仍 6 台。
+- 结论：凡"同名指标在两个页面出现"，实现必须共用一个模块，否则口径必然漂移（已在 findings 记录）。
+
+## 49-44（2026-09-26）同名口径审计：统一 + 漏洞修复
+
+- 用户指令：「统一（周期边界），你看看还有什么问题」。
+- 已修 3 项：
+  1. **周期边界同源**：`period_bounds(now_ts, kind, tz_name)` 下沉 `app/v2/vms/new_vm.py`；报表 `_period_bounds`（进程本地时区）与概览 `_day_bounds`（settings.timezone）都改用它并传 `self.settings.timezone`，两个私有实现删除（生产行为等价，实现同源）。
+  2. **概览「增长最快 VM」补回收站过滤**：`_period_fastest_growing_vms` 原先不排除 `in-recycle-bin-*`。
+  3. **报表增长列表泄漏（49-40 漏洞）**：`_latest_items_from_series_tail` 合并 series tail 兜底项时没过滤 → 回收站 VM 重新进入所有增长列表；实测「本月增长最快」第 3 名就是 `in-recycle-bin-e3d8d755…`。在 tail 合并处 + `_growth_reports_from_series`（解析最新名后）两处过滤。
+- 测试：新增 `backend/tests/test_v2_vms_new_vm.py`（period_bounds 时区/回退 + 回收站辅助函数）、`test_growth_vm_lists_exclude_recycle_bin_vms_from_series_tail`；49-43 一致性测试扩展到增长列表；`test_v2_p1_infra.test_day_bounds_timezone` 改指共享实现。.3 全量 **355 tests OK (skipped=1)**。
+- 部署与验证：web-api 重建部署、health 200；线上 `month_fastest_growing_vms` **66 条、回收站 0 条**（修复前 68 条含 2 条）、`day_new` 概览=报表=0、`month_new`=6。
+- 审计遗留（已登记 pending #40/#41/#42，待用户决定）：①虚拟机 KPI 是否排除回收站（两侧一致都是 244，但含回收站）；②「增长最快 VM」两套实现结果不同（同 30 天窗口 概览 0 条 vs 报表 66 条）；③报表缺「已分配容量」。
+- 过程教训：全量测试脚本要 `set -e`（本轮有一次测试失败仍执行了部署——已确认部署的是测试通过的生产代码）。
+
+## 49-45（2026-09-26）「增长最快 VM」统一实现（概览与报表结果一致）
+
+- 来源：49-44 审计发现同 30 天窗口「概览 0 条、报表 66 条」；用户指令「2 要实现结果一样」。
+- 实施：新增 `app/v2/vms/growth.py`（`DAY_GROWTH` 2d/1h、`MONTH_GROWTH` 30d/6h、`latest_vm_items`、`series_tail_items`、`merge_latest_items`、`points_by_vm`、`labels_with_latest_name`、`compute_growth_vms`）；`ReportService::_growth_reports_from_series` 改为「共享计算 + 报表侧映射（forecast/period_days/min-max sample span）」，`DashboardService::_period_fastest_growing_vms` 改为「共享计算 + 概览形状（新增 sample_span_days）」；报表侧下沉的 5 个本地实现（`_points_by_vm`/`_labels_with_latest_name`/`_item_timestamp`/`_merge_latest_items`/`_latest_items_from_series_tail`）删除。
+- 前端：新增 `services/growth.ts`（`hasSampleSpan`、`TOP_GROWTH_VM_LIMIT=50`），报表页删本地 `hasSampleSpan`、两页统一过滤+截断；`MetricItem` 补 `sample_span_days`。
+- 测试与踩坑：
+  - 新增 `test_dashboard_and_report_growth_vms_share_same_implementation`（日/月列表 vm_id+增长值完全相等、两侧无回收站）→ 定向 36 OK，全量 **356 tests OK (skipped=1)**；
+  - 概览风险面板 `top_growth_vms` 预期由 `["vm-2","vm-1"]` 改为 `["vm-1"]`：新口径当前值取 instant（vm-2=10）而非序列末端（100），vm-2 增长为 0 → 有意的口径变化；
+  - 踩坑 1：批量删除本地实现的脚本误删了 `_new_vm_reports_from_series`（编译期不报错，运行 17 个 NameError）——已用 `git show HEAD:` 恢复并逐项比对顶层函数列表；
+  - 踩坑 2：`MetricItem` 缺 `sample_span_days` 触发 TS 弱类型报错（tsc EXIT=1），补字段后 tsc 0。
+- 部署与验证：web-api + frontend 重建，health 200 / web 200；线上 `day_equal=True`、`month_equal=True`（**概览=报表=66 条**，修复前 0 vs 66），Top3 vm_id 与增长值逐条一致。
+- 未完成项：①UI 目视；②提交（待批准）。

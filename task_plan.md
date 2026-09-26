@@ -86,7 +86,7 @@ docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
 | 30 | Compose Project/Network 固定化 | 已实现，canary 部署/升级验收待执行 | [docs/deployment.md](docs/deployment.md)；结论记录在本文件 |
 | 31 | 报表页容量增长速率算法优化 | 已完成 | 无专项设计文档；实施口径记录在本文件 |
 | 32~48 | 升级链路专项（fix9~fix18、UPG-031~033、Phase 45/46 镜像版本与基线验证） | 全部完成 | [docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md) 对应章节；执行记录见 [docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)；fix10 并入 Phase 32，无独立 Phase 33 |
-| 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md)；49-18/19 见 [docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md)；49-20 见 [docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md](docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md)；49-21 见 [docs/superpowers/specs/2026-09-19-forecast-band-design.md](docs/superpowers/specs/2026-09-19-forecast-band-design.md)；49-22 见 [docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md](docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md)；49-23 见 [docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md](docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md)；49-3 收尾见 [docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md](docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md) |
+| 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md)；49-18/19 见 [docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md)；49-20 见 [docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md](docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md)；49-21 见 [docs/superpowers/specs/2026-09-19-forecast-band-design.md](docs/superpowers/specs/2026-09-19-forecast-band-design.md)；49-22 见 [docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md](docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md)；49-23 见 [docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md](docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md)；49-3 收尾见 [docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md](docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md)；49-36（已分配容量，已实施并部署 .3）见本文件 Phase 49 第 36 条与 [docs/superpowers/specs/2026-09-25-allocated-capacity-bar-design.md](docs/superpowers/specs/2026-09-25-allocated-capacity-bar-design.md)；49-37（手动采集清空快照修复 + 看板过期标注）见 [docs/superpowers/specs/2026-09-25-collection-snapshot-merge-and-stale-annotation-design.md](docs/superpowers/specs/2026-09-25-collection-snapshot-merge-and-stale-annotation-design.md)；49-39（报表容量增长率窗口口径 + 不足项「-/单位」与标题黄色「数据不足」）见 [docs/superpowers/specs/2026-09-26-reports-growth-window-requires-successful-collection-design.md](docs/superpowers/specs/2026-09-26-reports-growth-window-requires-successful-collection-design.md) |
 
 升级后自动采集与 verification 历史查询的专项计划/设计：
 
@@ -1614,3 +1614,118 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 后端 scope payload 补 `type`（all/tower/cluster）与 `label`：all→「全部数据中心」、tower→数据中心名（Tower 名）、cluster→「数据中心名 / 集群名」（清单缺失时按 cluster_id 分级回退）；`DashboardScopeModel` 同步声明。（首轮仅集群名，2026-09-25 用户反馈缺数据中心层级后改为两级口径）
 - [x] 单测覆盖 all/tower/cluster 三种 scope 的 type/label（含清单缺失回退）；`test_v2_dashboard_vm_api` scope 等值断言同步（response_model 补字段后含 null）。
 - [ ] .3 验证：web-api 镜像重建部署 + 真实库三种 scope 直读 scope 字段 + 全量回归（338 OK）均已完成；余用户 UI 复现路径确认。
+
+### 36. 仪表盘「已分配容量」展示（perf_allocated_data_space）[已实施并部署 .3，余真实数据对账与提交]
+
+来源：2026-09-25 用户提出在存储容量条上体现「已分配容量」。
+设计：docs/superpowers/specs/2026-09-25-allocated-capacity-bar-design.md。
+已确认口径（用户拍板）：
+- 数据源：`POST /v2/api/get-clusters` 响应 `Cluster.perf_allocated_data_space`（int64 optional，Tower 端算好，我们透传；`get-cluster-storage-info` 无此字段，`allocable_storage_capacity` 是「可分配」非「已分配」）。三处文档核对一致（本地 skills/cloudtower-api 4.8.0、GitHub cloudtower-python-sdk master、PyPI cloudtower-sdk 2.22.1）。
+- 语义：已分配 = 含所有副本 + 精简盘按厚制备计 → 可超总容量（如 270%）。
+- 缺失/null → 按 0 处理。
+- 展示：容量条堆叠但浅蓝封顶 100%（已使用深蓝 → 已分配未用浅蓝 `min(分配,总)-已使用` 且段长封顶 → 余灰）；数值区同行顺序「已使用 X · 70% ｜ 总容量 Y ｜ 已分配 Z · 270%」；两个比例分母都是总容量。
+- 数据链路：采集循环每塔一次 `get-clusters`（`id_in` 过滤）→ `ClusterCapacitySample.allocated_bytes` → 新指标 `smartx_cluster_storage_allocated_bytes` → dashboard `_cluster_metric_map` 读第三指标 → API `kpis/storage/clusters` 加字段 → `StorageBar` 三段渲染。
+- [x] 设计文档（docs/superpowers/specs/2026-09-25-allocated-capacity-bar-design.md）
+- [x] 实施：`CloudTowerClient.get_cluster_allocations` + `CloudTowerService.cluster_allocations`（每塔一次）→ `run_manual_collection` 每塔预取（best-effort，失败记 0 不阻断）→ 指标渲染/REST 字段/前端三段条与数值区（新增 `--blue-soft` 设计变量）
+- [x] 测试：新增 5 后端用例（client 解析/空列表不请求、采集写指标、取数失败不阻断、dashboard 比例分母为总容量）+ 4 前端用例（StorageBar 三段/封顶/无分配/total=0）→ .3 后端全量 **348 tests OK (skipped=1)**、tsc exit 0、vitest **100 passed（9 files）**
+- [x] .3 重建部署验证：三镜像重建 + health 三 checks 全 true + 真实 payload `allocated_bytes=0.0/allocated_ratio=0.0`（Tower 不可达，属预期）+ 前端 bundle 含「已分配」+ 回填后的 used/total 仍在
+- [ ] 真实 `perf_allocated_data_space` 对账（Tower `10.20.0.6` 当前不可达，须等网络恢复）
+- [ ] 提交（需用户明确批准）
+- [ ] UI 目视确认（三段容量条 + 「已分配 Z · 270%」数值）
+
+### 39. 报表容量增长率：无成功采集窗口判样本不足 + 不足项显示「-/单位」与标题黄色「数据不足」[已实施并部署 .3]
+
+来源：2026-09-26 用户反馈——`.3` 快照回填后报表「容量增长速率」的「日」由 `数据不足 + 样本不足` 变成 `0 B/天`（回填样本以当前时间进入 Prometheus，被当作当日新样本）；用户二次明确要求：不足的项按项显示 `-/天`、`-/月`、`-/季度`，有数据的项照常显示，并在「容量增长速率」标题旁加黄色「数据不足」，逐项黄色「样本不足」保留。
+设计：docs/superpowers/specs/2026-09-26-reports-growth-window-requires-successful-collection-design.md。
+- [x] 后端口径（用户两轮确认）：窗口长度固定 日 1 / 月 30 / 季度 90 天并**锚定最后一次成功采集**（`窗口 = [last_success - N 天, last_success]`）；**窗口内成功采集必须覆盖两端**（最早一次距窗口末尾 ≥ 窗口长度 × 50%，常量 `GROWTH_WINDOW_COVERAGE_RATIO`），且窗口内真实样本 ≥ 2 个点，否则该窗口 `per_*=null` 且 `*_sample_sufficient=false`。实现：`ReportService._success_timestamps()` + `_window_success_coverage()` + `_cluster_series(end_ts=...)`（锚定起止 + 双端裁剪）。`.3` 实测：日 4 次采集但跨度 0.2 天 → 无效（`-/天`）；月 12 次/29.9 天、季度 23 次/64.3 天 → 有效。
+- [x] 前端：`GrowthRateItem` 不足时显示 `-{unit}`（`-/天`、`-/月`、`-/季度`）+ `growth-rate-missing` 灰态；`Card` 标题旁 `数据不足`（`growth-rate-insufficient-notice`，`--orange`）；逐项「样本不足」不动。
+- [x] 测试：后端新增「真实样本分布在 20~30 天前 + 14 天前（最后成功采集），其后只有平坦回填值 → 日窗口仅 1 点判样本不足、月/季度为真实非 0 值」用例（`StaleBackfillPrometheus`；另两条既有增长用例补与 `now_ts` 对齐的成功采集种子）→ .3 后端全量 **349 tests OK (skipped=1)**；前端 `ReportsPage.test.tsx` 补 `-/季度` + 标题 `数据不足` 断言 → tsc exit 0、vitest **100 passed（9 files）**。
+- [x] .3 部署验证：web-api + frontend 镜像重建、真实 payload `{"per_day":3921044307968.0,"per_month":4883984786550.18,"per_quarter":14904154136950.08,"day_sample_sufficient":true,"month_sample_sufficient":true,"quarter_sample_sufficient":true}`（日值含 09-12 采集把 08-20 旧值刷新为新值的跳变；取证序列：08-12~08-20 有样本、08-21~09-11 缺失、09-12~09-18 为最后成功采集后的平坦值、09-26 为回填写入）、前端产物含 `growth-rate-insufficient-notice`、`http://127.0.0.1:8080/` 200。
+- [ ] 用户 UI 目视确认（日≈`3.57 TiB/天`、月≈`4.44 TiB/月`、季度≈`13.55 TiB/季度`；日值偏高系 09-12 采集刷新 08-20 旧值的跳变，采集恢复日常后回归正常）
+- [ ] 提交（需用户明确批准）
+- 说明：本条取代 49-38（49-38 的「-」占位实现已按要求全部回退）。
+
+### 40. 回收站 VM 排除（本日/本月新建与增长 VM 统计）[已实施并验证 .3]
+
+来源：2026-09-26 用户反馈——报表「本日新建 VM」「本月新建 VM」显示一堆 `in-recycle-bin-<uuid>`（被当成新建的新 VM）。
+根因：Tower 把回收站 VM 命名为 `in-recycle-bin-<uuid>`；改名导致 Prometheus 出现新序列，首次出现时间落在今日/本月，于是被"首次出现=新建"的口径误判（`.3` 实测 `day_new_vms` 25 台、`month_new_vms` 228 台，前排全是回收站 VM）。
+设计：docs/superpowers/specs/2026-09-26-recycle-bin-vm-exclusion-design.md。
+- [x] 采集侧：`cloudtower/client.py` 新增 `RECYCLE_BIN_VM_PREFIX`，`_normalize_vm` 命中前缀返回 `None`（不再入库）。
+- [x] 展示侧：`reports/service.py` 新增 `_is_recycled_vm_name`/`_vm_display_name`，`_latest_vm_items`（增长 VM 列表）与 `_new_vm_reports_from_series`（本日/本月新建）过滤回收站 VM。
+- [x] 测试：新增 `RecycledVmPrometheus` + `test_new_vm_lists_exclude_recycle_bin_vms`（正常 VM 保留、回收站 VM 排除）→ .3 后端全量 **350 tests OK (skipped=1)**。
+- 边界（未做）：看板「虚拟机」KPI 仍含回收站 VM（用户本次只反馈新建列表）；不清理既有 SQLite/Prometheus 记录（保留业务数据，展示侧过滤）。
+- [ ] 用户 UI 目视确认（新建 VM 列表不再出现 `in-recycle-bin-*`）
+- [ ] 提交（需用户明确批准）
+
+### 41. 集群容量趋势图：断档处断开实际容量曲线 + 只画真实采集数据[已实施并验证 .3]
+
+来源：2026-09-26 用户反馈——「集群容量趋势」图里没收集到数据时，实际使用容量应该断开。
+根因：横轴类目只含"有数据的日期"，相邻类目被直接连线，跨断档画出假斜线；且图表序列仍"从现在回算"，把快照回填产生的假点画在最后。
+设计：docs/superpowers/specs/2026-09-26-cluster-chart-gap-break-design.md。
+- [x] 前端：新增 `services/chartGrid.ts::buildDailyGrid`（稀疏日点补成连续日、缺失填 `null`）；`ClusterCapacityChart` 横轴改用连续日类目、实际容量曲线在缺数据处断开、`predictedHistory` 改为按连续类目用公式逐点计算（模型线保持连续）。
+- [x] 后端：`reports/service.py` 的 `chart_series` 用 `end_ts=last_success_ts`（无成功采集则空），图表不再画回填/暂停期假点。
+- [x] 测试：新增 `frontend/src/services/chartGrid.test.ts`（4 例）→ `tsc -b` exit 0、vitest **103 passed（10 files）**；后端 `DuplicateClusterLabelPrometheus` 用例补成功采集种子 → 全量 **350 tests OK (skipped=1)**。
+- [ ] 用户 UI 目视确认（断档处曲线断开、右侧无假点）
+- [ ] 提交（需用户明确批准）
+
+### 42. 新建 VM 口径修正：按 vm_id 全历史最早样本[已实施并验证 .3]
+
+来源：2026-09-26 用户追问「本月新增应该按日期来，9.1 到现在新增的 VM，查不出来吗」——报表「本月新建 VM」显示 199 台。
+根因：旧口径是「序列在**当前报表窗口**（近 30 天）内首次出现」；`.3` 因 08-21~09-11 采集断档，228 个序列里 203 个「首见」落在恢复采集日 09-12 → 老 VM 全被判成本月新建。
+设计：docs/superpowers/specs/2026-09-26-new-vm-first-seen-design.md。
+- [x] 后端：新增 `VM_FIRST_SEEN_WINDOW_DAYS=400` 与 `ReportService._vm_first_seen()`（按 `vm_id` 聚合全历史最早样本）；`_new_vm_reports_from_series` 改用它判定新建。
+- [x] 测试：新增 `GapRecoveryVmPrometheus` + `test_new_vm_uses_full_history_first_seen_not_window_first_point` → .3 后端全量 **351 tests OK (skipped=1)**。
+- [x] .3 部署验证：`day_new_vms` 0 台、`month_new_vms` **6 台**（虚拟化平台授权机、业支-蜜罐01~05，首见 09-12），回收站 VM 已排除。
+- 局限：这是「平台首次纳管时间」，断档期间创建的 VM 只能归到恢复采集当天；真实创建时间需 Tower `local_created_at`（pending-tasks #36/#37，待 Tower 恢复）。
+- [ ] 用户 UI 目视确认（本月新建 ≈6 台）
+- [ ] 提交（需用户明确批准）
+
+### 43. 概览与报表「本日新建 VM」同源（共用 49-42 口径）[已实施并验证 .3]
+
+来源：2026-09-26 用户质疑「概览里有本日新建 VM，报表里没有（数字不同），这两个不应该是一个东西吗」。
+根因：两套独立实现——报表用 `reports/service.py::_new_vm_reports_from_series`（49-42 已升级），概览用 `dashboard/service.py::_day_new_vms` 旧口径（30 天窗口内首见、无回收站过滤）。
+设计：docs/superpowers/specs/2026-09-26-new-vm-first-seen-design.md §7。
+- [x] 口径下沉共享模块 `backend/app/v2/vms/new_vm.py`（`collect_vm_first_seen` / `is_recycled_vm_name` / `vm_display_name`），`ReportService` 与 `DashboardService` 改为调用；`RECYCLE_BIN_VM_PREFIX` 仍在 `cloudtower/client.py`。
+- [x] 概览 `_day_new_vms` 改用共享口径：全历史 `vm_id` 首见判今日 + 回收站排除。
+- [x] 测试：新增 `GapAndRecycleVmPrometheus` + `test_dashboard_and_report_day_new_vms_share_first_seen_and_recycle_rules`（断言两侧 `day_new_vms` 一致）→ .3 全量 **352 tests OK (skipped=1)**。
+- [x] .3 部署验证：`dashboard_day_new = 0`、`report_day_new = 0`、`equal = True`（本月新建仍 6 台）。
+- [ ] 用户 UI 目视确认（概览与报表数字一致）
+- [ ] 提交（需用户明确批准）
+
+### 44. 同名口径审计：周期边界同源 + 概览增长过滤 + 报表增长泄漏修复[已实施并验证 .3]
+
+来源：2026-09-26 用户「统一，你看看还有什么问题」（承接 49-43 的同源化）。
+设计：docs/superpowers/specs/2026-09-26-new-vm-first-seen-design.md §8。
+- [x] 周期边界统一：`period_bounds(now_ts, kind, tz_name)` 下沉 `app/v2/vms/new_vm.py`，报表 `_period_bounds`（进程本地时区）与概览 `_day_bounds`（settings.timezone）都改用它，私有实现删除。
+- [x] 概览「增长最快 VM」补回收站过滤（`_period_fastest_growing_vms`）。
+- [x] 报表增长列表泄漏修复：`_latest_items_from_series_tail` 合并处 + `_growth_reports_from_series` 解析名后两处过滤（49-40 的漏洞，实测月增长第 3 名是回收站 VM）。
+- [x] 测试：新增 `test_v2_vms_new_vm.py`、`test_growth_vm_lists_exclude_recycle_bin_vms_from_series_tail`，扩展 49-43 一致性测试覆盖增长列表；`test_v2_p1_infra` 改指向共享实现 → .3 全量 **355 tests OK (skipped=1)**。
+- [x] .3 部署验证：线上 `month_fastest_growing_vms` 66 条、回收站 0 条（修复前 68 含 2）；`day_new` 概览=报表=0。
+- 审计遗留（待用户决定）：①虚拟机 KPI 是否排除回收站（两侧都算 244，含回收站）；②「增长最快 VM」两套实现结果不同（同 30 天窗口：概览 0 条 vs 报表 66 条），需重构统一；③报表缺「已分配容量」（49-36 只做了概览）。
+- [ ] 提交（需用户明确批准）
+
+### 45. 「增长最快 VM」统一实现（概览与报表结果一致）[已实施并验证 .3]
+
+来源：49-44 审计（同 30 天窗口概览 0 条 vs 报表 66 条），2026-09-26 用户「2 要实现结果一样」。
+设计：docs/superpowers/specs/2026-09-26-shared-vm-growth-design.md。
+- [x] 新增共享模块 `app/v2/vms/growth.py`：窗口定义（日 2d/1h、月 30d/6h）、`compute_growth_vms` 统一计算（基线/当前值/样本跨度/回收站过滤/排序）与 `latest_vm_items`/`series_tail_items`/`merge_latest_items`。
+- [x] 报表与概览都改为调用共享实现；报表只保留 `min/max_sample_days` 与 `forecast`/`period_days` 映射。
+- [x] 有意口径变化：月窗口固定 30 天（不随 period_days 放大）、当前值统一取 instant∪序列尾部（概览原为序列末端）、概览项新增 `sample_span_days`。
+- [x] 前端展示规则共用：`services/growth.ts` 的 `hasSampleSpan` + `TOP_GROWTH_VM_LIMIT=50`，两页同样过滤与截断。
+- [x] 测试：新增 `test_dashboard_and_report_growth_vms_share_same_implementation`（日/月 vm_id+增长值完全相等、无回收站）；更新概览风险面板 `top_growth_vms` 预期（新口径下 vm-2 增长 0 不入列）→ .3 后端全量 **356 tests OK (skipped=1)**；`growth.test.ts` 4 例 → tsc 0、vitest **107 passed（11 files）**。
+- [x] .3 部署验证：`day_equal=True`、`month_equal=True`（概览=报表=66 条，修复前 0 vs 66，Top3 逐条一致）、health/web 200。
+- [ ] 用户 UI 目视确认（两页增长列表一致）
+- [ ] 提交（需用户明确批准）
+
+### 37. 手动采集失败清空指标快照修复 + 仪表盘数据过期标注（49-37）[进行中]
+
+来源：2026-09-25 用户反馈「有段时间没获取到数据就把我整个看板停了，应该标注最后更新时间」+ 看板归零截图。
+根因：`run_manual_collection` 对 `metric_snapshots` 整体替换，API 手动采集路径缺 worker 侧既有的 `_merge_metrics_text` 合并保护；2026-09-18 17:43 一次全失败手动采集把快照抹成 357 字节表头 → `/metrics` 无样本 → Prometheus instant 查询为空 → 看板归零（虚拟机 KPI 读 SQLite 故仍显示 244）。
+设计：docs/superpowers/specs/2026-09-25-collection-snapshot-merge-and-stale-annotation-design.md
+- [x] 快照合并下沉：`merge_metrics_text` 下沉 `metrics/formatter.py`，`run_manual_collection` 读旧快照合并后落库（worker 双保险保留）
+- [x] 看板过期标注：`_latest_collection` 补 `threshold_minutes`/`data_freshness`，采集状态卡常驻「最后成功采集」+ stale 时顶部过期提示条与徽标
+- [x] 测试：全失败/部分失败/过滤重试不清空快照 + freshness 三态 + 前端标注 → .3 后端全量 **343 tests OK (skipped=1)**、tsc exit 0、vitest **96 passed**
+- [x] .3 重建部署验证：三镜像重建 + health 三 checks 全 true + 真实 payload `last_success_at=2026-09-12 15:21:10/threshold_minutes=120/data_freshness=stale` + 真实失败手动采集后快照 357 字节未变（progress.md 49-37）
+- [ ] 提交（需用户明确批准）
+- [ ] UI 目视确认（过期提示条 + 最后成功采集行）
+- 独立于本条：`.3` 快照回填（从 Prometheus 09-18 前最后样本写回 `metric_snapshots`）须单独征得用户确认后执行
