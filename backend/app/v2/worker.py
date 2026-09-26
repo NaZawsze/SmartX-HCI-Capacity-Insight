@@ -14,6 +14,7 @@ from app.v2.collection.service import CollectionService
 from app.v2.config import settings_from_environment
 from app.v2.data_quality.service import DataQualityService
 from app.v2.database import V2Database
+from app.v2.metrics.formatter import merge_metrics_text
 from app.v2.tasks.service import TaskService
 
 
@@ -534,23 +535,8 @@ def _save_metrics_text(database: V2Database, metrics_text: str) -> None:
 
 
 def _merge_metrics_text(previous: str, current: str) -> str:
-    comments: list[str] = []
-    samples: dict[str, str] = {}
-    for text in (previous, current):
-        for line in text.splitlines():
-            stripped = line.strip()
-            if not stripped:
-                continue
-            if stripped.startswith("#"):
-                if stripped not in comments:
-                    comments.append(stripped)
-                continue
-            samples[_sample_key(stripped)] = stripped
-    return "\n".join([*comments, *samples.values()]) + ("\n" if comments or samples else "")
-
-
-def _sample_key(line: str) -> str:
-    return line.split(" ", 1)[0]
+    """兼容别名：合并逻辑已下沉到 metrics.formatter（49-37）。"""
+    return merge_metrics_text(previous, current)
 
 
 def _record_collection_warning(database: V2Database, tasks: TaskService, failed_targets: list[dict], *, attempt: int, max_attempts: int) -> None:

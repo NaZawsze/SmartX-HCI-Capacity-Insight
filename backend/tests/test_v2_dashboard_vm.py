@@ -20,6 +20,8 @@ class FakePrometheus:
                 {"metric": {"tower_id": "1", "cluster_id": "cluster-a"}, "value": [100, "100"]},
                 {"metric": {"tower_id": "1", "cluster_id": "cluster-b"}, "value": [100, "100"]},
             ]
+        if query == "smartx_cluster_storage_allocated_bytes":
+            return [{"metric": {"tower_id": "1", "cluster_id": "cluster-a"}, "value": [100, "270"]}]
         if query.startswith("smartx_vm_storage_used_bytes"):
             return [
                 {"metric": {"tower_id": "9", "cluster_id": "orphan-cluster", "vm_id": "vm-orphan", "vm_name": "Orphan VM"}, "value": [100, "999"]},
@@ -77,6 +79,29 @@ class RangeOnlyNewVmPrometheus(FakePrometheus):
                 {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-new-b", "vm_name": "Range New B"}, "values": [[today + 60, "0"], [end, "4"]]},
             ]
         return []
+
+
+class GapAndRecycleVmPrometheus(FakePrometheus):
+    """全历史窗口能看到老 VM 的旧样本，但 30 天窗口内它"看起来"今天才出现；另含一个回收站 VM。
+
+    模拟采集断档恢复（49-42）与回收站改名（49-40）两类"假新建"。
+    """
+
+    def range(self, query: str, *, start: int, end: int, step: str):
+        self.range_calls.append({"query": query, "start": start, "end": end, "step": step})
+        if query.startswith("smartx_vm_storage_used_bytes"):
+            if end - start > 100 * 86_400:
+                return [
+                    {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-gap", "vm_name": "Gap VM"}, "values": [[end - 60 * 86_400, "10"], [end - 50 * 86_400, "20"]]},
+                    {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-new", "vm_name": "New VM"}, "values": [[end, "20"]]},
+                    {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-bin", "vm_name": "in-recycle-bin-abc"}, "values": [[end, "10"]]},
+                ]
+            return [
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-gap", "vm_name": "Gap VM"}, "values": [[end, "45"]]},
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-new", "vm_name": "New VM"}, "values": [[end - 3600, "10"], [end, "20"]]},
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-bin", "vm_name": "in-recycle-bin-abc"}, "values": [[end - 3600, "5"], [end, "10"]]},
+            ]
+        return super().range(query, start=start, end=end, step=step)
 
 
 class MultiRiskPrometheus(FakePrometheus):
@@ -171,15 +196,33 @@ class V2DashboardVmTest(unittest.TestCase):
             self.assertEqual(summary["capacity_risk"]["top_clusters"][0]["used_ratio"], 0.81)
             self.assertEqual(summary["capacity_risk"]["risk_clusters"][0]["cluster"], "Cluster A")
             self.assertEqual(summary["capacity_risk"]["risk_clusters"][0]["risk_level"], "high")
-            self.assertEqual([vm["vm_id"] for vm in summary["capacity_risk"]["top_clusters"][0]["top_growth_vms"]], ["vm-2", "vm-1"])
-            self.assertEqual(summary["capacity_risk"]["top_clusters"][0]["top_growth_vms"][0]["growth_amount"], 90)
-            self.assertEqual(summary["capacity_risk"]["top_clusters"][0]["top_growth_vms"][1]["vm_name"], "VM One Latest")
+            # 49-45：增长列表改用报表同一实现（当前值取 instant 而非序列末端），vm-2 的
+            # instant(10) 与基线(10)相同 → 增长为 0 不再入列；vm-1 增长 70-50=20。
+            self.assertEqual([vm["vm_id"] for vm in summary["capacity_risk"]["top_clusters"][0]["top_growth_vms"]], ["vm-1"])
+            self.assertEqual(summary["capacity_risk"]["top_clusters"][0]["top_growth_vms"][0]["growth_amount"], 20)
+            self.assertEqual(summary["capacity_risk"]["top_clusters"][0]["top_growth_vms"][0]["vm_name"], "VM One Latest")
             self.assertEqual(summary["totals"], {"towers": 1, "clusters": 2, "vms": 2})
             self.assertEqual(summary["storage"]["used_bytes"], 91)
             self.assertEqual(summary["storage"]["total_bytes"], 200)
             self.assertEqual(summary["day_fastest_growing_vms"][0]["vm_name"], "VM One Latest")
             self.assertEqual(summary["day_fastest_growing_vms"][0]["growth_amount"], 20)
             self.assertEqual(summary["day_new_vms"], [])
+
+    def test_dashboard_summary_exposes_allocated_capacity_ratio_over_total(self) -> None:
+        """49-36：已分配容量与比例（分母为总容量，可 > 100%）。"""
+        from app.v2.dashboard.service import DashboardService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            summary = DashboardService(db, settings, prometheus=FakePrometheus(), now_ts=200).summary()
+
+            self.assertEqual(summary["storage"]["allocated_bytes"], 270)
+            self.assertEqual(summary["storage"]["allocated_ratio"], 270 / 200)
+            self.assertEqual(summary["kpis"]["allocated_bytes"], 270)
+            self.assertEqual(summary["kpis"]["allocated_ratio"], 270 / 200)
+            clusters = {cluster["cluster_id"]: cluster for cluster in summary["clusters"]}
+            self.assertEqual(clusters["cluster-a"]["allocated_bytes"], 270)
+            self.assertEqual(clusters["cluster-b"]["allocated_bytes"], 0)
 
     def test_dashboard_capacity_risk_summarizes_multiple_risk_clusters(self) -> None:
         from app.v2.dashboard.service import DashboardService
@@ -217,6 +260,61 @@ class V2DashboardVmTest(unittest.TestCase):
             self.assertEqual([vm["vm_id"] for vm in summary["day_new_vms"]], ["vm-new-b", "vm-new-a"])
             self.assertEqual([vm["vm_name"] for vm in summary["day_new_vms"]], ["Range New B Latest", "Range New A Latest"])
             self.assertEqual([vm["current_bytes"] for vm in summary["day_new_vms"]], [4.0, 8.0])
+
+    def test_dashboard_and_report_day_new_vms_share_first_seen_and_recycle_rules(self) -> None:
+        """49-43：概览与报表的「本日新建 VM」必须同源（vm_id 全历史首见 + 排除回收站）。"""
+        from app.v2.dashboard.service import DashboardService
+        from app.v2.reports.service import ReportService
+
+        now_ts = 1_700_000_000
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            fake = GapAndRecycleVmPrometheus()
+            summary = DashboardService(db, settings, prometheus=fake, now_ts=now_ts).summary()
+            report = ReportService(db, settings, prometheus=fake, now_ts=now_ts).latest_report(period_days=30, chart_days=90)
+
+            dashboard_ids = [vm["vm_id"] for vm in summary["day_new_vms"]]
+            report_ids = [item["vm_id"] for item in report["day_new_vms"]]
+            self.assertEqual(dashboard_ids, ["vm-new"])
+            self.assertEqual(report_ids, ["vm-new"])
+            self.assertEqual(dashboard_ids, report_ids)
+            self.assertNotIn("vm-gap", dashboard_ids)
+            self.assertNotIn("vm-bin", dashboard_ids)
+
+            # 概览「增长最快 VM」也必须排除回收站 VM（49-44 审计项）；
+            # 概览 payload 只暴露日增长（month 列表仅用于风险计算，同一实现）
+            for key in ("day_fastest_growing_vms", "top_vms"):
+                growth_ids = [vm["vm_id"] for vm in summary[key]]
+                self.assertIn("vm-new", growth_ids, key)
+                self.assertNotIn("vm-bin", growth_ids, key)
+
+    def test_dashboard_and_report_growth_vms_share_same_implementation(self) -> None:
+        """49-45：概览与报表的「增长最快 VM」结果（vm_id、顺序、增长值）必须一致。"""
+        from app.v2.dashboard.service import DashboardService
+        from app.v2.reports.service import ReportService
+
+        now_ts = 1_700_000_000
+
+        def pairs(items):
+            return [(item["vm_id"], round(float(item["growth_amount"]), 6)) for item in items]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            fake = GapAndRecycleVmPrometheus()
+            dashboard = DashboardService(db, settings, prometheus=fake, now_ts=now_ts)
+            summary = dashboard.summary()
+            report = ReportService(db, settings, prometheus=fake, now_ts=now_ts).latest_report(period_days=30, chart_days=90)
+
+            dash_day = pairs(summary["day_fastest_growing_vms"])
+            self.assertEqual(dash_day, pairs(report["day_fastest_growing_vms"]))
+
+            enabled = dashboard._enabled_cluster_scope(tower_id=None, cluster_id=None)
+            dash_month = pairs(dashboard._period_fastest_growing_vms(tower_id=None, cluster_id=None, enabled_scope=enabled, days=30, limit=100))
+            self.assertEqual(dash_month, pairs(report["month_fastest_growing_vms"]))
+
+            # 回收站 VM 在两边都不出现
+            for items in (summary["day_fastest_growing_vms"], report["day_fastest_growing_vms"], report["month_fastest_growing_vms"]):
+                self.assertTrue(all("in-recycle-bin" not in (item.get("vm_name") or "") for item in items))
 
     def test_dashboard_capacity_risk_uses_merged_cluster_series_for_exhaustion_days(self) -> None:
         from app.v2.dashboard.service import DashboardService
@@ -454,6 +552,33 @@ class V2DashboardVmTest(unittest.TestCase):
 
             all_usages = {item["vm_id"] for item in service.usage_summary()}
             self.assertEqual(all_usages, {"vm-1", "vm-2"})
+
+
+    def test_dashboard_collection_freshness_exposes_last_success_and_stale_state(self) -> None:
+        """49-37：看板 collection payload 需带最后成功采集时间与新鲜度三态。"""
+        from datetime import datetime, timezone
+
+        from app.v2.dashboard.service import DashboardService
+        from app.v2.data_quality.service import freshness_threshold_minutes
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            last_success = datetime(2026, 6, 6, 2, 0, tzinfo=timezone.utc)
+            threshold = freshness_threshold_minutes(db)
+
+            fresh = DashboardService(db, settings, prometheus=FakePrometheus(), now_ts=int(last_success.timestamp()) + 60).summary()["collection"]
+            self.assertEqual(fresh["last_success_at"], "2026-06-06 02:00:00")
+            self.assertEqual(fresh["threshold_minutes"], threshold)
+            self.assertEqual(fresh["data_freshness"], "fresh")
+
+            stale = DashboardService(db, settings, prometheus=FakePrometheus(), now_ts=int(last_success.timestamp()) + (threshold + 1) * 60).summary()["collection"]
+            self.assertEqual(stale["data_freshness"], "stale")
+
+            with db.connection() as conn:
+                conn.execute("UPDATE collection_runs SET status = 'failed' WHERE id = (SELECT MAX(id) FROM collection_runs)")
+            unknown = DashboardService(db, settings, prometheus=FakePrometheus(), now_ts=int(last_success.timestamp())).summary()["collection"]
+            self.assertIsNone(unknown["last_success_at"])
+            self.assertEqual(unknown["data_freshness"], "unknown")
 
 
 if __name__ == "__main__":

@@ -32,7 +32,8 @@ describe("DashboardPage", () => {
       />
     );
     expect(screen.getByText("SmartX ZBS")).toBeInTheDocument();
-    expect(screen.getAllByText("50.00%").length).toBeGreaterThan(0);
+    expect(screen.getByText("100 B · 50.00%")).toBeInTheDocument();
+    expect(screen.getByText("0 B · 0.00%")).toBeInTheDocument();
   });
 
   it("uses cluster-level capacity risk", () => {
@@ -502,5 +503,52 @@ describe("DashboardPage", () => {
         })
       );
     });
+  });
+
+  it("shows last successful collection time and stale data notice when collection is stale", () => {
+    render(
+      <DashboardPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 2, vm_count: 3, used_bytes: 100, total_bytes: 200, used_ratio: 0.5 },
+          collection: { status: "failed", message: "采集异常", last_success_at: "2026-09-12 15:21:10", threshold_minutes: 60, data_freshness: "stale" },
+          top_vms: [],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSummary={vi.fn()}
+        onSelectVm={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("最后成功采集")).toBeInTheDocument();
+    const notice = screen.getByText(/数据未更新：最近成功采集于/);
+    expect(notice.className).toContain("stale-title-notice");
+    expect(screen.queryByText("数据过期")).toBeNull();
+    const staleRow = screen.getByText("最后成功采集").closest(".collection-last-success")!;
+    expect(staleRow.querySelector(".stale-time")).not.toBeNull();
+  });
+
+  it("keeps last success time without stale notice when collection data is fresh", () => {
+    render(
+      <DashboardPage
+        summary={{
+          kpis: { tower_count: 1, cluster_count: 2, vm_count: 3, used_bytes: 100, total_bytes: 200, used_ratio: 0.5 },
+          collection: { status: "success", message: "采集完成", last_success_at: "2026-09-12 15:21:10", threshold_minutes: 60, data_freshness: "fresh" },
+          top_vms: [],
+          clusters: [],
+          towers: []
+        }}
+        scope={{ type: "all" }}
+        onSummary={vi.fn()}
+        onSelectVm={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("最后成功采集")).toBeInTheDocument();
+    expect(screen.queryByText("数据过期")).toBeNull();
+    expect(screen.queryByText(/数据未更新/)).toBeNull();
+    const freshRow = screen.getByText("最后成功采集").closest(".collection-last-success")!;
+    expect(freshRow.querySelector(".stale-time")).toBeNull();
   });
 });

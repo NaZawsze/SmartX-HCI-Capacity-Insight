@@ -155,6 +155,11 @@ def _probe_loop(database: V2Database, stop_event: threading.Event, interval_seco
 
 
 def _parse_db_time(value: str) -> datetime | None:
+    return parse_db_time(value)
+
+
+def parse_db_time(value: str) -> datetime | None:
+    """解析 collection_runs 等 DB 时间戳（按 UTC 处理），供看板新鲜度判定共用口径。"""
     text = value.strip().removesuffix("Z")
     for fmt in _TS_FORMATS:
         try:

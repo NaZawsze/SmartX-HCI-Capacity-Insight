@@ -8,6 +8,9 @@ class FakeCloudTowerClient:
     def __init__(self) -> None:
         self.collected_cluster_ids: list[str] = []
 
+    def cluster_allocations(self, tower):
+        return {"enabled-cluster": 270}
+
     def collect_cluster(self, tower, cluster):
         self.collected_cluster_ids.append(cluster.cluster_id)
         return {
@@ -77,6 +80,29 @@ class SucceedsOnRetryCloudTowerClient:
         return {
             "cluster": {"used_bytes": 90, "total_bytes": 100},
             "vms": [{"vm_id": f"vm-{cluster.cluster_id}", "name": f"VM {cluster.cluster_id}", "used_bytes": 90, "volumes": []}],
+        }
+
+
+class ConfigurableCloudTowerClient:
+    """按 used_bytes 返回样本，可指定必失败目标（49-37 快照保留回归用）。"""
+
+    def __init__(self, used_bytes: int, failing: set[str] | None = None, allocations: dict[str, int] | None = None, allocations_error: bool = False) -> None:
+        self.used_bytes = used_bytes
+        self.failing = failing or set()
+        self.allocations = allocations or {}
+        self.allocations_error = allocations_error
+
+    def cluster_allocations(self, tower):
+        if self.allocations_error:
+            raise RuntimeError("get-clusters failed with No route to host")
+        return self.allocations
+
+    def collect_cluster(self, tower, cluster):
+        if cluster.cluster_id in self.failing:
+            raise RuntimeError("No route to host (target unreachable)")
+        return {
+            "cluster": {"used_bytes": self.used_bytes, "total_bytes": 100},
+            "vms": [],
         }
 
 
@@ -337,6 +363,167 @@ class V2CollectionTest(unittest.TestCase):
             self.assertTrue(refreshed.collection_retry_enabled)
             self.assertEqual(refreshed.collection_retry_interval_minutes, 15)
             self.assertEqual(refreshed.collection_retry_max_attempts, 3)
+
+
+    def test_failed_collection_does_not_wipe_previous_metrics_snapshot(self) -> None:
+        """49-37：API 手动采集路径失败时不得整体替换快照（看板归零根因回归）。"""
+        from app.v2.collection.service import CollectionService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="collection-secret")
+            db = V2Database(settings)
+            db.initialize()
+            inventory = InventoryService(db, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="cluster-a", name="Cluster A", enabled=True)])
+
+            ok_service = CollectionService(db, settings, cloudtower_client=ConfigurableCloudTowerClient(80))
+            first = ok_service.run_manual_collection()
+            self.assertEqual(first.status, "success")
+            snapshot_after_success = ok_service.latest_metrics_text()
+            self.assertIn('cluster_id="cluster-a"', snapshot_after_success)
+
+            failed = CollectionService(db, settings, cloudtower_client=ConfigurableCloudTowerClient(90, failing={"cluster-a"})).run_manual_collection()
+            self.assertEqual(failed.status, "failed")
+            self.assertEqual(ok_service.latest_metrics_text(), snapshot_after_success)
+            self.assertIn('smartx_cluster_storage_used_bytes{tower_id="1",cluster_id="cluster-a"} 80', failed.metrics_text)
+
+    def test_partial_failure_keeps_failed_target_samples_and_updates_successful_ones(self) -> None:
+        from app.v2.collection.service import CollectionService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="collection-secret")
+            db = V2Database(settings)
+            db.initialize()
+            inventory = InventoryService(db, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            inventory.sync_clusters(
+                tower.id,
+                [
+                    ClusterInput(cluster_id="cluster-a", name="Cluster A", enabled=True),
+                    ClusterInput(cluster_id="cluster-b", name="Cluster B", enabled=True),
+                ],
+            )
+            service = CollectionService(db, settings, cloudtower_client=ConfigurableCloudTowerClient(80))
+            self.assertEqual(service.run_manual_collection().status, "success")
+
+            partial = CollectionService(db, settings, cloudtower_client=ConfigurableCloudTowerClient(90, failing={"cluster-b"})).run_manual_collection()
+            self.assertEqual(partial.status, "partial_failed")
+            snapshot = service.latest_metrics_text()
+            self.assertIn('smartx_cluster_storage_used_bytes{tower_id="1",cluster_id="cluster-a"} 90', snapshot)
+            self.assertIn('smartx_cluster_storage_used_bytes{tower_id="1",cluster_id="cluster-b"} 80', snapshot)
+
+    def test_filtered_retry_keeps_other_targets_samples(self) -> None:
+        from app.v2.collection.service import CollectionService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="collection-secret")
+            db = V2Database(settings)
+            db.initialize()
+            inventory = InventoryService(db, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            inventory.sync_clusters(
+                tower.id,
+                [
+                    ClusterInput(cluster_id="cluster-a", name="Cluster A", enabled=True),
+                    ClusterInput(cluster_id="cluster-b", name="Cluster B", enabled=True),
+                ],
+            )
+            service = CollectionService(db, settings, cloudtower_client=ConfigurableCloudTowerClient(80))
+            self.assertEqual(service.run_manual_collection().status, "success")
+
+            retried = CollectionService(db, settings, cloudtower_client=ConfigurableCloudTowerClient(90)).run_manual_collection(
+                trigger="retry",
+                attempt=1,
+                target_filter={(tower.id, "cluster-b")},
+            )
+            self.assertEqual(retried.status, "success")
+            snapshot = service.latest_metrics_text()
+            self.assertIn('smartx_cluster_storage_used_bytes{tower_id="1",cluster_id="cluster-a"} 80', snapshot)
+            self.assertIn('smartx_cluster_storage_used_bytes{tower_id="1",cluster_id="cluster-b"} 90', snapshot)
+
+    def test_merge_metrics_text_keeps_previous_samples_when_current_is_empty(self) -> None:
+        from app.v2.metrics.formatter import merge_metrics_text
+
+        previous = '# HELP smartx_cluster_storage_used_bytes h\n# TYPE smartx_cluster_storage_used_bytes gauge\nsmartx_cluster_storage_used_bytes{cluster_id="a"} 80\n'
+        header_only = '# HELP smartx_cluster_storage_used_bytes h\n# TYPE smartx_cluster_storage_used_bytes gauge\n'
+
+        merged = merge_metrics_text(previous, header_only)
+        self.assertIn('smartx_cluster_storage_used_bytes{cluster_id="a"} 80', merged)
+        self.assertEqual(merged, previous)
+
+        updated = merge_metrics_text(previous, 'smartx_cluster_storage_used_bytes{cluster_id="a"} 90\n')
+        self.assertIn('smartx_cluster_storage_used_bytes{cluster_id="a"} 90', updated)
+        self.assertNotIn("} 80", updated)
+
+        added = merge_metrics_text(previous, 'smartx_cluster_storage_used_bytes{cluster_id="b"} 10\n')
+        self.assertIn('cluster_id="a"} 80', added)
+        self.assertIn('cluster_id="b"} 10', added)
+
+        self.assertEqual(merge_metrics_text("", ""), "")
+
+    def test_collection_publishes_allocated_capacity_metric_per_cluster(self) -> None:
+        """49-36：已分配容量写入 smartx_cluster_storage_allocated_bytes（缺失按 0）。"""
+        from app.v2.collection.service import CollectionService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="collection-secret")
+            db = V2Database(settings)
+            db.initialize()
+            inventory = InventoryService(db, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            inventory.sync_clusters(
+                tower.id,
+                [
+                    ClusterInput(cluster_id="cluster-a", name="Cluster A", enabled=True),
+                    ClusterInput(cluster_id="cluster-b", name="Cluster B", enabled=True),
+                ],
+            )
+
+            client = ConfigurableCloudTowerClient(80, allocations={"cluster-a": 270})
+            result = CollectionService(db, settings, cloudtower_client=client).run_manual_collection()
+
+            self.assertEqual(result.status, "success")
+            self.assertIn('smartx_cluster_storage_allocated_bytes{tower_id="1",cluster_id="cluster-a"} 270', result.metrics_text)
+            self.assertIn('smartx_cluster_storage_allocated_bytes{tower_id="1",cluster_id="cluster-b"} 0', result.metrics_text)
+
+    def test_allocated_capacity_lookup_failure_does_not_break_collection(self) -> None:
+        from app.v2.collection.service import CollectionService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="collection-secret")
+            db = V2Database(settings)
+            db.initialize()
+            inventory = InventoryService(db, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="cluster-a", name="Cluster A", enabled=True)])
+
+            client = ConfigurableCloudTowerClient(80, allocations_error=True)
+            result = CollectionService(db, settings, cloudtower_client=client).run_manual_collection()
+
+            self.assertEqual(result.status, "success")
+            self.assertIn('smartx_cluster_storage_used_bytes{tower_id="1",cluster_id="cluster-a"} 80', result.metrics_text)
+            self.assertIn('smartx_cluster_storage_allocated_bytes{tower_id="1",cluster_id="cluster-a"} 0', result.metrics_text)
 
 
 if __name__ == "__main__":

@@ -168,6 +168,73 @@ class MixedGrowthPrometheus(FakePrometheus):
         return super().range(query, start=start, end=end, step=step)
 
 
+class GapRecoveryVmPrometheus(FakePrometheus):
+    """全历史窗口能看到老 VM 的旧样本，但近 30 天窗口只在"恢复采集当天"才有样本。
+
+    模拟 2026-08-21~09-11 采集断档后恢复：老 VM 在报表窗口内"首次出现"。
+    """
+
+    def instant(self, query: str):
+        if query.startswith("smartx_vm_storage_used_bytes"):
+            return [
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-gap", "vm_name": "Gap VM"}, "value": [self.now_ts, "50"]},
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-new", "vm_name": "New VM"}, "value": [self.now_ts, "20"]},
+            ]
+        return super().instant(query)
+
+    def range(self, query: str, *, start: int, end: int, step: str):
+        if query.startswith("smartx_vm_storage_used_bytes"):
+            if start <= self.now_ts - 100 * SECONDS_PER_DAY:
+                return [
+                    {
+                        "metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-gap", "vm_name": "Gap VM"},
+                        "values": [[self.now_ts - 60 * SECONDS_PER_DAY, "10"], [self.now_ts - 50 * SECONDS_PER_DAY, "20"]],
+                    },
+                    {
+                        "metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-new", "vm_name": "New VM"},
+                        "values": [[self.now_ts - 3600, "0"], [self.now_ts, "20"]],
+                    },
+                ]
+            return [
+                {
+                    "metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-gap", "vm_name": "Gap VM"},
+                    "values": [[self.now_ts - 3600, "45"], [self.now_ts, "50"]],
+                },
+                {
+                    "metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-new", "vm_name": "New VM"},
+                    "values": [[self.now_ts - 3600, "0"], [self.now_ts, "20"]],
+                },
+            ]
+        return super().range(query, start=start, end=end, step=step)
+
+
+class RecycledVmPrometheus(FakePrometheus):
+    """本日新出现两个 VM 序列：一个正常 VM、一个回收站 VM（in-recycle-bin-*）。"""
+
+    def instant(self, query: str):
+        if query.startswith("smartx_vm_storage_used_bytes"):
+            return [
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-new", "vm_name": "New VM"}, "value": [self.now_ts, "50"]},
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-bin", "vm_name": "in-recycle-bin-abc"}, "value": [self.now_ts, "10"]},
+            ]
+        return super().instant(query)
+
+    def range(self, query: str, *, start: int, end: int, step: str):
+        if query.startswith("smartx_vm_storage_used_bytes"):
+            today = end - 3600
+            return [
+                {
+                    "metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-new", "vm_name": "New VM"},
+                    "values": [[today, "0"], [end, "50"]],
+                },
+                {
+                    "metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-bin", "vm_name": "in-recycle-bin-abc"},
+                    "values": [[today, "0"], [end, "10"]],
+                },
+            ]
+        return super().range(query, start=start, end=end, step=step)
+
+
 class InsufficientGrowthPrometheus(FakePrometheus):
     def range(self, query: str, *, start: int, end: int, step: str):
         if query.startswith("smartx_cluster_storage_used_bytes"):
@@ -175,8 +242,43 @@ class InsufficientGrowthPrometheus(FakePrometheus):
         return super().range(query, start=start, end=end, step=step)
 
 
+class GrowthRecycleTailPrometheus(FakePrometheus):
+    """instant 没有 VM 列表（增长列表只能靠 series tail 兜底），序列里含一个有增长的回收站 VM。"""
+
+    def instant(self, query: str):
+        if query.startswith("smartx_vm_storage_used_bytes"):
+            return []
+        return super().instant(query)
+
+    def range(self, query: str, *, start: int, end: int, step: str):
+        if query.startswith("smartx_vm_storage_used_bytes"):
+            return [
+                {
+                    "metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-real", "vm_name": "Real VM"},
+                    "values": [[self.now_ts - 30 * SECONDS_PER_DAY, "100"], [self.now_ts, "200"]],
+                },
+                {
+                    "metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-bin", "vm_name": "in-recycle-bin-abc"},
+                    "values": [[self.now_ts - 30 * SECONDS_PER_DAY, "10"], [self.now_ts, "90"]],
+                },
+            ]
+        return super().range(query, start=start, end=end, step=step)
+
+
+class StaleBackfillPrometheus(FakePrometheus):
+    """真实样本分布在 20~30 天前 + 14 天前（最后成功采集），其后只有回填平坦值。"""
+
+    def range(self, query: str, *, start: int, end: int, step: str):
+        if query.startswith("smartx_cluster_storage_used_bytes"):
+            real = [[self.now_ts - day * SECONDS_PER_DAY, str(100 + (30 - day))] for day in range(30, 19, -1)]
+            real.append([self.now_ts - 14 * SECONDS_PER_DAY, str(116)])
+            backfilled_flat = [[self.now_ts - 1800, "116"], [self.now_ts, "116"]]
+            return [{"metric": {"tower_id": "1", "cluster_id": "cluster-a"}, "values": real + backfilled_flat}]
+        return super().range(query, start=start, end=end, step=step)
+
+
 class V2ReportsTest(unittest.TestCase):
-    def _seed_inventory(self, tmpdir: str):
+    def _seed_inventory(self, tmpdir: str, success_at: str | list[str] | None = None):
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
         from app.v2.inventory.models import ClusterInput, TowerInput
@@ -191,6 +293,13 @@ class V2ReportsTest(unittest.TestCase):
         with db.connection() as conn:
             conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cluster-a', 'vm-old', 'Old Latest', 300)")
             conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cluster-a', 'vm-new', 'New Latest', 50)")
+            if success_at is not None:
+                times = [success_at] if isinstance(success_at, str) else list(success_at)
+                for finished_at in times:
+                    conn.execute(
+                        "INSERT INTO collection_runs (status, message, finished_at, success_targets_json) VALUES ('success', 'ok', ?, '[{}]')",
+                        (finished_at,),
+                    )
         return settings, db
 
     def test_latest_report_uses_v2_growth_and_forecast_contract(self) -> None:
@@ -198,7 +307,10 @@ class V2ReportsTest(unittest.TestCase):
 
         now_ts = 1_700_000_000
         with tempfile.TemporaryDirectory() as tmpdir:
-            settings, db = self._seed_inventory(tmpdir)
+            settings, db = self._seed_inventory(
+                tmpdir,
+                success_at=["2023-09-15 22:13:20", "2023-10-25 22:13:20", "2023-11-13 23:13:20", "2023-11-14 22:13:20"],
+            )
             report = ReportService(db, settings, prometheus=FakePrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
 
             self.assertEqual(report["forecast_days"], 90)
@@ -254,7 +366,7 @@ class V2ReportsTest(unittest.TestCase):
 
         now_ts = 1_700_000_000
         with tempfile.TemporaryDirectory() as tmpdir:
-            settings, db = self._seed_inventory(tmpdir)
+            settings, db = self._seed_inventory(tmpdir, success_at="2023-11-14 22:13:20")
             report = ReportService(db, settings, prometheus=DuplicateClusterLabelPrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
 
             self.assertEqual(len(report["clusters"]), 1)
@@ -345,7 +457,10 @@ class V2ReportsTest(unittest.TestCase):
 
         now_ts = 1_700_000_000
         with tempfile.TemporaryDirectory() as tmpdir:
-            settings, db = self._seed_inventory(tmpdir)
+            settings, db = self._seed_inventory(
+                tmpdir,
+                success_at=["2023-09-15 22:13:20", "2023-10-25 22:13:20", "2023-11-13 23:13:20", "2023-11-14 22:13:20"],
+            )
             report = ReportService(db, settings, prometheus=MixedGrowthPrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
 
             rate = report["cluster_growth_rate"]
@@ -360,6 +475,48 @@ class V2ReportsTest(unittest.TestCase):
             self.assertEqual(rate["quarter_window_days"], 90)
             self.assertEqual(report["cluster_growth_rate_per_day"], -20.0)
             self.assertEqual(report["growth_rate_window_days"], 1)
+
+    def test_growth_vm_lists_exclude_recycle_bin_vms_from_series_tail(self) -> None:
+        """49-44：增长 VM 列表也必须排除回收站 VM（series tail 兜底路径会把它们带回来）。"""
+        from app.v2.reports.service import ReportService
+
+        now_ts = 1_700_000_000
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir, success_at="2023-11-14 22:13:20")
+            report = ReportService(db, settings, prometheus=GrowthRecycleTailPrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
+
+            for key in ("day_fastest_growing_vms", "month_fastest_growing_vms", "window_fastest_growing_vms"):
+                vm_ids = [item["vm_id"] for item in report[key]]
+                self.assertIn("vm-real", vm_ids, key)
+                self.assertNotIn("vm-bin", vm_ids, key)
+
+    def test_new_vm_uses_full_history_first_seen_not_window_first_point(self) -> None:
+        """49-42：新建判定按 vm_id 全历史最早样本，断档恢复不会把老 VM 判成新建。"""
+        from app.v2.reports.service import ReportService
+
+        now_ts = 1_700_000_000
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir, success_at="2023-11-14 22:13:20")
+            report = ReportService(db, settings, prometheus=GapRecoveryVmPrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
+
+            for key in ("day_new_vms", "month_new_vms"):
+                vm_ids = [item["vm_id"] for item in report[key]]
+                self.assertEqual(vm_ids, ["vm-new"], key)
+
+    def test_new_vm_lists_exclude_recycle_bin_vms(self) -> None:
+        """49-40：回收站 VM（in-recycle-bin-*）不计入本日/本月新建 VM。"""
+        from app.v2.reports.service import ReportService
+
+        now_ts = 1_700_000_000
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir, success_at="2023-11-14 22:13:20")
+            report = ReportService(db, settings, prometheus=RecycledVmPrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
+
+            for key in ("day_new_vms", "month_new_vms"):
+                vm_ids = [item["vm_id"] for item in report[key]]
+                self.assertIn("vm-new", vm_ids, key)
+                self.assertNotIn("vm-bin", vm_ids, key)
+                self.assertNotIn("in-recycle-bin-abc", [item["vm_name"] for item in report[key]], key)
 
     def test_cluster_growth_rate_marks_windows_insufficient_when_all_clusters_have_one_point(self) -> None:
         from app.v2.reports.service import ReportService
@@ -376,6 +533,32 @@ class V2ReportsTest(unittest.TestCase):
             self.assertFalse(rate["day_sample_sufficient"])
             self.assertFalse(rate["month_sample_sufficient"])
             self.assertFalse(rate["quarter_sample_sufficient"])
+
+    def test_cluster_growth_rate_anchors_windows_on_last_success_and_ignores_backfilled_tail(self) -> None:
+        """49-39：增长窗口锚定最后一次成功采集、只用真实样本，且窗口内采集要覆盖两端。
+
+        回归背景：快照回填让 14 天前的旧值以当前时间戳重新进入 Prometheus，
+        从"现在"回算会被平坦重复算成假的 0；只在窗口末尾有采集（断档后恢复）
+        则会把跨期跳变当成该窗口的增长。
+        本用例：成功采集在 60/30/14 天前，真实样本 30~20 天前 + 14 天前，其后是平坦回填值。
+        期望：日窗口内采集跨度只有 4 小时（< 半个窗口）→ 样本不足；
+        月/季度窗口内采集覆盖两端且真实样本充足 → 非 0 的真实增长。
+        """
+        from app.v2.reports.service import ReportService
+
+        now_ts = 1_700_000_000
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir, success_at=["2023-09-15 22:13:20", "2023-10-15 22:13:20", "2023-10-31 22:13:20"])
+            report = ReportService(db, settings, prometheus=StaleBackfillPrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
+
+            rate = report["cluster_growth_rate"]
+            self.assertIsNone(rate["per_day"])
+            self.assertFalse(rate["day_sample_sufficient"])
+            self.assertIsNotNone(rate["per_month"])
+            self.assertTrue(rate["month_sample_sufficient"])
+            self.assertNotEqual(rate["per_month"], 0.0)
+            self.assertIsNotNone(rate["per_quarter"])
+            self.assertTrue(rate["quarter_sample_sufficient"])
 
     def test_forecast_preserves_observed_current_when_latest_point_is_filtered_for_trend(self) -> None:
         from app.v2.reports.service import SECONDS_PER_DAY, forecast_series

@@ -2,6 +2,7 @@ import ReactECharts from "echarts-for-react";
 import { useMemo } from "react";
 import { LoaderCircle } from "lucide-react";
 import { formatBytes } from "../services/api";
+import { buildDailyGrid } from "../services/chartGrid";
 import { forecastBandSeries } from "../services/forecastBand";
 import type { ForecastPayload } from "../types";
 
@@ -138,11 +139,11 @@ function formatAxisLabel(value: string, rangeDays: RangeDays, spanDays: number):
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-function predictedHistory(points: Array<[string, number]>, slopePerDay: number): Array<[string, number | null]> {
-  if (points.length < 2 || !Number.isFinite(slopePerDay)) return points.map(([label]) => [label, null]);
+function predictedHistory(labels: string[], points: Array<[string, number]>, slopePerDay: number): Array<[string, number | null]> {
+  if (points.length < 2 || !Number.isFinite(slopePerDay)) return labels.map((label) => [label, null]);
   const [latestLabel, latestValue] = points[points.length - 1];
   const latestTime = dateValue(latestLabel);
-  return points.map(([label]) => {
+  return labels.map((label) => {
     const daysBefore = Math.max(0, (latestTime - dateValue(label)) / dayMs);
     return [label, Math.max(0, latestValue - slopePerDay * daysBefore)];
   });
@@ -197,10 +198,13 @@ function statusLabel(status: ChartModel["status"]): string {
 export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays, loading = false, onRangeDaysChange }: ClusterCapacityChartProps) {
   const model = useMemo(() => aggregateClusters(clusters, title), [clusters, title]);
   const actualPoints = model.points;
-  const historyPoints = predictedHistory(actualPoints, model.slopePerDay);
+  // 实际数据补成连续日序列：断档日填 null，实际容量曲线在这些位置断开（49-41）。
+  const actualGrid = useMemo(() => buildDailyGrid(actualPoints), [actualPoints]);
+  const actualLabels = actualGrid.map(([label]) => label);
+  const historyPoints = predictedHistory(actualLabels, actualPoints, model.slopePerDay);
   const projected = futurePoints(actualPoints, model.slopePerDay);
-  const labels = [...actualPoints.map(([label]) => label), ...projected.slice(1).map((point) => point.label)];
-  const actualByLabel = new Map(actualPoints);
+  const labels = [...actualLabels, ...projected.slice(1).map((point) => point.label)];
+  const actualByLabel = new Map<string, number | null>(actualGrid);
   const historyByLabel = new Map(historyPoints);
   const futureByLabel = new Map(projected.map((point) => [point.label, point.value] as [string, number]));
   const hasBand = model.bandNow > 0 || model.bandPerDay > 0;

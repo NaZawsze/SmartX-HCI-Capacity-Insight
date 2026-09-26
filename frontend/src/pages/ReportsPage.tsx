@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "../components/Card";
 import { ClusterCapacityChart } from "../components/ClusterCapacityChart";
 import { api, formatBytes } from "../services/api";
+import { hasSampleSpan, TOP_GROWTH_VM_LIMIT } from "../services/growth";
 import type { AppTask, DashboardScope, DashboardSummary, DataQuality, ForecastPayload, GrowthVmReport } from "../types";
 
 const VM_ALERT_RATIO = 0.2;
@@ -194,8 +195,8 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
 
   const rawDayGrowthVms = report?.day_fastest_growing_vms || report?.fastest_growing_vms || [];
   const rawMonthGrowthVms = report?.month_fastest_growing_vms || [];
-  const dayTopVms = sortGrowthReports(rawDayGrowthVms.filter((item) => hasSampleSpan(item, 1)), dayGrowthSort).slice(0, 50);
-  const monthTopVms = sortGrowthReports(rawMonthGrowthVms.filter((item) => hasSampleSpan(item, 30)), monthGrowthSort).slice(0, 50);
+  const dayTopVms = sortGrowthReports(rawDayGrowthVms.filter((item) => hasSampleSpan(item, 1)), dayGrowthSort).slice(0, TOP_GROWTH_VM_LIMIT);
+  const monthTopVms = sortGrowthReports(rawMonthGrowthVms.filter((item) => hasSampleSpan(item, 30)), monthGrowthSort).slice(0, TOP_GROWTH_VM_LIMIT);
   const dayGrowthEmptyText = rawDayGrowthVms.length && !dayTopVms.length ? "日样本不足" : "暂无增长数据";
   const monthGrowthEmptyText = rawMonthGrowthVms.length && !monthTopVms.length ? "月样本不足" : "暂无增长数据";
   const monthMissingCollectionDays = report?.data_quality?.missing_collection_dates?.length ?? 0;
@@ -203,6 +204,10 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
   const dayNewVms = (report?.day_new_vms || []).slice(0, 20);
   const monthNewVms = (report?.month_new_vms || []).slice(0, 20);
   const clusterGrowthRate = clusterGrowthRates(report);
+  const growthRateInsufficient =
+    clusterGrowthRate.daySampleSufficient === false ||
+    clusterGrowthRate.monthSampleSufficient === false ||
+    clusterGrowthRate.quarterSampleSufficient === false;
   const selectedClusterLabel = selectedCluster === "all" ? "全部集群" : clusterOptions.find((item) => item.value === selectedCluster)?.label || "集群";
   const dataQuality = report?.data_quality;
 
@@ -268,7 +273,12 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
             </div>
           </Card>
 
-          <Card title="容量增长速率" subtitle="日/月/季度趋势" className="report-side-card report-kpi-card">
+          <Card
+            title="容量增长速率"
+            subtitle="日/月/季度趋势"
+            className="report-side-card report-kpi-card"
+            notice={growthRateInsufficient ? <span className="growth-rate-insufficient-notice">数据不足</span> : undefined}
+          >
             <div className="growth-rate-list">
               <TrendingUp size={30} />
               <GrowthRateItem label="日" value={clusterGrowthRate.perDay} unit="/天" sufficient={clusterGrowthRate.daySampleSufficient} />
@@ -435,11 +445,11 @@ function clusterGrowthRates(report: ForecastPayload | null): {
 }
 
 function GrowthRateItem({ label, value, unit, sufficient }: { label: string; value?: number | null; unit: string; sufficient?: boolean }) {
-  const content = value == null ? "数据不足" : `${formatBytes(value)}${unit}`;
+  const content = value == null ? `-${unit}` : `${formatBytes(value)}${unit}`;
   return (
     <div className="growth-rate-item">
       <span>{label}</span>
-      <strong>{content}</strong>
+      <strong className={value == null ? "growth-rate-missing" : undefined}>{content}</strong>
       {sufficient === false && <small>样本不足</small>}
     </div>
   );
@@ -559,10 +569,6 @@ function growthVmId(item: GrowthVmReport): string {
 
 function growthVmName(item: GrowthVmReport): string {
   return item.vm_name || item.labels.vm || item.labels.vm_name || growthVmId(item);
-}
-
-function hasSampleSpan(item: GrowthVmReport, minDays: number): boolean {
-  return item.sample_span_days == null || item.sample_span_days >= minDays;
 }
 
 function VmListCard({

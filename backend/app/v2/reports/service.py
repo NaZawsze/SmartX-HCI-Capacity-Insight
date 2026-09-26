@@ -9,16 +9,30 @@ from typing import Any
 
 from app.v2.config import V2Settings
 from app.v2.data_quality.service import DataQualityService
+from app.v2.freshness import parse_db_time
 from app.v2.scope import in_enabled_scope
 from app.v2.database import V2Database
 from app.v2.metrics.prometheus import PrometheusService
 from app.v2.metrics.series import cluster_key, labels_match, metric_value, range_values, scoped_query, vm_key
+from app.v2.vms.growth import (
+    DAY_GROWTH,
+    MONTH_GROWTH,
+    compute_growth_vms,
+    labels_with_latest_name,
+    latest_vm_items,
+    merge_latest_items,
+    points_by_vm,
+    series_tail_items,
+)
+from app.v2.vms.new_vm import collect_vm_first_seen, is_recycled_vm_name, period_bounds, vm_display_name
 
 
 SECONDS_PER_DAY = 86_400
 CLUSTER_USED_METRIC = "smartx_cluster_storage_used_bytes"
 CLUSTER_TOTAL_METRIC = "smartx_cluster_storage_total_bytes"
 VM_USED_METRIC = "smartx_vm_storage_used_bytes"
+# 增长窗口内成功采集的最小覆盖比例（相对窗口长度）：需覆盖两端，避免跨期跳变被当成增长。
+GROWTH_WINDOW_COVERAGE_RATIO = 0.5
 
 
 @dataclass
@@ -91,12 +105,42 @@ class ReportService:
     def _latest_report(self, tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, chart_days: int = 365) -> dict[str, Any]:
         window_days = _normalize_period_days(period_days)
         chart_window_days = _normalize_chart_days(chart_days)
+        # 增长速率：窗口长度固定 日 1 / 月 30 / 季度 90 天，锚定在最后一次成功采集上
+        # （窗口 = [last_success - N 天, last_success]），且窗口内成功采集要覆盖两端
+        # （最早一次采集距窗口末尾 >= 窗口一半），否则：
+        #   - 日：暂停期"旧值→新值"的刷新跳变会被当成单日增长（49-39）；
+        #   - 月/季度：窗口内只有窗口末尾一小段采集，同样算不出该窗口的增长率。
+        # 图表序列（clusters[].points）同样只取到最后一次成功采集，避免把回填/暂停期
+        # 的假点画进趋势图（49-41）。
+        successes = self._success_timestamps()
+        last_success_ts = successes[0] if successes else None
         enabled_scope = self._enabled_cluster_scope(tower_id=tower_id, cluster_id=cluster_id)
         cluster_series = self._cluster_series(days=window_days, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
-        chart_series = self._cluster_series(days=chart_window_days, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
-        day_growth_series = self._cluster_series(days=1, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, step="1h")
-        month_growth_series = self._cluster_series(days=30, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
-        quarter_growth_series = self._cluster_series(days=90, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        chart_series = (
+            self._cluster_series(days=chart_window_days, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, end_ts=last_success_ts)
+            if last_success_ts is not None
+            else []
+        )
+        if last_success_ts is None:
+            day_growth_series: list[dict[str, Any]] = []
+            month_growth_series: list[dict[str, Any]] = []
+            quarter_growth_series: list[dict[str, Any]] = []
+        else:
+            day_growth_series = (
+                self._cluster_series(days=1, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, step="1h", end_ts=last_success_ts)
+                if _window_success_coverage(successes, last_success_ts, 1)
+                else []
+            )
+            month_growth_series = (
+                self._cluster_series(days=30, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, end_ts=last_success_ts)
+                if _window_success_coverage(successes, last_success_ts, 30)
+                else []
+            )
+            quarter_growth_series = (
+                self._cluster_series(days=90, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, end_ts=last_success_ts)
+                if _window_success_coverage(successes, last_success_ts, 90)
+                else []
+            )
         capacity_by_cluster = self._cluster_totals(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         chart_points_by_cluster = _points_by_cluster(chart_series)
         clusters = []
@@ -124,22 +168,25 @@ class ReportService:
         latest_vms = self._latest_vm_items(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         vm_series = self._vm_series(days=max(window_days, 30), tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         window_vm_series = self._vm_series(days=window_days, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
-        day_vm_series = self._vm_series(days=2, tower_id=tower_id, cluster_id=cluster_id, step="1h", enabled_scope=enabled_scope)
-        latest_vms = _merge_latest_items(latest_vms, _latest_items_from_series_tail(vm_series))
+        # 日/月增长窗口与概览共用同一定义（49-45），保证两页结果一致
+        day_vm_series = self._vm_series(days=DAY_GROWTH.days, tower_id=tower_id, cluster_id=cluster_id, step=DAY_GROWTH.step, enabled_scope=enabled_scope)
+        vm_month_series = self._vm_series(days=MONTH_GROWTH.days, tower_id=tower_id, cluster_id=cluster_id, step=MONTH_GROWTH.step, enabled_scope=enabled_scope)
+        latest_vms = merge_latest_items(latest_vms, series_tail_items(vm_series))
         latest_label_by_vm = self._latest_vm_labels()
         window_vms = _growth_reports_from_series(latest_vms, window_vm_series, period_days=window_days, limit=None, latest_label_by_vm=latest_label_by_vm)
         day_vms = _growth_reports_from_series(latest_vms, day_vm_series, period_days=1, limit=None, latest_label_by_vm=latest_label_by_vm)
         month_vms = _growth_reports_from_series(
             latest_vms,
-            vm_series,
+            vm_month_series,
             period_days=window_days,
             limit=None,
             latest_label_by_vm=latest_label_by_vm,
             min_sample_days=0,
             max_sample_days=window_days,
         )
-        day_new_vms = _new_vm_reports_from_series(vm_series, *_period_bounds(self.now_ts, "day"), None, latest_label_by_vm, _latest_vm_value_map(latest_vms))
-        month_new_vms = _new_vm_reports_from_series(vm_series, *_period_bounds(self.now_ts, "month"), None, latest_label_by_vm, _latest_vm_value_map(latest_vms))
+        vm_first_seen = collect_vm_first_seen(self.prometheus, now_ts=self.now_ts, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        day_new_vms = _new_vm_reports_from_series(vm_series, *period_bounds(self.now_ts, "day", self.settings.timezone), None, latest_label_by_vm, _latest_vm_value_map(latest_vms), first_seen_by_vm=vm_first_seen)
+        month_new_vms = _new_vm_reports_from_series(vm_series, *period_bounds(self.now_ts, "month", self.settings.timezone), None, latest_label_by_vm, _latest_vm_value_map(latest_vms), first_seen_by_vm=vm_first_seen)
         cluster_growth_rate = _cluster_growth_rates(
             day=_points_by_cluster(day_growth_series),
             month=_points_by_cluster(month_growth_series),
@@ -168,14 +215,51 @@ class ReportService:
             "month_growth_min_sample_days": 0,
         }
 
-    def _cluster_series(self, *, days: int, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]], step: str = "1d") -> list[dict[str, Any]]:
-        start = self.now_ts - days * SECONDS_PER_DAY
-        return [
+    def _cluster_series(self, *, days: int, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]], step: str = "1d", end_ts: int | None = None) -> list[dict[str, Any]]:
+        # end_ts 为 None 时窗口从"现在"回算（图表/预测用）；给定 end_ts 时窗口锚定在
+        # end_ts 上（[end - days, end]，增长速率的"最后一次成功采集"口径，49-39）。
+        if end_ts is None:
+            end = self.now_ts
+            start = self.now_ts - days * SECONDS_PER_DAY
+        else:
+            end = min(int(end_ts), self.now_ts)
+            start = end - days * SECONDS_PER_DAY
+        if end < start:
+            return []
+        series_list = [
             series
-            for series in self.prometheus.range(scoped_query(CLUSTER_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step=step)
+            for series in self.prometheus.range(scoped_query(CLUSTER_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=end, step=step)
             if labels_match(series.get("metric", {}), tower_id=tower_id, cluster_id=cluster_id)
             and in_enabled_scope(cluster_key(series.get("metric", {})), enabled_scope)
         ]
+        if end_ts is None:
+            return series_list
+        # 双保险：按窗口裁剪（部分 Prometheus 实现/测试替身可能返回越界点）。
+        trimmed: list[dict[str, Any]] = []
+        for series in series_list:
+            values = [item for item in series.get("values", []) if start <= int(item[0]) <= end]
+            if values:
+                trimmed.append({**series, "values": values})
+        return trimmed
+
+    def _success_timestamps(self, limit: int = 500) -> list[int]:
+        """最近的成功采集时间戳（口径同看板：success/partial_failed 且有成功目标），新→旧。"""
+        with self.database.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT finished_at FROM collection_runs
+                WHERE status IN ('success', 'partial_failed') AND finished_at IS NOT NULL
+                  AND COALESCE(success_targets_json, '[]') != '[]'
+                ORDER BY finished_at DESC, id DESC LIMIT ?
+                """,
+                (int(limit),),
+            ).fetchall()
+        stamps: list[int] = []
+        for row in rows:
+            parsed = parse_db_time(str(row["finished_at"]))
+            if parsed:
+                stamps.append(int(parsed.timestamp()))
+        return stamps
 
     def _vm_series(self, *, days: int, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]], step: str = "6h") -> list[dict[str, Any]]:
         start = self.now_ts - days * SECONDS_PER_DAY
@@ -205,12 +289,7 @@ class ReportService:
         return totals
 
     def _latest_vm_items(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
-        return [
-            row
-            for row in self.prometheus.instant(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id))
-            if labels_match(row.get("metric", {}), tower_id=tower_id, cluster_id=cluster_id)
-            and in_enabled_scope(cluster_key(row.get("metric", {})), enabled_scope)
-        ]
+        return latest_vm_items(self.prometheus, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
 
     def _cluster_names(self) -> dict[tuple[int, str], str]:
         with self.database.connection() as conn:
@@ -349,50 +428,39 @@ def _growth_reports_from_series(
     min_sample_days: int | None = None,
     max_sample_days: int | None = None,
 ) -> list[dict[str, Any]]:
-    points_by_vm = _points_by_vm(series_list)
+    """报表增长列表 = 共享口径 `compute_growth_vms`（49-45）+ 报表侧字段（forecast/period_days 等）。
+
+    min/max_sample_days 是报表侧的样本跨度过滤（月列表按所选周期截断），概览无此参数。
+    """
+    records = compute_growth_vms(series_list=series_list, latest_items=latest_items, latest_label_by_vm=latest_label_by_vm)
     mapped = []
-    for item in latest_items:
-        labels = item.get("metric", {})
-        key = vm_key(labels)
-        points = points_by_vm.get(key) or []
-        baseline = points[0] if points else None
-        if baseline is None:
-            continue
-        latest_ts = _item_timestamp(item)
-        if latest_ts is None:
-            continue
-        baseline_ts, baseline_value = baseline
-        sample_span_days = (latest_ts - baseline_ts) / SECONDS_PER_DAY
+    for record in records:
+        sample_span_days = float(record["sample_span_days"])
         if min_sample_days is not None and sample_span_days < min_sample_days:
             continue
         if max_sample_days is not None and sample_span_days > max_sample_days:
             continue
-        current = metric_value(item)
-        growth_amount = max(0.0, current - baseline_value)
-        if growth_amount <= 0:
-            continue
-        elapsed_days = max(sample_span_days, 1)
-        slope_per_day = growth_amount / elapsed_days
-        labels_latest = _labels_with_latest_name(labels, latest_label_by_vm)
+        current = float(record["current_bytes"])
+        slope_per_day = float(record["slope_per_day"])
+        labels_latest = dict(record["metric"])
         mapped.append(
             {
-                "vm_id": str(labels.get("vm_id") or ""),
-                "vm_name": str(labels_latest.get("vm") or labels_latest.get("vm_name") or ""),
+                "vm_id": record["vm_id"],
+                "vm_name": record["vm_name"],
                 "labels": labels_latest,
-                "metric": {key: str(value) for key, value in labels_latest.items()},
-                "value": current,
-                "growth_amount": growth_amount,
-                "previous_value": baseline_value,
-                "growth_ratio": growth_amount / baseline_value if baseline_value > 0 else None,
+                "metric": dict(labels_latest),
+                "value": record["value"],
+                "growth_amount": record["growth_amount"],
+                "previous_value": record["previous_value"],
+                "growth_ratio": record["growth_ratio"],
                 "period_days": period_days,
                 "sample_span_days": sample_span_days,
-                "window_start_at": datetime.fromtimestamp(baseline_ts, tz=timezone.utc).isoformat(),
-                "window_end_at": datetime.fromtimestamp(latest_ts, tz=timezone.utc).isoformat(),
+                "window_start_at": datetime.fromtimestamp(int(record["window_start_at"]), tz=timezone.utc).isoformat(),
+                "window_end_at": datetime.fromtimestamp(int(record["window_end_at"]), tz=timezone.utc).isoformat(),
                 "forecast": asdict(ForecastResult("ok", slope_per_day, current, current + slope_per_day * 30, current + slope_per_day * 60, current + slope_per_day * 90, current + slope_per_day * 180)),
             }
         )
-    sorted_items = sorted(mapped, key=lambda item: (-float(item["growth_amount"]), item["labels"].get("vm", "")))
-    return sorted_items[:limit] if limit is not None else sorted_items
+    return mapped[:limit] if limit is not None else mapped
 
 
 def _new_vm_reports_from_series(
@@ -402,17 +470,25 @@ def _new_vm_reports_from_series(
     limit: int | None,
     latest_label_by_vm: dict[tuple[int, str, str], dict[str, str]],
     latest_value_by_vm: dict[tuple[int, str, str], float],
+    first_seen_by_vm: dict[tuple[int, str, str], tuple[int, float]] | None = None,
 ) -> list[dict[str, Any]]:
     mapped = []
     latest_labels_by_key = {vm_key(series.get("metric", {})): series.get("metric", {}) for series in series_list}
-    for key, points in _points_by_vm(series_list).items():
+    for key, points in points_by_vm(series_list).items():
         if not points:
             continue
         first_ts, first_value = points[0]
+        if first_seen_by_vm is not None:
+            seen = first_seen_by_vm.get(key)
+            if seen is None:
+                continue
+            first_ts, first_value = seen
         if first_ts < start_ts or first_ts > end_ts:
             continue
         current = latest_value_by_vm.get(key, points[-1][1])
-        labels_latest = _labels_with_latest_name(latest_labels_by_key.get(key, {}), latest_label_by_vm)
+        labels_latest = labels_with_latest_name(latest_labels_by_key.get(key, {}), latest_label_by_vm)
+        if is_recycled_vm_name(vm_display_name(labels_latest)):
+            continue
         mapped.append(
             {
                 "vm_id": str(labels_latest.get("vm_id") or ""),
@@ -430,6 +506,7 @@ def _new_vm_reports_from_series(
         )
     sorted_items = sorted(mapped, key=lambda item: item["first_seen_at"], reverse=True)
     return sorted_items[:limit] if limit is not None else sorted_items
+
 
 
 def _cluster_growth_rate_from_series(series_list: list[dict[str, Any]]) -> float:
@@ -453,19 +530,6 @@ def _points_by_cluster(series_list: list[dict[str, Any]]) -> dict[tuple[int, str
         for timestamp, value in range_values(series):
             points[int(timestamp)] = float(value)
     return {key: sorted(points.items()) for key, points in grouped.items()}
-
-
-def _points_by_vm(series_list: list[dict[str, Any]]) -> dict[tuple[int, str, str], list[tuple[int, float]]]:
-    grouped: dict[tuple[int, str, str], dict[int, float]] = {}
-    for series in series_list:
-        key = vm_key(series.get("metric", {}))
-        if not key[2]:
-            continue
-        points = grouped.setdefault(key, {})
-        for timestamp, value in range_values(series):
-            points[int(timestamp)] = float(value)
-    return {key: sorted(points.items()) for key, points in grouped.items()}
-
 
 def _cluster_growth_rate_from_points(points_by_cluster: dict[tuple[int, str], list[tuple[int, float]]]) -> float:
     total = 0.0
@@ -499,6 +563,20 @@ def _cluster_growth_rates(
     }
 
 
+def _window_success_coverage(successes: list[int], last_success_ts: int, days: int) -> bool:
+    """窗口 [last - days, last] 内成功采集是否覆盖两端。
+
+    要求窗口内至少有两次成功采集，且最早一次距窗口末尾至少半个窗口（默认 50%）。
+    否则两次采集间隔远大于窗口（如断档三周后恢复），算出来的是跨期跳变，
+    或只有窗口末尾一小段采集，都不能当作该窗口的增长率（49-39）。
+    """
+    window_start = last_success_ts - days * SECONDS_PER_DAY
+    in_window = [ts for ts in successes if window_start <= ts <= last_success_ts]
+    if len(in_window) < 2:
+        return False
+    return (last_success_ts - min(in_window)) >= days * SECONDS_PER_DAY * GROWTH_WINDOW_COVERAGE_RATIO
+
+
 def _summed_window_rate(points_by_cluster: dict[tuple[int, str], list[tuple[int, float]]], *, multiplier: int, use_trend: bool) -> tuple[float | None, bool]:
     total = 0.0
     sufficient_count = 0
@@ -530,46 +608,6 @@ def _trend_slope_per_day(points: list[tuple[int, float]]) -> float:
 
 def _latest_vm_value_map(items: list[dict[str, Any]]) -> dict[tuple[int, str, str], float]:
     return {vm_key(item.get("metric", {})): metric_value(item) for item in items}
-
-
-def _latest_items_from_series_tail(series_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    items = []
-    for series in series_list:
-        points = sorted(range_values(series))
-        if not points:
-            continue
-        latest_ts, latest_value = points[-1]
-        items.append({"metric": dict(series.get("metric", {})), "value": [latest_ts, str(latest_value)]})
-    return items
-
-
-def _merge_latest_items(primary: list[dict[str, Any]], fallback: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    merged: dict[tuple[int, str, str], dict[str, Any]] = {}
-    for item in fallback:
-        merged[vm_key(item.get("metric", {}))] = item
-    for item in primary:
-        merged[vm_key(item.get("metric", {}))] = item
-    return list(merged.values())
-
-
-def _labels_with_latest_name(labels: dict[str, Any], latest_label_by_vm: dict[tuple[int, str, str], dict[str, str]]) -> dict[str, str]:
-    normalized = {str(key): str(value) for key, value in labels.items()}
-    latest = latest_label_by_vm.get(vm_key(labels))
-    if latest:
-        normalized.update(latest)
-    normalized.setdefault("vm", normalized.get("vm_name") or normalized.get("vm_id", ""))
-    normalized.setdefault("vm_name", normalized.get("vm") or normalized.get("vm_id", ""))
-    return normalized
-
-
-def _period_bounds(now_ts: int, kind: str) -> tuple[int, int]:
-    now = datetime.fromtimestamp(now_ts)
-    if kind == "month":
-        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    else:
-        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return int(start.timestamp()), now_ts
-
 
 def _period_window(now_ts: int, days: int) -> dict[str, Any]:
     start_ts = now_ts - days * SECONDS_PER_DAY
@@ -610,17 +648,6 @@ def _normalize_chart_days(chart_days: int | None) -> int:
     except (TypeError, ValueError):
         return 365
     return value if value in {7, 30, 90, 365} else 365
-
-
-def _item_timestamp(item: dict[str, Any]) -> int | None:
-    value = item.get("value")
-    if isinstance(value, (list, tuple)) and value:
-        try:
-            return int(float(value[0]))
-        except (TypeError, ValueError):
-            return None
-    return None
-
 
 def _clean_points(points: list[tuple[int, float]]) -> list[tuple[int, float]]:
     dedup = {int(ts): float(value) for ts, value in points if value is not None}

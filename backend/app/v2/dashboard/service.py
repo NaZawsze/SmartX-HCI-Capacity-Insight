@@ -6,15 +6,27 @@ from typing import Any
 
 from app.v2.config import V2Settings
 from app.v2.database import V2Database, row_to_dict
+from app.v2.data_quality.service import freshness_threshold_minutes
+from app.v2.freshness import parse_db_time
 from app.v2.inventory.service import InventoryService
 from app.v2.metrics.prometheus import PrometheusService
 from app.v2.metrics.series import cluster_key, labels_match, metric_value, range_values, scoped_query, vm_key
 from app.v2.scope import in_enabled_scope
 from app.v2.reports.service import forecast_series
+from app.v2.vms.growth import (
+    DAY_GROWTH,
+    MONTH_GROWTH,
+    compute_growth_vms,
+    latest_vm_items,
+    merge_latest_items,
+    series_tail_items,
+)
+from app.v2.vms.new_vm import collect_vm_first_seen, is_recycled_vm_name, period_bounds
 
 
 CLUSTER_USED_METRIC = "smartx_cluster_storage_used_bytes"
 CLUSTER_TOTAL_METRIC = "smartx_cluster_storage_total_bytes"
+CLUSTER_ALLOCATED_METRIC = "smartx_cluster_storage_allocated_bytes"
 VM_USED_METRIC = "smartx_vm_storage_used_bytes"
 NORMAL_RISK_MESSAGE = "当前所有集群暂无明显容量风险"
 SECONDS_PER_DAY = 86_400
@@ -33,6 +45,20 @@ def _latest_collection_run_id(database: V2Database) -> int:
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _collection_freshness(last_success_at: str | None, threshold_minutes: int, now_ts: int) -> str:
+    """看板数据新鲜度：fresh=阈值内有成功采集，stale=超过阈值，unknown=无成功记录或时间不可解析。
+
+    口径与 freshness 探针一致（DB 时间按 UTC 解析），供看板「最后成功采集」标注用。
+    """
+    if not last_success_at:
+        return "unknown"
+    parsed = parse_db_time(last_success_at)
+    if parsed is None:
+        return "unknown"
+    now = datetime.fromtimestamp(now_ts, tz=timezone.utc)
+    return "fresh" if (now - parsed).total_seconds() <= threshold_minutes * 60 else "stale"
 
 
 class DashboardService:
@@ -77,13 +103,16 @@ class DashboardService:
         collection_payload = self._latest_collection()
         total_bytes = sum(float(cluster.get("total_bytes") or 0) for cluster in clusters)
         used_bytes = sum(float(cluster.get("used_bytes") or 0) for cluster in clusters)
+        allocated_bytes = sum(float(cluster.get("allocated_bytes") or 0) for cluster in clusters)
         kpis = {
             "tower_count": len(towers),
             "cluster_count": len(clusters),
             "vm_count": len(self._latest_vms_from_database(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)),
             "used_bytes": used_bytes,
             "total_bytes": total_bytes,
+            "allocated_bytes": allocated_bytes,
             "used_ratio": used_bytes / total_bytes if total_bytes > 0 else 0.0,
+            "allocated_ratio": allocated_bytes / total_bytes if total_bytes > 0 else 0.0,
         }
         latest_run = (
             {
@@ -154,11 +183,13 @@ class DashboardService:
     def _cluster_capacity(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
         used_by_key = self._cluster_metric_map(CLUSTER_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         total_by_key = self._cluster_metric_map(CLUSTER_TOTAL_METRIC, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        allocated_by_key = self._cluster_metric_map(CLUSTER_ALLOCATED_METRIC, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         names = self._cluster_names()
         clusters: list[dict[str, Any]] = []
-        for key in sorted(set(used_by_key) | set(total_by_key)):
+        for key in sorted(set(used_by_key) | set(total_by_key) | set(allocated_by_key)):
             used = used_by_key.get(key, 0.0)
             total = total_by_key.get(key, 0.0)
+            allocated = allocated_by_key.get(key, 0.0)
             ratio = used / total if total > 0 else 0.0
             clusters.append(
                 {
@@ -167,6 +198,7 @@ class DashboardService:
                     "name": names.get(key, key[1]),
                     "used_bytes": used,
                     "total_bytes": total,
+                    "allocated_bytes": allocated,
                     "used_ratio": ratio,
                 }
             )
@@ -309,7 +341,14 @@ class DashboardService:
     def _storage(self, clusters: list[dict[str, Any]]) -> dict[str, float]:
         used = sum(float(cluster["used_bytes"]) for cluster in clusters)
         total = sum(float(cluster["total_bytes"]) for cluster in clusters)
-        return {"used_bytes": used, "total_bytes": total, "used_ratio": used / total if total > 0 else 0.0}
+        allocated = sum(float(cluster.get("allocated_bytes") or 0) for cluster in clusters)
+        return {
+            "used_bytes": used,
+            "total_bytes": total,
+            "allocated_bytes": allocated,
+            "used_ratio": used / total if total > 0 else 0.0,
+            "allocated_ratio": allocated / total if total > 0 else 0.0,
+        }
 
     def _latest_collection(self) -> dict[str, Any] | None:
         with self.database.connection() as conn:
@@ -332,7 +371,15 @@ class DashboardService:
                 )
         if row is None:
             return None
-        return {"status": row["status"], "message": row["message"], "last_success_at": success_row["finished_at"] if success_row else None}
+        last_success_at = success_row["finished_at"] if success_row else None
+        threshold_minutes = freshness_threshold_minutes(self.database)
+        return {
+            "status": row["status"],
+            "message": row["message"],
+            "last_success_at": last_success_at,
+            "threshold_minutes": threshold_minutes,
+            "data_freshness": _collection_freshness(last_success_at, threshold_minutes, self.now_ts),
+        }
 
     def _latest_vms(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
         names = self._latest_vm_names()
@@ -362,49 +409,51 @@ class DashboardService:
         return self._period_fastest_growing_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, days=1, limit=100)
 
     def _period_fastest_growing_vms(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]], days: int, limit: int) -> list[dict[str, Any]]:
-        names = self._latest_vm_names()
-        result: list[dict[str, Any]] = []
-        start = self.now_ts - days * 86400
-        step = "1h" if days <= 1 else "1d"
-        for series in self.prometheus.range(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id), start=start, end=self.now_ts, step=step):
-            points = range_values(series)
-            if len(points) < 2:
+        """增长最快 VM：与报表共用同一实现（49-45），保证两页结果一致。"""
+        window = DAY_GROWTH if days <= DAY_GROWTH.days else MONTH_GROWTH
+        series_list = self._vm_series(days=window.days, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, step=window.step)
+        latest_label_by_vm = {key: {"vm": name, "vm_name": name} for key, name in self._latest_vm_names().items()}
+        latest_items = merge_latest_items(
+            latest_vm_items(self.prometheus, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope),
+            series_tail_items(series_list),
+        )
+        records = compute_growth_vms(series_list=series_list, latest_items=latest_items, latest_label_by_vm=latest_label_by_vm)
+        result = []
+        for record in records[:limit]:
+            vm_name = record["vm_name"]
+            if is_recycled_vm_name(vm_name):
                 continue
-            metric = series.get("metric", {})
-            key = (int(metric.get("tower_id") or 0), str(metric.get("cluster_id") or ""), str(metric.get("vm_id") or ""))
-            if not in_enabled_scope((key[0], key[1]), enabled_scope):
-                continue
-            growth = points[-1][1] - points[0][1]
-            if growth <= 0:
-                continue
-            vm_name = names.get(key, str(metric.get("vm_name") or key[2]))
             result.append(
                 {
-                    "tower_id": key[0],
-                    "cluster_id": key[1],
-                    "vm_id": key[2],
+                    "tower_id": record["tower_id"],
+                    "cluster_id": record["cluster_id"],
+                    "vm_id": record["vm_id"],
                     "vm_name": vm_name,
-                    "current_bytes": points[-1][1],
-                    "previous_bytes": points[0][1],
-                    "previous_value": points[0][1],
-                    "growth_amount": growth,
-                    "growth_ratio": growth / points[0][1] if points[0][1] > 0 else None,
+                    "current_bytes": record["current_bytes"],
+                    "previous_bytes": record["previous_value"],
+                    "previous_value": record["previous_value"],
+                    "growth_amount": record["growth_amount"],
+                    "growth_ratio": record["growth_ratio"],
+                    "sample_span_days": record["sample_span_days"],
                     "metric": {
-                        "tower_id": str(key[0]),
-                        "cluster_id": str(key[1]),
-                        "vm_id": str(key[2]),
-                        "vm": str(vm_name),
-                        "vm_name": str(vm_name),
+                        "tower_id": str(record["tower_id"]),
+                        "cluster_id": str(record["cluster_id"]),
+                        "vm_id": record["vm_id"],
+                        "vm": vm_name,
+                        "vm_name": vm_name,
                     },
-                    "value": points[-1][1],
+                    "value": record["value"],
                 }
             )
-        return sorted(result, key=lambda item: (-float(item["growth_amount"]), item["vm_name"]))[:limit]
+        return result
 
     def _day_new_vms(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
         names = self._latest_vm_names()
         current_values = self._latest_vm_value_map(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
-        start, end = _day_bounds(self.now_ts, self.settings.timezone)
+        start, end = period_bounds(self.now_ts, "day", self.settings.timezone)
+        # 「新建 VM」口径与报表一致（49-43）：按 vm_id 全历史最早样本 + 排除回收站 VM，
+        # 否则概览与报表会给出不同的本日新建数（旧实现在采集断档后会把老 VM 判成新建）。
+        first_seen = collect_vm_first_seen(self.prometheus, now_ts=self.now_ts, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         series_list = self._vm_series(days=30, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, step="6h")
         new_vms = []
         for series in series_list:
@@ -415,10 +464,15 @@ class DashboardService:
             points = range_values(series)
             if not points:
                 continue
-            first_ts, first_value = sorted(points)[0]
+            seen = first_seen.get(key)
+            if seen is None:
+                continue
+            first_ts, first_value = seen
             if first_ts < start or first_ts > end:
                 continue
             vm_name = names.get(key, str(metric.get("vm_name") or metric.get("vm") or key[2]))
+            if is_recycled_vm_name(vm_name):
+                continue
             current_bytes = current_values.get(key, points[-1][1] if points else first_value)
             new_vms.append(
                 {
@@ -530,17 +584,6 @@ def _tower_payload(tower) -> dict[str, Any]:
             for cluster in tower.clusters
         ],
     }
-
-
-def _day_bounds(now_ts: int, tz_name: str | None = None) -> tuple[int, int]:
-    try:
-        from zoneinfo import ZoneInfo
-
-        tz = ZoneInfo(tz_name) if tz_name else timezone.utc
-    except Exception:
-        tz = timezone.utc
-    start = datetime.fromtimestamp(now_ts, tz=tz).replace(hour=0, minute=0, second=0, microsecond=0)
-    return int(start.timestamp()), now_ts
 
 
 def _risk_clusters(clusters: list[dict[str, Any]], forecasts: dict[tuple[int, str], dict[str, Any]]) -> list[dict[str, Any]]:

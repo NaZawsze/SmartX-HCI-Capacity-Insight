@@ -5,6 +5,10 @@ from typing import Any
 
 from app.v2.inventory.models import ClusterInput
 
+# 回收站 VM 的命名前缀（Tower 侧约定）：`in-recycle-bin-<uuid>`。
+# 这类实体不该计入容量/新建/增长统计，采集与展示两侧统一按此排除（49-40）。
+RECYCLE_BIN_VM_PREFIX = "in-recycle-bin-"
+
 
 class CloudTowerError(RuntimeError):
     pass
@@ -93,6 +97,21 @@ class CloudTowerClient:
     def get_clusters(self) -> list[ClusterInput]:
         return [cluster for cluster in (_normalize_cluster(item) for item in self.paged_post("/v2/api/get-clusters")) if cluster is not None]
 
+    def get_cluster_allocations(self, cluster_ids: list[str]) -> dict[str, int]:
+        """已分配容量：get-clusters 的 perf_allocated_data_space（int64，可超总容量）。
+
+        缺失/null 按 0 处理（49-36 口径）；该字段不在 get-cluster-storage-info 中。
+        """
+        if not cluster_ids:
+            return {}
+        allocations: dict[str, int] = {}
+        for item in self.paged_post("/v2/api/get-clusters", {"where": {"id_in": list(cluster_ids)}}):
+            cluster_id = str(item.get("id") or item.get("cluster_id") or "")
+            if not cluster_id:
+                continue
+            allocations[cluster_id] = int(_number(item.get("perf_allocated_data_space")) or 0)
+        return allocations
+
     def get_cluster_storage_info(self, cluster_id: str) -> dict[str, Any]:
         data = self.post("/v2/api/get-cluster-storage-info", {"where": {"id": cluster_id}, "effect": {}})
         if isinstance(data, list):
@@ -142,9 +161,12 @@ def _normalize_vm(raw: dict[str, Any]) -> dict[str, Any] | None:
     vm_id = str(raw.get("id") or raw.get("vm_id") or "")
     if not vm_id:
         return None
+    name = str(raw.get("name") or raw.get("vm_name") or vm_id)
+    if name.startswith(RECYCLE_BIN_VM_PREFIX):
+        return None
     return {
         "vm_id": vm_id,
-        "name": str(raw.get("name") or raw.get("vm_name") or vm_id),
+        "name": name,
         "used_bytes": int(_number(raw.get("used_size"), raw.get("used_size_bytes"), raw.get("capacity_used")) or 0),
     }
 

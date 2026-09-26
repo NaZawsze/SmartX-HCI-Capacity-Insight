@@ -244,7 +244,9 @@ class DashboardStorageModel(BaseModel):
     model_config = ConfigDict(extra="allow")
     used_bytes: float = 0.0
     total_bytes: float = 0.0
+    allocated_bytes: float = 0.0
     used_ratio: float = 0.0
+    allocated_ratio: float = 0.0
 
 
 class DashboardCollectionModel(BaseModel):
@@ -252,6 +254,8 @@ class DashboardCollectionModel(BaseModel):
     last_success_at: Optional[str] = None
     message: Optional[str] = None
     status: Optional[str] = None
+    threshold_minutes: Optional[int] = None
+    data_freshness: Optional[str] = None
 
 
 class RiskThresholdsModel(BaseModel):
@@ -309,6 +313,7 @@ class DashboardClusterModel(BaseModel):
     name: str = ""
     used_bytes: float = 0.0
     total_bytes: float = 0.0
+    allocated_bytes: float = 0.0
     used_ratio: float = 0.0
 
 

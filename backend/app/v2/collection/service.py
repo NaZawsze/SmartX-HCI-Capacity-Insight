@@ -9,13 +9,16 @@ from app.v2.config import V2Settings
 from app.v2.database import V2Database, row_to_dict
 from app.v2.inventory.models import ClusterRecord, TowerRecord
 from app.v2.inventory.service import InventoryService
-from app.v2.metrics.formatter import ClusterCapacitySample, VmCapacitySample, render_capacity_metrics
+from app.v2.metrics.formatter import ClusterCapacitySample, VmCapacitySample, merge_metrics_text, render_capacity_metrics
 from app.v2.tasks.models import TaskStatus, TaskType
 from app.v2.tasks.service import TaskService
 
 
 class CloudTowerCollector(Protocol):
     def collect_cluster(self, tower: TowerRecord, cluster: ClusterRecord) -> dict:
+        ...
+
+    def cluster_allocations(self, tower: TowerRecord) -> dict[str, int]:
         ...
 
 
@@ -49,11 +52,17 @@ class CollectionService:
         max_attempts = max_attempts if max_attempts is not None else max((tower.collection_retry_max_attempts for tower in towers), default=0)
         run_id = self._start_run(trigger=trigger, cycle_id=cycle_id or f"collection-{uuid.uuid4().hex[:12]}", attempt=attempt, max_attempts=max_attempts)
         task_id = self._start_task(run_id, trigger=trigger, task_id=task_id)
+        # 采集前抓旧快照：落库时合并（49-37），失败/被过滤目标沿用最后已知样本，
+        # 否则 API 手动采集路径会整体替换快照，把历史样本抹空导致看板归零。
+        previous_metrics = self.latest_metrics_text()
         cluster_samples: list[ClusterCapacitySample] = []
         vm_samples: list[VmCapacitySample] = []
         success_targets: list[dict[str, object]] = []
         failed_targets: list[dict[str, object]] = []
         for tower in towers:
+            # 已分配容量：每塔一次 get-clusters（49-36）。best-effort，失败不阻断采集，
+            # 真正的采集失败由随后 collect_cluster 汇总上报。
+            allocations = self._cluster_allocations(tower)
             for cluster in tower.clusters:
                 if not cluster.enabled:
                     continue
@@ -68,6 +77,7 @@ class CollectionService:
                             cluster_id=cluster.cluster_id,
                             used_bytes=int(cluster_payload.get("used_bytes") or 0),
                             total_bytes=int(cluster_payload.get("total_bytes") or 0),
+                            allocated_bytes=int(allocations.get(cluster.cluster_id) or 0),
                         )
                     )
                     for vm in payload.get("vms", []):
@@ -89,7 +99,7 @@ class CollectionService:
                     success_targets.append(_target_payload(tower, cluster, attempt=attempt))
                 except Exception as exc:  # noqa: BLE001 - collector failures are summarized for UI.
                     failed_targets.append(_target_payload(tower, cluster, attempt=attempt, message=self._collection_error_message(exc)))
-        metrics_text = render_capacity_metrics(clusters=cluster_samples, vms=vm_samples)
+        metrics_text = merge_metrics_text(previous_metrics, render_capacity_metrics(clusters=cluster_samples, vms=vm_samples))
         self._save_metrics_text(metrics_text)
         if failed_targets and success_targets:
             status = "partial_failed"
@@ -114,6 +124,12 @@ class CollectionService:
         if failed_targets and self.tasks is not None and trigger not in {"manual", "post_upgrade"}:
             self._record_collection_warning(run_id, status, message, success_targets, failed_targets, attempt=attempt, max_attempts=max_attempts)
         return CollectionResult(run_id=run_id, status=status, message=message, metrics_text=metrics_text)
+
+    def _cluster_allocations(self, tower: TowerRecord) -> dict[str, int]:
+        try:
+            return self.cloudtower_client.cluster_allocations(tower)
+        except Exception:  # noqa: BLE001 - 已分配容量是增强信息，失败按 0 处理，不阻断采集。
+            return {}
 
     def latest_vm(self, tower_id: int, cluster_id: str, vm_id: str) -> dict | None:
         with self.database.connection() as conn:

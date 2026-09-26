@@ -338,7 +338,9 @@ describe("ReportsPage", () => {
     expect(within(growthCard).getByText("月")).toBeInTheDocument();
     expect(within(growthCard).getByText("300 B/月")).toBeInTheDocument();
     expect(within(growthCard).getByText("季度")).toBeInTheDocument();
-    expect(within(growthCard).getByText("数据不足")).toBeInTheDocument();
+    expect(within(growthCard).getByText("-/季度")).toBeInTheDocument();
+    expect(within(growthCard).getByText("-/季度")).toHaveClass("growth-rate-missing");
+    expect(within(growthCard).getByText("数据不足")).toHaveClass("growth-rate-insufficient-notice");
     expect(within(growthCard).getAllByText("样本不足")).toHaveLength(2);
   });
 

@@ -114,5 +114,42 @@ class V2CloudTowerClientTest(unittest.TestCase):
         self.assertEqual(http.requests[0]["headers"]["Authorization"], "api-token")
 
 
+    def test_get_cluster_allocations_reads_perf_allocated_data_space_and_defaults_to_zero(self) -> None:
+        """49-36：已分配容量取 get-clusters 的 perf_allocated_data_space，缺失/null 记 0。"""
+        from app.v2.cloudtower.client import CloudTowerClient, CloudTowerCredentials
+
+        http = FakeHttpClient(
+            [
+                FakeResponse(200, {"data": {"token": "token-1"}}),
+                FakeResponse(
+                    200,
+                    {
+                        "data": [
+                            {"id": "cluster-a", "perf_allocated_data_space": 270},
+                            {"id": "cluster-b"},
+                            {"id": "cluster-c", "perf_allocated_data_space": None},
+                        ]
+                    },
+                ),
+            ]
+        )
+        client = CloudTowerClient(CloudTowerCredentials(base_url="https://tower.example.com", username="admin", password="secret"), http_client=http)
+
+        allocations = client.get_cluster_allocations(["cluster-a", "cluster-b", "cluster-c"])
+
+        self.assertEqual(allocations, {"cluster-a": 270, "cluster-b": 0, "cluster-c": 0})
+        self.assertEqual(http.requests[1]["path"], "/v2/api/get-clusters")
+        self.assertEqual(http.requests[1]["json"]["where"], {"id_in": ["cluster-a", "cluster-b", "cluster-c"]})
+
+    def test_get_cluster_allocations_skips_request_without_cluster_ids(self) -> None:
+        from app.v2.cloudtower.client import CloudTowerClient, CloudTowerCredentials
+
+        http = FakeHttpClient([])
+        client = CloudTowerClient(CloudTowerCredentials(base_url="https://tower.example.com", api_token="api-token"), http_client=http)
+
+        self.assertEqual(client.get_cluster_allocations([]), {})
+        self.assertEqual(http.requests, [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,7 @@ import { MetricCard } from "../components/MetricCard";
 import { StatusPill } from "../components/StatusPill";
 import { StorageBar } from "../components/StorageBar";
 import { api, formatBytes } from "../services/api";
+import { hasSampleSpan, TOP_GROWTH_VM_LIMIT } from "../services/growth";
 import type { AppTask, DashboardScope, DashboardSummary, MetricItem } from "../types";
 
 interface DashboardPageProps {
@@ -85,6 +86,9 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRis
   const kpis = summary?.kpis;
   const isRunning = summary?.latest_run?.status === "running";
   const runMessage = isRunning ? "采集正在执行，完成后会自动更新。" : summary?.latest_run?.message || "暂无采集记录";
+  const collectionInfo = summary?.collection;
+  const lastSuccessLabel = collectionInfo?.last_success_at ? formatLastSuccess(collectionInfo.last_success_at) : "";
+  const dataStale = collectionInfo?.data_freshness === "stale";
   const scopeLabel = summary?.scope?.label || "全部数据中心";
   const towerLabel =
     scope.type === "all"
@@ -92,7 +96,11 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRis
       : scope.type === "tower"
         ? summary?.towers.find((tower) => tower.id === scope.towerId)?.name || summary?.scope?.label || "当前 Tower"
         : summary?.towers.find((tower) => tower.id === scope.towerId)?.name || summary?.scope?.label || "当前 Tower";
-  const topVms = sortMetricGrowthItems(summary?.day_fastest_growing_vms || summary?.top_vms || [], growthSort);
+  // 增长列表展示规则与报表一致（49-45）：样本跨度 >= 1 天，最多 50 条
+  const topVms = sortMetricGrowthItems(
+    (summary?.day_fastest_growing_vms || summary?.top_vms || []).filter((item) => hasSampleSpan(item, 1)),
+    growthSort
+  ).slice(0, TOP_GROWTH_VM_LIMIT);
   const dayNewVms = summary?.day_new_vms || [];
   const riskThresholdValues = riskThresholds(summary?.capacity_risk);
   const risk = capacityRisk(summary?.capacity_risk, kpis?.used_ratio, riskThresholdValues);
@@ -131,8 +139,13 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRis
         <MetricCard label="容量使用率" value={`${((kpis?.used_ratio ?? 0) * 100).toFixed(2)}%`} hint={formatBytes(kpis?.used_bytes)} icon={TrendingUp} tone="orange" />
       </div>
 
-      <Card title="SmartX ZBS" subtitle={scopeLabel} className="wide-card zbs-overview-card">
-        <StorageBar used={kpis?.used_bytes ?? 0} total={kpis?.total_bytes ?? 0} />
+      <Card
+        title="SmartX ZBS"
+        subtitle={scopeLabel}
+        className="wide-card zbs-overview-card"
+        notice={dataStale ? <span className="stale-title-notice">{lastSuccessLabel ? `数据未更新：最近成功采集于 ${lastSuccessLabel}` : "数据未更新：暂无成功采集记录"}</span> : undefined}
+      >
+        <StorageBar used={kpis?.used_bytes ?? 0} total={kpis?.total_bytes ?? 0} allocated={kpis?.allocated_bytes ?? 0} />
         <div className="cluster-capacity-section">
           <div className="cluster-capacity-head">
             <strong>集群容量明细</strong>
@@ -210,6 +223,10 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRis
               <span>{runMessage}</span>
             </div>
           )}
+        </div>
+        <div className="run-state collection-last-success">
+          <span className="tower-run-name">最后成功采集</span>
+          <span className={dataStale ? "stale-time" : undefined}>{lastSuccessLabel || "无成功采集记录"}</span>
         </div>
         {message && <div className="inline-message">{message}</div>}
       </Card>
@@ -436,6 +453,15 @@ function metricValue(item: MetricItem): number {
 function formatPercent(value?: number | null): string {
   if (value == null || !Number.isFinite(value)) return "-";
   return `${(value * 100).toFixed(value >= 1 ? 0 : 1)}%`;
+}
+
+// collection_runs 的 finished_at 是 SQLite CURRENT_TIMESTAMP（UTC 无时区后缀），转本地时间显示。
+function formatLastSuccess(value: string): string {
+  const hasZone = /(?:z|Z|[+-]\d{2}:?\d{2})$/.test(value.trim());
+  const iso = hasZone ? value.trim() : `${value.trim().replace(" ", "T")}Z`;
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
 }
 
 function formatExhaustionDays(value?: number | null): string {

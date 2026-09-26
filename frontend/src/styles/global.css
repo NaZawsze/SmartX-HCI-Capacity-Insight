@@ -1,6 +1,7 @@
 :root {
   --blue: #1677ff;
   --blue-600: #0f66dd;
+  --blue-soft: #cfe3ff;
   --cyan: #16c7d3;
   --green: #21c875;
   --orange: #ff9f1c;
@@ -941,24 +942,48 @@ button {
   background: #d9e3ef;
   border-radius: 5px;
   overflow: hidden;
+  display: flex;
 }
 
 .storage-fill {
   height: 100%;
+  flex: 0 0 auto;
   background: linear-gradient(90deg, var(--blue), var(--cyan));
 }
 
-.storage-meta {
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 16px;
-  color: var(--muted);
-  font-size: 13px;
+.storage-fill-allocated {
+  height: 100%;
+  flex: 0 0 auto;
+  background: var(--blue-soft);
 }
 
-.storage-meta strong {
+.storage-meta {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.storage-meta-item {
+  display: grid;
+  gap: 4px;
+}
+
+.storage-meta-item + .storage-meta-item {
+  border-left: 1px solid var(--line);
+  padding-left: 16px;
+}
+
+.storage-meta-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.storage-meta-value {
   color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .cluster-capacity-section {
@@ -1989,6 +2014,11 @@ button.risk-cluster-row:hover {
   font-size: 15px;
   line-height: 1.2;
   min-width: 0;
+}
+
+.growth-rate-item strong.growth-rate-missing {
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .growth-rate-item small {
@@ -3379,8 +3409,9 @@ button.risk-cluster-row:hover {
     gap: 6px;
   }
 
-  .storage-meta strong {
-    order: -1;
+  .storage-meta-item + .storage-meta-item {
+    border-left: none;
+    padding-left: 0;
   }
 
 }
@@ -5127,9 +5158,42 @@ button.risk-cluster-row:hover {
 }
 
 .cluster-disabled-message {
+  grid-column: 1 / -1;
   border: 1px solid #ffe1ad;
   background: #fff7e6;
   color: #8a5300;
+}
+
+.card-title h2 .stale-title-notice {
+  margin-left: 8px;
+  color: var(--orange);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.card-title h2 .growth-rate-insufficient-notice {
+  margin-left: 8px;
+  color: var(--orange);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.collection-last-success {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+  flex-wrap: wrap;
+}
+
+.collection-last-success span {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.collection-last-success .stale-time {
+  color: var(--orange);
+  font-weight: 700;
 }
 
 .schedule-fields {

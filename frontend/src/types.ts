@@ -45,9 +45,11 @@ export interface MetricItem {
   previous_value?: number | null;
   growth_ratio?: number | null;
   period_days?: number | null;
+  sample_span_days?: number | null;
   forecast?: ForecastResult;
   provisioned?: number | null;
   total_bytes?: number | null;
+  allocated_bytes?: number | null;
   used_ratio?: number | null;
   guest_used?: number | null;
   guest_used_ratio?: number | null;
@@ -67,7 +69,9 @@ export interface DashboardSummary {
     vm_count: number;
     used_bytes: number;
     total_bytes: number;
+    allocated_bytes?: number;
     used_ratio: number;
+    allocated_ratio?: number;
   };
   capacity_risk?: {
     level: "normal" | "warning" | "danger" | "high";
@@ -118,6 +122,13 @@ export interface DashboardSummary {
     status: string;
     message?: string;
   };
+  collection?: {
+    status?: string | null;
+    message?: string | null;
+    last_success_at?: string | null;
+    threshold_minutes?: number | null;
+    data_freshness?: "fresh" | "stale" | "unknown" | string | null;
+  } | null;
   top_vms: MetricItem[];
   day_fastest_growing_vms?: MetricItem[];
   day_new_vms?: MetricItem[];

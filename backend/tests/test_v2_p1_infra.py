@@ -44,15 +44,16 @@ class V2P1InfraTest(unittest.TestCase):
                 conn.close()
 
     def test_day_bounds_timezone(self):
-        from app.v2.dashboard.service import _day_bounds
+        # 49-44：周期边界已统一到共享实现 vms/new_vm.period_bounds（概览与报表同源）
+        from app.v2.vms.new_vm import period_bounds
 
         # 2023-11-14 20:00 UTC = 2023-11-15 04:00 北京；当日零点应落在不同日期
-        start_sh, _ = _day_bounds(NOW_TS, "Asia/Shanghai")
-        start_utc, _ = _day_bounds(NOW_TS, "UTC")
+        start_sh, _ = period_bounds(NOW_TS, "day", "Asia/Shanghai")
+        start_utc, _ = period_bounds(NOW_TS, "day", "UTC")
         self.assertEqual(start_sh, 1_699_977_600)  # 北京 2023-11-15 00:00（UTC+8）
         self.assertEqual(start_utc, 1_699_920_000)  # UTC 2023-11-14 00:00
         # 非法时区回退 UTC
-        start_fallback, _ = _day_bounds(NOW_TS, "Not/AZone")
+        start_fallback, _ = period_bounds(NOW_TS, "day", "Not/AZone")
         self.assertEqual(start_fallback, start_utc)
 
     def test_summary_scope_type_and_label(self):
