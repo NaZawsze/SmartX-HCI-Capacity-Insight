@@ -27,7 +27,7 @@
 | 39 | 同名口径审计修复（49-44）：周期边界同源 + 概览增长过滤 + 报表增长泄漏 | 2026-09-26 用户「统一，你看看还有什么问题」 | **已实施并验证（2026-09-26，.3 部署完成）**：`period_bounds` 下沉共享模块；概览增长列表补回收站过滤；报表增长列表修复 series tail 泄漏（49-40 漏洞）。验证：.3 全量 **355 tests OK**、线上月增长 66 条回收站 0 条。设计见 new-vm-first-seen §8。**余**：提交（待批准） |
 | 40 | 虚拟机 KPI 是否排除回收站 VM | 49-44 审计 | **待用户确认**：概览 `kpis.vm_count` 与报表 `data_quality.sqlite_vm_count` 均为 244，都来自 `vm_latest`（共 590 行、其中 29 行名称为 `in-recycle-bin-*`，启用范围内约 25 行）→ 计数含回收站，但新建/增长列表已排除，口径不一致。改则数字下降（244 → 约 219），需用户决定 |
 | 41 | 「增长最快 VM」两套实现统一（49-45） | 49-44 审计（同 30 天窗口 概览 0 条 vs 报表 66 条） | **已实施并验证（2026-09-26，.3 部署完成）**：共享模块 `app/v2/vms/growth.py` 统一窗口与计算；前端共用 `hasSampleSpan`/`TOP_GROWTH_VM_LIMIT`。口径变化：月窗口固定 30 天、当前值取 instant∪序列尾部、概览项新增 `sample_span_days`。验证：.3 全量 **356 tests OK**、tsc 0、vitest **107 passed**、线上 `day_equal=True`/`month_equal=True`（66=66）。设计：docs/superpowers/specs/2026-09-26-shared-vm-growth-design.md。**余**：UI 目视、提交（待批准） |
-| 42 | 报表补「已分配容量」展示 | 49-36 只做了概览 | **待立项**：容量条与数值区的已分配仅在概览；报表的集群明细/趋势未展示。若需要则复用 `smartx_cluster_storage_allocated_bytes` 指标 |
+| 42 | 报表补「已分配容量」展示（49-46） | 49-36 只做了概览 | **已实施并部署（2026-09-26）**：`report.clusters[i].allocated`（instant，缺失按 0）+ 报表行显示 `已分配 {值} · {比例}%`（分母 total，可 >100%）。测试：后端 `test_report_clusters_expose_allocated_capacity`、前端断言 `已分配 2700 B · 270.00%`。设计：49-36 设计文档 §8。**余**：UI 目视、提交（待批准）；趋势图已分配线为可选后续 |
 P1 全部完成（2026-09-13）：compose tag 覆盖风险经读码核实为「升级包管线已渲染字面量 tag」，收尾项（runner 默认 env CORS 清理、check_versions 防呆、文档、双版本渲染取证）已实施并验证。
 
 P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite 治理、阈值/时区统一、Tower UI 改版含 TowerForm 抽取）已于 2026-09-12 完成并验证，见文末"已完成"与 progress.md。

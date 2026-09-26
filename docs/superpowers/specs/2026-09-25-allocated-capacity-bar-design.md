@@ -95,3 +95,23 @@
 
 - Tower `10.20.0.6` 当前不可达（.3 与本地均 ping 不通），无法做真实 `perf_allocated_data_space` 对账；真实数值验收待网络恢复。
 - 口径提到"每塔一次 get-clusters"，本实现按 tower 预取一次（`id_in` 过滤），但在 `CloudTowerService` 内每 cluster 仍独立建 client（既有结构），未做连接复用改造。
+
+## 8. 报表侧补「已分配容量」（49-46，2026-09-26）
+
+用户指令：「报表补『已分配容量』，先做这个吧」。
+
+- 数据：`ReportService::_cluster_allocated()` 取 `smartx_cluster_storage_allocated_bytes` 的 instant（与概览 49-36 同指标、同 scope 过滤；**缺失按 0**，不做 range 回退）。
+- payload：`report.clusters[i].allocated`（新增字段，`ForecastPayload` 类型已补 `allocated?: number | null`）。
+- 展示：报表「集群预测报表」每行新增一行 `已分配 {值} · {比例}%`，比例分母 = `total`（与概览「两个比例分母都是总容量」口径一致，可 >100%）。
+- 不做（可选后续）：趋势图里加「已分配」水平线（现有图已有 5 条线 + 预测带，新增线需先定颜色口径）。
+- 测试：后端 `test_report_clusters_expose_allocated_capacity`（instant 返回 2700/total 1000 → 断言 `allocated==2700`）；前端 `ReportsPage.test` 断言行渲染 `已分配 2700 B · 270.00%`（270% 演示超总容量的显示）。
+
+## 9. 趋势图「已分配容量」线（49-46b，2026-09-26）
+
+- 用户要求：图表里**加**已分配容量线 → **命名为「已分配容量」** → **默认不显示**（图例可手动打开）。
+- 实现（`ClusterCapacityChart.tsx`）：
+  - `ChartModel.allocated` = 单集群取 `cluster.allocated`，多集群求和（与 total/warning 同聚合口径）
+  - series：2px **虚线**，颜色经 `cssVar("--blue", "#1677ff")` 从 `:root` 设计变量取（frontend-style-guide 不引入新硬编码色值）——选深蓝而非概览用的浅蓝 `--blue-soft`，是因为浅蓝做细线在白底对比度仅约 1.4:1（概览是色块所以可用）
+  - `legend.data` 含「已分配容量」且 `selected: { 已分配容量: false }` **默认关闭**
+  - y 轴上限仅在该系列打开时计入（否则「已分配 > 总容量」会把实际容量曲线压扁）；通过 `onEvents.legendselectchanged` 同步可见性状态
+- 验证：`tsc -b` 0、vitest 107 passed、前端产物含「已分配容量」；默认关闭与打开后的 y 轴行为待用户 UI 目视。

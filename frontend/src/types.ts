@@ -235,6 +235,7 @@ export interface ForecastPayload {
     points?: [number, number][];
     total?: number | null;
     warning?: number | null;
+    allocated?: number | null;
   }>;
   fastest_growing_vms: GrowthVmReport[];
   day_fastest_growing_vms?: GrowthVmReport[];

@@ -250,6 +250,10 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
                   <div className="report-numbers">
                     <span>当前 {formatBytes(item.forecast.current)}</span>
                     <span>90 天后 {formatForecast(item.forecast.forecast_90d)}</span>
+                    <span>
+                      已分配 {formatBytes(item.allocated ?? 0)}
+                      {item.total ? ` · ${(((item.allocated ?? 0) / item.total) * 100).toFixed(2)}%` : ""}
+                    </span>
                     <span>预计存储耗尽</span>
                     <strong className={isQuarterRiskExhaustion(item.forecast.exhaustion_days_30d ?? item.forecast.exhaustion_days) ? "exhaustion-days-risk" : undefined}>
                       {formatExhaustionDays(item.forecast.exhaustion_days_30d ?? item.forecast.exhaustion_days)}

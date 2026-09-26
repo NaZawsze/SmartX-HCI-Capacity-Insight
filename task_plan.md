@@ -1717,6 +1717,18 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [ ] 用户 UI 目视确认（两页增长列表一致）
 - [ ] 提交（需用户明确批准）
 
+### 46. 报表补「已分配容量」[已实施并部署 .3]
+
+来源：2026-09-26 用户指令（pending #42 的执行）。
+设计：docs/superpowers/specs/2026-09-25-allocated-capacity-bar-design.md §8。
+- [x] 后端 `reports/service.py` 新增 `CLUSTER_ALLOCATED_METRIC` 与 `_cluster_allocated()`（instant，缺失按 0，scope 同概览）；`report.clusters[i]` 增加 `allocated`。
+- [x] 前端 `ForecastPayload` 补 `allocated`；报表「集群预测报表」每行显示 `已分配 {值} · {比例}%`（比例分母 = total，可 >100%）。
+- [x] 测试：后端 `test_report_clusters_expose_allocated_capacity` → .3 后端全量 **357 tests OK (skipped=1)**；前端断言 `已分配 2700 B · 270.00%`（超总容量显示）与缺省 `已分配 0 B · 0.00%` → `tsc -b` exit 0、vitest **107 passed（11 files）**。
+- [x] .3 部署验证：web-api + frontend 重建，health 200 / web 200；真实 payload `cluster SMARTX-TT-WW total=233457301585920.0 allocated=0.0`（`smartx_cluster_storage_allocated_bytes` 尚无样本 → 按 0 口径）、前端产物含「已分配」。
+- [x] 趋势图「已分配容量」线（49-46b）：2px 深蓝虚线（`cssVar("--blue")` 从设计变量取色）、**图例默认关闭**（`legend.selected`，可手动打开）、打开时才计入 y 轴上限（设计见设计文档 §9）。
+- [ ] 用户 UI 目视确认（报表行数字 + 图例「已分配容量」默认关闭、点开可见）
+- [ ] 提交（需用户明确批准）
+
 ### 37. 手动采集失败清空指标快照修复 + 仪表盘数据过期标注（49-37）[进行中]
 
 来源：2026-09-25 用户反馈「有段时间没获取到数据就把我整个看板停了，应该标注最后更新时间」+ 看板归零截图。

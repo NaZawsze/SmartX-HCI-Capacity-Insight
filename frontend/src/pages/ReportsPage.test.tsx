@@ -57,7 +57,8 @@ function reportWithCluster(clusterName: string, chartDays: number) {
         forecast: { status: "ok", slope_per_day: 1, current: 100, forecast_90d: 190, exhaustion_days: null },
         points: [[1764547200, 100]],
         total: 1000,
-        warning: 900
+        warning: 900,
+        allocated: 2700
       }
     ],
     fastest_growing_vms: [],
@@ -182,7 +183,8 @@ describe("ReportsPage", () => {
           forecast: { status: "ok", slope_per_day: 10, current: 190, forecast_90d: 1090, exhaustion_days: 8 },
           points: [],
           total: 1000,
-          warning: 900
+          warning: 900,
+          allocated: 2700
         },
         {
           labels: { tower_id: "1", cluster_id: "cluster-b", cluster: "Cluster B" },
@@ -281,6 +283,8 @@ describe("ReportsPage", () => {
     expect(screen.getByText("8 天")).toHaveClass("exhaustion-days-risk");
     expect(screen.getByText("未触发")).not.toHaveClass("exhaustion-days-risk");
     expect(screen.getByText("90 天后 1090 B")).toBeInTheDocument();
+    expect(screen.getByText("已分配 2700 B · 270.00%")).toBeInTheDocument();
+    expect(screen.getByText("已分配 0 B · 0.00%")).toBeInTheDocument();
     expect(screen.getByText("预测值可能会有偏差，以实际为准")).toBeInTheDocument();
     expect(screen.getByText("日增长最快 VM")).toBeInTheDocument();
     expect(screen.getByText("月增长最快 VM")).toBeInTheDocument();

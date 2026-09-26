@@ -7781,3 +7781,18 @@ release_smoke=critical 0, warning 0
   - 踩坑 2：`MetricItem` 缺 `sample_span_days` 触发 TS 弱类型报错（tsc EXIT=1），补字段后 tsc 0。
 - 部署与验证：web-api + frontend 重建，health 200 / web 200；线上 `day_equal=True`、`month_equal=True`（**概览=报表=66 条**，修复前 0 vs 66），Top3 vm_id 与增长值逐条一致。
 - 未完成项：①UI 目视；②提交（待批准）。
+
+## 49-46（2026-09-26）报表补「已分配容量」
+
+- 来源：用户指令「报表补『已分配容量』，先做这个吧」（pending #42）。
+- 实施：后端 `ReportService::_cluster_allocated()` 取 `smartx_cluster_storage_allocated_bytes` instant（与概览 49-36 同指标/同 scope，缺失按 0），`report.clusters[i].allocated` 入 payload；前端 `ForecastPayload` 补字段，报表「集群预测报表」每行新增 `已分配 {值} · {比例}%`（比例分母 = `total`，可 >100%）。
+- 测试：后端新增 `test_report_clusters_expose_allocated_capacity`（fake instant 返回 2700/total 1000）；前端 `reportWithCluster` 加 `allocated: 2700` 并断言 `已分配 2700 B · 270.00%`。
+- 未做（记为可选后续）：趋势图加「已分配」水平线（现有图已有 5 线+预测带，需先定颜色口径）。
+- KPI 问题解答（同日）：「虚拟机」KPI = `summary.kpis.vm_count` = **启用塔+集群范围内的纳管 VM 快照行数 244**（概览顶部指标卡 hint「最近样本」+ 报表两张增长卡副标题共用）；其中 **29 台是回收站 VM**（排除则 215）；`vm_latest` 全表 590 行中另有 346 行属历史 tower_id（1/2，已删除/重建，现存仅 tower 3=CHINATOWER）的重复行，不计入 KPI；`COUNT(DISTINCT vm_id)=244` 与 KPI 一致。
+- 验证（.3）：后端全量 **357 tests OK (skipped=1)**（新增 `test_report_clusters_expose_allocated_capacity`）；前端 `tsc -b` exit 0、vitest **107 passed（11 files）**（首版断言加错用例导致 1 failed，改为给该用例 mock 补 `allocated: 2700` 并同时断言缺省 0 渲染）；web-api + frontend 重建，health/web 200，真实 payload `clusters[0].allocated = 0.0`（Prometheus 尚无 allocated 样本 → 按 0），前端 bundle 含「已分配」。
+
+## 49-46b（2026-09-26）趋势图「已分配容量」线（默认不显示）
+
+- 用户要求：图表里加分配容量线、**命名为「已分配容量」**、**默认不显示**（图例可开）。
+- 实现：`ChartModel.allocated`（单集群取值/多集群求和）+ 2px 深蓝虚线（`cssVar("--blue","#1677ff")` 从 `:root` 取色，不用浅蓝做细线的原因是白底对比度仅约 1.4:1）+ `legend.data` 含「已分配容量」且 `selected: {已分配容量: false}` 默认关闭 + `onEvents.legendselectchanged` 同步可见性，**仅打开时才把 allocated 计入 y 轴上限**（否则已分配>总容量会把实际容量曲线压扁）。
+- 验证：`tsc -b` 0、vitest 107 passed、前端产物含「已分配容量」；默认关闭/点开行为待用户 UI 目视。

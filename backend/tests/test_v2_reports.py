@@ -21,6 +21,8 @@ class FakePrometheus:
                 {"metric": {"tower_id": "9", "cluster_id": "orphan-cluster"}, "value": [self.now_ts, "900"]},
                 {"metric": {"tower_id": "1", "cluster_id": "cluster-a"}, "value": [self.now_ts, "190"]},
             ]
+        if query.startswith("smartx_cluster_storage_allocated_bytes"):
+            return [{"metric": {"tower_id": "1", "cluster_id": "cluster-a"}, "value": [self.now_ts, "2700"]}]
         if query.startswith("smartx_vm_storage_used_bytes"):
             return [
                 {"metric": {"tower_id": "9", "cluster_id": "orphan-cluster", "vm_id": "vm-orphan", "vm_name": "Orphan Raw"}, "value": [self.now_ts, "900"]},
@@ -489,6 +491,19 @@ class V2ReportsTest(unittest.TestCase):
                 vm_ids = [item["vm_id"] for item in report[key]]
                 self.assertIn("vm-real", vm_ids, key)
                 self.assertNotIn("vm-bin", vm_ids, key)
+
+    def test_report_clusters_expose_allocated_capacity(self) -> None:
+        """49-46：报表集群项带已分配容量（instant；缺失按 0，比例分母为 total）。"""
+        from app.v2.reports.service import ReportService
+
+        now_ts = 1_700_000_000
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir)
+            report = ReportService(db, settings, prometheus=FakePrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
+
+            cluster = report["clusters"][0]
+            self.assertEqual(cluster["allocated"], 2700.0)
+            self.assertEqual(cluster["total"], 1000.0)
 
     def test_new_vm_uses_full_history_first_seen_not_window_first_point(self) -> None:
         """49-42：新建判定按 vm_id 全历史最早样本，断档恢复不会把老 VM 判成新建。"""

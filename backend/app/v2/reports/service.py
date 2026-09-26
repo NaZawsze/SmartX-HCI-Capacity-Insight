@@ -30,6 +30,7 @@ from app.v2.vms.new_vm import collect_vm_first_seen, is_recycled_vm_name, period
 SECONDS_PER_DAY = 86_400
 CLUSTER_USED_METRIC = "smartx_cluster_storage_used_bytes"
 CLUSTER_TOTAL_METRIC = "smartx_cluster_storage_total_bytes"
+CLUSTER_ALLOCATED_METRIC = "smartx_cluster_storage_allocated_bytes"
 VM_USED_METRIC = "smartx_vm_storage_used_bytes"
 # 增长窗口内成功采集的最小覆盖比例（相对窗口长度）：需覆盖两端，避免跨期跳变被当成增长。
 GROWTH_WINDOW_COVERAGE_RATIO = 0.5
@@ -142,6 +143,7 @@ class ReportService:
                 else []
             )
         capacity_by_cluster = self._cluster_totals(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        allocated_by_cluster = self._cluster_allocated(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         chart_points_by_cluster = _points_by_cluster(chart_series)
         clusters = []
         tower_names = self._tower_names()
@@ -162,6 +164,7 @@ class ReportService:
                     "points": chart_points_by_cluster.get(key, points),
                     "total": capacity,
                     "warning": capacity * 0.9 if capacity else None,
+                    "allocated": float(allocated_by_cluster.get(key, 0.0)),
                 }
             )
         clusters.sort(key=lambda item: (item["labels"].get("cluster", ""), item["labels"].get("cluster_id", "")))
@@ -269,6 +272,16 @@ class ReportService:
             if labels_match(series.get("metric", {}), tower_id=tower_id, cluster_id=cluster_id)
             and in_enabled_scope(cluster_key(series.get("metric", {})), enabled_scope)
         ]
+
+    def _cluster_allocated(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> dict[tuple[int, str], float]:
+        """集群已分配容量（49-46）：只取 instant，缺失按 0（与概览 49-36 口径一致）。"""
+        allocated = {}
+        for row in self.prometheus.instant(scoped_query(CLUSTER_ALLOCATED_METRIC, tower_id=tower_id, cluster_id=cluster_id)):
+            metric = row.get("metric", {})
+            key = cluster_key(metric)
+            if labels_match(metric, tower_id=tower_id, cluster_id=cluster_id) and in_enabled_scope(key, enabled_scope):
+                allocated[key] = metric_value(row)
+        return allocated
 
     def _cluster_totals(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> dict[tuple[int, str], float]:
         totals = {}

@@ -1,5 +1,5 @@
 import ReactECharts from "echarts-for-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { formatBytes } from "../services/api";
 import { buildDailyGrid } from "../services/chartGrid";
@@ -23,6 +23,7 @@ interface ChartModel {
   points: Array<[string, number]>;
   total: number | null;
   warning: number | null;
+  allocated: number | null;
   slopePerDay: number;
   bandNow: number;
   bandPerDay: number;
@@ -66,6 +67,7 @@ function aggregateClusters(clusters: ClusterReport[], title: string): ChartModel
       points: dailyLatestPoints(cluster.points || []),
       total,
       warning: finiteOrNull(cluster.warning) ?? (total ? total * 0.9 : null),
+      allocated: finiteOrNull(cluster.allocated),
       slopePerDay: cluster.forecast.slope_per_day || 0,
       bandNow: finiteOrZero(cluster.forecast.band_half_width_now),
       bandPerDay: finiteOrZero(cluster.forecast.band_half_width_per_day),
@@ -81,6 +83,7 @@ function aggregateClusters(clusters: ClusterReport[], title: string): ChartModel
     points: aggregateDailyPoints(pointsByCluster),
     total,
     warning: total ? total * 0.9 : null,
+    allocated: sumFinite(clusters.map((cluster) => finiteOrNull(cluster.allocated))),
     slopePerDay: clusters.reduce((sum, cluster) => sum + Math.max(0, cluster.forecast.slope_per_day || 0), 0),
     // 多集群带宽求和（保守口径：偏宽优于偏窄）
     bandNow: sumFinite(clusters.map((cluster) => cluster.forecast.band_half_width_now)) ?? 0,
@@ -174,6 +177,13 @@ function dateLabel(value: number): string {
   return new Date(value).toISOString().slice(0, 10);
 }
 
+// 颜色从 :root 设计变量取值（frontend-style-guide：不引入新硬编码色值）
+function cssVar(name: string, fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
 function horizontalLine(labels: string[], value: number | null): Array<number | null> {
   return labels.map(() => value);
 }
@@ -197,6 +207,10 @@ function statusLabel(status: ChartModel["status"]): string {
 
 export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays, loading = false, onRangeDaysChange }: ClusterCapacityChartProps) {
   const model = useMemo(() => aggregateClusters(clusters, title), [clusters, title]);
+  // 分配容量图例默认关闭（2026-09-26 用户要求），点图例打开；打开时才把 y 轴上限算进去，
+  // 否则「已分配 > 总容量」会把实际容量曲线压扁。
+  const [showAllocated, setShowAllocated] = useState(false);
+  const hasAllocated = model.allocated != null;
   const actualPoints = model.points;
   // 实际数据补成连续日序列：断档日填 null，实际容量曲线在这些位置断开（49-41）。
   const actualGrid = useMemo(() => buildDailyGrid(actualPoints), [actualPoints]);
@@ -224,7 +238,8 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
     ...projected.map((point) => point.value),
     ...(hasBand ? [...bandUpper.values()] : []),
     model.total,
-    model.warning
+    model.warning,
+    ...(showAllocated && model.allocated != null ? [model.allocated] : [])
   ]);
 
   const option = {
@@ -240,7 +255,8 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
       right: 0,
       itemWidth: 18,
       itemHeight: 8,
-      data: ["实际容量使用", "历史预测", "未来预测", "告警阈值", "存储卷有效容量"],
+      data: ["实际容量使用", "历史预测", "未来预测", "告警阈值", "存储卷有效容量", "已分配容量"],
+      selected: { 已分配容量: false },
       textStyle: { color: "#5b6472", fontSize: 12 }
     },
     tooltip: {
@@ -327,6 +343,18 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
         data: horizontalLine(labels, model.total),
         lineStyle: { width: 1.8, type: "dashed" }
       },
+      ...(hasAllocated
+        ? [
+            {
+              name: "已分配容量",
+              type: "line",
+              showSymbol: false,
+              data: horizontalLine(labels, model.allocated),
+              lineStyle: { width: 2, type: "dashed", color: cssVar("--blue", "#1677ff") },
+              itemStyle: { color: cssVar("--blue", "#1677ff") }
+            }
+          ]
+        : []),
       {
         name: "当日容量",
         type: "scatter",
@@ -363,7 +391,19 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
     <div className="cluster-chart-shell">
       <ClusterChartToolbar title={model.title} status={model.status} rangeDays={rangeDays} onRangeDaysChange={onRangeDaysChange} />
       <div className="cluster-chart-body">
-        <ReactECharts option={option} style={{ height }} notMerge />
+        <ReactECharts
+          option={option}
+          style={{ height }}
+          notMerge
+          onEvents={{
+            legendselectchanged: (event: { selected?: Record<string, boolean> }) => {
+              const next = event.selected?.["已分配容量"];
+              if (typeof next === "boolean") {
+                setShowAllocated(next);
+              }
+            }
+          }}
+        />
         {loading && <ChartLoadingOverlay />}
       </div>
       <div className="forecast-disclaimer">预测值可能会有偏差，以实际为准</div>
