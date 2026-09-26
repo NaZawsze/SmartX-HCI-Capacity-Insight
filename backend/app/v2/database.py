@@ -104,6 +104,9 @@ class V2Database:
                     name TEXT NOT NULL,
                     used_bytes INTEGER NOT NULL DEFAULT 0,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    in_recycle_bin INTEGER NOT NULL DEFAULT 0,
+                    original_name TEXT,
+                    deleted_at TEXT,
                     PRIMARY KEY (tower_id, cluster_id, vm_id)
                 );
 
@@ -205,6 +208,9 @@ class V2Database:
             conn.execute("UPDATE towers SET collection_retry_enabled = COALESCE(collection_retry_enabled, 1)")
             conn.execute("UPDATE towers SET collection_retry_interval_minutes = COALESCE(collection_retry_interval_minutes, 15)")
             conn.execute("UPDATE towers SET collection_retry_max_attempts = COALESCE(collection_retry_max_attempts, 3)")
+            _ensure_column(conn, "vm_latest", "in_recycle_bin", "INTEGER NOT NULL DEFAULT 0")
+            _ensure_column(conn, "vm_latest", "original_name", "TEXT")
+            _ensure_column(conn, "vm_latest", "deleted_at", "TEXT")
             _ensure_column(conn, "collection_runs", "trigger", "TEXT")
             _ensure_column(conn, "collection_runs", "cycle_id", "TEXT")
             _ensure_column(conn, "collection_runs", "attempt", "INTEGER NOT NULL DEFAULT 0")

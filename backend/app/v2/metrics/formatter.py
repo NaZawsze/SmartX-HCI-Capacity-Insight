@@ -19,6 +19,10 @@ class VmCapacitySample:
     vm_id: str
     vm_name: str
     used_bytes: int
+    # 回收站生命周期（49-47）：仅影响 vm_latest 落库，不参与 metrics 渲染
+    in_recycle_bin: int = 0
+    original_name: str | None = None
+    deleted_at: str | None = None
 
 
 def render_capacity_metrics(*, clusters: list[ClusterCapacitySample], vms: list[VmCapacitySample]) -> str:

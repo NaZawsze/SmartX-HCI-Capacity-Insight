@@ -43,6 +43,49 @@ class V2P1InfraTest(unittest.TestCase):
             finally:
                 conn.close()
 
+    def test_vm_latest_recycle_columns_fresh_and_upgrade(self) -> None:
+        """49-47：新库建表与既有库升级都要有回收站生命周期三列（标记/原名/删除时间）。"""
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+
+        required = {"in_recycle_bin", "original_name", "deleted_at"}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _, database = self._database(tmpdir)
+            with database.connection() as conn:
+                columns = {row["name"] for row in conn.execute("PRAGMA table_info(vm_latest)").fetchall()}
+            self.assertTrue(required <= columns, columns)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="p1-secret", prometheus_url="http://prometheus:9090")
+            settings.ensure_directories()
+            legacy = sqlite3.connect(settings.sqlite_path)
+            legacy.execute(
+                """
+                CREATE TABLE vm_latest (
+                    tower_id INTEGER NOT NULL,
+                    cluster_id TEXT NOT NULL,
+                    vm_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    used_bytes INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (tower_id, cluster_id, vm_id)
+                )
+                """
+            )
+            legacy.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'c', 'v', 'old-vm', 5)")
+            legacy.commit()
+            legacy.close()
+
+            V2Database(settings).initialize()
+            with V2Database(settings).connection() as conn:
+                columns = {row["name"] for row in conn.execute("PRAGMA table_info(vm_latest)").fetchall()}
+                row = dict(conn.execute("SELECT * FROM vm_latest WHERE vm_id = 'v'").fetchone())
+            self.assertTrue(required <= columns, columns)
+            self.assertEqual(row["in_recycle_bin"], 0, "既有行用默认值回填")
+            self.assertIsNone(row["original_name"])
+            self.assertIsNone(row["deleted_at"])
+
     def test_day_bounds_timezone(self):
         # 49-44：周期边界已统一到共享实现 vms/new_vm.period_bounds（概览与报表同源）
         from app.v2.vms.new_vm import period_bounds

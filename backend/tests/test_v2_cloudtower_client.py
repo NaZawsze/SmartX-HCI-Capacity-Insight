@@ -151,5 +151,34 @@ class V2CloudTowerClientTest(unittest.TestCase):
         self.assertEqual(http.requests, [])
 
 
+    def test_normalize_vm_records_recycle_bin_fields(self) -> None:
+        """49-47：回收站 VM 不再丢弃，记录 in_recycle_bin/original_name/deleted_at。"""
+        from app.v2.cloudtower.client import _normalize_vm
+
+        recycled = _normalize_vm(
+            {
+                "id": "cm1",
+                "name": "in-recycle-bin-abc",
+                "used_size": 100,
+                "in_recycle_bin": True,
+                "original_name": "my-vm",
+                "deleted_at": "2026-09-01T10:00:00+08:00",
+            }
+        )
+        self.assertIsNotNone(recycled)
+        self.assertEqual(recycled["vm_id"], "cm1")
+        self.assertEqual(recycled["name"], "in-recycle-bin-abc")
+        self.assertTrue(recycled["in_recycle_bin"])
+        self.assertEqual(recycled["original_name"], "my-vm")
+        self.assertEqual(recycled["deleted_at"], "2026-09-01T10:00:00+08:00")
+        self.assertEqual(recycled["used_bytes"], 100)
+
+        alive = _normalize_vm({"id": "cm2", "name": "live-vm", "used_size": 5, "in_recycle_bin": False, "original_name": "x", "deleted_at": "y"})
+        self.assertIsNotNone(alive)
+        self.assertFalse(alive["in_recycle_bin"])
+        self.assertIsNone(alive["original_name"])
+        self.assertIsNone(alive["deleted_at"])
+
+
 if __name__ == "__main__":
     unittest.main()

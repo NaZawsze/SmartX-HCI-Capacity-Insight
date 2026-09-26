@@ -699,3 +699,10 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 统一方法：把**窗口定义 + 计算逻辑**下沉到共享模块 `app/v2/vms/growth.py`，两侧只做各自的 payload 映射；**前端展示规则**（样本跨度过滤、Top N 截断）也抽到共享 `services/growth.ts`；用一条断言「两侧 vm_id + 增长值完全相等」的测试锁死。
 - 统一时必须接受的口径收敛（已在设计文档记录）：月窗口固定 30 天（不随 period 放大）；当前值一律以 instant 为准（会改变仅存在于序列末端的旧值场景）；侧栏字段补齐。
 - 教训：①批量删除旧实现要用 AST/函数清单核对（本次误删 `_new_vm_reports_from_series`，编译期不报错）；②同名指标/列表的统一，**测试断言"两边必须相等"比断言各自数值更能防漂移**。
+
+## 2026-09-26 回收站身份与生命周期口径（49-47）[已实施]
+
+- **身份**：VM 进回收站 `id` 不变（`MoveVmToRecycleBin` 按 `VmWhereInput` 操作；Prometheus 历史实测 4 台回收 VM 同 vm_id 改名）→ 可直接用 `vm_id` 与本地对应；`in-recycle-bin-<uuid>` 里的 uuid 是展示名，回收站无独立实体（`NestedVmRecycleBin` 仅 `{enabled, retain}`）。
+- **保留期**：回收站设置 `retain`（天）到期 Tower 自动彻底删除；本地策略 = **回收站期间记录（标记/原名/删除时间），`get-vms` 取不到即同步删行**（用户 2026-09-26 澄清，覆盖此前"只增不删"的表述）。
+- **安全闸门**：删除核对只在该塔/集群**采集成功**后执行，且只删 `in_recycle_bin=1` 的行——否则一次采集失败会把整集群误判为"全部删除"。
+- **坑**：49-40 曾在采集侧直接丢弃回收站 VM → 既不记录、也导致"回收后保留旧名"的行躲过名称过滤；49-47 撤回丢弃改记录后，名称过滤与标记两道都成立。

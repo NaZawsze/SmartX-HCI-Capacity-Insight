@@ -83,6 +83,22 @@ class SucceedsOnRetryCloudTowerClient:
         }
 
 
+class ConfigurableVmsCloudTowerClient:
+    """按参数返回指定 VM 清单（49-47：回收站记录与彻底删除核对）。"""
+
+    def __init__(self, vms, fail: bool = False) -> None:
+        self.vms = list(vms)
+        self.fail = fail
+
+    def cluster_allocations(self, tower):
+        return {}
+
+    def collect_cluster(self, tower, cluster):
+        if self.fail:
+            raise RuntimeError("No route to host (target unreachable)")
+        return {"cluster": {"used_bytes": 80, "total_bytes": 100}, "vms": list(self.vms)}
+
+
 class ConfigurableCloudTowerClient:
     """按 used_bytes 返回样本，可指定必失败目标（49-37 快照保留回归用）。"""
 
@@ -524,6 +540,106 @@ class V2CollectionTest(unittest.TestCase):
             self.assertEqual(result.status, "success")
             self.assertIn('smartx_cluster_storage_used_bytes{tower_id="1",cluster_id="cluster-a"} 80', result.metrics_text)
             self.assertIn('smartx_cluster_storage_allocated_bytes{tower_id="1",cluster_id="cluster-a"} 0', result.metrics_text)
+
+
+    def test_collection_records_recycle_bin_vm_lifecycle(self) -> None:
+        """49-47：回收站 VM 落库记录（标记/原名/删除时间），正常 VM 标记清零。"""
+        from app.v2.collection.service import CollectionService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="collection-secret")
+            db = V2Database(settings)
+            db.initialize()
+            inventory = InventoryService(db, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="cluster-a", name="Cluster A", enabled=True)])
+
+            client = ConfigurableVmsCloudTowerClient(
+                [
+                    {"vm_id": "vm-live", "name": "live-vm", "used_bytes": 10, "in_recycle_bin": False, "original_name": None, "deleted_at": None},
+                    {"vm_id": "vm-recycled", "name": "in-recycle-bin-abc", "used_bytes": 20, "in_recycle_bin": True, "original_name": "old-name", "deleted_at": "2026-09-01 10:00:00"},
+                ]
+            )
+            result = CollectionService(db, settings, cloudtower_client=client).run_manual_collection()
+            self.assertEqual(result.status, "success")
+
+            with db.connection() as conn:
+                recycled = dict(conn.execute("SELECT * FROM vm_latest WHERE vm_id = 'vm-recycled'").fetchone())
+                live = dict(conn.execute("SELECT * FROM vm_latest WHERE vm_id = 'vm-live'").fetchone())
+            self.assertEqual(recycled["name"], "in-recycle-bin-abc")
+            self.assertEqual(recycled["in_recycle_bin"], 1)
+            self.assertEqual(recycled["original_name"], "old-name")
+            self.assertEqual(recycled["deleted_at"], "2026-09-01 10:00:00")
+            self.assertEqual(live["in_recycle_bin"], 0)
+            self.assertIsNone(live["original_name"])
+            self.assertIsNone(live["deleted_at"])
+
+    def test_collection_purges_recycle_vm_after_tower_deleted_it(self) -> None:
+        """49-47：采集成功但 Tower 已不再返回回收站 VM → 删本地行；正常行不因缺失被删。"""
+        from app.v2.collection.service import CollectionService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="collection-secret")
+            db = V2Database(settings)
+            db.initialize()
+            inventory = InventoryService(db, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="cluster-a", name="Cluster A", enabled=True)])
+
+            first = ConfigurableVmsCloudTowerClient(
+                [
+                    {"vm_id": "vm-live", "name": "live-vm", "used_bytes": 10, "in_recycle_bin": False, "original_name": None, "deleted_at": None},
+                    {"vm_id": "vm-recycled", "name": "in-recycle-bin-abc", "used_bytes": 20, "in_recycle_bin": True, "original_name": "old-name", "deleted_at": "2026-09-01 10:00:00"},
+                ]
+            )
+            CollectionService(db, settings, cloudtower_client=first).run_manual_collection()
+            with db.connection() as conn:
+                self.assertEqual(conn.execute("SELECT COUNT(*) c FROM vm_latest").fetchone()["c"], 2)
+
+            # Tower 30 天后彻底删除：回收站 VM 不再返回；正常 VM 也从清单消失但不应被删
+            second = ConfigurableVmsCloudTowerClient([])
+            result = CollectionService(db, settings, cloudtower_client=second).run_manual_collection()
+            self.assertEqual(result.status, "success")
+            with db.connection() as conn:
+                rows = {row["vm_id"]: row["in_recycle_bin"] for row in conn.execute("SELECT vm_id, in_recycle_bin FROM vm_latest").fetchall()}
+            self.assertNotIn("vm-recycled", rows)
+            self.assertIn("vm-live", rows, "非回收站行不因缺失被删（只核对回收站 VM）")
+
+    def test_collection_does_not_purge_when_target_fails(self) -> None:
+        """49-47：采集失败时不核对删除（避免整集群被误删）。"""
+        from app.v2.collection.service import CollectionService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="collection-secret")
+            db = V2Database(settings)
+            db.initialize()
+            inventory = InventoryService(db, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="cluster-a", name="Cluster A", enabled=True)])
+
+            first = ConfigurableVmsCloudTowerClient(
+                [{"vm_id": "vm-recycled", "name": "in-recycle-bin-abc", "used_bytes": 20, "in_recycle_bin": True, "original_name": "old-name", "deleted_at": "2026-09-01 10:00:00"}]
+            )
+            CollectionService(db, settings, cloudtower_client=first).run_manual_collection()
+
+            failing = ConfigurableVmsCloudTowerClient([], fail=True)
+            result = CollectionService(db, settings, cloudtower_client=failing).run_manual_collection()
+            self.assertEqual(result.status, "failed")
+            with db.connection() as conn:
+                rows = conn.execute("SELECT vm_id FROM vm_latest").fetchall()
+            self.assertEqual([row["vm_id"] for row in rows], ["vm-recycled"], "采集失败时不得删除任何行")
 
 
 if __name__ == "__main__":

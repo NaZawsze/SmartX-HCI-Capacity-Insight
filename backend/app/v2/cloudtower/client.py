@@ -6,7 +6,7 @@ from typing import Any
 from app.v2.inventory.models import ClusterInput
 
 # 回收站 VM 的命名前缀（Tower 侧约定）：`in-recycle-bin-<uuid>`。
-# 这类实体不该计入容量/新建/增长统计，采集与展示两侧统一按此排除（49-40）。
+# 采集侧记录（49-47），展示侧（新建/增长列表）按此前缀或 in_recycle_bin 标记排除（49-40/49-47）。
 RECYCLE_BIN_VM_PREFIX = "in-recycle-bin-"
 
 
@@ -158,16 +158,22 @@ def _normalize_cluster(raw: dict[str, Any]) -> ClusterInput | None:
 
 
 def _normalize_vm(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """回收站 VM 也记录（49-47）：带 in_recycle_bin/original_name/deleted_at 落库，
+    供"后台记录哪台被删、叫什么"以及后续核对彻底删除。展示侧仍按名称/标记排除。
+    """
     vm_id = str(raw.get("id") or raw.get("vm_id") or "")
     if not vm_id:
         return None
     name = str(raw.get("name") or raw.get("vm_name") or vm_id)
-    if name.startswith(RECYCLE_BIN_VM_PREFIX):
-        return None
+    in_recycle_bin = bool(raw.get("in_recycle_bin", False))
     return {
         "vm_id": vm_id,
         "name": name,
         "used_bytes": int(_number(raw.get("used_size"), raw.get("used_size_bytes"), raw.get("capacity_used")) or 0),
+        "in_recycle_bin": in_recycle_bin,
+        # 仅回收站状态下保留删除前名称与删除时间；恢复后清空标记
+        "original_name": (str(raw.get("original_name") or "") or None) if in_recycle_bin else None,
+        "deleted_at": (str(raw.get("deleted_at") or "") or None) if in_recycle_bin else None,
     }
 
 

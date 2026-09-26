@@ -7791,6 +7791,24 @@ release_smoke=critical 0, warning 0
 - KPI 问题解答（同日）：「虚拟机」KPI = `summary.kpis.vm_count` = **启用塔+集群范围内的纳管 VM 快照行数 244**（概览顶部指标卡 hint「最近样本」+ 报表两张增长卡副标题共用）；其中 **29 台是回收站 VM**（排除则 215）；`vm_latest` 全表 590 行中另有 346 行属历史 tower_id（1/2，已删除/重建，现存仅 tower 3=CHINATOWER）的重复行，不计入 KPI；`COUNT(DISTINCT vm_id)=244` 与 KPI 一致。
 - 验证（.3）：后端全量 **357 tests OK (skipped=1)**（新增 `test_report_clusters_expose_allocated_capacity`）；前端 `tsc -b` exit 0、vitest **107 passed（11 files）**（首版断言加错用例导致 1 failed，改为给该用例 mock 补 `allocated: 2700` 并同时断言缺省 0 渲染）；web-api + frontend 重建，health/web 200，真实 payload `clusters[0].allocated = 0.0`（Prometheus 尚无 allocated 样本 → 按 0），前端 bundle 含「已分配」。
 
+## 决定：虚拟机 KPI 不排除回收站 VM（2026-09-26 用户）
+
+- 用户原话：「我不想直接排除删除的虚拟机，我认为删除的虚拟机也应该记录，只是目前暂时没有显示删除虚拟机的想法」。
+- 结论（pending #40 关闭，无代码改动）：① `vm_count` 保持 **244**（含 29 台回收站 VM）；② `vm_latest` 记录一律保留（只增不删，含历史 tower_id 的 346 行遗留）；③ 新建/增长列表继续排除回收站展示（49-40 不变）；④ 「查看/筛选已删除 VM」留作将来需求再立项。
+
+## 49-47（2026-09-26）回收站 VM 生命周期同步：记录 → 彻底删除后本地一并删除
+
+- 用户设计（原话要点）：从 Tower 采集 `in_recycle` 信息 → **后台记录**哪台、什么名称被删；每天采集时回收站 VM 仍能取到、一直记着；哪天 `get-vms` **取不到 = Tower 已彻底删除（retain 到期）→ 我们这边也删除**。
+- 身份对应（先查证再做）：`MoveVmToRecycleBin` 按 `VmWhereInput`（vm id）操作 → **id 不变**；Prometheus 历史实测 4 台回收 VM「真实名 → in-recycle-bin-*」而 vm_id 不变 → 可直接与 `vm_latest.vm_id` 对应，无需额外 recycle uuid（`NestedVmRecycleBin` 只有 `{enabled, retain}`，没有独立实体）。
+- 实施：
+  - `vm_latest` 加 `in_recycle_bin`/`original_name`/`deleted_at`（新库建表 + `_ensure_column` 升级）
+  - `cloudtower/client.py::_normalize_vm` 撤回 49-40 的"丢弃"，输出三字段（恢复后清零）
+  - `VmCapacitySample` 加三字段；`_upsert_latest_vm` 写入/覆盖
+  - `collection/service.py::_purge_missing_recycle_vms`：**采集成功**后核对，`in_recycle_bin=1` 且不在清单 → 删行；失败不核对、普通行缺失不删
+- 测试：5 个新用例（client 记录 / 落库 / 彻底删除核对含普通行不删 / 失败不删 / 新库+旧库升级建列）→ .3 后端全量 **362 tests OK (skipped=1)**、`tsc -b` 0、vitest **107 passed（11 files）**。
+- 部署：web-api+frontend 重建，health 200 / web 200；真实库 `columns_ok=True`（590 行，旧行 `in_recycle_bin` 回填 0，下次成功采集即打标记）；前端产物含「已分配容量」。
+- 口径修正：#40 的"记录只增不删"改为**保留到 Tower 彻底删除为止**（用户同日澄清）。
+
 ## 49-46b（2026-09-26）趋势图「已分配容量」线（默认不显示）
 
 - 用户要求：图表里加分配容量线、**命名为「已分配容量」**、**默认不显示**（图例可开）。

@@ -87,6 +87,9 @@ class CollectionService:
                             vm_id=str(vm["vm_id"]),
                             vm_name=str(vm.get("name") or vm["vm_id"]),
                             used_bytes=int(vm.get("used_bytes") or 0),
+                            in_recycle_bin=1 if vm.get("in_recycle_bin") else 0,
+                            original_name=vm.get("original_name"),
+                            deleted_at=vm.get("deleted_at"),
                         )
                         vm_samples.append(sample)
                         self._upsert_latest_vm(sample)
@@ -95,6 +98,12 @@ class CollectionService:
                             cluster_id=cluster.cluster_id,
                             vm_id=sample.vm_id,
                             volumes=list(vm.get("volumes") or []),
+                    )
+                    # 49-47：本次采集成功才核对；回收站 VM 在 Tower 取不到 = 已彻底删除 → 删本地行
+                    self._purge_missing_recycle_vms(
+                        tower_id=tower.id,
+                        cluster_id=cluster.cluster_id,
+                        kept_vm_ids={str(vm.get("vm_id")) for vm in payload.get("vms", [])},
                     )
                     success_targets.append(_target_payload(tower, cluster, attempt=attempt))
                 except Exception as exc:  # noqa: BLE001 - collector failures are summarized for UI.
@@ -214,15 +223,46 @@ class CollectionService:
         with self.database.connection() as conn:
             conn.execute(
                 """
-                INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes, in_recycle_bin, original_name, deleted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(tower_id, cluster_id, vm_id) DO UPDATE SET
                     name = excluded.name,
                     used_bytes = excluded.used_bytes,
+                    in_recycle_bin = excluded.in_recycle_bin,
+                    original_name = excluded.original_name,
+                    deleted_at = excluded.deleted_at,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (sample.tower_id, sample.cluster_id, sample.vm_id, sample.vm_name, sample.used_bytes),
+                (
+                    sample.tower_id,
+                    sample.cluster_id,
+                    sample.vm_id,
+                    sample.vm_name,
+                    sample.used_bytes,
+                    int(sample.in_recycle_bin or 0),
+                    sample.original_name,
+                    sample.deleted_at,
+                ),
             )
+
+    def _purge_missing_recycle_vms(self, *, tower_id: int, cluster_id: str, kept_vm_ids: set[str]) -> int:
+        """回收站 VM 彻底删除核对（49-47）：Tower 已不再返回该 VM = 已彻底删除 → 删本地行。
+
+        只删 `in_recycle_bin = 1` 的行（正在回收站里的 VM 才可能"哪天取不到"）；
+        必须在该塔/集群本次采集成功后调用，采集失败一律不动（避免整集群被误判删除）。
+        """
+        with self.database.connection() as conn:
+            rows = conn.execute(
+                "SELECT vm_id FROM vm_latest WHERE tower_id = ? AND cluster_id = ? AND in_recycle_bin = 1",
+                (tower_id, cluster_id),
+            ).fetchall()
+            missing = [row["vm_id"] for row in rows if row["vm_id"] not in kept_vm_ids]
+            for vm_id in missing:
+                conn.execute(
+                    "DELETE FROM vm_latest WHERE tower_id = ? AND cluster_id = ? AND vm_id = ?",
+                    (tower_id, cluster_id, vm_id),
+                )
+        return len(missing)
 
     def _save_metrics_text(self, metrics_text: str) -> None:
         with self.database.connection() as conn:
