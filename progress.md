@@ -7845,3 +7845,20 @@ release_smoke=critical 0, warning 0
   - `已分配容量 …color:M`、`M="#0f9fbf"` → 六色互不相同，历史预测不再与已分配同色。
 - 排查副产物：busybox grep 的区间正则 `\{0,N\}` N 不能超过 255（`.\{0,260\}` 会报 `Invalid contents of {}`），取证时用 `.\{0,220\}` 才通过。
 - 余：用户 UI 目视确认；提交待批准。
+
+## 发布验收（2026-09-27）49-46..49-48 分批提交 + v0.5.3 候选包 54aa8807 门禁
+
+- 提交（用户选定「分 3 个提交」，均只在本地 dev2，未推送）：
+  - `4491cba` feat: report allocated capacity on cluster rows and chart legend line (49-46/49-46b)
+  - `874b242` feat: track recycle-bin VM lifecycle and purge rows after hard delete (49-47)
+  - `0a41775` fix: swap actual/allocated chart colors and pin explicit color for every series (49-48)
+  - 拆分方式：`ClusterCapacityChart.tsx` 用改动前副本（.3 同步的 `006c0861…` 版）作为 49-46b 状态入第一笔提交，配色改动入第三笔；共用台账（task_plan/progress/pending/doc-map/findings）按块构造中间态分批入暂存，最终工作树与提交前逐字节一致（`git status` clean，dev2 ahead 211）。
+- 代码同步到 .3：`git archive HEAD backend frontend scripts docs` 传输解压，抽查 `reports/service.py`、`ClusterCapacityChart.tsx`、`verify_release_docs_safe.py`、`CHANGELOG.md` 四个 md5 与本地一致。副产物：发现 .3 陈旧遗留 `backend/app/v2/api.py`（49-13 巨型文件拆分后的残留，非仓库文件）与过期 docs/scripts（已用 HEAD 覆盖）；按「宿主不做手工运维变更」未删除遗留文件。
+- 完整发布验收（标准验证 + 包静态门禁，10.20.11.3）：
+  - 后端 web-api 容器全量 **362 tests OK (skipped=1)**（235.2s）；宿主机 `build_tests.test_v2_package_builders` **26 OK**。
+  - 前端 `npx tsc -b --force` **exit 0**、vitest **107 passed（11 files，15.96s）**。
+  - `scripts/verify_api_docs.py` → `OK: api.md 77 条（含 1 条白名单豁免）与后端 76 条路由一致`；`scripts/verify_release_docs_safe.py` → `[PASS]`（.3 与本地各跑一次）。
+  - 包门禁：`build_upgrade_package.py --check-version` OK（v0.5.3）；全新构建 → `/data/upgrade-packages/v053-rebuild-20260927/smartx-capacity-insight-upgrade-v0.5.3.tar.gz`（235M）**SHA256 `54aa8807dba18b385f34538d28e23705b830004305b9ff936c6a2ad1fe089487`**；`verify_upgrade_package_identity.py --expected-version v0.5.3` **exit 0**；`.sha256` 文件 `sha256sum -c` OK；包内 `.env`/`.db`/`.sqlite` 敏感成员 **0**。
+  - 部署：`docker compose up -d web-api collector-worker frontend`（用包构建出的镜像 recreate）→ health `{"ok":true,"version":"v0.5.3","runner_version":"v0.3.1","checks":{directories/database/prometheus 全 true}}`、web `HTTP/1.1 200 OK`、五容器在位。
+- 文档同步（本轮 docs 提交）：CHANGELOG v0.5.3 补 49-36~49-48 条目（此前该批次完全缺失）+ 构建记录与验证说明、已知问题更新；`upgrade-package-ledger.md` 新增 54aa8807 条目并把 4a3c7bbd 标为 SUPERSEDED；`release-acceptance.md` 候选 SHA 更新；`pending-tasks.md` P0 #1 与 task_plan 相关表述更新；`AGENTS.md` 候选包行同步（该文件在 .gitignore，本地不入库）。
+- **未执行（需用户决定）**：①`.12` 正规升级验收（需授权连接 10.20.11.12）；②`verify_full_upgrade_chain.py` 升级链路回归——该脚本要求测试机当前是 **v0.5.1 + runner v0.3.0 干净基线**，而 .3 现为带真实数据的 v0.5.3，恢复基线属破坏性操作（会重置 .3 的 SQLite/Prometheus/Tower 配置），须先与用户确认目标、数据可恢复性与由谁执行。
