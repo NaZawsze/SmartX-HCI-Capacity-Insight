@@ -65,7 +65,7 @@
 1. 先做 A（平台侧，低风险，不需要动 runner）→ 用 `d10e15cf` 走完整链路验收。
 2. 再做 B（需同意 + bump v0.3.2 + 推 tag）→ 预检查动作级校验 + 新 runner 组件升级验收。
 3. 方案 C（补源码 + 出 DockerHub v0.3.1）可与 A 并行，不阻塞 v0.5.3。
-4. A、B、C 都过之后，才进入 v0.5.3 发布流程（`docs/release-acceptance.md` Release Day，含新增的第 4 步 Runner 交付一致性核对）。
+5. A、B、C 都过之后，才进入 v0.5.3 发布流程（`docs/release-acceptance.md` Release Day，含新增的第 4 步 Runner 交付一致性核对）。
 4. 验收证据必须写明所用包/镜像的 **SHA 与来源（Release 资产 or 本地构建）**（AGENTS §10 第 7 条）。
 
 ## 明确不做
