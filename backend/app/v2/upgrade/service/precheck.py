@@ -32,6 +32,7 @@ class PrecheckMixin:
                 checks.append(_check_source_compatibility(manifest, self.settings.app_version))
             if not _runner_only(manifest):
                 checks.append(self._check_runner_protocol(manifest))
+                checks.append(self._check_runner_actions(manifest))
             checks.append(_check_package_checksums(package_path))
         checks.extend([_check_images_with_executor(package_path, manifest, self.executor), _check_project_files(package_path, manifest)])
         if _observability_services(manifest):
@@ -50,6 +51,60 @@ class PrecheckMixin:
             logs=[check["message"] for check in checks],
         )
         return self._public_task(task)
+
+    def _check_runner_actions(self, manifest: dict[str, Any]) -> dict[str, Any]:
+        """49-50：动作级校验。
+
+        能力级（`_check_runner_protocol`）只比 `required_capabilities`，无法区分「同版本不同能力」的
+        runner（已发布 v0.3.1 声明 task.recovery.v1 但不实现 post_upgrade.schedule_collection），
+        结果是预检查放行、失败落在 cutover 之后。这里改为：编译计划取动作类型，逐条比对当前 runner 的动作集。
+        """
+        from app.upgrade_protocol.constants import runner_supported_actions
+        from app.v2.upgrade.compiler import compile_execution_plan
+
+        runner_version = str(self._active_runner_version() or "").strip()
+        try:
+            plan_actions = [
+                str(action.get("type") or "")
+                for action in compile_execution_plan(manifest).to_dict().get("actions") or []
+            ]
+        except Exception as exc:  # noqa: BLE001 - 预检查必须给出可读失败原因而不是抛栈
+            return {
+                "name": "runner_actions",
+                "ok": False,
+                "message": f"无法编译升级计划以校验 runner 动作：{exc}",
+            }
+        supported = runner_supported_actions(runner_version)
+        if supported is None:
+            return {
+                "name": "runner_actions",
+                "ok": False,
+                "message": (
+                    f"无法确认 upgrade-runner {runner_version or '(未检测到心跳版本)'} 支持的升级动作，"
+                    "至少需要 v0.3.1。请先在升级中心执行「组件升级」把 upgrade-runner 升到 v0.3.2 后重试。"
+                ),
+                "detail": {"runner_version": runner_version or None, "plan_actions": plan_actions},
+            }
+        missing = sorted({item for item in plan_actions if item} - supported)
+        if missing:
+            return {
+                "name": "runner_actions",
+                "ok": False,
+                "message": (
+                    f"upgrade-runner {runner_version} 不支持升级计划动作：{', '.join(missing)}。"
+                    "请先在升级中心执行「组件升级」把 upgrade-runner 升到 v0.3.2 后重试。"
+                ),
+                "detail": {
+                    "runner_version": runner_version,
+                    "missing_actions": missing,
+                    "supported_count": len(supported),
+                },
+            }
+        return {
+            "name": "runner_actions",
+            "ok": True,
+            "message": f"升级计划 {len(plan_actions)} 个动作 upgrade-runner {runner_version} 全部支持",
+        }
 
 
 def _check_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -152,7 +207,16 @@ def _check_images_with_executor(package_path: Path, manifest: dict[str, Any], ex
         try:
             executor.run(["docker", "image", "inspect", image_name])
         except Exception:
-            return {"name": "images", "ok": False, "message": f"本地 Docker 镜像不存在：{image_name}"}
+            message = f"本地 Docker 镜像不存在：{image_name}"
+            if "upgrade-runner" in image_name:
+                # 49-50：平台包不打包 runner 镜像，handoff 步骤要 docker run 它 → 必须先做组件升级
+                tag = image_name.rsplit(":", 1)[-1] if ":" in image_name else "目标版本"
+                message += (
+                    f"。升级计划的 runner 切换需要该镜像已就位，平台升级包不包含 runner 镜像；"
+                    f"请先在升级中心执行「组件升级」把 upgrade-runner 升到 {tag}"
+                    f"（组件包 smartx-upgrade-runner-{tag}.tar.gz）后重试。"
+                )
+            return {"name": "images", "ok": False, "message": message}
     return archive_check
 
 

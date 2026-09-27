@@ -48,7 +48,7 @@ def _version_tuple(value: str) -> tuple[int, int, int, str]:
 def _expected_web_api_runner_baseline(version: str) -> str:
     if _version_tuple(version) < _version_tuple("v0.5.2"):
         return "v0.3.0"
-    return "v0.3.1"
+    return "v0.3.2"
 
 
 def _safe_extract(package: Path, destination: Path) -> None:

@@ -109,7 +109,7 @@ class TestDeploymentConfig(unittest.TestCase):
             # 源码 compose 与升级包同一不变量（49-3）：镜像引用（registry+tag）全字面量，
             # 现场 .env 无法覆盖版本。曾经的双形态断言在字面量化后收紧。
             self.assertIn("smartx-hci-capacity-insight-web-api:v0.5.3", text, f"{name} missing platform v0.5.3 tag")
-            self.assertIn("smartx-hci-capacity-insight-upgrade-runner:v0.3.1", text, f"{name} missing runner v0.3.1 tag")
+            self.assertIn("smartx-hci-capacity-insight-upgrade-runner:v0.3.2", text, f"{name} missing runner v0.3.2 tag")
             for key in ("SMARTX_IMAGE_TAG", "SMARTX_RUNNER_IMAGE_TAG", "SMARTX_IMAGE_PREFIX", "SMARTX_RUNNER_IMAGE_PREFIX"):
                 self.assertNotIn(key, text, f"{name} must not contain template variable {key}")
             self.assertNotIn(":latest", text)
@@ -143,7 +143,7 @@ class TestDeploymentConfig(unittest.TestCase):
         self.assertNotIn("nazawsze/smartx-hci-capacity-insight-web-api:latest", text)
         self.assertNotIn("nazawsze/smartx-hci-capacity-insight-upgrade-runner:latest", text)
         self.assertIn("nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3", text)
-        self.assertIn("nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1", text)
+        self.assertIn("nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2", text)
 
     def test_platform_upgrade_package_excludes_runner(self) -> None:
         text = (ROOT / "scripts/build_upgrade_package.py").read_text(encoding="utf-8")

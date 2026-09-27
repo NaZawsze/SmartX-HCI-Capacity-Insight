@@ -30,7 +30,7 @@ class RunnerSettings:
     project_path: Path
     compose_file: str
     compose_project: str
-    runner_version: str = "v0.3.1"
+    runner_version: str = "v0.3.2"
     host_data_path: Path | None = None
     host_upgrades_path: Path | None = None
     host_backups_path: Path | None = None
@@ -54,7 +54,7 @@ class RunnerSettings:
             project_path=project_path,
             compose_file=os.environ.get("SMARTX_COMPOSE_FILE", "docker-compose.offline.yml"),
             compose_project=os.environ.get("SMARTX_COMPOSE_PROJECT_NAME", "smartx-hci-capacity-insight"),
-            runner_version=os.environ.get("SMARTX_RUNNER_VERSION", "v0.3.1"),
+            runner_version=os.environ.get("SMARTX_RUNNER_VERSION", "v0.3.2"),
             host_data_path=Path(os.environ.get("SMARTX_HOST_DATA_PATH", "/data/smartx-storage-forecast/app")),
             host_upgrades_path=Path(os.environ.get("SMARTX_HOST_UPGRADES_PATH", "/data/smartx-storage-forecast/upgrades")),
             host_backups_path=Path(os.environ.get("SMARTX_HOST_BACKUPS_PATH", "/data/smartx-storage-forecast/backups")),

@@ -206,10 +206,10 @@ Packages with no selected migration steps, such as the current `v0.5.3` package,
 
 For normal platform upgrades, do not restart `upgrade-runner` in the same package that is executing the upgrade. Use a component upgrade package when `upgrade-runner` itself needs to be replaced.
 
-Component upgrade packages for `upgrade-runner` are separate and use the runner component version, for example `v0.3.1`, not the platform version.
+Component upgrade packages for `upgrade-runner` are separate and use the runner component version, for example `v0.3.2`, not the platform version.
 
 ```text
-smartx-upgrade-runner-v0.3.1.tar.gz
+smartx-upgrade-runner-v0.3.2.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md

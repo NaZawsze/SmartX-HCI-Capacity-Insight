@@ -96,7 +96,7 @@ The Compose files define `name: smartx-hci-capacity-insight`, so the normal `doc
 nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3
 nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.3
 nazawsze/smartx-hci-capacity-insight-frontend:v0.5.3
-nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1
+nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2
 prom/prometheus:v2.55.1
 ```
 
@@ -263,7 +263,7 @@ docker compose up -d
 
 The default compose file builds and runs the same versioned image names used by
 upgrade packages. Image tags are written literally in the compose files
-(web-api/collector-worker/frontend `v0.5.3`, `upgrade-runner` `v0.3.1`) and change
+(web-api/collector-worker/frontend `v0.5.3`, `upgrade-runner` `v0.3.2`) and change
 only through version commits, never through `.env` overrides. Do not switch
 runtime services back to `:local` tags, otherwise upgrade packages and the
 running compose state can drift.
@@ -288,7 +288,7 @@ Package builders:
 
 ```bash
 python scripts/build_upgrade_package.py
-python scripts/build_runner_component_package.py --version v0.3.1
+python scripts/build_runner_component_package.py --version v0.3.2
 python scripts/build_prometheus_component_package.py --version v2.55.1
 python scripts/build_bundle_upgrade_package.py --platform-version v0.5.3 --prometheus-version v2.55.1
 ```

@@ -8,7 +8,7 @@
 - 当前开发口径固定为 `v0.5.3`：源码版本、README、文档、升级包和常规镜像 tag 必须一致；候选的验收状态以 `docs/releases/CHANGELOG.md` v0.5.3 节为准（未发布）。
 - 临时测试升级包可以使用不同目标版本验证升级链路，但只作为测试包元数据；不能反向修改 `VERSION`、README 或正式发布口径。
 - 平台服务包括 `web-api`、`collector-worker`、`frontend`。
-- `upgrade-runner` 是独立升级执行组件，版本由根目录 `RUNNER_VERSION` 定义，当前为 `v0.3.1`。
+- `upgrade-runner` 是独立升级执行组件，版本由根目录 `RUNNER_VERSION` 定义，当前为 `v0.3.2`（2026-09-27 bump：把 08-12 之后累积的 runner 修复按规矩交付；已发布线 `v0.3.1` 见 Release 资产 `d10e15cf…`）。
 - 后端镜像会同时内置 `/app/VERSION` 和 `/app/RUNNER_VERSION`，运行时优先读取镜像内版本文件，环境变量只作为兜底覆盖。
 - 平台升级包不包含 `upgrade-runner`，也不重启 `upgrade-runner`。
 - `upgrade-runner` 只能通过组件升级包更新。

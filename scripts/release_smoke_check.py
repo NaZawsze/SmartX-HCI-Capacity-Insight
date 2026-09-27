@@ -203,7 +203,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--username")
     parser.add_argument("--password")
     parser.add_argument("--expected-version", default="v0.5.3")
-    parser.add_argument("--expected-runner-version", default="v0.3.1")
+    parser.add_argument("--expected-runner-version", default="v0.3.2")
     parser.add_argument("--expected-prometheus-version", default="v2.55.1")
     parser.add_argument("--expected-compose-project", default="smartx-hci-capacity-insight")
     parser.add_argument("--expected-network", default="smartx-hci-capacity-insight-net")
