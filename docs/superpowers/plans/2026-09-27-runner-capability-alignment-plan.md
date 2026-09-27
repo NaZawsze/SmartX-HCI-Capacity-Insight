@@ -4,13 +4,23 @@
 
 背景一句话：已发布的 runner v0.3.1（Release 资产 `d10e15cf…`，2026-07-09 上传）不认识 `post_upgrade.schedule_collection` 这条升级动作，而 v0.5.2 平台包的升级计划编译器会下发它 → 以 v0.5.2 为源的升级（即 v0.5.2 → v0.5.3）在**平台已切换之后**失败。证据与根因见 `findings.md` 2026-09-27 三条、`progress.md` 2026-09-27 发布验收、`docs/pending-tasks.md` #45。
 
+### 已确认的事实（2026-09-27 读码）：runner 的这条动作是多余的
+
+- `post_upgrade.schedule_collection` 的实现（`backend/app/upgrade_runner/actions.py:2115`）**不抓数据**，只往 `upgrades/<task_id>/post-upgrade-collection.json` 写一个 `status: pending` 的**标记文件**。
+- 真正抓数据的是平台：`backend/app/v2/worker.py` 每 5 秒跑 `run_pending_post_upgrade_collection`，扫描标记、确认父任务 success 后执行采集（采集由 collector-worker 完成）。
+- 平台还有兜底 `_ensure_post_upgrade_collection_marker`：**标记不存在时自己补建**（`source: "target_worker_compatibility"`）。
+- 结论：**抓数据与 runner 无关，清单里这行是历史时序权宜**（切换瞬间旧 web-api 正被替换、runner 仍在跑且知道任务目录，所以让它顺手留便条），可安全移除——这正是方案 A 的全部内容。
+
 ## 方案 A（平台侧，不碰 runner）——保 v0.5.2 现场能直升
 
 目标：**v0.5.2 + 已发布 runner v0.3.1 必须能升到 v0.5.3**，且不再依赖旧 runner 的任何新动作。
 
 - [ ] A1 设计文档：`docs/superpowers/specs/2026-09-27-v053-drop-runner-collection-action-design.md`（未写，实施前补）。
-- [ ] A2 改 `backend/app/v2/upgrade/compiler.py`：源版本 ≥ v0.5.2（runner 可能是已发布旧包）时**不下发** `post_upgrade.schedule_collection`；或按"当前 runner 动作表是否支持"做条件下发（倾向前者：语义更简单，旧 runner 本就不该负责切换前后的事）。
-- [ ] A3 v0.5.3 web-api 侧兜底：升级主任务成功且健康检查通过后，由**平台自己**创建升级后自动采集任务（进任务中心，沿用"采集失败不改写升级成功状态"口径；`post_upgrade.auto_collection` 语义保留在平台侧）。
+- [ ] A2 改 `backend/app/v2/upgrade/compiler.py`：**不再下发** `post_upgrade.schedule_collection`（该动作对 runner 是多余的，见下）。
+- [ ] A3 **不需要新增调度逻辑**：平台侧本来就有，直接复用并补测试——
+  - `backend/app/v2/worker.py:229 run_pending_post_upgrade_collection`（每 5 秒的 `post-upgrade-auto-collection` 定时任务）
+  - `backend/app/v2/worker.py:195 _ensure_post_upgrade_collection_marker`：没有 runner 写的标记时**平台自己补建**（`source: "target_worker_compatibility"`），再按父任务是否 success 决定执行
+  - 本方案只需验证"runner 不写标记 → 平台仍能在 5 秒内自建标记并执行采集"，并补一条回归测试。
 - [ ] A4 测试：编译器单测（源 v0.5.2 → 计划中不含 `post_upgrade.schedule_collection`；源 v0.5.1u2 → 行为不变）；平台侧调度采集的单测（成功建任务、失败不改写主任务状态）。
 - [ ] A5 验收（硬门禁，必须用**已发布** runner 包 `d10e15cf…`）：`.12` 恢复 v0.5.1 基线 → `v0.5.1u2(d5f277) → runner v0.3.1(d10e15cf) → v0.5.2(692aca8b) → v0.5.3(候选包)`，要求主任务 success、post-cleanup success、平台侧自动采集任务已创建（Tower 不可达只记环境限制）、8 项验收全过。
 - [ ] A6 不改 runner 代码 → **不需要** bump `RUNNER_VERSION`；但需在 ledger/CHANGELOG 记录"v0.5.3 已兼容已发布 runner"。

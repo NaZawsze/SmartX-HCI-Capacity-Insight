@@ -1757,8 +1757,8 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 来源：2026-09-27 用户指示「A+B 你先写计划里不执行」；事故与根因见 findings.md 2026-09-27 三条、pending-tasks #45。
 计划：[docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md](docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md) 方案 A。
 设计：实施前必须先写 `docs/superpowers/specs/2026-09-27-v053-drop-runner-collection-action-design.md`（**未写**，AGENTS §3 要求）。
-- [ ] A2 `backend/app/v2/upgrade/compiler.py`：源 ≥ v0.5.2 时不下发 `post_upgrade.schedule_collection`
-- [ ] A3 v0.5.3 web-api 平台侧兜底调度升级后自动采集（失败不改写主任务状态）
+- [ ] A2 `backend/app/v2/upgrade/compiler.py`：**不再下发** `post_upgrade.schedule_collection`（读码确认：该动作对 runner 是多余的——它只写标记文件 `post-upgrade-collection.json`，不抓数据）
+- [ ] A3 **复用既有平台侧逻辑，无需新增**：`worker.py:229 run_pending_post_upgrade_collection`（5 秒轮询）+ `worker.py:195 _ensure_post_upgrade_collection_marker`（无标记时平台自建，`source=target_worker_compatibility`）；补"runner 不写标记也能自动采集"回归测试
 - [ ] A4 编译器与调度单测
 - [ ] A5 验收（硬门禁）：`.12` 用**已发布** runner 包 `d10e15cf…` 走 `v0.5.1 → u2(d5f277) → runner(d10e15cf) → v0.5.2(692aca8b) → v0.5.3(候选)`，主任务/ post-cleanup success + 平台侧采集任务创建 + 8 项验收
 - [ ] A6 ledger/CHANGELOG 记录"已兼容已发布 runner"
