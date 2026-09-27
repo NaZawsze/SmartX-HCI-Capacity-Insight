@@ -7967,3 +7967,15 @@ release_smoke=critical 0, warning 0
 - **`.3` 验证**（root，真实路径）：解包目录 payload `624777779` → `required=2772261427`（2.58 GiB），可用 **33.34 GiB** → `ok=True`；压缩包本体 payload `740983671`（×3）→ required 2.69 GiB → `ok=True`；把改动同步进部署树后容器内全量 **424 tests OK (skipped=2)**（386 + 门禁脚本 22 + 本次 16），251s。运行容器未重建（仍跑旧镜像代码；本次按 `PYTHONPATH` 覆盖部署树验证，随下次打包进镜像）。
 - **文档**：CHANGELOG v0.5.3「修复」补条目；task_plan 第 55 项 + 对照表；doc-map；`upgrade-strategy-issues.md` US-07 → 🟢 已实施并验证；执行顺序表 S1-1 → ✅。
 - 提交：`0a14232`（本地 dev2，未推送）。下一步按顺序为 S1-2（US-09 预检失败任务自动清理）。
+
+## 2026-09-27 S1-2（49-56）：升级任务运行产物自动清理（US-09）
+
+来源：用户「ok按照你的顺序开始修复」→ 执行顺序 S1-2。设计：[docs/superpowers/specs/2026-09-27-upgrade-artifact-housekeeping-design.md](docs/superpowers/specs/2026-09-27-upgrade-artifact-housekeeping-design.md)。
+
+- **问题量级先算清**：`.3` 实测一个升级包解包后 = 压缩本体 246,994,557 B + 解包目录 624,777,779 B；**一个预检失败任务 ≈ 830 MiB**，`.12` 一轮积 8 个 ≈ 6.6 GiB。
+- **改动**：新增 `app/v2/upgrade/housekeeping.py`（守护线程，默认 6h，`SMARTX_UPGRADE_HOUSEKEEPING_INTERVAL_SECONDS`，`<=0` 关闭）：只清**从未执行过**的终态（`precheck_failed`/`uploaded`）、年龄 > TTL（默认 7 天，`SMARTX_UPGRADE_ARTIFACT_TTL_DAYS`）+ 按 mtime 保留最新 N 个（默认 3，`SMARTX_UPGRADE_ARTIFACT_KEEP_RECENT`）；删包内容（`package/` + 上传归档），**保留 `task.json`** 并写 `package_cleaned_at`、清空旧路径；路径越界/状态变更跳过；活跃升级（与 US-23 共用 `_ACTIVE_UPGRADE_STATUSES`）整轮跳过；只在实际删除时写一条 `CLEANUP` 任务记录。`main.py` 挂载守护线程；`precheck()` 对已清理的包给出「请重新上传」的可读失败。**未改 runner、未加界面选项。**
+- **本地**：`test_upgrade_artifact_housekeeping` **13 tests OK**（候选/年龄/保留 N/执行过不删/活跃跳过/TTL 关闭/路径越界/记录只在实际删除时/守护线程开关/清理后预检查可读失败）。
+- **`.3` 实测**（真实文件系统，temp data_root）：造 5 个过期 `precheck_failed`（各 2 MiB 载荷，mtime 递减）+ 1 个 1 天内 + 1 个 `success`(30 天) → 默认参数下 **deleted=`upgrade-old-3/4`（最旧两个）、kept=`upgrade-old-0/1/2`（最新三个）**，reclaimed 4.0 MiB；被删任务 `package/` 与归档消失、`task.json` 保留且 `package_cleaned_at` 已写、`package_path=None`；fresh 与 success 的 package 原样保留；清理记录 `('cleanup', '自动清理 2 个过期升级任务的包内容')`；再造一个 `running` 任务 → 第二轮 `skipped=active_upgrade`；`ttl_days=0` → `skipped=disabled`。
+- **`.3` 容器**：`import app.v2.main` 通过（守护线程接线正确）；容器内全量 **437 tests OK (skipped=2)**（424 + 本次 13），260s。
+- **文档**：CHANGELOG v0.5.3「修复」补条目；task_plan 第 56 项 + 对照表；doc-map；`deployment.md` 三个新环境变量与其语义；`upgrade-strategy-issues.md` US-09 → 🟢；执行顺序表 S1-2 → ✅。
+- 提交：`2c94bbf`（本地 dev2，未推送）。下一步按顺序为 S1-3（US-08 长任务心跳 stale 边界，先取证）。
