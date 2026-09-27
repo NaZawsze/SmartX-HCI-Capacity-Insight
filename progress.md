@@ -7940,3 +7940,19 @@ release_smoke=critical 0, warning 0
 - 验证：`git diff --check` 无输出；自建链接扫描（排除 `.codex/`）项目文档断链/绝对路径 **0**；`python3 scripts/verify_release_docs_safe.py` → **[PASS]**；残留「当前正式平台版本」grep 仅剩 `progress.md` 的历史日志行（历史记录不改）。
 - 提交：`d8a9e53`（2026-09-27，仅本地 dev2，**未推送**——推送需用户明确要求）。
 - 未做（等用户决策）：`runner v0.3.2` 是否随发布交付（补 tag/镜像/资产，或源码 compose 与部署文档回退 `v0.3.1`）；`.12` MVP 验收仍待授权；各条目「UI 目视」仍待用户确认。
+
+## 2026-09-27 49-54：runner 交付一致性硬门禁（#47② / US-02）
+
+来源：用户「肯定是先不推送啊，现在很多问题没有解决」→ 按 [upgrade-strategy-issues.md](docs/upgrade-strategy-issues.md) §E 优先级，从 #47 里风险最低、直接防复发的一项开工。设计：[docs/superpowers/specs/2026-09-27-runner-delivery-consistency-gate-design.md](docs/superpowers/specs/2026-09-27-runner-delivery-consistency-gate-design.md)。
+
+- **交付物**：`scripts/verify_runner_delivery_consistency.py`（C1 仓库版本 / C2 动作表 AST / C3 源码 compose 字面量 / C4 组件包 manifest 版本+归档 SHA+下界 / C5 离线解析包内镜像归档比对 `app/RUNNER_VERSION` 与 `app/app/upgrade_runner/actions.py` md5 / C6 DockerHub tag，默认关闭；任一 FAIL 非零退出，SKIP 显式列出）+ `backend/tests/test_verify_runner_delivery_consistency.py`。**未改 runner 代码与版本、未重打包、未推 tag。**
+- **首版两处规则修正（.3 首跑发现，已改）**：①`min_runner_version` 是「可从此版本及以上升级」的**下界**（组件包默认 `v0.1.0`），首版按等值比较会误报 v0.3.2 包 FAIL；②首版 `docker load` 包内镜像后固定按 `RUNNER_VERSION` 拼名字探测，连续检查两个包时第二次读到**上一次 load 的镜像**（"v0.3.1 的包"报出 v0.3.2 内容 = 假 PASS，还会改写测试机本地同 tag 镜像）；改为直接从归档 OCI 层解析，去掉 `docker load`，默认零副作用。
+- **本地**：`python3 -m py_compile` 通过；新单测 **22 tests OK**；仓库自检模式 PASS。
+- **`.3` 实证（root SSH，`/root/verify-gate` 解 HEAD 快照）**：
+  - 仓库自检 PASS（`RUNNER_VERSION=v0.3.2` / 26 动作 / 三个 compose 字面量 v0.3.2），exit 0。
+  - `components-v032-20260927/smartx-upgrade-runner-v0.3.2.tar.gz`（`3d99599c…`）**全绿 exit 0**：manifest v0.3.2、`min_runner_version=v0.1.0 (≤ v0.3.2)`、`images/upgrade-runner.tar` sha 与 manifest 一致、镜像内 `app/RUNNER_VERSION=v0.3.2`、`actions.py` md5 `732b0d942a3034f26192271b6645b4fc` == 仓库、动作集 26 == 仓库。
+  - `components-v053-20260927/smartx-upgrade-runner-v0.3.1.tar.gz`（`dd096bf2…`）**正确 FAIL exit 1**：manifest v0.3.1 ≠ v0.3.2、镜像内版本 v0.3.1 ≠ v0.3.2、`actions.py` md5 `e32afe4559accd9d88b31b937cba5c19` ≠ 仓库 `732b0d94…`；**而它的动作集与仓库完全一致（26 个）** —— 只比动作表或只看 manifest 版本号都抓不到，必须比文件内容。
+  - 副作用核对：探测前后运行容器镜像 ID 与 `…upgrade-runner:v0.3.1` tag 均为 `sha256:0aca32511008…` 未变。
+  - 容器内全量回归（把新测试文件放进 `/data/smartx-storage-forecast/project/backend/tests/` 后按标准跑法）：**408 tests OK (skipped=2)**（386 + 新 22），253s；容器内也能直接跑本脚本（模块方式）。
+- **文档同步**：`docs/release-acceptance.md` 步骤 4 的三处同源核对改为调用本脚本（含命令）；`task_plan` 第 54 项 + 对照表；`docs/doc-map.md` 收录设计文档并顺手修正 3 处陈旧描述（策略问题 22→23 条、审计矩阵"空表"、方案 A/B"未实施"）；CHANGELOG v0.5.3「工程与运维」条目；AGENTS §10 标准验证工具列表（本地文件，不入库）。
+- 未完成/下一步（仍待用户决策或授权）：`.12` MVP 验收；`runner v0.3.2` 的 tag/镜像/资产交付；#47①（升级后采集事件驱动）、US-07/08/09。

@@ -1822,10 +1822,10 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 
 来源：pending-tasks #47②「runner 版本纪律做成硬门禁脚本（能力变更必 bump + 三处同源 + 资产必须 CI 产出）」；事故根因见 findings.md 2026-09-27「runner v0.3.1 能力与交付三处不一致」、docs/upgrade-strategy-issues.md US-02。
 设计：[docs/superpowers/specs/2026-09-27-runner-delivery-consistency-gate-design.md](docs/superpowers/specs/2026-09-27-runner-delivery-consistency-gate-design.md)。
-- [x] 新增 `scripts/verify_runner_delivery_consistency.py`：C1 仓库 `RUNNER_VERSION` / C2 动作表（AST 静态提取 `default_handlers()`）/ C3 三个源码 compose 字面量 / C4 组件包 manifest 与镜像归档 SHA / C5 **包内镜像的 `/app/RUNNER_VERSION` 与 `actions.py` md5 与仓库一致** / C6 DockerHub tag 200（默认关闭）；任一 FAIL 即非零退出，SKIP 显式列出不算通过。
-- [x] 单测 `backend/tests/test_verify_runner_delivery_consistency.py` 17 例（AST 解析、manifest 版本/SHA 不符、镜像非本仓库源码、动作多/少、SKIP 不计失败、CLI 退出码）。
-- [x] `.3` 实证：对 `v0.3.2`（`3d99599c…`）与 `v0.3.1`（`dd096bf2…`）组件包各跑一次（证据见 progress.md）。
-- 边界：只做核对，不改 runner 代码/版本、不重打包、不推 tag；唯一副作用是 `--package` 时 `docker load` 包内镜像（幂等，可用 `--no-image-probe` 关闭）。
+- [x] 新增 `scripts/verify_runner_delivery_consistency.py`：C1 仓库 `RUNNER_VERSION` / C2 动作表（AST 静态提取 `default_handlers()`）/ C3 三个源码 compose 字面量 / C4 组件包 manifest 版本与镜像归档 SHA（`min_runner_version` 按下界校验）/ C5 **离线解析包内镜像归档：`app/RUNNER_VERSION` 与 `app/app/upgrade_runner/actions.py` 的 md5 与仓库一致**（默认零副作用，不 `docker load`）/ C6 DockerHub tag 200（默认关闭）/ 附加 `--live-probe` 活体探测；任一 FAIL 即非零退出，SKIP 显式列出不算通过。
+- [x] 单测 `backend/tests/test_verify_runner_delivery_consistency.py` 22 例（AST 动作集、镜像归档离线解析、manifest 版本/SHA/下界、镜像非本仓库源码、动作多/少、SKIP 不计失败、CLI 退出码、JSON）。
+- [x] `.3` 实证（2026-09-27）：仓库自检 PASS；`v0.3.2` 组件包（`3d99599c…`）**全绿**（镜像内 v0.3.2 + `actions.py` md5 `732b0d94…` == 仓库 + 26 动作）；`v0.3.1` 组件包（`dd096bf2…`）**正确 FAIL**（manifest/镜像内版本/md5 三项不符，而**动作集恰好相同**——证明必须比 md5 而非动作表）；容器内全量 **408 tests OK (skipped=2)**（386+22）。证据见 progress.md。
+- 边界：只做核对，不改 runner 代码/版本、不重打包、不推 tag；默认离线无副作用（不碰本地镜像 tag）。
 - 关联：`docs/release-acceptance.md` 步骤 4 的"三处同源核对"改用本脚本执行。
 
 ### 37. 手动采集失败清空指标快照修复 + 仪表盘数据过期标注（49-37）[进行中]
