@@ -115,7 +115,7 @@
 
 ---
 
-## E. 优先级建议
+## E. 优先级建议（要跑多少格子见 [upgrade-audit-matrix.md](upgrade-audit-matrix.md)，共 **894** 格）
 
 1. **立即**：US-05（改打包口径，去掉 `required_health.runner_version`）→ 补 US-18 顺序验收
 2. **#47 整改**：US-01/02/03/06（+ 硬门禁脚本、生命周期收敛、采集事件驱动）
