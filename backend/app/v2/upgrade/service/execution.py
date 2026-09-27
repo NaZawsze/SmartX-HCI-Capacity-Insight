@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import threading
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -38,25 +39,68 @@ def _should_stop_previous_runner(bootstrap: Any, current_project: str) -> bool:
         return True
     return target_project != str(current_project or "")
 
+
+# 49-52：升级环境互斥锁。FastAPI 同步 handler 跑在线程池，两个并发 start 可能同时通过
+# 扫描再各自写状态；锁内完成「扫描 + 认领落盘」消除竞态窗口（锁不罩长耗时执行本体）。
+_UPGRADE_ENV_LOCK = threading.Lock()
+
+# 49-52：这些状态说明升级环境正在被改动或等待恢复，必须与其它升级/清理/回滚互斥。
+# precheck_passed 不在集合内：允许多个包同时预检通过待命。
+_ACTIVE_UPGRADE_STATUSES = frozenset({
+    "pending",
+    "running",
+    "runner_restarting",
+    "recovery_required",
+    "rollback_pending",
+    "rollback_running",
+})
+
+
 class ExecutionMixin:
+    def _ensure_no_active_upgrade(self, exclude_task_id: str) -> None:
+        """49-52：单飞守卫——已有升级在执行/待恢复时禁止开始新的升级动作。
+
+        平台升级 /api/admin/upgrade/start 与组件升级 /api/admin/component-upgrade/start
+        共用 start()，一处守卫覆盖两个入口；rollback、recovery、post-cleanup retry 复用本守卫。
+        直接改 task.json 绕过 API 不属于产品流程，不设防。
+        """
+        for task_file in sorted(self.settings.upgrades_dir.glob("*/task.json")):
+            if task_file.parent.name == exclude_task_id:
+                continue
+            try:
+                other = json.loads(task_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if str(other.get("status") or "") in _ACTIVE_UPGRADE_STATUSES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"升级任务 {task_file.parent.name} 正在执行或需要恢复，不能开始新的升级。",
+                )
+
     def start(self, task_id: str, *, submit_to_runner: bool = False) -> dict[str, Any]:
         task_dir = self.settings.upgrades_dir / task_id
-        task = _read_task_file(task_dir)
-        if task.get("status") != "precheck_passed":
-            raise HTTPException(status_code=400, detail="预检查通过后才能开始升级。")
-        if submit_to_runner:
-            try:
-                execution_plan = compile_execution_plan(task["manifest"])
-            except (UpgradeCompilationError, ValueError) as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            task["status"] = "pending"
-            task["runner_requested"] = True
-            task["task_schema_version"] = TASK_SCHEMA_VERSION
-            task["execution_plan"] = execution_plan.to_dict()
+        with _UPGRADE_ENV_LOCK:
+            task = _read_task_file(task_dir)
+            if task.get("status") != "precheck_passed":
+                raise HTTPException(status_code=400, detail="预检查通过后才能开始升级。")
+            self._ensure_no_active_upgrade(task_id)
+            if submit_to_runner:
+                try:
+                    execution_plan = compile_execution_plan(task["manifest"])
+                except (UpgradeCompilationError, ValueError) as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+                task["status"] = "pending"
+                task["runner_requested"] = True
+                task["task_schema_version"] = TASK_SCHEMA_VERSION
+                task["execution_plan"] = execution_plan.to_dict()
+                task["updated_at"] = _now().isoformat()
+                _save_task_file(task_dir, task)
+                self.tasks.create_task(task_id, TaskType.UPGRADE, "执行系统升级", status=TaskStatus.PENDING, progress=1, message="升级任务已提交，等待 upgrade-runner 执行")
+                return self._public_task(task)
+            task["status"] = "running"
+            task["started_at"] = _now().isoformat()
             task["updated_at"] = _now().isoformat()
             _save_task_file(task_dir, task)
-            self.tasks.create_task(task_id, TaskType.UPGRADE, "执行系统升级", status=TaskStatus.PENDING, progress=1, message="升级任务已提交，等待 upgrade-runner 执行")
-            return self._public_task(task)
         return self.execute_task(task)
 
 
@@ -113,6 +157,7 @@ class ExecutionMixin:
         task = _read_task_file(task_dir)
         if task.get("status") != "recovery_required":
             raise HTTPException(status_code=400, detail="当前升级任务不需要恢复处理。")
+        self._ensure_no_active_upgrade(task_id)
         if command not in set(task.get("available_recovery_actions") or []):
             raise HTTPException(status_code=400, detail="当前恢复操作不可用。")
         task["recovery_command"] = command
@@ -267,6 +312,7 @@ class ExecutionMixin:
         task = _read_task_file(task_dir)
         if not task.get("started_at"):
             raise HTTPException(status_code=400, detail="升级尚未执行，不能回滚。")
+        self._ensure_no_active_upgrade(task_id)
         services = sorted(_task_services(task["manifest"]))
         logs = list(task.get("logs") or [])
         steps = [

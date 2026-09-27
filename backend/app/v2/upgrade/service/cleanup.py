@@ -75,6 +75,7 @@ class CleanupMixin:
 
     def retry_post_upgrade_cleanup(self, parent_task_id: str) -> dict[str, Any]:
         cleanup_id = f"post-cleanup-{parent_task_id}"
+        self._ensure_no_active_upgrade(cleanup_id)
         cleanup_dir = self.settings.upgrades_dir / cleanup_id
         if cleanup_dir.exists():
             task = _read_task_file(cleanup_dir)

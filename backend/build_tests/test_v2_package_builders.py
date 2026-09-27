@@ -196,7 +196,6 @@ class V2PackageBuilderTest(unittest.TestCase):
                 ],
                 "required_health": {
                     "version": "v0.5.2",
-                    "runner_version": "v0.3.1",
                     "checks": ["directories", "database", "prometheus"],
                 },
                 "data_migration_guard": {
@@ -209,6 +208,13 @@ class V2PackageBuilderTest(unittest.TestCase):
             },
         )
         self.assertIs(manifest["project_files"], True)
+        self.assertNotIn(
+            "runner_version",
+            manifest["legacy_cleanup"]["required_health"],
+            "49-52：required_health 不得声明 runner_version，否则先升 runner 再升平台会让 post-cleanup 误判失败（顺序敏感）",
+        )
+        self.assertEqual(manifest["legacy_cleanup"]["required_health"]["version"], "v0.5.2")
+        self.assertEqual(manifest["legacy_cleanup"]["required_health"]["checks"], ["directories", "database", "prometheus"])
         self.assertIs(manifest["database_migration"], False)
         self.assertNotIn("migration", manifest)
         self.assertEqual(manifest["restart_services"], ["web-api", "collector-worker", "frontend", "prometheus", "upgrade-runner"])

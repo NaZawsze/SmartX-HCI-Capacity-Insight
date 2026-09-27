@@ -548,9 +548,10 @@ def _legacy_cleanup(*, target_version: str) -> dict[str, Any]:
             TARGET_EXPORTS_PATH,
             TARGET_COMPOSE_RUNTIME_PATH,
         ],
+        # 49-52：刻意不声明 runner_version——合法终态有两种（runner 基线直升 /
+        # 先升 runner 再升平台），等值断言会让 post-cleanup 顺序敏感而误判失败。
         "required_health": {
             "version": target_version,
-            "runner_version": _expected_web_api_runner_baseline(target_version),
             "checks": ["directories", "database", "prometheus"],
         },
         "data_migration_guard": {
