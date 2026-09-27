@@ -1036,7 +1036,9 @@ class V2PackageBuilderTest(unittest.TestCase):
         self.assertEqual(
             manifest["post_upgrade"],
             {
-                "auto_collection": True,
+                # 49-49：auto_collection=False 阻止源端老编译器下发 runner 不支持的调度动作
+                "auto_collection": False,
+                "platform_collection": True,
                 "create_cleanup_task": True,
                 "cleanup_task_policy": "after_platform_health_success",
                 "cleanup_failure_severity": "warning",
