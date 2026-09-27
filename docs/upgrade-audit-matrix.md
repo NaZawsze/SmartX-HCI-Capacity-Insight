@@ -97,7 +97,7 @@
 | M3-05 | v0.5.1u1 | 先平台后 runner | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | M3-06 | v0.5.1u1 | 先 runner 后平台 | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | M3-07 | v0.5.1u2 | 先平台后 runner ✅**本轮已跑** | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| M3-08 | v0.5.1u2 | 先 runner 后平台 | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| M3-08 | v0.5.1u2 | 先 runner 后平台 **（需 v0.3.2 组件包为输入；v0.3.2 未交付前该格不可执行）** | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | M3-09 | v0.5.2 | 先平台后 runner | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | M3-10 | v0.5.2 | 先 runner 后平台 **N/A（v0.5.2 装不住 v0.3.2 runner，见下说明）** | — | — | — | — | — | — | — |
 | M3-11 | v0.5.3（同版本重装） | 先平台后 runner | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -107,7 +107,7 @@
 
 **格子数 = 84**；每格判定：主任务终态 + post-cleanup + 8 项验收 + M4 数据比对
 
-> **不可执行格（2026-09-27 定）**：`M3-10` 的「**先 runner 后平台**」变体在 v0.5.2 源端**不可能成功**——v0.5.2 的 web-api 没有同 project 守卫（`_should_stop_previous_runner` 只存在于 v0.5.3 起的目标镜像），而 runner 组件包的 `bootstrap_runner.target_project` 就是当前 project，于是升级会把刚启动的新 runner 停掉（`.12` 两轮实测：启动后 ~10s SIGKILL `exit=137`、心跳过期 → 后续预检查报"未检测到心跳"）。这是 **US-04 的环境约束、不是待修缺陷**。因此该格标 **N/A**；要验 US-05 的「post-cleanup 对升级顺序免疫」只能在 **M3-08（v0.5.1u2，旧 project，stop 打的是旧 project）** 上做。
+> **不可执行格（2026-09-27 定）**：`M3-10` 的「**先 runner 后平台**」变体在 v0.5.2 源端**不可能成功**——v0.5.2 的 web-api 没有同 project 守卫（`_should_stop_previous_runner` 只存在于 v0.5.3 起的目标镜像），而 runner 组件包的 `bootstrap_runner.target_project` 就是当前 project，于是升级会把刚启动的新 runner 停掉（`.12` 两轮实测：启动后 ~10s SIGKILL `exit=137`、心跳过期 → 后续预检查报"未检测到心跳"）。这是 **US-04 的环境约束、不是待修缺陷**。因此该格标 **N/A**。要验 US-05 的「post-cleanup 对升级顺序免疫」只剩 **M3-08（v0.5.1u2，旧 project，stop 打的是旧 project）**，但**它需要 v0.3.2 组件包作为输入**：US-05 的失败模式只在「现场 runner 版本 ≠ 平台包声明基线（v0.3.1）」时出现，用已发布 v0.3.1 做 runner-first 根本触发不到该断言。而 v0.3.2 目前**未交付**（无 tag/镜像/资产），验收基线又必须用已发布资产（AGENTS §8/§10-7）→ **M3-08 在 v0.3.2 交付决策落定前不可执行**；若决策为「不交付 v0.3.2」，该格记为**不可达（现场不存在 v0.3.2）**，US-05 的修复按「代码+manifest 实证的防御性修复」记录，不得写「顺序无关已实测」。
 
 ---
 
@@ -207,7 +207,7 @@
 
 | 子集 | 格子 | 数量 |
 | --- | --- | --- |
-| M3 顺序矩阵 | M3-08（v0.5.1u2 × **先 runner 后平台**）× {重复 start、runner 镜像缺失}；M3-09（v0.5.2 × **平台先**，现场主路径直升）× {重复 start}——**M3-10 的 runner-first 变体不可执行（v0.5.2 装不住 v0.3.2 runner，见上节 N/A 说明）** | 3 |
+| M3 顺序矩阵 | **可执行部分**：M3-09（v0.5.2 × **平台先**，现场主路径直升）× {重复 start}。**待 v0.3.2 交付决策**：M3-08（v0.5.1u2 × 先 runner 后平台，需 v0.3.2 为输入）× {runner 镜像缺失}。**不可执行**：M3-10 runner-first（v0.5.2 装不住 v0.3.2），见上节 N/A 说明 | 1 格可跑 + 1 格待决策 |
 | M3 中断注入 | M3-07、M3-09（同两行 × **平台先**）× {执行中 kill} | 2 |
 | M3 源端覆盖 | 6 个源端 × 平台先 × 无干扰（M3-07 已跑，补 5） | 6 |
 | M2 P0 动作注入 | `compose.apply` / `compose.override` / `compose.project_migrate` / `runner.handoff_target_runtime` / `runner.schedule_target_runtime_handoff` / `post_upgrade.schedule_cleanup` × 3 类故障 | 18 |
