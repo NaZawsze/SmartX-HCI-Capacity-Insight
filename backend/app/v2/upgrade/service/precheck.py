@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from app.v2.tasks.models import TaskStatus, TaskType
 from app.upgrade_protocol.constants import RUNNER_CAPABILITIES, RUNNER_PROTOCOL_VERSION
 from app.upgrade_protocol.validation import ProtocolValidationError, validate_manifest_compatibility
@@ -34,6 +35,13 @@ class PrecheckMixin:
                 checks.append(self._check_runner_protocol(manifest))
                 checks.append(self._check_runner_actions(manifest))
             checks.append(_check_package_checksums(package_path))
+            checks.append(
+                _check_disk_space(
+                    package_path,
+                    [self.settings.upgrades_dir, self.settings.backups_dir, Path("/")],
+                    self.settings.upgrade_disk_headroom_bytes,
+                )
+            )
         checks.extend([_check_images_with_executor(package_path, manifest, self.executor), _check_project_files(package_path, manifest)])
         if _observability_services(manifest):
             checks.append(_check_prometheus_permissions(self.settings.prometheus_data_dir))
@@ -175,6 +183,101 @@ def _check_package_checksums(package_path: Path) -> dict[str, Any]:
     except (OSError, ValueError) as exc:
         return {"name": "checksums", "ok": False, "message": str(exc)}
     return {"name": "checksums", "ok": True, "message": f"升级包文件校验通过，共 {len(entries)} 项"}
+
+
+# US-07：升级要 docker load 镜像（在 docker 存储里再写一份 ≈ 包内容大小）、写备份、解临时文件；
+# 空间不足会在执行中段失败，留下半升级现场。上传时包已解到 <task_dir>/package，镜像 tar 是
+# 未压缩的 docker save 归档，所以「目录内文件求和」就是镜像落盘的量级；headroom 覆盖备份与余量。
+COMPRESSED_ARCHIVE_EXPANSION = 3
+
+
+def package_payload_bytes(package_path: Path) -> int:
+    """升级包的落盘量级：目录（已解包）取文件求和；直接给压缩包文件时按膨胀系数估。"""
+    if not package_path.exists():
+        raise FileNotFoundError(f"{package_path} 不存在")
+    if package_path.is_file():
+        return package_path.stat().st_size * COMPRESSED_ARCHIVE_EXPANSION
+    total = 0
+    for child in package_path.rglob("*"):
+        try:
+            if child.is_file():
+                total += child.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def required_upgrade_bytes(payload_bytes: int, headroom_bytes: int) -> int:
+    return max(int(payload_bytes), 0) + max(int(headroom_bytes), 0)
+
+
+def human_bytes(value: float) -> str:
+    """与 capacity_alerts/reports 的字节文案保持同一量级与精度（KiB 起、两位小数）。"""
+    size = float(value)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB", "PiB"):
+        if abs(size) < 1024 or unit == "PiB":
+            return f"{size:.2f} {unit}"
+        size /= 1024
+    return f"{size:.2f} PiB"
+
+
+def _check_disk_space(
+    package_path: Path,
+    required_dirs: list[Path],
+    headroom_bytes: int,
+    usage: Callable[[Any], Any] | None = None,
+) -> dict[str, Any]:
+    usage = usage or shutil.disk_usage
+    try:
+        payload_bytes = package_payload_bytes(package_path)
+    except OSError as exc:
+        return {"name": "disk_space", "ok": False, "message": f"无法读取升级包大小：{exc}"}
+
+    required = required_upgrade_bytes(payload_bytes, headroom_bytes)
+    seen_devices: set[int] = set()
+    filesystems: list[dict[str, Any]] = []
+    for path in required_dirs:
+        try:
+            device = path.stat().st_dev
+            free_bytes = usage(path).free
+        except OSError:
+            continue
+        if device in seen_devices:
+            continue
+        seen_devices.add(device)
+        filesystems.append({"path": str(path), "free_bytes": int(free_bytes), "required_bytes": required})
+    if not filesystems:
+        return {"name": "disk_space", "ok": False, "message": "无法获取升级所需目录的磁盘可用空间"}
+
+    detail = {
+        "package_bytes": payload_bytes,
+        "required_bytes": required,
+        "headroom_bytes": headroom_bytes,
+        "payload_uncompressed": not package_path.is_file(),
+        "filesystems": filesystems,
+    }
+    insufficient = [item for item in filesystems if item["free_bytes"] < required]
+    if insufficient:
+        worst = min(insufficient, key=lambda item: item["free_bytes"])
+        return {
+            "name": "disk_space",
+            "ok": False,
+            "message": (
+                f"磁盘空间不足：{worst['path']} 可用 {human_bytes(worst['free_bytes'])}，"
+                f"升级需要 {human_bytes(required)}"
+                f"（包内容 {human_bytes(payload_bytes)} + 预留 {human_bytes(headroom_bytes)}）"
+            ),
+            "detail": detail,
+        }
+    return {
+        "name": "disk_space",
+        "ok": True,
+        "message": (
+            f"磁盘空间充足（最少可用 {human_bytes(min(item['free_bytes'] for item in filesystems))}"
+            f" ≥ 需要 {human_bytes(required)}）"
+        ),
+        "detail": detail,
+    }
 
 
 

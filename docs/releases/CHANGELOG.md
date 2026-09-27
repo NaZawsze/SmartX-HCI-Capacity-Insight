@@ -47,6 +47,8 @@ v0.5.3 是 v0.5.2 之后的平台版本候选（未发布），主要内容：�
 - **新建 VM 与增长口径统一（49-42/49-43/49-44/49-45）**：新建 VM 按 `vm_id` 全历史最早样本判定（断档恢复不再把老 VM 判成新建，本月新建 199→6）；概览与报表同源共用 `app/v2/vms/new_vm.py`、`app/v2/vms/growth.py`（窗口定义/计算/展示规则统一，同 30 天窗口两页结果一致，修复概览 0 条 vs 报表 66 条）；周期边界下沉共享实现，报表增长列表修复 series tail 兜底泄漏回收站 VM。
 - **趋势图配色互换与调色板错位修复（49-48/49-48b）**：按用户要求交换「实际容量」与「已分配容量」颜色（实际=主蓝 `--blue`、已分配=青）；同时把全部六个系列改为**显式配色**——ECharts 调色板只给未显式配色的系列按顺序发色，只改一个会让后续系列整体错位（首版曾导致历史预测与已分配容量同为青色）。
 
+- **升级预检查补磁盘空间硬校验（US-07，49-55）**：`precheck` 新增 `disk_space` 项——需要空间 = 升级包体积 × 3（镜像解包 + `docker load` 落盘）+ 预留（默认 2 GiB，`SMARTX_UPGRADE_DISK_HEADROOM_BYTES` 可覆盖，`0` 表示不额外预留），按文件系统去重后检查 `upgrades/`、`backups/` 与根文件系统（docker 镜像存储），不足即 `precheck_failed`，message 给出「哪个路径、可用多少、需要多少」与估算构成。此前空间不足会在 `image.load`/备份阶段失败，留下半升级现场（镜像只加载一半、备份不完整）。
+
 - **升级顺序敏感：post-cleanup 健康断言（US-05，49-52）**：升级包 manifest `required_health` 移除 `runner_version` 等值断言（保留平台 `version`+三项 checks）——合法终态有两种（runner 基线直升 / 先升 runner 再升平台），等值断言会让"先升 runner"顺序在 post-cleanup 误判失败、旧环境不清理。runner 侧空字段自动跳过校验，无需升级 runner。
 - **并发升级无互斥（US-23，49-52）**：`start` 增加单飞守卫——已有升级处于 pending/running/runner_restarting/recovery_required/rollback_* 时拒绝开始新升级（平台与组件两个入口共用 `start()` 一处覆盖；`post-cleanup retry`/`recovery`/`rollback` 同守卫，cancel/delete 不拦）；类级锁消除并发 start 的扫描-认领竞态窗口（两个并发 start 恰好一个成功）。修复前第二个任务会在被第一个改动过的环境上按旧计划执行。
 
