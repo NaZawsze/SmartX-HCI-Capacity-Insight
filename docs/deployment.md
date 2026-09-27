@@ -266,6 +266,8 @@ Replace `admin` with the actual platform username when needed. After reset, log 
 
 ### 10.1 升级顺序（必读，必须遵循）
 
+> 链路与配对的**权威版本见 [docs/upgrade-chain.md](upgrade-chain.md)**（现场主路径 `v0.5.2 → v0.5.3` 无 runner 步骤；从 v0.5.1 起的完整链路只给旧布局老客户与演练；平台↔runner 配对表）。本节只列操作要点。
+
 **顺序铁律：先升平台（v0.5.3），再做 runner 组件升级（v0.3.2）。** runner 组件升级**永远不是**平台升级的前置条件。
 
 1. **为什么必须按这个顺序**：目标布局源端（v0.5.2）的 web-api 在执行 runner 组件升级时会无条件执行 `docker compose --project-name <当前 project> stop upgrade-runner`；目标布局机器上停掉的就是**刚启动的新 runner**（实测约 10s 后 `SIGKILL`、`exit=137`，心跳过期 → 后续升级预检查报「未检测到 upgrade-runner 心跳」）。这个同 project 守卫只在 **v0.5.3 起**的镜像里，旧源端改不到，所以**任何现场都按上述顺序做**。

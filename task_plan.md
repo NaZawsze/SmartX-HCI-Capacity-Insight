@@ -35,6 +35,8 @@ git status --short --branch
 
 ## 专项升级链路文档
 
+**升级链路与升级顺序的权威版见 [docs/upgrade-chain.md](docs/upgrade-chain.md)**（现场主路径 = `v0.5.2 -> v0.5.3` 无 runner 步骤；从 v0.5.1 起的老布局链路见该文档 §2）。
+
 `v0.5.1 + runner v0.3.0 -> v0.5.1u2 -> runner v0.3.1 -> v0.5.2` 的详细修复、任务计划、失败证据、包路径/SHA、任务 ID 和完整链路验证，统一维护在：
 
 ```text
