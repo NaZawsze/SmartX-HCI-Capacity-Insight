@@ -7996,6 +7996,18 @@ release_smoke=critical 0, warning 0
 - **残留与边界**：任务结束后一个轮询周期（≤3s）两条通道都不新鲜，生产里由 `_active_runner_state()` 的 docker 兜底覆盖（已记入设计文档边界节）；runner 侧"执行期也刷新实例心跳"登记为下次 runner 交付待办。`.3` 上本次实验产生的 4 个升级任务目录（含 3 个 success、1 个 precheck_failed，约 3.3 GB）与 `/root/verify-gate`、采样脚本已清理。
 - 提交：`fb6df7d`（修复）+ `8427d9c`（证据/边界）。**S1 阶段（本地可闭环缺陷）全部完成**，下一步按顺序进入 S2-1（US-06 升级后采集改事件驱动）。
 
+## 2026-09-28 `.12` 重建清理（用户：「US24 先不管」「.12 重建清理干净」）
+
+目标：把 `.12` 从"卡死 running 任务"的现场重建为一个干净可用的环境。
+
+- **过程（两次尝试，如实记录）**：
+  1. 第一次重建：拆环境 → 重建 v0.5.1 基线成功（health `v0.5.1/v0.3.0`）→ **u2 起每步 LOGIN FAILED**。根因是我"修好终态判断"的那版驱动把凭据路径写死成目标布局 `/data/smartx-storage-forecast/project/.env`，而 v0.5.1/u2 阶段 `.env` 还在 `/opt/smartx-storage-forecast/.env`（旧版驱动有兜底、新版没有）。结果：卡死环境已被清掉，`.12` 落到干净的 v0.5.1 + 夹具数据。
+  2. 第二次（补上凭据兜底后续跑）：u2 `upgrade-727b0a8732862208` ✓ → runner v0.3.1 `upgrade-6d5bfe29e7f77bf9` ✓ → v0.5.2 `upgrade-9e4ff8cf97704c39` ✓（+ post-cleanup ✓）→ **v0.5.3 预检失败**（`runner_protocol=False`）= v0.5.2 升级刚做完、runner 刚被 handoff 换过、实例心跳尚未刷新 —— 这是 **US-08 的现场再现**（源端 v0.5.2 没有 r5 里的租约通道修复）。此时我的编排脚本**没有失败即停**，继续跑了 runner v0.3.2 组件升级 —— 而平台还是 **v0.5.2**，v0.5.2 的 web-api 会无条件停掉刚起来的新 runner（**US-04 已知行为**）→ runner 容器 `Exited(137)`、health「未检测到 runner」。
+  3. 收尾：按文档"该已知问题需要人工恢复"把 runner 拉起（`docker compose -p smartx-hci-capacity-insight up -d upgrade-runner`，v0.5.2 项目 compose pin 的是 `v0.3.1`）→ 等心跳就绪 → 用**失败即停**的脚本按正确顺序补完：v0.5.3(r5) `upgrade-1635fe4178810e0f` **succeeded**（+ post-cleanup）→ runner v0.3.2 `upgrade-2b26d6d3e9c7853b` **succeeded**、**存活观察 120s 一直 Up**。
+- **`.12` 最终状态（干净可用）**：health `{"ok":true,"version":"v0.5.3","runner_version":"v0.3.2",checks 全 true}`；五容器 `v0.5.3` 三件套 + runner `v0.3.2` + prometheus `v2.55.1`；目标 project/network/subnet；**SQLite `integrity ok`、users1/towers1/clusters1/vm_latest556/vm_volumes89588**；Prometheus 挂目标目录 200；`.env` 0600 且 sha `8b644112e7433b5059b10d1f` 与基线一致；7 个 legacy 路径 missing；UI 200；**无活跃任务目录**（单飞守卫不再拦），仅保留本轮链路的 7 个终态任务目录；磁盘 49% 使用。中间两次失败尝试留下的残留任务目录（`upgrade-7723fbd2fee13897` 预检失败、`upgrade-cd48806cbe17d956` 被 US-04 杀掉的那次）已用产品接口 `DELETE /api/admin/upgrade/package/{task_id}` 删除（http 200）。
+- **本轮教训（已记）**：①在 `.12` 上跑链路必须**失败即停**，否则会在错误平台上做组件升级、被 US-04 杀掉 runner，把环境搞成半成品；②v0.5.2 源端预检查在 runner 刚 handoff 后可能因心跳未刷新而误判 runner 能力（US-08 现场证据，r5 已修）；③驱动脚本读凭据必须同时覆盖旧/新布局路径。
+- **US-24 按用户指示搁置**（同版本升级卡死那条，代码未动，pending-tasks #48 记录待修 + 需同意并 bump 版本）。
+
 ## 2026-09-27 `.12` 全链路演练（从 v0.5.1u2 起，用户授权）+ 两个新缺陷
 
 触发：用户「11.12要从v0.5.1u2开始测试」+「数据你可以先备份，等u2恢复好之后可以导入数据，然后开始走正常升级流程，也要注意数据是否会丢失」+ 提供 `.12` 登录方式。全程只走产品流程（上传→预检→start），不手工改 task 状态、不伪造结果。
