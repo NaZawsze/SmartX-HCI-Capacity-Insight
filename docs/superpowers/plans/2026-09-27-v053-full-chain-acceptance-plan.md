@@ -135,10 +135,10 @@ v0.5.1 + runner v0.3.0
 
 | 阶段 | 结果 | 证据（task id / SHA / 输出摘要） | 时间 |
 | --- | --- | --- | --- |
-| 0 打包+门禁 | | | |
-| 1 基线恢复 | | | |
-| 2 链路到 v0.5.2 | | | |
-| 3 旧 runner 被拒 | | | |
-| 4 组件升级 v0.3.2 | | | |
-| 5 v0.5.3 升级+8项 | | | |
-| 6 记账 | | | |
+| 0 打包+门禁 | ✅ 第四轮 | 平台包 `e1c0fde814f192fa702469fc870b19590dcae5ed39375c116bc64a8690bab009`；runner 组件包 `3d99599cd0e8fceb…`；`--check-version`/identity/`.sha256`/敏感 0；后端 377 tests OK、构建 26 OK | 2026-09-27 |
+| 1 基线恢复 | ✅ | `/root/baselines/v053-r4-baseline-20260927`（verify ok）；health v0.5.1/runner v0.3.0 全绿；subnet 10.249.249.0/24；DB 1/1/556/89588 | 2026-09-27 |
+| 2 链路到 v0.5.2 | ✅ | `upgrade-1ea87b5c5c188109`(u2) → `upgrade-2cf232b7cd096409`(runner 已发布 d10e15cf) → `upgrade-5cae8764ee3226bb`(v0.5.2)；节点1/2/3 + post-cleanup succeeded | 2026-09-27 |
+| 3 旧 runner 被拒 | ✅（拒绝场景第一轮取证）+ 第四轮 3″ 预检查通过 | 拒绝：`upgrade-79a20c17b11f33b0` precheck=failed（`images`：本地 Docker 镜像不存在 …v0.3.2）；通过：`upgrade-666284beec04cc87` prechecked 7 项全 ok | 2026-09-27 |
+| 4 组件升级 v0.3.2 | ✅（第四轮改为「阶段6」，升级之后做） | `succeeded`；`component-version=v0.3.2`；**runner 连续 90s 存活（修复前 10s 必死）**；health v0.5.3/v0.3.2 三 checks 全 true | 2026-09-27 |
+| 5 v0.5.3 升级+8项 | ✅（发布版 v0.3.1 直升） | 主任务 `upgrade-666284beec04cc87` **succeeded**；计划 12 动作无 schedule_collection；post-cleanup **succeeded**；标记 `source=target_worker_compatibility`；采集任务已创建（Tower 不可达=环境限制）；8 项验收 runner=v0.3.1 全过，复验 runner=v0.3.2 全过；新闸门 `runner_actions 14 动作全部支持` | 2026-09-27 |
+| 6 记账 | ✅ | ledger/CHANGELOG/AGENTS/task_plan/pending/findings/progress 已更新；提交 `9ed5d49` 等 | 2026-09-27 |
