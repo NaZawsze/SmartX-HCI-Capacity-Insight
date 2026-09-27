@@ -1751,6 +1751,20 @@ def compose_project_migrate(action: dict[str, Any], context_payload: dict[str, A
     }
 
 
+def _same_directory(left: Path, right: Path) -> bool:
+    """按 inode 判定两个路径是否同一目录（含 bind mount 双视图别名）。
+
+    49-50 修复（2026-09-27 在 10.20.11.12 实测）：runner 容器里 source(`/data/upgrades/…`) 与
+    target(`/data/smartx-storage-forecast/upgrades/…`) 是**同一宿主目录的两个 bind mount 视图**，
+    `Path.resolve()` 只折叠符号链接、看不出等价 → 旧逻辑走到 `rmtree(target)` 把源目录一起删掉，
+    随后 `copytree(source)` 找不到源 → 任务目录被销毁 + `RevisionConflict`，升级卡死在「迁移升级任务状态」。
+    """
+    try:
+        return left.is_dir() and right.is_dir() and os.path.samefile(left, right)
+    except OSError:
+        return False
+
+
 def task_migrate_runtime_state(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:
     context = _context(context_payload)
     params = action.get("params", {})
@@ -1764,7 +1778,8 @@ def task_migrate_runtime_state(action: dict[str, Any], context_payload: dict[str
             raise ValueError("任务状态迁移缺少 target_upgrades_path。")
         target_task_dir = target_upgrades / context.task_id
     target_task_dir = _target_upgrade_state_path(context, target_task_dir)
-    if source_task_dir.resolve() == target_task_dir.resolve():
+    if _same_directory(source_task_dir, target_task_dir) or source_task_dir.resolve() == target_task_dir.resolve():
+        # 同一目录（含 bind mount 双视图）：只确保存在，绝不能 rmtree（会把源一起删掉）
         target_task_dir.mkdir(parents=True, exist_ok=True)
     elif source_task_dir.is_dir():
         target_task_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -1776,7 +1791,11 @@ def task_migrate_runtime_state(action: dict[str, Any], context_payload: dict[str
     migrated_history_dirs: list[str] = []
     source_root = source_task_dir.parent
     target_root = target_task_dir.parent
-    if source_root.resolve() != target_root.resolve() and source_root.is_dir():
+    if (
+        not _same_directory(source_root, target_root)
+        and source_root.resolve() != target_root.resolve()
+        and source_root.is_dir()
+    ):
         target_root.mkdir(parents=True, exist_ok=True)
         for child in sorted(source_root.iterdir()):
             if not child.is_dir() or not (child / "task.json").is_file():
