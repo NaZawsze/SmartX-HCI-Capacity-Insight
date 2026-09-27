@@ -96,7 +96,12 @@ Ordered checklist for cutting a platform release. Rules and boundaries live in `
 3. **Build on `10.20.11.3`**: build images, run the full backend suite (current baseline 386 tests), build the upgrade package with `scripts/build_upgrade_package.py`, run `scripts/verify_upgrade_package_identity.py`, record package path and SHA256.
 4. **Runner 交付一致性核对（2026-09-27 定，缺项禁止发布）**：
    - 若本次改动涉及 `backend/app/upgrade_runner/` 或 `upgrade_protocol/`：**必须**在同一提交 bump `RUNNER_VERSION`，用 `scripts/build_runner_component_package.py` 产出新组件包并记录 SHA；未 bump 即发布 = 违规。
-   - 三处同源核对：仓库 `RUNNER_VERSION`+动作表 ｜ runner 组件包（解包 grep 关键动作）｜ DockerHub `runner-v<版本>` tag（tags API 必须 200，404 = 没推 tag = 没交付）。
+   - 三处同源核对（用 `scripts/verify_runner_delivery_consistency.py` 执行，缺项禁止发布）：
+     ```bash
+     python3 scripts/verify_runner_delivery_consistency.py \
+       --package <runner 组件包 .tar.gz> --check-dockerhub --json
+     ```
+     脚本核对：仓库 `RUNNER_VERSION` + 动作表 ｜ 组件包 manifest 与镜像归档 SHA ｜ **包内镜像的 `/app/RUNNER_VERSION` 与 `actions.py` md5 与仓库一致** ｜ DockerHub `v<版本>` tag 200（404 = 没推 tag = 没交付）。任一 FAIL 即非零退出。
    - 核对结论（含三处 SHA/tag）写入 `docs/upgrade-package-ledger.md` 与 `docs/releases/CHANGELOG.md`。
 5. **Rehearse on `10.20.11.12`**: real upgrade from a supported source version via the upgrade center (upload → precheck → start → verification → post-cleanup); record task ID, health output, and evidence in `progress.md`; add the package row to `docs/upgrade-package-ledger.md`。
    - **runner 基线必须取已发布的 Release 资产**（客户手里那份），禁止用测试机上开发期重建的 runner 镜像——否则验收环境 ≠ 交付环境（2026-09-27 实测教训：开发镜像三轮全绿，换 `d10e15cf…` 立刻失败）。**若本次同时发新 runner，交付顺序仍是「先平台、后 runner」**：先用已发布 runner 完成平台升级验收，再在 v0.5.3 上做 runner 组件升级并复验——反向顺序（先升 runner 再升平台）在 v0.5.2 源端会被老 web-api 无条件停掉新 runner（`docs/deployment.md` §10.1）。

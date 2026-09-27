@@ -52,6 +52,7 @@ v0.5.3 是 v0.5.2 之后的平台版本候选（未发布），主要内容：�
 
 ### 工程与运维
 - **DockerHub runner `v0.3.1`/`latest` 补齐（2026-09-27）**：发布资产 `d10e15cf…` 对应的镜像本体已 push 到 `nazawsze/smartx-hci-capacity-insight-upgrade-runner`（digest `90eb5a42…`），`latest` 同步指向它；核对 `RUNNER_VERSION=v0.3.1`、25 个动作、无 `post_upgrade.schedule_collection`、`actions.py` md5 `573dd04b…`。已知债务：该镜像无对应 git 提交、CI 无法复现（决定不补源码）。此前 DockerHub 只有 `latest`(06-05)、`runner-sha-31a1209`/`v0.3.0`(06-12)，**`v0.3.1` 从未推过**。
+- **runner 交付一致性硬门禁（49-54，2026-09-27，#47② / US-02）**：新增 `scripts/verify_runner_delivery_consistency.py`，把发布前靠人工执行的「三处同源核对」做成一条命令——C1 仓库 `RUNNER_VERSION`；C2 动作表（AST 静态提取 `default_handlers()`，不启动容器）；C3 三个源码 compose 字面量 tag；C4 组件包 manifest 版本与镜像归档 SHA256；C5 **包内镜像的 `/app/RUNNER_VERSION` 与 `app/upgrade_runner/actions.py` md5 与仓库一致**（证明"这个包出自这份源码"，堵住"同版本号不同能力"）；C6 DockerHub tag 200（默认关闭，需 `--check-dockerhub`）。任一 FAIL 即非零退出，SKIP 必须显式列出（不把"没检查"当成"已通过"）。配对单测 17 例；发布门禁步骤 4 改为调用本脚本。
 
 - **巨型文件拆分（49-13）**：`app/v2/api.py` → 域路由包（74 条路由 path+method 一致）；`frontend/src/pages/ServicePage.tsx`（2305 行）→ `components/service/` 六域组件；`app/v2/reports/export.py` → `export/` 包（common/word/excel/legacy）；`app/v2/upgrade/service.py` → Mixin 包（公开方法集合不变）。`admin.py` 二次拆分为域子模块包。
 - **v1 死代码移除（49-12）**：删除 v1 专属模块约 4800 行；export legacy 消化删除 60 处不可达死代码（约 1264 行）。
