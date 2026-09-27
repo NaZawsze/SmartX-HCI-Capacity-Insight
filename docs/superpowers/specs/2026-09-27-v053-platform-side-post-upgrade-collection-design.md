@@ -40,7 +40,11 @@
   - 顺序断言 279/280 相应删除（改为 `task.sync_runtime_state` → `post_upgrade.schedule_cleanup` 的顺序保持）。
 - `backend/tests/test_v2_worker.py`：新增「manifest 只带 `platform_collection`」「两者都带」「只带 `auto_collection`（历史包）」三例；既有用例继续通过（兼容读取）。
 - `backend/tests/test_upgrade_runner_engine.py`：runner 侧动作测试**不动**（runner 仍实现该动作）。
-- 远端验收（硬门禁）：`.12` 恢复 v0.5.1 基线 → `u2(d5f277) → runner(d10e15cf) → v0.5.2(692aca8b) → v0.5.3(新候选包)`，要求主任务 success、post-cleanup success、**平台侧自动采集任务在 5 秒内自建标记并创建**（Tower 不可达只记环境限制）、8 项验收全过。
+- 远端验收（硬门禁）：**严格按 [docs/superpowers/plans/2026-09-27-v053-full-chain-acceptance-plan.md](docs/superpowers/plans/2026-09-27-v053-full-chain-acceptance-plan.md) 执行**——`.12` 恢复 v0.5.1 基线 → `u2(d5f277) → runner v0.3.1(d10e15cf 已发布) → v0.5.2(692aca8b) → runner v0.3.2(本轮组件包) → v0.5.3(候选包)`。
+- **口径修正（2026-09-27，用户选定 B-b 后）**：B-b 使平台包声明 runner 镜像 `v0.3.2`，预检查 `images` 检查（`docker image inspect`）会先拦住没有该镜像的现场，因此**「已发布 v0.3.1 直升 v0.5.3」不再成立**。A 的验收改为：
+  1. 升级计划 `actions` **不含** `post_upgrade.schedule_collection`（含 `post_upgrade.schedule_cleanup`）；
+  2. 升级成功后**平台自建标记** `post-upgrade-collection.json`（`source=target_worker_compatibility`）并创建升级后自动采集任务（Tower 不可达只记环境限制）；
+  3. 主任务 success、post-cleanup success、8 项验收全过。
 
 ## 6. 回滚
 
@@ -48,4 +52,5 @@
 
 ## 7. 与方案 B 的关系
 
-A 负责「v0.5.2 现场能直升 v0.5.3」；B（runner v0.3.2 + 预检查动作级校验）负责防复发。B 的动作级校验**只在源端 ≥ v0.5.3 时生效**（预检查代码运行在源端），因此**不覆盖本次迁移**，两者互补不重叠。
+- **B-b 选定后（2026-09-27）**：A 负责「升级计划不再要求 runner 实现那条多余动作 + 升级后由平台自己完成采集」；B（runner v0.3.2 组件升级前置 + 动作级预检查）负责「早失败 + 防复发」。**现场直升的前提由 B-b 改为「先做 runner 组件升级到 v0.3.2」**（预检查 `images` 检查给出明确提示）。
+- B 的动作级校验只在**源端 ≥ v0.5.3** 时生效（预检查代码跑在源端），不覆盖 `v0.5.2 → v0.5.3` 这一次；那一次的拦点是镜像存在性检查。

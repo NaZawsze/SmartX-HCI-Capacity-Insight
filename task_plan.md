@@ -1757,6 +1757,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 来源：2026-09-27 用户指示「A+B 你先写计划里不执行」；事故与根因见 findings.md 2026-09-27 三条、pending-tasks #45。
 计划：[docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md](docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md) 方案 A。
 设计：[docs/superpowers/specs/2026-09-27-v053-platform-side-post-upgrade-collection-design.md](docs/superpowers/specs/2026-09-27-v053-platform-side-post-upgrade-collection-design.md)（2026-09-27 已写；含关键修正：计划由**源端**已发布 v0.5.2 web-api 编译，故改为 manifest 驱动 + 平台侧调度）。
+验收：**严格按 [docs/superpowers/plans/2026-09-27-v053-full-chain-acceptance-plan.md](docs/superpowers/plans/2026-09-27-v053-full-chain-acceptance-plan.md) 执行**（B-b 下 A5 口径已修正：现场直升改为先做 runner 组件升级到 v0.3.2）。
 - [ ] A2 `backend/app/v2/upgrade/compiler.py`：**不再下发** `post_upgrade.schedule_collection`（读码确认：该动作对 runner 是多余的——它只写标记文件 `post-upgrade-collection.json`，不抓数据）
 - [ ] A3 **复用既有平台侧逻辑，无需新增**：`worker.py:229 run_pending_post_upgrade_collection`（5 秒轮询）+ `worker.py:195 _ensure_post_upgrade_collection_marker`（无标记时平台自建，`source=target_worker_compatibility`）；补"runner 不写标记也能自动采集"回归测试
 - [ ] A4 编译器与调度单测
