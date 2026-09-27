@@ -128,6 +128,39 @@ class PrecheckRunnerActionsTest(unittest.TestCase):
         self.assertNotIn(missing[0], RELEASED_RUNNER_ACTIONS)
 
 
+class ImagesGateRunnerHintTest(unittest.TestCase):
+    def test_missing_runner_image_hint_mentions_component_upgrade(self) -> None:
+        """49-50：manifest 声明的 runner 镜像本地不存在时，提示必须指向「组件升级到该版本」。"""
+        from app.v2.upgrade.service.precheck import _check_images_with_executor
+
+        class MissingImageExecutor:
+            def run(self, command: list[str], *, cwd: Path | None = None, timeout: int | None = None) -> None:
+                raise RuntimeError("No such image")
+
+        manifest = {
+            "components": [
+                {
+                    "type": "runner",
+                    "services": ["upgrade-runner"],
+                    "images": [
+                        {
+                            "service": "upgrade-runner",
+                            "image": "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2",
+                            "archive": None,
+                        }
+                    ],
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            check = _check_images_with_executor(Path(tmpdir), manifest, MissingImageExecutor())  # type: ignore[arg-type]
+
+        self.assertFalse(check["ok"])
+        self.assertIn("本地 Docker 镜像不存在", check["message"])
+        self.assertIn("组件升级", check["message"])
+        self.assertIn("v0.3.2", check["message"])
+
+
 def record_runner_state(database, *, version: str, capabilities: list[str] | None = None) -> None:
     import json
 
