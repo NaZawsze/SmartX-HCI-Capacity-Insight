@@ -503,3 +503,9 @@ Current execution rule: Python, dependencies, tests, builds and full-chain valid
 | Status | Fix ID | Host Path | SHA256 | What Changed | Validation Result |
 | --- | --- | --- | --- | --- | --- |
 | USE（链路第 2 步与后续 v0.5.3 升级必须用这一版） | `runner-v0.3.1-dev2-20260927` | `/data/upgrade-packages/components-v053-20260927/smartx-upgrade-runner-v0.3.1.tar.gz`（10.20.11.3） | `dd096bf239c6023d8997a4a42ff7d71c46b962a5feaeb2dda46d4ade0e25aa1a` | `build_runner_component_package.py --version v0.3.1 --no-build`，直接打包 .3 当前 dev2 构建的 runner 镜像 `0aca32511008`（动作表含 `post_upgrade.schedule_collection`、UPG-049 与 Prometheus legacy 扫描守卫）；不重建镜像，避免改动 .3 运行时。 | `.12` 链路第 2 步 task `upgrade-a56ebcfe87b18b0b` succeeded；用它后 v0.5.3 升级 `upgrade-72bfb3f52317ef7f` succeeded。**旧包对比**：`components/smartx-upgrade-runner-v0.3.1.tar.gz` `a112f6e1…`（2026-06-28）与 `.12` 上的 `d10e15cf…`（2026-07）**均无该动作**（`grep -c schedule_collection` = 0），用它们会在 v0.5.3 切换后失败。 |
+
+## 2026-09-27 DockerHub runner `v0.3.1` / `latest` 补推（内容 = 发行资产 d10e15cf）
+
+| Status | Fix ID | Host Path / 位置 | SHA256 / digest | What Changed | Validation Result |
+| --- | --- | --- | --- | --- | --- |
+| USE / DockerHub 已补齐 | `dockerhub-runner-v0.3.1` | DockerHub `nazawsze/smartx-hci-capacity-insight-upgrade-runner` 的 `v0.3.1` 与 `latest` | 镜像 manifest digest `sha256:90eb5a4239cd9c6863cf7194bfa0bd7fe4935cffb0b5a77467c97ce0b78799fc`（源包 SHA `d10e15cf…`，两者哈希对象不同属正常） | 2026-09-27 在 10.20.11.12 上把**发行资产镜像本体**直接 push 上去（未经 CI，因无任何提交等于该镜像）；同时按用户要求把 `latest` 指到同一镜像。**未动** `v0.3.0`（06-12）与 `runner-sha-31a1209`。 | push 前在容器内核对：`RUNNER_VERSION=v0.3.1`、`schedule_collection=0`、动作 **25**、`actions.py` md5 **`573dd04b3618d2066b0326c2fd183c8d`**（与发行资产逐文件一致）；push 后 DockerHub tags API `v0.3.1`/`latest` 均 200 且 digest 相同（2026-09-27T06:10Z）；`.12` 本地 tag 已还原为 `0aca32511008`（运行容器未受影响）、`docker logout` 后 `auths=[]`。**已知债务：该镜像无对应 git 提交、CI 无法复现（用户 2026-09-27 决定不补源码）。** |

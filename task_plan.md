@@ -1782,12 +1782,12 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 
 来源：2026-09-27 用户「那 v0.5.1u2 不用补了，dockerhub 上补 v0.3.1 镜像就可以了」（**取消源码补档 C1–C3**）。
 计划：[docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md](docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md) 方案 C 简化版。
-- [ ] C1′ 取得 DockerHub 凭据（用户 token 或用户自行 push）——**本机/.3/.12 均无 DockerHub 凭据，GitHub Actions secrets 读不到**
-- [ ] C2′ `.12` 上 load 发行镜像 `d10e15cf` → push `…:v0.3.1` → **还原本地 tag**（`0aca32511008` 被运行容器用着）→ `docker logout`
-- [ ] C3′ 校验：tag 200、`RUNNER_VERSION=v0.3.1`、无 `schedule_collection`、动作 25、`actions.py` md5 `573dd04b…`
-- [ ] C4′ 记账 + 登记已知债务：**该镜像无对应 git 提交、CI 无法复现**（用户决定不补源码）
+- [x] C1′ 取得 DockerHub 凭据（用户提供 token，一次性使用未落盘，建议吊销）
+- [x] C2′ `.12` 上 load 发行镜像 → push `…:v0.3.1` **与 `…:latest`（用户要求 latest 一并更新）** → 还原本地 tag `0aca32511008` → `docker logout`（`auths=[]`）
+- [x] C3′ 校验通过：DockerHub `v0.3.1`/`latest` 同 digest `sha256:90eb5a42…`（2026-09-27T06:10Z）、push 前容器内 `v0.3.1`/25 动作/无 `schedule_collection`/md5 `573dd04b…`
+- [x] C4′ 已记账（ledger/CHANGELOG/findings）+ 登记已知债务：**该镜像无对应 git 提交、CI 无法复现**（用户决定不补源码）
 - 为什么不能走 Actions：Actions 只照 git 源码构建，而没有任何提交等于发行镜像（tag `baaffcd` 11 动作 / main 26 动作 / 发行版 25 动作）。
-- [ ] 实施（**待用户提供 DockerHub 凭据或自行执行**）
+- [x] 实施完成（2026-09-27）
 
 ### 37. 手动采集失败清空指标快照修复 + 仪表盘数据过期标注（49-37）[进行中]
 

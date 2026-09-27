@@ -751,3 +751,10 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
   3. 预检查是**能力级**不是**动作级**（旧 runner 也声明 `task.recovery.v1`），放行后失败落在 cutover 之后。
   4. **验收没用 Release 资产**：前几轮 v0.5.3 验收跑的是测试机上开发期重建的 runner 镜像（`7d152590d6fd`/`0aca32511008`），验收环境 ≠ 交付环境，缺陷被掩盖到 09-27 用交付包首跑才暴露。
   5. 文档时间线自相矛盾（CHANGELOG 写 07-17，实际 08-12），排查时容易被带偏。
+
+### 2026-09-27 DockerHub `v0.3.1` 已补齐（交付闭环的镜像侧）
+
+- 做法：`.12` 上解发行包 `d10e15cf…` → 容器内核对身份（`v0.3.1` / `schedule_collection=0` / 25 动作 / `actions.py` md5 `573dd04b…`）→ `docker push …:v0.3.1` 与 `…:latest`（用户要求 latest 一并更新）→ 还原本地 tag → `docker logout`。
+- 结果：DockerHub `v0.3.1`、`latest` 同 digest `sha256:90eb5a42…`（2026-09-27T06:10Z）；`v0.3.0`、`runner-sha-31a1209` 未动。
+- **为什么走手工 push 而不是 CI**：Actions 只照 git 源码构建，而没有提交等于发行镜像（tag 11 动作 / main 26 动作 / 发行版 25 动作）；用户 2026-09-27 决定**不补源码**，因此接受"**镜像无对应 git 提交、CI 不可复现**"作为已知债务（已记 ledger/CHANGELOG）。`runner-sha-*` 副标签体系对 `v0.3.1` 也不成立。
+- 凭据纪律：token 仅在本次会话使用，**未写入任何文件/提交/日志**，远端已 `docker logout`（`auths=[]`）；**该 token 已在对话中明文出现，建议尽快在 DockerHub 后台吊销**。

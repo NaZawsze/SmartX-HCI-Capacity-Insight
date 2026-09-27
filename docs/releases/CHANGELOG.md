@@ -48,6 +48,7 @@ v0.5.3 是 v0.5.2 之后的平台版本候选（未发布），主要内容：�
 - **趋势图配色互换与调色板错位修复（49-48/49-48b）**：按用户要求交换「实际容量」与「已分配容量」颜色（实际=主蓝 `--blue`、已分配=青）；同时把全部六个系列改为**显式配色**——ECharts 调色板只给未显式配色的系列按顺序发色，只改一个会让后续系列整体错位（首版曾导致历史预测与已分配容量同为青色）。
 
 ### 工程与运维
+- **DockerHub runner `v0.3.1`/`latest` 补齐（2026-09-27）**：发布资产 `d10e15cf…` 对应的镜像本体已 push 到 `nazawsze/smartx-hci-capacity-insight-upgrade-runner`（digest `90eb5a42…`），`latest` 同步指向它；核对 `RUNNER_VERSION=v0.3.1`、25 个动作、无 `post_upgrade.schedule_collection`、`actions.py` md5 `573dd04b…`。已知债务：该镜像无对应 git 提交、CI 无法复现（决定不补源码）。此前 DockerHub 只有 `latest`(06-05)、`runner-sha-31a1209`/`v0.3.0`(06-12)，**`v0.3.1` 从未推过**。
 
 - **巨型文件拆分（49-13）**：`app/v2/api.py` → 域路由包（74 条路由 path+method 一致）；`frontend/src/pages/ServicePage.tsx`（2305 行）→ `components/service/` 六域组件；`app/v2/reports/export.py` → `export/` 包（common/word/excel/legacy）；`app/v2/upgrade/service.py` → Mixin 包（公开方法集合不变）。`admin.py` 二次拆分为域子模块包。
 - **v1 死代码移除（49-12）**：删除 v1 专属模块约 4800 行；export legacy 消化删除 60 处不可达死代码（约 1264 行）。

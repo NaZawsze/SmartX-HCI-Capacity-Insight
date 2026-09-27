@@ -52,10 +52,10 @@
 用户原话：「那 v0.5.1u2 不用补了，dockerhub 上补 v0.3.1 镜像就可以了」。
 **取消**原计划的 C1–C3（归档分支 + 从镜像反提源码 + 打 `runner-v0.3.1` tag 走 Actions）——因为 Actions 只会照 git 源码构建，而没有任何提交等于发行镜像，**不补源码就走不了 CI**，只能直接 push 镜像。
 
-- [ ] C1′ 取得 DockerHub 凭据：用户提供的 access token（Read/Write），或用户自行执行 push。
-- [ ] C2′ 在 `.12`（发行包 `/root/chain-verify-20260722/packages/smartx-upgrade-runner-v0.3.1.tar.gz`，SHA `d10e15cf`）：**先记录**本地 `…:v0.3.1` 当前镜像 ID（现为 `0aca32511008`，运行容器在用）→ `docker load` 发行镜像 → `docker push …:v0.3.1` → **还原本地 tag** → `docker logout`。
-- [ ] C3′ 校验：DockerHub tag 200；拉取后 `RUNNER_VERSION=v0.3.1`、`grep -c schedule_collection = 0`、动作 25、`actions.py` md5 `573dd04b3618d2066b0326c2fd183c8d`（与发行资产一致）。
-- [ ] C4′ 记账：ledger/CHANGELOG 写明 DockerHub `v0.3.1` = 发行资产镜像（digest 记录），**并登记已知债务**：该镜像无对应 git 提交、无法由 CI 复现（用户 2026-09-27 决定不补源码）。
+- [x] C1′ 取得 DockerHub 凭据：用户提供 token（会话内一次性使用，未落盘；**建议吊销**）。
+- [x] C2′ 在 `.12`（发行包 `/root/chain-verify-20260722/packages/smartx-upgrade-runner-v0.3.1.tar.gz`，SHA `d10e15cf`）：**先记录**本地 `…:v0.3.1` 当前镜像 ID（现为 `0aca32511008`，运行容器在用）→ `docker load` 发行镜像 → `docker push …:v0.3.1` → **还原本地 tag** → `docker logout`。
+- [x] C3′ 校验：DockerHub tag 200；拉取后 `RUNNER_VERSION=v0.3.1`、`grep -c schedule_collection = 0`、动作 25、`actions.py` md5 `573dd04b3618d2066b0326c2fd183c8d`（与发行资产一致）。
+- [x] C4′ 记账：ledger/CHANGELOG 写明 DockerHub `v0.3.1` = 发行资产镜像（digest 记录），**并登记已知债务**：该镜像无对应 git 提交、无法由 CI 复现（用户 2026-09-27 决定不补源码）。
 - 不做的事：不动 `latest`、不推 git tag/分支、不改已发布 tag 与 Release 资产、不改 main。
 - token 纪律：不写入任何文件/提交/日志，用完即 `docker logout`。
 
