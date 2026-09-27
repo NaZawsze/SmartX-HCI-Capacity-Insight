@@ -1778,6 +1778,19 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - 边界：B **不得**作为 v0.5.3 升级的前置条件（否则已发布 v0.5.2 现场升不上来）；A、B 并行。
 - [ ] 实施（**待用户批准，当前未执行**）
 
+### 51. 补录 v0.5.1u2 runner 源码 + 推 `runner-v0.3.1` 出 DockerHub 镜像（方案 C）[计划中·未实施，需用户批准推送]
+
+来源：2026-09-27 用户「那补 v0.5.1u2 的源码可以吗」；事实见 findings.md 2026-09-27（Release 资产与 tag 源码不同源）。
+计划：[docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md](docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md) 方案 C。
+- [ ] C1 归档分支（基于 tag `v0.5.1u2`，不合并回 main/dev2）
+- [ ] C2 从发行镜像反提源码（剔除 `__pycache__`/`._*`/`.wh.*`）
+- [ ] C3 提交（注明来源与原因）
+- [ ] C4 打 tag `runner-v0.3.1` 并推送 → Actions 构建出 DockerHub `v0.3.1`（**需用户批准**）
+- [ ] C5 校验：tag 200、`RUNNER_VERSION=v0.3.1`、动作 25、`actions.py` md5 `573dd04b…`
+- [ ] C6 ledger/CHANGELOG/findings 记账
+- 边界：不改已发布 tag、不改 Release 资产、不动客户手上的包。
+- [ ] 实施（**待用户批准**）
+
 ### 37. 手动采集失败清空指标快照修复 + 仪表盘数据过期标注（49-37）[进行中]
 
 来源：2026-09-25 用户反馈「有段时间没获取到数据就把我整个看板停了，应该标注最后更新时间」+ 看板归零截图。

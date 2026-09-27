@@ -47,11 +47,25 @@
 - [ ] B7 验收：`.12` 先用 v0.3.2 组件包升级 runner，再 v0.5.2 → v0.5.3 成功；三处同源核对（仓库/Release 资产/DockerHub tag）全绿。
 - 边界：**B 不能作为 v0.5.3 升级的前置条件**（否则已发布 v0.5.2 现场永远升不上来）；A 与 B 必须并行，A 负责"能升"，B 负责"以后对齐"。
 
+## 方案 C（补源码存档）——让"客户手上的 v0.3.1"可复现，并上 DockerHub
+
+背景：v0.5.1u2 Release 的 runner 资产 `d10e15cf…`（25 动作）是 2026-07-09 **本机手工打包上传**的，源码从未入库；tag `v0.5.1u2`(`baaffcd`) 的源码只有 11 个动作。因此 Actions 从任何既有 ref 构建都复现不出发行版。
+
+- [ ] C1 基于 tag `v0.5.1u2` 开**归档分支**（如 `archive/v0.5.1u2-runner-source`）——**不合并回 main/dev2**（否则会把根 `VERSION` 从 v0.5.3 退回去，且与 main 的 26 动作冲突）。
+- [ ] C2 从发行镜像 `/app` 反提源码：`backend/app/upgrade_runner/`、`backend/app/upgrade_protocol/`、`backend/app/__init__.py`、根 `RUNNER_VERSION`(=v0.3.1)、根 `VERSION`（取镜像内值）；**剔除** `__pycache__`、`*.pyc`、`._*`（AppleDouble）、`.wh.*` whiteout。
+- [ ] C3 提交，信息写明：来源 = Release 资产 `d10e15cf` 镜像反提；原因 = 2026-07 打包时源码未入库。
+- [ ] C4 打 git tag **`runner-v0.3.1`** 指向该提交并推送（**需用户明确批准**：AGENTS §4 推送/tag 必须用户要求）→ `.github/workflows/upgrade-runner-image.yml` 构建推送 DockerHub `v0.3.1` + `runner-sha-<新sha>`。
+- [ ] C5 校验（硬门禁）：DockerHub tag 200；拉取后 `RUNNER_VERSION=v0.3.1`、`grep -c schedule_collection = 0`、动作表 25 个、**`actions.py` md5 == `573dd04b3618d2066b0326c2fd183c8d`**（与发行资产逐文件一致）。
+- [ ] C6 记账：`docs/upgrade-package-ledger.md` + `docs/releases/CHANGELOG.md` + `findings.md`（补录提交 sha、tag、DockerHub digest；注明与发行资产镜像 digest 不同但源码一致）。
+- 前提已核实：`upgrade-runner-image.yml` 与 `backend/Dockerfile.upgrade` 自 `baaffcd` 至今**逐字节一致**（CI 可直接构建）；`Dockerfile.upgrade` 的全部构建输入（`VERSION`/`RUNNER_VERSION`/`backend/app/{__init__,upgrade_protocol,upgrade_runner}`）都能从镜像还原。
+- 边界：**不改已发布 tag `v0.5.1u2`、不改 Release 资产、不动客户手上的包**；本方案只补"源码存档 + DockerHub 镜像"。
+
 ## 执行顺序与门禁
 
 1. 先做 A（平台侧，低风险，不需要动 runner）→ 用 `d10e15cf` 走完整链路验收。
 2. 再做 B（需同意 + bump v0.3.2 + 推 tag）→ 预检查动作级校验 + 新 runner 组件升级验收。
-3. 两步都过之后，才进入 v0.5.3 发布流程（`docs/release-acceptance.md` Release Day，含新增的第 4 步 Runner 交付一致性核对）。
+3. 方案 C（补源码 + 出 DockerHub v0.3.1）可与 A 并行，不阻塞 v0.5.3。
+4. A、B、C 都过之后，才进入 v0.5.3 发布流程（`docs/release-acceptance.md` Release Day，含新增的第 4 步 Runner 交付一致性核对）。
 4. 验收证据必须写明所用包/镜像的 **SHA 与来源（Release 资产 or 本地构建）**（AGENTS §10 第 7 条）。
 
 ## 明确不做
