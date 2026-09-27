@@ -47,6 +47,13 @@
 - 保持原行为不变的场景：v0.5.1u2（旧 project）→ runner bootstrap（新 project）仍会停旧 project 的 runner。
 - 测试：`backend/tests/test_runner_bootstrap_stop.py`（同 project → 不停；不同 project → 停；缺 target_project → 保持旧行为）。
 
+## 2.5 口径修正（2026-09-27 第四轮实测后确定的交付顺序）
+
+- **先升平台、后升 runner**：平台包的 runner 基线（manifest handoff 镜像 + `minimum_runner_version` + 包内 compose tag + `required_health.runner_version`）统一为**已发布 v0.3.1** —— 现场本来就有该镜像，配合方案 A 可直接直升 v0.5.3。
+- **原因**：原定 B-b「先升 runner 再升平台」在 v0.5.2 源端不可行——老 web-api 的 `execution.py` 会无条件 `docker compose stop upgrade-runner`，目标布局同 project 场景下把**刚启动的新 runner** 停掉（`exit=137`、心跳过期），而平台侧修复只存在于 v0.5.3 镜像里、源端执行不到。详见 `findings.md` 2026-09-27 三条。
+- **v0.3.2 组件包定位**：平台升级完成之后的**可选**步骤（此时源端已 v0.5.3、停机修复生效）；价值是把 7~9 月累积的 runner 修复（UPG-049、Prometheus 守卫等）交付现场。
+- 验收顺序：阶段1 → 阶段2 → 阶段3″（预检查通过）→ **阶段4′ 平台直升（验 A）** → **阶段6 组件升级 v0.3.2（验停机修复）** → 记账。
+
 ## 3. 边界（不做）
 
 - 不修改已发布 `d10e15cf…` 资产与 `v0.5.2` 平台包。

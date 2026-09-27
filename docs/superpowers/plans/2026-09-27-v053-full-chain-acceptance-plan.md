@@ -42,6 +42,19 @@ v0.5.1 + runner v0.3.0
 
 ---
 
+## 第四轮执行顺序（2026-09-27 最终口径：**先平台、后 runner**）
+
+> 口径修正：平台包 runner 基线回退为**已发布 v0.3.1**（方案 A 已让升级计划不再依赖新动作），现场无需先做组件升级即可直升；v0.3.2 组件包改为**平台升级完成之后**的可选步骤（那时源端已是 v0.5.3，同 project 停机修复生效）。
+
+1. **阶段 1** 恢复 v0.5.1 + runner v0.3.0 干净基线（数据先固化）
+2. **阶段 2** 链路：`u2 → 已发布 runner v0.3.1 → v0.5.2`
+3. **阶段 3″** 预检查 → **必须通过**（v0.3.1 镜像现场本来就有；拒绝场景证据保留第一轮 task `upgrade-79a20c17b11f33b0`）
+4. **阶段 4′** 平台升级 v0.5.3（**执行者 = 已发布 v0.3.1**）→ A 断言 + 8 项验收（此时 `runner_version=v0.3.1`）
+5. **阶段 6** 平台升级后**组件升级 runner → v0.3.2**（源端已 v0.5.3 → 验证停机修复：runner 必须存活）→ health `runner_version=v0.3.2` + 8 项复验 + 5.7 新预检查闸门
+6. **阶段 7** 记账（ledger/CHANGELOG/progress/task_plan/pending）
+
+> 旧编号「阶段 4 组件升级在平台升级之前」作废：B-b 顺序在 v0.5.2 源端不可行（老 web-api 无条件 stop 会杀掉新 runner），根因见 findings.md 2026-09-27。
+
 ## 2. 阶段 0：`.3` 打包与包静态门禁（不得跳过）
 
 - [ ] 0.1 `docker compose build upgrade-runner` → 镜像 `…-upgrade-runner:v0.3.2`，容器内核对 `RUNNER_VERSION=v0.3.2`、`grep -c schedule_collection = 2`

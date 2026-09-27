@@ -30,11 +30,9 @@ def _fake_docker_run(command: list[str], cwd: Path = ROOT) -> str:
             version = image.rsplit(":", 1)[-1]
             if version == "v0.5.1u2":
                 runner_version = "v0.3.0"
-            elif version == "v0.5.2":
-                runner_version = "v0.3.1"
             else:
-                # >= v0.5.3：与仓库 RUNNER_VERSION 同步（当前 v0.3.2）
-                runner_version = "v0.3.2"
+                # v0.5.2 / v0.5.3 平台包的 runner 基线都是已发布 v0.3.1（方案 A 后直升）
+                runner_version = "v0.3.1"
             if version:
                 return (
                     f'SMARTX_IMAGE_IDENTITY:{{"version_file":"{version}",'

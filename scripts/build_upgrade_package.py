@@ -307,10 +307,11 @@ def _expected_web_api_runner_baseline(version: str) -> str:
     """平台版本对应的 runner 基线（按发布事实，不随 RUNNER_VERSION 漂移）。"""
     if _version_tuple(version) < _version_tuple("v0.5.2"):
         return "v0.3.0"
-    if _version_tuple(version) < _version_tuple("v0.5.3"):
-        # v0.5.2 发布时配套交付的 runner = Release 资产 d10e15cf…（25 动作）
-        return "v0.3.1"
-    return read_runner_version()
+    # v0.5.2/v0.5.3 平台包要求的 runner 基线都是**已发布 v0.3.1**（Release 资产 d10e15cf…，25 动作）：
+    # 方案 A 已把 post_upgrade.schedule_collection 从升级计划中移除，v0.3.1 足够执行 v0.5.3 升级，
+    # 现场无需先做 runner 组件升级即可直升（2026-09-27 第四轮口径修正）。
+    # v0.3.2 是「平台升级完成之后」可选的组件升级，不再作为升级前置。
+    return "v0.3.1"
 
 
 def _read_web_api_image_identity(image: str) -> dict[str, Any]:
@@ -549,7 +550,7 @@ def _legacy_cleanup(*, target_version: str) -> dict[str, Any]:
         ],
         "required_health": {
             "version": target_version,
-            "runner_version": read_runner_version(),
+            "runner_version": _expected_web_api_runner_baseline(target_version),
             "checks": ["directories", "database", "prometheus"],
         },
         "data_migration_guard": {
@@ -1101,7 +1102,7 @@ def build_package(
         "本包不包含 SQLite schema 迁移脚本；manifest 中 `database_migration=false`，且不包含 "
         "`migration`、`migration_steps` 或 `script.sandbox.v1`。"
         if not selected_migrations
-        else f"本包包含累计 SQLite schema 迁移脚本 `migrations/run_migrations.py`，由 upgrade-runner {read_runner_version()} 以单脚本沙箱方式执行。"
+        else f"本包包含累计 SQLite schema 迁移脚本 `migrations/run_migrations.py`，由 upgrade-runner {_expected_web_api_runner_baseline(version)} 以单脚本沙箱方式执行。"
     )
     migration_tree = "\n└── migrations/\n    └── run_migrations.py" if selected_migrations else ""
     runner_scope_note = (
@@ -1124,7 +1125,7 @@ def build_package(
         "- 修复平台升级页已完成升级包无法删除的问题；运行中或需要恢复处理的任务仍禁止删除。\n"
         "- v0.5.2 平台 compose 重建会同时启动 `prometheus` 服务；Prometheus 镜像不进入本包，预检查会确认目标机已有 `prom/prometheus:v2.55.1`。\n"
         f"- v0.5.2 平台升级会准备单根目录 `{TARGET_INSTALL_ROOT}`，并将旧 app 数据和 Prometheus 历史指标迁入 `{TARGET_APP_DATA_PATH}` / `{TARGET_PROMETHEUS_DATA_PATH}`。\n"
-        f"- 升级执行前由 upgrade-runner {read_runner_version()} 迁移旧 Compose project/network：`{LEGACY_COMPOSE_PROJECT}` / `{LEGACY_COMPOSE_NETWORK}` -> `{TARGET_COMPOSE_PROJECT}` / `{TARGET_COMPOSE_NETWORK}`，避免同网段网络重叠。\n"
+        f"- 升级执行前由 upgrade-runner {_expected_web_api_runner_baseline(version)} 迁移旧 Compose project/network：`{LEGACY_COMPOSE_PROJECT}` / `{LEGACY_COMPOSE_NETWORK}` -> `{TARGET_COMPOSE_PROJECT}` / `{TARGET_COMPOSE_NETWORK}`，避免同网段网络重叠。\n"
         "- 同步服务状态、观测组件版本、compose project/network、报表数据质量、文档和升级包兼容说明相关更新。\n\n"
         "## 升级包组成\n\n"
         "```text\n"
