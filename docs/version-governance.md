@@ -122,6 +122,7 @@ OVA 与升级包都禁止包含 `.env`、SQLite 数据库、Prometheus 历史数
   - 仓库：`RUNNER_VERSION` 与 `backend/app/upgrade_runner/actions.py` 动作表；
   - Release 资产：`smartx-upgrade-runner-<version>.tar.gz`（解包 grep 关键动作必须与仓库一致），并把 SHA 写进 `docs/releases/CHANGELOG.md` 与 `docs/upgrade-package-ledger.md`；
   - Git tag `runner-v<version>` 已推送（触发 `.github/workflows/upgrade-runner-image.yml`），且 DockerHub 上该 tag 可拉到（`hub.docker.com` tags API 核对，不允许 404）。
+- **Release 资产必须与 tag 同源、由 CI 产出**：资产只能是 `runner-v*` / 平台 tag 触发的 workflow 构建结果（记录 `head sha`），**禁止本机手工打包后直接上传 Release**（2026-09-27 实证：`v0.5.1u2` 平台资产同源，runner 资产却是 07-09 本地打包上传，源码未入库 → tag 源码 11 个动作、资产 25 个动作，无法用 tag 复现客户手上的东西）。
 - **验收只认 Release 资产**：链路回归与升级验收必须用 Release 里的平台包 + runner 包跑，禁止用测试机本地重建镜像；验收记录必须写明 SHA 与来源。
 - `backend/app/core/config.py` 中平台默认版本
 - `backend/Dockerfile`、`backend/Dockerfile.worker`、`backend/Dockerfile.upgrade` 是否复制 `VERSION` 和 `RUNNER_VERSION`
