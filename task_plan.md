@@ -1305,6 +1305,8 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 
 状态：部分完成
 
+**剩余问题的处理顺序见 [docs/superpowers/plans/2026-09-27-remaining-work-sequence.md](docs/superpowers/plans/2026-09-27-remaining-work-sequence.md)**（S1 本地缺陷 → S2 运行时整改 → S3 矩阵纯代码 → S4 `.12` 终验（需授权）→ S5 发布会话 → S6 待环境收尾）。
+
 背景：v0.5.2 升级链路已闭环，代码审查和现场测试中发现若干治理/风险项。
 
 ### 1. v0.5.1u2 tag 源码版本口径不一致 [已完成]
