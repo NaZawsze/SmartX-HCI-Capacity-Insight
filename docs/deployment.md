@@ -269,7 +269,8 @@ Replace `admin` with the actual platform username when needed. After reset, log 
 **顺序铁律：先升平台（v0.5.3），再做 runner 组件升级（v0.3.2）。** runner 组件升级**永远不是**平台升级的前置条件。
 
 1. **为什么必须按这个顺序**：目标布局源端（v0.5.2）的 web-api 在执行 runner 组件升级时会无条件执行 `docker compose --project-name <当前 project> stop upgrade-runner`；目标布局机器上停掉的就是**刚启动的新 runner**（实测约 10s 后 `SIGKILL`、`exit=137`，心跳过期 → 后续升级预检查报「未检测到 upgrade-runner 心跳」）。这个同 project 守卫只在 **v0.5.3 起**的镜像里，旧源端改不到，所以**任何现场都按上述顺序做**。
-2. **直升关系**：v0.5.3 的升级包支持从 **v0.5.0/v0.5.1/v0.5.1u1/v0.5.1u2/v0.5.2/v0.5.3** 直升（manifest 含 project/network 切换、目录迁移与 legacy cleanup）。**v0.5.2 → v0.5.3 一步到位是现场主路径**；平台包的 runner 基线固定为已发布的 **v0.3.1**，所以 v0.5.2 机器**不需要、也不能**先升 runner。
+2. **现场主路径 = `v0.5.2 → v0.5.3` 一步直升，不带 runner 步骤**：已发布的平台版本是 **v0.5.2**，它配套的 runner 就是**已发布 v0.3.1**；v0.5.3 的升级包支持从 **v0.5.0/v0.5.1/v0.5.1u1/v0.5.1u2/v0.5.2/v0.5.3** 直升（manifest 含 project/network 切换、目录迁移与 legacy cleanup），且平台包的 runner 基线固定为**已发布 v0.3.1**，所以 v0.5.2 现场**不需要、也不能**先动 runner，直接 `v0.5.2 → v0.5.3` 即可。
+   > AGENTS §7 那条从 `v0.5.1 + runner v0.3.0` 起的完整链路（`→ u2 → runner v0.3.1 → v0.5.2 → v0.5.3`）**是给仍停在 v0.5.1/旧布局的老客户和链路演练用的**：其中唯一一次 runner 组件升级发生在 **v0.5.1u2**（旧 project，升到**已发布 v0.3.1**），因为那时源端还不是目标布局。已经升到 v0.5.2 的现场不再走这条路。
 3. **唯一例外**：源端仍是旧 project（如 `v0.5.1u2`，compose project = `smartx-storage-forecast`）时，「先升 runner 再升平台」可行——stop 打的是旧 project 的 runner。这是验收/演练专用的顺序，**不适用于已迁到目标布局的现场**。
 4. **runner v0.3.2 的定位**：平台升级**完成之后**的可选组件升级；在 v0.5.2 现场装不出活的 v0.3.2（见第 1 条）。
 5. **并发限制**：同时只允许一个升级任务——已有升级处于 pending/running/恢复等待/回滚中时，新的升级请求（start/重试/恢复/回滚）一律被拒绝（400），请等待或取消后再开始。
