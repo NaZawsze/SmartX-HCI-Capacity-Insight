@@ -766,3 +766,9 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 为什么链路第 2 步没事：那一步源端是 v0.5.1u2，`compose_project_name=smartx-storage-forecast` ≠ bootstrap 目标 `smartx-hci-capacity-insight` → 停的是旧 project 的 runner（预期行为）。
 - 影响面：**B-b（先升 runner 再升平台）在目标布局机器上必然踩中**；旧链路顺序（先平台后 runner 或仅在旧环境升 runner）不触发，故长期未暴露。
 - 修复方向（平台侧，**不改 runner、不 bump 版本**）：仅当 `bootstrap.target_project != settings.compose_project_name` 时才执行该 stop；否则跳过并记日志。设计记录在 `docs/superpowers/specs/2026-09-27-runner-v032-and-action-level-precheck-design.md` §2.4。
+
+## 2026-09-27（49-52 修复轮稳定结论）
+
+- **post-cleanup `required_health` 等值断言与升级顺序天然冲突**：合法终态有两种（runner 基线直升 / 先升 runner 再升平台），任何单一期望值都会拒绝另一种顺序。正解是打包时不声明 `runner_version`（runner 侧 `if expected_runner` 空即跳过），平台版本等值断言保留（升级后必然=target，无顺序问题）。教训：**涉及「当前状态」类断言时，先问这个状态是否有多种合法形态**。
+- **升级动作入口的互斥必须加在 `start`，且扫描-认领要原子**：`start()` 只查本任务状态是不够的——runner 侧按 mtime 串行消费 pending，第二个任务会在被第一个改动过的环境上按旧计划执行（US-23）。FastAPI 同步 handler 跑线程池，「扫描 task.json → 写状态」不是原子的，须类级锁罩住。删除任务早有互斥（`intake.py:81`）而 start 漏了——**同一资源的「读改写」入口要逐个过一遍互斥清单**。
+- **`.3` 后端测试权威跑法 = compose exec 进 web-api（容器内有 docx/fastapi 全套依赖）**：宿主 python3.13 裸跑会大面积 `ModuleNotFoundError`（docx/fastapi）造成假错误；unittest 汇总在 stderr。前端 = `node:22-alpine` 容器挂 frontend 目录跑 `npx tsc -b` + `npx vitest run`。

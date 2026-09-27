@@ -1791,7 +1791,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - 为什么不能走 Actions：Actions 只照 git 源码构建，而没有任何提交等于发行镜像（tag `baaffcd` 11 动作 / main 26 动作 / 发行版 25 动作）。
 - [x] 实施完成（2026-09-27）
 
-### 52. US-05/US-23 发布阻塞项修复：post-cleanup 顺序敏感 + 升级单飞守卫（49-52）[设计中·待用户批准]
+### 52. US-05/US-23 发布阻塞项修复：post-cleanup 顺序敏感 + 升级单飞守卫（49-52）[实施完成·`.12` MVP 待授权]
 
 来源：2026-09-27 升级策略复查（`docs/upgrade-strategy-issues.md` US-05/US-23，P0；审计矩阵 MVP 格 M3-08/M3-10 与「重复 start」列）。
 设计：[docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md](docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md)。
