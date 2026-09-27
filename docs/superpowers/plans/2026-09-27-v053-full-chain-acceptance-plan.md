@@ -71,9 +71,12 @@ v0.5.1 + runner v0.3.0
 
 - [ ] 3.1 上传本轮 v0.5.3 候选包 → `POST /api/admin/upgrade/upload` → 记 task id
 - [ ] 3.2 `POST /api/admin/upgrade/precheck/<tid>` → **必须 `precheck_failed`**
-- [ ] 3.3 断言：checks 里 `images` 检查 `ok=false`，message 含 `本地 Docker 镜像不存在` 且含 `组件升级` 与 `v0.3.2`
-- [ ] 3.4 断言：checks 里 `runner_actions` 检查 **`ok=true`**（证明动作级不是拦点，拦点是镜像存在性），message 含 `全部支持`
-- [ ] 3.5 断言：checks 里 `runner_protocol` `ok=true`（心跳 v0.3.1 能力满足）
+**（2026-09-27 执行中修正：预检查代码跑在「源端」web-api 上。此刻源端是 v0.5.2，其镜像内没有 49-50 新增的 `runner_actions` 检查与组件升级提示文案，因此本阶段只对源端实际具备的检查断言；新增闸门改到 5.7 与单测验证。）**
+
+- [x] 3.3 断言：checks 里 `images` 检查 `ok=false`，message 含 `本地 Docker 镜像不存在` **与 `v0.3.2`**（v0.5.2 源端既有闸门，已生效）
+- [ ] 3.3b 断言（**改到 5.7**）：`images` 消息含 `组件升级` 提示 —— 该文案在 v0.5.3 源端；单测在 `.3` 覆盖
+- [ ] 3.4 断言（**改到 5.7**）：checks 里存在 `runner_actions` 且 `ok=true`，message 含 `全部支持`
+- [x] 3.5 断言：checks 里 `runner_protocol` `ok=true`（心跳 v0.3.1 能力满足）
 
 ## 6. 阶段 4：组件升级 runner → v0.3.2
 
@@ -83,7 +86,7 @@ v0.5.1 + runner v0.3.0
 
 ## 7. 阶段 5：v0.5.3 升级（A 运行时验收）+ 8 项验收
 
-- [ ] 5.1 重跑候选包 precheck → **必须 `prechecked`/通过**（`images`、`runner_actions`、`runner_protocol` 全 `ok=true`）
+- [ ] 5.1 重跑候选包 precheck → **必须通过**（源端仍是 v0.5.2，检查项为 `images`/`runner_protocol`/`source_compatibility`/`checksums`/`project_files`/`manifest`/`paths` 全 `ok=true`）
 - [ ] 5.2 `POST /api/admin/upgrade/start/<tid>` → 轮询主任务 `succeeded`（记录 task id、耗时）
 - [ ] 5.3 **A 断言一**：升级任务 `task.json` 的 `actions` 列表**不含** `post_upgrade.schedule_collection`，**含** `post_upgrade.schedule_cleanup`
 - [ ] 5.4 **A 断言二**：`post-cleanup-<tid>` 任务 `success`；`upgrades/<tid>/post-upgrade-collection.json` 存在且 `source=target_worker_compatibility`（**平台自建标记**，runner 没写）；`post-upgrade-collection-<tid>` 任务已创建（Tower 不可达 → `failed` 记为环境限制，不影响判定）
@@ -97,6 +100,10 @@ v0.5.1 + runner v0.3.0
   - 7 个 legacy 路径全部 missing；目标 7 目录齐全；`upgrades/` 保留四个升级任务目录
   - UI `HTTP 8080 = 200`
 - [ ] 5.6 前端产物含本轮特征（`rgba(22, 119, 255, 0.12)`、`已分配容量`）
+- [ ] 5.7 **源端已变成 v0.5.3** → 用同一候选包再跑一次 precheck，断言：
+  - checks 里**存在** `runner_actions` 且 `ok=true`，message 含 `全部支持`（新闸门在 v0.5.3 源端生效）
+  - checks 里 `images` `ok=true`（v0.3.2 镜像已在阶段 4 就位）
+  - 该次 precheck 结果不影响已完成的升级（仅取证用）
 
 ## 8. 阶段 6：记账与（仅在全部通过后）推送申请
 
