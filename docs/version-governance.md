@@ -13,6 +13,15 @@
 - 平台升级包不包含 `upgrade-runner`，也不重启 `upgrade-runner`。
 - `upgrade-runner` 只能通过组件升级包更新。
 
+## Runner 能力与版本治理（2026-09-27 用户令）
+
+- **能力基准以远端仓库为准**：runner 的代码与能力（动作表 `upgrade_runner/actions.py`、能力映射 `upgrade_protocol/constants.py`、组件包 manifest 能力集）以 `origin/dev2` / `origin/main` 为唯一基准。本地工作区、现场测试机、任何 AI 会话都**不得私自修改 runner 能力或代码**，也不得私自重建/替换 runner 镜像或组件包后仍沿用原版本号。
+- **确需修改必须先经用户同意**：没有用户明确同意，不动 runner 一行代码；同意之后才改，改完立刻同步版本号与台账。
+- **改能力必须改版本号**：能力变更必须同时提升根目录 `RUNNER_VERSION`、镜像内 `/app/RUNNER_VERSION`、镜像 tag、组件包文件名与 manifest `version`/`min_version`，并在 `docs/releases/CHANGELOG.md` 记录能力差异。**禁止"同版本号、不同能力"**——`min_runner_version`、动作能力预检查、现场排障都依赖"同版本号 = 同能力"这个前提，一旦破坏，升级会在最坏时机（平台已切换后）失败。
+- **打包口径**：runner 组件包只能用 `scripts/build_runner_component_package.py` 从远端仓库对应提交构建；产物必须登记 `docs/upgrade-package-ledger.md`（SHA、构建提交、相对上一版的能力变化）。
+- **验收基线**：升级链路回归与任何 v0.5.x 升级验收，runner 基线必须取 `docs/releases/CHANGELOG.md`「当前正式升级包」记录的**已发布** runner 包，禁止用开发期本地重建镜像充当基线（否则验收环境 ≠ 交付环境）。
+- **违规处置**：发现 `RUNNER_VERSION` 未变而能力集已变，先停手并报告用户，由用户决定「补版本号」还是「把能力改回去」。
+
 ## Docker 镜像 tag
 
 平台服务镜像使用平台版本：

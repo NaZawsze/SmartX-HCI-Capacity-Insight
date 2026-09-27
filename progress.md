@@ -7878,3 +7878,13 @@ release_smoke=critical 0, warning 0
 - **新 runner 组件包**：`build_runner_component_package.py --version v0.3.1 --no-build`（用 .3 当前 dev2 镜像 `0aca32511008`，动作表含 `schedule_collection`）→ `/data/upgrade-packages/components-v053-20260927/smartx-upgrade-runner-v0.3.1.tar.gz` **SHA256 `dd096bf239c6023d8997a4a42ff7d71c46b962a5feaeb2dda46d4ade0e25aa1a`**。
 - 过程中的宿主机副作用已还原：排查时把 `.3` 旧包镜像 `docker load` 覆盖了 `…upgrade-runner:v0.3.1` 标签，已 `docker tag 0aca32511008 …:v0.3.1` 还原（运行容器一直是 `0aca32511008`，health 全程绿）。
 - 未改产品代码；只改了验证脚本 `scripts/verify_full_upgrade_chain.py`（`versions()` 的 `prometheus` 改返回 bool，修复永远失败的 `is True` 断言，已在 .12 实跑通过）。
+
+## 2026-09-27 runner 治理规则写死 + DockerHub 查证
+
+- 用户令：「以远端仓库 runner 能力为准，不允许私自修改 runner 能力和代码，如果实在需要修改，必须经过我的同意，并且修改版本号」——已写入三处硬规则：
+  - `AGENTS.md` §6 关键规则首条（远端仓库为基准 / 禁止私自改 / 同意 + 升版本号，违规即回退）；§8 新增两条（`RUNNER_VERSION` 是能力唯一标识；链路与验收基线必须用**已发布**组件包）。
+  - `docs/version-governance.md` 新增「Runner 能力与版本治理（2026-09-27 用户令）」整节：能力基准、修改需同意、改能力必须 bump 版本、打包口径、验收基线、违规处置。
+  - `docs/development-verification-process.md` §4.4 新增「runner 基线必须用已发布组件包」条目（附 09-27 实测教训）。
+- DockerHub 查证（用户给的线索）：`nazawsze/smartx-hci-capacity-insight-upgrade-runner` 只有 3 个 tag —— `latest`(2026-06-05, `a9a1b0c4…`)、`runner-sha-31a1209`(2026-06-12)、`v0.3.0`(2026-06-12)；**`v0.3.1` 查询 404，从未推送**。`runner-sha-31a1209` 与 `v0.3.0` 同 digest `f58cce00…`/同 size/同推送时刻 → 它就是 `runner-v0.3.0` 那次构建的 `type=sha` 副标签，**不是更新的能力**；本地 git tag 也只有 `runner-v0.3.0`（workflow 只在推 `runner-v*` 或手动 dispatch 时构建）。GitHub SSH 本机被拦，远端 tag 无法直接列（结论以 DockerHub API 为准）。
+- 三处状态定格：交付包 `d10e15cf`（无 `schedule_collection`）／远端源码（有，但版本号仍 v0.3.1）／DockerHub（只有 v0.3.0）。已登记 findings.md 与 pending-tasks #45；修复方向待用户决策，未改任何 runner 代码。
+- 本轮本地未触碰 `backend/app/upgrade_runner/`；只改了文档与 `scripts/verify_full_upgrade_chain.py`（脚本断言修复，已在 .12 实跑）。

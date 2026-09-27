@@ -726,3 +726,13 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 
 - `Client.versions()` 用 `str(...)` 返回 `prometheus`，而 `verify_node3` 断言 `v["prometheus"] is True` → 字符串 `"True" is True` 恒为假，三步升级全部 succeeded 之后脚本仍会在这里抛 AssertionError（`.12` 两轮实测均踩到，第一轮一度误判成"Prometheus 瞬时未就绪"）。
 - 修复：`versions()` 改为 `bool(...)` 并去掉 `dict[str, str]` 注解；修复版已在 `.12` 实跑（`verify_node3 最终验收通过`、`post-cleanup: succeeded`）。
+
+## 2026-09-27 runner v0.3.1 能力与交付三处不一致（改能力未升版本号）[规则已写死，修复待决策]
+
+- **事实链（同一版本号 v0.3.1，三种能力状态）**：
+  1. **交付组件包**：`docs/releases/CHANGELOG.md` v0.5.2「当前正式升级包」= `smartx-upgrade-runner-v0.3.1.tar.gz` SHA `d10e15cf…`（2026-07 构建）→ **没有** `post_upgrade.schedule_collection`。`.12` 用它跑 `v0.5.2 → v0.5.3`，在平台已切换之后失败：`Runner 不支持动作：post_upgrade.schedule_collection`（task `upgrade-cede491efb9b1345`）。
+  2. **远端仓库源码**：`origin/dev2` 的 `backend/app/upgrade_runner/actions.py` **有**该动作（`:2513`，随 `dab2e0f Release v0.5.2` 进入），但 `RUNNER_VERSION` 仍是 `v0.3.1` → 典型的"改了能力不改版本号"。
+  3. **DockerHub 镜像**：仓库 `nazawsze/smartx-hci-capacity-insight-upgrade-runner` 只有 3 个 tag —— `latest`（2026-06-05）、`runner-sha-31a1209`（2026-06-12）、`v0.3.0`（2026-06-12）；查询 `v0.3.1` 返回 **404 tag not found** → **v0.3.1 从未推送 DockerHub**。`runner-sha-31a1209` 与 `v0.3.0` 同 digest（`f58cce00…`）、同 size、同推送时刻，它只是 `.github/workflows/upgrade-runner-image.yml` 的 `type=sha` 副标签，**就是 v0.3.0 那次构建，不是更新的能力**。本地 git tag 也只有 `runner-v0.3.0`，没有 `runner-v0.3.1`（该 workflow 仅在推 `runner-v*` tag 或手动 dispatch 时构建）。
+- **后果**：①验收环境（测试机上的开发重建镜像 `7d152590d6fd`/`0aca32511008`）≠ 交付环境（`d10e15cf`），此前两轮 v0.5.3 验收因此掩盖了缺陷；②现场 `docker pull …:v0.3.1` 拉不到镜像；③`min_runner_version` 与能力级预检查对"同版本不同能力"完全失效，失败点落在 cutover 之后。
+- **规则（2026-09-27 用户令，已写死三处）**：runner 能力与代码**以远端仓库为准**；**不允许私自修改 runner 能力和代码**；确需修改**必须先经用户同意**并且**同步提升 runner 版本号**（`RUNNER_VERSION`/镜像 tag/组件包版本/manifest）。见 `AGENTS.md` §6、§8，`docs/version-governance.md`「Runner 能力与版本治理」，`docs/development-verification-process.md` §4.4。
+- **待用户决策（未改 runner 代码）**：①兼容已发布 runner——编译计划时若 runner 无该动作则不下发、改由 web-api 兜底调度升级后采集；②按新规则 bump 到 `v0.3.2` 出新 runner 包 + 预检查补动作级校验（不满足就提示先做组件升级）；③是否补推 git tag 让 workflow 出镜像（`runner-v0.3.1` 已无法沿用，若带新能力必须是 `runner-v0.3.2`）。

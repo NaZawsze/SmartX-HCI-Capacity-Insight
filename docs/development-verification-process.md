@@ -96,6 +96,7 @@ v0.5.1 + runner v0.3.0 -> v0.5.1u2 -> runner v0.3.1 -> v0.5.2 -> v0.5.3
 
 - **v0.5.1u2 + runner v0.3.1 可直接升级到最新版本（v0.5.3）**（已验证，见 progress.md）。
 - 升级走升级中心 API：上传升级包 → 预检查 → 开始升级 → 轮询状态 → 验证。
+- **runner 基线必须用「已发布」的 runner 组件包**（SHA 以 `docs/releases/CHANGELOG.md` 对应版本「当前正式升级包」为准），禁止用开发期本地重建镜像充当基线：2026-09-27 `.12` 实测，用开发镜像跑通的 v0.5.3 升级，换回发布包 `d10e15cf…` 就在切换后失败（`Runner 不支持动作：post_upgrade.schedule_collection`）——验收环境 ≠ 交付环境。同理，**未经用户同意不得修改 runner 能力/代码，改能力必须同步提升 `RUNNER_VERSION`**（详见 `docs/version-governance.md`「Runner 能力与版本治理」）。
 - 升级验收 8 项：health、容器镜像 tag、project/network、SQLite 行数、Prometheus 历史、Tower 凭据、.env 权限、旧目录/历史/自动采集。
 - 升级前记录基线（health、容器、网络、SQLite 行数、Prometheus series、Tower 凭据、.env 状态）。
 - 升级前备份 `.env` 和 DB，确认配对（避免 Tower 凭据丢失）。
