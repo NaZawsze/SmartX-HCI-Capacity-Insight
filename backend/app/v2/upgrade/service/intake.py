@@ -19,6 +19,7 @@ from .precheck import _version_from_service_status
 from .taskfile import _completed_runner_task_view, _component_types, _component_types_from_task, _history_task_sort_key, _read_task_file, _save_task_file, _task_package_sha256
 
 from .constants import MANIFEST_NAME
+from .runner_presence import RUNNER_PRESENCE_SOURCES
 
 class IntakeMixin:
     async def upload_package(self, upload: UploadFile) -> dict[str, Any]:
@@ -99,7 +100,7 @@ class IntakeMixin:
         runner_capabilities = runner_state.get("capabilities", []) if runner_state else []
         compatible = bool(
             runner_state
-            and runner_state.get("source") == "heartbeat"
+            and runner_state.get("source") in RUNNER_PRESENCE_SOURCES
             and int(runner_state.get("protocol_version") or 0) >= RUNNER_PROTOCOL_VERSION
             and RUNNER_CAPABILITIES <= set(runner_capabilities)
         )

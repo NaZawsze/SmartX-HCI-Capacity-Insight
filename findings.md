@@ -772,3 +772,12 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - **post-cleanup `required_health` 等值断言与升级顺序天然冲突**：合法终态有两种（runner 基线直升 / 先升 runner 再升平台），任何单一期望值都会拒绝另一种顺序。正解是打包时不声明 `runner_version`（runner 侧 `if expected_runner` 空即跳过），平台版本等值断言保留（升级后必然=target，无顺序问题）。教训：**涉及「当前状态」类断言时，先问这个状态是否有多种合法形态**。
 - **升级动作入口的互斥必须加在 `start`，且扫描-认领要原子**：`start()` 只查本任务状态是不够的——runner 侧按 mtime 串行消费 pending，第二个任务会在被第一个改动过的环境上按旧计划执行（US-23）。FastAPI 同步 handler 跑线程池，「扫描 task.json → 写状态」不是原子的，须类级锁罩住。删除任务早有互斥（`intake.py:81`）而 start 漏了——**同一资源的「读改写」入口要逐个过一遍互斥清单**。
 - **`.3` 后端测试权威跑法 = compose exec 进 web-api（容器内有 docx/fastapi 全套依赖）**：宿主 python3.13 裸跑会大面积 `ModuleNotFoundError`（docx/fastapi）造成假错误；unittest 汇总在 stderr。前端 = `node:22-alpine` 容器挂 frontend 目录跑 `npx tsc -b` + `npx vitest run`。
+
+## 2026-09-27 runner 两条心跳通道：实例心跳在执行期不刷新（US-08）[已修复]
+
+- **两条通道**：①**实例心跳** `upgrade_runner_state.heartbeat_at` —— 由 `main.py::run_pending_once()` 开头调用 `update_runner_state()` 写；②**任务租约心跳** `upgrade_task_leases.lease_expires_at/heartbeat_at` —— 执行期间由 `main.py::_heartbeat_until_done()` 每 5s 续租。
+- **根因**：任务在**同一个** `run_pending_once()` 调用内同步执行完，所以执行期实例心跳只被写一次（开始那一刻），整段执行不再刷新。`RUNNER_HEARTBEAT_STALE_SECONDS = 30` 在这里毫无余量。
+- **实测（`.3` 真实同版本升级，task `upgrade-c921c5bc0aad72e5`，success，约 75s）**：实例心跳冻结在 `2026-09-27T14:34:07.229075+00:00` 整整 75s 未动；`/api/admin/upgrade/version` 只返回平台版本（不含 runner 状态，勿误读成"API 报 None"）。
+- **后果**：任何"只认实例心跳"的判定在执行期都为假 → 预检查 `runner_protocol` 报"未检测到 upgrade-runner 心跳，请先升级 upgrade-runner"（误导性失败）、升级页组件目录 `compatible=False`（显示"不满足平台要求"）；`health` 有 docker 探测兜底所以通常看不出来。
+- **修法与边界**：web-api 侧把"存在有效任务租约"也算作在场证据（`service/runner_presence.py`，`source` 记 `task_lease`），协议校验/组件目录/health 共用同一判定。**不改 runner**（改 runner 需用户同意 + bump 版本 + 重交付，见 AGENTS §6/§8）；runner 侧"执行期也刷新实例心跳"登记为待办。runner 重启窗口没有租约 → 仍报"未检测到心跳"，是期望行为。
+- 教训：**多通道心跳的组件，判定"是否在场"必须覆盖所有通道**；只看其中一条会把"正忙"误判成"不在"。

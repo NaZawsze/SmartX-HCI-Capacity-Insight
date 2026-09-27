@@ -20,7 +20,8 @@ from .fs import _now
 from .precheck import _runner_bootstrap, _runner_compose_project_name, _runner_only, _task_images, _task_services, _version_from_image
 from .taskfile import _completed_runner_task_view, _parse_datetime, _read_task_file, _replace_step, _save_task_file, _step
 
-from .constants import RUNNER_HEARTBEAT_STALE_SECONDS, RUNNER_NOT_DETECTED
+from .constants import RUNNER_NOT_DETECTED
+from .runner_presence import RUNNER_PRESENCE_SOURCES, instance_heartbeat_is_fresh, presence_source
 
 
 def _should_stop_previous_runner(bootstrap: Any, current_project: str) -> bool:
@@ -183,8 +184,9 @@ class ExecutionMixin:
 
     def _active_runner_state(self) -> dict[str, Any] | None:
         runner_state = self._runner_state()
-        if runner_state and _runner_state_is_fresh(runner_state):
-            runner_state["source"] = "heartbeat"
+        source = presence_source(self.tasks.database, runner_state)
+        if runner_state and source:
+            runner_state["source"] = source
             return runner_state
         return self._active_runner_state_from_docker()
 
@@ -254,7 +256,7 @@ class ExecutionMixin:
     def _check_runner_protocol(self, manifest: dict[str, Any]) -> dict[str, Any]:
         runner_state = self._active_runner_state()
         minimum_runner_version = str(manifest.get("minimum_runner_version") or "").strip()
-        if not runner_state or runner_state.get("source") != "heartbeat":
+        if not runner_state or runner_state.get("source") not in RUNNER_PRESENCE_SOURCES:
             return {
                 "name": "runner_protocol",
                 "ok": False,
@@ -606,7 +608,5 @@ class ExecutionMixin:
         )
 
 def _runner_state_is_fresh(state: dict[str, Any]) -> bool:
-    heartbeat_at = _parse_datetime(state.get("heartbeat_at") or state.get("updated_at"))
-    if heartbeat_at is None:
-        return False
-    return _now() - heartbeat_at <= timedelta(seconds=RUNNER_HEARTBEAT_STALE_SECONDS)
+    """实例心跳是否新鲜（保留为薄封装；runner 在场判定统一走 runner_presence.presence_source）。"""
+    return instance_heartbeat_is_fresh(state, now=_now())

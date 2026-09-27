@@ -62,11 +62,11 @@
 - **方向**：预检查加"可用空间 ≥ 包大小 × N + 备份预留"；失败即 precheck_failed。
 - **状态**：🟢 **已实施并验证（49-55 / S1-1，2026-09-27）**：`precheck` 新增 `disk_space` 项——需要 = 包内容（解包目录内文件求和；给 `.tar.gz` 时按 ×3）+ 预留（默认 2 GiB，`SMARTX_UPGRADE_DISK_HEADROOM_BYTES`）；按 `st_dev` 去重检查 `upgrades`/`backups`/`/`，不足即 `precheck_failed`。`.3` 实测真实候选包：payload 624,777,779 B → 需要 2.58 GiB，可用 33.34 GiB；容器全量 424 tests OK。设计：`docs/superpowers/specs/2026-09-27-upgrade-disk-space-precheck-design.md`（含首版误用目录 `st_size` 的修正记录）。
 
-### US-08 🟡 长任务期间心跳被判 stale 的边界未验证
+### US-08 🟢 长任务期间心跳被判 stale 的边界未验证
 - **现象**：升级执行中 web-api 侧会读 runner 心跳（`_runner_state_is_fresh`），若单步耗时超过新鲜度阈值，可能被判"未检测到 runner"。
 - **证据**：`RUNNER_HEARTBEAT_STALE_SECONDS` 存在；本轮升级时长 2~3 分钟未触发，但**大包/慢盘/大 DB 备份**场景未测。
 - **方向**：验收补"长任务"用例；或执行期间暂停 staleness 判定。
-- **状态**：⚪ 测试缺口（新发现）。
+- **状态**：🟢 **已取证并修复（49-57 / S1-3，2026-09-27）**：`.3` 真实同版本升级实测发现比假设更严重——**整个执行期实例心跳冻结**（`update_runner_state` 只在 `run_pending_once` 开头调用；task `upgrade-c921c5bc0aad72e5`，执行约 75s 心跳未动），而阈值 30s。后果：执行期并发预检查报"未检测到 upgrade-runner 心跳"、升级页组件目录 `compatible=False`。修法（**不动 runner、不升版本**）：web-api 新增 `service/runner_presence.py`，把"存在有效任务租约"（执行期每 5s 续租）也算作在场证据，`source` 记 `task_lease`；协议校验/组件目录/health 共用同一判定。runner 侧"执行期也刷新实例心跳"登记为下次 runner 交付的待办。设计：`docs/superpowers/specs/2026-09-27-runner-presence-during-execution-design.md`。
 
 ### US-09 🟢 重复上传/预检失败任务无清理策略
 - **现象**：预检失败的包会留下 `upgrades/<tid>` 目录与任务中心 failed 项（本轮 `.12` 累积 8 个），真实客户会看到噪音。

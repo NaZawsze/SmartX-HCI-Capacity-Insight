@@ -10,9 +10,9 @@ from typing import Callable, Optional
 from app.v2.config import V2Settings
 from app.v2.database import V2Database
 from app.v2.metrics.prometheus import PrometheusService
+from app.v2.upgrade.service.runner_presence import presence_source
 
 
-RUNNER_HEARTBEAT_STALE_SECONDS = 30
 RUNNER_NOT_DETECTED = "未检测到 runner"
 RunnerProbe = Callable[[], Optional[str]]
 
@@ -134,8 +134,8 @@ def _active_runner_version(settings: V2Settings, database: V2Database, runner_pr
         version = str(row["runner_version"] if hasattr(row, "keys") else row[0]).strip()
         heartbeat_at = row["heartbeat_at"] if hasattr(row, "keys") else row[1]
         updated_at = row["updated_at"] if hasattr(row, "keys") else row[2]
-        heartbeat = _parse_datetime(heartbeat_at or updated_at)
-        if version and heartbeat and datetime.now(timezone.utc) - heartbeat <= timedelta(seconds=RUNNER_HEARTBEAT_STALE_SECONDS):
+        # US-08：执行期间实例心跳不刷新，需把有效任务租约也算作在场证据
+        if version and presence_source(database, {"heartbeat_at": heartbeat_at, "updated_at": updated_at}):
             return version
     probe = runner_probe or _docker_runner_probe
     try:

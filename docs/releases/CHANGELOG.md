@@ -47,6 +47,8 @@ v0.5.3 是 v0.5.2 之后的平台版本候选（未发布），主要内容：�
 - **新建 VM 与增长口径统一（49-42/49-43/49-44/49-45）**：新建 VM 按 `vm_id` 全历史最早样本判定（断档恢复不再把老 VM 判成新建，本月新建 199→6）；概览与报表同源共用 `app/v2/vms/new_vm.py`、`app/v2/vms/growth.py`（窗口定义/计算/展示规则统一，同 30 天窗口两页结果一致，修复概览 0 条 vs 报表 66 条）；周期边界下沉共享实现，报表增长列表修复 series tail 兜底泄漏回收站 VM。
 - **趋势图配色互换与调色板错位修复（49-48/49-48b）**：按用户要求交换「实际容量」与「已分配容量」颜色（实际=主蓝 `--blue`、已分配=青）；同时把全部六个系列改为**显式配色**——ECharts 调色板只给未显式配色的系列按顺序发色，只改一个会让后续系列整体错位（首版曾导致历史预测与已分配容量同为青色）。
 
+- **执行期间 runner 在场判定（US-08，49-57）**：升级执行期**实例心跳不刷新**（`upgrade_runner_state.heartbeat_at` 只在任务开始那一刻写一次，`.3` 实测整段执行约 75s 冻结），而"心跳新鲜"阈值是 30s —— 导致执行期并发预检查报"未检测到 upgrade-runner 心跳"、升级页"Runner 版本（满足/不满足平台要求）"显示不满足。修复：web-api 把 runner 的**第二条心跳通道**（执行期每 5s 续租的 `upgrade_task_leases`）也算作在场证据，来源标记 `task_lease`，预检查协议校验、组件目录与 `/api/system/health` 的 runner 版本判定共用同一逻辑。不改 runner、不升 runner 版本；runner 重启窗口无租约时仍如实报"未检测到心跳"。
+
 - **升级任务运行产物自动清理（US-09，49-56）**：web-api 新增升级产物清理守护线程（默认每 6 小时，`SMARTX_UPGRADE_HOUSEKEEPING_INTERVAL_SECONDS`），按 TTL（默认 7 天，`SMARTX_UPGRADE_ARTIFACT_TTL_DAYS`，`0` 关闭）+ 始终保留最新 N 个（默认 3，`SMARTX_UPGRADE_ARTIFACT_KEEP_RECENT`）自动删除**从未执行过**任务（`precheck_failed`/`uploaded`）的包内容——原始压缩包与解包目录（单个失败任务约 800 MiB）；**保留 `task.json` 与任务中心记录**，并写入 `package_cleaned_at`。执行过/失败/回滚类任务目录不自动清理（取证需要），存在进行中升级时整轮跳过；包内容被清理后再预检查会得到明确提示「请重新上传」而不是路径异常。
 
 - **升级预检查补磁盘空间硬校验（US-07，49-55）**：`precheck` 新增 `disk_space` 项——需要空间 = 升级包内容（解包目录文件求和；给 `.tar.gz` 时按 ×3）+ 预留（默认 2 GiB，`SMARTX_UPGRADE_DISK_HEADROOM_BYTES` 可覆盖，`0` 表示不额外预留），按文件系统去重后检查 `upgrades/`、`backups/` 与根文件系统（docker 镜像存储），不足即 `precheck_failed`，message 给出「哪个路径、可用多少、需要多少」与估算构成。此前空间不足会在 `image.load`/备份阶段失败，留下半升级现场（镜像只加载一半、备份不完整）。
