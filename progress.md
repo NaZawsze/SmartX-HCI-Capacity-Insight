@@ -7938,4 +7938,5 @@ release_smoke=critical 0, warning 0
 - **规则出处**：`docs/doc-map.md` 注明 AGENTS.md 按 `.gitignore` 仅本地维护（未入库）及其硬规则的可核对副本（`docs/version-governance.md`、`docs/development-verification-process.md` §4.4）。
 - **基线数字**：`docs/development-verification-process.md` §4.1、`docs/ai-handoff-guide.md`、`docs/module-inventory.md` 里"最近基线 310 tests"改为 **386 tests（2026-09-27 起）**并标注历史时点（09-19 为 310、09-13 为 308，`skipped=2` 为环境跳过）。
 - 验证：`git diff --check` 无输出；自建链接扫描（排除 `.codex/`）项目文档断链/绝对路径 **0**；`python3 scripts/verify_release_docs_safe.py` → **[PASS]**；残留「当前正式平台版本」grep 仅剩 `progress.md` 的历史日志行（历史记录不改）。
+- 提交：`d8a9e53`（2026-09-27，仅本地 dev2，**未推送**——推送需用户明确要求）。
 - 未做（等用户决策）：`runner v0.3.2` 是否随发布交付（补 tag/镜像/资产，或源码 compose 与部署文档回退 `v0.3.1`）；`.12` MVP 验收仍待授权；各条目「UI 目视」仍待用户确认。

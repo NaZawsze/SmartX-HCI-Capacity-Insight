@@ -1816,7 +1816,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 链接与路径：acceptance-plan 与 spec 的 2 处断链；docs/project-progress-2026-08-12.md 的 17 处机器绝对路径改为仓库相对路径
 - [x] 规则出处：doc-map 注明 AGENTS.md 仅本地维护（未入库）及其硬规则的可核对副本位置；release-acceptance 的规则出处不再指向 AGENTS.md
 - 边界：只改文档，未改任何代码、compose、升级包或 runner；runner v0.3.2 是否随发布交付仍待用户决策。
-- [x] 完成（2026-09-27，证据见 progress.md 本轮记录）
+- [x] 完成（2026-09-27，提交 `d8a9e53`；证据见 progress.md 本轮记录）
 
 ### 37. 手动采集失败清空指标快照修复 + 仪表盘数据过期标注（49-37）[进行中]
 
