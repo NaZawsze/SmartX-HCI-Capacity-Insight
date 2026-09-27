@@ -236,21 +236,10 @@ def compile_execution_plan(manifest: dict[str, Any]) -> ExecutionPlan:
                 params={},
             )
         )
-    schedule_auto_collection = bool(isinstance(post_upgrade, dict) and post_upgrade.get("auto_collection"))
-    if schedule_auto_collection:
-        target_upgrades_path = ""
-        if isinstance(directory_transition, dict):
-            target_upgrades_path = str(directory_transition.get("upgrades_path") or "")
-        actions.append(
-            ExecutionAction(
-                id="schedule-post-upgrade-collection",
-                type="post_upgrade.schedule_collection",
-                params={
-                    "target_upgrades_path": target_upgrades_path,
-                    "target_version": str(manifest.get("version") or ""),
-                },
-            )
-        )
+    # 49-49：升级后自动采集改为平台侧调度，编译计划不再下发 post_upgrade.schedule_collection。
+    # 原因：该动作只写标记文件、不采集（采集由 worker 每 5 秒轮询并自建标记），却要求 runner 实现它；
+    # 以 v0.5.2 为源时计划由**源端已发布镜像**的老编译器生成，目标包只能靠 manifest 控制（auto_collection=false），
+    # 而源端是 v0.5.3 及以后时由本编译器控制。详见 docs/superpowers/specs/2026-09-27-v053-platform-side-post-upgrade-collection-design.md。
     if schedule_post_cleanup:
         actions.append(
             ExecutionAction(

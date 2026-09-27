@@ -239,6 +239,49 @@ class V2WorkerTest(unittest.TestCase):
                 run = conn.execute("SELECT status, trigger FROM collection_runs ORDER BY id DESC LIMIT 1").fetchone()
             self.assertEqual((run["status"], run["trigger"]), ("success", "post_upgrade"))
 
+    def test_post_upgrade_collection_platform_collection_flag_without_runner_marker(self) -> None:
+        """49-49：v0.5.3 起 manifest 用 platform_collection（auto_collection=False，避免源端老编译器下发
+        runner 不支持的 post_upgrade.schedule_collection）；runner 不写标记时平台也要自建标记并完成采集。"""
+        from app.v2 import worker
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="worker-secret")
+            db = V2Database(settings)
+            db.initialize()
+            parent_id = "upgrade-platform-side-collection"
+            parent_dir = settings.upgrades_dir / parent_id
+            parent_dir.mkdir(parents=True)
+            (parent_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": parent_id,
+                        "status": "success",
+                        "target_version": "v0.5.3",
+                        "finished_at": "2026-09-27T01:00:00+00:00",
+                        "manifest": {
+                            "version": "v0.5.3",
+                            "package_type": "platform",
+                            "components": [{"type": "platform", "services": ["web-api"]}],
+                            "post_upgrade": {"auto_collection": False, "platform_collection": True},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            # runner 没有写任何标记，平台必须自己补建
+            self.assertFalse((parent_dir / "post-upgrade-collection.json").exists())
+            result = worker.run_pending_post_upgrade_collection(db)
+
+            self.assertIsNotNone(result)
+            self.assertEqual(result.status, "success")
+            marker = json.loads((parent_dir / "post-upgrade-collection.json").read_text(encoding="utf-8"))
+            self.assertEqual(marker["parent_upgrade_task_id"], parent_id)
+            self.assertEqual(marker.get("source"), "target_worker_compatibility")
+            self.assertEqual(marker["status"], "success")
+
     def test_post_upgrade_collection_compatibility_marker_only_targets_latest_successful_platform_task(self) -> None:
         from app.v2 import worker
         from app.v2.config import V2Settings

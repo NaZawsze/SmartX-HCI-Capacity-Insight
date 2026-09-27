@@ -189,7 +189,9 @@ def _auto_collection_platform_task(task: dict) -> bool:
     if not any(isinstance(component, dict) and component.get("type") == "platform" for component in components):
         return False
     post_upgrade = manifest.get("post_upgrade") if isinstance(manifest.get("post_upgrade"), dict) else {}
-    return bool(post_upgrade.get("auto_collection"))
+    # 49-49：platform_collection 是平台侧调度的新键（v0.5.3 起）；auto_collection 只为历史包/旧 manifest 兼容读取。
+    # 新包（v0.5.3+）的 auto_collection 固定为 False，避免源端老编译器下发 runner 不支持的调度动作。
+    return bool(post_upgrade.get("platform_collection") or post_upgrade.get("auto_collection"))
 
 
 def _ensure_post_upgrade_collection_marker(database: V2Database, tasks: TaskService) -> Path | None:

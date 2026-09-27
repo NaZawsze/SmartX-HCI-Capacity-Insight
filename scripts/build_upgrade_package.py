@@ -562,7 +562,11 @@ def _post_upgrade(*, target_version: str, legacy_cleanup: dict[str, Any]) -> dic
     if _version_tuple(target_version) < _version_tuple("v0.5.2") or not legacy_cleanup:
         return {}
     return {
-        "auto_collection": True,
+        # 49-49：auto_collection 必须为 False——源端 v0.5.2 的老编译器只认这个键，
+        # 为 True 会下发 post_upgrade.schedule_collection，而已发布 runner（d10e15cf）不实现该动作，
+        # 会在平台切换之后失败。真正调度改由 platform_collection（新键，老编译器忽略）驱动平台 worker。
+        "auto_collection": False,
+        "platform_collection": True,
         "create_cleanup_task": True,
         "cleanup_task_policy": "after_platform_health_success",
         "cleanup_failure_severity": "warning",

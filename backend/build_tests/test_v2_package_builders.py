@@ -266,8 +266,10 @@ class V2PackageBuilderTest(unittest.TestCase):
         self.assertNotIn("compose.project_migrate.v1", plan["required_capabilities"])
         self.assertIn("task.migrate_runtime_state", action_types)
         self.assertIn("task.sync_runtime_state", action_types)
-        self.assertTrue(manifest["post_upgrade"]["auto_collection"])
-        self.assertIn("post_upgrade.schedule_collection", action_types)
+        self.assertFalse(manifest["post_upgrade"]["auto_collection"])
+        self.assertTrue(manifest["post_upgrade"]["platform_collection"])
+        # 49-49：编译计划不再下发 runner 侧调度动作（升级后采集改平台侧）
+        self.assertNotIn("post_upgrade.schedule_collection", action_types)
         self.assertIn("post_upgrade.schedule_cleanup", action_types)
         self.assertIn("runner.schedule_target_runtime_handoff", action_types)
         self.assertNotIn("runner.handoff_target_runtime", action_types)
@@ -276,8 +278,7 @@ class V2PackageBuilderTest(unittest.TestCase):
         self.assertLess(action_types.index("files.sync"), action_types.index("task.migrate_runtime_state"))
         self.assertLess(action_types.index("task.migrate_runtime_state"), action_types.index("compose.override"))
         self.assertLess(action_types.index("health.http"), action_types.index("task.sync_runtime_state"))
-        self.assertLess(action_types.index("task.sync_runtime_state"), action_types.index("post_upgrade.schedule_collection"))
-        self.assertLess(action_types.index("post_upgrade.schedule_collection"), action_types.index("post_upgrade.schedule_cleanup"))
+        self.assertLess(action_types.index("task.sync_runtime_state"), action_types.index("post_upgrade.schedule_cleanup"))
         self.assertLess(action_types.index("task.sync_runtime_state"), action_types.index("post_upgrade.schedule_cleanup"))
         self.assertLess(action_types.index("post_upgrade.schedule_cleanup"), action_types.index("runner.schedule_target_runtime_handoff"))
         schedule = next(action for action in plan["actions"] if action["type"] == "post_upgrade.schedule_cleanup")
@@ -1053,7 +1054,8 @@ class V2PackageBuilderTest(unittest.TestCase):
         self.assertIn("filesystem.prepare", action_types)
         self.assertIn("compose.project_migrate", action_types)
         self.assertIn("task.migrate_runtime_state", action_types)
-        self.assertIn("post_upgrade.schedule_collection", action_types)
+        # 49-49：即使 manifest 仍写 auto_collection=True，编译器也不再下发 runner 侧调度动作
+        self.assertNotIn("post_upgrade.schedule_collection", action_types)
         self.assertIn("post_upgrade.schedule_cleanup", action_types)
         self.assertIn("runner.schedule_target_runtime_handoff", action_types)
 
