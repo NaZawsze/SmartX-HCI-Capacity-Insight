@@ -11,6 +11,14 @@
 - 平台还有兜底 `_ensure_post_upgrade_collection_marker`：**标记不存在时自己补建**（`source: "target_worker_compatibility"`）。
 - 结论：**抓数据与 runner 无关，清单里这行是历史时序权宜**（切换瞬间旧 web-api 正被替换、runner 仍在跑且知道任务目录，所以让它顺手留便条），可安全移除——这正是方案 A 的全部内容。
 
+### 已确认的事实（2026-09-27 逐动作比对）：A 做完后，已发布 runner 无需升级即可升 v0.5.3
+
+把 v0.5.3 主升级计划（task `upgrade-72bfb3f52317ef7f` 的 `task.json`）逐条动作与已交付 runner 包 `d10e15cf…` 的动作表（25 个）比对：
+
+- 主计划 13 个动作：`backup.create`、`image.load`、`filesystem.prepare`、`files.sync`、`task.migrate_runtime_state`、`compose.override`、`compose.project_migrate`、`compose.apply`、`health.http`、`task.sync_runtime_state`、`post_upgrade.schedule_cleanup`、`runner.schedule_target_runtime_handoff` —— **全部支持**；唯一缺失 `post_upgrade.schedule_collection`。
+- post-cleanup 子任务 7 个动作（`post_cleanup.precheck_target_health`/`runner.stop_legacy_runtime`/`compose.stop_legacy_project`/`network.remove_legacy`/`filesystem.cleanup_legacy_paths`/`filesystem.cleanup_target_app_residuals`/`post_cleanup.verify`）—— **全部支持**。
+- 结论：**只要按 A2 去掉那一条，已发布的 runner v0.3.1 不需要任何升级就能完成 v0.5.2 → v0.5.3**；方案 B 不是"能升"的前提，而是交付治理与防复发。
+
 ## 方案 A（平台侧，不碰 runner）——保 v0.5.2 现场能直升
 
 目标：**v0.5.2 + 已发布 runner v0.3.1 必须能升到 v0.5.3**，且不再依赖旧 runner 的任何新动作。
