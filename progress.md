@@ -7996,6 +7996,27 @@ release_smoke=critical 0, warning 0
 - **残留与边界**：任务结束后一个轮询周期（≤3s）两条通道都不新鲜，生产里由 `_active_runner_state()` 的 docker 兜底覆盖（已记入设计文档边界节）；runner 侧"执行期也刷新实例心跳"登记为下次 runner 交付待办。`.3` 上本次实验产生的 4 个升级任务目录（含 3 个 success、1 个 precheck_failed，约 3.3 GB）与 `/root/verify-gate`、采样脚本已清理。
 - 提交：`fb6df7d`（修复）+ `8427d9c`（证据/边界）。**S1 阶段（本地可闭环缺陷）全部完成**，下一步按顺序进入 S2-1（US-06 升级后采集改事件驱动）。
 
+## 2026-09-27 `.12` 全链路演练（从 v0.5.1u2 起，用户授权）+ 两个新缺陷
+
+触发：用户「11.12要从v0.5.1u2开始测试」+「数据你可以先备份，等u2恢复好之后可以导入数据，然后开始走正常升级流程，也要注意数据是否会丢失」+ 提供 `.12` 登录方式。全程只走产品流程（上传→预检→start），不手工改 task 状态、不伪造结果。
+
+- **起点状态**：`.12` 原本在链路终点（v0.5.3 + runner v0.3.2，今天 10:23–10:28 已跑过 v0.5.3 与 v0.3.2 两步）。
+- **数据备份（只读先做）**：`/root/baselines/chain-from-u2-20260927-233059/`（DB `VACUUM INTO` + `.env` + Prometheus + upgrades 目录；DB integrity ok，users1/towers1/clusters1/vm_latest556/vm_volumes89588/collection_runs49/tasks26；`.env` 0600 sha `8b644112e7433b50`）。
+- **重建 v0.5.1 干净基线**：`docker compose down` → 删目标/旧目录与网络 → 解包 v0.5.1 包 `ef24643b…` 到 `/opt/smartx-storage-forecast` → `docker load` 三镜像（内部 v0.5.1，runner v0.3.0）→ 放夹具 `.env` → 显式 tag `up`（旧 project `smartx-storage-forecast`、subnet `10.249.249.0/24`）。过程中踩到两处并修正：①Prometheus 崩溃（宿主数据目录属主 root，Prometheus 以 65534 运行）→ 按 `pre_install.sh` 语义 `chown -R 65534:65534` 并重建容器；②我用错了 `pre_install.sh` 的变量组合，误建了 `.../app/prometheus`，已清理。基线验收：health `v0.5.1/v0.3.0` 三 checks 全 true（DB 为空，按用户要求数据留到 u2 再导入）。
+- **STEP1 u2**：上传 `smartx-capacity-insight-upgrade-v0.5.1u2.tar.gz`（**`d5f27716…`**，注意 `/data/upgrade-packages/` 下同名的 `d7c01841…` 是另一个构建，不能误用）→ 预检通过 → start → task **`upgrade-232d290f059296b2` succeeded**，health `v0.5.1u2/v0.3.0`。
+- **数据导入（在 u2 阶段，按用户要求）**：停 web-api/worker/runner → 用 `.3` 夹具（`upg048-v051-business-pair-20260717`，DB SHA `b84520c9…`）替换空库并放同代 `.env`（0600）→ 起容器。导入后：health 全 true、integrity ok、**users1/towers1/clusters1/vm_latest556/vm_volumes89588/collection_runs47/tasks13**、`.env` sha `8b644112…`、Prometheus 200。
+- **STEP2 runner v0.3.1**：上传**已发布 Release 资产** `smartx-upgrade-runner-v0.3.1.tar.gz`（`d10e15cf…`）→ task **`upgrade-5a9434b468b332d6` succeeded**；节点特征符合节点表：**只有 runner 进新 project**（`smartx-hci-capacity-insight-upgrade-runner-1`），平台三件套仍在旧 project；health `v0.5.1u2/v0.3.1`。
+- **STEP3 v0.5.2**：上传 `upg048-fix8/…-v0.5.2.tar.gz`（`692aca8b…`，已发布资产）→ task **`upgrade-06922d540ee06f8d` success + `post-cleanup-upgrade-06922d540ee06f8d` success**；迁移后：五个容器全部进入 `smartx-hci-capacity-insight`、网络只剩 `smartx-hci-capacity-insight-net`（subnet `10.249.251.0/24`）、目录收敛到单根 `/data/smartx-storage-forecast/*`、**7 个 legacy 路径全部清理**、Prometheus 挂在目标目录；**数据 556/89588 未变**、integrity ok、`.env` sha 未变。
+- **STEP4 v0.5.3 候选 r5**：上传 `/root/rehearsal-r5-20260927/…-v0.5.3.tar.gz`（**`b9560eee…`**，从 `.3` 传入并校验）→ 预检 7 项全 true → task **`upgrade-da11b14fe60b7ae9` succeeded + `post-cleanup-upgrade-da11b14fe60b7ae9` success**（US-05 修复在该顺序下生效）→ **8 项验收全过**：health `v0.5.3/v0.3.1` 连测两次三 checks 全 true、五容器 tag 正确、project/network/subnet 正确、SQLite integrity ok 且 556/89588 与导入一致、Prometheus 挂目标目录 200、`.env` 0600 且 sha 与基线**完全一致**、7 个 legacy 路径 missing、UI 200。升级后自动采集尝试一次，仅因 Tower 不可达失败（环境限制）。
+- **STEP5 runner v0.3.2**：上传组件包（**本地构建** `3d99599c…`）→ 预检 5 项 true → task **`upgrade-6a8a543f7da0b761` succeeded**；**新 runner 连续存活 120 秒**（每 10s 采样心跳从 v0.3.1 切到 v0.3.2 后持续刷新，`Up About a minute`）→ 同 project 停机修复（US-11）在真实环境生效；health `v0.5.3/v0.3.2`；**8 项复验再次全过**，数据仍 556/89588。
+- **US-23「重复 start → 400」实测**：上传两个预检通过的包 A/B，`start A` → 200（pending），紧接着 `start B` → **400「升级任务 upgrade-d08f064e6e15166a 正在执行或需要恢复，不能开始新的升级。」** ✅
+- **演练副产品：两个新缺陷（详见 findings.md D1/D2、upgrade-strategy-issues US-24/US-25、pending-tasks #48/#49）**
+  - **US-24 🔴 同版本重装（已在目标布局）runner 自伤**：我原打算 `cancel A` 收尾，但 A 在 ~2 秒内被 runner 领走（cancel 只允许 pending），于是它真的跑了一次 **v0.5.3 → v0.5.3 同版本重装**（受支持路径），结果**卡死**：动作推进到 `task.migrate_runtime_state` 成功、随后停在 `compose.override`（**attempt=17 = runner 重启 17 次**）。根因：`engine._save()`（`upgrade_runner/engine.py:59-67`）在 `task_mirror_dir` 存在时**先写主 store、再无条件下写 mirror**；同版本重装时 `migrate` 的 source(`/data/upgrades/<tid>`)/mirror(`/data/smartx-storage-forecast/upgrades/<tid>`) 是**同一目录的两个路径视图** → 同一文件每次写两遍（N→N+2），内存 revision 落后 → 下次保存必 `RevisionConflict` → 进程崩溃 → 重启循环。此前 v0.5.2/v0.5.3 升级不触发（那时 source/mirror 是两个真实不同目录）。49-50 只修了同族的 `rmtree` 自删。
+  - **US-25 🟠 卡死的 running 任务无出路**：`cancel` → 400「只能取消等待执行的升级任务。」、`recovery/fail` → 400「只有等待恢复的升级任务可以标记失败。」、`delete` 拒绝 → US-23 单飞守卫随后把**所有**新升级拒掉，环境被永久锁死且无产品化恢复手段。
+  - **证据留档**：`/root/baselines/wedged-task-upgrade-d08f064e6e15166a/`（task.json、runner.log（含 36 条 RevisionConflict）、web-api.log、compose-runtime）+ `/root/baselines/chain-from-u2-20260927-233059/`。
+- **`.12` 当前状态（如实记录）**：平台 `v0.5.3` + runner `v0.3.2`，health 三 checks 全 true、数据 556/89588 完整；但**存在一个卡在 `running` 的任务（A）**，因此**该机器当前无法再开始任何升级**（US-25）。清理它需要 US-25 的修复（代码）或重建环境——两者都需要用户决定。
+- **文档**：findings.md D1/D2、docs/upgrade-strategy-issues.md US-24/US-25、docs/upgrade-audit-matrix.md（M3-11 标 ❌ 卡死 + 说明）、docs/pending-tasks.md（新增 #48/#49 + #2 更新为已演练）、docs/upgrade-package-ledger.md（r5 行 + v0.3.2 行追加本轮证据）、docs/releases/CHANGELOG.md（验证说明 + 已知问题两条）。
+
 ## 2026-09-27 升级链路顺序铁律落档（用户复核提出 + 用户令「必须遵循」）
 
 - **用户复核提出的问题（成立）**：①v0.5.2 → v0.5.3 **可以直升**（v0.5.3 `source_compatibility` 覆盖 v0.5.0~v0.5.3，平台包 runner 基线 = 已发布 `v0.3.1`，无需新 runner）；②但 **v0.5.2 装不住 v0.3.2 runner**——v0.5.2 的 web-api 没有同 project 守卫，组件包 `bootstrap_runner.target_project` == 当前 project → 刚启动的新 runner 被停（`.12` 两轮实测 ~10s SIGKILL/`exit=137`）。

@@ -781,3 +781,21 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - **后果**：任何"只认实例心跳"的判定在执行期都为假 → 预检查 `runner_protocol` 报"未检测到 upgrade-runner 心跳，请先升级 upgrade-runner"（误导性失败）、升级页组件目录 `compatible=False`（显示"不满足平台要求"）；`health` 有 docker 探测兜底所以通常看不出来。
 - **修法与边界**：web-api 侧把"存在有效任务租约"也算作在场证据（`service/runner_presence.py`，`source` 记 `task_lease`），协议校验/组件目录/health 共用同一判定。**不改 runner**（改 runner 需用户同意 + bump 版本 + 重交付，见 AGENTS §6/§8）；runner 侧"执行期也刷新实例心跳"登记为待办。runner 重启窗口没有租约 → 仍报"未检测到心跳"，是期望行为。
 - 教训：**多通道心跳的组件，判定"是否在场"必须覆盖所有通道**；只看其中一条会把"正忙"误判成"不在"。
+
+## 2026-09-27 `.12` 链路演练（u2→…→runner v0.3.2）发现两个真缺陷
+
+演练本身通过：`v0.5.1 → u2 → runner v0.3.1(d10e15cf) → v0.5.2(692aca8b) → v0.5.3(r5 b9560eee) → runner v0.3.2(3d99599c)`，每步 task succeeded、v0.5.2 与 v0.5.3 两处 post-cleanup success、数据 556/89588 全程未变、`.env` sha 未变、8 项验收两次全过。
+
+### D1 🔴 同版本重装（已在目标布局）时 runner 自伤：`_save` 双写同一 task.json → RevisionConflict 崩溃循环 → 任务卡死
+
+- **复现**：`.12`（已在目标布局 v0.5.3+v0.3.2）上传 r5 包做 **v0.5.3 → v0.5.3 同版本重装**（受支持的"修复/重同步安装"路径），task `upgrade-d08f064e6e15166a`：`backup.create`/`image.load`×3/`filesystem.prepare`/`files.sync`/**`task.migrate_runtime_state`** 全部 succeeded，随后停在 `compose.override`，**attempt=17**（= runner 容器 17 次重启），`task.json` 的 revision 只在重启时跳（173→176→179），最终 runner 不再重试、任务永久 `running`。
+- **根因（代码可证）**：`backend/app/upgrade_runner/engine.py:59-67` 的 `_save()` 在 `task_mirror_dir` 存在时**先写主 store、再无条件下写 mirror store**；而同版本重装（已迁到目标布局）时 `task.migrate_runtime_state` 返回的 `source_task_dir=/data/upgrades/<tid>` 与 `mirror_task_dir=/data/smartx-storage-forecast/upgrades/<tid>` **是同一目录的两个路径视图**（runner 容器内两者都是同一 bind mount）→ 每次保存把**同一个文件写两遍**：`store.save` 读到 N 写 N+1，紧接着 `mirror_store.save` 读到 N+1 写 N+2 → 内存里的 `task["revision"]` 仍是 N+1 → **下一次 `_save` 必然 `RevisionConflict`** → 异常未被捕获 → 进程退出 → 容器重启 → attempt++ → 循环。
+- **为什么以前没暴雷**：v0.5.2/v0.5.3 升级时 source（旧布局 `/data/upgrades`）与 mirror（目标 `/data/smartx-storage-forecast/upgrades`）是**两个真实不同目录**，mirror 写是设计行为、不冲突。只有"已经在目标布局上做同版本重装"才会 source==mirror。49-50 已用 `_same_directory`（inode 判等）修过同一族的 `rmtree` 自杀问题，但**镜像写入这条路没加同样的判等**。
+- **影响**：同版本重装是文档明确支持的"修复/重同步安装"路径（README/兼容范围）——现场一旦这么做（例如想修复镜像或重同步项目文件），升级会卡死且 **runner 进入崩溃循环**。
+- **修复方向（需用户同意 + bump runner 版本后实施，AGENTS §6/§8）**：`engine._save` 在 mirror 与主 store 指向同一文件（按 `Path.resolve()`/inode 判等）时**跳过 mirror 写**；或在 `task_migrate_runtime_state` 返回时若 source==mirror 就不设 `task_mirror_dir`。另加回归测试：同版本重装全流程 + mirror 同源用例。
+
+### D2 🟠 `running` 状态的任务卡死后没有任何产品化出路 → 环境被单飞守卫永久锁死
+
+- **复现**：D1 的任务卡在 `running` 后，`POST /api/admin/upgrade/cancel/{tid}` → **400「只能取消等待执行的升级任务。」**；`POST /api/admin/upgrade/recovery/{tid}/fail` → **400「只有等待恢复的升级任务可以标记失败。」**；`delete` 亦被拒。于是 US-23 单飞守卫会把**之后所有升级**都拒掉（"升级任务 … 正在执行或需要恢复"）→ 该机器再也无法开始升级，只能靠宿主手工干预（而 AGENTS 明确禁止手工改 task 状态）。
+- **影响**：任何"任务卡在 running（runner 崩溃/被杀/主机重启）"的现场都会变成**不可恢复**；这与"数据优先、可重试"的设计口径冲突。
+- **修复方向（web-api 侧，可不动 runner）**：给"长时间无有效租约且无新鲜心跳的 running 任务"提供产品化出路——例如恢复接口接受 `running`（在 runner 侧无租约时判为 `recovery_required` 并给出 continue/rollback/fail 选项），或提供"标记失败/强制恢复"入口并记录审计。
