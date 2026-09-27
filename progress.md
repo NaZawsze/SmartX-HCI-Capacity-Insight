@@ -7995,3 +7995,15 @@ release_smoke=critical 0, warning 0
 - **文档**：CHANGELOG v0.5.3「修复」补条目；findings.md 新增根因条；task_plan 第 57 项 + 对照表；doc-map；`upgrade-strategy-issues.md` US-08 → 🟢；执行顺序表 S1-3 → ✅。
 - **残留与边界**：任务结束后一个轮询周期（≤3s）两条通道都不新鲜，生产里由 `_active_runner_state()` 的 docker 兜底覆盖（已记入设计文档边界节）；runner 侧"执行期也刷新实例心跳"登记为下次 runner 交付待办。`.3` 上本次实验产生的 4 个升级任务目录（含 3 个 success、1 个 precheck_failed，约 3.3 GB）与 `/root/verify-gate`、采样脚本已清理。
 - 提交：`fb6df7d`（修复）+ `8427d9c`（证据/边界）。**S1 阶段（本地可闭环缺陷）全部完成**，下一步按顺序进入 S2-1（US-06 升级后采集改事件驱动）。
+
+## 2026-09-27 升级链路顺序铁律落档（用户复核提出 + 用户令「必须遵循」）
+
+- **用户复核提出的问题（成立）**：①v0.5.2 → v0.5.3 **可以直升**（v0.5.3 `source_compatibility` 覆盖 v0.5.0~v0.5.3，平台包 runner 基线 = 已发布 `v0.3.1`，无需新 runner）；②但 **v0.5.2 装不住 v0.3.2 runner**——v0.5.2 的 web-api 没有同 project 守卫，组件包 `bootstrap_runner.target_project` == 当前 project → 刚启动的新 runner 被停（`.12` 两轮实测 ~10s SIGKILL/`exit=137`）。
+- **由此更正的计划错误**：MVP 清单里的 **M3-10（v0.5.2 × 先 runner 后平台）不可执行**，已在三处改准——`docs/upgrade-audit-matrix.md`（M3-10 行标 N/A + 不可执行格说明 + MVP 子集 4→3 格、合计 42→**41 执行格**、124→**118 断言**、M4 随行 12→11 格）、`docs/superpowers/plans/2026-09-27-v053-full-chain-acceptance-plan.md`（补「可跑范围」说明：先 runner 只能在 v0.5.1u2/M3-08 验）、`docs/pending-tasks.md` #2（验收格改为 M3-08 + v0.5.2 直升回归 + 重复 start）。
+- **铁律落档（用户令「在 plan 或 AGENTS 里写上，必须遵循」）**：
+  - `AGENTS.md` §7 新增「**升级顺序与源端矩阵（铁律，必须遵循）**」8 条（顺序铁律 / 机制原因 / 唯一例外 / 直升关系 / v0.3.2 定位 / 单飞 / 症状速查 / 禁止用提前升 runner 规避）；
+  - `docs/deployment.md` §10.1 改写为「必读，必须遵循」6 条（面向运维/现场，随产品文档交付）；
+  - `docs/version-governance.md` 版本模型下新增升级顺序铁律条目并指向上述两处；
+  - 三者互为指针，避免只写在未入库的 AGENTS.md 里。
+- 验证：`git diff --check` 干净、`verify_release_docs_safe.py` PASS、文档断链 0。
+- 提交：见本轮后续提交（顺序铁律 + MVP 更正）。
