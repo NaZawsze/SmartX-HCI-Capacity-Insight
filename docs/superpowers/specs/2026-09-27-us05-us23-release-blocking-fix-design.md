@@ -96,11 +96,32 @@ self._ensure_no_active_upgrade(task_id)   # ← 新增
 - **含 `post-cleanup-*` 任务**：post-cleanup 运行期间同样禁止新升级（它在动 compose/legacy，互斥更安全）；其任务目录就是 `post-cleanup-<tid>`，天然被扫到。
 - **排除自身**：当前任务自身不算（它此刻是 `precheck_passed`，本就不在 ACTIVE 集合；显式排除是为防未来状态集合变化）。
 - **不做 runner 侧重验**（执行前重验 source_compatibility）：那需要改 runner → bump 版本，收益有限（web-api 入口已拦），**不在本次范围**。
+- **实现归属与并发竞态（2026-09-27 补）**：
+  - 守卫实现为 `ExecutionMixin` 的**实例方法**（需要 `self.settings.upgrades_dir`），不是模块级函数；
+  - FastAPI 的同步 handler 跑在线程池里，**两个并发 `start` 可能同时通过扫描**再各自写入状态（检查-写入不是原子的）→ 加一把**类级 `threading.Lock`**（`_UPGRADE_START_LOCK = threading.Lock()`），在锁内完成「扫描 + 本任务状态改写落盘」，消除竞态窗口；
+  - 扫描时机：本任务 `precheck_passed` 校验**通过之后**（否则先报"预检查通过后才能开始"更准确）；
+  - 扫描范围：`settings.upgrades_dir.glob("*/task.json")`（几十个文件，毫秒级，无需索引）；解析失败（OSError/ValueError）**跳过**该文件——守卫失败不应阻断 start，但要在日志里记一条 warning。
+
+### 2.4 其它入口同样加守卫（2026-09-27 补）
+
+除 `start()` 外，以下入口也会改变升级环境，**必须**走同一守卫（同一把锁）：
+
+| 入口 | 位置 | 处理 |
+| --- | --- | --- |
+| `POST /api/admin/upgrade/post-cleanup/{tid}/retry` | `service/cleanup.py::retry_post_upgrade_cleanup` | 调用 `_ensure_no_active_upgrade(tid)`：有其它活跃升级时 400「清理重试与在执行升级互斥」 |
+| `POST /api/admin/upgrade/recovery/{tid}/continue` | recovery 流程 | 同上；`recovery continue` 本身就是"继续执行"，与其它活跃升级互斥 |
+| `rollback`（`POST /api/admin/upgrade/rollback/{tid}`） | `rollback()` | 回滚会还原环境，同样互斥 |
+
+> `cancel` 与 `delete` 不加：它们是"退出"动作，不应被互斥拦住。
 
 ### 2.3 US-04 缓解（仅文档，不改代码）
 
 - v0.5.2 老 web-api 的无条件 stop **改不到**（源端老镜像），本次只在**发布材料与升级中心文档**写死顺序：
   > **先升平台（v0.5.3），再做 runner 组件升级（v0.3.2）。** 在 v0.5.2 平台上先做 runner 组件升级会导致新 runner 被停止（已知问题，v0.5.3 已修复）。
+- **文档落点（具体文件，2026-09-27 补）**：
+  1. `docs/deployment.md` 升级章节：新增「升级顺序」小节，写死「先平台（v0.5.3），再 runner 组件升级（v0.3.2）」及原因（v0.5.2 平台先升 runner 会被停止，v0.5.3 已修复）；
+  2. `docs/releases/CHANGELOG.md` v0.5.3「工程与运维」：追加同一顺序说明（发布材料的权威口径）；
+  3. `AGENTS.md` §7 固定升级链路：在链路图后加一行「**runner 组件升级必须在平台升级之后**（v0.5.2 源端已知问题，见 findings 2026-09-27）」。
 - 前端在组件升级卡显示顺序提示：**列为可选后续**（见 §4），不在本次。
 
 ## 3. 实施与打包
@@ -108,7 +129,7 @@ self._ensure_no_active_upgrade(task_id)   # ← 新增
 1. 提交两处代码改动（`build_upgrade_package.py` 一处、`execution.py` 守卫）+ 新测试。
 2. **重打 v0.5.3 候选包**（新 SHA，取代 `e1c0fde8…`）：`--check-version` / identity / `.sha256` / 敏感 0。
 3. `.3` 门禁全量重跑：后端全量（377+新增）、构建 26、前端 tsc/vitest、api docs、release docs。
-4. `.12` 端到端（MVP 对应格）：
+4. `.12` 端到端（**本修复相关的 MVP 子集**，非全部 42 格）：
    - **M3-08 / M3-10**（v0.5.1u2、v0.5.2 × **先 runner 后平台**）：平台升级 post-cleanup **必须成功**（US-05 验证）
    - **重复 start**：第二个任务 start 必须 400 且消息含「正在执行」（US-23 验证）
    - **平台先**顺序既有链路回归不受影响（回归 1 格）
@@ -131,6 +152,9 @@ self._ensure_no_active_upgrade(task_id)   # ← 新增
 4. 排除自身：自己 `precheck_passed` 时 `start` 自身成功
 5. 组件升级入口（`submit_to_runner=True` 路径）同样被拦
 6. `post-cleanup-*` 任务 running 时 → 400（升级期间互斥）
+7. **并发竞态**：两个线程同时对两个已预检任务 `start` → **恰好一个成功、另一个 400**（锁内 check+write 原子性）
+8. `post-cleanup retry` / `recovery continue` / `rollback` 在有其它活跃升级时 → 400；`cancel`/`delete` 不受守卫影响
+9. 守卫扫描遇到损坏的 task.json → 跳过且 start 不被阻断（日志有 warning）
 
 ### 5.2 构建测试（改 `build_tests/test_v2_package_builders.py` 断言）
 - manifest `required_health` **不含** `runner_version`、仍含 `version` 与 `checks: ["directories","database","prometheus"]`
@@ -154,4 +178,6 @@ self._ensure_no_active_upgrade(task_id)   # ← 新增
 3. `.12` M3-08 / M3-10：先 runner 后平台 → **post-cleanup succeeded**（修复前必失败的对照已有第一轮证据）
 4. `.12` 重复 start → 400
 5. 平台先顺序回归全绿
+6. 并发锁用例通过（两线程同时 start，恰一个成功）
+7. retry/recovery/rollback 入口互斥生效（单测覆盖）
 6. 文档同步：issues（US-05/23 → 🟢）、审计矩阵对应格 ✅、ledger/CHANGELOG/AGENTS 更新
