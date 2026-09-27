@@ -64,7 +64,8 @@ v0.5.3 是 v0.5.2 之后的平台版本候选（未发布），主要内容：�
 
 ### 验证说明
 
-- **2026-09-27 候选包 `54aa8807…`（dev2 0a41775）门禁**（10.20.11.3）：`--check-version` OK（v0.5.3）；宿主机构建测试 **26 OK**；web-api 容器内全量 **362 tests OK (skipped=1)**（235s）；前端 `tsc -b --force` exit 0、vitest **107 passed（11 files）**；`verify_api_docs` 77 条=76 路由一致；`verify_release_docs_safe` PASS；`verify_upgrade_package_identity` exit 0（版本文件/镜像 tag/内部版本一致）；`.sha256` 文件 `sha256sum -c` OK；包内敏感成员扫描 0（无 `.env`/`.db`/`.sqlite`）；部署后 health `v0.5.3/v0.3.1` 三 checks 全 true、web 200、五容器在位。
+- **2026-09-27 候选包 `54aa8807…` 升级链路回归 + `.12` 正规升级验收（全过）**：`10.20.11.12` 恢复真实 `v0.5.1 + runner v0.3.0` 基线（业务夹具 users1/towers1/vm_latest556/vm_volumes89588）→ `verify_full_upgrade_chain.py` 三步 `v0.5.1u2 → runner v0.3.1 → v0.5.2` 全 succeeded（节点 1/2/3 验收 + post-cleanup succeeded）→ 本包正规升级 task `upgrade-72bfb3f52317ef7f` **succeeded、post-cleanup succeeded** → 8 项验收：health `v0.5.3/v0.3.1` 连测两次三 checks 全 true、5 容器镜像 tag 正确、project/network `smartx-hci-capacity-insight(-net)` subnet `10.249.251.0/24`、SQLite 行数与基线**完全一致**且 integrity ok、Prometheus 挂载目标目录 `/-/ready` 200、`.env` 0600 且 sha 全程未变、7 个 legacy 路径全部 missing、UI 8080=200。已知限制：升级后自动采集因 Tower `10.20.0.6` 不可达失败（环境限制非缺陷）。**附带结论：链路第 2 步必须用按当前源码构建的 runner 组件包（`dd096bf2…`）**，2026-06/07 的旧 runner 包缺 `post_upgrade.schedule_collection` 会在 v0.5.3 切换后失败，详见 findings.md。
+- **2026-09-27 候选包 `54aa8807…`（dev2 0a41775）包静态门禁**（10.20.11.3）：`--check-version` OK（v0.5.3）；宿主机构建测试 **26 OK**；web-api 容器内全量 **362 tests OK (skipped=1)**（235s）；前端 `tsc -b --force` exit 0、vitest **107 passed（11 files）**；`verify_api_docs` 77 条=76 路由一致；`verify_release_docs_safe` PASS；`verify_upgrade_package_identity` exit 0（版本文件/镜像 tag/内部版本一致）；`.sha256` 文件 `sha256sum -c` OK；包内敏感成员扫描 0（无 `.env`/`.db`/`.sqlite`）；部署后 health `v0.5.3/v0.3.1` 三 checks 全 true、web 200、五容器在位。
 - 全量后端测试：容器内 330 tests 全绿（第二次重打包后；含 Excel 图表、AI 措辞层、新鲜度探针、预测带测试）。
 - 前端：tsc 干净、89 测试全绿。
 - 真实 Word/Excel 导出验证通过（容量趋势 Sheet 含图表 + 打印版式）。
@@ -72,7 +73,8 @@ v0.5.3 是 v0.5.2 之后的平台版本候选（未发布），主要内容：�
 
 ### 已知问题与未解决事项（截至 2026-09-27）
 
-- **当前候选包 `54aa8807…`（2026-09-27）只完成包静态门禁与 .3 部署验证**：`.12` 正规升级验收与从 v0.5.1 基线的升级链路回归均未执行（前者需用户授权连接 `10.20.11.12`，后者需先把测试机恢复成 v0.5.1 + runner v0.3.0 干净基线，属破坏性环境操作需用户确认）；发布动作本身仍待用户明确指令。
+- **当前候选包 `54aa8807…`（2026-09-27）包静态门禁、`.3` 部署、`.12` v0.5.1 基线升级链路回归与正规升级 8 项验收均已完成**；发布动作本身（推送、打 tag、release、对外交付）仍待用户明确指令。
+- **runner 组件包交付决策待定**：v0.5.3 升级需要 runner 动作表含 `post_upgrade.schedule_collection`，仓库 `components/` 下的旧包（2026-06-28 `a112f6e1…`）与链路上常用的 2026-07 包（`d10e15cf…`）都不含；本轮按当前源码新打的包为 `dd096bf2…`（ledger 2026-09-27 条目）。是否随本次发布一并交付、以及是否给预检查补动作级 runner 能力校验（避免切换后才失败），待用户决定（findings.md 2026-09-27）。
 
 - **测试环境 Tower（CHINATOWER/SMARTX-TT-WW）自 2026-09-12 网络不可达**：采集连续失败，容量数据停在 09-12；`collection-freshness-stale` critical 告警挂起（49-20 探针的端到端真实验证）。属环境限制非缺陷，待恢复可达性（pending-tasks #23，需用户侧处理）。
 - **数据库无周期性自动备份**：现有备份均为事件驱动（升级前/清理前/手工）。是否立项"定期自动备份 + 恢复演练"待用户决策（pending-tasks #24）。

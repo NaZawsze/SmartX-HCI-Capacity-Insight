@@ -102,9 +102,15 @@ class Client:
     def health(self) -> dict[str, Any]:
         return self.req("GET", "/api/system/health")[1]
 
-    def versions(self) -> dict[str, str]:
+    def versions(self) -> dict[str, Any]:
         h = self.health()
-        return {"platform": str(h.get("version", "")), "runner": str(h.get("runner_version", "")), "prometheus": str(h["checks"].get("prometheus", False))}  # type: ignore[index]
+        # prometheus 必须返回真布尔：verify_node3 用 `is True` 判定，
+        # 返回字符串 "True" 会让该断言永远失败（2026-09-27 .12 链路回归实测踩到）。
+        return {
+            "platform": str(h.get("version", "")),
+            "runner": str(h.get("runner_version", "")),
+            "prometheus": bool(h["checks"].get("prometheus", False)),
+        }
 
     def containers(self) -> list[str]:
         try:

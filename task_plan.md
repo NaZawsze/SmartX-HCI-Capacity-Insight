@@ -1630,7 +1630,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 测试：新增 5 后端用例（client 解析/空列表不请求、采集写指标、取数失败不阻断、dashboard 比例分母为总容量）+ 4 前端用例（StorageBar 三段/封顶/无分配/total=0）→ .3 后端全量 **348 tests OK (skipped=1)**、tsc exit 0、vitest **100 passed（9 files）**
 - [x] .3 重建部署验证：三镜像重建 + health 三 checks 全 true + 真实 payload `allocated_bytes=0.0/allocated_ratio=0.0`（Tower 不可达，属预期）+ 前端 bundle 含「已分配」+ 回填后的 used/total 仍在
 - [ ] 真实 `perf_allocated_data_space` 对账（Tower `10.20.0.6` 当前不可达，须等网络恢复）
-- [ ] 提交（需用户明确批准）
+- [x] 提交（55d4145 + 7d1aca4，2026-09-26 批次）
 - [ ] UI 目视确认（三段容量条 + 「已分配 Z · 270%」数值）
 
 ### 39. 报表容量增长率：无成功采集窗口判样本不足 + 不足项显示「-/单位」与标题黄色「数据不足」[已实施并部署 .3]
@@ -1642,7 +1642,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 测试：后端新增「真实样本分布在 20~30 天前 + 14 天前（最后成功采集），其后只有平坦回填值 → 日窗口仅 1 点判样本不足、月/季度为真实非 0 值」用例（`StaleBackfillPrometheus`；另两条既有增长用例补与 `now_ts` 对齐的成功采集种子）→ .3 后端全量 **349 tests OK (skipped=1)**；前端 `ReportsPage.test.tsx` 补 `-/季度` + 标题 `数据不足` 断言 → tsc exit 0、vitest **100 passed（9 files）**。
 - [x] .3 部署验证：web-api + frontend 镜像重建、真实 payload `{"per_day":3921044307968.0,"per_month":4883984786550.18,"per_quarter":14904154136950.08,"day_sample_sufficient":true,"month_sample_sufficient":true,"quarter_sample_sufficient":true}`（日值含 09-12 采集把 08-20 旧值刷新为新值的跳变；取证序列：08-12~08-20 有样本、08-21~09-11 缺失、09-12~09-18 为最后成功采集后的平坦值、09-26 为回填写入）、前端产物含 `growth-rate-insufficient-notice`、`http://127.0.0.1:8080/` 200。
 - [ ] 用户 UI 目视确认（日≈`3.57 TiB/天`、月≈`4.44 TiB/月`、季度≈`13.55 TiB/季度`；日值偏高系 09-12 采集刷新 08-20 旧值的跳变，采集恢复日常后回归正常）
-- [ ] 提交（需用户明确批准）
+- [x] 提交（55d4145 + 7d1aca4，2026-09-26 批次）
 - 说明：本条取代 49-38（49-38 的「-」占位实现已按要求全部回退）。
 
 ### 40. 回收站 VM 排除（本日/本月新建与增长 VM 统计）[已实施并验证 .3]
@@ -1655,7 +1655,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 测试：新增 `RecycledVmPrometheus` + `test_new_vm_lists_exclude_recycle_bin_vms`（正常 VM 保留、回收站 VM 排除）→ .3 后端全量 **350 tests OK (skipped=1)**。
 - 边界（未做）：看板「虚拟机」KPI 仍含回收站 VM（用户本次只反馈新建列表）；不清理既有 SQLite/Prometheus 记录（保留业务数据，展示侧过滤）。
 - [ ] 用户 UI 目视确认（新建 VM 列表不再出现 `in-recycle-bin-*`）
-- [ ] 提交（需用户明确批准）
+- [x] 提交（55d4145 + 7d1aca4，2026-09-26 批次）
 
 ### 41. 集群容量趋势图：断档处断开实际容量曲线 + 只画真实采集数据[已实施并验证 .3]
 
@@ -1666,7 +1666,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 后端：`reports/service.py` 的 `chart_series` 用 `end_ts=last_success_ts`（无成功采集则空），图表不再画回填/暂停期假点。
 - [x] 测试：新增 `frontend/src/services/chartGrid.test.ts`（4 例）→ `tsc -b` exit 0、vitest **103 passed（10 files）**；后端 `DuplicateClusterLabelPrometheus` 用例补成功采集种子 → 全量 **350 tests OK (skipped=1)**。
 - [ ] 用户 UI 目视确认（断档处曲线断开、右侧无假点）
-- [ ] 提交（需用户明确批准）
+- [x] 提交（55d4145 + 7d1aca4，2026-09-26 批次）
 
 ### 42. 新建 VM 口径修正：按 vm_id 全历史最早样本[已实施并验证 .3]
 
@@ -1678,7 +1678,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] .3 部署验证：`day_new_vms` 0 台、`month_new_vms` **6 台**（虚拟化平台授权机、业支-蜜罐01~05，首见 09-12），回收站 VM 已排除。
 - 局限：这是「平台首次纳管时间」，断档期间创建的 VM 只能归到恢复采集当天；真实创建时间需 Tower `local_created_at`（pending-tasks #36/#37，待 Tower 恢复）。
 - [ ] 用户 UI 目视确认（本月新建 ≈6 台）
-- [ ] 提交（需用户明确批准）
+- [x] 提交（55d4145 + 7d1aca4，2026-09-26 批次）
 
 ### 43. 概览与报表「本日新建 VM」同源（共用 49-42 口径）[已实施并验证 .3]
 
@@ -1690,7 +1690,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 测试：新增 `GapAndRecycleVmPrometheus` + `test_dashboard_and_report_day_new_vms_share_first_seen_and_recycle_rules`（断言两侧 `day_new_vms` 一致）→ .3 全量 **352 tests OK (skipped=1)**。
 - [x] .3 部署验证：`dashboard_day_new = 0`、`report_day_new = 0`、`equal = True`（本月新建仍 6 台）。
 - [ ] 用户 UI 目视确认（概览与报表数字一致）
-- [ ] 提交（需用户明确批准）
+- [x] 提交（55d4145 + 7d1aca4，2026-09-26 批次）
 
 ### 44. 同名口径审计：周期边界同源 + 概览增长过滤 + 报表增长泄漏修复[已实施并验证 .3]
 
@@ -1702,7 +1702,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 测试：新增 `test_v2_vms_new_vm.py`、`test_growth_vm_lists_exclude_recycle_bin_vms_from_series_tail`，扩展 49-43 一致性测试覆盖增长列表；`test_v2_p1_infra` 改指向共享实现 → .3 全量 **355 tests OK (skipped=1)**。
 - [x] .3 部署验证：线上 `month_fastest_growing_vms` 66 条、回收站 0 条（修复前 68 含 2）；`day_new` 概览=报表=0。
 - 审计遗留（待用户决定）：①虚拟机 KPI 是否排除回收站（两侧都算 244，含回收站）；②「增长最快 VM」两套实现结果不同（同 30 天窗口：概览 0 条 vs 报表 66 条），需重构统一；③报表缺「已分配容量」（49-36 只做了概览）。
-- [ ] 提交（需用户明确批准）
+- [x] 提交（55d4145 + 7d1aca4，2026-09-26 批次）
 
 ### 45. 「增长最快 VM」统一实现（概览与报表结果一致）[已实施并验证 .3]
 
@@ -1715,7 +1715,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 测试：新增 `test_dashboard_and_report_growth_vms_share_same_implementation`（日/月 vm_id+增长值完全相等、无回收站）；更新概览风险面板 `top_growth_vms` 预期（新口径下 vm-2 增长 0 不入列）→ .3 后端全量 **356 tests OK (skipped=1)**；`growth.test.ts` 4 例 → tsc 0、vitest **107 passed（11 files）**。
 - [x] .3 部署验证：`day_equal=True`、`month_equal=True`（概览=报表=66 条，修复前 0 vs 66，Top3 逐条一致）、health/web 200。
 - [ ] 用户 UI 目视确认（两页增长列表一致）
-- [ ] 提交（需用户明确批准）
+- [x] 提交（55d4145 + 7d1aca4，2026-09-26 批次）
 
 ### 46. 报表补「已分配容量」[已实施并部署 .3]
 
@@ -1727,7 +1727,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] .3 部署验证：web-api + frontend 重建，health 200 / web 200；真实 payload `cluster SMARTX-TT-WW total=233457301585920.0 allocated=0.0`（`smartx_cluster_storage_allocated_bytes` 尚无样本 → 按 0 口径）、前端产物含「已分配」。
 - [x] 趋势图「已分配容量」线（49-46b）：2px 深蓝虚线（`cssVar("--blue")` 从设计变量取色）、**图例默认关闭**（`legend.selected`，可手动打开）、打开时才计入 y 轴上限（设计见设计文档 §9）。
 - [ ] 用户 UI 目视确认（报表行数字 + 图例「已分配容量」默认关闭、点开可见）
-- [ ] 提交（需用户明确批准）
+- [x] 提交（4491cba，2026-09-27）
 
 ### 47. 回收站 VM 生命周期同步：记录 → 彻底删除后本地一并删除（49-47）[已实施并部署 .3]
 
@@ -1740,7 +1740,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 测试 5 个（client 记录 / 落库 / 彻底删除核对 / 失败不删 / 新库+升级建列）→ .3 后端全量 **362 tests OK (skipped=1)**、tsc 0、vitest **107 passed**
 - [x] .3 部署：health/web 200、真实库 `columns_ok=True`（590 行旧行回填 0）、前端产物含「已分配容量」
 - [ ] 用户 UI 目视 + 端到端（Tower 恢复后验证：标记 → 彻底删除 → 行消失）
-- [ ] 提交（需用户明确批准）
+- [x] 提交（874b242，2026-09-27）
 
 ### 48. 趋势图「实际容量 / 已分配容量」颜色互换（49-48）[已实施并部署 .3]
 
@@ -1750,7 +1750,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 配色错位修复（49-48b，用户当日反馈「历史预测和已分配容量颜色一样」）：根因是 ECharts 调色板只给**未显式指定 `itemStyle.color`** 的系列按 `paletteIdx` 顺序发色（`echarts/lib/visual/style.js` + `model/mixin/palette.js`），实际容量改成显式色后后续系列整体前移一位。修复 = **六个系列全部显式给色**（`actualColor/allocatedColor/historyColor/futureColor/warningColor/totalColor`），恢复原始语义：实际=主蓝、历史预测=`#8792a2`、未来预测=`#29354d`、告警阈值=`#f59e0b`、存储卷有效容量=`#ef4444`、已分配=`#0f9fbf`。
 - [x] .3 验证：`tsc -b` exit 0、vitest **107 passed（11 files）**；frontend 镜像重建 + `up -d`，`HTTP/1.1 200 OK`、health `v0.5.3` 三 checks 全 true；产物 `index-BGljRmQ-.js` 逐系列取证六个 `color:X` 变量分别绑定上述六个色值、互不相同（首版 `docker compose build` 曾因 registry TLS 超时失败一次，重试即过）。
 - [ ] 用户 UI 目视确认（实际容量=蓝色实线+浅蓝面积；历史预测=灰、未来预测=深蓝、告警阈值=琥珀、有效容量=红；图例打开「已分配容量」后为青色虚线）
-- [ ] 提交（需用户明确批准）
+- [x] 提交（0a41775，2026-09-27）
 
 ### 37. 手动采集失败清空指标快照修复 + 仪表盘数据过期标注（49-37）[进行中]
 
@@ -1761,6 +1761,6 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] 看板过期标注：`_latest_collection` 补 `threshold_minutes`/`data_freshness`，采集状态卡常驻「最后成功采集」+ stale 时顶部过期提示条与徽标
 - [x] 测试：全失败/部分失败/过滤重试不清空快照 + freshness 三态 + 前端标注 → .3 后端全量 **343 tests OK (skipped=1)**、tsc exit 0、vitest **96 passed**
 - [x] .3 重建部署验证：三镜像重建 + health 三 checks 全 true + 真实 payload `last_success_at=2026-09-12 15:21:10/threshold_minutes=120/data_freshness=stale` + 真实失败手动采集后快照 357 字节未变（progress.md 49-37）
-- [ ] 提交（需用户明确批准）
+- [x] 提交（55d4145 + 7d1aca4，2026-09-26 批次）
 - [ ] UI 目视确认（过期提示条 + 最后成功采集行）
 - 独立于本条：`.3` 快照回填（从 Prometheus 09-18 前最后样本写回 `metric_snapshots`）须单独征得用户确认后执行

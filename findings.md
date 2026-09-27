@@ -713,3 +713,16 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 后果：把任一前排 series 改成显式色，后面所有未显式配色的 series 会**整体前移一格**——49-48 首版只给「实际容量使用」换色，就让历史预测落到调色板第 0 槽 `#0f9fbf`（与显式青色的已分配容量撞色），未来预测/告警阈值/存储卷有效容量也各自错位一格。
 - 稳定做法：图表里**每个系列都显式写 `lineStyle.color` + `itemStyle.color`**，颜色常量集中在定义处；调色板数组只当兜底，不作为配色来源。
 - 取证技巧（.3 nginx 容器）：`grep -o 'name:"<系列名>",type.\{0,220\}' bundle.js` 直接读出每个系列绑定的色值变量；busybox grep 的 `\{0,N\}` 里 N 不能 >255，否则报 `Invalid contents of {}`。
+
+## 2026-09-27 runner 同版本不同构建导致 v0.5.3 升级在切换后失败（.12 链路回归）[已定位并绕过]
+
+- 现象：`.12` 从 v0.5.1 基线走完 `→ v0.5.1u2 → runner v0.3.1 → v0.5.2` 后，再用候选包 `54aa8807` 升 v0.5.3，主任务在**平台已切到 v0.5.3 之后**失败：`Runner 不支持动作：post_upgrade.schedule_collection`（task `upgrade-cede491efb9b1345`）。
+- 根因：`post_upgrade.schedule_collection` 是 v0.5.2 发布（2026-08-12 `dab2e0f`）之后才进 runner 动作表的动作；链路第 2 步用的是 2026-07 的 runner 组件包 `d10e15cf`（`grep -c schedule_collection` = 0），而当前 dev2 构建的 runner 镜像 `0aca32511008` 有（= 2）。**两者 `RUNNER_VERSION` 都是 `v0.3.1`**。
+- 为什么预检查抓不到：`v2/upgrade/compiler.py:313` 会把动作能力并进 plan 的 `required_capabilities`（`post_upgrade.schedule_collection → task.recovery.v1`），但旧 runner **声明**了 `task.recovery.v1`（它有 `schedule_cleanup`/`task.migrate_runtime_state`），只是动作表里没有这一个动作 → 能力级检查通过、动作级执行失败，且失败点在 cutover 之后，是最坏时机。
+- 结论/规避：链路第 2 步必须用**由 ≥ v0.5.2 发布源码构建**的 runner 组件包。本轮已用 `build_runner_component_package.py --version v0.3.1 --no-build` 从当前 dev2 镜像打新包 `dd096bf2…`，链路重跑后 v0.5.3 升级全绿（见 progress.md 2026-09-27 发布验收）。
+- 待用户决策（未改代码）：①是否给 v0.5.3 manifest/预检查补「动作级」runner 能力校验，让同类问题在 precheck 就失败而不是切换后失败；②runner 组件包是否随本次发布一起重建交付（现在 `components/` 下的旧包 `a112f6e1` 同样不含该动作）。
+
+## 2026-09-27 `verify_full_upgrade_chain.py` 的 prometheus 断言永远失败（脚本缺陷）[已修复]
+
+- `Client.versions()` 用 `str(...)` 返回 `prometheus`，而 `verify_node3` 断言 `v["prometheus"] is True` → 字符串 `"True" is True` 恒为假，三步升级全部 succeeded 之后脚本仍会在这里抛 AssertionError（`.12` 两轮实测均踩到，第一轮一度误判成"Prometheus 瞬时未就绪"）。
+- 修复：`versions()` 改为 `bool(...)` 并去掉 `dict[str, str]` 注解；修复版已在 `.12` 实跑（`verify_node3 最终验收通过`、`post-cleanup: succeeded`）。
