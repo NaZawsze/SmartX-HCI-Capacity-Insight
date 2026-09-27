@@ -93,6 +93,7 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | [v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md](v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md) | 链路任务计划与发现归档：原 task_plan/findings 中的 Phase 32~48 详情迁至此。 | 根 Phase 32~48 |
 | [upgrade-runner-lifecycle.md](upgrade-runner-lifecycle.md) | upgrade-runner 生命周期：平台包与 runner 组件包边界、runner 自升级策略。 | task_plan Phase 22 |
 | [upgrade-issues.md](upgrade-issues.md) | 升级模块问题台账（UPG-001 起）：问题清单、根因和关闭状态。 | task_plan Phase 6~9 等 |
+| [upgrade-strategy-issues.md](upgrade-strategy-issues.md) | **升级策略问题细分清单（2026-09-27 复查）**：架构/契约、流程断言、已修复回归项、验收矩阵缺口共 22 条，每条含根因/证据/修复方向/状态。 | pending-tasks #47、验收计划 |
 | [upgrade-package-ledger.md](upgrade-package-ledger.md) | 升级包台账：包路径、SHA256、状态和废弃原因。 | UPG-031~048 |
 
 ## 6. 发布、验收与治理
