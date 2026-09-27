@@ -7956,3 +7956,14 @@ release_smoke=critical 0, warning 0
   - 容器内全量回归（把新测试文件放进 `/data/smartx-storage-forecast/project/backend/tests/` 后按标准跑法）：**408 tests OK (skipped=2)**（386 + 新 22），253s；容器内也能直接跑本脚本（模块方式）。
 - **文档同步**：`docs/release-acceptance.md` 步骤 4 的三处同源核对改为调用本脚本（含命令）；`task_plan` 第 54 项 + 对照表；`docs/doc-map.md` 收录设计文档并顺手修正 3 处陈旧描述（策略问题 22→23 条、审计矩阵"空表"、方案 A/B"未实施"）；CHANGELOG v0.5.3「工程与运维」条目；AGENTS §10 标准验证工具列表（本地文件，不入库）。
 - 未完成/下一步（仍待用户决策或授权）：`.12` MVP 验收；`runner v0.3.2` 的 tag/镜像/资产交付；#47①（升级后采集事件驱动）、US-07/08/09。
+
+## 2026-09-27 S1-1（49-55）：升级预检查补磁盘空间硬校验（US-07）
+
+来源：用户「一步步来，查看处理顺序」→ 执行顺序 [docs/superpowers/plans/2026-09-27-remaining-work-sequence.md](docs/superpowers/plans/2026-09-27-remaining-work-sequence.md) S1-1（无需授权、`.3` 可闭环的第一项）。设计：[docs/superpowers/specs/2026-09-27-upgrade-disk-space-precheck-design.md](docs/superpowers/specs/2026-09-27-upgrade-disk-space-precheck-design.md)。
+
+- **改动**：`upgrade/service/precheck.py` 新增 `disk_space` 检查项（需要空间 = 包内容 + 预留；按 `st_dev` 去重检查 `upgrades_dir`/`backups_dir`/`/`；不足即 `precheck_failed`，message 给「路径 + 可用/需要」，`detail.filesystems[]` 供排障）；`V2Settings.upgrade_disk_headroom_bytes`（`SMARTX_UPGRADE_DISK_HEADROOM_BYTES`，默认 2 GiB，0 = 不预留）；`deployment.md` 环境变量说明。**未改升级引擎运行时行为、未改 runner、未加界面选项。**
+- **`.3` 首跑抓到实现 bug（已修）**：首版用 `package_path.stat().st_size` 当包体积，但 `package_path` 是**上传时已解包的目录**（`intake.py:33`），`st_size` 只有几 KB → 需求被算成"只有 2 GiB 预留"，等于没检查包内容。`.3` 实测数据：候选包 `smartx-capacity-insight-upgrade-v0.5.3.tar.gz` 压缩本体 246,994,557 B（235.6 MiB），解包目录 624,777,779 B（595.8 MiB，其中 `images/*.tar` 三个未压缩镜像 622,480,384 B）。改为 `package_payload_bytes()`：目录取文件求和（= `docker load` 要再写一份的量级），传压缩包文件时才按 ×3；补"目录求和/压缩包 ×3"两条单测。
+- **本地**：`test_upgrade_disk_space_precheck` **16 tests OK**（纯函数、注入低空间、同盘去重、不可读路径、缺失包、目录 payload、压缩包 ×3、预检查集成三例含 headroom 配置路径）；升级相关模块 `test_v2_upgrade` 47 OK (skipped=1)。
+- **`.3` 验证**（root，真实路径）：解包目录 payload `624777779` → `required=2772261427`（2.58 GiB），可用 **33.34 GiB** → `ok=True`；压缩包本体 payload `740983671`（×3）→ required 2.69 GiB → `ok=True`；把改动同步进部署树后容器内全量 **424 tests OK (skipped=2)**（386 + 门禁脚本 22 + 本次 16），251s。运行容器未重建（仍跑旧镜像代码；本次按 `PYTHONPATH` 覆盖部署树验证，随下次打包进镜像）。
+- **文档**：CHANGELOG v0.5.3「修复」补条目；task_plan 第 55 项 + 对照表；doc-map；`upgrade-strategy-issues.md` US-07 → 🟢 已实施并验证；执行顺序表 S1-1 → ✅。
+- 提交：`0a14232`（本地 dev2，未推送）。下一步按顺序为 S1-2（US-09 预检失败任务自动清理）。

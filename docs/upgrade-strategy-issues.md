@@ -56,11 +56,11 @@
 - **方向**：升级成功时平台侧直接投递采集任务；轮询降为 30~60s 兜底；加开关与指标（#47①）。
 - **状态**：🟠 已立项未实施。
 
-### US-07 🟡 升级前磁盘空间未硬校验
+### US-07 🟢 升级前磁盘空间未硬校验
 - **现象**：`image.load`/备份/迁移都要占空间，但预检查清单里**没有磁盘空间检查**；空间不足会在执行中段失败（留下半升级状态）。
 - **证据**：`precheck.py` 的 checks 只有 manifest/paths/source_compatibility/runner_protocol/checksums/images/project_files/prometheus 权限。
 - **方向**：预检查加"可用空间 ≥ 包大小 × N + 备份预留"；失败即 precheck_failed。
-- **状态**：🟡 未做（新发现）。
+- **状态**：🟢 **已实施并验证（49-55 / S1-1，2026-09-27）**：`precheck` 新增 `disk_space` 项——需要 = 包内容（解包目录内文件求和；给 `.tar.gz` 时按 ×3）+ 预留（默认 2 GiB，`SMARTX_UPGRADE_DISK_HEADROOM_BYTES`）；按 `st_dev` 去重检查 `upgrades`/`backups`/`/`，不足即 `precheck_failed`。`.3` 实测真实候选包：payload 624,777,779 B → 需要 2.58 GiB，可用 33.34 GiB；容器全量 424 tests OK。设计：`docs/superpowers/specs/2026-09-27-upgrade-disk-space-precheck-design.md`（含首版误用目录 `st_size` 的修正记录）。
 
 ### US-08 🟡 长任务期间心跳被判 stale 的边界未验证
 - **现象**：升级执行中 web-api 侧会读 runner 心跳（`_runner_state_is_fresh`），若单步耗时超过新鲜度阈值，可能被判"未检测到 runner"。
