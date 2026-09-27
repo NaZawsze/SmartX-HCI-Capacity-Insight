@@ -86,7 +86,7 @@ docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
 | 30 | Compose Project/Network 固定化 | 已实现，canary 部署/升级验收待执行 | [docs/deployment.md](docs/deployment.md)；结论记录在本文件 |
 | 31 | 报表页容量增长速率算法优化 | 已完成 | 无专项设计文档；实施口径记录在本文件 |
 | 32~48 | 升级链路专项（fix9~fix18、UPG-031~033、Phase 45/46 镜像版本与基线验证） | 全部完成 | [docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md) 对应章节；执行记录见 [docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)；fix10 并入 Phase 32，无独立 Phase 33 |
-| 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md)；49-18/19 见 [docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md)；49-20 见 [docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md](docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md)；49-21 见 [docs/superpowers/specs/2026-09-19-forecast-band-design.md](docs/superpowers/specs/2026-09-19-forecast-band-design.md)；49-22 见 [docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md](docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md)；49-23 见 [docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md](docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md)；49-3 收尾见 [docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md](docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md)；49-36（已分配容量，已实施并部署 .3）见本文件 Phase 49 第 36 条与 [docs/superpowers/specs/2026-09-25-allocated-capacity-bar-design.md](docs/superpowers/specs/2026-09-25-allocated-capacity-bar-design.md)；49-37（手动采集清空快照修复 + 看板过期标注）见 [docs/superpowers/specs/2026-09-25-collection-snapshot-merge-and-stale-annotation-design.md](docs/superpowers/specs/2026-09-25-collection-snapshot-merge-and-stale-annotation-design.md)；49-39（报表容量增长率窗口口径 + 不足项「-/单位」与标题黄色「数据不足」）见 [docs/superpowers/specs/2026-09-26-reports-growth-window-requires-successful-collection-design.md](docs/superpowers/specs/2026-09-26-reports-growth-window-requires-successful-collection-design.md) |
+| 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md)；49-18/19 见 [docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md)；49-20 见 [docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md](docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md)；49-21 见 [docs/superpowers/specs/2026-09-19-forecast-band-design.md](docs/superpowers/specs/2026-09-19-forecast-band-design.md)；49-22 见 [docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md](docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md)；49-23 见 [docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md](docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md)；49-3 收尾见 [docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md](docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md)；49-36（已分配容量，已实施并部署 .3）见本文件 Phase 49 第 36 条与 [docs/superpowers/specs/2026-09-25-allocated-capacity-bar-design.md](docs/superpowers/specs/2026-09-25-allocated-capacity-bar-design.md)；49-37（手动采集清空快照修复 + 看板过期标注）见 [docs/superpowers/specs/2026-09-25-collection-snapshot-merge-and-stale-annotation-design.md](docs/superpowers/specs/2026-09-25-collection-snapshot-merge-and-stale-annotation-design.md)；49-39（报表容量增长率窗口口径 + 不足项「-/单位」与标题黄色「数据不足」）见 [docs/superpowers/specs/2026-09-26-reports-growth-window-requires-successful-collection-design.md](docs/superpowers/specs/2026-09-26-reports-growth-window-requires-successful-collection-design.md) ；49-49/49-50（runner 能力对齐方案 A/B，**仅计划未实施**）见 [docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md](docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md) |
 
 升级后自动采集与 verification 历史查询的专项计划/设计：
 
@@ -1751,6 +1751,32 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [x] .3 验证：`tsc -b` exit 0、vitest **107 passed（11 files）**；frontend 镜像重建 + `up -d`，`HTTP/1.1 200 OK`、health `v0.5.3` 三 checks 全 true；产物 `index-BGljRmQ-.js` 逐系列取证六个 `color:X` 变量分别绑定上述六个色值、互不相同（首版 `docker compose build` 曾因 registry TLS 超时失败一次，重试即过）。
 - [ ] 用户 UI 目视确认（实际容量=蓝色实线+浅蓝面积；历史预测=灰、未来预测=深蓝、告警阈值=琥珀、有效容量=红；图例打开「已分配容量」后为青色虚线）
 - [x] 提交（0a41775，2026-09-27）
+
+### 49. 兼容已发布 runner：v0.5.3 升级计划不再依赖 `post_upgrade.schedule_collection`（方案 A）[计划中·未实施]
+
+来源：2026-09-27 用户指示「A+B 你先写计划里不执行」；事故与根因见 findings.md 2026-09-27 三条、pending-tasks #45。
+计划：[docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md](docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md) 方案 A。
+设计：实施前必须先写 `docs/superpowers/specs/2026-09-27-v053-drop-runner-collection-action-design.md`（**未写**，AGENTS §3 要求）。
+- [ ] A2 `backend/app/v2/upgrade/compiler.py`：源 ≥ v0.5.2 时不下发 `post_upgrade.schedule_collection`
+- [ ] A3 v0.5.3 web-api 平台侧兜底调度升级后自动采集（失败不改写主任务状态）
+- [ ] A4 编译器与调度单测
+- [ ] A5 验收（硬门禁）：`.12` 用**已发布** runner 包 `d10e15cf…` 走 `v0.5.1 → u2(d5f277) → runner(d10e15cf) → v0.5.2(692aca8b) → v0.5.3(候选)`，主任务/ post-cleanup success + 平台侧采集任务创建 + 8 项验收
+- [ ] A6 ledger/CHANGELOG 记录"已兼容已发布 runner"
+- 说明：不改 runner 代码 → 不需要 bump `RUNNER_VERSION`；回滚 = 还原 A2/A3 两处提交。
+- [ ] 实施（**待用户批准，当前未执行**）
+
+### 50. runner 能力按规矩交付 v0.3.2 + 预检查动作级校验（方案 B）[计划中·未实施，需用户同意]
+
+来源：同 49；用户规则「不允许私自修改 runner 能力和代码，确需修改必须经同意并修改版本号」。
+计划：[docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md](docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md) 方案 B。
+- [ ] B1 取得用户明确同意（AGENTS §6）
+- [ ] B2 同一提交 bump `RUNNER_VERSION` **v0.3.1 → v0.3.2**（根目录 + 镜像内 + 镜像 tag + 组件包文件名 + manifest `version`/`min_version`）
+- [ ] B3 `build_runner_component_package.py --version v0.3.2`，SHA 入 ledger + CHANGELOG
+- [ ] B4 推 git tag `runner-v0.3.2`（推送需用户执行/授权）→ 核对 DockerHub tag 200（不允许再 404）
+- [ ] B5 预检查补动作级校验：计划动作 vs 运行 runner 动作表，不满足即 `precheck_failed` 并提示"先做 runner 组件升级"
+- [ ] B6/B7 测试与 `.12` 验收（旧 runner 被正确拒绝、新 runner 升级成功、三处同源核对）
+- 边界：B **不得**作为 v0.5.3 升级的前置条件（否则已发布 v0.5.2 现场升不上来）；A、B 并行。
+- [ ] 实施（**待用户批准，当前未执行**）
 
 ### 37. 手动采集失败清空指标快照修复 + 仪表盘数据过期标注（49-37）[进行中]
 

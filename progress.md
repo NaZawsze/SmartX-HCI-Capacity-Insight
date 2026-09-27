@@ -7888,3 +7888,12 @@ release_smoke=critical 0, warning 0
 - DockerHub 查证（用户给的线索）：`nazawsze/smartx-hci-capacity-insight-upgrade-runner` 只有 3 个 tag —— `latest`(2026-06-05, `a9a1b0c4…`)、`runner-sha-31a1209`(2026-06-12)、`v0.3.0`(2026-06-12)；**`v0.3.1` 查询 404，从未推送**。`runner-sha-31a1209` 与 `v0.3.0` 同 digest `f58cce00…`/同 size/同推送时刻 → 它就是 `runner-v0.3.0` 那次构建的 `type=sha` 副标签，**不是更新的能力**；本地 git tag 也只有 `runner-v0.3.0`（workflow 只在推 `runner-v*` 或手动 dispatch 时构建）。GitHub SSH 本机被拦，远端 tag 无法直接列（结论以 DockerHub API 为准）。
 - 三处状态定格：交付包 `d10e15cf`（无 `schedule_collection`）／远端源码（有，但版本号仍 v0.3.1）／DockerHub（只有 v0.3.0）。已登记 findings.md 与 pending-tasks #45；修复方向待用户决策，未改任何 runner 代码。
 - 本轮本地未触碰 `backend/app/upgrade_runner/`；只改了文档与 `scripts/verify_full_upgrade_chain.py`（脚本断言修复，已在 .12 实跑）。
+
+## 2026-09-27 方案 A/B 计划落档（**只写计划，未实施**）
+
+- 用户指示：「A+B 你先写计划里不执行」。已产出：
+  - 新计划 `docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md`：方案 A（平台侧 `compiler.py` 不下发 `post_upgrade.schedule_collection` + v0.5.3 平台侧兜底调度升级后采集；不改 runner、不需 bump；验收硬门禁 = 用**已发布** runner 包 `d10e15cf…` 走全链路）+ 方案 B（bump **v0.3.2** → 打包入账 → 推 `runner-v0.3.2` tag 出 DockerHub → 预检查补**动作级**校验；需用户同意；不得作为 v0.5.3 升级前置）+ 执行顺序/回滚/明确不做。
+  - `task_plan.md` Phase 49 新增第 49 项（方案 A）、第 50 项（方案 B），状态 **计划中·未实施**，并补进「Phase 与任务设计文档对照」行。
+  - `docs/doc-map.md` 登记该 plan；`docs/pending-tasks.md` #45 更新为「已定方向 A+B，先写计划不执行」。
+- 同轮已落地的**门禁类**文档（前 3 笔提交）：AGENTS §6/§8/§10-7、version-governance「Runner 能力与版本治理」+ 发版清单 + GitHub Actions 规则、development-verification-process §3.3/§4.4、release-acceptance Release Day 第 4/5/6 步。
+- **未改任何代码**（runner 与平台均未动），`git status` 仅上述文档。
