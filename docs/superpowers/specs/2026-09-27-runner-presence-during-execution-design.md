@@ -39,8 +39,16 @@ US-08 的原假设是"单个步骤耗时超过 `RUNNER_HEARTBEAT_STALE_SECONDS =
 ## 4. 边界
 
 - **不影响 runner 重启窗口的判定**：runner 被替换期间没有有效租约，仍报"未检测到心跳"——这是期望行为，49-50 的预检查提示已覆盖。
+- **任务结束后的一个轮询周期**（≤3s）：租约已释放、实例心跳尚未被下一次空闲轮询刷新，此刻两条通道都不新鲜（`.3` 实测 T21 抓到 `source=None`）。生产里 `_active_runner_state()` 还有 docker 兜底（web-api 镜像内含 docker CLI 且挂了 socket），可覆盖这个瞬时窗口；不额外加宽限。
 - 不改变其他守卫（US-23 单飞、`runner_actions` 动作级校验、post-cleanup 健康断言）。
 - 租约通道判定失败（DB 异常）按"不在场"处理，与旧行为一致（fail-safe 到原语义）。
+
+## 4.1 `.3` 前后对照实证（2026-09-27）
+
+| 场景 | 旧镜像（部署在跑） | 新代码（部署树覆盖） |
+| --- | --- | --- |
+| 另一个升级**正在执行**时做预检查 | task `upgrade-baf0dd837c67ad3f`：`runner_protocol` **False**「未检测到 upgrade-runner 心跳，无法确认升级执行器能力。请先升级 upgrade-runner 到 v0.3.1。」而同一次预检查的 `runner_actions` 为 **True**（14 个动作全部支持）→ runner 明明在场 | 同一时刻（升级 `upgrade-b52fbadc1591ab5c` 仍 running、租约 `heartbeat_at=14:43:15` 有效）：`presence_source=task_lease`、`_active_runner_version()=v0.3.1 (source=task_lease)`、`runner_protocol ok=True` |
+| 执行期心跳通道 | 实例心跳冻结 75~108s（两次实测），租约每 5s 续 | 前 ~30s 走 `heartbeat`，之后整段执行走 `task_lease` |
 
 ## 5. 测试计划
 
