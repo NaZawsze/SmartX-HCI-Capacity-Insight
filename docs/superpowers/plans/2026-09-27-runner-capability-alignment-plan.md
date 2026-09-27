@@ -47,18 +47,17 @@
 - [ ] B7 验收：`.12` 先用 v0.3.2 组件包升级 runner，再 v0.5.2 → v0.5.3 成功；三处同源核对（仓库/Release 资产/DockerHub tag）全绿。
 - 边界：**B 不能作为 v0.5.3 升级的前置条件**（否则已发布 v0.5.2 现场永远升不上来）；A 与 B 必须并行，A 负责"能升"，B 负责"以后对齐"。
 
-## 方案 C（补源码存档）——让"客户手上的 v0.3.1"可复现，并上 DockerHub
+## 方案 C（简化版，2026-09-27 用户改定）——只把发行镜像推上 DockerHub，不补源码
 
-背景：v0.5.1u2 Release 的 runner 资产 `d10e15cf…`（25 动作）是 2026-07-09 **本机手工打包上传**的，源码从未入库；tag `v0.5.1u2`(`baaffcd`) 的源码只有 11 个动作。因此 Actions 从任何既有 ref 构建都复现不出发行版。
+用户原话：「那 v0.5.1u2 不用补了，dockerhub 上补 v0.3.1 镜像就可以了」。
+**取消**原计划的 C1–C3（归档分支 + 从镜像反提源码 + 打 `runner-v0.3.1` tag 走 Actions）——因为 Actions 只会照 git 源码构建，而没有任何提交等于发行镜像，**不补源码就走不了 CI**，只能直接 push 镜像。
 
-- [ ] C1 基于 tag `v0.5.1u2` 开**归档分支**（如 `archive/v0.5.1u2-runner-source`）——**不合并回 main/dev2**（否则会把根 `VERSION` 从 v0.5.3 退回去，且与 main 的 26 动作冲突）。
-- [ ] C2 从发行镜像 `/app` 反提源码：`backend/app/upgrade_runner/`、`backend/app/upgrade_protocol/`、`backend/app/__init__.py`、根 `RUNNER_VERSION`(=v0.3.1)、根 `VERSION`（取镜像内值）；**剔除** `__pycache__`、`*.pyc`、`._*`（AppleDouble）、`.wh.*` whiteout。
-- [ ] C3 提交，信息写明：来源 = Release 资产 `d10e15cf` 镜像反提；原因 = 2026-07 打包时源码未入库。
-- [ ] C4 打 git tag **`runner-v0.3.1`** 指向该提交并推送（**需用户明确批准**：AGENTS §4 推送/tag 必须用户要求）→ `.github/workflows/upgrade-runner-image.yml` 构建推送 DockerHub `v0.3.1` + `runner-sha-<新sha>`。
-- [ ] C5 校验（硬门禁）：DockerHub tag 200；拉取后 `RUNNER_VERSION=v0.3.1`、`grep -c schedule_collection = 0`、动作表 25 个、**`actions.py` md5 == `573dd04b3618d2066b0326c2fd183c8d`**（与发行资产逐文件一致）。
-- [ ] C6 记账：`docs/upgrade-package-ledger.md` + `docs/releases/CHANGELOG.md` + `findings.md`（补录提交 sha、tag、DockerHub digest；注明与发行资产镜像 digest 不同但源码一致）。
-- 前提已核实：`upgrade-runner-image.yml` 与 `backend/Dockerfile.upgrade` 自 `baaffcd` 至今**逐字节一致**（CI 可直接构建）；`Dockerfile.upgrade` 的全部构建输入（`VERSION`/`RUNNER_VERSION`/`backend/app/{__init__,upgrade_protocol,upgrade_runner}`）都能从镜像还原。
-- 边界：**不改已发布 tag `v0.5.1u2`、不改 Release 资产、不动客户手上的包**；本方案只补"源码存档 + DockerHub 镜像"。
+- [ ] C1′ 取得 DockerHub 凭据：用户提供的 access token（Read/Write），或用户自行执行 push。
+- [ ] C2′ 在 `.12`（发行包 `/root/chain-verify-20260722/packages/smartx-upgrade-runner-v0.3.1.tar.gz`，SHA `d10e15cf`）：**先记录**本地 `…:v0.3.1` 当前镜像 ID（现为 `0aca32511008`，运行容器在用）→ `docker load` 发行镜像 → `docker push …:v0.3.1` → **还原本地 tag** → `docker logout`。
+- [ ] C3′ 校验：DockerHub tag 200；拉取后 `RUNNER_VERSION=v0.3.1`、`grep -c schedule_collection = 0`、动作 25、`actions.py` md5 `573dd04b3618d2066b0326c2fd183c8d`（与发行资产一致）。
+- [ ] C4′ 记账：ledger/CHANGELOG 写明 DockerHub `v0.3.1` = 发行资产镜像（digest 记录），**并登记已知债务**：该镜像无对应 git 提交、无法由 CI 复现（用户 2026-09-27 决定不补源码）。
+- 不做的事：不动 `latest`、不推 git tag/分支、不改已发布 tag 与 Release 资产、不改 main。
+- token 纪律：不写入任何文件/提交/日志，用完即 `docker logout`。
 
 ## 执行顺序与门禁
 

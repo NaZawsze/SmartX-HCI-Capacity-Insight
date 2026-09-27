@@ -1778,18 +1778,16 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - 边界：B **不得**作为 v0.5.3 升级的前置条件（否则已发布 v0.5.2 现场升不上来）；A、B 并行。
 - [ ] 实施（**待用户批准，当前未执行**）
 
-### 51. 补录 v0.5.1u2 runner 源码 + 推 `runner-v0.3.1` 出 DockerHub 镜像（方案 C）[计划中·未实施，需用户批准推送]
+### 51. 把发行版 runner v0.3.1 镜像推上 DockerHub（方案 C 简化版）[计划中·未实施，等凭据]
 
-来源：2026-09-27 用户「那补 v0.5.1u2 的源码可以吗」；事实见 findings.md 2026-09-27（Release 资产与 tag 源码不同源）。
-计划：[docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md](docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md) 方案 C。
-- [ ] C1 归档分支（基于 tag `v0.5.1u2`，不合并回 main/dev2）
-- [ ] C2 从发行镜像反提源码（剔除 `__pycache__`/`._*`/`.wh.*`）
-- [ ] C3 提交（注明来源与原因）
-- [ ] C4 打 tag `runner-v0.3.1` 并推送 → Actions 构建出 DockerHub `v0.3.1`（**需用户批准**）
-- [ ] C5 校验：tag 200、`RUNNER_VERSION=v0.3.1`、动作 25、`actions.py` md5 `573dd04b…`
-- [ ] C6 ledger/CHANGELOG/findings 记账
-- 边界：不改已发布 tag、不改 Release 资产、不动客户手上的包。
-- [ ] 实施（**待用户批准**）
+来源：2026-09-27 用户「那 v0.5.1u2 不用补了，dockerhub 上补 v0.3.1 镜像就可以了」（**取消源码补档 C1–C3**）。
+计划：[docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md](docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md) 方案 C 简化版。
+- [ ] C1′ 取得 DockerHub 凭据（用户 token 或用户自行 push）——**本机/.3/.12 均无 DockerHub 凭据，GitHub Actions secrets 读不到**
+- [ ] C2′ `.12` 上 load 发行镜像 `d10e15cf` → push `…:v0.3.1` → **还原本地 tag**（`0aca32511008` 被运行容器用着）→ `docker logout`
+- [ ] C3′ 校验：tag 200、`RUNNER_VERSION=v0.3.1`、无 `schedule_collection`、动作 25、`actions.py` md5 `573dd04b…`
+- [ ] C4′ 记账 + 登记已知债务：**该镜像无对应 git 提交、CI 无法复现**（用户决定不补源码）
+- 为什么不能走 Actions：Actions 只照 git 源码构建，而没有任何提交等于发行镜像（tag `baaffcd` 11 动作 / main 26 动作 / 发行版 25 动作）。
+- [ ] 实施（**待用户提供 DockerHub 凭据或自行执行**）
 
 ### 37. 手动采集失败清空指标快照修复 + 仪表盘数据过期标注（49-37）[进行中]
 
