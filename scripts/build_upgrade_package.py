@@ -304,8 +304,12 @@ def validate_release_images(version: str) -> None:
 
 
 def _expected_web_api_runner_baseline(version: str) -> str:
+    """平台版本对应的 runner 基线（按发布事实，不随 RUNNER_VERSION 漂移）。"""
     if _version_tuple(version) < _version_tuple("v0.5.2"):
         return "v0.3.0"
+    if _version_tuple(version) < _version_tuple("v0.5.3"):
+        # v0.5.2 发布时配套交付的 runner = Release 资产 d10e15cf…（25 动作）
+        return "v0.3.1"
     return read_runner_version()
 
 
@@ -1005,7 +1009,10 @@ def build_package(
         manifest_images.append(
             {
                 "service": UPGRADE_RUNNER_SERVICE,
-                "image": release_image("smartx-hci-capacity-insight-upgrade-runner", read_runner_version()),
+                "image": release_image(
+                    "smartx-hci-capacity-insight-upgrade-runner",
+                    _expected_web_api_runner_baseline(version),
+                ),
                 "archive": None,
             }
         )
@@ -1059,7 +1066,7 @@ def build_package(
         "release_notes": f"{version} platform upgrade package.",
     }
     if is_modern_platform_package:
-        manifest["minimum_runner_version"] = read_runner_version()
+        manifest["minimum_runner_version"] = _expected_web_api_runner_baseline(version)
     if environment_transitions:
         if directory_transition:
             environment_transitions = [
@@ -1098,7 +1105,7 @@ def build_package(
     )
     migration_tree = "\n└── migrations/\n    └── run_migrations.py" if selected_migrations else ""
     runner_scope_note = (
-        f"- 最低 Runner 版本：`{read_runner_version()}`；预检查不满足时会阻止升级，并提示先升级 upgrade-runner。\n"
+        f"- 最低 Runner 版本：`{_expected_web_api_runner_baseline(version)}`；预检查不满足时会阻止升级，并提示先升级 upgrade-runner。\n"
         if is_modern_platform_package
         else "- Runner 要求：兼容现有 upgrade-runner v0.3.0 能力；本桥包不要求先升级 runner。\n"
     )

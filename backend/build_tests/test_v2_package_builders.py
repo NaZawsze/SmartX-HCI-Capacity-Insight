@@ -96,7 +96,7 @@ class V2PackageBuilderTest(unittest.TestCase):
 
         self.assertEqual(manifest["schema_version"], "3")
         self.assertEqual(manifest["minimum_runner_protocol"], 1)
-        self.assertEqual(manifest["minimum_runner_version"], "v0.3.2")
+        self.assertEqual(manifest["minimum_runner_version"], "v0.3.1")
         self.assertIn("backup.v1", manifest["required_capabilities"])
         self.assertNotIn("filesystem.v1", manifest["required_capabilities"])
         self.assertIn("compose.v1", manifest["required_capabilities"])
@@ -220,7 +220,7 @@ class V2PackageBuilderTest(unittest.TestCase):
         )
         self.assertEqual({image["service"] for image in platform["images"]}, {"web-api", "collector-worker", "frontend", "upgrade-runner"})
         runner_image = next(image for image in platform["images"] if image["service"] == "upgrade-runner")
-        self.assertEqual(runner_image["image"], "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2")
+        self.assertEqual(runner_image["image"], "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1")
         self.assertIsNone(runner_image.get("archive"))
         self.assertNotIn("images/prometheus.tar", names)
         self.assertNotIn("images/upgrade-runner.tar", names)
@@ -240,7 +240,7 @@ class V2PackageBuilderTest(unittest.TestCase):
             self.assertIn("smartx-hci-capacity-insight-web-api:v0.5.2", compose_text)
             self.assertIn("smartx-hci-capacity-insight-collector-worker:v0.5.2", compose_text)
             self.assertIn("smartx-hci-capacity-insight-frontend:v0.5.2", compose_text)
-            self.assertIn("smartx-hci-capacity-insight-upgrade-runner:v0.3.2", compose_text)
+            self.assertIn("smartx-hci-capacity-insight-upgrade-runner:v0.3.1", compose_text)
             self.assertIn("prom/prometheus:v2.55.1", compose_text)
             self.assertIn("chmod 600 /data/smartx-storage-forecast/project/.env", compose_text)
             self.assertIn("exec python -m app.upgrade_runner.main", compose_text)
@@ -285,7 +285,7 @@ class V2PackageBuilderTest(unittest.TestCase):
         self.assertEqual(schedule["params"]["parent_task_status"], "success")
         self.assertEqual(schedule["params"]["cleanup_task_type"], "post_upgrade_cleanup")
         cutover = next(action for action in plan["actions"] if action["type"] == "runner.schedule_target_runtime_handoff")
-        self.assertEqual(cutover["params"]["image"], "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2")
+        self.assertEqual(cutover["params"]["image"], "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1")
         self.assertEqual(cutover["params"]["compose_project"], "smartx-hci-capacity-insight")
         self.assertEqual(cutover["params"]["network_name"], "smartx-hci-capacity-insight-net")
         self.assertEqual(cutover["params"]["project_path"], "/data/smartx-storage-forecast/project")
@@ -293,7 +293,7 @@ class V2PackageBuilderTest(unittest.TestCase):
         self.assertEqual(cutover["params"]["compose_runtime_path"], "/data/smartx-storage-forecast/compose-runtime")
         compose_override = next(action for action in plan["actions"] if action["type"] == "compose.override")
         override_images = {image["service"]: image["image"] for image in compose_override["params"]["images"]}
-        self.assertEqual(override_images["upgrade-runner"], "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2")
+        self.assertEqual(override_images["upgrade-runner"], "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1")
         compose_apply = next(action for action in plan["actions"] if action["type"] == "compose.apply")
         self.assertEqual(compose_apply["params"]["services"], ["collector-worker", "frontend", "prometheus", "web-api"])
 
@@ -558,7 +558,7 @@ class V2PackageBuilderTest(unittest.TestCase):
                 manifest_v052 = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
 
         self.assertNotIn("minimum_runner_version", manifest_v051u2)
-        self.assertEqual(manifest_v052["minimum_runner_version"], "v0.3.2")
+        self.assertEqual(manifest_v052["minimum_runner_version"], "v0.3.1")
 
     def test_package_identity_verifier_loads_package_image_tar(self) -> None:
         builder = _load_script("build_upgrade_package.py")
@@ -854,13 +854,13 @@ class V2PackageBuilderTest(unittest.TestCase):
         runner = manifest["components"][0]
         self.assertEqual(runner["services"], ["upgrade-runner"])
         self.assertEqual(runner["images"][0]["archive"], "images/upgrade-runner.tar")
-        self.assertEqual(runner["images"][0]["image"], "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2")
+        self.assertEqual(runner["images"][0]["image"], "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1")
         self.assertIn("checksums.sha256", names)
         verify_commands = [
             command
             for command in recorder.commands
             if command[:5] == ["docker", "run", "--rm", "--entrypoint", "python"]
-            and command[5] == "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2"
+            and command[5] == "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1"
         ]
         self.assertTrue(verify_commands)
         verify_script = verify_commands[0][-1]
@@ -1029,7 +1029,7 @@ class V2PackageBuilderTest(unittest.TestCase):
                 manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
                 release_compose = archive.extractfile("platform/project/docker-compose.release.yml").read().decode("utf-8")
 
-        self.assertEqual(manifest["minimum_runner_version"], "v0.3.2")
+        self.assertEqual(manifest["minimum_runner_version"], "v0.3.1")
         self.assertIn("directory_transition", manifest)
         self.assertIn("environment_transitions", manifest)
         self.assertIn("legacy_cleanup", manifest)
