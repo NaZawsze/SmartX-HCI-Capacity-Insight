@@ -758,3 +758,11 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 结果：DockerHub `v0.3.1`、`latest` 同 digest `sha256:90eb5a42…`（2026-09-27T06:10Z）；`v0.3.0`、`runner-sha-31a1209` 未动。
 - **为什么走手工 push 而不是 CI**：Actions 只照 git 源码构建，而没有提交等于发行镜像（tag 11 动作 / main 26 动作 / 发行版 25 动作）；用户 2026-09-27 决定**不补源码**，因此接受"**镜像无对应 git 提交、CI 不可复现**"作为已知债务（已记 ledger/CHANGELOG）。`runner-sha-*` 副标签体系对 `v0.3.1` 也不成立。
 - 凭据纪律：token 仅在本次会话使用，**未写入任何文件/提交/日志**，远端已 `docker logout`（`auths=[]`）；**该 token 已在对话中明文出现，建议尽快在 DockerHub 后台吊销**。
+
+## 2026-09-27 组件升级会停掉"刚启动的新 runner"（同 project 原地升级场景）[待修]
+
+- 现象：目标布局机器（v0.5.2）上做 runner 组件升级后 **~10 秒** 新 runner 容器被停（`exit=137`，SIGTERM 后 SIGKILL，`docker events` 显示 `start → kill(+10s) → stop/die`），心跳过期 → 后续升级预检查报 `未检测到 upgrade-runner 心跳`。`.12` 两轮复现（08:16、09:04 UTC）。
+- 根因：`backend/app/v2/upgrade/service/execution.py:374-380` —— `_runner_bootstrap` 为真时**无条件**执行 `docker compose --project-name <settings.compose_project_name> stop upgrade-runner`，本意是停**旧 project** 的 runner（避免旧心跳覆盖）。当 bootstrap 的 `target_project` **等于**当前 `compose_project_name`（目标布局原地升级）时，停的就是刚 `up -d` 起来的新 runner。
+- 为什么链路第 2 步没事：那一步源端是 v0.5.1u2，`compose_project_name=smartx-storage-forecast` ≠ bootstrap 目标 `smartx-hci-capacity-insight` → 停的是旧 project 的 runner（预期行为）。
+- 影响面：**B-b（先升 runner 再升平台）在目标布局机器上必然踩中**；旧链路顺序（先平台后 runner 或仅在旧环境升 runner）不触发，故长期未暴露。
+- 修复方向（平台侧，**不改 runner、不 bump 版本**）：仅当 `bootstrap.target_project != settings.compose_project_name` 时才执行该 stop；否则跳过并记日志。设计记录在 `docs/superpowers/specs/2026-09-27-runner-v032-and-action-level-precheck-design.md` §2.4。

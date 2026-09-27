@@ -40,6 +40,13 @@
    - `missing = plan_actions - supported` → 非空即 `ok: False`，消息：`当前 upgrade-runner {version} 不支持升级计划动作：{…}。请先在升级中心执行「组件升级」到 v0.3.2 后重试。`，`detail` 带 `runner_version`/`plan_actions`/`supported_count`。
 3. **不做**：不改 runner 心跳/`upgrade_runner_state` 表结构（动作级真值以后如需再评估）；不动 `ACTION_CAPABILITIES` 与动作实现。
 
+### 2.4 组件升级不得停掉刚启动的新 runner（2026-09-27 实测发现）
+
+- 缺陷：`execution.py:374-380` 在 `_runner_bootstrap` 时无条件 `docker compose --project-name <当前project> stop upgrade-runner`；目标布局机器上原地做组件升级时，该 project 就是新 runner 所在 project → 新 runner 在启动后 10 秒被 SIGKILL（`exit=137`），心跳过期导致后续预检查失败。
+- 修复：仅当 `bootstrap.target_project != settings.compose_project_name`（即旧 runner 属于旧 project）时才执行停止；相同则跳过并写日志「新旧 runner 同属当前 project，跳过停止旧 runner」。
+- 保持原行为不变的场景：v0.5.1u2（旧 project）→ runner bootstrap（新 project）仍会停旧 project 的 runner。
+- 测试：`backend/tests/test_runner_bootstrap_stop.py`（同 project → 不停；不同 project → 停；缺 target_project → 保持旧行为）。
+
 ## 3. 边界（不做）
 
 - 不修改已发布 `d10e15cf…` 资产与 `v0.5.2` 平台包。
