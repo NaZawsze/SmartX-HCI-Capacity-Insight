@@ -941,7 +941,7 @@ def _assert_project_files_match_version(version: str, project_dir: Path) -> None
             "name: smartx-hci-capacity-insight-net",
             "subnet: 10.249.251.0/24",
             f":{version}",
-            f":{read_runner_version()}",
+            f":{_expected_web_api_runner_baseline(version)}",
         ]
         forbidden = ["SMARTX_IMAGE_TAG", "SMARTX_RUNNER_IMAGE_TAG"]
     for path in compose_files:
