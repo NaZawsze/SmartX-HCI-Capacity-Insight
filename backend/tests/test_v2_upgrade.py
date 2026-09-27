@@ -2547,6 +2547,14 @@ class V2UpgradeApiTest(unittest.TestCase):
                     self.assertEqual(runner_precheck.status_code, 200)
                     self.assertTrue(runner_precheck.json()["ok"])
 
+                    blocked_start = client.post(f"/api/admin/component-upgrade/start/{runner_payload['task_id']}", headers=headers)
+                    self.assertEqual(blocked_start.status_code, 400)
+                    self.assertIn("正在执行或需要恢复", blocked_start.json()["detail"])
+
+                    cancelled = client.post(f"/api/admin/upgrade/cancel/{payload['task_id']}", headers=headers)
+                    self.assertEqual(cancelled.status_code, 200)
+                    self.assertEqual(cancelled.json()["status"], "cancelled")
+
                     runner_started = client.post(f"/api/admin/component-upgrade/start/{runner_payload['task_id']}", headers=headers)
                     self.assertEqual(runner_started.status_code, 200)
                     self.assertEqual(runner_started.json()["status"], "succeeded")
