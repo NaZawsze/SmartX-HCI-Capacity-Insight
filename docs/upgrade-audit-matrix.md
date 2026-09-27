@@ -209,6 +209,7 @@
 | --- | --- | --- |
 | M3 顺序矩阵 | **可执行部分**：M3-09（v0.5.2 × **平台先**，现场主路径直升）× {重复 start}。**待 v0.3.2 交付决策**：M3-08（v0.5.1u2 × 先 runner 后平台，需 v0.3.2 为输入）× {runner 镜像缺失}。**不可执行**：M3-10 runner-first（v0.5.2 装不住 v0.3.2），见上节 N/A 说明 | 1 格可跑 + 1 格待决策 |
 | M3 中断注入 | M3-07、M3-09（同两行 × **平台先**）× {执行中 kill} | 2 |
+| M3 重复 start | 已跑（2026-09-27 `.12`：连点两个预检通过的包 → 第二个 400，US-23 通过）；M3-11 同版本重装实测 **❌ 卡死**（US-24） | 2 |
 | M3 源端覆盖 | 6 个源端 × 平台先 × 无干扰（M3-07 已跑，补 5） | 6 |
 | M2 P0 动作注入 | `compose.apply` / `compose.override` / `compose.project_migrate` / `runner.handoff_target_runtime` / `runner.schedule_target_runtime_handoff` / `post_upgrade.schedule_cleanup` × 3 类故障 | 18 |
 | M6 静态审计 | 全部 8 类 | 8 |

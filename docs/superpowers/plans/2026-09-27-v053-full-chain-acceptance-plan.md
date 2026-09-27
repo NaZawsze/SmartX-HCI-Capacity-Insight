@@ -165,3 +165,17 @@ v0.5.1 + runner v0.3.0
 | 4 组件升级 v0.3.2 | ✅（第四轮改为「阶段6」，升级之后做） | `succeeded`；`component-version=v0.3.2`；**runner 连续 90s 存活（修复前 10s 必死）**；health v0.5.3/v0.3.2 三 checks 全 true | 2026-09-27 |
 | 5 v0.5.3 升级+8项 | ✅（发布版 v0.3.1 直升） | 主任务 `upgrade-666284beec04cc87` **succeeded**；计划 12 动作无 schedule_collection；post-cleanup **succeeded**；标记 `source=target_worker_compatibility`；采集任务已创建（Tower 不可达=环境限制）；8 项验收 runner=v0.3.1 全过，复验 runner=v0.3.2 全过；新闸门 `runner_actions 14 动作全部支持` | 2026-09-27 |
 | 6 记账 | ✅ | ledger/CHANGELOG/AGENTS/task_plan/pending/findings/progress 已更新；提交 `9ed5d49` 等 | 2026-09-27 |
+
+### 第二轮：`.12` 从 v0.5.1u2 起的全链路演练（2026-09-27，用户授权）
+
+| 阶段 | 结果 | 证据（task id / SHA / 输出摘要） | 时间 |
+| --- | --- | --- | --- |
+| 0 数据备份 | ✅ | `/root/baselines/chain-from-u2-20260927-233059/`（DB VACUUM INTO integrity ok + `.env` + Prometheus + upgrades；DB 1/1/1/556/89588/49/26） | 2026-09-27 |
+| 1 重建 v0.5.1 基线 | ✅ | v0.5.1 包 `ef24643b…`；health `v0.5.1/v0.3.0` 三 checks 全 true；subnet `10.249.249.0/24`；旧 project `smartx-storage-forecast`（Prometheus 目录属主按 `pre_install.sh` 语义 chown 65534 后恢复正常） | 2026-09-27 |
+| 2 u2 + 数据导入 | ✅ | `upgrade-232d290f059296b2` succeeded（u2 包 **`d5f27716…`**）；导入 `.3` 夹具（DB `b84520c9…`）后 users1/towers1/clusters1/556/89588 | 2026-09-27 |
+| 3 runner v0.3.1（已发布） | ✅ | `upgrade-5a9434b468b332d6` succeeded；**只有 runner 进新 project**；health `v0.5.1u2/v0.3.1` | 2026-09-27 |
+| 4 v0.5.2 | ✅ | `upgrade-06922d540ee06f8d` success + post-cleanup success；目标 project/network/subnet、单根目录、legacy 7 路径全清；**数据 556/89588 未变**、`.env` sha 未变 | 2026-09-27 |
+| 5 v0.5.3 候选 r5 + 8 项 | ✅ | `upgrade-da11b14fe60b7ae9` **succeeded** + post-cleanup **succeeded**；8 项验收全过（health 连测两次 / 五容器 tag / project-network-subnet / SQLite integrity+556-89588 / Prometheus 目标挂载 / `.env` 0600 sha 一致 / legacy 全清 / UI 200） | 2026-09-27 |
+| 6 runner v0.3.2（本地包） | ✅ | `upgrade-6a8a543f7da0b761` succeeded；**runner 连续存活 120s**（心跳每 10s 刷新、版本切 v0.3.2）；8 项复验全过 | 2026-09-27 |
+| 7 US-23 重复 start | ✅ | 连点两个预检通过的包：`start A` 200 → `start B` **400「正在执行或需要恢复」** | 2026-09-27 |
+| 8 副产品缺陷 | ❌ 两处 | **US-24**（同版本重装卡死：`engine._save` 双写同一 task.json → RevisionConflict 崩溃循环 17 次，task `upgrade-d08f064e6e15166a`）；**US-25**（卡死 running 无产品化出路）。证据 `/root/baselines/wedged-task-upgrade-d08f064e6e15166a/` | 2026-09-27 |
