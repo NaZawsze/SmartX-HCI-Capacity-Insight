@@ -42,10 +42,15 @@ SMARTX_CAPACITY_ALERT_WARNING_RATIO=0.75
 SMARTX_CAPACITY_ALERT_CRITICAL_RATIO=0.80
 SMARTX_CAPACITY_ALERT_MIN_FREE_BYTES=0
 SMARTX_UPGRADE_DISK_HEADROOM_BYTES=2147483648
+SMARTX_UPGRADE_ARTIFACT_TTL_DAYS=7
+SMARTX_UPGRADE_ARTIFACT_KEEP_RECENT=3
+SMARTX_UPGRADE_HOUSEKEEPING_INTERVAL_SECONDS=21600
 SMARTX_CORS_ORIGINS=*
 ```
 
-`SMARTX_UPGRADE_DISK_HEADROOM_BYTES` 是升级预检查 `disk_space` 项的磁盘预留（默认 2 GiB）：预检查要求「升级包体积 × 3 + 预留」的可用空间，低于阈值直接 `precheck_failed`，避免空间不足时在执行中段失败留下半升级现场；设为 `0` 只保留包体积换算、不额外预留。
+`SMARTX_UPGRADE_DISK_HEADROOM_BYTES` 是升级预检查 `disk_space` 项的磁盘预留（默认 2 GiB）：预检查要求「升级包内容 + 预留」的可用空间，低于阈值直接 `precheck_failed`，避免空间不足时在执行中段失败留下半升级现场；设为 `0` 只保留包内容换算、不额外预留。
+
+`SMARTX_UPGRADE_ARTIFACT_TTL_DAYS` / `SMARTX_UPGRADE_ARTIFACT_KEEP_RECENT` / `SMARTX_UPGRADE_HOUSEKEEPING_INTERVAL_SECONDS` 控制升级任务运行产物的自动清理：web-api 默认每 6 小时清理**从未执行过**（`precheck_failed`/`uploaded`）且超过 7 天的任务，逐个删除其包内容（原始压缩包 + 解包目录，单个任务约 800 MiB），保留 `task.json` 与任务中心记录，并始终保留最新 3 个；TTL 设为 `0` 关闭该功能。执行过、失败、回滚类任务的目录不会被自动清理（取证需要）。
 
 Production recommendations:
 

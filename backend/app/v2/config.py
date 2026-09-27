@@ -48,6 +48,15 @@ class V2Settings:
     upgrade_disk_headroom_bytes: int = field(
         default_factory=lambda: int(os.environ.get("SMARTX_UPGRADE_DISK_HEADROOM_BYTES", str(2 * 1024 ** 3)))
     )
+    upgrade_artifact_ttl_days: int = field(
+        default_factory=lambda: int(os.environ.get("SMARTX_UPGRADE_ARTIFACT_TTL_DAYS", "7"))
+    )
+    upgrade_artifact_keep_recent: int = field(
+        default_factory=lambda: int(os.environ.get("SMARTX_UPGRADE_ARTIFACT_KEEP_RECENT", "3"))
+    )
+    upgrade_housekeeping_interval_seconds: int = field(
+        default_factory=lambda: int(os.environ.get("SMARTX_UPGRADE_HOUSEKEEPING_INTERVAL_SECONDS", "21600"))
+    )
     cors_origins: tuple[str, ...] = field(
         default_factory=lambda: tuple(
             origin.strip() for origin in os.environ.get("SMARTX_CORS_ORIGINS", "").split(",") if origin.strip()

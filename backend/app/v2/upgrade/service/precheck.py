@@ -22,7 +22,30 @@ class PrecheckMixin:
     def precheck(self, task_id: str) -> dict[str, Any]:
         task_dir = self.settings.upgrades_dir / task_id
         task = _read_task_file(task_dir)
-        package_path = Path(task["package_path"])
+        package_path = Path(task["package_path"]) if task.get("package_path") else None
+        if package_path is None or not package_path.exists():
+            # US-09：包内容可能已被自动清理（见 upgrade/housekeeping.py），给出可读失败而不是路径异常
+            checks = [
+                {
+                    "name": "package",
+                    "ok": False,
+                    "message": "升级包内容已被自动清理（超过保留期限），请重新上传后再预检查。",
+                }
+            ]
+            task["checks"] = checks
+            task["status"] = "precheck_failed"
+            task["updated_at"] = _now().isoformat()
+            _save_task_file(task_dir, task)
+            self.tasks.create_task(
+                task_id,
+                TaskType.UPGRADE,
+                "升级预检查",
+                status=TaskStatus.FAILED,
+                progress=100,
+                message="预检查失败",
+                logs=[check["message"] for check in checks],
+            )
+            return self._public_task(task)
         manifest = task["manifest"]
         checks = [
             _check_manifest(manifest),
