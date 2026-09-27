@@ -21,6 +21,23 @@ from .taskfile import _completed_runner_task_view, _parse_datetime, _read_task_f
 
 from .constants import RUNNER_HEARTBEAT_STALE_SECONDS, RUNNER_NOT_DETECTED
 
+
+def _should_stop_previous_runner(bootstrap: Any, current_project: str) -> bool:
+    """49-50：是否需要停止「旧 project 的 upgrade-runner」。
+
+    只有 bootstrap 目标 project 与当前 compose project **不同**时才停——此时旧 runner 属于旧 project。
+    两者相同（目标布局机器上原地做 runner 组件升级）时必须跳过，否则 `docker compose stop upgrade-runner`
+    停掉的是**刚 `up -d` 启动的新 runner**（2026-09-27 在 10.20.11.12 两轮实测：启动后 10 秒 SIGKILL、
+    `exit=137`、心跳过期导致后续升级预检查失败；旧链路因源端 project 不同而从未触发）。
+    """
+    if not bootstrap:
+        return False
+    target_project = str(bootstrap.get("target_project") or "").strip()
+    if not target_project:
+        # 未声明目标 project：保持旧行为（停止），避免旧 runner 心跳覆盖
+        return True
+    return target_project != str(current_project or "")
+
 class ExecutionMixin:
     def start(self, task_id: str, *, submit_to_runner: bool = False) -> dict[str, Any]:
         task_dir = self.settings.upgrades_dir / task_id
@@ -372,12 +389,15 @@ class ExecutionMixin:
             compose_command.extend(["--project-name", compose_project_name, "up", "-d", "--no-deps", *sorted(_task_services(task["manifest"]))])
             try:
                 self.executor.run(compose_command, cwd=self.project_path)
-                if _runner_bootstrap(task["manifest"]):
+                bootstrap = _runner_bootstrap(task["manifest"])
+                if bootstrap and _should_stop_previous_runner(bootstrap, self.settings.compose_project_name):
                     self.executor.run(
                         ["docker", "compose", "-f", self.settings.compose_file, "--project-name", self.settings.compose_project_name, "stop", "upgrade-runner"],
                         cwd=self.project_path,
                     )
                     logs.append("已停止旧 project upgrade-runner，避免旧 runner 心跳覆盖新版本。")
+                elif bootstrap:
+                    logs.append("新旧 runner 同属当前 compose project，跳过停止旧 runner（否则会停掉刚启动的新 runner）。")
             except SystemExit:
                 if _runner_only(task["manifest"]):
                     self.tasks.update_task(task_id, status=TaskStatus.RUNNING, progress=86, message="upgrade-runner 正在重启，等待新进程接续", logs=logs, steps=steps)
