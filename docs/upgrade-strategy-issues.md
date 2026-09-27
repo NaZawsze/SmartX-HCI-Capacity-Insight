@@ -74,7 +74,13 @@
 - **方向**：预检失败任务 TTL 自动清理（保留最近 N 个）。
 - **状态**：🟡 未做（新发现）。
 
----
+### US-23 🔴 并发升级无「单飞」守卫（本轮新发现）
+- **现象**：`start()`（`execution.py:42`）只校验**本任务**状态 `precheck_passed`，**不检查是否已有其它平台升级在执行**；runner 侧 `run_pending_once` 又是按 mtime 串行消费所有 pending 任务。
+- **链路**：两个包先后上传并预检通过 → 两次 `start` 都成功 → 第二个任务排队执行时，**环境已被第一个任务改变**（版本/项目/目录/镜像全变了），而它的执行计划是按旧状态编译的 → 在错误状态上执行（可能失败，也可能"成功"地做错事）。
+- **证据**：`execution.py:42-60` 无任何 running/pending 互斥检查；删除任务时倒是有保护（`intake.py:81`「升级任务正在执行…不能删除」），说明设计者考虑过并发，唯独 start 漏了。
+- **影响**：客户连点两次、两个管理员并行操作、或"预检失败→再传一个包→两个都 start"都会触发；真实现场风险中高。
+- **方向**：`start` 前检查是否存在**其它**平台升级任务处于 `pending/running/runner_restarting/recovery_*` → `400 升级任务正在执行中`；同时 runner 执行前**重新校验 source_compatibility**（防止计划过期）。列入 #47③。
+- **状态**：🔴 未修（新发现）。
 
 ## C. 已修复并验证（🟢，列此以备回归）
 
@@ -89,6 +95,12 @@
 | US-16 | 验收曾用开发期重建镜像充当基线（验收≠交付） | 规则写死"必须用 Release 资产" | AGENTS §10-7、development-verification §4.4 |
 
 ---
+
+### 已排查、确认不是问题（避免重复争论）
+- **post-cleanup 失败会被忽略？** 否——存在重试入口 `POST /api/admin/upgrade/post-cleanup/{task_id}/retry`（`api/admin/upgrade.py:145`），且任务 severity 由 `_severity()` 按类型/状态推导，`UPGRADE` 类失败 = **critical**（`tasks/service.py:294`），会进任务中心高亮。
+- **在跑任务被误删？** 否——`intake.py:81` 明确拒绝删除 `running/pending/runner_restarting/recovery_*` 状态的任务。
+- **同一版本被重复升级？** 允许（`allow_same_version`），属"就地重装/修复"的既定设计（有 `source_compatibility` 测试覆盖）。
+- **清理失败阻断升级？** 否——按设计"采集/清理失败不改写平台升级成功状态"（数据优先），配合上一条的 retry 与 critical 告警，口径自洽。
 
 ## D. 测试缺口（⚪，需补进验收矩阵）
 
