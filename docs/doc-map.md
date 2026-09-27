@@ -95,6 +95,7 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | [upgrade-issues.md](upgrade-issues.md) | 升级模块问题台账（UPG-001 起）：问题清单、根因和关闭状态。 | task_plan Phase 6~9 等 |
 | [upgrade-strategy-issues.md](upgrade-strategy-issues.md) | **升级策略问题细分清单（2026-09-27 复查）**：架构/契约、流程断言、已修复回归项、验收矩阵缺口共 22 条，每条含根因/证据/修复方向/状态。 | pending-tasks #47、验收计划 |
 | [upgrade-audit-matrix.md](upgrade-audit-matrix.md) | **升级功能完整性审计矩阵（空表）**：M1 状态机 182 / M2 动作失败注入 78 / M3 场景端到端 84 / M4 数据红线 504 断言 / M5 历史事故 38 / M6 静态审计 8 = **894 格**，含 MVP 子集 42 格。未执行、不改代码。 | pending-tasks #47 |
+| [superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md](superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md) | **设计（待批准）**：US-05 `required_health` 移除 runner_version（顺序无关）+ US-23 `start()` 单飞守卫（平台/组件共用入口）；含测试计划、重打包与 MVP 验收格、回滚。 | task_plan Phase 49 第 52 项 |
 | [upgrade-package-ledger.md](upgrade-package-ledger.md) | 升级包台账：包路径、SHA256、状态和废弃原因。 | UPG-031~048 |
 
 ## 6. 发布、验收与治理

@@ -1791,6 +1791,17 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - 为什么不能走 Actions：Actions 只照 git 源码构建，而没有任何提交等于发行镜像（tag `baaffcd` 11 动作 / main 26 动作 / 发行版 25 动作）。
 - [x] 实施完成（2026-09-27）
 
+### 52. US-05/US-23 发布阻塞项修复：post-cleanup 顺序敏感 + 升级单飞守卫（49-52）[设计中·待用户批准]
+
+来源：2026-09-27 升级策略复查（`docs/upgrade-strategy-issues.md` US-05/US-23，P0；审计矩阵 MVP 格 M3-08/M3-10 与「重复 start」列）。
+设计：[docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md](docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md)。
+- [ ] US-05：`build_upgrade_package.py` 的 `required_health` 移除 `runner_version`（一行；runner 侧 `if expected_runner` 空即跳过，无需 bump）
+- [ ] US-23：`execution.py::start()` 增加 `_ensure_no_active_upgrade` 单飞守卫（平台/组件两入口共用 `start()`，一处覆盖）
+- [ ] 新测试：`test_upgrade_single_flight.py` 6 例 + build_tests 断言 `required_health` 无 `runner_version`
+- [ ] 重打 v0.5.3 候选包（新 SHA）+ `.3` 门禁全量 + `.12` MVP 格（M3-08/M3-10 先 runner 后平台 → post-cleanup 必须成功；重复 start → 400；平台先回归）
+- [ ] US-04 顺序写死进发布材料（文档；老 web-api 根因不修，见设计 §2.3/§4）
+- [ ] 实施（**待用户批准，当前未执行**）
+
 ### 37. 手动采集失败清空指标快照修复 + 仪表盘数据过期标注（49-37）[进行中]
 
 来源：2026-09-25 用户反馈「有段时间没获取到数据就把我整个看板停了，应该标注最后更新时间」+ 看板归零截图。
