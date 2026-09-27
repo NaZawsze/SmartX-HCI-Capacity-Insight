@@ -100,6 +100,8 @@ nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2
 prom/prometheus:v2.55.1
 ```
 
+> **部署前必读（2026-09-27）**：`upgrade-runner:v0.3.2` 目前**尚未作为交付物存在**——没有 `runner-v0.3.2` git tag，DockerHub 只有 `v0.3.0`/`v0.3.1`/`latest`，组件包 `3d99599c…` 仅在 `.3` 本地构建目录。发布 `v0.5.3` 前必须补 tag + 镜像 + 组件包资产，否则把源码 compose 部署到新机器时该镜像拉不到，应改用已发布 `upgrade-runner:v0.3.1`（平台升级的 runner 基线就是 v0.3.1，见下节「升级顺序」）。
+
 If you export GitHub Actions images as tar files, load them first:
 
 ```bash

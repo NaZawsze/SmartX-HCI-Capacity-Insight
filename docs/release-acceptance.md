@@ -25,14 +25,14 @@ The `v0.5.3` release gate verifies the compose project/network fix, the single-r
 Expected values:
 
 - Platform version: `v0.5.3`
-- Runner version: `v0.3.1`
+- Runner version: `v0.3.1` at platform-upgrade time (the released baseline the package declares); after the optional post-upgrade component upgrade the runner reports `v0.3.2`
 - Compose project: `smartx-hci-capacity-insight`
 - Docker network: `smartx-hci-capacity-insight-net`
 - Prometheus version: `v2.55.1`
 - Upgrade package: `smartx-capacity-insight-upgrade-v0.5.3.tar.gz`
-- Upgrade package sha256: `54aa8807dba18b385f34538d28e23705b830004305b9ff936c6a2ad1fe089487` (2026-09-27 rebuild from dev2 `0a41775`, all package gates passed on 10.20.11.3; **.12 normal-upgrade acceptance and full-chain regression pending** — previous validated package `6accea95…` from dev2 `ff1bd52` completed acceptance 2026-09-20 and is the strict ancestor of this build; `4a3c7bbd…` (2026-09-25) passed gates but never ran acceptance and is superseded)
+- Upgrade package sha256: `b9560eeef3e7040825b3a2a3c9b9c79f083b42310370624af240960120bfcd3c` (`v0.5.3-r5`, 2026-09-27 rebuild; all `.3` package gates passed — 386 backend tests / 26 build tests / identity / `.sha256` / 0 sensitive members; **`.12` MVP acceptance pending authorization**). Fallback if r5 fails: `v0.5.3-r4` `e1c0fde814f192fa702469fc870b19590dcae5ed39375c116bc64a8690bab009`, which already completed full `.12` acceptance on 2026-09-27
 
-Validated on `10.20.11.12` on 2026-09-20 (task `upgrade-b45996653f6955b6`, v0.5.2 baseline restored then normal upgrade path; main task and post-cleanup succeeded, 8-item acceptance passed); earlier validation on 2026-09-19 used `ef10a7c8…` (task `upgrade-e1fe8a62ea767ab7`). Package identity and evidence live in [upgrade-package-ledger.md](upgrade-package-ledger.md).
+Latest validation on `10.20.11.12` on 2026-09-27 (round 4, dev2 `7b7a883`): real `v0.5.1 + runner v0.3.0` baseline restored → three-step chain (`upgrade-1ea87b5c…` u2, `upgrade-2cf232b7…` **released** runner `d10e15cf…`, `upgrade-5cae8764…` v0.5.2) → direct upgrade to `v0.5.3` executed by the released runner `v0.3.1` (task `upgrade-666284beec04cc87`; main task and post-cleanup succeeded, plan had 12 actions without `post_upgrade.schedule_collection`; 8-item acceptance passed) → optional component upgrade to runner `v0.3.2` then survived 90s and the action-level precheck reported all 14 planned actions supported. Earlier validation on 2026-09-20 used `6accea95…` (task `upgrade-b45996653f6955b6`); 2026-09-19 used `ef10a7c8…` (task `upgrade-e1fe8a62ea767ab7`). Package identity and evidence live in [upgrade-package-ledger.md](upgrade-package-ledger.md).
 
 Deployment checks:
 
@@ -89,15 +89,15 @@ Without `--username` and `--password`, the script only checks public endpoints s
 
 ## Release Day Steps
 
-Ordered checklist for cutting a platform release. Rules and boundaries live in `AGENTS.md` and `docs/version-governance.md`; this fixes the step order.
+Ordered checklist for cutting a platform release. Rules and boundaries live in `docs/version-governance.md`; this fixes the step order.
 
 1. **Version bump**: root `VERSION`, `backend/app/core/config.py` and `backend/app/v2/config.py` defaults, compose default tags, `README.md` / `README.zh-CN.md`, `docs/releases/CHANGELOG.md`, `docs/version-governance.md`.
 2. **Local checks**: backend unittest (environment skips allowed), frontend `npx tsc -b` + vitest.
-3. **Build on `10.20.11.3`**: build images, run the full backend suite (current baseline 310 tests), build the upgrade package with `scripts/build_upgrade_package.py`, run `scripts/verify_upgrade_package_identity.py`, record package path and SHA256.
+3. **Build on `10.20.11.3`**: build images, run the full backend suite (current baseline 386 tests), build the upgrade package with `scripts/build_upgrade_package.py`, run `scripts/verify_upgrade_package_identity.py`, record package path and SHA256.
 4. **Runner 交付一致性核对（2026-09-27 定，缺项禁止发布）**：
    - 若本次改动涉及 `backend/app/upgrade_runner/` 或 `upgrade_protocol/`：**必须**在同一提交 bump `RUNNER_VERSION`，用 `scripts/build_runner_component_package.py` 产出新组件包并记录 SHA；未 bump 即发布 = 违规。
    - 三处同源核对：仓库 `RUNNER_VERSION`+动作表 ｜ runner 组件包（解包 grep 关键动作）｜ DockerHub `runner-v<版本>` tag（tags API 必须 200，404 = 没推 tag = 没交付）。
    - 核对结论（含三处 SHA/tag）写入 `docs/upgrade-package-ledger.md` 与 `docs/releases/CHANGELOG.md`。
 5. **Rehearse on `10.20.11.12`**: real upgrade from a supported source version via the upgrade center (upload → precheck → start → verification → post-cleanup); record task ID, health output, and evidence in `progress.md`; add the package row to `docs/upgrade-package-ledger.md`。
-   - **runner 基线必须取已发布的 Release 资产**（客户手里那份），禁止用测试机上开发期重建的 runner 镜像——否则验收环境 ≠ 交付环境（2026-09-27 实测教训：开发镜像三轮全绿，换 `d10e15cf…` 立刻失败）；若本次同时发新 runner，先把新 runner 走组件升级再升平台。
+   - **runner 基线必须取已发布的 Release 资产**（客户手里那份），禁止用测试机上开发期重建的 runner 镜像——否则验收环境 ≠ 交付环境（2026-09-27 实测教训：开发镜像三轮全绿，换 `d10e15cf…` 立刻失败）。**若本次同时发新 runner，交付顺序仍是「先平台、后 runner」**：先用已发布 runner 完成平台升级验收，再在 v0.5.3 上做 runner 组件升级并复验——反向顺序（先升 runner 再升平台）在 v0.5.2 源端会被老 web-api 无条件停掉新 runner（`docs/deployment.md` §10.1）。
 6. **Git release actions (push / tag / GitHub Release) happen only after the user explicitly asks.** Package delivery is complete before any git release action, never because of it. 若发新 runner：`runner-v<新版本>` tag 必须随本次一起推，并确认 DockerHub tag 可拉取。

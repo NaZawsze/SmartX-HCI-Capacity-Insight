@@ -52,7 +52,7 @@ v0.5.1 + runner v0.3.0
 | runner v0.3.0 -> v0.3.1 | `/home/user1/codex-build/packages-upg032-historyfix/02-runner-v0.3.1-historyfix/smartx-upgrade-runner-v0.3.1.tar.gz` | `d10e15cf7b516d172ebe2f1bc37621f9cf32d8ab3abd548f808ae5c5de151d2c` |
 | v0.5.1u2 -> v0.5.2 | `/home/user1/codex-build/packages-upg048-webapi-env-permission-fix8/03-v0.5.2-upg048-fix8/smartx-capacity-insight-upgrade-v0.5.2.tar.gz` | `692aca8b58ad8199c43c02a3771fa4fd7a62f1d7bbf4f198af4bd2e4b2c67733` |
 
-包与 SHA 的完整谱系、已废弃包及原因见 [upgrade-package-ledger.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/docs/upgrade-package-ledger.md)。
+包与 SHA 的完整谱系、已废弃包及原因见 [upgrade-package-ledger.md](upgrade-package-ledger.md)。
 
 ## 验证范围与限制
 
@@ -81,25 +81,25 @@ v0.5.2 统一使用以下根目录，不再以 `/opt/smartx-storage-forecast` �
 
 ## 计划文档位置
 
-- 总体升级计划：[v0.5.0-to-v0.5.2-upgrade-plan.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/docs/v0.5.0-to-v0.5.2-upgrade-plan.md)
-- v0.5.1u2 -> v0.5.2 问题修复计划：[v0.5.1u2-to-v0.5.2-upgrade-plan-issue.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/docs/v0.5.1u2-to-v0.5.2-upgrade-plan-issue.md)
-- 升级后自动采集实施计划：[2026-07-10-post-upgrade-auto-collection.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/docs/superpowers/plans/2026-07-10-post-upgrade-auto-collection.md)
-- verification 与任务历史修复计划：[2026-07-15-upg044-verification-history.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/docs/superpowers/plans/2026-07-15-upg044-verification-history.md)
-- 已发布 v0.5.1u2 兼容计划：[2026-07-15-upg045-released-u2-auto-collection-compatibility.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md)
-- 根任务摘要：[task_plan.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/task_plan.md)
+- 总体升级计划：[v0.5.0-to-v0.5.2-upgrade-plan.md](v0.5.0-to-v0.5.2-upgrade-plan.md)
+- v0.5.1u2 -> v0.5.2 问题修复计划：[v0.5.1u2-to-v0.5.2-upgrade-plan-issue.md](v0.5.1u2-to-v0.5.2-upgrade-plan-issue.md)
+- 升级后自动采集实施计划：[2026-07-10-post-upgrade-auto-collection.md](superpowers/plans/2026-07-10-post-upgrade-auto-collection.md)
+- verification 与任务历史修复计划：[2026-07-15-upg044-verification-history.md](superpowers/plans/2026-07-15-upg044-verification-history.md)
+- 已发布 v0.5.1u2 兼容计划：[2026-07-15-upg045-released-u2-auto-collection-compatibility.md](superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md)
+- 根任务摘要：[task_plan.md](../task_plan.md)
 
 ## 功能实现与设计文档位置
 
-- 升级链路详细执行记录：[v0.5.1-to-v0.5.2-upgrade-chain-worklog.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)
-- 升级链路任务与发现归档：[v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md)
-- 升级问题台账：[upgrade-issues.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/docs/upgrade-issues.md)
-- v0.5.1u2 -> v0.5.2 专项问题台账：[v0.5.1u2-to-v0.5.2-upgrade-issues.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/docs/v0.5.1u2-to-v0.5.2-upgrade-issues.md)
-- 升级 runner 生命周期与协议：[upgrade-runner-lifecycle.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/docs/upgrade-runner-lifecycle.md)
-- 升级后自动采集设计：[2026-07-10-post-upgrade-auto-collection-design.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/docs/superpowers/specs/2026-07-10-post-upgrade-auto-collection-design.md)
-- v2 架构：[architecture-v2.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/docs/architecture-v2.md)
-- 功能模块说明：[functional-modules.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/docs/functional-modules.md)
-- 接口契约：[v2-api-contracts.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/docs/v2-api-contracts.md)
-- 发布变更记录：[CHANGELOG.md](/Users/nazawsze/Documents/Codex/worktrees/devv2/docs/releases/CHANGELOG.md)
+- 升级链路详细执行记录：[v0.5.1-to-v0.5.2-upgrade-chain-worklog.md](v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)
+- 升级链路任务与发现归档：[v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md](v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md)
+- 升级问题台账：[upgrade-issues.md](upgrade-issues.md)
+- v0.5.1u2 -> v0.5.2 专项问题台账：[v0.5.1u2-to-v0.5.2-upgrade-issues.md](v0.5.1u2-to-v0.5.2-upgrade-issues.md)
+- 升级 runner 生命周期与协议：[upgrade-runner-lifecycle.md](upgrade-runner-lifecycle.md)
+- 升级后自动采集设计：[2026-07-10-post-upgrade-auto-collection-design.md](superpowers/specs/2026-07-10-post-upgrade-auto-collection-design.md)
+- v2 架构：[architecture-v2.md](architecture-v2.md)
+- 功能模块说明：[functional-modules.md](functional-modules.md)
+- 接口契约：[v2-api-contracts.md](v2-api-contracts.md)
+- 发布变更记录：[CHANGELOG.md](releases/CHANGELOG.md)
 
 ## 后续建议
 

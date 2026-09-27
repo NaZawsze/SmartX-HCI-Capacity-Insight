@@ -1,6 +1,6 @@
-# 升级功能完整性审计矩阵（空表）
+# 升级功能完整性审计矩阵
 
-用途：回答「**要保证升级功能完整没有问题，到底要跑多少格子、多少测试**」。**本表全部为空、未执行、不改任何代码**；
+用途：回答「**要保证升级功能完整没有问题，到底要跑多少格子、多少测试**」。**除 M3-07 已跑并标注的 1 格、M5-37 标注「测试中已引用」外，其余格子为空、未执行；本表不改任何代码**；
 执行时逐格填证据（task id / 截图 / 断言输出），全部转绿才允许在发布材料里写「升级功能已完整验证」。
 
 关联：问题清单 [upgrade-strategy-issues.md](upgrade-strategy-issues.md)｜验收计划 [superpowers/plans/2026-09-27-v053-full-chain-acceptance-plan.md](superpowers/plans/2026-09-27-v053-full-chain-acceptance-plan.md)｜立项 pending-tasks #47

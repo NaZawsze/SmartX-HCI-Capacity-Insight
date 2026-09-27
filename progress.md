@@ -7924,3 +7924,18 @@ release_smoke=critical 0, warning 0
 - 本地：升级相关 163 tests OK；全量 348 中 11 error 均为本地缺 fastapi（与改动无关）。`.3` 门禁（32f9a95 全树同步，SHA `10c79922…`）：后端 **386 tests OK (skipped=2)**（compose exec 标准方式）、build_tests **26 OK**、`tsc -b` 0、vitest **107 passed（11 files）**、api docs 77=76、release docs PASS。
 - 候选包：`.3:/data/upgrade-packages/v053-r5-20260927/smartx-capacity-insight-upgrade-v0.5.3.tar.gz` **SHA `b9560eeef3e7040825b3a2a3c9b9c79f083b42310370624af240960120bfcd3c`**：`--check-version` OK、identity OK（web-api v0.5.3/runner 基线 v0.3.1）、`.sha256` OK、敏感 0；manifest 实证 `required_health={version:v0.5.3, checks:[directories,database,prometheus]}`（**无 runner_version**）、`minimum_runner_version=v0.3.1`、方案 A 口径不变。
 - 待办：`.12` MVP 格（M3-08/M3-10 先 runner 后平台 → post-cleanup 必须成功；重复 start → 400；平台先回归）**待用户授权**；未过回退第四轮 `e1c0fde8…`。
+
+## 2026-09-27 文档一致性与发布口径修复（task_plan 第 53 项）
+
+触发：用户「你先把文档问题解决吧」。基于一次全仓文档交叉审计（版本口径 / SHA / 升级顺序 / 断链 / 规则出处）逐项修复。**本轮只改文档：未改任何代码、compose、升级包或 runner。**
+
+- **版本口径 8 处**（把"未发布的 v0.5.3 写成当前正式版本"统一为「开发候选 v0.5.3（未发布）／已发布 v0.5.2」）：`README.md`、`README.zh-CN.md`、`docs/v2-upgrade-center-design.md`、`docs/project-guide-for-ai.md`、`docs/doc-map.md`、`docs/troubleshooting.md`、`docs/backup-recovery.md`、`docs/ai-handoff-guide.md`；`task_plan.md` Phase 23 的"正式版本以 VERSION 为准"同步改为 2026-09-27 双层口径。
+- **错误指引 1 处**：`docs/ai-handoff-guide.md`「compose 镜像 tag 为 `${SMARTX_IMAGE_TAG:-v0.5.3}` 占位符、不得写死」与 49-3 的字面量门禁相反 → 改为「三个源码 compose 已字面量化 + 模板禁令」。
+- **被推翻口径加撤销标记**（不删历史，改为"已作废/以某节为准"）：`docs/release-acceptance.md` 步骤 5（原"先升 runner 再升平台"→ 统一为先平台后 runner）、`docs/releases/CHANGELOG.md` v0.5.3 验证说明第 2 步（原"必须用新打组件包"）、`docs/superpowers/plans/2026-09-27-v053-full-chain-acceptance-plan.md` 的 B-b 段与链路骨架、`docs/superpowers/specs/2026-09-27-v053-platform-side-post-upgrade-collection-design.md` §5/§7、`task_plan.md` 第 49 条验收行与第 50 条标题/复选框。
+- **陈旧记账**：`docs/release-acceptance.md` 候选包 SHA `54aa8807…`→r5 `b9560eee…`（并补第四轮验收事实）、基线 310→386、规则出处去掉 AGENTS.md；`CHANGELOG` 「当前候选包」与「runner 交付决策」两条改写；`docs/upgrade-package-ledger.md` 54aa8807 行状态改 SUPERSEDED、r4 标题改"已被 r5 取代"、v0.3.2 组件包行补交付缺口；`docs/upgrade-audit-matrix.md` 去掉「本表全部为空」；`findings.md`/`CHANGELOG` 引用不存在的 `components/` 路径改写；`docs/pending-tasks.md` 11 条「提交（待批准）」改为「提交状态：已完成（2026-09-27，`55d4145`/`4491cba`/`874b242`/`0a41775`）」。
+- **交付缺口补记**：`docs/version-governance.md` 新增 `v0.3.2` 未交付条目、`docs/deployment.md` 镜像清单下新增部署前必读提示 —— 源码 compose 写 `upgrade-runner:v0.3.2`，但无 `runner-v0.3.2` tag、无 DockerHub 镜像、无组件包资产（三处同源未过）。
+- **链接与路径**：修 2 处断链（acceptance-plan → `../../upgrade-strategy-issues.md`、spec → `../plans/…`）；`docs/project-progress-2026-08-12.md` 的 17 处 `/Users/nazawsze/...` 机器绝对路径改为仓库相对路径。
+- **规则出处**：`docs/doc-map.md` 注明 AGENTS.md 按 `.gitignore` 仅本地维护（未入库）及其硬规则的可核对副本（`docs/version-governance.md`、`docs/development-verification-process.md` §4.4）。
+- **基线数字**：`docs/development-verification-process.md` §4.1、`docs/ai-handoff-guide.md`、`docs/module-inventory.md` 里"最近基线 310 tests"改为 **386 tests（2026-09-27 起）**并标注历史时点（09-19 为 310、09-13 为 308，`skipped=2` 为环境跳过）。
+- 验证：`git diff --check` 无输出；自建链接扫描（排除 `.codex/`）项目文档断链/绝对路径 **0**；`python3 scripts/verify_release_docs_safe.py` → **[PASS]**；残留「当前正式平台版本」grep 仅剩 `progress.md` 的历史日志行（历史记录不改）。
+- 未做（等用户决策）：`runner v0.3.2` 是否随发布交付（补 tag/镜像/资产，或源码 compose 与部署文档回退 `v0.3.1`）；`.12` MVP 验收仍待授权；各条目「UI 目视」仍待用户确认。

@@ -41,7 +41,7 @@
 ### 测试基线
 
 - 本地（macOS，python3.9，无 fastapi/apscheduler/cryptography/pytest）：部分测试**环境跳过或报 ModuleNotFoundError** 属正常——fastapi 依赖的测试已加 skipTest。
-- .3 容器内全量：**310 tests 全绿**（2026-09-19 起；2026-09-13 时点 308）。构建测试 `test_v2_package_builders` 已移到 `backend/build_tests/`（需写项目根 VERSION，web-api 容器只读挂载，改在宿主机跑 26 tests OK）；`test_deployment_config` 已改 unittest（无 pytest 依赖）。**任何失败都是真回归。**
+- .3 容器内全量：**386 tests 全绿**（2026-09-27 起；此前时点：2026-09-19 为 310、2026-09-13 为 308；`skipped=2` 为环境条件跳过）。构建测试 `test_v2_package_builders` 已移到 `backend/build_tests/`（需写项目根 VERSION，web-api 容器只读挂载，改在宿主机跑 26 tests OK）；`test_deployment_config` 已改 unittest（无 pytest 依赖）。**任何失败都是真回归。**
 - 容器内跑法：
   ```bash
   docker compose exec -T web-api sh -lc "cd /data/smartx-storage-forecast/project/backend && PYTHONPATH=/data/smartx-storage-forecast/project/backend python -m unittest discover -s tests 2>&1 | tail -3"
@@ -65,8 +65,8 @@
 
 ### 版本事实
 
-- 平台 v0.5.3 / runner v0.3.1 / 分支 dev2（当前本地领先 origin，推送需用户要求）。
-- compose 镜像 tag 源码为 `${SMARTX_IMAGE_TAG:-v0.5.3}` 占位符——**是 build_upgrade_package.py 的改写锚点，不得写死**（详见 p1-infra-batch-design §5 的回退教训）。
+- 平台 v0.5.3（**候选，尚未发布**；已正式发布 v0.5.2）/ 已发布 runner v0.3.1（仓库开发线已 bump 到 v0.3.2，尚无 tag/镜像/组件包资产交付）/ 分支 dev2（当前本地领先 origin，推送需用户要求）。
+- **compose 镜像 tag 已字面量化**：三个源码 compose 直接写死 `v0.5.3` / `v0.3.2` / `v2.55.1` 字面量（49-3，2026-09-20），`check_versions` 门禁做字面量断言并**禁止模板变量回潮**——不要再引入 `${SMARTX_IMAGE_TAG:-…}` 这类占位符，会被门禁直接判失败。历史教训见 p1-infra-batch-design §5。
 - `CollectionService.run_manual_collection` 落库前**已在内部与采集前的旧快照合并**（49-37，2026-09-25 起）：失败/被过滤目标沿用最后已知样本，任何调用路径（含 API 手动采集）都不会再整体替换 `metric_snapshots` 抹掉历史样本；worker 外层的 `merge` 保留为双保险（幂等）。新增采集路径无需再自行合并。
 
 ## 5. 流程要求

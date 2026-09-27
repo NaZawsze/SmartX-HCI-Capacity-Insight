@@ -40,11 +40,12 @@
   - 顺序断言 279/280 相应删除（改为 `task.sync_runtime_state` → `post_upgrade.schedule_cleanup` 的顺序保持）。
 - `backend/tests/test_v2_worker.py`：新增「manifest 只带 `platform_collection`」「两者都带」「只带 `auto_collection`（历史包）」三例；既有用例继续通过（兼容读取）。
 - `backend/tests/test_upgrade_runner_engine.py`：runner 侧动作测试**不动**（runner 仍实现该动作）。
-- 远端验收（硬门禁）：**严格按 [docs/superpowers/plans/2026-09-27-v053-full-chain-acceptance-plan.md](docs/superpowers/plans/2026-09-27-v053-full-chain-acceptance-plan.md) 执行**——`.12` 恢复 v0.5.1 基线 → `u2(d5f277) → runner v0.3.1(d10e15cf 已发布) → v0.5.2(692aca8b) → runner v0.3.2(本轮组件包) → v0.5.3(候选包)`。
+- 远端验收（硬门禁）：**严格按 [2026-09-27-v053-full-chain-acceptance-plan.md](../plans/2026-09-27-v053-full-chain-acceptance-plan.md) 的「第四轮执行顺序」执行**——`.12` 恢复 v0.5.1 基线 → `u2(d5f277) → runner v0.3.1(d10e15cf 已发布) → v0.5.2(692aca8b) → v0.5.3(候选包，由已发布 runner v0.3.1 执行)` → （可选）runner v0.3.2 组件升级。
 - **口径修正（2026-09-27，用户选定 B-b 后）**：B-b 使平台包声明 runner 镜像 `v0.3.2`，预检查 `images` 检查（`docker image inspect`）会先拦住没有该镜像的现场，因此**「已发布 v0.3.1 直升 v0.5.3」不再成立**。A 的验收改为：
   1. 升级计划 `actions` **不含** `post_upgrade.schedule_collection`（含 `post_upgrade.schedule_cleanup`）；
   2. 升级成功后**平台自建标记** `post-upgrade-collection.json`（`source=target_worker_compatibility`）并创建升级后自动采集任务（Tower 不可达只记环境限制）；
   3. 主任务 success、post-cleanup success、8 项验收全过。
+- **口径再修正（第四轮，2026-09-27；以此条为准）**：平台包 runner 基线已回退为**已发布 `v0.3.1`**（`minimum_runner_version=v0.3.1`、包内 compose tag `v0.3.1`），因此**「已发布 v0.3.1 直升 v0.5.3」重新成立**，现场无需先做组件升级；上一条「用户选定 B-b 后」的口径与第 7 节**已作废，仅保留为过程记录**。第四轮 `.12` 实测结果：升级计划 12 个动作不含 `post_upgrade.schedule_collection`、平台自建标记 `source=target_worker_compatibility`、主任务与 post-cleanup succeeded、8 项验收全过；runner v0.3.2 组件升级改为平台升级完成**之后**的可选步骤。
 
 ## 6. 回滚
 
@@ -52,5 +53,5 @@
 
 ## 7. 与方案 B 的关系
 
-- **B-b 选定后（2026-09-27）**：A 负责「升级计划不再要求 runner 实现那条多余动作 + 升级后由平台自己完成采集」；B（runner v0.3.2 组件升级前置 + 动作级预检查）负责「早失败 + 防复发」。**现场直升的前提由 B-b 改为「先做 runner 组件升级到 v0.3.2」**（预检查 `images` 检查给出明确提示）。
+- **（已作废，见第 5 节末的口径再修正）B-b 选定后（2026-09-27）**：A 负责「升级计划不再要求 runner 实现那条多余动作 + 升级后由平台自己完成采集」；B（runner v0.3.2 组件升级前置 + 动作级预检查）负责「早失败 + 防复发」。**现场直升的前提由 B-b 改为「先做 runner 组件升级到 v0.3.2」**（预检查 `images` 检查给出明确提示）。
 - B 的动作级校验只在**源端 ≥ v0.5.3** 时生效（预检查代码跑在源端），不覆盖 `v0.5.2 → v0.5.3` 这一次；那一次的拦点是镜像存在性检查。

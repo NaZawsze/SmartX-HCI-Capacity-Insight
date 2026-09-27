@@ -1,6 +1,6 @@
 # 备份与恢复手册（Backup & Recovery Runbook）
 
-适用版本：平台 v0.5.3 / runner v0.3.1。目标目录布局：`/data/smartx-storage-forecast/{project,app,prometheus,upgrades,backups,exports,compose-runtime}`（详见 AGENTS.md §9）。
+适用版本：平台 v0.5.3（候选，尚未发布；已正式发布 v0.5.2）/ runner v0.3.1。目标目录布局：`/data/smartx-storage-forecast/{project,app,prometheus,upgrades,backups,exports,compose-runtime}`（详见 [deployment.md](deployment.md) §6）。
 
 核心原则：
 

@@ -719,8 +719,8 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - 现象：`.12` 从 v0.5.1 基线走完 `→ v0.5.1u2 → runner v0.3.1 → v0.5.2` 后，再用候选包 `54aa8807` 升 v0.5.3，主任务在**平台已切到 v0.5.3 之后**失败：`Runner 不支持动作：post_upgrade.schedule_collection`（task `upgrade-cede491efb9b1345`）。
 - 根因：`post_upgrade.schedule_collection` 是 v0.5.2 发布（2026-08-12 `dab2e0f`）之后才进 runner 动作表的动作；链路第 2 步用的是 2026-07 的 runner 组件包 `d10e15cf`（`grep -c schedule_collection` = 0），而当前 dev2 构建的 runner 镜像 `0aca32511008` 有（= 2）。**两者 `RUNNER_VERSION` 都是 `v0.3.1`**。
 - 为什么预检查抓不到：`v2/upgrade/compiler.py:313` 会把动作能力并进 plan 的 `required_capabilities`（`post_upgrade.schedule_collection → task.recovery.v1`），但旧 runner **声明**了 `task.recovery.v1`（它有 `schedule_cleanup`/`task.migrate_runtime_state`），只是动作表里没有这一个动作 → 能力级检查通过、动作级执行失败，且失败点在 cutover 之后，是最坏时机。
-- 结论/规避：链路第 2 步必须用**由 ≥ v0.5.2 发布源码构建**的 runner 组件包。本轮已用 `build_runner_component_package.py --version v0.3.1 --no-build` 从当前 dev2 镜像打新包 `dd096bf2…`，链路重跑后 v0.5.3 升级全绿（见 progress.md 2026-09-27 发布验收）。
-- 待用户决策（未改代码）：①是否给 v0.5.3 manifest/预检查补「动作级」runner 能力校验，让同类问题在 precheck 就失败而不是切换后失败；②runner 组件包是否随本次发布一起重建交付（现在 `components/` 下的旧包 `a112f6e1` 同样不含该动作）。
+- 结论/规避（**已被同日方案 A 取代，保留为当时记录**）：当时结论是链路第 2 步必须用**由 ≥ v0.5.2 发布源码构建**的 runner 组件包，本轮用 `build_runner_component_package.py --version v0.3.1 --no-build` 从当前 dev2 镜像打新包 `dd096bf2…`，链路重跑后 v0.5.3 升级全绿（见 progress.md 2026-09-27 发布验收）。方案 A（49-49：平台包不再下发该动作）与第四轮口径修正后，**链路第 2 步恢复使用已发布 Release 资产 `d10e15cf…` 并于第四轮全绿**——验收基线一律取已发布资产。
+- 待用户决策（未改代码）：①动作级校验已在 49-50 实施（`runner_actions`，2026-09-27 第四轮 `.12` 实测 14 动作全部支持），剩余是把它写进硬门禁脚本；②runner 组件包是否随本次发布交付——注意仓库 `components/` 目录**已不存在**，历史旧包为 2026-06-28 的 `a112f6e1…` 与 2026-07 的 `d10e15cf…`（均不含该动作），本轮 dev2 镜像新包为 `dd096bf2…`，v0.3.2 组件包为 `3d99599c…`（仅在 `.3` 本地）。
 
 ## 2026-09-27 `verify_full_upgrade_chain.py` 的 prometheus 断言永远失败（脚本缺陷）[已修复]
 

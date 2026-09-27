@@ -2,13 +2,13 @@
 
 本文件是 SmartX HCI Capacity Insight 全部文档的总索引（开发/维护用，项目对外简介见根目录 [README.md](../README.md)）。开始任何代码、升级包或远程环境操作前，先按 [AGENTS.md](../AGENTS.md) 的顺序阅读根目录工作文档，再按本地图定位专项文档。
 
-当前版本边界：平台 `v0.5.3`、runner `v0.3.1`、分支 `dev2`。
+当前版本边界：开发候选平台 `v0.5.3`（未发布；已正式发布 `v0.5.2`）、已发布 runner `v0.3.1`（开发线 `v0.3.2` 未交付）、分支 `dev2`。
 
 ## 1. 根目录工作文档（每次会话必读）
 
 | 文档 | 说明 |
 | --- | --- |
-| [AGENTS.md](../AGENTS.md) | AI 协作标准：文档读取顺序、分支与提交规则、三台服务器操作边界、架构边界、升级链路、包门禁、失败报告标准。 |
+| [AGENTS.md](../AGENTS.md) | AI 协作标准：文档读取顺序、分支与提交规则、三台服务器操作边界、架构边界、升级链路、包门禁、失败报告标准。**该文件按 `.gitignore` 仅本地维护、未入库**，其硬规则的可核对副本见 [version-governance.md](version-governance.md)「Runner 能力与版本治理」与 [development-verification-process.md](development-verification-process.md) §4.4。 |
 | [task_plan.md](../task_plan.md) | 工作计划：当前环境、各 Phase 目标与状态、Phase 与设计文档对照、常用验证命令。 |
 | [findings.md](../findings.md) | 项目发现与接手笔记：服务职责、数据路径、网络、已知坑点、各 Phase 稳定结论。 |
 | [progress.md](../progress.md) | 工作进度流水：按日期记录每轮执行、测试输出和失败证据（历史日志，不作为结论来源）。 |

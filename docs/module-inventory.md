@@ -121,7 +121,7 @@
 
 | 位置 | 内容 |
 | --- | --- |
-| `backend/tests/` | 31 个测试文件：v2 各域 API/服务、升级引擎（`test_upgrade_runner_engine.py`，67 项含 UPG-049 两个守卫回归）、升级协议、部署配置、worker 管线；远端全量回归以 `.3` 上 `backend/tests/test_v2_*.py` 为准（最近基线 310 tests，见 upgrade-package-ledger.md 2026-09-19 条目） |
+| `backend/tests/` | 31 个测试文件：v2 各域 API/服务、升级引擎（`test_upgrade_runner_engine.py`，67 项含 UPG-049 两个守卫回归）、升级协议、部署配置、worker 管线；远端全量回归以 `.3` 上 `backend/tests/test_v2_*.py` 为准（最近基线 386 tests，见 upgrade-package-ledger.md 2026-09-27 条目） |
 | `backend/build_tests/test_v2_package_builders.py` | 升级包构建门禁测试（26 项） |
 | `frontend/src/**/*.test.tsx` | vitest 页面/组件测试（7 文件，85 用例） |
 | `scripts/verify_*.py`、`scripts/verify_full_upgrade_chain.py` | 包身份/升级中心/全链路验证脚本 |
