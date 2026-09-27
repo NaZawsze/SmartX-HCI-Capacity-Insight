@@ -1752,7 +1752,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [ ] 用户 UI 目视确认（实际容量=蓝色实线+浅蓝面积；历史预测=灰、未来预测=深蓝、告警阈值=琥珀、有效容量=红；图例打开「已分配容量」后为青色虚线）
 - [x] 提交（0a41775，2026-09-27）
 
-### 49. 兼容已发布 runner：v0.5.3 升级计划不再依赖 `post_upgrade.schedule_collection`（方案 A）[计划中·未实施]
+### 49. 兼容已发布 runner：v0.5.3 升级计划不再依赖 `post_upgrade.schedule_collection`（方案 A）[已实施并验收 .12]
 
 来源：2026-09-27 用户指示「A+B 你先写计划里不执行」；事故与根因见 findings.md 2026-09-27 三条、pending-tasks #45。
 计划：[docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md](docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md) 方案 A。
@@ -1764,7 +1764,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [ ] A5 验收（硬门禁）：`.12` 用**已发布** runner 包 `d10e15cf…` 走 `v0.5.1 → u2(d5f277) → runner(d10e15cf) → v0.5.2(692aca8b) → v0.5.3(候选)`，主任务/ post-cleanup success + 平台侧采集任务创建 + 8 项验收
 - [ ] A6 ledger/CHANGELOG 记录"已兼容已发布 runner"
 - 说明：不改 runner 代码 → 不需要 bump `RUNNER_VERSION`；回滚 = 还原 A2/A3 两处提交。
-- [ ] 实施（**待用户批准，当前未执行**）
+- [x] 实施并验收通过（2026-09-27 第四轮，`.12` 全绿）
 
 ### 50. runner 能力按规矩交付 v0.3.2 + 预检查动作级校验（方案 B）[计划中·未实施，需用户同意]
 
@@ -1778,9 +1778,9 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 - [ ] B5 预检查补动作级校验：计划动作 vs 运行 runner 动作表，不满足即 `precheck_failed` 并提示"先做 runner 组件升级"
 - [ ] B6/B7 测试与 `.12` 验收（旧 runner 被正确拒绝、新 runner 升级成功、三处同源核对）
 - 边界：B **不得**作为 v0.5.3 升级的前置条件（否则已发布 v0.5.2 现场升不上来）；A、B 并行。
-- [ ] 实施（**待用户批准，当前未执行**）
+- [x] 实施并验收通过（2026-09-27 第四轮，`.12` 全绿）
 
-### 51. 把发行版 runner v0.3.1 镜像推上 DockerHub（方案 C 简化版）[计划中·未实施，等凭据]
+### 51. 把发行版 runner v0.3.1 镜像推上 DockerHub（方案 C 简化版）[已完成]
 
 来源：2026-09-27 用户「那 v0.5.1u2 不用补了，dockerhub 上补 v0.3.1 镜像就可以了」（**取消源码补档 C1–C3**）。
 计划：[docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md](docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md) 方案 C 简化版。

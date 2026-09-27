@@ -7897,3 +7897,21 @@ release_smoke=critical 0, warning 0
   - `docs/doc-map.md` 登记该 plan；`docs/pending-tasks.md` #45 更新为「已定方向 A+B，先写计划不执行」。
 - 同轮已落地的**门禁类**文档（前 3 笔提交）：AGENTS §6/§8/§10-7、version-governance「Runner 能力与版本治理」+ 发版清单 + GitHub Actions 规则、development-verification-process §3.3/§4.4、release-acceptance Release Day 第 4/5/6 步。
 - **未改任何代码**（runner 与平台均未动），`git status` 仅上述文档。
+
+## 2026-09-27 第四轮：口径改回已发布 v0.3.1 → 完整验收全绿（49-49 / 49-50 收口）
+
+**背景**：按用户选择先跑完验收再开整改（pending #47 已立项）。此前 B-b（先升 runner 再升平台）在 v0.5.2 源端走不通，根因是老 web-api 无条件 `docker compose stop upgrade-runner`（目标布局同 project 场景会停掉刚启动的新 runner），而平台侧修复只存在于 v0.5.3 镜像里（源端执行不到）。**第四轮口径修正：平台包 runner 基线回退为已发布 `v0.3.1`（恢复直升），v0.3.2 组件包改为平台升级完成之后的可选步骤。**
+
+- **改动**（提交 `7b7a883`）：`build_upgrade_package.py` 的 runner 基线（manifest handoff 镜像 / `minimum_runner_version` / 包内 compose tag / `required_health.runner_version` / release notes）统一为**已发布 v0.3.1**；`verify_upgrade_package_identity.py` 同步；build 测试的假镜像身份 fixture 同步；计划文档新增「第四轮执行顺序（先平台、后 runner）」；设计 2.5 记录口径修正；`pending-tasks` #47 立项整改。
+- **第四轮包**：`.3:/data/upgrade-packages/v053-r4-20260927/smartx-capacity-insight-upgrade-v0.5.3.tar.gz` **SHA `e1c0fde814f192fa702469fc870b19590dcae5ed39375c116bc64a8690bab009`**；`--check-version` OK、identity OK、`.sha256` OK、敏感 0；manifest：`minimum_runner_version=v0.3.1`、handoff 镜像 `…:v0.3.1`、`auto_collection=false/platform_collection=true`；镜像内 `/app/RUNNER_VERSION=v0.3.1`、`_should_stop_previous_runner` 存在；包内 compose runner tag `v0.3.1`。`.3` 门禁：后端 **377 tests OK (skipped=2)**、构建 **26 OK**。
+- **`.12` 第四轮验收（全过）**：
+  - 阶段1 基线：固化 `/root/baselines/v053-r4-baseline-20260927`（verify ok）→ 拆环境 → 恢复 v0.5.1/runner v0.3.0（health 全绿、subnet `10.249.249.0/24`、DB 1/1/556/89588）
+  - 阶段2 链路：`u2 upgrade-1ea87b5c5c188109` → `runner v0.3.1(已发布 d10e15cf) upgrade-2cf232b7cd096409` → `v0.5.2 upgrade-5cae8764ee3226bb`，节点1/2/3 + post-cleanup succeeded
+  - 阶段3″ 预检查：`upgrade-666284beec04cc87` prechecked，7 项全 ok
+  - **阶段4′ 直升（核心）**：主任务 **succeeded**；计划 12 个动作（`backup.create/image.load/filesystem.prepare/filesync/task.migrate_runtime_state/compose.override/compose.project_migrate/compose.apply/health.http/task.sync_runtime_state/post_upgrade.schedule_cleanup/runner.schedule_target_runtime_handoff`）**不含 `post_upgrade.schedule_collection`** → **方案 A 生效**
+  - A 运行时断言：post-cleanup **succeeded**；标记 `post-upgrade-collection.json` 存在且 `source=target_worker_compatibility`（**平台自建**）；采集任务已创建并执行（Tower `Connection refused` = 已知环境限制）
+  - 8 项验收（runner=**v0.3.1**）：health 连测三 checks 全 true、5 容器 tag 正确、subnet `10.249.251.0/24`、SQLite 1/1/556/89588 与夹具一致且 integrity ok、Prometheus `/-/ready` 200 且挂目标目录、`.env` 0600 + sha `8b644112…`、7 个 legacy missing、目标 7 目录 + 7 个任务目录、UI 200、前端产物含 `rgba(22, 119, 255, 0.12)` 与「已分配容量」
+  - **阶段6 组件升级（停机修复验证）**：`succeeded` → `component-version=v0.3.2`、容器镜像 `v0.3.2`、**连续观察 90 秒 runner 一直 Up（修复前 10 秒必死）**、心跳 v0.3.2 fresh、health `v0.5.3/v0.3.2` 三 checks 全 true；8 项复验（runner=v0.3.2）全过
+  - 新预检查闸门（源端已 v0.5.3）：`runner_actions: ok=True | 升级计划 14 个动作 upgrade-runner v0.3.2 全部支持`；**ALL_CHECKS_OK=True**
+- **两处脚本/断言问题（非产品缺陷，已记录）**：①ph4 升级完成瞬间读到旧心跳报 v0.3.1（竞态，补验 component-version=v0.3.2）；②ph5 的 5.7g 断言写错（提示文案只在失败时出现，失败文案已由单测 `test_missing_runner_image_hint…` 覆盖）；③首轮5.4 误判为失败是查得太早（post-cleanup 异步，复查后 succeeded + 标记齐全）。
+- **结论**：49-49（平台侧采集）、49-50（v0.3.2 交付 + 动作级预检查 + 停机修复）**全部实施并验收通过**；后续整改见 pending #47。
