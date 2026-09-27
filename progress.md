@@ -7979,3 +7979,19 @@ release_smoke=critical 0, warning 0
 - **`.3` 容器**：`import app.v2.main` 通过（守护线程接线正确）；容器内全量 **437 tests OK (skipped=2)**（424 + 本次 13），260s。
 - **文档**：CHANGELOG v0.5.3「修复」补条目；task_plan 第 56 项 + 对照表；doc-map；`deployment.md` 三个新环境变量与其语义；`upgrade-strategy-issues.md` US-09 → 🟢；执行顺序表 S1-2 → ✅。
 - 提交：`2c94bbf`（本地 dev2，未推送）。下一步按顺序为 S1-3（US-08 长任务心跳 stale 边界，先取证）。
+
+## 2026-09-27 S1-3（49-57）：执行期间 runner 在场判定（US-08）
+
+来源：用户「ok按照你的顺序开始修复」→ 执行顺序 S1-3（先取证、再修）。设计：[docs/superpowers/specs/2026-09-27-runner-presence-during-execution-design.md](docs/superpowers/specs/2026-09-27-runner-presence-during-execution-design.md)；根因见 findings.md 2026-09-27「runner 两条心跳通道」。
+
+- **取证（`.3` 真实同版本升级 ×4 次，候选包 `b9560eee…`）**：每 5s 采样两条心跳通道。task `upgrade-c921c5bc0aad72e5`（success，约 75s）与 `upgrade-34f86efd02aa4b75`（success，约 108s）两次都显示：**`upgrade_runner_state.heartbeat_at` 整段执行期冻结**（只在 `run_pending_once()` 开头写一次），而 `upgrade_task_leases` 每 5s 续租、`lease_expires_at` 始终 ≈ now+30s。阈值 `RUNNER_HEARTBEAT_STALE_SECONDS = 30` → 只看实例心跳必然在执行期判"不在场"。
+- **症状（旧镜像在跑，直接抓到）**：task `upgrade-baf0dd837c67ad3f` 在另一个升级 `upgrade-b52fbadc1591ab5c` **正在执行**时预检查 → `runner_protocol` **False「未检测到 upgrade-runner 心跳，无法确认升级执行器能力。请先升级 upgrade-runner 到 v0.3.1。」**，而同一次预检查的 `runner_actions` = **True（14 个动作全部支持）**——runner 明明在场。升级页组件目录 `compatible` 同样要求 `source=="heartbeat"`，执行期会显示"不满足平台要求"。
+- **修正记录**：我先前一次采样把 `/api/admin/upgrade/version` 读成"API 报 None"，实际该端点只返回 `{"version": …}`（不含 runner 状态），属解析假象，已在设计文档中纠正。
+- **修复（**不动 runner、不升版本**）**：新增 `app/v2/upgrade/service/runner_presence.py`——把"存在有效任务租约"（`lease_expires_at > now` 或 `heartbeat_at` 在 30s 内）作为第二条在场证据，`source` 记 `task_lease`；`RUNNER_PRESENCE_SOURCES` 供 `execution._active_runner_state()`、`_check_runner_protocol()`、`intake.component_catalog()`、`system/health._active_runner_version()` 共用（health 顺带删掉本地重复的 30s 常量）。
+- **修复后现场验证（同一真实场景）**：升级 `upgrade-b52fbadc1591ab5c` 仍 running、租约 `heartbeat_at=14:43:15` 有效时用新代码路径判定 → `presence_source=task_lease`、`_active_runner_version()=v0.3.1 (source=task_lease)`、`_check_runner_protocol **ok=True**`。
+- **本地**：`test_runner_presence_during_execution` **13 tests OK**；升级/健康相关全量 **198 tests OK (skipped=2)**。
+- **`.3` 容器全量**：**450 tests OK (skipped=2)**（437 + 本次 13），279s。
+  - **过程中的一次假失败（已定位，非代码回归）**：先在**被升级改过的部署树**上跑得到 7 个失败——我跑的升级把 `/data/.../project/docker-compose.yml` 覆盖成了**包内渲染版**（`upgrade-runner:v0.3.1`），而仓库源码是 `v0.3.2`，于是 `verify_runner_delivery_consistency` 的 C3 与 `test_deployment_config` 报"源码 compose 缺 v0.3.2 字面量"。把部署树恢复为仓库 HEAD（`cp -a /root/verify-gate/. project/`）后 450 全绿。**顺带得到一个独立佐证**：v0.5.3 平台包内的 compose 确实钉 runner 基线 `v0.3.1`，与源码仓库的 `v0.3.2` 不同源（见 ledger/version-governance 的交付缺口条目）。教训：仓库侧门禁不能在"被升级改过的部署树"上跑，必须先把仓库 HEAD 同步回去。
+- **文档**：CHANGELOG v0.5.3「修复」补条目；findings.md 新增根因条；task_plan 第 57 项 + 对照表；doc-map；`upgrade-strategy-issues.md` US-08 → 🟢；执行顺序表 S1-3 → ✅。
+- **残留与边界**：任务结束后一个轮询周期（≤3s）两条通道都不新鲜，生产里由 `_active_runner_state()` 的 docker 兜底覆盖（已记入设计文档边界节）；runner 侧"执行期也刷新实例心跳"登记为下次 runner 交付待办。`.3` 上本次实验产生的 4 个升级任务目录（含 3 个 success、1 个 precheck_failed，约 3.3 GB）与 `/root/verify-gate`、采样脚本已清理。
+- 提交：`fb6df7d`（修复）+ `8427d9c`（证据/边界）。**S1 阶段（本地可闭环缺陷）全部完成**，下一步按顺序进入 S2-1（US-06 升级后采集改事件驱动）。
