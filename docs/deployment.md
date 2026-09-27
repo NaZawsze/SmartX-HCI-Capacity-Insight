@@ -254,6 +254,14 @@ Replace `admin` with the actual platform username when needed. After reset, log 
 
 ## 10. Upgrade
 
+### 10.1 升级顺序（必读）
+
+**先升平台（v0.5.3），再做 runner 组件升级（v0.3.2）。**
+
+- v0.5.2 平台在执行 runner 组件升级时会停止 upgrade-runner（已知问题）；若先升 runner，新 runner 会被立即停止，需要人工恢复。
+- v0.5.3 平台修复了该问题，但仍按上述顺序交付，避免任何旧源端踩坑。
+- 同时只允许一个升级任务在执行：已有升级处于 pending/running/恢复等待/回滚中时，新的升级请求会被拒绝（400），请等待或取消后再开始。
+
 Pull or copy the updated source code, then rebuild:
 
 ```bash

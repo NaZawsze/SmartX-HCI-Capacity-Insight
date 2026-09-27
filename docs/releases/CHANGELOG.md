@@ -47,6 +47,9 @@ v0.5.3 是 v0.5.2 之后的平台版本候选（未发布），主要内容：�
 - **新建 VM 与增长口径统一（49-42/49-43/49-44/49-45）**：新建 VM 按 `vm_id` 全历史最早样本判定（断档恢复不再把老 VM 判成新建，本月新建 199→6）；概览与报表同源共用 `app/v2/vms/new_vm.py`、`app/v2/vms/growth.py`（窗口定义/计算/展示规则统一，同 30 天窗口两页结果一致，修复概览 0 条 vs 报表 66 条）；周期边界下沉共享实现，报表增长列表修复 series tail 兜底泄漏回收站 VM。
 - **趋势图配色互换与调色板错位修复（49-48/49-48b）**：按用户要求交换「实际容量」与「已分配容量」颜色（实际=主蓝 `--blue`、已分配=青）；同时把全部六个系列改为**显式配色**——ECharts 调色板只给未显式配色的系列按顺序发色，只改一个会让后续系列整体错位（首版曾导致历史预测与已分配容量同为青色）。
 
+- **升级顺序敏感：post-cleanup 健康断言（US-05，49-52）**：升级包 manifest `required_health` 移除 `runner_version` 等值断言（保留平台 `version`+三项 checks）——合法终态有两种（runner 基线直升 / 先升 runner 再升平台），等值断言会让"先升 runner"顺序在 post-cleanup 误判失败、旧环境不清理。runner 侧空字段自动跳过校验，无需升级 runner。
+- **并发升级无互斥（US-23，49-52）**：`start` 增加单飞守卫——已有升级处于 pending/running/runner_restarting/recovery_required/rollback_* 时拒绝开始新升级（平台与组件两个入口共用 `start()` 一处覆盖；`post-cleanup retry`/`recovery`/`rollback` 同守卫，cancel/delete 不拦）；类级锁消除并发 start 的扫描-认领竞态窗口（两个并发 start 恰好一个成功）。修复前第二个任务会在被第一个改动过的环境上按旧计划执行。
+
 ### 工程与运维
 - **DockerHub runner `v0.3.1`/`latest` 补齐（2026-09-27）**：发布资产 `d10e15cf…` 对应的镜像本体已 push 到 `nazawsze/smartx-hci-capacity-insight-upgrade-runner`（digest `90eb5a42…`），`latest` 同步指向它；核对 `RUNNER_VERSION=v0.3.1`、25 个动作、无 `post_upgrade.schedule_collection`、`actions.py` md5 `573dd04b…`。已知债务：该镜像无对应 git 提交、CI 无法复现（决定不补源码）。此前 DockerHub 只有 `latest`(06-05)、`runner-sha-31a1209`/`v0.3.0`(06-12)，**`v0.3.1` 从未推过**。
 
@@ -73,6 +76,8 @@ v0.5.3 是 v0.5.2 之后的平台版本候选（未发布），主要内容：�
 - 真实 Word/Excel 导出验证通过（容量趋势 Sheet 含图表 + 打印版式）。
 - 升级链路：v0.5.2 → v0.5.3 正常升级流程验证通过两轮——2026-09-19 以 ef10a7c8 包（task `upgrade-e1fe8a62ea767ab7`）；2026-09-20 以全新构建 6accea95 包（task `upgrade-b45996653f6955b6`，v0.5.2 基线先经 tag 换回重建、数据/.env/Prometheus 逐项核对保全后走 API 上传→预检查→升级→post-cleanup，主任务与清理均 succeeded，证据见 upgrade-package-ledger.md 与 progress.md）。第二次重打包（e940e07c）仅完成包静态门禁即被 6accea95 取代，未走升级验收（已补台账）。已知限制：测试环境 Tower（10.20.0.6，frp 接入）网络不可达，升级后自动采集失败为环境限制非缺陷。历史注记：2026-09-13 首次验收时 .3 的 .env 曾被仓库同步覆盖导致 Tower 凭据 key 丢失（UPG-042 保护正确拦截），属操作事故而非产品缺陷，凭据重配后恢复。
 
+- **升级顺序写死（US-04 缓解）**：**先升平台（v0.5.3），再做 runner 组件升级（v0.3.2）**。v0.5.2 源端 web-api 在组件升级时无条件 stop upgrade-runner（US-04，源端老镜像无法修改），先升 runner 会导致新 runner 被停止；v0.5.3 平台侧已加同 project 守卫（US-11），按顺序交付即无此问题。
+- **2026-09-27 49-52 实施验证（第五轮候选 `b9560eee…`，`.3`）**：后端全量 **386 tests OK (skipped=2)**（含 `test_upgrade_single_flight.py` 9 用例）、build_tests **26 OK**、`tsc -b` exit 0、vitest **107 passed（11 files）**、`verify_api_docs` 77 条一致、`verify_release_docs_safe` PASS；候选包 `.3:/data/upgrade-packages/v053-r5-20260927/`：`--check-version` OK、identity OK（web-api v0.5.3 / runner 基线 v0.3.1）、`.sha256` OK、敏感成员 0、manifest `required_health` 无 `runner_version`。**`.12` MVP 验收（M3-08/M3-10 先 runner 后平台、重复 start、平台先回归）待用户授权执行**。
 ### 已知问题与未解决事项（截至 2026-09-27）
 
 - **当前候选包 `54aa8807…`（2026-09-27）包静态门禁、`.3` 部署、`.12` v0.5.1 基线升级链路回归与正规升级 8 项验收均已完成**；发布动作本身（推送、打 tag、release、对外交付）仍待用户明确指令。

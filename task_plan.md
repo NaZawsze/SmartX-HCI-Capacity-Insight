@@ -1795,12 +1795,13 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 
 来源：2026-09-27 升级策略复查（`docs/upgrade-strategy-issues.md` US-05/US-23，P0；审计矩阵 MVP 格 M3-08/M3-10 与「重复 start」列）。
 设计：[docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md](docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md)。
-- [ ] US-05：`build_upgrade_package.py` 的 `required_health` 移除 `runner_version`（一行；runner 侧 `if expected_runner` 空即跳过，无需 bump）
-- [ ] US-23：`execution.py::start()` 增加 `_ensure_no_active_upgrade` 单飞守卫（平台/组件两入口共用 `start()`，一处覆盖）
-- [ ] 新测试：`test_upgrade_single_flight.py` 6 例 + build_tests 断言 `required_health` 无 `runner_version`
-- [ ] 重打 v0.5.3 候选包（新 SHA）+ `.3` 门禁全量 + `.12` MVP 格（M3-08/M3-10 先 runner 后平台 → post-cleanup 必须成功；重复 start → 400；平台先回归）
-- [ ] US-04 顺序写死进发布材料（文档；老 web-api 根因不修，见设计 §2.3/§4）
-- [ ] 实施（**待用户批准，当前未执行**）
+- [x] US-05：`build_upgrade_package.py` 的 `required_health` 移除 `runner_version`（一行；runner 侧 `if expected_runner` 空即跳过，无需 bump）
+- [x] US-23：`execution.py::start()` 增加 `_ensure_no_active_upgrade` 单飞守卫（平台/组件两入口共用 `start()`，一处覆盖；retry/recovery/rollback 同守卫 + 类级锁）
+- [x] 新测试：`test_upgrade_single_flight.py` 9 例 + build_tests 断言 `required_health` 无 `runner_version` + API 测试补单飞断言（32f9a95）
+- [x] 重打 v0.5.3 候选包 `b9560eee…`（v053-r5-20260927）+ `.3` 门禁全量（386 OK / 26 OK / tsc 0 / vitest 107 / api docs / release docs / identity / 敏感 0）
+- [ ] `.12` MVP 格（M3-08/M3-10 先 runner 后平台 → post-cleanup 必须成功；重复 start → 400；平台先回归）——**待用户授权**
+- [x] US-04 顺序写死进发布材料（`docs/deployment.md` §10.1、CHANGELOG 工程与运维、AGENTS §7）
+- [x] 实施（2026-09-27 用户指示「继续」后执行；提交 8115c41 / 32f9a95）
 
 ### 37. 手动采集失败清空指标快照修复 + 仪表盘数据过期标注（49-37）[进行中]
 

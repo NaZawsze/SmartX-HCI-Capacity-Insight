@@ -43,11 +43,11 @@
 
 ## B. 升级流程/断言层
 
-### US-05 🔴 post-cleanup 健康断言"版本相等"→ 升级顺序敏感（本轮新发现）
+### US-05 🟠 已实施待 .12 MVP：post-cleanup 健康断言"版本相等"→ 升级顺序敏感
 - **现象**：`_require_cleanup_health`（`upgrade_runner/actions.py:1884-1886`）用 `!=` 等值比较 `required_health.runner_version`。manifest 现在写 `v0.3.1`：先升平台（runner=v0.3.1）✅；**先升 runner 到 v0.3.2 再升平台 → "清理前 runner 版本不匹配" → 升级成功但 post-cleanup 失败**（旧环境不清理、残留累积）。
 - **证据**：代码可证（`if expected_runner and ... != expected_runner: raise`）；第四轮只测了"先平台"顺序，未覆盖另一条。
 - **方向**：平台侧打包时**不写** `required_health.runner_version`（代码 `if expected_runner` 为空即跳过），只校验平台版本 + 三项 health；或改为"≥"语义（需改 runner，须 bump，且老 runner 收不到）。
-- **状态**：🔴 **未修**，**需再跑一轮验收（覆盖"先升 runner"顺序）**。
+- **状态**：🟠 **已实施（49-52，提交 8115c41）**：`build_upgrade_package.py` 的 `required_health` 移除 `runner_version`（runner 侧 `if expected_runner` 空即跳过，无需 bump runner）；候选包 `b9560eee…` 的 manifest 已无该字段（`required_health` 仅 `version`+`checks`），`.3` 门禁全过；**`.12` MVP（先 runner 后平台顺序）待授权执行**。设计：`docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md`。
 
 ### US-06 🟠 升级后采集链路：5 秒常驻轮询 + 落盘便条 + 冗余的 runner 写便条
 - **现象**：`worker.py` 每 5 秒扫 `upgrades/*/`（常驻、无开关、无指标）；便条本应由触发方写，却让 runner 插手（而这正是 49-49 要删的冗余）。
@@ -74,13 +74,13 @@
 - **方向**：预检失败任务 TTL 自动清理（保留最近 N 个）。
 - **状态**：🟡 未做（新发现）。
 
-### US-23 🔴 并发升级无「单飞」守卫（本轮新发现）
+### US-23 🟠 已实施待 .12 MVP：并发升级无「单飞」守卫
 - **现象**：`start()`（`execution.py:42`）只校验**本任务**状态 `precheck_passed`，**不检查是否已有其它平台升级在执行**；runner 侧 `run_pending_once` 又是按 mtime 串行消费所有 pending 任务。
 - **链路**：两个包先后上传并预检通过 → 两次 `start` 都成功 → 第二个任务排队执行时，**环境已被第一个任务改变**（版本/项目/目录/镜像全变了），而它的执行计划是按旧状态编译的 → 在错误状态上执行（可能失败，也可能"成功"地做错事）。
 - **证据**：`execution.py:42-60` 无任何 running/pending 互斥检查；删除任务时倒是有保护（`intake.py:81`「升级任务正在执行…不能删除」），说明设计者考虑过并发，唯独 start 漏了。
 - **影响**：客户连点两次、两个管理员并行操作、或"预检失败→再传一个包→两个都 start"都会触发；真实现场风险中高。
 - **方向**：`start` 前检查是否存在**其它**平台升级任务处于 `pending/running/runner_restarting/recovery_*` → `400 升级任务正在执行中`；同时 runner 执行前**重新校验 source_compatibility**（防止计划过期）。列入 #47③。
-- **状态**：🔴 未修（新发现）。
+- **状态**：🟠 **已实施（49-52，提交 8115c41/32f9a95）**：`execution.py::start()` 增加 `_ensure_no_active_upgrade`（ACTIVE={pending,running,runner_restarting,recovery_required,rollback_pending,rollback_running}；类级 `threading.Lock` 消除扫描-认领竞态；retry/recovery/rollback 同守卫，cancel/delete 不拦）；新增 `test_upgrade_single_flight.py` 9 用例 + API 测试断言；`.3` 全量 386 OK。**`.12` 重复 start 格待授权执行**。runner 执行前重验 source_compatibility 未做（需 bump runner，留 #47）。
 
 ## C. 已修复并验证（🟢，列此以备回归）
 
@@ -107,7 +107,7 @@
 | 编号 | 缺口 | 为什么重要 |
 | --- | --- | --- |
 | US-17 | **回滚路径未验**（`rollback.restore`） | 升级失败后的兜底从没跑过 |
-| US-18 | **顺序矩阵未验**：`先平台后 runner`（已验）vs `先 runner 后平台`（**未验，且会撞 US-05**） | 客户顺序不受控 |
+| US-18 | **顺序矩阵未验**：`先平台后 runner`（已验）vs `先 runner 后平台`（未验；US-05 已修，待 .12 MVP 补跑） | 客户顺序不受控 |
 | US-19 | **中断恢复未验**（执行中 kill → `recovery_required` → continue/rollback） | 现场断电/重启是常态 |
 | US-20 | **Tower 可达时升级后自动采集成功未验** | 环境限制，等 10.20.0.6 恢复 |
 | US-21 | **`runner_actions` 拒绝分支无端到端**（仅单测 + 第一轮取证） | 新闸门的失败路径 |

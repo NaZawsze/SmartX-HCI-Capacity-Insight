@@ -7915,3 +7915,12 @@ release_smoke=critical 0, warning 0
   - 新预检查闸门（源端已 v0.5.3）：`runner_actions: ok=True | 升级计划 14 个动作 upgrade-runner v0.3.2 全部支持`；**ALL_CHECKS_OK=True**
 - **两处脚本/断言问题（非产品缺陷，已记录）**：①ph4 升级完成瞬间读到旧心跳报 v0.3.1（竞态，补验 component-version=v0.3.2）；②ph5 的 5.7g 断言写错（提示文案只在失败时出现，失败文案已由单测 `test_missing_runner_image_hint…` 覆盖）；③首轮5.4 误判为失败是查得太早（post-cleanup 异步，复查后 succeeded + 标记齐全）。
 - **结论**：49-49（平台侧采集）、49-50（v0.3.2 交付 + 动作级预检查 + 停机修复）**全部实施并验收通过**；后续整改见 pending #47。
+
+## 2026-09-27 49-52：US-05/US-23 发布阻塞项修复实施（第五轮候选 b9560eee）
+
+- 设计：`docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md`（用户「继续」指示后实施）。
+- 代码（8115c41）：①`build_upgrade_package.py` `required_health` 移除 `runner_version`（US-05；runner 侧空字段自动跳过，未动 runner、未 bump）②`execution.py` 新增 `_UPGRADE_ENV_LOCK` + `_ACTIVE_UPGRADE_STATUSES` + `_ensure_no_active_upgrade`，`start()` 锁内完成扫描+认领（US-23 竞态消除）；`rollback`/`_set_recovery_command`（含 recovery continue/rollback）/`cleanup.py::retry_post_upgrade_cleanup` 同守卫；cancel/delete 不拦。
+- 测试（8115c41/32f9a95）：新增 `backend/tests/test_upgrade_single_flight.py` 9 用例（6 活跃态 400、8 待命/终态放行、排除自身、组件入口、post-cleanup 互斥、**并发两线程恰一成功**、retry/recovery/rollback 互斥且 cancel 放行、损坏 task.json 不阻断）；build_tests 断言 `required_health` 无 `runner_version`；`test_v2_upgrade.py` API 流程补单飞断言（pending 平台任务时组件 start=400 → cancel → 再 start 200）。
+- 本地：升级相关 163 tests OK；全量 348 中 11 error 均为本地缺 fastapi（与改动无关）。`.3` 门禁（32f9a95 全树同步，SHA `10c79922…`）：后端 **386 tests OK (skipped=2)**（compose exec 标准方式）、build_tests **26 OK**、`tsc -b` 0、vitest **107 passed（11 files）**、api docs 77=76、release docs PASS。
+- 候选包：`.3:/data/upgrade-packages/v053-r5-20260927/smartx-capacity-insight-upgrade-v0.5.3.tar.gz` **SHA `b9560eeef3e7040825b3a2a3c9b9c79f083b42310370624af240960120bfcd3c`**：`--check-version` OK、identity OK（web-api v0.5.3/runner 基线 v0.3.1）、`.sha256` OK、敏感 0；manifest 实证 `required_health={version:v0.5.3, checks:[directories,database,prometheus]}`（**无 runner_version**）、`minimum_runner_version=v0.3.1`、方案 A 口径不变。
+- 待办：`.12` MVP 格（M3-08/M3-10 先 runner 后平台 → post-cleanup 必须成功；重复 start → 400；平台先回归）**待用户授权**；未过回退第四轮 `e1c0fde8…`。
