@@ -55,6 +55,7 @@ python3 scripts/build_runner_component_package.py --version v0.3.1
 ```
 
 - runner 组件包只包含 runner 镜像及其 manifest，不夹带平台镜像。
+- **改 runner 必须三步一起做，缺一即停**：①同一提交 bump `RUNNER_VERSION`；②重新打组件包并把 SHA 记进 ledger + CHANGELOG；③推 `runner-v<新版本>` git tag 让 workflow 出 DockerHub 镜像并核对 tag 存在（2026-09-27 事故：三步都没做，`v0.3.1` 顶着三个不同能力，v0.5.3 升级在切换后失败）。
 
 ## 4. 功能测试验证
 

@@ -55,6 +55,8 @@ SMARTX_RUNNER_IMAGE_TAG   # upgrade-runner tag，例如 v0.3.1
 - `.github/workflows/upgrade-runner-image.yml` 只构建 `upgrade-runner`。
 - runner 镜像只通过手动 workflow 或 `runner-v*` tag 构建，例如推送 `runner-v0.3.1` 后，DockerHub 镜像 tag 为 `v0.3.1`。
 - 不允许 runner 跟随平台 `v*` tag 自动构建。
+- **改了 runner 就必须推 `runner-v<新版本>` tag**：workflow 产出 `type=raw`（版本 tag）和 `type=sha`（`runner-sha-*` 副标签）两个 tag；**`runner-sha-*` 不是版本依据**（2026-09-27 事故：`runner-sha-31a1209` 与 `v0.3.0` 同 digest，只是 06-12 那次 0.3.0 构建的副标签，被误当成"最新"）。
+- **发布前必须核对 DockerHub 上版本 tag 存在**（`hub.docker.com/v2/repositories/.../tags/<version>` 返回 200，404 = 没交付）：2026-09-27 实测该仓库只有 `latest`(06-05)、`runner-sha-31a1209`(06-12)、`v0.3.0`(06-12)，**`v0.3.1` 404 —— 从来没推过 `runner-v0.3.1` tag**。
 
 ## 升级包规则
 
@@ -115,7 +117,12 @@ OVA 与升级包都禁止包含 `.env`、SQLite 数据库、Prometheus 历史数
 每次发版必须检查并更新：
 
 - `VERSION`
-- `RUNNER_VERSION`，仅 runner 组件变化时更新
+- `RUNNER_VERSION`：**只要 runner 代码或能力有任何变化就必须同步更新**（哪怕是"顺手改"），并且必须在**改代码的同一次提交**里完成——只改代码不改版本号 = 发布阻断（2026-09-27 事故：`dab2e0f` 给 runner +2053 行新动作却没 bump，导致同一 `v0.3.1` 三套能力）。
+- **runner 交付三件套必须同源且齐全**（缺一即不许发布）：
+  - 仓库：`RUNNER_VERSION` 与 `backend/app/upgrade_runner/actions.py` 动作表；
+  - Release 资产：`smartx-upgrade-runner-<version>.tar.gz`（解包 grep 关键动作必须与仓库一致），并把 SHA 写进 `docs/releases/CHANGELOG.md` 与 `docs/upgrade-package-ledger.md`；
+  - Git tag `runner-v<version>` 已推送（触发 `.github/workflows/upgrade-runner-image.yml`），且 DockerHub 上该 tag 可拉到（`hub.docker.com` tags API 核对，不允许 404）。
+- **验收只认 Release 资产**：链路回归与升级验收必须用 Release 里的平台包 + runner 包跑，禁止用测试机本地重建镜像；验收记录必须写明 SHA 与来源。
 - `backend/app/core/config.py` 中平台默认版本
 - `backend/Dockerfile`、`backend/Dockerfile.worker`、`backend/Dockerfile.upgrade` 是否复制 `VERSION` 和 `RUNNER_VERSION`
 - `docker-compose.offline.yml`
