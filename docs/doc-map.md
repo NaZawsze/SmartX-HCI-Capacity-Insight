@@ -76,6 +76,8 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | [superpowers/specs/2026-09-26-new-vm-first-seen-design.md](superpowers/specs/2026-09-26-new-vm-first-seen-design.md) | 「新建 VM」口径修正：按 vm_id 全历史最早样本判定（断档恢复不再把老 VM 判成新建）。✅ 已实施并验证（2026-09-26，.3 352 tests OK，本月新建 199→6；§7 概览与报表同源 49-43）。 | task_plan Phase 49 第 42、43 项 |
 | [superpowers/specs/2026-09-26-shared-vm-growth-design.md](superpowers/specs/2026-09-26-shared-vm-growth-design.md) | 「增长最快 VM」概览与报表共用实现（窗口/计算/展示规则统一，两页结果一致）。✅ 已实施并验证（2026-09-26，.3 356 tests / vitest 107 / 线上 day、month 均相等）。 | task_plan Phase 49 第 45 项（49-45） |
 | [superpowers/specs/2026-09-26-recycle-lifecycle-sync-design.md](superpowers/specs/2026-09-26-recycle-lifecycle-sync-design.md) | 回收站 VM 生命周期同步：采集记录 `in_recycle_bin`/`original_name`/`deleted_at`，采集成功且 Tower 取不到即删除本地行。✅ 已实施并验证（2026-09-26，.3 362 tests / 真实库升级通过；端到端待 Tower）。 | task_plan Phase 49 第 47 项（49-47） |
+| [superpowers/specs/2026-09-27-v053-platform-side-post-upgrade-collection-design.md](superpowers/specs/2026-09-27-v053-platform-side-post-upgrade-collection-design.md) | 49-49 设计：v0.5.3 升级后自动采集改平台侧调度（manifest `auto_collection=false` + 新键 `platform_collection` + compiler 不再下发动作；含「源端编译」关键约束）。 | task_plan Phase 49 第 49 项 |
+| [superpowers/specs/2026-09-27-runner-v032-and-action-level-precheck-design.md](superpowers/specs/2026-09-27-runner-v032-and-action-level-precheck-design.md) | 49-50 设计：runner **v0.3.2** 交付（bump/打包/推 tag 三步）+ 升级预检查**动作级**校验（`RUNNER_ACTION_SUPPORT` 表 + `_check_runner_actions`）。 | task_plan Phase 49 第 50 项 |
 
 ## 5. 升级链路专项文档
 

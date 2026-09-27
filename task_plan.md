@@ -1756,7 +1756,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 
 来源：2026-09-27 用户指示「A+B 你先写计划里不执行」；事故与根因见 findings.md 2026-09-27 三条、pending-tasks #45。
 计划：[docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md](docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md) 方案 A。
-设计：实施前必须先写 `docs/superpowers/specs/2026-09-27-v053-drop-runner-collection-action-design.md`（**未写**，AGENTS §3 要求）。
+设计：[docs/superpowers/specs/2026-09-27-v053-platform-side-post-upgrade-collection-design.md](docs/superpowers/specs/2026-09-27-v053-platform-side-post-upgrade-collection-design.md)（2026-09-27 已写；含关键修正：计划由**源端**已发布 v0.5.2 web-api 编译，故改为 manifest 驱动 + 平台侧调度）。
 - [ ] A2 `backend/app/v2/upgrade/compiler.py`：**不再下发** `post_upgrade.schedule_collection`（读码确认：该动作对 runner 是多余的——它只写标记文件 `post-upgrade-collection.json`，不抓数据）
 - [ ] A3 **复用既有平台侧逻辑，无需新增**：`worker.py:229 run_pending_post_upgrade_collection`（5 秒轮询）+ `worker.py:195 _ensure_post_upgrade_collection_marker`（无标记时平台自建，`source=target_worker_compatibility`）；补"runner 不写标记也能自动采集"回归测试
 - [ ] A4 编译器与调度单测
@@ -1769,6 +1769,7 @@ UPG-041~048 已在 v0.5.2 fix8 中全部闭环。覆盖：升级后自动采集�
 
 来源：同 49；用户规则「不允许私自修改 runner 能力和代码，确需修改必须经同意并修改版本号」。
 计划：[docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md](docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md) 方案 B。
+设计：[docs/superpowers/specs/2026-09-27-runner-v032-and-action-level-precheck-design.md](docs/superpowers/specs/2026-09-27-runner-v032-and-action-level-precheck-design.md)。
 - [ ] B1 取得用户明确同意（AGENTS §6）
 - [ ] B2 同一提交 bump `RUNNER_VERSION` **v0.3.1 → v0.3.2**（根目录 + 镜像内 + 镜像 tag + 组件包文件名 + manifest `version`/`min_version`）
 - [ ] B3 `build_runner_component_package.py --version v0.3.2`，SHA 入 ledger + CHANGELOG
