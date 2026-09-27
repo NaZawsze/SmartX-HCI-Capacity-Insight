@@ -736,3 +736,16 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - **后果**：①验收环境（测试机上的开发重建镜像 `7d152590d6fd`/`0aca32511008`）≠ 交付环境（`d10e15cf`），此前两轮 v0.5.3 验收因此掩盖了缺陷；②现场 `docker pull …:v0.3.1` 拉不到镜像；③`min_runner_version` 与能力级预检查对"同版本不同能力"完全失效，失败点落在 cutover 之后。
 - **规则（2026-09-27 用户令，已写死三处）**：runner 能力与代码**以远端仓库为准**；**不允许私自修改 runner 能力和代码**；确需修改**必须先经用户同意**并且**同步提升 runner 版本号**（`RUNNER_VERSION`/镜像 tag/组件包版本/manifest）。见 `AGENTS.md` §6、§8，`docs/version-governance.md`「Runner 能力与版本治理」，`docs/development-verification-process.md` §4.4。
 - **待用户决策（未改 runner 代码）**：①兼容已发布 runner——编译计划时若 runner 无该动作则不下发、改由 web-api 兜底调度升级后采集；②按新规则 bump 到 `v0.3.2` 出新 runner 包 + 预检查补动作级校验（不满足就提示先做组件升级）；③是否补推 git tag 让 workflow 出镜像（`runner-v0.3.1` 已无法沿用，若带新能力必须是 `runner-v0.3.2`）。
+
+### 2026-09-27 补充：发布事实链（GitHub Release 实测）——为什么会这样
+
+- **runner v0.3.1 的唯一官方交付物在 `v0.5.1u2` Release 里**（不是 v0.5.2）：Release `v0.5.1u2` published `2026-06-28T07:01:43Z`，资产 `smartx-upgrade-runner-v0.3.1.tar.gz` **SHA `d10e15cf…`**（与 CHANGELOG「当前正式升级包」一致），**资产上传时间 `2026-07-09T05:10Z`**。
+- **v0.5.2 实际发布是 2026-08-12，不是 CHANGELOG 写的 07-17**：Release `v0.5.2` published `2026-08-12T06:36:06Z`；annotated tag `v0.5.2` tagger `2026-08-12 14:32:44 +08:00`，指向 `dab2e0f`（`2026-08-12 14:30:18 +08:00`）；平台包资产 `692aca8b` 上传 `2026-08-12T06:34:45Z`。Release 资产**只有平台包**，正文写 "runner v0.3.1 (见 v0.5.1u2 Release)" → runner 没有随 v0.5.2 重新交付。
+- **GitHub tags 只有 `runner-v0.3.0`，没有 `runner-v0.3.1`** → `.github/workflows/upgrade-runner-image.yml` 从未为 0.3.1 跑过 → DockerHub 永远不会有 `v0.3.1` 镜像（现存 `runner-sha-31a1209` 与 `v0.3.0` 同 digest，就是 06-12 那次 0.3.0 构建）。
+- **代码与交付物的时间线**：06-28 发布 runner 资产 → 07-09 资产上传 → **08-12 `dab2e0f` 才把 `post_upgrade.schedule_collection` 进 main**（`git log -S` 只认到这一天），而 07 月打的 v0.5.2 平台包里编译器/runner 代码**已经有**（count=1/3）→ 说明**打包用的是未进版本控制的工作区代码，事后才 squash 进 release 提交**，单看 git 历史会误判引入时间。
+- **根因（不是某一次提交的锅，是流程缺一条线）**：
+  1. runner 是"搭车发布"的组件，只在 v0.5.1u2 Release 发过一次；之后 main 上 runner 代码继续改，**没有配套发布动作**（不重打包、不推 `runner-v*` tag、不 bump 版本）。
+  2. `RUNNER_VERSION` 自 06-29 起钉死 `v0.3.1`，"同版本=同能力"的契约失效，一个名字下至少三个不同内容（DockerHub 06-12 的 0.3.0 / 交付包 07-09 的 0.3.1 / 仓库 08-12 的 0.3.1）。
+  3. 预检查是**能力级**不是**动作级**（旧 runner 也声明 `task.recovery.v1`），放行后失败落在 cutover 之后。
+  4. **验收没用 Release 资产**：前几轮 v0.5.3 验收跑的是测试机上开发期重建的 runner 镜像（`7d152590d6fd`/`0aca32511008`），验收环境 ≠ 交付环境，缺陷被掩盖到 09-27 用交付包首跑才暴露。
+  5. 文档时间线自相矛盾（CHANGELOG 写 07-17，实际 08-12），排查时容易被带偏。
