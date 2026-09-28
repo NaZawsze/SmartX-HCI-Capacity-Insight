@@ -7996,6 +7996,14 @@ release_smoke=critical 0, warning 0
 - **残留与边界**：任务结束后一个轮询周期（≤3s）两条通道都不新鲜，生产里由 `_active_runner_state()` 的 docker 兜底覆盖（已记入设计文档边界节）；runner 侧"执行期也刷新实例心跳"登记为下次 runner 交付待办。`.3` 上本次实验产生的 4 个升级任务目录（含 3 个 success、1 个 precheck_failed，约 3.3 GB）与 `/root/verify-gate`、采样脚本已清理。
 - 提交：`fb6df7d`（修复）+ `8427d9c`（证据/边界）。**S1 阶段（本地可闭环缺陷）全部完成**，下一步按顺序进入 S2-1（US-06 升级后采集改事件驱动）。
 
+## 2026-09-28 第六轮候选包 r6 + runner v0.3.3 组件包构建（`.3` 门禁）
+
+- **同步与门禁（10.20.11.3）**：`git archive HEAD` 传 `.3` 解包 → 宿主机构建测试 **26 OK** → `build_upgrade_package.py --check-version` **OK（v0.5.3）**（该门禁同时断言三个源码 compose 的字面量 runner tag == `RUNNER_VERSION`，即 v0.3.3 一致性）。
+- **平台候选包 r6**：`/data/upgrade-packages/v053-r6-20260928/smartx-capacity-insight-upgrade-v0.5.3.tar.gz`，SHA256 **`fc289ff7279fe869950fa3bc2f8a15685f3fec523cfca101ee790dd3aaceda98`**；`verify_upgrade_package_identity.py --expected-version v0.5.3` exit 0；包内敏感成员 **0**。相对 r5 收编 S1 三项（US-07/08/09）+ US-25。
+- **runner v0.3.3 组件包**：`/data/upgrade-packages/components-v033-20260928/smartx-upgrade-runner-v0.3.3.tar.gz`，SHA256 **`ab03918eabc885dc669cfd55e83bedd03e245c62be57a2e4b9570c74c1bd6251`**；交付一致性门禁 `verify_runner_delivery_consistency.py --package` **C1–C5 全 PASS**（镜像内 `app/RUNNER_VERSION=v0.3.3`、`actions.py` md5 与仓库一致、26 动作、三个 compose 字面量 v0.3.3、归档 SHA 与 manifest 一致），C6 DockerHub **SKIP**（本次不推送，随下一版交付）。
+- **容器内全量回归**：首跑 **461 tests（1 失败）** —— 失败是 `test_deployment_config` 里写死的 runner tag `v0.3.2`；已把该断言改为**跟随 `RUNNER_VERSION`**（版本 bump 不再需要改测试），并把 `docs/deployment.md` 里的 runner tag 同步到 v0.3.3；修正后重跑（结果见下一次记录）。
+- 备注：为校验 `test_deployment_config`，第一次重传用的是**修测试之前**打的快照，导致复跑仍报同一失败；重新打包快照后复跑。
+
 ## 2026-09-28 US-24 + US-25 全部修复（用户：「全修了吧」）+ runner bump v0.3.3
 
 - **US-25（web-api 侧，未动 runner）**：`recovery/{task_id}/fail` 现在接受「`running` 且**该任务没有活租约**」的任务（新增 `runner_presence.task_lease_is_alive`：未过期或心跳在 30s 内才算活）→ 标记失败并写审计式 error；任务视图在同样条件下暴露 `runner_lost=true` 与 `available_recovery_actions=["fail"]`，界面/接口能发现"卡死"。这样 US-23 单飞守卫不再把环境永久锁死。测试：`backend/tests/test_stuck_running_recovery.py` **7 例**（无租约可 fail / 租约过期可 fail / 租约有效仍拒绝 / 视图暴露与隐藏 / fail 后单飞解除 / recovery_required 老路径不变）。

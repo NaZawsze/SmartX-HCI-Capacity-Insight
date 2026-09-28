@@ -510,6 +510,13 @@ Current execution rule: Python, dependencies, tests, builds and full-chain valid
 | --- | --- | --- | --- | --- | --- |
 | USE / DockerHub 已补齐 | `dockerhub-runner-v0.3.1` | DockerHub `nazawsze/smartx-hci-capacity-insight-upgrade-runner` 的 `v0.3.1` 与 `latest` | 镜像 manifest digest `sha256:90eb5a4239cd9c6863cf7194bfa0bd7fe4935cffb0b5a77467c97ce0b78799fc`（源包 SHA `d10e15cf…`，两者哈希对象不同属正常） | 2026-09-27 在 10.20.11.12 上把**发行资产镜像本体**直接 push 上去（未经 CI，因无任何提交等于该镜像）；同时按用户要求把 `latest` 指到同一镜像。**未动** `v0.3.0`（06-12）与 `runner-sha-31a1209`。 | push 前在容器内核对：`RUNNER_VERSION=v0.3.1`、`schedule_collection=0`、动作 **25**、`actions.py` md5 **`573dd04b3618d2066b0326c2fd183c8d`**（与发行资产逐文件一致）；push 后 DockerHub tags API `v0.3.1`/`latest` 均 200 且 digest 相同（2026-09-27T06:10Z）；`.12` 本地 tag 已还原为 `0aca32511008`（运行容器未受影响）、`docker logout` 后 `auths=[]`。**已知债务：该镜像无对应 git 提交、CI 无法复现（用户 2026-09-27 决定不补源码）。** |
 
+## 2026-09-28 v0.5.3 Platform Package（第六轮 `fc289ff7`，候选）+ runner v0.3.3 组件包
+
+| Status | Fix ID | Host Path / 位置 | SHA256 | What Changed | Validation Result |
+| --- | --- | --- | --- | --- | --- |
+| **CANDIDATE / `.3` 门禁通过；`.12` 复验待执行** | `v0.5.3-r6` | `.3:/data/upgrade-packages/v053-r6-20260928/smartx-capacity-insight-upgrade-v0.5.3.tar.gz` | `fc289ff7279fe869950fa3bc2f8a15685f3fec523cfca101ee790dd3aaceda98` | 相对 r5：①**US-07** 预检查磁盘空间硬校验（`disk_space`）②**US-09** 升级任务产物自动清理（守护线程 + TTL/保留 N）③**US-08** 执行期 runner 在场判定（接受任务租约通道）④**US-25** 卡死 `running` 任务的产品化出路（`recovery/fail` 接受"无活租约的 running"；视图暴露 `runner_lost`）。平台包 runner 基线不变（已发布 `v0.3.1`）；方案 A 口径不变。 | `.3` 门禁（2026-09-28）：`--check-version` OK（v0.5.3）、宿主机构建测试 **26 OK**、identity exit 0、包内敏感成员 **0**；容器内全量见 progress.md（修正 `test_deployment_config` 后应为 461 OK）。**`.12` 复验（平台先 + 8 项 + 重复 start）待执行。** |
+| USE / 已构建（本次**不交付**，随下一版一起发） | `runner-v0.3.3-dev3-20260928` | `.3:/data/upgrade-packages/components-v033-20260928/smartx-upgrade-runner-v0.3.3.tar.gz` | `ab03918eabc885dc669cfd55e83bedd03e245c62be57a2e4b9570c74c1bd6251` | `build_runner_component_package.py --version v0.3.3`：含 **US-24 修复**（`engine._save` 对同文件 mirror 不再双写）。 | 交付一致性门禁（`scripts/verify_runner_delivery_consistency.py --package …`）：C1–C5 全 PASS（repo v0.3.3 / 26 动作 / 三个 compose 字面量 v0.3.3 / manifest v0.3.3 / 归档 SHA / 镜像内 `app/RUNNER_VERSION=v0.3.3` + `actions.py` md5 == 仓库）；C6 DockerHub tag **SKIP**（本次不推送——用户 2026-09-28 决定随下一版交付）。**待交付后在 `.12` 复验同版本重装（US-24）。** |
+
 ## 2026-09-27 v0.5.3 Platform Package（第四轮 `e1c0fde8` → 已被 r5 取代）+ runner v0.3.2 组件包
 
 | Status | Fix ID | Host Path / 位置 | SHA256 | What Changed | Validation Result |
