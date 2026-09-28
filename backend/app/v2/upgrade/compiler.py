@@ -226,12 +226,11 @@ def compile_execution_plan(manifest: dict[str, Any]) -> ExecutionPlan:
             legacy_project = str(first_transition.get("from_project") or "")
             target_project = str(first_transition.get("to_project") or "")
             target_network = str(first_transition.get("to_network") or "")
-    # US-26：只取「可部署」条目。runner 在平台包 manifest 里是基线声明（deploy=False），
-    # 不是部署指令——取不到时 runner_deploy_image 为空，handoff 动作据此只迁移运行时绑定、
-    # 不重建 runner 容器，避免把现场更高的 runner 版本按包内基线降级。
-    deployable_images = [image for image in images if image.get("deploy") is not False]
+    # US-26：runner 的部署镜像由 web-api 在编译前解析为**现场正在运行的镜像**并写回
+    # manifest 条目（见 execution.start()），这里只读取结果值。这样平台包对 runner 只有
+    # 「基线声明」（deploy:False），现场 runner 够用时不会被按包内基线降级。
     runner_deploy_image = next(
-        (str(image.get("image")) for image in deployable_images if image.get("service") == "upgrade-runner"),
+        (str(image.get("image")) for image in images if image.get("service") == "upgrade-runner"),
         "",
     )
 
@@ -267,7 +266,6 @@ def compile_execution_plan(manifest: dict[str, Any]) -> ExecutionPlan:
                     type="runner.schedule_target_runtime_handoff",
                     params={
                         "image": runner_deploy_image,
-                        "preserve_current": not runner_deploy_image,
                         "compose_project": target_project,
                         "network_name": target_network,
                         **runtime_params,
@@ -281,7 +279,6 @@ def compile_execution_plan(manifest: dict[str, Any]) -> ExecutionPlan:
                 type="runner.handoff_target_runtime",
                 params={
                     "image": runner_deploy_image,
-                    "preserve_current": not runner_deploy_image,
                     "compose_project": target_project,
                     "network_name": target_network,
                 },

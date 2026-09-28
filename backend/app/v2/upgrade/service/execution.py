@@ -78,6 +78,44 @@ class ExecutionMixin:
                     detail=f"升级任务 {task_file.parent.name} 正在执行或需要恢复，不能开始新的升级。",
                 )
 
+    def _resolve_field_runner_image(self, manifest: dict[str, Any]) -> str:
+        """US-26：解析现场正在运行的 runner 镜像，供 handoff 动作使用。
+
+        平台包对 runner 只有「基线声明」（deploy:False），不是部署指令。若直接下发包内
+        基线 tag，现场已升级到更高版本的 runner 会被静默降级（实测 v0.3.2 → v0.3.1）。
+        这里在编译前把 runner 条目的 image 换成现场实际镜像；取不到时返回空串，由调用方
+        保留包内基线（= 现状，不会更坏）。不修改 runner 行为，兼容已发布 runner。
+        """
+        try:
+            inspected = self.executor.output(
+                ["docker", "inspect", "--format", "{{.Config.Image}}", f"{self.settings.compose_project_name}-upgrade-runner-1"]
+            )
+        except Exception:
+            return ""
+        image = str(inspected or "").strip().splitlines()
+        return image[0].strip() if image else ""
+
+    def _inject_field_runner_image(self, manifest: dict[str, Any]) -> dict[str, Any]:
+        """把现场 runner 镜像写回 manifest 副本的 runner 条目（不改动原 manifest 语义）。"""
+        field_image = self._resolve_field_runner_image(manifest)
+        if not field_image:
+            return manifest
+        updated = dict(manifest)
+        components = []
+        touched = False
+        for component in manifest.get("components") or []:
+            images = []
+            for image in component.get("images") or []:
+                if image.get("service") == "upgrade-runner" and image.get("image") != field_image:
+                    images.append({**image, "image": field_image})
+                    touched = True
+                else:
+                    images.append(image)
+            components.append({**component, "images": images})
+        if touched:
+            updated["components"] = components
+        return updated
+
     def start(self, task_id: str, *, submit_to_runner: bool = False) -> dict[str, Any]:
         task_dir = self.settings.upgrades_dir / task_id
         with _UPGRADE_ENV_LOCK:
@@ -87,7 +125,10 @@ class ExecutionMixin:
             self._ensure_no_active_upgrade(task_id)
             if submit_to_runner:
                 try:
-                    execution_plan = compile_execution_plan(task["manifest"])
+                    # US-26：编译前把现场 runner 镜像注入 manifest，使计划里的 handoff
+                    # 携带现场版本而非包内基线，避免降级。取不到则沿用包内基线。
+                    plan_manifest = self._inject_field_runner_image(task["manifest"])
+                    execution_plan = compile_execution_plan(plan_manifest)
                 except (UpgradeCompilationError, ValueError) as exc:
                     raise HTTPException(status_code=400, detail=str(exc)) from exc
                 task["status"] = "pending"

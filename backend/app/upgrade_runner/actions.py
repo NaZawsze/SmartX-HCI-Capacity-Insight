@@ -1297,32 +1297,8 @@ def _runner_runtime_paths(context: ActionContext, params: dict[str, Any]) -> dic
     }
 
 
-def _current_runner_image(context: ActionContext) -> str:
-    """US-26：取现场正在运行的 runner 镜像（preserve_current 路径用，避免按包内基线降级）。"""
-    if not context.current_container_id:
-        return ""
-    try:
-        inspected = context.executor.output(["docker", "inspect", context.current_container_id])
-        containers = json.loads(inspected or "[]")
-    except Exception:
-        return ""
-    if not containers:
-        return ""
-    config = containers[0].get("Config") or {}
-    return str(config.get("Image") or "").strip()
-
-
 def _write_runner_runtime_compose(context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
     image = str(params.get("image") or "").strip()
-    preserve_current = bool(params.get("preserve_current"))
-    resolved_from_field = False
-    if not image and preserve_current:
-        # US-26：平台包只对 runner 有「声明」没有「指令」时，沿用现场正在运行的镜像。
-        # 仍需迁移挂载/项目绑定，所以照常写运行时 compose，但镜像版本保持现场不变。
-        image = _current_runner_image(context)
-        resolved_from_field = bool(image)
-        if not image:
-            raise ValueError("preserve_current 生效但无法确定现场 runner 镜像，拒绝按包内基线降级。")
     if not image:
         raise ValueError("runner handoff 缺少 upgrade-runner 镜像。")
     project_name = _safe_docker_name(params.get("compose_project") or context.compose_project)
@@ -1374,8 +1350,6 @@ networks:
     os.replace(temporary, compose_path)
     return {
         "image": image,
-        "image_source": "field" if resolved_from_field else "package",
-        "preserve_current": preserve_current,
         "compose_file": compose_path,
         "compose_project": project_name,
         "network": network_name,
@@ -1412,15 +1386,7 @@ def runner_handoff_target_runtime(action: dict[str, Any], context_payload: dict[
         "compose_file": str(compose_path),
         "compose_project": project_name,
         "network": str(runtime["network"]),
-        "runner_image": str(runtime["image"]),
-        "image_source": runtime["image_source"],
-        "checkpoint": {
-            "completed": True,
-            "compose_file": str(compose_path),
-            "compose_project": project_name,
-            "runner_image": str(runtime["image"]),
-            "image_source": runtime["image_source"],
-        },
+        "checkpoint": {"completed": True, "compose_file": str(compose_path), "compose_project": project_name},
     }
 
 
