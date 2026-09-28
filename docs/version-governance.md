@@ -13,7 +13,7 @@
 - 后端镜像会同时内置 `/app/VERSION` 和 `/app/RUNNER_VERSION`，运行时优先读取镜像内版本文件，环境变量只作为兜底覆盖。
 - 平台升级包不包含 `upgrade-runner`，也不重启 `upgrade-runner`。
 - `upgrade-runner` 只能通过组件升级包更新。
-- **升级顺序铁律（必须遵循，2026-09-27）**：**先升平台、再做 runner 组件升级**；runner 组件升级永远不是平台升级的前置条件。目标布局源端（v0.5.2）的 web-api 在执行 runner 组件升级时会无条件 stop `upgrade-runner`，把刚启动的新 runner 停掉（同 project 守卫只在 v0.5.3 起的镜像里）；唯一例外是源端仍为旧 project（如 v0.5.1u2）。**v0.5.2 → v0.5.3 可一步直升**（`source_compatibility` 覆盖 v0.5.0~v0.5.3，平台包 runner 基线固定为已发布 `v0.3.1`）。完整规则、源端矩阵与症状速查见 [docs/deployment.md](deployment.md) §10.1 与 AGENTS.md §7「升级顺序与源端矩阵」。
+- **升级顺序铁律（条件式，必须遵循；2026-09-27 定、2026-09-28 修订）**：**默认先升平台、后升 runner 组件**；**唯一例外是「平台确需更高 runner」——平台包 `minimum_runner_version` 高于现场 runner（平台新增了旧 runner 无法执行的能力）时，先升 runner、再升平台**。`minimum_runner_version` 是「最低」而非精确版本：现场 runner ≥ 它即够用，**此时 runner 不需要动**，平台升级也不得改动它（US-26）。目标布局源端（v0.5.2）的 web-api 在执行 runner 组件升级时会无条件 stop `upgrade-runner`，把刚启动的新 runner 停掉（同 project 守卫只在 v0.5.3 起的镜像里）；唯一例外是源端仍为旧 project（如 v0.5.1u2）。**v0.5.2 → v0.5.3 可一步直升**（`source_compatibility` 覆盖 v0.5.0~v0.5.3，平台包 runner 基线固定为已发布 `v0.3.1`）。完整规则、源端矩阵与症状速查见 [docs/deployment.md](deployment.md) §10.1 与 AGENTS.md §7「升级顺序与源端矩阵」。
 
 ## Runner 能力与版本治理（2026-09-27 用户令）
 

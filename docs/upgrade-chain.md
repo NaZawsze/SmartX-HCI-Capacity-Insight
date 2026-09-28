@@ -71,10 +71,11 @@ v0.5.1 + runner v0.3.0
 
 ## 4. 顺序铁律（必须遵循）
 
-1. **先升平台，再升 runner 组件。** runner 组件升级**永远不是**平台升级的前置条件。
-2. **唯一例外**：源端仍是旧 project（如 v0.5.1u2）时，"先 runner 后平台"可行（stop 打的是旧 project 的 runner）。这只用于演练/验收，**不适用于已迁到目标布局的现场**。
+1. **默认先升平台、后升 runner 组件**——runner 不是每版都更新：**只有当平台新增了旧 runner 无法执行的能力/动作（平台包 `minimum_runner_version` 高于现场 runner）时，才先升 runner、再升平台**。若现场 runner 已满足要求，**runner 完全不需要动**（`minimum_runner_version` 是「最低」而非精确版本，预检查按 ≥ 判定）。
+   - **推论（US-26）**：现场 runner 已够用时，平台升级**不得改动 runner**（当前实现会按包内基线 tag `--force-recreate`，把更高的现场版本降级，见 issues US-26）。
+2. **演练/验收用的例外顺序**：源端仍是旧 project（如 v0.5.1u2）时，"先 runner 后平台"在技术上可行（stop 打的是旧 project 的 runner）。这只用于演练/验收，**不适用于已迁到目标布局的现场**（那里应走第 1 条的条件判定）。
 3. **同时只允许一个升级任务**：已有 pending/running/runner_restarting/recovery_required/rollback_* 时，start / 重试 / 恢复 / 回滚一律拒绝（400）。
-4. **禁止**用"把 runner 组件升级提前"来规避包内的 runner 版本要求——包内 runner 基线由平台包按发布事实指定；源码 compose 写的 `v0.3.2` 只是开发线状态（见 version-governance 的交付缺口条目）。
+4. **禁止**用"把 runner 组件升级提前"来规避包内的 runner 版本要求（但第 1 条的「平台确需更高 runner」情形不属于规避——那是唯一应当先升 runner 的场景）——包内 runner 基线由平台包按发布事实指定；源码 compose 写的 `v0.3.2` 只是开发线状态（见 version-governance 的交付缺口条目）。
 5. **症状速查**：升级后 runner 容器消失 / 心跳过期 / 预检查报「未检测到 upgrade-runner 心跳」→ 先查是不是把 runner 组件升级做在了平台升级**之前**。
 
 ---

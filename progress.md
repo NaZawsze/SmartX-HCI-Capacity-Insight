@@ -8124,3 +8124,4 @@ release_smoke=critical 0, warning 0
 ### 终态与限制
 - `.12` 终态：health `{"ok":true,"version":"v0.5.3","runner_version":"v0.3.1"}`、DB 556/89588、7 条 legacy 路径全清、磁盘约 27G free。**runner 是 v0.3.1 而非 v0.3.2——即 US-26 的直接后果，已如实记录**。
 - 未覆盖：US-26 的修复方向需用户先定口径（runner 组件版本与平台包基线谁优先）；v0.3.1 runner 跑同版本重装是否会触发 US-24 未单独验证（不在本轮范围）。
+- **用户口径修正（2026-09-28）**：US-26 **不是「runner 版本与平台包基线谁优先」**。正确规则是**条件式**——默认先平台后 runner；**只有平台新增了旧 runner 无法执行的能力（平台包 `minimum_runner_version` 高于现场 runner）时，才先升 runner 再升平台**。本次 v0.5.2 → v0.5.3 用已发布 runner v0.3.1 即可完成，**runner 完全不需要动**——所以 US-26 的定性改为「**够用却动了**」，修法方向是让 handoff 在现场 runner 已满足要求时使用现场镜像（或不 force-recreate），而不是改交付顺序。已同步：`docs/upgrade-chain.md` §4、`docs/deployment.md` §10.1、`docs/version-governance.md`、`AGENTS.md` §7（顺序铁律全部改为条件式表述）、issues US-26、pending-tasks #50、CHANGELOG 已知问题。US-26 **不阻塞 v0.5.3 发布**（客户现场本就是 v0.3.1），但须在随下一版交付 runner v0.3.2 之前修完。

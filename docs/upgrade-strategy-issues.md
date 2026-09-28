@@ -97,14 +97,16 @@
 - **方向**：让恢复通道覆盖"长时间无有效租约/无新鲜心跳的 running 任务"（判为 recovery_required 并给 continue/rollback/fail），或提供"标记失败/强制恢复"入口 + 审计。
 - **状态**：🟢 **已修（2026-09-28，web-api 侧，未动 runner）**：`recovery/{tid}/fail` 接受「running 且无活租约」的任务；视图暴露 `runner_lost` + `available_recovery_actions=["fail"]`；单测 7 例通过。
 
-### US-26 🔴 新发现（本轮 .12 验收）：平台包会把 runner 静默降回包内 tag，组件升级成果不耐受平台升级
+### US-26 🟠 新发现（本轮 .12 验收）：现场 runner 已够用时，平台升级仍按包内基线 tag 重建 runner（不该动却动了）
 
-- **现象**：`.12` 先用组件包把 runner 升到 **v0.3.2**（`upgrade-9fdaff9a349bc257` succeeded，容器/镜像内 `RUNNER_VERSION`/health 三方一致，存活 90s+），随后用 r6 平台包做一次 **v0.5.3 → v0.5.3 同版本重装**（`upgrade-26856095c44869d1` succeeded）→ 升级结束后 runner **变回 v0.3.1**（容器 image tag、`/app/RUNNER_VERSION`、health `runner_version` 三处均为 v0.3.1）。
-- **根因**：runner 组件升级只把新 tag 写进 `compose-runtime/docker-compose.runner-bootstrap.yml`；**平台包 `project/docker-compose.yml` 与 `compose-runtime/docker-compose.runner-upgrade.yml` 仍钉旧 tag**（实测两者都是 v0.3.1，`docker compose config` 也解析为 v0.3.1）。平台升级按包内 compose 重建 runner → 覆盖掉组件升级结果。
-- **影响**：与交付决定「runner v0.3.2 随下一版发布交付」直接冲突——客户先装 v0.3.2 组件包、之后再升平台，runner 会被**静默降级**，US-24 等 runner 侧修复随之丢失，且无任何提示。属于 AGENTS §6「同版本号不同能力/能力漂移」类风险的环境侧变体。
-- **方向**：①平台包渲染 runner tag 时以「现场已安装组件版本」为准（或至少不低于包内基线）；②组件升级成功后回写 project compose / runner-upgrade compose，保持单一事实源；③预检查在检测到「现场 runner 版本 > 包内基线」时给出显式提示或拒绝。
-- **证据**：`.12` 2026-09-28 23:08→23:14 实测（组件升级 → 同版本重装 → 版本回落）；`compose-runtime/docker-compose.runner-bootstrap.yml`=v0.3.2 而 `docker-compose.yml`/`docker-compose.runner-upgrade.yml`=v0.3.1。
-- **状态**：🔴 **新发现未修**（需用户决策口径：runner 组件版本与平台包基线谁优先）。
+- **定性（2026-09-28 用户口径修正）**：这不是「runner 版本与平台包基线谁优先」的问题。规则是**条件式**的——默认先平台后 runner；**只有平台确需更高 runner（`minimum_runner_version` 高于现场 runner、平台新增了旧 runner 执行不了的能力）时才先升 runner**。而当前 v0.5.2 → v0.5.3 用已发布 runner v0.3.1 就能完成，**runner 完全不需要动**。所以缺陷是：**平台升级在 runner 已够用时仍然动了它**，且动的方式是按包内基线 tag 强制重建 → 把现场更高的版本降级（实测 v0.3.2 → v0.3.1，无任何提示）。
+- **现象**：`.12` 先用组件包把 runner 升到 **v0.3.2**（`upgrade-9fdaff9a349bc257` succeeded，容器 tag / 镜像内 `RUNNER_VERSION` / health 三方一致，存活 90s+），随后用 r6 平台包做 **v0.5.3 → v0.5.3 同版本重装**（`upgrade-26856095c44869d1` succeeded）→ 结束后 runner **变回 v0.3.1**（三处均为 v0.3.1）。
+- **根因（代码定位）**：`backend/app/v2/upgrade/compiler.py:229` 从**平台包 manifest** 取 runner 镜像（`images[service=upgrade-runner].image`），`runner.handoff_target_runtime`（`actions.py:1360`）用它写运行时 compose 并 `docker compose up -d --no-deps --force-recreate upgrade-runner` → **无条件按包内 tag 重建**。旁证：组件升级只把新 tag 写进 `compose-runtime/docker-compose.runner-bootstrap.yml`，而 `project/docker-compose.yml`、`compose-runtime/docker-compose.runner-upgrade.yml` 与 `docker compose config` 仍解析为 v0.3.1（tag 没有单一事实源）。
+- **预检查侧没问题**：`minimum_runner_version` 按「≥」判定，现场 v0.3.2 跑 r6 预检查全绿（含 `runner_actions`）——即「更高版本合法」已被承认，只有执行阶段把它降了回去。
+- **影响范围（重要）**：**对本次发布无影响**——正常客户现场 runner 就是 v0.3.1，降级后仍是 v0.3.1，无感知。**会在「下一版交付 runner v0.3.2」之后咬人**：客户先装 v0.3.2（安装成功、日志显示 `跳过停止旧 runner`），之后再升平台就被静默降回 v0.3.1，US-24 等 runner 侧修复随之丢失，且无提示——属于 AGENTS §6「能力漂移」类风险。
+- **修法方向（待实施）**：①**编译计划时解析 runner 镜像**：现场 runner 版本 ≥ 包 `minimum_runner_version` 时，handoff 用**现场实际镜像**而不是包内 tag（计划里记录实际会跑的镜像，可审计）；②或动作层：目标 tag 与当前运行 tag 相同则不 `--force-recreate`，现场版本更高时保留现场版本；③补「现场 runner 高于包基线」的回归用例。组件升级侧同时应回写 project compose / runner-upgrade compose，消除 tag 多事实源。
+- **证据**：`.12` 2026-09-28 23:08→23:14 实测；`compose-runtime/docker-compose.runner-bootstrap.yml`=v0.3.2 而 `docker-compose.yml`/`docker-compose.runner-upgrade.yml`/`docker compose config`=v0.3.1。
+- **状态**：🟠 **新发现未修**（口径已由用户 2026-09-28 明确；**不阻塞 v0.5.3 发布**，须在**交付 runner v0.3.2 之前**修完）。
 
 ### US-27 🟠 新发现（本轮 .12 验收）：US-25 逃生门只改状态，不清理也不回滚 → 旧路径残留
 
