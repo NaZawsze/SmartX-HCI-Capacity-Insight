@@ -795,13 +795,13 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 
 演练本身通过：`v0.5.1 → u2 → runner v0.3.1(d10e15cf) → v0.5.2(692aca8b) → v0.5.3(r5 b9560eee) → runner v0.3.2(3d99599c)`，每步 task succeeded、v0.5.2 与 v0.5.3 两处 post-cleanup success、数据 556/89588 全程未变、`.env` sha 未变、8 项验收两次全过。
 
-### D1 🟢 已修（v0.3.3）：同版本重装（已在目标布局）时 runner 自伤：`_save` 双写同一 task.json → RevisionConflict 崩溃循环 → 任务卡死
+### D1 🟢 已修（并入 v0.3.2）：同版本重装（已在目标布局）时 runner 自伤：`_save` 双写同一 task.json → RevisionConflict 崩溃循环 → 任务卡死
 
 - **复现**：`.12`（已在目标布局 v0.5.3+v0.3.2）上传 r5 包做 **v0.5.3 → v0.5.3 同版本重装**（受支持的"修复/重同步安装"路径），task `upgrade-d08f064e6e15166a`：`backup.create`/`image.load`×3/`filesystem.prepare`/`files.sync`/**`task.migrate_runtime_state`** 全部 succeeded，随后停在 `compose.override`，**attempt=17**（= runner 容器 17 次重启），`task.json` 的 revision 只在重启时跳（173→176→179），最终 runner 不再重试、任务永久 `running`。
 - **根因（代码可证）**：`backend/app/upgrade_runner/engine.py:59-67` 的 `_save()` 在 `task_mirror_dir` 存在时**先写主 store、再无条件下写 mirror store**；而同版本重装（已迁到目标布局）时 `task.migrate_runtime_state` 返回的 `source_task_dir=/data/upgrades/<tid>` 与 `mirror_task_dir=/data/smartx-storage-forecast/upgrades/<tid>` **是同一目录的两个路径视图**（runner 容器内两者都是同一 bind mount）→ 每次保存把**同一个文件写两遍**：`store.save` 读到 N 写 N+1，紧接着 `mirror_store.save` 读到 N+1 写 N+2 → 内存里的 `task["revision"]` 仍是 N+1 → **下一次 `_save` 必然 `RevisionConflict`** → 异常未被捕获 → 进程退出 → 容器重启 → attempt++ → 循环。
 - **为什么以前没暴雷**：v0.5.2/v0.5.3 升级时 source（旧布局 `/data/upgrades`）与 mirror（目标 `/data/smartx-storage-forecast/upgrades`）是**两个真实不同目录**，mirror 写是设计行为、不冲突。只有"已经在目标布局上做同版本重装"才会 source==mirror。49-50 已用 `_same_directory`（inode 判等）修过同一族的 `rmtree` 自杀问题，但**镜像写入这条路没加同样的判等**。
 - **影响**：同版本重装是文档明确支持的"修复/重同步安装"路径（README/兼容范围）——现场一旦这么做（例如想修复镜像或重同步项目文件），升级会卡死且 **runner 进入崩溃循环**。
-- **修复（2026-09-28，用户「全修了吧」授权 + 按规矩 bump）**：`engine._save` 增加 `_same_file()`（`st_dev`+`st_ino` 判等，覆盖 bind-mount 双视图）→ mirror 与主 store 同文件时**跳过 mirror 写**；回归测试 `backend/tests/test_upgrade_runner_mirror_save.py` 4 例（同文件不双写、相对路径判定、独立 mirror 仍写、外部写入者仍冲突）。**runner 版本 v0.3.2 → v0.3.3**（AGENTS §8：能力变更必须 bump），随下一版 runner 交付并复验。
+- **修复（2026-09-28，用户「全修了吧」授权 + 按规矩 bump）**：`engine._save` 增加 `_same_file()`（`st_dev`+`st_ino` 判等，覆盖 bind-mount 双视图）→ mirror 与主 store 同文件时**跳过 mirror 写**；回归测试 `backend/tests/test_upgrade_runner_mirror_save.py` 4 例（同文件不双写、相对路径判定、独立 mirror 仍写、外部写入者仍冲突）。**修复并入 `runner v0.3.2`**（该版本从未交付/发布，直接并入即可；用户 2026-09-28 明确口径），随下一版 runner 交付并复验。
 
 ### D2 🟢 已修：`running` 状态的任务卡死后没有任何产品化出路 → 环境被单飞守卫永久锁死
 

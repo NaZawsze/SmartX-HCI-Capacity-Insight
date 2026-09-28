@@ -82,13 +82,13 @@
 - **方向**：`start` 前检查是否存在**其它**平台升级任务处于 `pending/running/runner_restarting/recovery_*` → `400 升级任务正在执行中`；同时 runner 执行前**重新校验 source_compatibility**（防止计划过期）。列入 #47③。
 - **状态**：🟠 **已实施（49-52，提交 8115c41/32f9a95）**：`execution.py::start()` 增加 `_ensure_no_active_upgrade`（ACTIVE={pending,running,runner_restarting,recovery_required,rollback_pending,rollback_running}；类级 `threading.Lock` 消除扫描-认领竞态；retry/recovery/rollback 同守卫，cancel/delete 不拦）；新增 `test_upgrade_single_flight.py` 9 用例 + API 测试断言；`.3` 全量 386 OK。**`.12` 重复 start 格待授权执行**。runner 执行前重验 source_compatibility 未做（需 bump runner，留 #47）。
 
-### US-24 🟢 已修（v0.3.3，待交付复验）：同版本重装（已在目标布局）时 runner 自伤：`_save` 双写同一 task.json → 崩溃循环、任务卡死
+### US-24 🟢 已修（并入 v0.3.2，待交付复验）：同版本重装（已在目标布局）时 runner 自伤：`_save` 双写同一 task.json → 崩溃循环、任务卡死
 
 - **现象**：在目标布局上做 `v0.5.3 → v0.5.3` 同版本重装（受支持路径），任务推进到 `compose.override` 后卡死，runner 容器反复重启（实测 17 次），`task.json` revision 只在重启时跳。
 - **根因**：`engine._save()`（`upgrade_runner/engine.py:59-67`）在 `task_mirror_dir` 存在时无条件再写一份 mirror；同版本重装时 `task.migrate_runtime_state` 的 source 与 mirror 是**同一目录的两个路径视图** → 每次保存写同一文件两遍（N→N+2），内存 revision 落后 → 下次保存必 `RevisionConflict`。49-50 只修了同族的 `rmtree` 自删，未覆盖镜像写入。
 - **证据**：`.12` task `upgrade-d08f064e6e15166a`（attempt=17、36 条 RevisionConflict、动作序列与 revision 轨迹已留档 `/root/baselines/wedged-task-upgrade-d08f064e6e15166a/`）。
 - **方向**：mirror 与主 store 同文件时跳过 mirror 写（inode/`resolve()` 判等）；补"同版本重装 + mirror 同源"回归。**改 runner → 需用户同意并 bump 版本（AGENTS §6/§8）**。
-- **状态**：🟢 **已修（2026-09-28）**：`engine._save` 增加 inode 判等后跳过同文件 mirror 写；**runner bump v0.3.2 → v0.3.3**；单测 4 例通过。**待随下一版 runner 交付后在 `.12` 复验同版本重装全流程。**
+- **状态**：🟢 **已修（2026-09-28）**：`engine._save` 增加 inode 判等后跳过同文件 mirror 写；**修复并入 `runner v0.3.2`**（该版本未交付，直接并入；用户 2026-09-28 口径）；单测 4 例通过。**待随下一版 runner 交付后在 `.12` 复验同版本重装全流程。**
 
 ### US-25 🟢 已修：卡在 `running` 的任务无产品化出路 → 单飞守卫把环境永久锁死
 

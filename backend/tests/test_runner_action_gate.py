@@ -107,7 +107,7 @@ class PrecheckRunnerActionsTest(unittest.TestCase):
         self.assertFalse(check["ok"])
         self.assertIn("至少需要 v0.3.1", check["message"])
         self.assertIn("组件升级", check["message"])
-        self.assertIn("v0.3.3", check["message"])
+        self.assertIn("v0.3.2", check["message"])
 
     def test_gate_passes_for_current_runner(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -145,7 +145,7 @@ class ImagesGateRunnerHintTest(unittest.TestCase):
                     "images": [
                         {
                             "service": "upgrade-runner",
-                            "image": "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.3",
+                            "image": "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2",
                             "archive": None,
                         }
                     ],
@@ -158,7 +158,7 @@ class ImagesGateRunnerHintTest(unittest.TestCase):
         self.assertFalse(check["ok"])
         self.assertIn("本地 Docker 镜像不存在", check["message"])
         self.assertIn("组件升级", check["message"])
-        self.assertIn("v0.3.3", check["message"])
+        self.assertIn("v0.3.2", check["message"])
 
 
 def record_runner_state(database, *, version: str, capabilities: list[str] | None = None) -> None:

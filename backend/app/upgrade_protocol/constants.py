@@ -117,7 +117,7 @@ RELEASED_RUNNER_ACTIONS = frozenset(
 
 
 def current_runner_actions() -> frozenset[str]:
-    """当前仓库 runner 的动作集（= v0.3.3，随 RUNNER_VERSION 一起 bump）。"""
+    """当前仓库 runner 的动作集（= v0.3.2，随 RUNNER_VERSION 一起 bump）。"""
     try:
         from app.upgrade_runner.actions import default_handlers
 

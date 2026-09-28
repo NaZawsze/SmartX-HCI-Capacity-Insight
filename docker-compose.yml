@@ -76,7 +76,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile.upgrade
-    image: nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.3
+    image: nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2
     command: ["sh", "-c", "chmod 600 /data/smartx-storage-forecast/project/.env && exec python -m app.upgrade_runner.main"]
     env_file:
       - .env
