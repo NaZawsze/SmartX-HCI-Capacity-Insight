@@ -16,6 +16,27 @@ def row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
     return dict(row) if row is not None else None
 
 
+# US-28：WAL 模式下写-写仍然互斥。runner 组件升级后，runner 进程会持有未关闭的连接与未提交
+# 事务（根因在 runner，本层只做缓解），造成可达约 10 分钟的写锁窗口；期间 web-api 的写
+# 操作（含升级预检查）抛 sqlite3.OperationalError: database is locked，裸 500 很难诊断。
+# 这里把它翻译成领域异常，由 API 层映射为可读的 503。
+# 刻意不做「退避重试」：锁窗口长达分钟级，在 HTTP 请求内等待必然撞请求超时，
+# 正确做法是明确告知调用方「稍后重试」并快速失败。
+DATABASE_BUSY_HINT = (
+    "数据库正忙，通常是升级器（upgrade-runner）刚完成组件升级后短暂持有写锁；"
+    "请稍后重试。若持续出现，请检查 upgrade-runner 状态。"
+)
+
+
+class DatabaseBusyError(RuntimeError):
+    """US-28：SQLite 写锁等待超时（database is locked / busy）。"""
+
+
+def _is_database_busy(exc: sqlite3.OperationalError) -> bool:
+    message = str(exc).lower()
+    return "database is locked" in message or "database table is locked" in message
+
+
 @dataclass
 class V2Database:
     settings: V2Settings
@@ -35,6 +56,11 @@ class V2Database:
         try:
             yield conn
             conn.commit()
+        except sqlite3.OperationalError as exc:
+            # US-28：写锁等待超时 → 领域异常（不重试，锁窗口是分钟级，重试无意义）
+            if _is_database_busy(exc):
+                raise DatabaseBusyError(DATABASE_BUSY_HINT) from exc
+            raise
         finally:
             conn.close()
 

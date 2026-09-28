@@ -4,10 +4,11 @@ import threading
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.v2.api import router
 from app.v2.config import settings_from_environment
-from app.v2.database import V2Database
+from app.v2.database import DatabaseBusyError, V2Database
 from app.v2.freshness import start_freshness_probe_daemon
 from app.v2.upgrade.housekeeping import start_upgrade_housekeeping_daemon
 
@@ -25,6 +26,13 @@ def create_app() -> FastAPI:
             allow_headers=["*"],
         )
     app.include_router(router)
+
+    # US-28：SQLite 写锁窗口（upgrade-runner 组件升级后）内的写操作不再裸 500，
+    # 改为 503 + 可读提示，便于运维判断"稍后重试"而不是"系统坏了"。
+    @app.exception_handler(DatabaseBusyError)
+    async def database_busy_handler(_request, exc: DatabaseBusyError) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail": str(exc)})
+
     probe_stop_event: threading.Event | None = None
     housekeeping_stop_event: threading.Event | None = None
 
