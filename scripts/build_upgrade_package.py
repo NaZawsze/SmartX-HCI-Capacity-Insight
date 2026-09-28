@@ -1008,6 +1008,10 @@ def build_package(
             item["restart"] = False
         manifest_images.append(item)
     if _version_tuple(version) >= _version_tuple("v0.5.2"):
+        # US-26：runner 条目只是「基线声明」——供 49-3 字面量门禁与版本对账使用，
+        # `deploy: False` 表示它不是部署指令：平台升级不得据此重建 runner。
+        # 现场 runner 已满足 minimum_runner_version 时保持原样（runner 是独立组件，
+        # 平台包只有声明权，没有指挥权）。archive=None 表示不携带镜像文件。
         manifest_images.append(
             {
                 "service": UPGRADE_RUNNER_SERVICE,
@@ -1016,6 +1020,8 @@ def build_package(
                     _expected_web_api_runner_baseline(version),
                 ),
                 "archive": None,
+                "deploy": False,
+                "role": "baseline_declaration",
             }
         )
 
@@ -1161,7 +1167,9 @@ def build_package(
         "## 数据库迁移\n\n"
         f"{migration_note}\n\n"
         "## 不包含内容\n\n"
-        "本包不包含 `upgrade-runner`、`.env`、SQLite 数据库、Prometheus 历史数据、备份、导出文件、Tower 凭据、token、客户现场数据或其他运行时数据。\n",
+        "本包不包含 `upgrade-runner` 镜像文件、`.env`、SQLite 数据库、Prometheus 历史数据、备份、导出文件、Tower 凭据、token、客户现场数据或其他运行时数据。\n\n"
+        "> manifest 的 `images` 中会有一条 `upgrade-runner` 条目，**仅用于基线声明与版本对账**"
+        "（`archive: null`、`deploy: false`），平台升级不会据此重建 runner；runner 的版本变更只能由 runner 组件包显式升级。\n",
         encoding="utf-8",
     )
 

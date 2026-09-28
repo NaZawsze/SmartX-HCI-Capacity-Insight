@@ -377,6 +377,9 @@ class UpgradeCompilerTest(unittest.TestCase):
             cutover["params"],
             {
                 "image": "",
+                # US-26：平台包不下发 runner 镜像，改为 preserve_current，
+                # 由动作层沿用现场正在运行的 runner 镜像。
+                "preserve_current": True,
                 "compose_project": "smartx-hci-capacity-insight",
                 "network_name": "smartx-hci-capacity-insight-net",
                 "project_path": "/data/smartx-storage-forecast/project",

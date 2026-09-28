@@ -467,6 +467,17 @@ class ExecutionMixin:
             logs.append("升级服务已提交重启")
             steps = _replace_step(steps, "restart", "succeeded")
 
+            if _runner_only(task["manifest"]):
+                # US-26：runner 组件升级成功后回写 tag 到所有会被 compose up 读到的文件，
+                # 消除「bootstrap compose 是新 tag、project compose 仍是旧 tag」的多事实源。
+                runner_image = next(
+                    (str(image.get("image")) for image in images if image.get("service") == "upgrade-runner"),
+                    "",
+                )
+                synced = self._sync_runner_image_into_compose_files(runner_image)
+                if synced:
+                    logs.append(f"已回写 runner 镜像 tag 到：{', '.join(synced)}")
+
             steps = _replace_step(steps, "healthcheck", "succeeded", "健康检查占位通过")
             task["status"] = "success"
             task["runner_resume_pending"] = False

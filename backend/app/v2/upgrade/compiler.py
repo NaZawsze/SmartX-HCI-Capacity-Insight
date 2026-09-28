@@ -226,7 +226,14 @@ def compile_execution_plan(manifest: dict[str, Any]) -> ExecutionPlan:
             legacy_project = str(first_transition.get("from_project") or "")
             target_project = str(first_transition.get("to_project") or "")
             target_network = str(first_transition.get("to_network") or "")
-    runner_image = next((str(image.get("image")) for image in images if image.get("service") == "upgrade-runner"), "")
+    # US-26：只取「可部署」条目。runner 在平台包 manifest 里是基线声明（deploy=False），
+    # 不是部署指令——取不到时 runner_deploy_image 为空，handoff 动作据此只迁移运行时绑定、
+    # 不重建 runner 容器，避免把现场更高的 runner 版本按包内基线降级。
+    deployable_images = [image for image in images if image.get("deploy") is not False]
+    runner_deploy_image = next(
+        (str(image.get("image")) for image in deployable_images if image.get("service") == "upgrade-runner"),
+        "",
+    )
 
     if isinstance(legacy_cleanup, dict) and legacy_cleanup:
         actions.append(
@@ -259,7 +266,8 @@ def compile_execution_plan(manifest: dict[str, Any]) -> ExecutionPlan:
                     id="schedule-runner-target-runtime-handoff",
                     type="runner.schedule_target_runtime_handoff",
                     params={
-                        "image": runner_image,
+                        "image": runner_deploy_image,
+                        "preserve_current": not runner_deploy_image,
                         "compose_project": target_project,
                         "network_name": target_network,
                         **runtime_params,
@@ -272,7 +280,8 @@ def compile_execution_plan(manifest: dict[str, Any]) -> ExecutionPlan:
                 id="handoff-runner-target-runtime",
                 type="runner.handoff_target_runtime",
                 params={
-                    "image": runner_image,
+                    "image": runner_deploy_image,
+                    "preserve_current": not runner_deploy_image,
                     "compose_project": target_project,
                     "network_name": target_network,
                 },

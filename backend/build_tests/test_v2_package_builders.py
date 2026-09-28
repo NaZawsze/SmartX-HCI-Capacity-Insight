@@ -292,7 +292,15 @@ class V2PackageBuilderTest(unittest.TestCase):
         self.assertEqual(schedule["params"]["parent_task_status"], "success")
         self.assertEqual(schedule["params"]["cleanup_task_type"], "post_upgrade_cleanup")
         cutover = next(action for action in plan["actions"] if action["type"] == "runner.schedule_target_runtime_handoff")
-        self.assertEqual(cutover["params"]["image"], "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1")
+        # US-26：平台包对 runner 只有「基线声明」没有「部署指令」——handoff 不得下发 runner 镜像，
+        # 改为 preserve_current，让动作层沿用现场正在运行的 runner 镜像（避免把更高版本降级）。
+        self.assertEqual(cutover["params"]["image"], "")
+        self.assertTrue(cutover["params"]["preserve_current"])
+        self.assertEqual(
+            runner_image.get("deploy"),
+            False,
+            "manifest 的 runner 条目必须标 deploy:false，否则编译器会把它当部署指令",
+        )
         self.assertEqual(cutover["params"]["compose_project"], "smartx-hci-capacity-insight")
         self.assertEqual(cutover["params"]["network_name"], "smartx-hci-capacity-insight-net")
         self.assertEqual(cutover["params"]["project_path"], "/data/smartx-storage-forecast/project")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import tarfile
 from pathlib import Path
@@ -161,6 +162,48 @@ networks:
                 lines.append('    command: ["python", "-m", "app.upgrade_runner.main"]')
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return path
+
+
+    def _sync_runner_image_into_compose_files(self, runner_image: str) -> list[str]:
+        """US-26：runner 组件升级成功后，把新 tag 回写到所有会被 `docker compose up` 读到的文件。
+
+        此前只有 `compose-runtime/docker-compose.runner-bootstrap.yml` 记录新 tag，而
+        `project/docker-compose.yml` 与 `compose-runtime/docker-compose.runner-upgrade.yml`
+        保持旧 tag —— tag 没有单一事实源，下一次平台升级会按旧 tag 把 runner 拉回去。
+        回写后「project compose 为准，runtime compose 与其一致」。
+        """
+        if not runner_image:
+            return []
+        updated: list[str] = []
+        candidates = [
+            self.project_path / "docker-compose.yml",
+            self.settings.compose_runtime_dir / "docker-compose.runner-upgrade.yml",
+        ]
+        pattern = re.compile(
+            r"^(?P<head>\s*upgrade-runner:\s*\n(?:\s+.*\n)*?\s*image:\s*)"
+            r"(?P<image>\S+)(?P<tail>\s*)$",
+            re.MULTILINE,
+        )
+        for candidate in candidates:
+            try:
+                if not candidate.is_file():
+                    continue
+                text = candidate.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if runner_image not in text:
+                match = pattern.search(text)
+                if not match:
+                    continue
+                text = pattern.sub(lambda m: m.group("head") + runner_image, text, count=1)
+            else:
+                continue
+            try:
+                candidate.write_text(text, encoding="utf-8")
+            except OSError:
+                continue
+            updated.append(str(candidate))
+        return updated
 
 
     def _host_data_path(self) -> Path:
