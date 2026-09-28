@@ -8134,3 +8134,12 @@ release_smoke=critical 0, warning 0
 - **`.3` 门禁（fe555be）**：后端 **468 tests OK (skipped=2)**、build_tests **26 OK**、`--check-version` OK、api docs 77=76、release docs PASS、**交付一致性门禁 C1–C5 全 PASS**（关键：`package_image: actions.py md5 matches repo` 证明 runner 未动、交付一致性未被破坏）。
 - **候选包 r8 `3672e920…`**（`.3:/data/upgrade-packages/v053-r8-20260928/`）：identity exit 0、`.sha256` OK、敏感 0。**r7（`f772afa5…`）作废**（preserve_current 方案会打挂主路径）。
 - **待办**：`.12` 判别格——装 v0.3.2 → 同版本重装 → runner 应仍 v0.3.2（修复前回落 v0.3.1）。**待用户授权**。
+
+## 2026-09-28 US-26 `.12` 复验：判别格通过
+
+- **阶段 0**：`.12` 复位到 v0.5.2 + 已发布 runner v0.3.1（`d10e15cf…`），起点 health 全绿、心跳 age=1s、DB 556/89588、`.env` sha `8b644112…`/0600。
+- **阶段 1 · 主路径回归（最优先，验修复没打挂主路）**：r8 直升 task `upgrade-6f035c3e52b83428` **succeeded（188s）**，预检查 7 项全过（含 `runner_protocol`），**runner 仍 v0.3.1** ✓，8 项验收全过（DB 556/89588 不变、7 条 legacy 全清、`.env` 未变）。
+- **阶段 2 · US-26 判别格**：v0.5.3 上装 runner v0.3.2 组件包 `upgrade-39600ca4b67b75ad` succeeded（US-11 守卫生效，存活 90s+）；随后 v0.5.3→v0.5.3 同版本重装 `upgrade-7c0720d6207ea942` **succeeded（<10s），runner 保持 v0.3.2**（容器 tag / 镜像内 `RUNNER_VERSION` / health 三方一致）。**修复前同操作实测回落 v0.3.1 → 判别格通过** ✓。最大 attempt 1、runner 重启 0（US-24 无回归）、8 项验收全过。
+- **阶段 3 · 回归抽查**：US-23 重复 start → HTTP 400 + 正确消息 ✓。
+- **过程修的 bug**：US-26-4 回写用整块正则，但真实 compose 在 `upgrade-runner:` 后先有 `build:`/`env_file:` 块、`image:` 位置不固定 → 回写未生效；改逐行状态机（提交 `4c7ed07`）。
+- **结论**：US-26 闭环。平台包对 runner 只有「基线声明」没有「部署指令」在真实 `.12` 得到验证。
