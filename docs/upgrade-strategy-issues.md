@@ -123,7 +123,10 @@
 - **影响**：升级链上「组件升级 → 下一个平台步」这一常见组合会随机失败，且失败形态是裸 500（无重试/无友好提示），运维只能干等重试。上轮 `rebuild_all.sh` 记录的「v0.5.2 升完预检 `runner_protocol=False`」也是同一窗口的不同表现。
 - **方向**：①runner 侧改用 WAL + 短事务/显式 close，消除长写锁（**改 runner → 需用户同意并 bump 版本**）；②web-api 侧对 `database is locked` 做有限重试/退避并返回可读提示，而不是裸 500；③验收驱动脚本在组件步之后显式等待锁释放（本轮已按此处理）。
 - **证据**：`.12` 2026-09-28 22:29–22:40（`upgrade-b32d44b1badb1783` 之后），web-api 容器日志三连 500 + `fuser` 定位 + fd 计数两次采样。
-- **状态**：🟠 **web-api 侧已实施（2026-09-28，`.3` 门禁全过：482 OK / build 26 / api docs / release docs）**——`database.py` 把 `database is locked` 翻译为领域异常 `DatabaseBusyError`（**刻意不做退避重试**：锁窗口分钟级，HTTP 请求内等待必撞超时，正确做法是快速失败 + 明确告知稍后重试）；`main.py` 注册处理器映射 **503 + 可读文案**（指向 upgrade-runner）。测试 6 例。**runner 侧治本（连接泄漏）未做**——需改 runner 代码，用户同意 + bump 版本后另立项。
+- **状态**：🟢 **已修（2026-09-28，用户批准）**——**根因**：`lease.py::_connect()` 返回裸连接，调用方 `with self._connect() as conn` **只提交事务不关闭连接**，心跳每 5 秒漏一个（`.12` 实测 52 fd / 约 10 分钟写锁窗口）。改为真正的 `@contextmanager`（异常路径也关闭）。**版本口径**：v0.3.2 从未交付，按 US-24 先例直接并入、**不 bump**。
+- **顺带补上门禁漏洞（US-02 家族）**：`verify_runner_delivery_consistency.py` 的 C5 原先**只 md5 校验 `actions.py`**，改 `lease.py`/`main.py` 等模块不会被发现——正是「同版本号不同能力」的核心风险。已扩展为**整个 `app/upgrade_runner` 源码树聚合指纹**（7 个模块），并**指名不一致模块**。实证：新包 `7f72721f…` 全 PASS（`树指纹 matches repo, 7 个模块`）；旧包 `c69e2129…` 精确报出 `不一致模块：lease.py`（改造前完全抓不到）。
+- **两侧都做了**：`database.py` 翻译 `database is locked` → 领域异常 → `main.py` 映射 **503 + 可读文案**（**刻意不做退避重试**：锁窗口分钟级，HTTP 内等待必撞超时）。测试：连接生命周期 5 例（含 fd 计数不累积）+ 门禁回归 3 例 + US-28 503 映射 6 例。
+- **`.3` 门禁**：后端 **490 tests OK (skipped=2)**、build_tests 26 OK、门禁 C1–C5 全 PASS（C6 DockerHub SKIP）。
 
 ### US-29 🟢 已决策（2026-09-28 用户决定）：放弃人工回滚，保留失败自动回滚
 

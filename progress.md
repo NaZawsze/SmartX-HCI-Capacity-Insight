@@ -8161,3 +8161,13 @@ release_smoke=critical 0, warning 0
 - **`.3` 门禁**：后端 **482 tests OK (skipped=2)**、build_tests **26 OK**、api docs 77=76、release docs PASS。
 - **未做**：runner 侧连接泄漏治本（需改 runner + bump，用户同意后另立项）。
 - **新增任务**：task_plan 第 57 项——修复完成后反复验证升级链路 + CLI 安装/升级（`.12`），发现问题当场修直到全绿。
+
+## 2026-09-28 第 4 批：US-28 治本（runner 连接泄漏）+ 交付门禁补洞
+
+- **用户批准**修 runner（AGENTS §6 需明确同意）。**版本口径**：v0.3.2 从未交付，按 US-24 先例直接并入、**不 bump**。
+- **根因**：`lease.py::_connect()` 返回裸连接，7 处调用写 `with self._connect() as conn`——而 `with sqlite3.Connection` **只提交事务、不关闭连接**；心跳每 5 秒一次，长驻进程持续堆积（`.12` 实测 52 个 fd / 约 10 分钟写锁窗口）。改为 `@contextmanager`，异常路径也关闭。
+- **门禁补洞（US-02 家族）**：发现 `verify_runner_delivery_consistency.py` 的 C5 **只 md5 校验 `actions.py`**——改 `lease.py`/`main.py`/`engine.py` 等不会被发现，正是「同版本号不同能力」的核心风险。扩展为整个 `app/upgrade_runner` **源码树聚合指纹**（7 模块），并指名不一致模块。
+- **门禁判别力实证**：新包 `7f72721f…` → `树指纹 matches repo (2eb5b40d…, 7 个模块)` 全 PASS；旧包 `c69e2129…` → 精确报 `不一致模块：lease.py`（改造前**完全抓不到**）。
+- **测试**：连接生命周期 5 例（含 fd 计数 50 轮不累积）、门禁回归 3 例、US-28 503 映射 6 例；门禁自身 25 例全绿。
+- **`.3` 门禁**：后端 **490 tests OK (skipped=2)**、build_tests **26 OK**、门禁 C1–C5 全 PASS。
+- **待办**：`.12` 复验本包（组件升级后紧接平台步，预检查不得再 500）。
