@@ -8,6 +8,15 @@ from app.upgrade_runner.store import TaskStore
 
 
 ActionHandler = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
+
+
+def _same_file(left: Path, right: Path) -> bool:
+    """两个路径是否指向同一个文件（含 bind-mount 双视图：路径不同、inode 相同）。"""
+    try:
+        first, second = left.stat(), right.stat()
+    except OSError:
+        return False
+    return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
 TaskUpdateCallback = Callable[[dict[str, Any]], None]
 SAFE_RESUME_ACTIONS = {
     "backup.create",
@@ -62,7 +71,11 @@ class UpgradeEngine:
         mirror_dir = str(saved.get("task_mirror_dir") or "")
         if self._mirror_store is None and mirror_dir:
             self._mirror_store = TaskStore(Path(mirror_dir))
-        if self._mirror_store is not None:
+        # US-24：mirror 与主 store 指向**同一个文件**时绝不能再写一遍。同版本重装（已经在目标布局）时
+        # `task.migrate_runtime_state` 返回的 source/mirror 是同一目录的两个路径视图，双写会让同一个
+        # task.json 每次保存 revision +2，而内存里的 revision 只 +1 → 下一次保存必然 RevisionConflict
+        # →进程崩溃→容器重启→任务永久卡在 running（2026-09-27 `.12` 实测 attempt=17、36 条冲突）。
+        if self._mirror_store is not None and not _same_file(self._mirror_store.path, self.store.path):
             self._mirror_store.save(dict(saved))
         if self.on_update is not None:
             self.on_update(saved)

@@ -21,7 +21,7 @@ from .precheck import _runner_bootstrap, _runner_compose_project_name, _runner_o
 from .taskfile import _completed_runner_task_view, _parse_datetime, _read_task_file, _replace_step, _save_task_file, _step
 
 from .constants import RUNNER_NOT_DETECTED
-from .runner_presence import RUNNER_PRESENCE_SOURCES, instance_heartbeat_is_fresh, presence_source
+from .runner_presence import RUNNER_PRESENCE_SOURCES, instance_heartbeat_is_fresh, presence_source, task_lease_is_alive
 
 
 def _should_stop_previous_runner(bootstrap: Any, current_project: str) -> bool:
@@ -137,16 +137,29 @@ class ExecutionMixin:
         return self._set_recovery_command(task_id, "rollback", "已请求 upgrade-runner 执行回滚")
 
 
+    def task_has_live_runner(self, task_id: str) -> bool:
+        """US-25：该任务当前是否真的被某个 runner 持有（有未过期/心跳新鲜的租约）。"""
+        return task_lease_is_alive(self.tasks.database, task_id)
+
+
     def recovery_fail(self, task_id: str) -> dict[str, Any]:
         task_dir = self.settings.upgrades_dir / task_id
         task = _read_task_file(task_dir)
-        if task.get("status") != "recovery_required":
-            raise HTTPException(status_code=400, detail="只有等待恢复的升级任务可以标记失败。")
+        status = str(task.get("status") or "")
+        # US-25：卡在 running 且没有任何 runner 持有租约（runner 崩了/被杀了/卡住了）时，
+        # 必须给管理员一条产品化出路，否则 US-23 的单飞守卫会把环境永久锁死。
+        stuck_running = status == "running" and not self.task_has_live_runner(task_id)
+        if status != "recovery_required" and not stuck_running:
+            raise HTTPException(status_code=400, detail="只有等待恢复的升级任务，或已无 runner 持有的执行中任务，可以标记失败。")
         task["status"] = "failed"
         task["recovery_status"] = "failed"
         task["recovery_command"] = "fail"
         task["available_recovery_actions"] = []
-        task["error"] = task.get("error") or "管理员已将恢复任务标记为失败。"
+        task["error"] = task.get("error") or (
+            "管理员已将执行中断的升级任务标记为失败（runner 已不再持有该任务）。"
+            if stuck_running
+            else "管理员已将恢复任务标记为失败。"
+        )
         task["updated_at"] = _now().isoformat()
         _save_task_file(task_dir, task)
         self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message=task["error"])

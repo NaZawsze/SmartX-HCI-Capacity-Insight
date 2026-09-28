@@ -23,6 +23,18 @@ class TaskFileMixin:
         public["status"] = _public_status(str(task.get("status") or ""))
         if task.get("status") == "recovery_required" and task.get("recovery_command") in {"continue", "rollback"}:
             public["status"] = "running"
+        if str(task.get("status") or "") == "running":
+            # US-25：把"执行中但没有任何 runner 持有"暴露出来，并给出可用的产品化操作
+            try:
+                from .runner_presence import task_lease_is_alive
+
+                if not task_lease_is_alive(self.tasks.database, str(task.get("task_id") or "")):
+                    public["runner_lost"] = True
+                    public["available_recovery_actions"] = sorted(
+                        set(public.get("available_recovery_actions") or []) | {"fail"}
+                    )
+            except Exception:  # noqa: BLE001 - 视图不应因判定失败而报错
+                pass
         public["package_filename"] = task.get("filename") or task.get("package_filename")
         public["uploaded_at"] = task.get("created_at") or task.get("uploaded_at")
         public["package_sha256"] = task.get("package_sha256") or task.get("uploaded_sha256") or _task_package_sha256(task)

@@ -48,6 +48,30 @@ def instance_heartbeat_is_fresh(state: dict[str, Any], *, now: datetime | None =
     return reference - heartbeat <= timedelta(seconds=RUNNER_HEARTBEAT_STALE_SECONDS)
 
 
+def task_lease_is_alive(database: Any, task_id: str, *, now: datetime | None = None) -> bool:
+    """该任务当前是否真的被某个 runner 持有（US-25：判断"卡在 running"的逃生门是否可用）。"""
+    reference = now or datetime.now(timezone.utc)
+    try:
+        with database.connection() as conn:
+            row = conn.execute(
+                "SELECT lease_expires_at, heartbeat_at FROM upgrade_task_leases WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+    except Exception:  # noqa: BLE001 - 判定失败按"没有活租约"处理
+        return False
+    if not row:
+        return False
+    if hasattr(row, "keys"):
+        expires_raw, heartbeat_raw = row["lease_expires_at"], row["heartbeat_at"]
+    else:
+        expires_raw, heartbeat_raw = row[0], row[1]
+    expires = parse_heartbeat(expires_raw)
+    if expires is not None and expires > reference:
+        return True
+    heartbeat = parse_heartbeat(heartbeat_raw)
+    return bool(heartbeat is not None and reference - heartbeat <= timedelta(seconds=RUNNER_HEARTBEAT_STALE_SECONDS))
+
+
 def active_task_lease_is_fresh(database: Any, *, now: datetime | None = None) -> bool:
     """执行期间 runner 用心跳线程续租；任一租约仍有效即证明 runner 在场。"""
     reference = now or datetime.now(timezone.utc)

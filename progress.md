@@ -7996,6 +7996,15 @@ release_smoke=critical 0, warning 0
 - **残留与边界**：任务结束后一个轮询周期（≤3s）两条通道都不新鲜，生产里由 `_active_runner_state()` 的 docker 兜底覆盖（已记入设计文档边界节）；runner 侧"执行期也刷新实例心跳"登记为下次 runner 交付待办。`.3` 上本次实验产生的 4 个升级任务目录（含 3 个 success、1 个 precheck_failed，约 3.3 GB）与 `/root/verify-gate`、采样脚本已清理。
 - 提交：`fb6df7d`（修复）+ `8427d9c`（证据/边界）。**S1 阶段（本地可闭环缺陷）全部完成**，下一步按顺序进入 S2-1（US-06 升级后采集改事件驱动）。
 
+## 2026-09-28 US-24 + US-25 全部修复（用户：「全修了吧」）+ runner bump v0.3.3
+
+- **US-25（web-api 侧，未动 runner）**：`recovery/{task_id}/fail` 现在接受「`running` 且**该任务没有活租约**」的任务（新增 `runner_presence.task_lease_is_alive`：未过期或心跳在 30s 内才算活）→ 标记失败并写审计式 error；任务视图在同样条件下暴露 `runner_lost=true` 与 `available_recovery_actions=["fail"]`，界面/接口能发现"卡死"。这样 US-23 单飞守卫不再把环境永久锁死。测试：`backend/tests/test_stuck_running_recovery.py` **7 例**（无租约可 fail / 租约过期可 fail / 租约有效仍拒绝 / 视图暴露与隐藏 / fail 后单飞解除 / recovery_required 老路径不变）。
+- **US-24（runner 侧）**：`engine._save` 新增 `_same_file()`（`st_dev`+`st_ino` 判等，覆盖 bind-mount 双视图），mirror 与主 store 指向同一文件时**跳过 mirror 写**——根治同版本重装的 revision 双写崩溃循环。测试：`backend/tests/test_upgrade_runner_mirror_save.py` **4 例**（同文件不双写、相对路径也能判同、独立 mirror 仍写、外部写入者仍正常冲突）。
+- **按规矩 bump runner 版本 v0.3.2 → v0.3.3**（AGENTS §8：能力变更必须 bump）并同步全部版本面：`RUNNER_VERSION`、`backend/app/core/config.py` 与 `app/v2/config.py` 的 `DEFAULT_RUNNER_VERSION`、三个源码 compose 的 runner tag、`upgrade_runner/main.py` 默认值、`constants.py` 注释、预检查提示文案（"升到 v0.3.3"）、README 两处包名示例、version-governance/deployment/release-acceptance/upgrade-chain/CHANGELOG/矩阵/台账。
+- **本地验证**：受影响回归 **209 tests OK (skipped=2)**（含 engine/action-gate/protocol/v2_upgrade/single-flight/presence/housekeeping/disk-precheck/freshness/mirror/stuck-running）；宿主机构建测试 **26 OK**（版本面一致性）。
+- **交付口径不变**：runner 组件本次不随 v0.5.3 发布（随下一版一起发，届时交付 v0.3.3 并复验 US-24 的同版本重装场景）；平台包 runner 基线仍是已发布 `v0.3.1`。
+- 待办：把 S1 三项 + US-25 打进下一个平台包（候选 r6）并在 `.12` 复验；US-24 需在 v0.3.3 组件包交付后复验。
+
 ## 2026-09-28 客户形态演练（用户：「这个可以做一下」）
 
 - **目的**：补上"真实形态没覆盖"这条边界——不在干净环境上验，而是让 `.12` 带上老机器遗留（历史任务目录 / 历史备份 / 悬空镜像）再走 `v0.5.2 → v0.5.3`。

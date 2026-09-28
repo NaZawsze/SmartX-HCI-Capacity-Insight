@@ -25,7 +25,7 @@ The `v0.5.3` release gate verifies the compose project/network fix, the single-r
 Expected values:
 
 - Platform version: `v0.5.3`
-- Runner version: `v0.3.1` at platform-upgrade time (the released baseline the package declares); after the optional post-upgrade component upgrade the runner reports `v0.3.2`
+- Runner version: `v0.3.1` at platform-upgrade time (the released baseline the package declares); after the optional post-upgrade component upgrade the runner reports `v0.3.3`
 - Compose project: `smartx-hci-capacity-insight`
 - Docker network: `smartx-hci-capacity-insight-net`
 - Prometheus version: `v2.55.1`

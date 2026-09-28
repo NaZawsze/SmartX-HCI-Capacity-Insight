@@ -17,8 +17,8 @@
 
 | # | 事项 | 来源 | 说明 |
 | --- | --- | --- | --- |
-| 48 | **US-24 同版本重装（已在目标布局）runner 自伤：`_save` 双写同一 task.json → RevisionConflict 崩溃循环、任务卡死** | 2026-09-27 `.12` 链路演练（实测 17 次重启、task `upgrade-d08f064e6e15166a`） | **已定位待修**：`engine._save()` 在 mirror 与主 store 指向同一文件时无条件双写（source/mirror 是同一目录的两个路径视图）→ revision 每次 +2 → 下次保存必冲突。修法：`Path.resolve()`/inode 判等后跳过 mirror 写 + 回归测试（同版本重装 + mirror 同源）。**改 runner → 必须先经用户同意并 bump 版本（v0.3.3）+ 重交付组件包**（AGENTS §6/§8）。**用户 2026-09-28 决定：本次不修**，随下一版 runner（v0.3.2/v0.3.3 那一批）一起做。见 findings.md D1 |
-| 49 | **US-25 卡在 `running` 的任务无产品化出路 → 单飞守卫把环境永久锁死** | 同上（`cancel` 400 / `recovery/fail` 400 / `delete` 拒绝） | **已定位待修**（web-api 侧，可不改 runner）：让恢复通道覆盖「长时间无有效租约/无新鲜心跳的 running 任务」，或提供「标记失败/强制恢复」入口 + 审计。见 findings.md D2 |
+| 48 | **US-24 同版本重装（已在目标布局）runner 自伤：`_save` 双写同一 task.json → RevisionConflict 崩溃循环、任务卡死** | 2026-09-27 `.12` 链路演练（实测 17 次重启、task `upgrade-d08f064e6e15166a`） | **🟢 已修（2026-09-28，用户「全修了吧」授权）**：`engine._save()` 在 mirror 与主 store 指向同一文件时无条件双写（source/mirror 是同一目录的两个路径视图）→ revision 每次 +2 → 下次保存必冲突。修法：`Path.resolve()`/inode 判等后跳过 mirror 写 + 回归测试（同版本重装 + mirror 同源）。修法：`engine._save` 用 `st_dev`+`st_ino` 判等（覆盖 bind-mount 双视图）→ 同文件时跳过 mirror 写；单测 4 例。**已按规矩 bump runner v0.3.2 → v0.3.3**（AGENTS §6/§8），随下一版 runner 交付，交付后在 `.12` 复验同版本重装全流程。见 findings.md D1 |
+| 49 | ~~US-25 卡在 `running` 的任务无产品化出路~~ **🟢 已修（2026-09-28）** | 同上（`cancel` 400 / `recovery/fail` 400 / `delete` 拒绝） | 修法：`recovery/{tid}/fail` 接受「running 且无活租约」的任务（`task_lease_is_alive`），视图暴露 `runner_lost` + `available_recovery_actions=["fail"]`；单测 7 例。web-api 侧，未动 runner。见 findings.md D2 |
 
 ## P1 — 数据正确性与产品缺口
 

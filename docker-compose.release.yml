@@ -66,7 +66,7 @@ services:
     restart: unless-stopped
 
   upgrade-runner:
-    image: docker.io/nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2
+    image: docker.io/nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.3
     command: ["sh", "-c", "chmod 600 /data/smartx-storage-forecast/project/.env && exec python -m app.upgrade_runner.main"]
     env_file:
       - .env

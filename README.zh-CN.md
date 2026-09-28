@@ -209,10 +209,10 @@ migrations/
 
 普通平台升级包不建议在同一次升级任务中重启 `upgrade-runner`，避免中断正在执行升级的服务。如需替换 `upgrade-runner`，请使用组件升级包。
 
-`upgrade-runner` 组件升级包独立于平台升级包，使用 runner 组件版本，例如 `v0.3.2`，不使用平台版本号。
+`upgrade-runner` 组件升级包独立于平台升级包，使用 runner 组件版本，例如 `v0.3.3`，不使用平台版本号。
 
 ```text
-smartx-upgrade-runner-v0.3.2.tar.gz
+smartx-upgrade-runner-v0.3.3.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md

@@ -112,7 +112,7 @@ class PrecheckMixin:
                 "ok": False,
                 "message": (
                     f"无法确认 upgrade-runner {runner_version or '(未检测到心跳版本)'} 支持的升级动作，"
-                    "至少需要 v0.3.1。请先在升级中心执行「组件升级」把 upgrade-runner 升到 v0.3.2 后重试。"
+                    "至少需要 v0.3.1。请先在升级中心执行「组件升级」把 upgrade-runner 升到 v0.3.3 后重试。"
                 ),
                 "detail": {"runner_version": runner_version or None, "plan_actions": plan_actions},
             }
@@ -123,7 +123,7 @@ class PrecheckMixin:
                 "ok": False,
                 "message": (
                     f"upgrade-runner {runner_version} 不支持升级计划动作：{', '.join(missing)}。"
-                    "请先在升级中心执行「组件升级」把 upgrade-runner 升到 v0.3.2 后重试。"
+                    "请先在升级中心执行「组件升级」把 upgrade-runner 升到 v0.3.3 后重试。"
                 ),
                 "detail": {
                     "runner_version": runner_version,
