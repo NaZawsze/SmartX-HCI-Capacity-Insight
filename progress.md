@@ -8151,3 +8151,13 @@ release_smoke=critical 0, warning 0
 - **测试**：新增 `test_us27_us29_fail_cleanup.py` 8 例（含只读性断言：探测不得含 rmtree/unlink/mkdir/write_text；stuck_running 边界不被破坏；UI 无回滚按钮但保留 fail/continue）。
 - **`.3` 门禁**：后端 **476 tests OK (skipped=2)**、build_tests **26 OK**、`tsc -b` 0、vitest **107 passed (11 files)**。
 - **待办**：US-27 `.12` 复验（造一次中断 → `recovery/fail` → 验证 `cleanup_required=true` + 残留清单正确 + UI 提示 + 再跑升级收尾）。
+
+## 2026-09-28 第 2 批：US-28 web-api 侧写锁窗口可读化（并更正机制判断）
+
+- **机制更正**：初判「rollback journal 模式、锁整文件独占」**有误**。`.12` 实测 `PRAGMA journal_mode=wal`、`busy_timeout=5000`——平台 DB **本来就是 WAL**；WAL 下读写不互斥但**写-写仍互斥**，现象不变但描述要改。**教训：不能用 `-wal/-shm` 文件是否存在判断模式**（无连接时会被清理），必须查 `PRAGMA`。
+- **实施**：`database.py` 增加 `DatabaseBusyError` + `_is_database_busy()`，在 `connection()` 上下文把 `sqlite3.OperationalError: database is locked` 翻译为领域异常；`main.py` 注册处理器返回 **503 + 可读文案**（提示 upgrade-runner 刚完成组件升级后短暂持锁、稍后重试）。
+- **刻意不做退避重试**（与原 plan 不同）：锁窗口实测约 10 分钟，HTTP 请求内等待必然撞请求超时；正确做法是快速失败 + 明确告知。已在代码注释与文档记录该判断。
+- **测试**：新增 `test_us28_database_busy.py` 6 例（锁错误识别、翻译为领域异常、非锁类 OperationalError 原样抛出、常规写不受影响、API 503 映射、处理器已注册）。
+- **`.3` 门禁**：后端 **482 tests OK (skipped=2)**、build_tests **26 OK**、api docs 77=76、release docs PASS。
+- **未做**：runner 侧连接泄漏治本（需改 runner + bump，用户同意后另立项）。
+- **新增任务**：task_plan 第 57 项——修复完成后反复验证升级链路 + CLI 安装/升级（`.12`），发现问题当场修直到全绿。
