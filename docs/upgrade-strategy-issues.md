@@ -22,7 +22,7 @@
 - **证据**：`dab2e0f`(08-12) 给 runner +2053 行但 `git show dab2e0f -- RUNNER_VERSION` 为空；DockerHub tags API 只有 `latest`/`runner-sha-31a1209`/`v0.3.0`。
 - **影响**：能力级预检查分辨不了 → 失败落在 cutover 之后。
 - **方向**：bump 纪律 + **硬门禁脚本**（发布前自动比对三处同源）+ 动作级校验。
-- **状态**：🟡 bump 与动作级校验已做（49-50），**硬门禁脚本未做**。
+- **状态**：🟢 **已完成（2026-09-27，49-54）**：`scripts/verify_runner_delivery_consistency.py` 把「三处同源核对」做成一条命令（C1 仓库 `RUNNER_VERSION`／C2 动作表 AST 静态提取／C3 三个源码 compose 字面量 tag／C4 组件包 manifest 与镜像归档 SHA256／C5 **离线解析包内镜像归档比对 `RUNNER_VERSION` 与 `actions.py` md5 与仓库一致**／C6 DockerHub tag 200 默认关闭），任一 FAIL 非零退出、SKIP 必须显式；配对单测 22 例；**已接入 `docs/release-acceptance.md` 发布门禁第 4 步**。`.3` 实证：v0.3.2 包全绿，v0.3.1 包（`dd096bf2…`）正确 FAIL。**本条关闭**。
 
 ### US-03 🟠 runner 生命周期散落三个入口
 - **现象**：组件升级（web-api `compose stop/up`）、平台升级 handoff（runner 自己 `docker run` helper）、legacy 清理（runner 动作 `runner.stop_legacy_runtime`）三方都能动同一个 runner 容器。
@@ -114,7 +114,7 @@
 - **数据红线**：**未受损**——live 库 `/data/smartx-storage-forecast/app/smartx.db` `integrity ok`、556/89588 与升级前一致；旧数据目录仅 12K 空骨架，无数据分叉。
 - **收干净的方式**：再跑一次成功升级，其 post-cleanup 会清掉全部 legacy 路径（本轮实测 `upgrade-26856095c44869d1` 的 post-cleanup succeeded，7 条路径全清）。
 - **方向**：逃生门在标记失败时提示"环境可能半迁移，需再跑一次升级让 post-cleanup 收尾"，或在 `recovery/fail` 响应里带 `cleanup_required=true` + 残留路径清单；理想是提供"标记失败并清理残留"的产品化收尾动作。
-- **状态**：🟠 **新发现未修**（逃生门已能解冻环境，但收尾靠人工再跑一次升级，UI 无提示）。
+- **状态**：🟠 **新发现未修｜优先级已提升为关键路径**（2026-09-28 用户决定放弃人工回滚后，失败后的唯一出路就是「标记失败 → 再跑一次升级收尾」，本条正是该出路的收尾能力；逃生门已能解冻环境，但收尾无提示）。
 
 ### US-28 🟠 新发现（本轮 .12 验收）：runner 组件升级后有约 10 分钟 SQLite 写锁窗口，web-api 写操作直接 500
 
@@ -124,6 +124,17 @@
 - **方向**：①runner 侧改用 WAL + 短事务/显式 close，消除长写锁（**改 runner → 需用户同意并 bump 版本**）；②web-api 侧对 `database is locked` 做有限重试/退避并返回可读提示，而不是裸 500；③验收驱动脚本在组件步之后显式等待锁释放（本轮已按此处理）。
 - **证据**：`.12` 2026-09-28 22:29–22:40（`upgrade-b32d44b1badb1783` 之后），web-api 容器日志三连 500 + `fuser` 定位 + fd 计数两次采样。
 - **状态**：🟠 **新发现未修**。
+
+### US-29 🟢 已决策（2026-09-28 用户决定）：放弃人工回滚，保留失败自动回滚
+
+- **决定**：**不做人工回滚**（下线回滚按钮与 `POST /api/admin/upgrade/rollback/{tid}`、`recovery/{tid}/rollback` 的用户可见入口）；**失败自动回滚必须保留**（`execution.py:345-370`，升级执行抛异常时自动恢复项目文件备份、删除 override、`docker compose up` 拉回旧镜像 → `rolled_back`）。
+- **依据**：
+  - 人工回滚**从未验证**（审计矩阵 US-17 空白格）；`rollback_healthcheck` 步骤在代码里直接标注「**回滚健康检查占位通过**」——是占位实现，不是真检查。
+  - 一个未验证的按钮在客户现场被误点，比没有这个按钮危险（`rollback_failed` 状态本身已经存在，说明回滚也可能失败）。
+  - 失败自动回滚是**已验证**的安全网（第四/五轮链路的失败路径都走过）。
+- **直接后果（重要）**：失败后**没有回滚兜底**，唯一出路是「逃生门（US-25）→ 标记失败 → 再跑一次成功升级由 post-cleanup 收尾」。**因此 US-27 从「体验问题」升为「关键路径」**。
+- **执行口径**：UI 隐藏回滚入口；API 保留但标记废弃（避免老客户端 404）；自动回滚路径与 `rolled_back` 状态**不动**。
+- **状态**：🟢 **决策已定，实施见 plan 49-55 第 0 节**。
 
 ## C. 已修复并验证（🟢，列此以备回归）
 

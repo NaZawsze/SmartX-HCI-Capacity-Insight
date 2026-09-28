@@ -91,6 +91,7 @@ v0.5.3 是 v0.5.2 之后的平台版本候选（未发布），主要内容：�
 - **现场 runner 已够用时平台升级仍会重建 runner（本轮新发现，US-26）**：平台升级的 runner handoff 无条件按**包内基线 tag** `--force-recreate`，把现场更高的 runner 版本静默降级（实测 v0.3.2 → v0.3.1，无提示）。口径：默认先平台后 runner，只有平台确需更高 runner 时才先升 runner；本次 v0.5.2 → v0.5.3 用已发布 v0.3.1 即可，**runner 不需要动**。该问题对本次发布无影响（客户现场本就是 v0.3.1），但须在随下一版交付 runner v0.3.2 之前修完。
 - **卡死逃生门不清理半迁移残留（US-27）**：`recovery/fail` 只改任务状态，被中断升级留下的旧路径（`/data/upgrades/<task>/package`、空骨架数据目录）仍在，需再跑一次成功升级由 post-cleanup 收尾；数据红线本次未受损。
 - **组件升级后约 10 分钟 SQLite 写锁窗口（US-28）**：runner 空闲态仍持有大量未关闭 DB 连接（实测 52 个 fd），rollback journal 模式下独占写锁，期间 web-api 写操作（如升级预检查）直接 500 `database is locked`，需重试或等待。
+- **不支持人工回滚（US-29，2026-09-28 决定）**：仅保留**失败自动回滚**（升级执行异常时自动恢复项目文件与镜像配置 → `rolled_back`）。人工回滚入口下线。**升级失败后的出路**：用逃生门标记失败 → **再跑一次成功升级**由 post-cleanup 收尾（该路径的收尾能力正在加强，见 US-27）。
 ### 已知问题与未解决事项（截至 2026-09-27）
 
 - **同版本重装（已在目标布局）会卡死（US-24，2026-09-27 `.12` 实测；🟢 已修（并入 v0.3.2）：`engine._save` inode 判等跳过同文件 mirror 写，单测 4 例；随下一版 runner 交付复验）**：`v0.5.3 → v0.5.3` 同版本重装推进到 `compose.override` 后卡住，runner 反复 `RevisionConflict` 崩溃重启（实测 17 次）。根因在 runner：`engine._save()` 在 `task.migrate_runtime_state` 之后对与主 store 同一文件的 mirror 再写一遍，revision 每次 +2 → 下次保存必冲突。修复需改 runner → 须先经用户同意并 bump 版本（v0.3.3）+ 重交付组件包（待决，见 pending-tasks #48）。
