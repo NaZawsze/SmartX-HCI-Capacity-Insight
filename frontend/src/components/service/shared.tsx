@@ -596,8 +596,19 @@ export function UpgradeTaskDetail({
           </div>
           <div className="upgrade-recovery-actions">
             {task.available_recovery_actions?.includes("continue") && <button className="primary-button" type="button" disabled={upgradeBusy} onClick={() => onRecovery("continue")}>继续执行</button>}
-            {task.available_recovery_actions?.includes("rollback") && <button className="secondary-button" type="button" disabled={upgradeBusy} onClick={() => onRecovery("rollback")}>执行回滚</button>}
             {task.available_recovery_actions?.includes("fail") && <button className="secondary-button danger-button" type="button" disabled={upgradeBusy} onClick={() => onRecovery("fail")}>标记失败</button>}
+          </div>
+        </section>
+      )}
+      {task.cleanup_required && (
+        <section className="upgrade-recovery-panel" aria-label="升级收尾提示">
+          <div>
+            <strong>需要收尾：环境可能处于半迁移状态</strong>
+            <p>
+              本次升级在执行中断时被标记失败，升级后清理没有执行。检测到残留路径：
+              {(task.residual_paths || []).join("、") || "（请检查旧环境目录）"}。
+              请重新上传同一个升级包并完整执行一次升级，由升级后清理收尾；在此之前不要开始新的升级任务。
+            </p>
           </div>
         </section>
       )}

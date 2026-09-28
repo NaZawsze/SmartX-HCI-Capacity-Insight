@@ -359,7 +359,11 @@ export interface UpgradeTask {
   recovery_status?: string;
   recovery_reason?: string;
   recovery_command?: string | null;
+  /** US-29：人工回滚已下线，保留取值仅为历史任务/老客户端兼容，UI 不再暴露该操作。 */
   available_recovery_actions?: Array<"continue" | "rollback" | "fail">;
+  /** US-27：任务被标记失败后环境是否需要收尾（重跑一次升级由 post-cleanup 清理残留）。 */
+  cleanup_required?: boolean;
+  residual_paths?: string[];
   checks: Array<{ name: string; ok: boolean; message: string; detail?: unknown }>;
   steps: Array<{ key: string; title: string; status: string; started_at?: string; finished_at?: string; message?: string }>;
   logs: string[];

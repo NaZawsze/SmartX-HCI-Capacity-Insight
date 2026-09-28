@@ -175,6 +175,8 @@ class ExecutionMixin:
 
 
     def recovery_rollback(self, task_id: str) -> dict[str, Any]:
+        # US-29：人工回滚已下线（2026-09-28 用户决定）。保留路由与实现仅为老客户端兼容，
+        # 不再作为产品化操作暴露；UI 已隐藏入口。失败自动回滚路径不受影响。
         return self._set_recovery_command(task_id, "rollback", "已请求 upgrade-runner 执行回滚")
 
 
@@ -182,6 +184,30 @@ class ExecutionMixin:
         """US-25：该任务当前是否真的被某个 runner 持有（有未过期/心跳新鲜的租约）。"""
         return task_lease_is_alive(self.tasks.database, task_id)
 
+
+    def _residual_legacy_paths(self) -> list[str]:
+        """US-27：探测被中断升级可能留下的 legacy 路径残留（只读，不做任何清理）。
+
+        放弃人工回滚后，失败任务的唯一出路是「标记失败 → 再跑一次成功升级，由 post-cleanup
+        收尾」。本方法只负责告诉管理员"环境现在脏在哪里"，不代替 post-cleanup 执行清理。
+        """
+        candidates = [
+            "/opt/smartx-storage-forecast",
+            "/data/smartx-capacity-insight-data",
+            "/prometheus-data",
+            "/data/upgrades",
+            "/data/backups",
+            "/data/exports",
+            "/data/compose-runtime",
+        ]
+        found: list[str] = []
+        for path in candidates:
+            try:
+                if Path(path).exists():
+                    found.append(path)
+            except OSError:
+                continue
+        return found
 
     def recovery_fail(self, task_id: str) -> dict[str, Any]:
         task_dir = self.settings.upgrades_dir / task_id
@@ -192,15 +218,27 @@ class ExecutionMixin:
         stuck_running = status == "running" and not self.task_has_live_runner(task_id)
         if status != "recovery_required" and not stuck_running:
             raise HTTPException(status_code=400, detail="只有等待恢复的升级任务，或已无 runner 持有的执行中任务，可以标记失败。")
+        # US-27：标记失败不做任何清理/回滚，必须告诉管理员环境可能半迁移、需要重跑一次升级收尾。
+        residual_paths = self._residual_legacy_paths()
+        cleanup_required = bool(residual_paths)
         task["status"] = "failed"
         task["recovery_status"] = "failed"
         task["recovery_command"] = "fail"
         task["available_recovery_actions"] = []
-        task["error"] = task.get("error") or (
-            "管理员已将执行中断的升级任务标记为失败（runner 已不再持有该任务）。"
-            if stuck_running
-            else "管理员已将恢复任务标记为失败。"
-        )
+        task["cleanup_required"] = cleanup_required
+        task["residual_paths"] = residual_paths
+        if cleanup_required:
+            task["error"] = (
+                f"管理员已将执行中断的升级任务标记为失败。环境可能处于半迁移状态，检测到残留路径："
+                f"{'、'.join(residual_paths)}。请重新上传并执行一次完整升级，由升级后清理（post-cleanup）收尾；"
+                "在此之前不要开始新的升级任务。"
+            )
+        else:
+            task["error"] = task.get("error") or (
+                "管理员已将执行中断的升级任务标记为失败（runner 已不再持有该任务）。"
+                if stuck_running
+                else "管理员已将恢复任务标记为失败。"
+            )
         task["updated_at"] = _now().isoformat()
         _save_task_file(task_dir, task)
         self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message=task["error"])
@@ -364,6 +402,8 @@ class ExecutionMixin:
 
 
     def rollback(self, task_id: str) -> dict[str, Any]:
+        # US-29：人工回滚已下线（2026-09-28 用户决定）。保留实现仅为老客户端/历史任务兼容，
+        # 不再作为产品化操作暴露；UI 已隐藏入口。**失败自动回滚路径（execute_task 异常分支）不受影响**。
         task_dir = self.settings.upgrades_dir / task_id
         task = _read_task_file(task_dir)
         if not task.get("started_at"):
