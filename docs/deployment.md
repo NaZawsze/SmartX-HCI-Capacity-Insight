@@ -104,11 +104,11 @@ The Compose files define `name: smartx-hci-capacity-insight`, so the normal `doc
 nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3
 nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.3
 nazawsze/smartx-hci-capacity-insight-frontend:v0.5.3
-nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2
+nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.3
 prom/prometheus:v2.55.1
 ```
 
-> **部署前必读（2026-09-27）**：`upgrade-runner:v0.3.2` 目前**尚未作为交付物存在**——没有 `runner-v0.3.2` git tag，DockerHub 只有 `v0.3.0`/`v0.3.1`/`latest`，组件包 `3d99599c…` 仅在 `.3` 本地构建目录。发布 `v0.5.3` 前必须补 tag + 镜像 + 组件包资产，否则把源码 compose 部署到新机器时该镜像拉不到，应改用已发布 `upgrade-runner:v0.3.1`（平台升级的 runner 基线就是 v0.3.1，见下节「升级顺序」）。
+> **部署前必读（2026-09-28）**：上面清单里的 `upgrade-runner` tag 是**源码/开发线口径**；本次发布**不交付 runner 组件**（用户 2026-09-28 决定，随下一版一起发），因此**交付物（含 OVA/全新部署）的 compose 必须落已发布 `upgrade-runner:v0.3.1`**（平台升级的 runner 基线就是 v0.3.1，见下节「升级顺序」）。开发线的 tag 目前没有对应 DockerHub 镜像，直接拿去部署会拉不到。
 
 If you export GitHub Actions images as tar files, load them first:
 
@@ -268,13 +268,13 @@ Replace `admin` with the actual platform username when needed. After reset, log 
 
 > 链路与配对的**权威版本见 [docs/upgrade-chain.md](upgrade-chain.md)**（现场主路径 `v0.5.2 → v0.5.3` 无 runner 步骤；从 v0.5.1 起的完整链路只给旧布局老客户与演练；平台↔runner 配对表）。本节只列操作要点。
 
-**顺序铁律：先升平台（v0.5.3），再做 runner 组件升级（v0.3.2）。** runner 组件升级**永远不是**平台升级的前置条件。
+**顺序铁律：先升平台（v0.5.3），再做 runner 组件升级（开发线现为 v0.3.3）。** runner 组件升级**永远不是**平台升级的前置条件。
 
 1. **为什么必须按这个顺序**：目标布局源端（v0.5.2）的 web-api 在执行 runner 组件升级时会无条件执行 `docker compose --project-name <当前 project> stop upgrade-runner`；目标布局机器上停掉的就是**刚启动的新 runner**（实测约 10s 后 `SIGKILL`、`exit=137`，心跳过期 → 后续升级预检查报「未检测到 upgrade-runner 心跳」）。这个同 project 守卫只在 **v0.5.3 起**的镜像里，旧源端改不到，所以**任何现场都按上述顺序做**。
 2. **现场主路径 = `v0.5.2 → v0.5.3` 一步直升，不带 runner 步骤**：已发布的平台版本是 **v0.5.2**，它配套的 runner 就是**已发布 v0.3.1**；v0.5.3 的升级包支持从 **v0.5.0/v0.5.1/v0.5.1u1/v0.5.1u2/v0.5.2/v0.5.3** 直升（manifest 含 project/network 切换、目录迁移与 legacy cleanup），且平台包的 runner 基线固定为**已发布 v0.3.1**，所以 v0.5.2 现场**不需要、也不能**先动 runner，直接 `v0.5.2 → v0.5.3` 即可。
    > AGENTS §7 那条从 `v0.5.1 + runner v0.3.0` 起的完整链路（`→ u2 → runner v0.3.1 → v0.5.2 → v0.5.3`）**是给仍停在 v0.5.1/旧布局的老客户和链路演练用的**：其中唯一一次 runner 组件升级发生在 **v0.5.1u2**（旧 project，升到**已发布 v0.3.1**），因为那时源端还不是目标布局。已经升到 v0.5.2 的现场不再走这条路。
 3. **唯一例外**：源端仍是旧 project（如 `v0.5.1u2`，compose project = `smartx-storage-forecast`）时，「先升 runner 再升平台」可行——stop 打的是旧 project 的 runner。这是验收/演练专用的顺序，**不适用于已迁到目标布局的现场**。
-4. **runner v0.3.2 的定位**：平台升级**完成之后**的可选组件升级；在 v0.5.2 现场装不出活的 v0.3.2（见第 1 条）。**本次 v0.5.3 不交付 runner 组件（用户 2026-09-28）**：与下一个版本一起发（开发线已到 `v0.3.3`，含 US-24 修复），本次只发平台包（runner 基线为已发布 `v0.3.1`）；源码 compose 里的 `v0.3.3` 属开发线状态，交付物（含 OVA）必须落 `v0.3.1`。
+4. **runner 组件的定位**：平台升级**完成之后**的可选组件升级；在 v0.5.2 现场装不出活的新 runner（见第 1 条）。**本次 v0.5.3 不交付 runner 组件（用户 2026-09-28）**：与下一个版本一起发（开发线已到 `v0.3.3`，含 US-24 修复），本次只发平台包（runner 基线为已发布 `v0.3.1`）；源码 compose 里的 `v0.3.3` 属开发线状态，交付物（含 OVA）必须落 `v0.3.1`。
 5. **并发限制**：同时只允许一个升级任务——已有升级处于 pending/running/恢复等待/回滚中时，新的升级请求（start/重试/恢复/回滚）一律被拒绝（400），请等待或取消后再开始。
 6. **症状速查**：升级后 runner 容器消失 / 心跳过期 / 预检查报「未检测到 upgrade-runner 心跳」→ 先确认是不是把 runner 组件升级做在了平台升级**之前**。
 
@@ -287,7 +287,7 @@ docker compose up -d
 
 The default compose file builds and runs the same versioned image names used by
 upgrade packages. Image tags are written literally in the compose files
-(web-api/collector-worker/frontend `v0.5.3`, `upgrade-runner` `v0.3.2`) and change
+(web-api/collector-worker/frontend `v0.5.3`, `upgrade-runner` `v0.3.3`) and change
 only through version commits, never through `.env` overrides. Do not switch
 runtime services back to `:local` tags, otherwise upgrade packages and the
 running compose state can drift.
@@ -312,7 +312,7 @@ Package builders:
 
 ```bash
 python scripts/build_upgrade_package.py
-python scripts/build_runner_component_package.py --version v0.3.2
+python scripts/build_runner_component_package.py --version v0.3.3
 python scripts/build_prometheus_component_package.py --version v2.55.1
 python scripts/build_bundle_upgrade_package.py --platform-version v0.5.3 --prometheus-version v2.55.1
 ```

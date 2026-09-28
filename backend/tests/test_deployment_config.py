@@ -104,12 +104,18 @@ class TestDeploymentConfig(unittest.TestCase):
             module.run = original_run
 
     def test_compose_splits_platform_and_runner_versions(self) -> None:
+        runner_version = (ROOT / "RUNNER_VERSION").read_text(encoding="utf-8").strip()
         for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
             text = (ROOT / name).read_text(encoding="utf-8")
             # 源码 compose 与升级包同一不变量（49-3）：镜像引用（registry+tag）全字面量，
             # 现场 .env 无法覆盖版本。曾经的双形态断言在字面量化后收紧。
+            # runner tag 跟随 RUNNER_VERSION（AGENTS §8：能力变更必须 bump），断言不写死版本。
             self.assertIn("smartx-hci-capacity-insight-web-api:v0.5.3", text, f"{name} missing platform v0.5.3 tag")
-            self.assertIn("smartx-hci-capacity-insight-upgrade-runner:v0.3.2", text, f"{name} missing runner v0.3.2 tag")
+            self.assertIn(
+                f"smartx-hci-capacity-insight-upgrade-runner:{runner_version}",
+                text,
+                f"{name} missing runner {runner_version} tag",
+            )
             for key in ("SMARTX_IMAGE_TAG", "SMARTX_RUNNER_IMAGE_TAG", "SMARTX_IMAGE_PREFIX", "SMARTX_RUNNER_IMAGE_PREFIX"):
                 self.assertNotIn(key, text, f"{name} must not contain template variable {key}")
             self.assertNotIn(":latest", text)
@@ -142,8 +148,9 @@ class TestDeploymentConfig(unittest.TestCase):
         self.assertNotIn("SMARTX_IMAGE_TAG=v0.3.1", text)
         self.assertNotIn("nazawsze/smartx-hci-capacity-insight-web-api:latest", text)
         self.assertNotIn("nazawsze/smartx-hci-capacity-insight-upgrade-runner:latest", text)
+        runner_version = (ROOT / "RUNNER_VERSION").read_text(encoding="utf-8").strip()
         self.assertIn("nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3", text)
-        self.assertIn("nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2", text)
+        self.assertIn(f"nazawsze/smartx-hci-capacity-insight-upgrade-runner:{runner_version}", text)
 
     def test_platform_upgrade_package_excludes_runner(self) -> None:
         text = (ROOT / "scripts/build_upgrade_package.py").read_text(encoding="utf-8")
