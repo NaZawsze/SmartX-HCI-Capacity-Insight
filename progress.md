@@ -8004,6 +8004,16 @@ release_smoke=critical 0, warning 0
 - **容器内全量回归**：首跑 **461 tests（1 失败）** —— 失败是 `test_deployment_config` 里写死的 runner tag `v0.3.2`；已把该断言改为**跟随 `RUNNER_VERSION`**（版本 bump 不再需要改测试），并把 `docs/deployment.md` 里的 runner tag 同步到 v0.3.3；修正后重跑（结果见下一次记录）。
 - 备注：为校验 `test_deployment_config`，第一次重传用的是**修测试之前**打的快照，导致复跑仍报同一失败；重新打包快照后复跑。
 
+## 2026-09-28 版本口径更正 + r6/v0.3.2 包重建（用户：「我要发的是 0.3.2」）
+
+- **用户更正**：`runner v0.3.2` **从未交付/发布**，因此 US-24 修复**直接并入 v0.3.2**，不需要 bump 到 v0.3.3。已按此回退全部版本面（`RUNNER_VERSION`、两个 `DEFAULT_RUNNER_VERSION`、三个源码 compose、`RunnerSettings` 默认值、协议注释、预检查提示、README 示例，以及 version-governance/deployment/release-acceptance/upgrade-chain/CHANGELOG/台账/pending/findings/progress），保留 `engine._save` 的 inode 判等修复。提交 `b36c153`。
+- **流程错误（已记录教训）**：第一次重建时我把回退**还没提交**就 `git archive HEAD` → 打出的仍是 v0.3.3 的树，于是那次构建口径不一致（门禁脚本正确报 `manifest v0.3.2 != RUNNER_VERSION v0.3.3`——脚本没错，是我错）。教训：**回退/改动必须先提交再 archive**；同时这条也是门禁脚本价值的现场例证。
+- **最终产物（v0.3.2 口径，全部重建）**：
+  - 平台候选 **r6**：`.3:/data/upgrade-packages/v053-r6-20260928/smartx-capacity-insight-upgrade-v0.5.3.tar.gz`，SHA256 **`6253810bc7e6dc82880186e7589bc6454a3f6bdb31309697c26044df02a98138`**（246,236,428 B；11:29 第二次构建，11:05 的 v0.3.3 口径构建已废弃）。
+  - **runner v0.3.2 组件包（含 US-24）**：`.3:/data/upgrade-packages/components-v032-20260928/smartx-upgrade-runner-v0.3.2.tar.gz`，SHA256 **`c69e2129223d8401bb8cbc413b582721c52da041ee8c89ac39f66ea23d575be8`**（81,231,545 B）；**取代旧开发包 `3d99599c…`**（不含 US-24）。
+- **门禁（`.3`）**：宿主机 build_tests **26 OK**；`build_upgrade_package.py --check-version` **OK（v0.5.3）**；平台包 identity **OK**；交付一致性门禁 **C1–C5 全 PASS**（仓库 v0.3.2 / 三个 compose 字面量 v0.3.2 / manifest v0.3.2 / 归档 SHA / 镜像内 `app/RUNNER_VERSION=v0.3.2` + `actions.py` md5 == 仓库 + 26 动作；C6 DockerHub SKIP=本次不推送）；容器内全量 **461 tests OK (skipped=2)**；两包敏感成员 **0**。
+- **下一步**：在 `.12` 复验——①用 r6 平台包走"平台先"链路 + 8 项验收 + 重复 start；②安装重建的 v0.3.2 组件包后**复验 US-24（同版本重装不再卡死）**。
+
 ## 2026-09-28 US-24 + US-25 全部修复（用户：「全修了吧」）+ US-24 并入 runner v0.3.2
 
 - **US-25（web-api 侧，未动 runner）**：`recovery/{task_id}/fail` 现在接受「`running` 且**该任务没有活租约**」的任务（新增 `runner_presence.task_lease_is_alive`：未过期或心跳在 30s 内才算活）→ 标记失败并写审计式 error；任务视图在同样条件下暴露 `runner_lost=true` 与 `available_recovery_actions=["fail"]`，界面/接口能发现"卡死"。这样 US-23 单飞守卫不再把环境永久锁死。测试：`backend/tests/test_stuck_running_recovery.py` **7 例**（无租约可 fail / 租约过期可 fail / 租约有效仍拒绝 / 视图暴露与隐藏 / fail 后单飞解除 / recovery_required 老路径不变）。
