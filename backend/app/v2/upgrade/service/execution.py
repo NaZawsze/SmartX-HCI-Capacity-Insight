@@ -227,18 +227,20 @@ class ExecutionMixin:
         task["available_recovery_actions"] = []
         task["cleanup_required"] = cleanup_required
         task["residual_paths"] = residual_paths
+        base_error = task.get("error") or (
+            "管理员已将执行中断的升级任务标记为失败（runner 已不再持有该任务）。"
+            if stuck_running
+            else "管理员已将恢复任务标记为失败。"
+        )
         if cleanup_required:
+            # 追加而非覆盖：保留原失败语义，再补收尾指引
             task["error"] = (
-                f"管理员已将执行中断的升级任务标记为失败。环境可能处于半迁移状态，检测到残留路径："
-                f"{'、'.join(residual_paths)}。请重新上传并执行一次完整升级，由升级后清理（post-cleanup）收尾；"
+                f"{base_error} 环境可能处于半迁移状态，检测到残留路径：{'、'.join(residual_paths)}。"
+                "请重新上传并执行一次完整升级，由升级后清理（post-cleanup）收尾；"
                 "在此之前不要开始新的升级任务。"
             )
         else:
-            task["error"] = task.get("error") or (
-                "管理员已将执行中断的升级任务标记为失败（runner 已不再持有该任务）。"
-                if stuck_running
-                else "管理员已将恢复任务标记为失败。"
-            )
+            task["error"] = base_error
         task["updated_at"] = _now().isoformat()
         _save_task_file(task_dir, task)
         self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message=task["error"])

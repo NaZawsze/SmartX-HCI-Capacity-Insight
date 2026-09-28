@@ -63,6 +63,8 @@ class FailCleanupHintTest(unittest.TestCase):
             self.assertIn("半迁移", result["error"])
             self.assertIn("/data/upgrades", result["error"])
             self.assertIn("post-cleanup", result["error"], "必须指明由升级后清理收尾")
+            # US-27 是「追加收尾指引」，不得覆盖原失败语义（stuck_running 回归）
+            self.assertIn("runner 已不再持有该任务", result["error"])
 
     def test_no_residual_means_no_cleanup_required(self) -> None:
         """环境本来就干净时不该制造噪音提示。"""
