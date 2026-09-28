@@ -43,11 +43,11 @@
 
 ## B. 升级流程/断言层
 
-### US-05 🟠 已实施待 .12 MVP：post-cleanup 健康断言"版本相等"→ 升级顺序敏感
+### US-05 🟢 已实施；顺序验收不做（用户 2026-09-28 定）：post-cleanup 健康断言"版本相等"→ 升级顺序敏感
 - **现象**：`_require_cleanup_health`（`upgrade_runner/actions.py:1884-1886`）用 `!=` 等值比较 `required_health.runner_version`。manifest 现在写 `v0.3.1`：先升平台（runner=v0.3.1）✅；**先升 runner 到 v0.3.2 再升平台 → "清理前 runner 版本不匹配" → 升级成功但 post-cleanup 失败**（旧环境不清理、残留累积）。
 - **证据**：代码可证（`if expected_runner and ... != expected_runner: raise`）；第四轮只测了"先平台"顺序，未覆盖另一条。
 - **方向**：平台侧打包时**不写** `required_health.runner_version`（代码 `if expected_runner` 为空即跳过），只校验平台版本 + 三项 health；或改为"≥"语义（需改 runner，须 bump，且老 runner 收不到）。
-- **状态**：🟠 **已实施（49-52，提交 8115c41）**：`build_upgrade_package.py` 的 `required_health` 移除 `runner_version`（runner 侧 `if expected_runner` 空即跳过，无需 bump runner）；候选包 `b9560eee…` 的 manifest 已无该字段（`required_health` 仅 `version`+`checks`），`.3` 门禁全过；**`.12` MVP（先 runner 后平台顺序）待授权执行**。设计：`docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md`。
+- **状态**：🟢 **已实施（49-52，提交 8115c41）**；**2026-09-28 用户决定：runner-first 顺序不是受支持链路（链路只有"先平台、后 runner"），且 v0.3.2 不随本次发布 → M3-08/M3-10 两格记 N/A、不做顺序验收**；本项按「代码 + manifest 实证的防御性修复」记录（r5 候选包 manifest 实证 `required_health` 无 `runner_version`），发布材料不得写"顺序无关已实测"。原状态描述：**已实施（49-52，提交 8115c41）**：`build_upgrade_package.py` 的 `required_health` 移除 `runner_version`（runner 侧 `if expected_runner` 空即跳过，无需 bump runner）；候选包 `b9560eee…` 的 manifest 已无该字段（`required_health` 仅 `version`+`checks`），`.3` 门禁全过；**`.12` MVP（先 runner 后平台顺序）待授权执行**。设计：`docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md`。
 
 ### US-06 🟠 升级后采集链路：5 秒常驻轮询 + 落盘便条 + 冗余的 runner 写便条
 - **现象**：`worker.py` 每 5 秒扫 `upgrades/*/`（常驻、无开关、无指标）；便条本应由触发方写，却让 runner 插手（而这正是 49-49 要删的冗余）。

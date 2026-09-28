@@ -7996,6 +7996,12 @@ release_smoke=critical 0, warning 0
 - **残留与边界**：任务结束后一个轮询周期（≤3s）两条通道都不新鲜，生产里由 `_active_runner_state()` 的 docker 兜底覆盖（已记入设计文档边界节）；runner 侧"执行期也刷新实例心跳"登记为下次 runner 交付待办。`.3` 上本次实验产生的 4 个升级任务目录（含 3 个 success、1 个 precheck_failed，约 3.3 GB）与 `/root/verify-gate`、采样脚本已清理。
 - 提交：`fb6df7d`（修复）+ `8427d9c`（证据/边界）。**S1 阶段（本地可闭环缺陷）全部完成**，下一步按顺序进入 S2-1（US-06 升级后采集改事件驱动）。
 
+## 2026-09-28 两条链路/交付决定（用户）
+
+- **M3-08（v0.5.1u2 × 先 runner 后平台）不做**：用户明确「这个升级链路就是先 v0.5.3 后 runner」——受支持链路只有**先平台、后 runner**，runner-first 不是支持路径，因此 M3-08 与 M3-10 一并记 N/A；US-05 的修复按「代码 + manifest 实证的防御性修复」记录，**发布材料不得写"顺序无关已实测"**。
+- **runner v0.3.2 不随本次 v0.5.3 发布交付，与下一个版本一起发**：本次只发平台包（平台包渲染的 runner 基线是已发布 `v0.3.1`，`.12` 已实测直升 + post-cleanup 成功）；本次不补 `runner-v0.3.2` tag / 镜像 / 资产；**交付物（含 OVA）的 compose 必须落 `v0.3.1`**，源码 compose 的 `v0.3.2` 属开发线状态；US-24 的 runner 修复随下一版 runner 交付一起做（届时 bump v0.3.3）。
+- 文档同步：docs/upgrade-audit-matrix.md（M3-08 标 N/A、MVP 子集改为"1 格已跑"）、验收计划「可跑范围」、docs/upgrade-chain.md（§0/§5/§6）、docs/version-governance.md（v0.3.2 条目改写为"本次不交付"）、docs/upgrade-strategy-issues.md（US-05 → 🟢 + N/A 说明）、docs/deployment.md §10.1、docs/releases/CHANGELOG.md（已知问题）、docs/pending-tasks.md（#2/#45/#48）。
+
 ## 2026-09-28 `.12` 重建清理（用户：「US24 先不管」「.12 重建清理干净」）
 
 目标：把 `.12` 从"卡死 running 任务"的现场重建为一个干净可用的环境。
