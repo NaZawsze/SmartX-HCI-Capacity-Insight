@@ -35,8 +35,14 @@ def _image_archive(version: str, actions_source: str, *, include_actions: bool =
     entries: dict[str, bytes] = {}
     if include_version:
         entries["app/RUNNER_VERSION"] = (version + "\n").encode("utf-8")
-    if include_actions:
-        entries["app/app/upgrade_runner/actions.py"] = actions_source.encode("utf-8")
+    # US-28 门禁补洞：真实镜像里包含**整个 runner 源码树**，门禁按树指纹校验，
+    # 因此 fixture 也必须打包全部模块（否则门禁会正确地报「不一致模块」）。
+    repo_pkg = Path(gate.ROOT) / "backend" / "app" / "upgrade_runner"
+    for module in sorted(repo_pkg.glob("*.py")):
+        if module.name == "actions.py" and not include_actions:
+            continue
+        content = actions_source.encode("utf-8") if module.name == "actions.py" else module.read_bytes()
+        entries[f"app/app/upgrade_runner/{module.name}"] = content
     layer = _tar_bytes(entries)
     docker_manifest = [
         {
@@ -275,6 +281,53 @@ class CliTest(unittest.TestCase):
         payload = json.loads(completed.stdout)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["runner_version"], gate.read_repo_runner_version())
+
+
+class TreeFingerprintTest(unittest.TestCase):
+    """US-28 门禁补洞的回归：改 lease.py 等非 actions.py 的模块也必须被抓到。"""
+
+    def test_repo_fingerprint_covers_all_runner_modules(self) -> None:
+        tree, files = gate.repo_runner_tree_fingerprint()
+        names = {name for name, _ in files}
+        self.assertIn("lease.py", names, "门禁必须覆盖 lease.py（US-28 根因所在）")
+        self.assertIn("actions.py", names)
+        self.assertIn("main.py", names)
+        self.assertIn("engine.py", names)
+        self.assertTrue(tree)
+
+    def test_fingerprint_changes_when_any_module_changes(self) -> None:
+        """只要 runner 任一模块内容变化，聚合指纹必须变化（不只是 actions.py）。"""
+        before, _ = gate.repo_runner_tree_fingerprint()
+        target = Path(gate.ROOT) / "backend" / "app" / "upgrade_runner" / "lease.py"
+        original = target.read_bytes()
+        try:
+            target.write_bytes(original + b"\n# US-28 gate probe\n")
+            after, _ = gate.repo_runner_tree_fingerprint()
+        finally:
+            target.write_bytes(original)
+        self.assertNotEqual(before, after, "改 lease.py 必须改变树指纹")
+
+    def test_lease_change_is_reported_as_drift(self) -> None:
+        """镜像内 lease.py 与仓库不一致时，门禁要指名 lease.py。"""
+        version = gate.RUNNER_VERSION_FILE.read_text(encoding="utf-8").strip()
+        repo_actions = Path(gate.ACTIONS_FILE).read_text(encoding="utf-8")
+        payload = gate.inspect_image_archive(_image_archive(version, repo_actions))
+        repo_map = {rel: digest for rel, digest in gate.repo_runner_tree_fingerprint()[1]}
+        # 篡改镜像里的 lease.py 指纹
+        payload["tree_files"] = [
+            [rel, "deadbeef" if rel == "lease.py" else digest] for rel, digest in payload["tree_files"]
+        ]
+        import hashlib as _h
+        tree = _h.md5()
+        for rel, digest in sorted((r, d) for r, d in payload["tree_files"]):
+            tree.update(rel.encode("utf-8"))
+            tree.update(digest.encode("utf-8"))
+        payload["tree_md5"] = tree.hexdigest()
+        results = gate.compare_probe(payload, version, sorted(gate.parse_actions_source(repo_actions)), "test")
+        drift = [r for r in results if r["status"] == "FAIL" and "源码树指纹" in r["detail"]]
+        self.assertTrue(drift, "必须报出树指纹不一致")
+        self.assertIn("lease.py", drift[0]["detail"], "必须指名 lease.py")
+        self.assertEqual(repo_map.get("lease.py") is not None, True)
 
 
 if __name__ == "__main__":

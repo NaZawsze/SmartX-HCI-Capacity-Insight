@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from app.upgrade_protocol.constants import RUNNER_CAPABILITIES, RUNNER_PROTOCOL_VERSION
 
@@ -20,11 +21,24 @@ class LeaseManager:
         self.ttl_seconds = ttl_seconds
         self._initialize()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """US-28 治本：每次用完**显式关闭**连接。
+
+        此前 `_connect()` 返回裸连接，调用方写 `with self._connect() as conn`——而
+        `with sqlite3.Connection` 只在退出时提交/回滚事务，**不会关闭连接**。心跳每 5 秒
+        调一次，长驻进程会持续堆积未关闭连接与未提交写事务，在 WAL 下阻塞 web-api 的写操作
+        （`.12` 实测 52 个 fd、约 10 分钟写锁窗口，升级预检查裸 500 `database is locked`）。
+        改为真正的上下文管理器，保证异常路径也关闭。
+        """
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
-        return connection
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _initialize(self) -> None:
         with self._connect() as connection:

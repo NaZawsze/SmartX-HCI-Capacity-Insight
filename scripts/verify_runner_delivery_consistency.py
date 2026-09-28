@@ -37,6 +37,9 @@ PROBE_MARKER = "SMARTX_RUNNER_PROBE:"
 REQUIRED_ACTION = "post_upgrade.schedule_collection"
 IMAGE_RUNNER_VERSION_PATH = "RUNNER_VERSION"
 IMAGE_ACTIONS_PATH = "upgrade_runner/actions.py"
+# US-28 门禁补洞：原先只校验 actions.py 的 md5，改 lease.py/main.py 等其它 runner 模块
+# 不会被发现——那正是「同版本号、不同能力」的核心风险。改为对整个 runner 源码树聚合指纹。
+IMAGE_RUNNER_PKG_PREFIX = "app/upgrade_runner"
 
 LIVE_PROBE_SCRIPT = """
 import hashlib, json
@@ -46,10 +49,23 @@ import app.upgrade_runner.actions as actions_module
 from app.upgrade_runner.actions import default_handlers
 
 actions_path = Path(actions_module.__file__)
+pkg_root = Path(actions_path).parent
+tree = hashlib.md5()
+files = []
+for py in sorted(pkg_root.rglob("*.py")):
+    if "__pycache__" in py.parts:
+        continue
+    rel = py.relative_to(pkg_root).as_posix()
+    digest = hashlib.md5(py.read_bytes()).hexdigest()
+    files.append([rel, digest])
+    tree.update(rel.encode("utf-8"))
+    tree.update(digest.encode("utf-8"))
 payload = {
     "runner_version": Path("/app/RUNNER_VERSION").read_text(encoding="utf-8").strip(),
     "actions_path": str(actions_path),
     "actions_md5": hashlib.md5(actions_path.read_bytes()).hexdigest(),
+    "tree_md5": tree.hexdigest(),
+    "tree_files": files,
     "actions": sorted(default_handlers().keys()),
 }
 print("__PROBE_MARKER__" + json.dumps(payload))
@@ -81,6 +97,22 @@ def sha256_stream(handle: Any) -> str:
 
 def md5_file(path: Path) -> str:
     return hashlib.md5(path.read_bytes()).hexdigest()
+
+
+def repo_runner_tree_fingerprint() -> tuple[str, list[list[str]]]:
+    """US-28 门禁补洞：整个 runner 源码树的聚合指纹（含 lease.py/main.py/engine.py 等）。"""
+    pkg_root = ROOT / "backend" / "app" / "upgrade_runner"
+    tree = hashlib.md5()
+    files: list[list[str]] = []
+    for py in sorted(pkg_root.rglob("*.py")):
+        if "__pycache__" in py.parts:
+            continue
+        rel = py.relative_to(pkg_root).as_posix()
+        digest = hashlib.md5(py.read_bytes()).hexdigest()
+        files.append([rel, digest])
+        tree.update(rel.encode("utf-8"))
+        tree.update(digest.encode("utf-8"))
+    return tree.hexdigest(), files
 
 
 def version_tuple(value: str) -> tuple[int, ...]:
@@ -238,8 +270,13 @@ def pick_member(layer: tarfile.TarFile, suffix: str) -> tarfile.TarInfo | None:
 
 
 def inspect_image_archive(archive_bytes: bytes) -> dict[str, Any]:
-    """按 docker-save/OCI 层解析镜像归档，取 /app 下版本文件与动作表内容；不需要 docker。"""
+    """按 docker-save/OCI 层解析镜像归档，取 /app 下版本文件与动作表内容；不需要 docker。
+
+    US-28 门禁补洞：除版本文件与动作表外，还收集**整个 runner 源码树**的 md5，
+    用于发现「改了 lease.py/main.py 等模块但版本号不变」的能力漂移。
+    """
     payload: dict[str, Any] = {}
+    tree_files: dict[str, str] = {}
     with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:*") as archive:
         handle = archive.extractfile("manifest.json")
         if handle is None:
@@ -252,10 +289,24 @@ def inspect_image_archive(archive_bytes: bytes) -> dict[str, Any]:
         layers = entry.get("Layers") or []
         payload["layer_count"] = len(layers)
         for layer_path in layers:
-            layer_handle = archive.extractfile(layer_path)
+            try:
+                layer_handle = archive.extractfile(layer_path)
+            except KeyError:
+                continue
             if layer_handle is None:
                 continue
             with tarfile.open(fileobj=layer_handle, mode="r:*") as layer:
+                # 后出现的层覆盖先出现的（同一文件被多层修改时以最终内容为准）
+                for member in layer.getmembers():
+                    if not member.name.endswith(".py") or "__pycache__" in member.name:
+                        continue
+                    index = member.name.find(IMAGE_RUNNER_PKG_PREFIX + "/")
+                    if index < 0:
+                        continue
+                    rel = member.name[index + len(IMAGE_RUNNER_PKG_PREFIX) + 1:]
+                    member_data = layer.extractfile(member)
+                    if member_data is not None:
+                        tree_files[rel] = hashlib.md5(member_data.read()).hexdigest()
                 version_member = pick_member(layer, IMAGE_RUNNER_VERSION_PATH)
                 if version_member is not None:
                     data = layer.extractfile(version_member)
@@ -270,6 +321,14 @@ def inspect_image_archive(archive_bytes: bytes) -> dict[str, Any]:
                         payload["actions_path"] = actions_member.name
                         payload["actions_md5"] = hashlib.md5(source).hexdigest()
                         payload["actions"] = parse_actions_source(source.decode("utf-8"))
+    ordered = sorted(tree_files.items())
+    if ordered:
+        tree = hashlib.md5()
+        for rel, digest in ordered:
+            tree.update(rel.encode("utf-8"))
+            tree.update(digest.encode("utf-8"))
+        payload["tree_md5"] = tree.hexdigest()
+        payload["tree_files"] = [[rel, digest] for rel, digest in ordered]
     return payload
 
 
@@ -302,6 +361,36 @@ def compare_probe(payload: dict[str, Any], version: str, repo_actions: list[str]
         results.append(check("package_image", "PASS", f"{source}: {where} = {version}"))
     else:
         results.append(check("package_image", "FAIL", f"{source}: {where}={probed_version!r} != {version!r}"))
+
+    # US-28 门禁补洞：整个 runner 源码树的聚合指纹（actions.py 之外的 lease.py/main.py 等
+    # 同样必须同源——只比 actions.py 会漏掉「改 lease.py 但版本号不变」这类能力漂移）。
+    repo_tree, repo_files = repo_runner_tree_fingerprint()
+    probed_tree = str(payload.get("tree_md5") or "")
+    probed_files = {str(item[0]): str(item[1]) for item in (payload.get("tree_files") or []) if len(item) == 2}
+    repo_map = {str(rel): str(digest) for rel, digest in repo_files}
+    if probed_tree and probed_tree == repo_tree:
+        results.append(
+            check("package_image", "PASS", f"{source}: runner 源码树指纹 matches repo ({repo_tree}, {len(repo_files)} 个模块)")
+        )
+    elif not probed_tree:
+        results.append(
+            check(
+                "package_image",
+                "FAIL",
+                f"{source}: 探针未提供 runner 源码树指纹，无法确认 lease.py/main.py 等模块与仓库同源",
+            )
+        )
+    else:
+        drift = sorted(
+            name for name in set(repo_map) | set(probed_files) if repo_map.get(name) != probed_files.get(name)
+        )
+        results.append(
+            check(
+                "package_image",
+                "FAIL",
+                f"{source}: runner 源码树指纹 {probed_tree} != repo {repo_tree}；不一致模块：{', '.join(drift) or '(未知)'}",
+            )
+        )
 
     repo_md5 = md5_file(ACTIONS_FILE)
     probed_md5 = str(payload.get("actions_md5") or "")
