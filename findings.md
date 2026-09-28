@@ -782,6 +782,15 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - **修法与边界**：web-api 侧把"存在有效任务租约"也算作在场证据（`service/runner_presence.py`，`source` 记 `task_lease`），协议校验/组件目录/health 共用同一判定。**不改 runner**（改 runner 需用户同意 + bump 版本 + 重交付，见 AGENTS §6/§8）；runner 侧"执行期也刷新实例心跳"登记为待办。runner 重启窗口没有租约 → 仍报"未检测到心跳"，是期望行为。
 - 教训：**多通道心跳的组件，判定"是否在场"必须覆盖所有通道**；只看其中一条会把"正忙"误判成"不在"。
 
+## 2026-09-28 客户形态演练：带 clutter 的 v0.5.2 → v0.5.3 通过；两个"handoff 瞬态窗口"要记
+
+- **做法**：`.12` 重建到 v0.5.2（用已发布 `692aca8b` + 已发布 runner `d10e15cf` 走出），再注入"老机器"clutter —— 3 个未执行任务目录（各含真实 235MB 包 + 596MB 解包目录，用改坏 `source_compatibility` 的包上传产生）、4 个历史备份文件、2 个悬空镜像；磁盘 49% → 54%。
+- **结果**：预检查 7 项全 true；**v0.5.2 → v0.5.3（r5）升级成功**（task `upgrade-e606e0135d1abc2f`），**耗时 252 秒**（干净环境约 2–3 分钟，clutter 使其变长）；升级后 SQLite `integrity ok`、**users1/towers1/clusters1/vm_latest556/vm_volumes89588 与升级前一致**、`.env` 0600 sha `8b644112…` 未变、Prometheus 挂目标目录 200、7 个 legacy 路径 missing、UI 200。
+- **观察 1（瞬态，自愈）**：升级**刚结束的那几秒**里 `/api/system/health` 报 `runner_version=未检测到 runner` —— 因为 `runner.schedule_target_runtime_handoff` 正在重建 runner。实测 T+0 未检测到、T+56s 已恢复（容器 uptime 恰好 56s、心跳新鲜）。**判读升级结果不要在 T+0 立刻看 health**；运维手册可写"等 1 分钟再判"。
+- **观察 2（同一窗口的预检查）**：在这个 handoff 窗口内做预检查可能误报 `runner_protocol`「未检测到 upgrade-runner 心跳」——注意 **US-08 的"租约通道"修复覆盖不到它**（该窗口既无实例心跳、也无任务租约），只能靠"重试"或额外加"handoff 后宽限"逻辑。
+- **未覆盖（仍要说清）**：①400 天量级的 Prometheus 历史块（`.12` 无真实历史数据，Tower 自 7 月起不可达，无法造真实块）；②"客户自己从已发布 v0.5.2 一路升上来的机器 + 多年业务数据"的完整形态（本次用标准业务夹具）。
+- **印证**：clutter 里的"未执行任务目录"升级后**仍在**（本次用的 r5 不含 US-09 自动清理）——下一个包要带 S1 三项（US-07/08/09）。
+
 ## 2026-09-27 `.12` 链路演练（u2→…→runner v0.3.2）发现两个真缺陷
 
 演练本身通过：`v0.5.1 → u2 → runner v0.3.1(d10e15cf) → v0.5.2(692aca8b) → v0.5.3(r5 b9560eee) → runner v0.3.2(3d99599c)`，每步 task succeeded、v0.5.2 与 v0.5.3 两处 post-cleanup success、数据 556/89588 全程未变、`.env` sha 未变、8 项验收两次全过。
