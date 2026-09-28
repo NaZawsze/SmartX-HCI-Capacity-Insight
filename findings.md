@@ -808,3 +808,10 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - **复现**：D1 的任务卡在 `running` 后，`POST /api/admin/upgrade/cancel/{tid}` → **400「只能取消等待执行的升级任务。」**；`POST /api/admin/upgrade/recovery/{tid}/fail` → **400「只有等待恢复的升级任务可以标记失败。」**；`delete` 亦被拒。于是 US-23 单飞守卫会把**之后所有升级**都拒掉（"升级任务 … 正在执行或需要恢复"）→ 该机器再也无法开始升级，只能靠宿主手工干预（而 AGENTS 明确禁止手工改 task 状态）。
 - **影响**：任何"任务卡在 running（runner 崩溃/被杀/主机重启）"的现场都会变成**不可恢复**；这与"数据优先、可重试"的设计口径冲突。
 - **修复（2026-09-28，web-api 侧，未动 runner）**：`recovery/{task_id}/fail` 现在接受「`running` 且**该任务没有活租约**」的任务（`runner_presence.task_lease_is_alive`；活租约=未过期或心跳在 30s 内）→ 标记失败并写审计式 error；任务视图在同样条件下暴露 `runner_lost=true` 与 `available_recovery_actions=["fail"]`，让界面/接口能发现。回归测试 `backend/tests/test_stuck_running_recovery.py` 7 例。
+
+## 2026-09-28（r6 `.12` 验收轮稳定结论）
+
+- **runner 组件版本没有单一事实源 → 平台升级会静默降级它**：组件升级只把新 tag 写进 `compose-runtime/docker-compose.runner-bootstrap.yml`；`project/docker-compose.yml` 与 `compose-runtime/docker-compose.runner-upgrade.yml` 保持旧 tag。平台升级按**包内 compose** 重建 runner，于是把组件升级成果覆盖掉（实测 v0.3.2 → v0.3.1，无任何提示）。教训：**凡是「谁决定镜像 tag」的地方，必须只有一个写入点**；组件安装成功后要回写所有会被 `docker compose up` 读到的文件，否则下次 recreate 就回退。
+- **「标记失败」类逃生门必须回答「环境现在是什么状态」**：US-25 的 `recovery/fail` 只改任务状态，被中断升级留下的旧路径（`/data/upgrades/<task>/package`、空骨架数据目录）原样留着，验收第 7 项会判异常；收干净只能靠**再跑一次成功升级**让 post-cleanup 收尾。产品化出路应至少在响应里带「需收尾」提示与残留清单。数据红线这次是安全的（旧目录只是 12K 空骨架，live 库完好）。
+- **rollback journal 模式下，一个进程的长事务能堵死整个平台的写操作**：DB 无 `-wal/-shm` 时，任何未提交事务独占写锁。实测 runner 在**空闲态**（`hrtimer_nanosleep`、无任务）持有 52 个指向 DB 的 fd，造成约 10 分钟写锁窗口，web-api 预检直接 500 `database is locked`（无重试）。教训：**长驻进程（runner/worker）访问 SQLite 必须是短事务 + 显式 close**；平台侧对 `database is locked` 应有限重试而不是裸 500。
+- **链路编排脚本必须在「组件升级」之后显式等锁释放**：`.12` 上「runner 组件升级 → 下一个平台步」是高频组合，本轮实测 3 连 500；心跳新鲜（age=2s）也照样被锁挡——**排查「升级失败」时不要只看心跳，还要看锁与 fd**。

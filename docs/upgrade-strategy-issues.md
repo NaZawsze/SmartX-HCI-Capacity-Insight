@@ -88,7 +88,7 @@
 - **根因**：`engine._save()`（`upgrade_runner/engine.py:59-67`）在 `task_mirror_dir` 存在时无条件再写一份 mirror；同版本重装时 `task.migrate_runtime_state` 的 source 与 mirror 是**同一目录的两个路径视图** → 每次保存写同一文件两遍（N→N+2），内存 revision 落后 → 下次保存必 `RevisionConflict`。49-50 只修了同族的 `rmtree` 自删，未覆盖镜像写入。
 - **证据**：`.12` task `upgrade-d08f064e6e15166a`（attempt=17、36 条 RevisionConflict、动作序列与 revision 轨迹已留档 `/root/baselines/wedged-task-upgrade-d08f064e6e15166a/`）。
 - **方向**：mirror 与主 store 同文件时跳过 mirror 写（inode/`resolve()` 判等）；补"同版本重装 + mirror 同源"回归。**改 runner → 需用户同意并 bump 版本（AGENTS §6/§8）**。
-- **状态**：🟢 **已修（2026-09-28）**：`engine._save` 增加 inode 判等后跳过同文件 mirror 写；**修复并入 `runner v0.3.2`**（该版本未交付，直接并入；用户 2026-09-28 口径）；单测 4 例通过。**待随下一版 runner 交付后在 `.12` 复验同版本重装全流程。**
+- **状态**：🟢 **已修（2026-09-28）**：`engine._save` 增加 inode 判等后跳过同文件 mirror 写；**修复并入 `runner v0.3.2`**（该版本未交付，直接并入；用户 2026-09-28 口径）；单测 4 例通过。**`.12` 已复验（2026-09-28）：装含修复的 `runner v0.3.2` 组件包后跑 v0.5.3 → v0.5.3 同版本重装，`upgrade-26856095c44869d1` 44s succeeded、post-cleanup succeeded、runner 重启 0 次、动作 attempt 最大 1（修复前 attempt=17）→ 🟢 确认修复。注意同轮发现 US-26：平台包会把 runner 降回 v0.3.1。**
 
 ### US-25 🟢 已修：卡在 `running` 的任务无产品化出路 → 单飞守卫把环境永久锁死
 
@@ -96,6 +96,32 @@
 - **证据**：`.12` 实测三条接口响应（见 findings.md D2）。
 - **方向**：让恢复通道覆盖"长时间无有效租约/无新鲜心跳的 running 任务"（判为 recovery_required 并给 continue/rollback/fail），或提供"标记失败/强制恢复"入口 + 审计。
 - **状态**：🟢 **已修（2026-09-28，web-api 侧，未动 runner）**：`recovery/{tid}/fail` 接受「running 且无活租约」的任务；视图暴露 `runner_lost` + `available_recovery_actions=["fail"]`；单测 7 例通过。
+
+### US-26 🔴 新发现（本轮 .12 验收）：平台包会把 runner 静默降回包内 tag，组件升级成果不耐受平台升级
+
+- **现象**：`.12` 先用组件包把 runner 升到 **v0.3.2**（`upgrade-9fdaff9a349bc257` succeeded，容器/镜像内 `RUNNER_VERSION`/health 三方一致，存活 90s+），随后用 r6 平台包做一次 **v0.5.3 → v0.5.3 同版本重装**（`upgrade-26856095c44869d1` succeeded）→ 升级结束后 runner **变回 v0.3.1**（容器 image tag、`/app/RUNNER_VERSION`、health `runner_version` 三处均为 v0.3.1）。
+- **根因**：runner 组件升级只把新 tag 写进 `compose-runtime/docker-compose.runner-bootstrap.yml`；**平台包 `project/docker-compose.yml` 与 `compose-runtime/docker-compose.runner-upgrade.yml` 仍钉旧 tag**（实测两者都是 v0.3.1，`docker compose config` 也解析为 v0.3.1）。平台升级按包内 compose 重建 runner → 覆盖掉组件升级结果。
+- **影响**：与交付决定「runner v0.3.2 随下一版发布交付」直接冲突——客户先装 v0.3.2 组件包、之后再升平台，runner 会被**静默降级**，US-24 等 runner 侧修复随之丢失，且无任何提示。属于 AGENTS §6「同版本号不同能力/能力漂移」类风险的环境侧变体。
+- **方向**：①平台包渲染 runner tag 时以「现场已安装组件版本」为准（或至少不低于包内基线）；②组件升级成功后回写 project compose / runner-upgrade compose，保持单一事实源；③预检查在检测到「现场 runner 版本 > 包内基线」时给出显式提示或拒绝。
+- **证据**：`.12` 2026-09-28 23:08→23:14 实测（组件升级 → 同版本重装 → 版本回落）；`compose-runtime/docker-compose.runner-bootstrap.yml`=v0.3.2 而 `docker-compose.yml`/`docker-compose.runner-upgrade.yml`=v0.3.1。
+- **状态**：🔴 **新发现未修**（需用户决策口径：runner 组件版本与平台包基线谁优先）。
+
+### US-27 🟠 新发现（本轮 .12 验收）：US-25 逃生门只改状态，不清理也不回滚 → 旧路径残留
+
+- **现象**：任务被中断后走 `recovery/fail` 标记失败，**环境留下半迁移残留**：`/data/upgrades/upgrade-925f38527816ae1f/package`（被中断任务在旧路径的包目录）与 `/data/smartx-capacity-insight-data/{app,prometheus}`（空骨架，被中断升级的 `filesystem.prepare` 造出）重新出现 → 8 项验收第 7 项「legacy 路径全 missing」判**异常**。
+- **数据红线**：**未受损**——live 库 `/data/smartx-storage-forecast/app/smartx.db` `integrity ok`、556/89588 与升级前一致；旧数据目录仅 12K 空骨架，无数据分叉。
+- **收干净的方式**：再跑一次成功升级，其 post-cleanup 会清掉全部 legacy 路径（本轮实测 `upgrade-26856095c44869d1` 的 post-cleanup succeeded，7 条路径全清）。
+- **方向**：逃生门在标记失败时提示"环境可能半迁移，需再跑一次升级让 post-cleanup 收尾"，或在 `recovery/fail` 响应里带 `cleanup_required=true` + 残留路径清单；理想是提供"标记失败并清理残留"的产品化收尾动作。
+- **状态**：🟠 **新发现未修**（逃生门已能解冻环境，但收尾靠人工再跑一次升级，UI 无提示）。
+
+### US-28 🟠 新发现（本轮 .12 验收）：runner 组件升级后有约 10 分钟 SQLite 写锁窗口，web-api 写操作直接 500
+
+- **现象**：`.12` 跑 runner v0.3.1 组件升级后，紧接着的 **v0.5.2 平台步预检查连续 3 次 HTTP 500**（`sqlite3.OperationalError: database is locked`），心跳当时新鲜（age=2s）、health 全绿——**不是 US-08 心跳问题**。
+- **根因取证**：锁的持有者是 runner 容器主进程（`python -m app.upgrade_runner.main`，`hrtimer_nanosleep` 空闲态），它持有**大量未关闭的 DB 连接**：`/proc/<pid>/fd` 指向 `/data/smartx.db` 的 fd 数实测 **52 → 30 秒后降到 14**；DB 目录无 `-wal/-shm`，即 rollback journal 模式，未提交事务独占写锁。约 10 分钟后锁自行释放，预检随即正常（7 项全 true）。
+- **影响**：升级链上「组件升级 → 下一个平台步」这一常见组合会随机失败，且失败形态是裸 500（无重试/无友好提示），运维只能干等重试。上轮 `rebuild_all.sh` 记录的「v0.5.2 升完预检 `runner_protocol=False`」也是同一窗口的不同表现。
+- **方向**：①runner 侧改用 WAL + 短事务/显式 close，消除长写锁（**改 runner → 需用户同意并 bump 版本**）；②web-api 侧对 `database is locked` 做有限重试/退避并返回可读提示，而不是裸 500；③验收驱动脚本在组件步之后显式等待锁释放（本轮已按此处理）。
+- **证据**：`.12` 2026-09-28 22:29–22:40（`upgrade-b32d44b1badb1783` 之后），web-api 容器日志三连 500 + `fuser` 定位 + fd 计数两次采样。
+- **状态**：🟠 **新发现未修**。
 
 ## C. 已修复并验证（🟢，列此以备回归）
 

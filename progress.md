@@ -8092,3 +8092,35 @@ release_smoke=critical 0, warning 0
   - **不需要 `.12`**：US-23「重复 start → 400」是 web-api 逻辑，`.3` 用两个预检查通过的包连点即可。
   - **待 v0.3.2 决策**：M3-08（u2 × runner-first）；不交付则记「不可达」，US-05 按"代码+manifest 实证的防御性修复"记录，**不得写「顺序无关已实测」**。
 - 文档已按此改准：`docs/upgrade-audit-matrix.md`（M3-08 标注需 v0.3.2、N/A 说明扩写、MVP 子集拆成"1 格可跑 + 1 格待决策"）、验收计划「可跑范围」四条、`docs/pending-tasks.md` #2。
+
+## 2026-09-28 `.12` r6 复验（用户授权「开始 1、2 两项」）
+
+**范围**：①平台链路（r6）+ 8 项验收 + 重复 start + US-25 卡死逃生；②装 v0.3.2 组件包后复验 US-24（同版本重装）。全部走产品流程（上传→预检→start→状态），宿主动作仅两处且都属演练必需：模拟 runner 中途死亡（`docker stop upgrade-runner`，US-25 唯一造真实卡死的办法）与事后按文档拉起 runner。
+
+### 传输与基线
+- r6 平台包 `.3→本机→.12`（`6253810b…` 三处 SHA 一致）、runner v0.3.2 组件包（`c69e2129…` 同）。
+- 复位：拆环境 → v0.5.1（`ef24643b…`）→ u2（`d5f27716…`）→ **已发布** runner v0.3.1（`d10e15cf…`）→ v0.5.2（`692aca8b…`）→ 注入 clutter（3 个预检失败大包目录、2 悬空镜像、4 历史备份）。起点快照：health `v0.5.2/v0.3.1`、11 个任务目录占 **7.5G**、26 镜像（13 悬空）、磁盘 27G free、DB `users1/towers1/clusters1/vm_latest556/vm_volumes89588`、`.env` sha `8b644112…`/0600。
+
+### 第 1 项：平台链路 + 守卫
+- **平台先直升 v0.5.3：task `upgrade-b07795625cf0d681` succeeded，360 秒**（预检查 7 项全 true；r6 起预检查含 `disk_space`=US-07）。
+- **8 项验收全过**：health×2 `v0.5.3/v0.3.1`；5 容器 tag 正确；project `smartx-hci-capacity-insight` / net `10.249.251.0/24`；SQLite `integrity ok` 且 **556/89588 与升级前完全一致**（数据红线）；Prometheus `ready=200` 挂 `/data/smartx-storage-forecast/prometheus`；`.env` 0600 sha `8b644112…` 未变；7 条 legacy 路径全 missing；UI 200。
+- **US-23 重复 start**：`upgrade-925f38527816ae1f` 执行中，第二个 `upgrade-88e7262584becb7c` → **400** `升级任务 … 正在执行或需要恢复，不能开始新的升级。` ✅
+- **US-25 卡死逃生**：`docker stop upgrade-runner` → 租约过期后 **t=35s** 视图 `runner_lost=True` + `available_recovery_actions=['fail']` → `recovery/fail` **200** → 任务 `failed` → **守卫释放**（新 start 恢复 200，随后 cancel 清理）。
+
+### 第 2 项：v0.3.2 组件包 + US-24 复验
+- 组件升级 `upgrade-9fdaff9a349bc257` succeeded（预检查 6 项含 `disk_space`）；runner → **v0.3.2**（容器 tag / 镜像内 `/app/RUNNER_VERSION` / health 三方一致），**存活 90s+ 未被停**（US-11 守卫）；日志实证「新旧 runner 同属当前 compose project，跳过停止旧 runner」。
+- **同版本重装（US-24）：task `upgrade-26856095c44869d1` succeeded，44 秒**，post-cleanup succeeded，**runner 重启 0 次、动作 attempt 最大 1**（修复前 attempt=17 崩溃循环）→ ✅ 修复确认。
+- 收尾 8 项验收复跑全过；**post-cleanup 把逃生门留下的 legacy 残留（`/data/upgrades/…`、`/data/smartx-capacity-insight-data`）全部收干净**。
+
+### 过程中的一个岔子（US-08 之外的真凶）
+- 第一次跑 v0.5.2 平台步时**连续 3 次 HTTP 500**。初判 US-08（组件升级后心跳未刷新），但心跳 age=2s 且 health 全绿 → 容器日志显示 `sqlite3.OperationalError: database is locked`。
+- 取证：锁持有者是 **runner 容器主进程**（空闲 `hrtimer_nanosleep`），`/proc/<pid>/fd` 指向 DB 的 fd **52 → 30 秒后 14**；DB 目录无 `-wal/-shm`（rollback journal）。约 10 分钟后锁自行释放，**同一个 v0.5.2 步随即 7 项全 true 通过**（`upgrade-3b8af711edc5845f`）。→ 记为 **US-28**。
+
+### 本轮新发现（已立文档，未修）
+- **US-26 🔴**：平台包把 runner **静默降回 v0.3.1**——组件升级成果不耐受平台升级，且与「runner v0.3.2 随下一版交付」的决定直接冲突。证据：组件升级后 runner=v0.3.2，同版本重装后三方（容器 tag/`RUNNER_VERSION`/health）全回 v0.3.1；`compose-runtime/docker-compose.runner-bootstrap.yml`=v0.3.2 而 `docker-compose.yml`/`docker-compose.runner-upgrade.yml`/`docker compose config`=v0.3.1。
+- **US-27 🟠**：US-25 逃生门只改状态、不清理不回滚 → 旧路径残留，验收第 7 项判异常；数据红线未受损（live 库完好，旧目录 12K 空骨架），收干净靠再跑一次成功升级。
+- **US-28 🟠**：组件升级后约 10 分钟 SQLite 写锁窗口，web-api 写操作裸 500（无重试）。
+
+### 终态与限制
+- `.12` 终态：health `{"ok":true,"version":"v0.5.3","runner_version":"v0.3.1"}`、DB 556/89588、7 条 legacy 路径全清、磁盘约 27G free。**runner 是 v0.3.1 而非 v0.3.2——即 US-26 的直接后果，已如实记录**。
+- 未覆盖：US-26 的修复方向需用户先定口径（runner 组件版本与平台包基线谁优先）；v0.3.1 runner 跑同版本重装是否会触发 US-24 未单独验证（不在本轮范围）。
