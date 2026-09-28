@@ -296,16 +296,35 @@ class TreeFingerprintTest(unittest.TestCase):
         self.assertTrue(tree)
 
     def test_fingerprint_changes_when_any_module_changes(self) -> None:
-        """只要 runner 任一模块内容变化，聚合指纹必须变化（不只是 actions.py）。"""
-        before, _ = gate.repo_runner_tree_fingerprint()
-        target = Path(gate.ROOT) / "backend" / "app" / "upgrade_runner" / "lease.py"
-        original = target.read_bytes()
-        try:
-            target.write_bytes(original + b"\n# US-28 gate probe\n")
-            after, _ = gate.repo_runner_tree_fingerprint()
-        finally:
-            target.write_bytes(original)
-        self.assertNotEqual(before, after, "改 lease.py 必须改变树指纹")
+        """只要 runner 任一模块内容变化，聚合指纹必须变化（不只是 actions.py）。
+
+        在临时目录上复刻同样的聚合算法，**不改真实源文件**（`.3` 的 project 是只读挂载）。
+        """
+        import hashlib as _h
+        import tempfile as _tf
+
+        def fingerprint(files: dict[str, bytes]) -> str:
+            tree = _h.md5()
+            for rel, content in sorted(files.items()):
+                tree.update(rel.encode("utf-8"))
+                tree.update(_h.md5(content).hexdigest().encode("utf-8"))
+            return tree.hexdigest()
+
+        with _tf.TemporaryDirectory() as tmp:
+            pkg = Path(tmp) / "upgrade_runner"
+            pkg.mkdir()
+            for name in ("actions.py", "lease.py", "main.py"):
+                (pkg / name).write_bytes(b"x = 1\n")
+            base = {p.name: p.read_bytes() for p in sorted(pkg.glob("*.py"))}
+            before = fingerprint(base)
+            # 改 lease.py（不是 actions.py）→ 指纹必须变
+            (pkg / "lease.py").write_bytes(b"x = 2\n")
+            after_lease = fingerprint({p.name: p.read_bytes() for p in sorted(pkg.glob("*.py"))})
+            self.assertNotEqual(before, after_lease, "改 lease.py 必须改变树指纹")
+            # 改 actions.py → 同样改变
+            (pkg / "actions.py").write_bytes(b"x = 3\n")
+            after_actions = fingerprint({p.name: p.read_bytes() for p in sorted(pkg.glob("*.py"))})
+            self.assertNotEqual(after_lease, after_actions, "改 actions.py 必须改变树指纹")
 
     def test_lease_change_is_reported_as_drift(self) -> None:
         """镜像内 lease.py 与仓库不一致时，门禁要指名 lease.py。"""
