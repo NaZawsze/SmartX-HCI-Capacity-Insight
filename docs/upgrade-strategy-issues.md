@@ -74,13 +74,13 @@
 - **方向**：预检失败任务 TTL 自动清理（保留最近 N 个）。
 - **状态**：🟢 **已实施并验证（49-56 / S1-2，2026-09-27）**：web-api 守护线程（默认 6h）按 TTL（默认 7 天）+ 保留最新 N 个（默认 3）自动删除**从未执行过**任务（`precheck_failed`/`uploaded`）的包内容（原始归档 + 解包目录，单个失败任务约 800 MiB），**保留 `task.json` 与任务中心记录**；执行过/失败/回滚类不自动清（取证），活跃升级时整轮跳过，包内容被清后预检查给出「请重新上传」的明确提示。`.3` 实测：5 个过期任务保留 3 个、删 2 个（含归档与解包目录，task.json 保留且记 `package_cleaned_at`），fresh/success 不动，活跃任务存在时整轮跳过；容器全量 437 tests OK。设计：`docs/superpowers/specs/2026-09-27-upgrade-artifact-housekeeping-design.md`。
 
-### US-23 🟠 已实施待 .12 MVP：并发升级无「单飞」守卫
+### US-23 🟢 已修并经 `.12` 验证：并发升级无「单飞」守卫
 - **现象**：`start()`（`execution.py:42`）只校验**本任务**状态 `precheck_passed`，**不检查是否已有其它平台升级在执行**；runner 侧 `run_pending_once` 又是按 mtime 串行消费所有 pending 任务。
 - **链路**：两个包先后上传并预检通过 → 两次 `start` 都成功 → 第二个任务排队执行时，**环境已被第一个任务改变**（版本/项目/目录/镜像全变了），而它的执行计划是按旧状态编译的 → 在错误状态上执行（可能失败，也可能"成功"地做错事）。
 - **证据**：`execution.py:42-60` 无任何 running/pending 互斥检查；删除任务时倒是有保护（`intake.py:81`「升级任务正在执行…不能删除」），说明设计者考虑过并发，唯独 start 漏了。
 - **影响**：客户连点两次、两个管理员并行操作、或"预检失败→再传一个包→两个都 start"都会触发；真实现场风险中高。
 - **方向**：`start` 前检查是否存在**其它**平台升级任务处于 `pending/running/runner_restarting/recovery_*` → `400 升级任务正在执行中`；同时 runner 执行前**重新校验 source_compatibility**（防止计划过期）。列入 #47③。
-- **状态**：🟠 **已实施（49-52，提交 8115c41/32f9a95）**：`execution.py::start()` 增加 `_ensure_no_active_upgrade`（ACTIVE={pending,running,runner_restarting,recovery_required,rollback_pending,rollback_running}；类级 `threading.Lock` 消除扫描-认领竞态；retry/recovery/rollback 同守卫，cancel/delete 不拦）；新增 `test_upgrade_single_flight.py` 9 用例 + API 测试断言；`.3` 全量 386 OK。**`.12` 重复 start 格待授权执行**。runner 执行前重验 source_compatibility 未做（需 bump runner，留 #47）。
+- **状态**：🟠 **已实施（49-52，提交 8115c41/32f9a95）**：`execution.py::start()` 增加 `_ensure_no_active_upgrade`（ACTIVE={pending,running,runner_restarting,recovery_required,rollback_pending,rollback_running}；类级 `threading.Lock` 消除扫描-认领竞态；retry/recovery/rollback 同守卫，cancel/delete 不拦）；新增 `test_upgrade_single_flight.py` 9 用例 + API 测试断言；`.3` 全量 386 OK。**`.12` 已验证（2026-09-28）**：平台升级 `upgrade-b07795625cf0d681` 执行中，第二个已预检通过的包 `upgrade-88e7262584becb7c` 的 start → **400** `升级任务 … 正在执行或需要恢复，不能开始新的升级。`；另验证逃生门标记失败后守卫正常释放（新 start 恢复放行）。runner 执行前重验 source_compatibility 未做（需 bump runner，留 #47）。
 
 ### US-24 🟢 已修（并入 v0.3.2，待交付复验）：同版本重装（已在目标布局）时 runner 自伤：`_save` 双写同一 task.json → 崩溃循环、任务卡死
 
