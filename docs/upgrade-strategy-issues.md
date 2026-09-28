@@ -108,13 +108,13 @@
 - **证据**：`.12` 2026-09-28 23:08→23:14 实测；`compose-runtime/docker-compose.runner-bootstrap.yml`=v0.3.2 而 `docker-compose.yml`/`docker-compose.runner-upgrade.yml`/`docker compose config`=v0.3.1。
 - **状态**：🟠 **已实施（2026-09-28，提交 7083d72/fe555be），待 `.12` 复验**。方案**实施中修正**（设计 §3.2）：初版「计划带 preserve_current + 动作层沿用现场镜像」会**打挂主路径**——已发布 runner v0.3.1 收到空 image 会 `raise ValueError` 导致 v0.5.2→v0.5.3 失败，且需改 runner（AGENTS §6）。最终改为**编译期由 web-api 解析现场 runner 镜像注入 manifest 副本**，编译器照常下发具体镜像，**旧 runner 零改动**、向后兼容。`.3` 门禁全绿（后端 468 OK、build 26 OK、identity 0、交付一致性 C1–C5 全 PASS 证明 `actions.py md5 matches repo` runner 未动、候选包 r8 `3672e920`）。**`.12` 复验全部通过（2026-09-28）**：①**主路径回归** v0.5.2+已发布 runner v0.3.1 → r8 直升 `upgrade-6f035c3e52b83428` succeeded（188s）+ 8 项验收全过，**runner 仍 v0.3.1**（未被无故改动）；②装 v0.3.2 组件包 `upgrade-39600ca4b67b75ad` succeeded，三方一致 v0.3.2、存活 90s+；③**判别格**：v0.5.3 同版本重装 `upgrade-7c0720d6207ea942` succeeded（<10s）、**runner 仍 v0.3.2**（容器 tag / 镜像内 `RUNNER_VERSION` / health 三方一致），**修复前同操作会回落 v0.3.1**；最大 attempt 1、runner 重启 0（US-24 无回归）、8 项验收全过、DB 556/89588 不变、7 条 legacy 路径全清；④US-23 抽查 400 正常。另修 US-26-4 回写正则（真实 compose 在 `upgrade-runner:` 后先有 `build:` 块，`image:` 位置不固定 → 改逐行状态机，提交 4c7ed07）。
 
-### US-27 🟠 新发现（本轮 .12 验收）：US-25 逃生门只改状态，不清理也不回滚 → 旧路径残留
+### US-27 🟠 已实施待 .12 复验：US-25 逃生门只改状态，不清理也不回滚 → 旧路径残留
 
 - **现象**：任务被中断后走 `recovery/fail` 标记失败，**环境留下半迁移残留**：`/data/upgrades/upgrade-925f38527816ae1f/package`（被中断任务在旧路径的包目录）与 `/data/smartx-capacity-insight-data/{app,prometheus}`（空骨架，被中断升级的 `filesystem.prepare` 造出）重新出现 → 8 项验收第 7 项「legacy 路径全 missing」判**异常**。
 - **数据红线**：**未受损**——live 库 `/data/smartx-storage-forecast/app/smartx.db` `integrity ok`、556/89588 与升级前一致；旧数据目录仅 12K 空骨架，无数据分叉。
 - **收干净的方式**：再跑一次成功升级，其 post-cleanup 会清掉全部 legacy 路径（本轮实测 `upgrade-26856095c44869d1` 的 post-cleanup succeeded，7 条路径全清）。
 - **方向**：逃生门在标记失败时提示"环境可能半迁移，需再跑一次升级让 post-cleanup 收尾"，或在 `recovery/fail` 响应里带 `cleanup_required=true` + 残留路径清单；理想是提供"标记失败并清理残留"的产品化收尾动作。
-- **状态**：🟠 **新发现未修｜优先级已提升为关键路径**（2026-09-28 用户决定放弃人工回滚后，失败后的唯一出路就是「标记失败 → 再跑一次升级收尾」，本条正是该出路的收尾能力；逃生门已能解冻环境，但收尾无提示）。
+- **状态**：🟠 **已实施（2026-09-28，提交 9d60a68/4a5b2f1，`.3` 门禁全过）**：`recovery/fail` 增加 `_residual_legacy_paths()` **只读**探测（7 条 legacy 路径）+ 任务视图暴露 `cleanup_required` / `residual_paths`；`error` **追加**（不覆盖原失败语义）收尾指引「环境可能半迁移 → 重跑一次完整升级由 post-cleanup 收尾 → 之前不要开始新升级」；前端新增「需要收尾」面板显示残留路径。测试 8 例（含只读性断言：探测不得含 rmtree/unlink/mkdir）。**`.12` 复验待授权**。
 
 ### US-28 🟠 新发现（本轮 .12 验收）：runner 组件升级后有约 10 分钟 SQLite 写锁窗口，web-api 写操作直接 500
 
@@ -134,7 +134,7 @@
   - 失败自动回滚是**已验证**的安全网（第四/五轮链路的失败路径都走过）。
 - **直接后果（重要）**：失败后**没有回滚兜底**，唯一出路是「逃生门（US-25）→ 标记失败 → 再跑一次成功升级由 post-cleanup 收尾」。**因此 US-27 从「体验问题」升为「关键路径」**。
 - **执行口径**：UI 隐藏回滚入口；API 保留但标记废弃（避免老客户端 404）；自动回滚路径与 `rolled_back` 状态**不动**。
-- **状态**：🟢 **决策已定，实施见 plan 49-55 第 0 节**。
+- **状态**：🟢 **已实施（2026-09-28，提交 9d60a68）**：前端恢复操作区**移除「执行回滚」按钮**（保留「继续执行」「标记失败」）；服务层 `rollback()` / `recovery_rollback()` **保留实现与路由**（老客户端/历史任务不 404），加注释标注已下线；**失败自动回滚路径（`rolled_back` 终态、`rollback_config` 恢复步骤）未动**——测试固化该边界。审计矩阵 US-17 转 N/A。
 
 ## C. 已修复并验证（🟢，列此以备回归）
 

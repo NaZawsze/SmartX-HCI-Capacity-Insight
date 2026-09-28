@@ -8143,3 +8143,11 @@ release_smoke=critical 0, warning 0
 - **阶段 3 · 回归抽查**：US-23 重复 start → HTTP 400 + 正确消息 ✓。
 - **过程修的 bug**：US-26-4 回写用整块正则，但真实 compose 在 `upgrade-runner:` 后先有 `build:`/`env_file:` 块、`image:` 位置不固定 → 回写未生效；改逐行状态机（提交 `4c7ed07`）。
 - **结论**：US-26 闭环。平台包对 runner 只有「基线声明」没有「部署指令」在真实 `.12` 得到验证。
+
+## 2026-09-28 第 1 批：US-29 下线人工回滚 + US-27 逃生门收尾提示
+
+- **US-29**：前端恢复操作区移除「执行回滚」按钮（保留「继续执行」「标记失败」）；服务层 `rollback()`/`recovery_rollback()` 保留实现与路由（老客户端不 404）并加注释；**失败自动回滚路径（`rolled_back` + `rollback_config`）未动**，测试固化该边界。审计矩阵 US-17 → N/A。
+- **US-27**：`recovery/fail` 增加只读残留探测（7 条 legacy 路径）+ `cleanup_required`/`residual_paths`；`error` 追加收尾指引（**不覆盖**原失败语义——首次实现整句覆盖导致 `test_stuck_running_recovery` 回归，已改为追加）；前端「需要收尾」面板显示残留路径与「重跑升级由 post-cleanup 收尾」指引。
+- **测试**：新增 `test_us27_us29_fail_cleanup.py` 8 例（含只读性断言：探测不得含 rmtree/unlink/mkdir/write_text；stuck_running 边界不被破坏；UI 无回滚按钮但保留 fail/continue）。
+- **`.3` 门禁**：后端 **476 tests OK (skipped=2)**、build_tests **26 OK**、`tsc -b` 0、vitest **107 passed (11 files)**。
+- **待办**：US-27 `.12` 复验（造一次中断 → `recovery/fail` → 验证 `cleanup_required=true` + 残留清单正确 + UI 提示 + 再跑升级收尾）。
