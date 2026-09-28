@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-import re
+
 import shutil
 import tarfile
 from pathlib import Path
@@ -171,6 +171,9 @@ networks:
         `project/docker-compose.yml` 与 `compose-runtime/docker-compose.runner-upgrade.yml`
         保持旧 tag —— tag 没有单一事实源，下一次平台升级会按旧 tag 把 runner 拉回去。
         回写后「project compose 为准，runtime compose 与其一致」。
+
+        用逐行状态机而非整块正则：真实 compose 里 `upgrade-runner:` 之后可能还有 `build:`/
+        `env_file:` 等多行键，`image:` 位置不固定。
         """
         if not runner_image:
             return []
@@ -179,27 +182,39 @@ networks:
             self.project_path / "docker-compose.yml",
             self.settings.compose_runtime_dir / "docker-compose.runner-upgrade.yml",
         ]
-        pattern = re.compile(
-            r"^(?P<head>\s*upgrade-runner:\s*\n(?:\s+.*\n)*?\s*image:\s*)"
-            r"(?P<image>\S+)(?P<tail>\s*)$",
-            re.MULTILINE,
-        )
         for candidate in candidates:
             try:
                 if not candidate.is_file():
                     continue
-                text = candidate.read_text(encoding="utf-8")
+                lines = candidate.read_text(encoding="utf-8").splitlines(keepends=True)
             except OSError:
                 continue
-            if runner_image not in text:
-                match = pattern.search(text)
-                if not match:
+            in_runner = False
+            changed = False
+            for index, line in enumerate(lines):
+                stripped = line.strip()
+                if not in_runner:
+                    if stripped == "upgrade-runner:" or stripped.startswith("upgrade-runner:"):
+                        in_runner = True
                     continue
-                text = pattern.sub(lambda m: m.group("head") + runner_image, text, count=1)
-            else:
+                # 已离开 upgrade-runner 服务块（下一个同级键或 services 之外）
+                if line[:1].strip() == "" and stripped and ":" in stripped and not stripped.startswith("#"):
+                    if not line.startswith((" ", "\t")):
+                        break
+                if stripped.startswith("image:"):
+                    current = stripped.split("image:", 1)[1].strip()
+                    if current == runner_image:
+                        changed = False
+                        break
+                    prefix = line[: line.index("image:") + len("image:")]
+                    newline = "\n" if line.endswith("\n") else ""
+                    lines[index] = f"{prefix} {runner_image}{newline}"
+                    changed = True
+                    break
+            if not changed:
                 continue
             try:
-                candidate.write_text(text, encoding="utf-8")
+                candidate.write_text("".join(lines), encoding="utf-8")
             except OSError:
                 continue
             updated.append(str(candidate))
