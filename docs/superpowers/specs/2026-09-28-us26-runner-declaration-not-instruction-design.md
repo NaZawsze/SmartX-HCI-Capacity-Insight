@@ -1,6 +1,6 @@
 # 设计：US-26 —— 平台包对 runner 只有「声明」没有「指令」
 
-状态：设计（2026-09-28，用户指令「改写」）。**未实施。** 关联 plan：`docs/superpowers/plans/2026-09-28-us26-us27-us28-fix-plan.md` 第 1 节；问题记录 `docs/upgrade-strategy-issues.md` US-26。
+状态：**已实施（2026-09-28）**。实施中修正了方案（见 §3.2 方案演进）。 关联 plan：`docs/superpowers/plans/2026-09-28-us26-us27-us28-fix-plan.md` 第 1 节；问题记录 `docs/upgrade-strategy-issues.md` US-26。
 
 ## 1. 背景与定性
 
@@ -69,40 +69,44 @@ if _version_tuple(version) >= _version_tuple("v0.5.2"):
 - `deploy: False` 是**向后兼容的加法**：旧 runner/web-api 不认识该键会忽略，不会因缺键报错。
 - 同步修正 `build_upgrade_package.py:1164` 的包说明措辞（当前写「本包不包含 upgrade-runner」，需补一句「manifest 声明但不携带 runner 镜像」），消除自相矛盾。
 
-### 3.2 编译计划区分声明与部署（`backend/app/v2/upgrade/compiler.py`）
+### 3.2 编译期解析现场 runner 镜像（**实施中修正后的方案**）
 
-```python
-deployable = [i for i in images if i.get("deploy") is not False]
-runner_deploy_image = next(
-    (str(i.get("image")) for i in deployable if i.get("service") == "upgrade-runner"), ""
-)
+**方案演进（重要）**：初版设计是「计划带 `preserve_current: true` + 动作层沿用现场镜像」。实施时发现该方案有两个致命问题，已放弃：
+
+1. **破坏向后兼容（会打挂主路径）**：现场跑的是**已发布 runner v0.3.1**，它不认识 `preserve_current`，看到 `image: ''` 会直接 `raise ValueError("runner handoff 缺少 upgrade-runner 镜像。")` → **v0.5.2 + v0.3.1 → v0.5.3 这条最重要的现场主路径会失败**。而交付决定恰恰是「本次不交付 runner，基线 v0.3.1 可直升」。
+2. **违反自己设的边界**：该方案必须改 `actions.py`（runner 代码），而本设计的目标之一正是「不动 runner」；改 runner 需用户同意 + bump 版本（AGENTS §6）。
+
+> 这个漏洞是被交付一致性门禁抓到的：`verify_runner_delivery_consistency.py` 报 `package_image: actions.py md5 != repo`（交付的 v0.3.2 包是改动前的镜像），提示仓库 runner 代码已动。
+
+**最终方案（编译期解析，零 runner 改动）**：
+
+web-api 在 `start()` 编译计划前，把**现场正在运行的 runner 镜像**注入 manifest 副本的 runner 条目，编译器照常把它放进 handoff 的 `params["image"]`：
+
+```
+现场 runner v0.3.2  →  计划 image=<现场 v0.3.2>  →  旧 runner 照常执行  →  保持 v0.3.2 ✓
+现场 runner v0.3.1  →  计划 image=<现场 v0.3.1>  →  旧 runner 照常执行  →  保持 v0.3.1 ✓
+取不到现场镜像      →  回落包内基线（= 当前行为，不会更坏）
 ```
 
-**关键设计决策（此处三选一，必须明确选定）**：
+改动点：
 
-| 选项 | 行为 | 评价 |
+| # | 位置 | 改法 |
 | --- | --- | --- |
-| **(a) 空串 + 动作跳过** | 取不到部署镜像时，handoff 动作不生成（或生成但 runner 侧识别为「仅迁移运行时、不重建」） | **本次采用**。语义最清晰：没有部署指令 = 不动 runner |
-| (b) 动作层 fallback 到现场镜像 | 编译期注入 `preserve_current: true`，动作层据此跳过 `--force-recreate` | 需要 plan 携带现场状态，编译期要读运行时，可行但更绕 |
-| (c) 保留包内 tag 并加前置断言 | 动作层比对现场 tag，不同则**报错而非降级** | 行为最保守，但会把「现场更高版本」这种合法状态判为失败 |
+| 1 | `scripts/build_upgrade_package.py` | runner 条目加 `deploy: false` + `role: baseline_declaration`（语义标注，不影响编译器读取） |
+| 2 | `execution.py::_resolve_field_runner_image` | `docker inspect --format {{.Config.Image}} <project>-upgrade-runner-1` 取现场镜像 |
+| 3 | `execution.py::_inject_field_runner_image` | 构造 manifest **副本**注入（不改原 manifest，避免污染预检查等读方） |
+| 4 | `execution.py::start()` | 编译前调用注入；`compiler.py` 无需改（照常读 `image`） |
 
-**选 (a) 的理由**：它把「平台包不能指挥 runner 版本」变成**结构性保证**——包内根本没有可执行的 runner 镜像，编译器想传递都传不了。选项 (b)(c) 都保留了「包内 tag 参与决策」的路径，未来容易回退。
+**为什么这样才对**：
+- 计划里始终是**具体镜像值**，旧 runner 不需要理解任何新概念
+- 零 runner 改动、零版本门、零兼容风险
+- 现场 runner 够用时保持不动；确实需要换版本时用户走组件升级（写回 compose，见 3.4）
 
-### 3.3 动作层兜底（`backend/app/upgrade_runner/actions.py`）
+**残余风险**：若 `docker inspect` 不可用（web-api 无 docker socket）→ 回落包内基线 = 当前行为，不会引入新故障。
 
-`_write_runner_runtime_compose`（:1299）目前空镜像直接抛错：
+### 3.3 动作层：**不需要改**（最终方案零 runner 改动）
 
-```python
-if not image:
-    raise ValueError("runner handoff 缺少 upgrade-runner 镜像。")
-```
-
-改为**区分两种缺省**：
-
-- 计划带 `image` → 现有行为（迁移运行时并按该镜像重建；仅老包路径会走到）
-- 计划带 `preserve_current: true` 或缺省 image 且现场 runner 已在目标运行时 → **只迁移 compose/network 绑定，不重建容器**，返回 `{"recreated": false, "reason": "field_runner_satisfies_requirement"}`
-
-兜底原则：**宁可不动，也不要降级。**
+初版设计的「动作层 `preserve_current` 兜底」已随 3.2 修正一并取消——最终方案下计划始终携带具体镜像，旧 runner 照常执行，**runner 代码零改动**。
 
 ### 3.4 组件升级侧回写 compose（消除多事实源）
 
