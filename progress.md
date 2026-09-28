@@ -8125,3 +8125,12 @@ release_smoke=critical 0, warning 0
 - `.12` 终态：health `{"ok":true,"version":"v0.5.3","runner_version":"v0.3.1"}`、DB 556/89588、7 条 legacy 路径全清、磁盘约 27G free。**runner 是 v0.3.1 而非 v0.3.2——即 US-26 的直接后果，已如实记录**。
 - 未覆盖：US-26 的修复方向需用户先定口径（runner 组件版本与平台包基线谁优先）；v0.3.1 runner 跑同版本重装是否会触发 US-24 未单独验证（不在本轮范围）。
 - **用户口径修正（2026-09-28）**：US-26 **不是「runner 版本与平台包基线谁优先」**。正确规则是**条件式**——默认先平台后 runner；**只有平台新增了旧 runner 无法执行的能力（平台包 `minimum_runner_version` 高于现场 runner）时，才先升 runner 再升平台**。本次 v0.5.2 → v0.5.3 用已发布 runner v0.3.1 即可完成，**runner 完全不需要动**——所以 US-26 的定性改为「**够用却动了**」，修法方向是让 handoff 在现场 runner 已满足要求时使用现场镜像（或不 force-recreate），而不是改交付顺序。已同步：`docs/upgrade-chain.md` §4、`docs/deployment.md` §10.1、`docs/version-governance.md`、`AGENTS.md` §7（顺序铁律全部改为条件式表述）、issues US-26、pending-tasks #50、CHANGELOG 已知问题。US-26 **不阻塞 v0.5.3 发布**（客户现场本就是 v0.3.1），但须在随下一版交付 runner v0.3.2 之前修完。
+
+## 2026-09-28 US-26 修复实施（编译期解析方案）+ r8 候选
+
+- **方案演进（关键教训）**：初版设计「计划带 `preserve_current` + 动作层沿用现场镜像」实施时发现会**打挂主路径**——已发布 runner v0.3.1 不认识该参数，收到空 image 直接 `raise ValueError('runner handoff 缺少 upgrade-runner 镜像。')`，v0.5.2+v0.3.1→v0.5.3 会失败；且需改 runner（AGENTS §6 要 bump）。**由交付一致性门禁抓出**（`actions.py md5 != repo`）。
+- **最终方案**：web-api 在 `start()` 编译前用 `docker inspect` 取现场 runner 镜像，注入 manifest **副本**（不改原 manifest，避免污染预检查读方）；编译器照常下发具体镜像；**旧 runner 零改动、向后兼容**；取不到则回落包内基线（= 现状）。组件升级成功后回写 tag 到 project compose + runner-upgrade compose（消除多事实源）。
+- **代码**：提交 `7083d72`（实施）+ `fe555be`（设计文档同步为修正方案）。runner `actions.py` 零改动（已用 `git diff` 核对并回退）。
+- **`.3` 门禁（fe555be）**：后端 **468 tests OK (skipped=2)**、build_tests **26 OK**、`--check-version` OK、api docs 77=76、release docs PASS、**交付一致性门禁 C1–C5 全 PASS**（关键：`package_image: actions.py md5 matches repo` 证明 runner 未动、交付一致性未被破坏）。
+- **候选包 r8 `3672e920…`**（`.3:/data/upgrade-packages/v053-r8-20260928/`）：identity exit 0、`.sha256` OK、敏感 0。**r7（`f772afa5…`）作废**（preserve_current 方案会打挂主路径）。
+- **待办**：`.12` 判别格——装 v0.3.2 → 同版本重装 → runner 应仍 v0.3.2（修复前回落 v0.3.1）。**待用户授权**。
