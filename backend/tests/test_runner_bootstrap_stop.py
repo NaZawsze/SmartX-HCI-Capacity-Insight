@@ -28,8 +28,11 @@ class ShouldStopPreviousRunnerTest(unittest.TestCase):
 
         # 未声明 target_project：保持旧行为（停止），避免旧 runner 心跳覆盖
         self.assertTrue(_should_stop_previous_runner({"enabled": True}, "smartx-hci-capacity-insight"))
-        # 非 bootstrap：本来就不该停
-        self.assertFalse(_should_stop_previous_runner({}, "smartx-hci-capacity-insight"))
+        # US-03：{} 与 {"target_project": ""} 同为"有对象但未声明目标 project"，
+        # 语义应一致（保守停止）。此前用 {} 表示"非 bootstrap"，
+        # 与 `if not bootstrap` 的实现耦合，掩盖了两者本该同语义的事实。
+        self.assertTrue(_should_stop_previous_runner({}, "smartx-hci-capacity-insight"))
+        # 真正没有 bootstrap 对象：什么都不做
         self.assertFalse(_should_stop_previous_runner(None, "smartx-hci-capacity-insight"))
 
     def test_call_site_uses_the_guard(self) -> None:
