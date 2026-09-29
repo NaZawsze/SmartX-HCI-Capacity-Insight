@@ -57,6 +57,12 @@ class PrecheckMixin:
             if not _runner_only(manifest):
                 checks.append(self._check_runner_protocol(manifest))
                 checks.append(self._check_runner_actions(manifest))
+            else:
+                # US-04：源端若是 v0.5.2 及更早，其 web-api 会在 runner 组件升级时
+                # **无条件** `compose stop upgrade-runner`——原地升级时停掉的正是刚启动的
+                # 新 runner（.12 两轮实测：启动后 10s SIGKILL / exit=137 / 心跳过期）。
+                # 源端镜像改不到，**只能拦截**：在预检查阶段明确告知正确顺序并阻断。
+                checks.append(_check_runner_first_order(manifest, self.settings))
             checks.append(_check_package_checksums(package_path))
             checks.append(
                 _check_disk_space(
@@ -151,6 +157,50 @@ def _check_protocol(manifest: dict[str, Any]) -> dict[str, Any]:
         return {"name": "runner_protocol", "ok": False, "message": str(exc)}
     return {"name": "runner_protocol", "ok": True, "message": "Runner 协议与能力满足升级包要求"}
 
+
+
+def _check_runner_first_order(manifest: dict[str, Any], settings: Any) -> dict[str, Any]:
+    """US-04：拦截"先升 runner、再升平台"这个会打断升级的顺序。
+
+    只有在**目标布局**（bootstrap 目标 project == 当前 project）时才有风险——此时组件升级
+    属于原地升级，源端的无条件 stop 会打挂刚启动的新 runner。
+    旧桥接布局（源端 project 不同）不受影响，历来可行。
+
+    何时能放行：
+      · 非原地升级（bootstrap 目标 project 与当前不同）→ 无风险；
+      · 源端**已含守卫**（v0.5.3+ 的 `_should_stop_previous_runner`）→ 无风险。
+    """
+    name = "runner_first_order"
+    bootstrap = _runner_bootstrap(manifest)
+    if not bootstrap:
+        # 不涉及 runner bootstrap 的组件升级，与本项无关
+        return {"name": name, "ok": True, "message": "不涉及 runner 原地升级，顺序无风险"}
+    target_project = str(bootstrap.get("target_project") or "").strip()
+    current_project = str(getattr(settings, "compose_project_name", "") or "").strip()
+    current_version = str(getattr(settings, "app_version", "") or "")
+    if current_project and target_project and target_project != current_project:
+        return {
+            "name": name,
+            "ok": True,
+            "message": f"runner 将 bootstrap 到新 project '{target_project}'，非原地升级，顺序无风险",
+        }
+    # 原地升级：只有源端含守卫（≥ v0.5.3）才安全
+    if _version_tuple(current_version) >= (0, 5, 3):
+        return {
+            "name": name,
+            "ok": True,
+            "message": f"源端 {current_version} 已含同 project 守卫，原地升级 runner 安全",
+        }
+    return {
+        "name": name,
+        "ok": False,
+        "message": (
+            f"源端 {current_version} 早于 v0.5.3，其 web-api 在原地升级 runner 时会无条件 stop "
+            "upgrade-runner，停掉的正是刚启动的新 runner（实测启动后 10s 被 SIGKILL、心跳过期，"
+            "后续升级预检查失败）。该源端镜像无法修改，**请先升级平台再升级 runner**"
+            "（顺序铁律：默认先平台、后 runner）"
+        ),
+    }
 
 
 def _check_source_compatibility(manifest: dict[str, Any], current_version: str) -> dict[str, Any]:
