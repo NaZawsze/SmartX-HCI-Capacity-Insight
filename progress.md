@@ -8960,3 +8960,36 @@ health ok=True platform=v0.5.3 runner=v0.3.2                     ✅
 - `.3` 后端全量 **689 tests OK (skipped=7)**
 - `package.sh` 端到端 **EXIT=0**（T2 复测）
 - `test_cli_toolkit` + `test_us32_runner_tag_reconcile` + `test_offline_delivery_builder` 共 **111 OK**
+
+## 2026-09-30 序 7 完成：前端门禁补跑（#54 关闭）
+
+### 之前的死结与解法
+`.3` 长期无法跑前端门禁：宿主无 node、无 `node_modules`，`docker pull node:22-alpine`
+被拒（`dial tcp 221.228.32.13:443: connection refused`），本地也无任何 node 镜像。
+**我之前的判断是错的**：那只是 **Docker Hub 不可达**，不等于全网不通。实测：
+```
+nodejs.org:            200
+registry.npmmirror.com: 200
+mirrors.aliyun.com:    301
+```
+于是**不依赖 Docker Hub、也不依赖 apt 源**，直接用 nodejs.org 官方二进制：
+`https://nodejs.org/dist/v22.14.0/node-v22.14.0-linux-x64.tar.xz` → 解压 `/opt/node`，
+软链 `node`/`npm`/`npx` 到 `/usr/local/bin`。版本 **v22.14.0 / npm 10.9.2**。
+
+### 门禁结果（全过）
+```
+npm ci   NPMCI=0
+tsc -b --force   TSC=0     （无 TS 错误）
+vitest run       VITEST=0
+  Test Files  11 passed (11)
+  Tests      107 passed (107)
+  Duration   9.84s
+```
+
+**#54 关闭**：前端门禁不再是「未跑」，而是「已通过」。此前记为未跑是因为环境受限，
+不是代码问题——本轮零前端改动，现在补上的是**当前 HEAD** 的门禁证据。
+
+### 教训
+**「拉不到镜像」不等于「没有网络」**。当时只试了 `docker pull`（走 Docker Hub）就下了
+「外网受限」的结论，没验证其他域名。实际 nodejs.org 可达，只是 Docker Hub 单独不通。
+**环境类问题下结论前，先区分「哪条链路不通」**，否则会把可解的问题记成死结。
