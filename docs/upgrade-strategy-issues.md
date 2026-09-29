@@ -204,6 +204,20 @@
 - **交付形态**：runner 组件包 `components-v032-r4-20260929/smartx-upgrade-runner-v0.3.2.tar.gz` SHA `26dfcdd7e6c942a7944ad3c6e3006f193126af6bd4beacdf7a5cfdcf9fbf5b29`；门禁 C1–C5 **12 项 PASS / 0 FAIL**（C6 DockerHub 按用户决定 SKIP）；动作数仍 26，证明未新增动作。
 - **教训（值得写进规范）**：①"某功能上线了"不等于"它生效过"——只读挂载 + 宽泛 `except` 能让一个函数长期空转而无任何告警；②跨进程传递"修正后的数据"时，落盘副本与内存副本可能不一致，**消费方必须确认自己读的是权威副本**（本例是执行计划，不是 manifest）；③功能放在哪个进程，要看那个进程**有没有权限**做，而不是逻辑上"谁更懂"。
 
+- **⚠️ 2026-09-30 补充：组件升级路径还有第三层，回写仍然不触发**（`.14` 实测，修复后仍失败）
+  - **现象**：回写逻辑已移到 runner 侧并单测通过，但 `.14` 上组件升级 task `upgrade-ead521581ad91115` 报 success、runner 已是 `v0.3.2`，compose 仍写 `v0.3.1`。
+  - **根因（第三层：触发条件本身错了）**：runner 侧两条回写路径**都以「任务未收尾」为前提**——
+    - `status == "success" and _has_unfinished_steps(task)`：组件升级任务的步骤**已被 web-api 收尾为全部 succeeded**，条件不成立；
+    - `status == "runner_restarting" and runner_resume_pending and not execution_plan`：该任务 status 是 `success`、且组件任务本就无 `execution_plan`，条件不成立。
+    - 两条都不触发 → `run_pending_once` 直接 `continue` → 回写从未执行。manifest 里有正确的 `v0.3.2`、`reconcile_project_runner_tag` 本身也可用，**只是没被调到**。
+  - **最终修复**（commit `fe7bf1a`）：新增第三条**幂等兜底路径**，判据从「任务状态」改为「**compose tag 是否已对齐**」——
+    - `_compose_runner_tag_now()` 读当前 compose 声明的 tag；
+    - `_runner_tag_aligned()` 比对任务声明的 runner 镜像；compose 读不到时视为已对齐，不反复扰动现场；
+    - `_apply_tag_writeback_if_needed()` 仅在未对齐时回写并留痕，已对齐则不追加日志（避免每次轮询刷一遍）。
+  - **`.14` 闭环判别证据**：r8 包 `components-v032-r8-20260930/…v0.3.2.tar.gz` SHA `cedbf4c4a77a…`（完整构建，门禁 12 PASS）→ 走产品 API 预检查 7 项全 ok → task `upgrade-8c90bbc7bd52290c` succeeded → compose **v0.3.1 → v0.3.2**、health `ok=True v0.5.3/v0.3.2`、5/5 容器 Up、日志留痕「已对齐 compose runner tag」、**40 秒内日志条数稳定在 5（幂等）**。
+  - **补测**：US-32 定向 15 → **21 例**，覆盖 success 终态的未对齐/已对齐/compose 缺失/回写生效/幂等/分支存在六种情形。
+  - **教训（补）**：④**回写/收尾类逻辑必须用「任务真实终态」判别**，只在单测 happy path 里跑通不足以证明生效——本例 15 个单测全绿但真机不触发，直到按真实终态补测才暴露。
+
 ## C. 已修复并验证（🟢，列此以备回归）
 
 | 编号 | 问题 | 修复 | 证据 |

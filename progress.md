@@ -8432,3 +8432,76 @@ US-33（交付包 runner 镜像与 compose baseline 不匹配）与 US-34（引�
 ### 门禁
 - `.3` 后端全量 **642 tests OK (skipped=6)**（较本轮开始的 523 增加 119）。
 - 新增测试：备份保留 14、US-06 8、US-01 9、US-03 10、US-04 8。
+
+## 2026-09-30 runner v0.3.1 能力基线核验 + US-32 组件路径闭环（本轮）
+
+### 1. 已发布 runner v0.3.1 能力核验（回应用户提问：runner 0.3.1 能力是什么）
+
+用户指出应与「之前上传 DockerHub 的 v0.3.1」对比，于是做了**双源逐字节核验**：
+
+| 项 | 结果 |
+| --- | --- |
+| GitHub Release `v0.5.1u2` 组件包 | `smartx-upgrade-runner-v0.3.1.tar.gz` SHA `d10e15cf7b51…`（本地下载 SHA 与 Release 侧 `.sha256` 一致） |
+| DockerHub `…-upgrade-runner:v0.3.1` | manifest digest `sha256:90eb5a4239c…`，config digest `sha256:19b8b3e445…` |
+| 两者 config digest | **相同** → 同一个镜像 |
+| 6 个源码文件（actions/main/engine/lease/store/sandbox） | Release 包内层 vs DockerHub 层 **逐字节 IDENTICAL** |
+| `actions.py` md5 | 两边均 `573dd04b3618d2066b0326c2fd183c8d`，与文档记录一致 |
+| 镜像内 `app/RUNNER_VERSION` | `v0.3.1`；构建时间 2026-07-08 |
+| 动作数 | **25**；与 `constants.py` 的 `RELEASED_RUNNER_ACTIONS` 双向零差异 |
+
+**能力边界（v0.3.1 相比开发线 v0.3.2 缺什么）**：
+- 动作集只差 1 个：v0.3.2 新增 `post_upgrade.schedule_collection`（26 actions）。
+- 但**共有的 25 个动作实现也全部变化**（仅 `store.py` / `sandbox.py` 未变）——**"动作数相同"推不出"能力相同"**。
+- 在 v0.3.1 镜像内 grep 确认为 0 命中：`reconcile_project_runner_tag` / `_writeback_runner_compose_tag`（US-32）、`resolve_runner_stop_decision` / `_should_stop_previous_runner`（US-03/04）、`lease._connect()` 裸连接（US-28 未修）。
+- **v0.3.1 仍足以升 v0.5.3**：v0.5.3 包 `minimum_runner_version: v0.3.1`；方案 A（49-49）后 `compiler.py` 不再下发 `post_upgrade.schedule_collection`（该字符串只剩第 245 行注释），compiler 全部 23 种动作类型 100% 落在 v0.3.1 的 25 个动作内。运行侧已有 `.12` task `upgrade-666284beec04cc87` 佐证。
+
+结论沉淀到 `docs/version-skew-matrix.md` §4（新增）与 `findings.md`。
+
+### 2. US-32 组件升级路径根因与修复（本轮真 bug）
+
+`.14` 现场：组件升级 task `upgrade-ead521581ad91115` 报 success、runner 已是 v0.3.2，但 `project/docker-compose.yml` 仍写 v0.3.1。**第一版 runner-side 回写修复没生效**。
+
+**根因**：runner 侧两条回写路径都以「任务未收尾」为前提：
+
+- `status == "success" and _has_unfinished_steps(task)` — 该任务步骤已被 web-api 收尾为全部 succeeded，条件不成立；
+- `status == "runner_restarting" and runner_resume_pending and not execution_plan` — 该任务 status 是 success 且本就无 `execution_plan`，条件不成立。
+
+两条都不触发 → `run_pending_once` 直接 `continue` → 回写从未执行。manifest 里带有正确的 v0.3.2 镜像、`reconcile_project_runner_tag` 本身也可用，**只是没被调到**。
+
+**修复**（commit `fe7bf1a`）：新增第三条幂等兜底路径，以「compose tag 是否已对齐」为判据（而非任务状态）：
+- `_compose_runner_tag_now()` 读当前 compose 声明的 tag；
+- `_runner_tag_aligned()` 比对任务声明的 runner 镜像；compose 读不到时视为已对齐，不反复扰动现场；
+- `_apply_tag_writeback_if_needed()` 仅在未对齐时回写并留痕，已对齐则不追加日志。
+
+不新增动作、不改能力集，平台包 `minimum_runner_version` 无需变更。
+
+### 3. 修复过程中发现的自身问题
+- **第一版 US-32 修复（提交 `e86937f`）在真机未生效**——只加了 15 个单测就以为闭环，`.14` 实测才暴露「success 任务走不到回写分支」。教训：**回写/收尾类逻辑必须用「任务真实终态」判别，单测里的 happy path 不足以证明**。本轮补充 6 个针对 success 终态的用例（未对齐/已对齐/compose 缺失/回写生效/幂等/分支存在）。
+- **测试环境两个坑**：`.3` 宿主无 `docx`/`fastapi`/`openpyxl` → 35 error（需在 web-api 容器内跑）；只复制 `backend/` 会让需要仓库根的测试（compose/docs/frontend）报 FileNotFound → 必须整仓 `docker cp` 进容器。
+
+### 4. 本轮门禁
+- `.3` 后端全量 **647 tests OK (skipped=6)**（web-api 容器内，依赖齐全）。
+- `.3` build_tests **26 OK**。
+- runner 交付一致性 `verify_runner_delivery_consistency` **12 PASS / 0 FAIL**（DockerHub SKIP，v0.3.2 未发布）。
+- `verify_api_docs` OK（77 条 = 76 路由）；`verify_release_docs_safe` PASS。
+- 离线交付脚本单测 `test_offline_delivery_builder` **54 OK**（新增 1 例锁定 `--with-runner` 等待顺序）；US-32 定向 **21 OK**（原 15 + 新 6）。
+
+### 5. US-32 闭环实测（`.14`，r8 包）
+
+- r8 包：`.3:/data/upgrade-packages/components-v032-r8-20260930/smartx-upgrade-runner-v0.3.2.tar.gz` SHA `cedbf4c4a77a38b719f19df2328e56de86716459f12ab6a87439121848856907`（完整构建，非 `--no-build`；门禁 12 PASS）。
+- 传到 `.14:/opt/staging/runner-r8.tar.gz`，SHA 三方一致。
+- 走产品 API：上传 → 预检查（7 项全 ok，含 `runner_first_order` 确认源端 v0.5.3 已含同 project 守卫）→ 启动 → **task `upgrade-8c90bbc7bd52290c` succeeded**。
+- 验证：
+  - `project/docker-compose.yml` runner tag：**v0.3.1 → v0.3.2**（自动对齐，US-32 闭环）。
+  - `compose-runtime/docker-compose.runner-bootstrap.yml` → v0.3.2。
+  - 实际容器镜像 `…upgrade-runner:v0.3.2`，容器内 `RUNNER_VERSION` v0.3.2。
+  - health：`ok=True platform=v0.5.3 runner=v0.3.2`。
+  - 5/5 容器 Up。
+  - 任务日志留痕：`已对齐 compose runner tag：…v0.3.1 -> …v0.3.2`。
+  - 幂等：40 秒（3 个轮询周期）后日志条数稳定在 5，未重复追加。
+
+### 6. 同步修复：`upgrade.sh --with-runner` 竞态
+`.14` 早前实测：平台升级返回 succeeded 时 post-cleanup 仍在跑，`--with-runner` 立刻发起 runner 升级被单飞守卫 400 拒绝。已改为先轮询 `GET /api/admin/upgrade/post-cleanup/{task_id}` 收敛再升级；被守卫拒绝时给可操作指引。commit `4a8ad77`。
+
+### 7. 本轮未跑项（如实记录）
+- **前端门禁（`tsc -b --force` + `vitest run`）本轮未跑**：`.3` 宿主无 node、无 `node_modules`，且 `docker pull node:22-alpine` 被拒（`dial tcp 221.228.32.13:443: connection refused`，`.3` 外网受限）；`.3` 本地无任何 node 镜像。**本轮改动零前端文件**（`git diff cd207ea~1..HEAD` 全部为 backend/delivery/docs），前端不受影响，此项不构成回归风险，但**不是"已通过"**。
