@@ -288,6 +288,32 @@ class ComponentUpgradeTagWritebackTest(unittest.TestCase):
     从未执行。典型的"注释声称做了、代码没做"。
     """
 
+    def test_writeback_runs_in_runner_which_has_write_access(self) -> None:
+        """回写必须在 **runner 侧**——web-api 的 project 目录是只读挂载（`:ro`）。
+
+        `.14` 实测：把回写放在 web-api 的组件升级收尾里，函数被调用但写入抛 OSError
+        （只读挂载），compose 仍是 v0.3.1。upgrade-runner 对同一目录是**可写**挂载，
+        且组件升级收尾本来就由新 runner 接手（`runner_resume_pending`）。
+        """
+        import inspect
+
+        from app.upgrade_runner import main as runner_main
+
+        source = inspect.getsource(runner_main)
+        self.assertIn("_writeback_runner_compose_tag", source, "回写必须在 runner 侧")
+        self.assertIn("reconcile_project_runner_tag", source, "必须复用统一对账函数")
+        # 两处组件升级收尾点都要传 settings
+        self.assertGreaterEqual(
+            source.count("_finish_runner_component_steps(task"),
+            2,
+            "两处组件升级收尾点都应接入回写",
+        )
+        self.assertNotIn(
+            "compose tag 由 runner 在任务收尾时对齐",
+            inspect.getsource(inspect.getmodule(runner_main)),
+            "不得保留把责任推给 runner 的注释",
+        )
+
     def test_component_upgrade_path_calls_writeback(self) -> None:
         import inspect
 

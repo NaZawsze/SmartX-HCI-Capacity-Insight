@@ -114,7 +114,50 @@ def _package_path_for_task(task: dict[str, Any], task_dir: Path) -> Path:
     raise KeyError("package_path")
 
 
-def _finish_runner_component_steps(task: dict[str, Any], message: str) -> dict[str, Any]:
+def _writeback_runner_compose_tag(settings: Any, task: dict[str, Any], logs: list[str]) -> list[str]:
+    """US-32：组件升级收尾时把 compose 的 runner tag 对齐到**本次实际运行的镜像**。
+
+    为什么必须在 runner 侧：web-api 的 project 目录是**只读挂载**（compose 里 `:ro`），
+    它调用的同名回写函数写入必抛 OSError——`.14` 实测正是如此：runner 已升到 v0.3.2，
+    compose 仍写 v0.3.1。而 upgrade-runner 对 project 目录是**可写**挂载。
+    """
+    try:
+        from app.upgrade_runner.actions import reconcile_project_runner_tag, ActionContext
+    except Exception as exc:  # noqa: BLE001 - 回写失败不得让组件升级判失败
+        return [*logs, f"compose tag 回写跳过（导入失败）：{exc}"]
+
+    project_path = Path(settings.project_path)
+    context = ActionContext(
+        package_path=project_path,
+        project_path=project_path,
+        data_path=Path(settings.data_path),
+        upgrades_path=Path(settings.upgrades_path),
+        backups_path=Path(settings.backups_path),
+        exports_path=Path(settings.exports_path),
+        compose_runtime_path=Path(settings.compose_runtime_path),
+        prometheus_path=Path(settings.prometheus_path),
+        compose_file=settings.compose_file,
+        compose_project=settings.compose_project,
+        executor=CommandExecutor(),
+    )
+    try:
+        previous = reconcile_project_runner_tag(context, task)
+    except Exception as exc:  # noqa: BLE001
+        return [*logs, f"compose tag 回写失败：{exc}"]
+    if previous:
+        return [*logs, f"已对齐 compose runner tag：{previous} -> {_runner_image_from_task(task)}"]
+    return logs
+
+
+def _runner_image_from_task(task: dict[str, Any]) -> str:
+    from app.upgrade_runner.actions import _runner_image_from_task as resolve
+
+    return resolve(task)
+
+
+def _finish_runner_component_steps(
+    task: dict[str, Any], message: str, settings: Any = None
+) -> dict[str, Any]:
     steps = list(task.get("steps") or [])
     steps = _replace_step(steps, "restart", "succeeded", "upgrade-runner 已重新启动")
     steps = _replace_step(steps, "healthcheck", "succeeded", "组件升级健康检查通过")
@@ -127,6 +170,9 @@ def _finish_runner_component_steps(task: dict[str, Any], message: str) -> dict[s
     logs = list(task.get("logs") or [])
     if message not in logs:
         logs.append(message)
+    if settings is not None:
+        # US-32：组件升级收尾对齐 compose tag（web-api 无写权限，只能由 runner 做）
+        logs = _writeback_runner_compose_tag(settings, task, logs)
     task["logs"] = logs
     return task
 
@@ -327,7 +373,7 @@ def run_pending_once(
         task = store.load()
         status = str(task.get("status") or "")
         if status == "success" and _is_runner_component_task(task) and _has_unfinished_steps(task):
-            task = _finish_runner_component_steps(task, f"upgrade-runner {settings.runner_version} 已重新启动，组件升级完成。")
+            task = _finish_runner_component_steps(task, f"upgrade-runner {settings.runner_version} 已重新启动，组件升级完成。", settings)
             result = store.save(task, expected_revision=int(task.get("revision") or 0))
             _project_task(settings.database_path, result)
             executed += 1
@@ -335,7 +381,7 @@ def run_pending_once(
         if status not in {"pending", "running", "runner_restarting", "recovery_required"}:
             continue
         if status == "runner_restarting" and task.get("runner_resume_pending") and not task.get("execution_plan"):
-            task = _finish_runner_component_steps(task, "upgrade-runner 已重新启动，组件升级完成。")
+            task = _finish_runner_component_steps(task, "upgrade-runner 已重新启动，组件升级完成。", settings)
             result = store.save(task, expected_revision=int(task.get("revision") or 0))
             _project_task(settings.database_path, result)
             executed += 1
