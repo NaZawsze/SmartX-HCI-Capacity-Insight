@@ -44,6 +44,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# 交付脚本的仓库内权威位置（builder 复制进交付包，脚本本身是交付物的一部分）
+SCRIPT_SOURCES: dict[str, Path] = {
+    "install/install.sh": ROOT / "delivery" / "install" / "install.sh",
+    "upgrade/upgrade.sh": ROOT / "delivery" / "upgrade" / "upgrade.sh",
+}
+
 # 交付物禁含清单（docs/ova-delivery.md 制品边界）。
 # 命中即构建失败——宁可构建不出来，也不能把现场数据带进客户现场。
 FORBIDDEN_NAMES: set[str] = {
@@ -295,6 +301,16 @@ def main() -> int:
     for name in package_names:
         digest = sha256_of(packages_dir / name)
         (packages_dir / f"{name}.sha256").write_text(f"{digest}  {name}\n", encoding="utf-8")
+
+    # ---------- 交付脚本（install.sh / upgrade.sh）----------
+    for relative, source in SCRIPT_SOURCES.items():
+        if not source.is_file():
+            raise SystemExit(f"[offline-delivery] 缺少交付脚本源文件：{source}")
+        target = output / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        target.chmod(0o755)
+        log(f"已放入交付脚本 {relative}")
 
     # ---------- README ----------
     shutil.copy2(readme, output / "README.md")

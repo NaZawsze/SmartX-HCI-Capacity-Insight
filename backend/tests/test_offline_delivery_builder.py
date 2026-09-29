@@ -210,5 +210,83 @@ class ProjectFilesLayoutTest(unittest.TestCase):
             self.assertIn(marker, text)
 
 
+class DeliveryScriptsTest(unittest.TestCase):
+    """交付脚本的静态门禁：存在、可执行、语法正确。"""
+
+    def test_scripts_exist_and_are_executable(self) -> None:
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        for relative, source in SCRIPT_SOURCES.items():
+            self.assertTrue(source.is_file(), f"缺少交付脚本：{relative}（{source}）")
+            self.assertTrue(source.stat().st_mode & 0o111, f"{relative} 必须带可执行位")
+
+    def test_scripts_pass_bash_syntax_check(self) -> None:
+        import subprocess
+
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        for relative, source in SCRIPT_SOURCES.items():
+            result = subprocess.run(["bash", "-n", str(source)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"{relative} 语法错误：{result.stderr}")
+
+    def test_install_script_never_prints_secrets(self) -> None:
+        """密钥绝不能被直接送进输出（安装日志会被人看、被粘贴到工单）。
+
+        判定"直接送进输出"：密钥变量出现在输出函数的**位置参数**里。
+        `printf '%s' "$ENV_CONTENT" | awk -v sk="$SECRET_KEY"` 这种**传参给下游处理**不算泄露，
+        但 `echo "$SECRET_KEY"` / `info "$SECRET_KEY"` 这类必须禁止。
+        """
+        import re
+
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        text = SCRIPT_SOURCES["install/install.sh"].read_text(encoding="utf-8")
+        secret_vars = ("SECRET_KEY", "CREDENTIAL_KEY")
+        # 允许的形态：变量出现在 `-v name=$VAR`（传给 awk）、赋值右侧、`unset`
+        allowed_patterns = (
+            re.compile(r"=\"?\$\{?(?:ENV_)?[A-Z_]*" + r"(SECRET_KEY|CREDENTIAL_KEY)\}?\"?"),
+            re.compile(r"-v\s+\w+=\"?\$\{?(?:ENV_)?[A-Z_]*(SECRET_KEY|CREDENTIAL_KEY)\}?\"?"),
+            re.compile(r"^unset\b"),
+            re.compile(r"^#"),
+        )
+        offenders: list[str] = []
+        for number, line in enumerate(text.splitlines(), start=1):
+            stripped = line.strip()
+            if not any(var in stripped for var in secret_vars):
+                continue
+            if any(pattern.search(stripped) for pattern in allowed_patterns):
+                continue
+            # 剩余情况：出现在输出函数的参数位置
+            for output in ("echo", "printf", "info", "ok", "warn", "fail"):
+                if re.search(rf"\b{output}\b[^\n]*\$\{{?(?:ENV_)?[A-Z_]*(?:SECRET_KEY|CREDENTIAL_KEY)", stripped):
+                    offenders.append(f"第 {number} 行：{stripped}")
+        self.assertEqual(offenders, [], "密钥不得直接进入输出：\n" + "\n".join(offenders))
+
+        # 显式确认：随机密钥只经由 gen_secret 产生，且用完即清
+        self.assertIn("gen_secret", text)
+        self.assertIn("unset ENV_CONTENT SECRET_KEY CREDENTIAL_KEY", text)
+        # 生成后必须自检：不得残留占位符、不得为空、两把必须不同
+        self.assertIn("__GENERATE__", text)
+        self.assertIn("两把密钥相同", text)
+
+    def test_upgrade_script_only_calls_api(self) -> None:
+        """升级脚本只调 API：**可执行代码**里不得出现 docker load / compose up / rm。
+
+        注释里可以（而且应该）说明为什么不这么做，因此只看非注释行。
+        """
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        text = SCRIPT_SOURCES["upgrade/upgrade.sh"].read_text(encoding="utf-8")
+        code_lines = [ln for ln in text.splitlines() if not ln.strip().startswith("#")]
+        code = "\n".join(code_lines)
+        for forbidden in ("docker load", "compose up", "rm -rf", "rm -f"):
+            self.assertNotIn(forbidden, code, f"upgrade.sh 可执行代码不得包含 {forbidden}（必须只走 API）")
+        # 必须真的在调 API
+        for endpoint in ("/api/auth/login", "/api/admin/upgrade/upload",
+                         "/api/admin/upgrade/precheck/", "/api/admin/upgrade/start/",
+                         "/api/admin/upgrade/status/"):
+            self.assertIn(endpoint, code, f"upgrade.sh 必须调用 {endpoint}")
+
+
 if __name__ == "__main__":
     unittest.main()
