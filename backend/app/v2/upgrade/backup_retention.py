@@ -115,9 +115,16 @@ def plan_cleanup(
         return {"expired": [], "redundant": []}
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=max(0, ttl_days))
+    # 从新到旧排序；最后 keep_recent 份是"回退的最后一道保险"，任何情况下都不删
+    newest_first = sorted(
+        entries, key=lambda item: (item["time"] or datetime.min.replace(tzinfo=timezone.utc)), reverse=True
+    )
+    protected = {entry["path"] for entry in newest_first[: max(0, keep_recent)]}
 
     expired: list[Path] = []
-    for entry in entries:
+    for entry in newest_first:
+        if entry["path"] in protected:
+            continue  # 保底份，不参与过期判定
         stamp = entry["time"]
         if stamp is None:
             # 读不到时间的按最旧处理，但只要总量超限就会被裁掉
@@ -126,17 +133,14 @@ def plan_cleanup(
         if stamp < cutoff:
             expired.append(entry["path"])
 
-    # 保留最近 keep_recent 份（含已过期的也不删——宁可多留，不冒回退无门）
-    surviving = [e for e in entries if e["path"] not in expired]
-    total_after = len(expired) + len(surviving)
+    # 数量裁剪：从最旧开始删，始终保住 protected
     redundant: list[Path] = []
-    if total_after > keep_recent:
-        # 从最旧开始裁剪，但始终保住最后 keep_recent 份
-        overflow = total_after - keep_recent
-        for entry in sorted(entries, key=lambda e: (e["time"] or datetime.min.replace(tzinfo=timezone.utc))):
+    if len(entries) > keep_recent:
+        overflow = len(entries) - keep_recent
+        for entry in reversed(newest_first):  # 最旧 → 最新
             if overflow <= 0:
                 break
-            if entry["path"] in expired or entry["path"] in redundant:
+            if entry["path"] in protected or entry["path"] in expired:
                 continue
             redundant.append(entry["path"])
             overflow -= 1
