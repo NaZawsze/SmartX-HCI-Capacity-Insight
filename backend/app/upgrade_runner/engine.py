@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from app.upgrade_runner.actions import _runner_image_from_manifest, reconcile_project_runner_tag
+from app.upgrade_runner.actions import _runner_image_from_task, reconcile_project_runner_tag
 from app.upgrade_runner.store import TaskStore
 
 
@@ -171,7 +171,7 @@ class UpgradeEngine:
             if previous_tag:
                 task["logs"] = [
                     *task.get("logs", []),
-                    f"compose runner tag 已对齐：{previous_tag} -> {_runner_image_from_manifest(task.get('manifest'))}",
+                    f"compose runner tag 已对齐：{previous_tag} -> {_runner_image_from_task(task)}",
                 ]
         except Exception as exc:  # noqa: BLE001 - 对账失败不得让升级任务判失败
             task["logs"] = [*task.get("logs", []), f"runner tag 对账跳过：{exc}"]

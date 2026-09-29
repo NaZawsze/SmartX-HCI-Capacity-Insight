@@ -40,8 +40,14 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
         (project / "docker-compose.yml").write_text(COMPOSE.format(tag=tag), encoding="utf-8")
         return ActionContext.minimal(root, project_path=project)
 
-    def _task(self, image: str) -> dict:
-        return {
+    def _task(self, image: str, *, plan_image: str | None = None) -> dict:
+        """构造任务。
+
+        `plan_image` 模拟真实形态：落盘 manifest 仍是包内基线，**现场镜像只存在于执行计划**
+        （web-api 的 `_inject_field_runner_image` 只注入编译用的计划，不回写落盘 manifest）。
+        """
+        manifest_image = "repo/upgrade-runner:v0.3.1" if plan_image else image
+        task = {
             "task_id": "upgrade-1",
             "status": "running",
             "manifest": {
@@ -50,12 +56,71 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
                     {
                         "type": "platform",
                         "images": [
-                            {"service": "upgrade-runner", "image": image, "archive": None},
+                            {"service": "upgrade-runner", "image": manifest_image, "archive": None},
                         ],
                     }
                 ],
             },
         }
+        if plan_image is not None:
+            task["execution_plan"] = {
+                "protocol_version": 1,
+                "required_capabilities": [],
+                "actions": [
+                    {
+                        "id": "schedule-runner-target-runtime-handoff",
+                        "type": "runner.handoff.v1",
+                        "status": "pending",
+                        "attempt": 0,
+                        "checkpoint": {},
+                        "result": {},
+                        "params": {"image": plan_image},
+                    }
+                ],
+            }
+        return task
+
+    def test_plan_image_wins_over_stale_manifest(self) -> None:
+        """判别：落盘 manifest 是基线 v0.3.1、计划里是现场 v0.3.2 → 必须用计划的。"""
+        from app.upgrade_runner.actions import _runner_image_from_task
+
+        task = self._task("repo/upgrade-runner:v0.3.2", plan_image="repo/upgrade-runner:v0.3.2")
+        self.assertEqual(task["manifest"]["components"][0]["images"][0]["image"], "repo/upgrade-runner:v0.3.1")
+        self.assertEqual(_runner_image_from_task(task), "repo/upgrade-runner:v0.3.2")
+
+    def test_falls_back_to_compose_override_images(self) -> None:
+        from app.upgrade_runner.actions import _runner_image_from_task
+
+        task = self._task("repo/upgrade-runner:v0.3.2")
+        task["execution_plan"] = {
+            "protocol_version": 1,
+            "required_capabilities": [],
+            "actions": [
+                {
+                    "id": "write-compose-override",
+                    "type": "compose.override",
+                    "status": "pending",
+                    "attempt": 0,
+                    "checkpoint": {},
+                    "result": {},
+                    "params": {
+                        "images": [
+                            {"service": "web-api", "image": "repo/web-api:v0.5.3", "archive": "images/web-api.tar"},
+                            {"service": "upgrade-runner", "image": "repo/upgrade-runner:v0.3.2", "archive": None},
+                        ]
+                    },
+                }
+            ],
+        }
+        self.assertEqual(_runner_image_from_task(task), "repo/upgrade-runner:v0.3.2")
+
+    def test_falls_back_to_manifest_when_plan_absent(self) -> None:
+        from app.upgrade_runner.actions import _runner_image_from_task
+
+        self.assertEqual(_runner_image_from_task(self._task("repo/upgrade-runner:v0.3.2")), "repo/upgrade-runner:v0.3.2")
+        self.assertEqual(_runner_image_from_task({}), "")
+        self.assertEqual(_runner_image_from_task({"manifest": None}), "")
+        self.assertEqual(_runner_image_from_task(None), "")
 
     # ---------- 判别用例 ----------
 
@@ -67,7 +132,7 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
             root = Path(tmpdir)
             context = self._context(root, "repo/upgrade-runner:v0.3.1")
 
-            previous = reconcile_project_runner_tag(context, self._task("repo/upgrade-runner:v0.3.2"))
+            previous = reconcile_project_runner_tag(context, self._task("repo/upgrade-runner:v0.3.2", plan_image="repo/upgrade-runner:v0.3.2"))
 
             self.assertEqual(previous, "repo/upgrade-runner:v0.3.1")
             content = (context.project_path / "docker-compose.yml").read_text(encoding="utf-8")
@@ -152,20 +217,12 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
             root = Path(tmpdir)
             context = self._context(root, "repo/upgrade-runner:v0.3.1")
             store = TaskStore(root / "upgrade-1")
-            store.save(
-                {
-                    "task_id": "upgrade-1",
-                    "status": "pending",
-                    "manifest": self._task("repo/upgrade-runner:v0.3.2")["manifest"],
-                    "execution_plan": {
-                        "protocol_version": 1,
-                        "required_capabilities": [],
-                        "actions": [
-                            {"id": "noop", "type": "image.load", "status": "pending", "attempt": 0, "checkpoint": {}, "result": {}}
-                        ],
-                    },
-                }
+            saved = self._task("repo/upgrade-runner:v0.3.2", plan_image="repo/upgrade-runner:v0.3.2")
+            # 真实形态：落盘 manifest 是基线 v0.3.1，现场 v0.3.2 只在计划里
+            saved["execution_plan"]["actions"].append(
+                {"id": "noop", "type": "image.load", "status": "pending", "attempt": 0, "checkpoint": {}, "result": {}}
             )
+            store.save(saved)
 
             result = UpgradeEngine(
                 store,
@@ -188,20 +245,12 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
             context = self._context(root, "repo/upgrade-runner:v0.3.1")
             context.project_path = None  # 触发 AttributeError
             store = TaskStore(root / "upgrade-1")
-            store.save(
-                {
-                    "task_id": "upgrade-1",
-                    "status": "pending",
-                    "manifest": self._task("repo/upgrade-runner:v0.3.2")["manifest"],
-                    "execution_plan": {
-                        "protocol_version": 1,
-                        "required_capabilities": [],
-                        "actions": [
-                            {"id": "noop", "type": "image.load", "status": "pending", "attempt": 0, "checkpoint": {}, "result": {}}
-                        ],
-                    },
-                }
+            saved = self._task("repo/upgrade-runner:v0.3.2", plan_image="repo/upgrade-runner:v0.3.2")
+            # 真实形态：落盘 manifest 是基线 v0.3.1，现场 v0.3.2 只在计划里
+            saved["execution_plan"]["actions"].append(
+                {"id": "noop", "type": "image.load", "status": "pending", "attempt": 0, "checkpoint": {}, "result": {}}
             )
+            store.save(saved)
 
             result = UpgradeEngine(
                 store,

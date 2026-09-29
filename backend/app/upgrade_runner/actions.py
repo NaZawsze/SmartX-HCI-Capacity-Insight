@@ -167,20 +167,44 @@ def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
         archive.extractall(destination)
 
 
-def _runner_image_from_manifest(manifest: Any) -> str:
-    """从任务 manifest 里取 upgrade-runner 条目的镜像。
+def _runner_image_from_task(task: Any) -> str:
+    """取"该写进 compose 的 runner 镜像"。
 
-    平台升级时 web-api 已把**现场实际镜像**注入到 manifest（US-26 `_inject_field_runner_image`），
-    组件升级时 manifest 里的就是本次要装的新镜像 —— 两种情形拿到的都是"该写进 compose 的 tag"。
+    **以执行计划为准，不以 manifest 为准**：平台升级时 web-api 只在内存里把现场镜像注入
+    编译用的计划（`_inject_field_runner_image`），落盘的 `task.json` 里 manifest 仍是包内
+    基线（实测 v0.3.1）。现场镜像出现在两个计划动作里：
+      - `schedule-runner-target-runtime-handoff` 的 `params.image`（权威，handoff 实际用的）
+      - `write-compose-override` 的 `params.images[]` 中 service=upgrade-runner 条目
+    两者都取不到时才退回 manifest（组件升级的计划未必带 handoff）。
     """
-    if not isinstance(manifest, dict):
+    if not isinstance(task, dict):
         return ""
-    for component in manifest.get("components") or []:
-        if not isinstance(component, dict):
+    plan = task.get("execution_plan")
+    actions = plan.get("actions") if isinstance(plan, dict) else None
+    for action in actions or []:
+        if not isinstance(action, dict):
             continue
-        for image in component.get("images") or []:
+        params = action.get("params") or {}
+        if str(action.get("type") or "").startswith("runner.handoff"):
+            image = str(params.get("image") or "").strip()
+            if image:
+                return image
+    for action in actions or []:
+        if not isinstance(action, dict):
+            continue
+        for image in (action.get("params") or {}).get("images") or []:
             if isinstance(image, dict) and str(image.get("service") or "") == "upgrade-runner":
-                return str(image.get("image") or "").strip()
+                declared = str(image.get("image") or "").strip()
+                if declared:
+                    return declared
+    manifest = task.get("manifest")
+    if isinstance(manifest, dict):
+        for component in manifest.get("components") or []:
+            if not isinstance(component, dict):
+                continue
+            for image in component.get("images") or []:
+                if isinstance(image, dict) and str(image.get("service") or "") == "upgrade-runner":
+                    return str(image.get("image") or "").strip()
     return ""
 
 
@@ -197,7 +221,7 @@ def reconcile_project_runner_tag(context: ActionContext, task: dict[str, Any]) -
     不需要 `docker inspect`，也不新增动作/能力集 —— 旧 runner 缺这段逻辑只是维持现状，
     不会让升级失败，平台包的 minimum_runner_version 无需变更。
     """
-    runner_image = _runner_image_from_manifest((task or {}).get("manifest"))
+    runner_image = _runner_image_from_task(task)
     if not runner_image:
         return ""
     compose_path = context.project_path / "docker-compose.yml"
