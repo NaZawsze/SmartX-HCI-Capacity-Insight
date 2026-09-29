@@ -643,3 +643,41 @@ class InstallRunnerBaselineTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShellQuotingTest(unittest.TestCase):
+    """shell 单引号内不得再出现单引号（会提前闭合、后续被当命令执行）。
+
+    `.14` 实测踩到：`upgrade.sh` 预检查格式化里写了 `check.get('name')`，
+    而整个 python 代码是用 shell 单引号包裹的 —— 单引号提前闭合导致格式化失效，
+    预检查结果把整段 JSON 原样打给用户（`.14` 离线升级实测）。
+    """
+
+    def _python_blocks(self, script: Path) -> list[str]:
+        import re
+
+        text = script.read_text(encoding="utf-8")
+        return [match.group(1) for match in re.finditer(r"python3? -c '(.*?)'", text, re.S)]
+
+    def test_no_single_quote_inside_single_quoted_python(self) -> None:
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        for relative, source in SCRIPT_SOURCES.items():
+            for index, block in enumerate(self._python_blocks(source), start=1):
+                for number, line in enumerate(block.splitlines(), start=1):
+                    self.assertNotIn(
+                        "'", line,
+                        f"{relative} 第 {index} 个内嵌 python 块第 {number} 行含单引号，"
+                        f"会提前闭合 shell 引号：{line.strip()[:80]}",
+                    )
+
+    def test_upgrade_script_precheck_is_formatted(self) -> None:
+        """预检查必须逐项打印（含 OK/FAIL 标记），而不是原样 JSON。"""
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        text = SCRIPT_SOURCES["upgrade/upgrade.sh"].read_text(encoding="utf-8")
+        self.assertIn("预检查结果", text)
+        self.assertIn('print("     [" + mark + "] "', text)
+        self.assertIn('mark = "OK  " if check.get("ok") else "FAIL"', text)
+        # python3 缺失时要有可读的兜底，而不是崩溃
+        self.assertIn("系统无 python3", text)

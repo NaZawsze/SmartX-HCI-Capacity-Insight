@@ -195,7 +195,11 @@ ok "已上传：$PACKAGE_NAME → 任务 $TASK_ID（目标 ${TARGET_VERSION:-unk
 # ── 预检查（逐项打印；任一失败即停）──
 PRECHECK_BODY="$(curl -s --max-time 300 -X POST "$BASE_URL/api/admin/upgrade/precheck/$TASK_ID" "${AUTH[@]}" 2>/dev/null || true)"
 printf '\n  预检查结果：\n'
-printf '%s' "$PRECHECK_BODY" | python3 -c '
+# 注意：python 代码用 **双引号** 包裹外层字符串时，内部只用双引号会冲突；
+# 这里整体用单引号包裹，内部**只能用双引号**——写成 check.get('name') 会提前闭合
+# shell 的单引号，导致后续被当命令执行、预检查结果原样打印 JSON（.14 实测踩到）。
+if command -v python3 >/dev/null 2>&1; then
+  printf '%s' "$PRECHECK_BODY" | python3 -c '
 import json, sys
 raw = sys.stdin.read().strip()
 if not raw:
@@ -206,10 +210,17 @@ try:
 except ValueError:
     print("     解析失败：", raw[:200])
     raise SystemExit(0)
-for check in data.get("checks") or []:
+checks = data.get("checks") or []
+if not checks:
+    print("     （无明细字段）")
+for check in checks:
     mark = "OK  " if check.get("ok") else "FAIL"
-    print(f"     [{mark}] {check.get('name')}: {str(check.get('message'))[:110]}")
-' 2>/dev/null || printf '     %s\n' "$(printf '%s' "$PRECHECK_BODY" | head -c 300)"
+    print("     [" + mark + "] " + str(check.get("name")) + ": " + str(check.get("message"))[:110])
+'
+else
+  c_yellow "  系统无 python3，无法格式化预检查明细，原样输出："
+  printf '     %s\n' "$(printf '%s' "$PRECHECK_BODY" | head -c 300)"
+fi
 
 if ! printf '%s' "$PRECHECK_BODY" | grep -q '"status":"prechecked"'; then
   DETAIL="$(printf '%s' "$PRECHECK_BODY" | sed -nE 's/.*"detail"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')"
