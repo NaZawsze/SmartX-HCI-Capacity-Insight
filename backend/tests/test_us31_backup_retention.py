@@ -132,6 +132,50 @@ class BackupRetentionTest(unittest.TestCase):
             kinds = {entry["type"] for entry in collect_backups(backups)}
             self.assertEqual(kinds, {"data", "project_files"})
 
+    def test_pairing_is_preserved_per_type(self) -> None:
+        """判别：数据快照与项目文件备份必须**成对**保留，不得混合计数。
+
+        实现初版把两类混在一个列表里数 keep_recent：3 数据 + 3 项目、keep=5 时
+        留下"3 数据 + 2 项目"，于是有 1 份数据备份的配对项目备份被删——
+        正是要避免的残缺备份（回退需要两者配对）。
+        """
+        from app.v2.upgrade.backup_retention import collect_backups, plan_cleanup
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backups = Path(tmpdir)
+            for index in range(3):
+                data = _write_data_backup(backups, f"2099010{index}000000")
+                _age(data, index)
+                files = _write_project_files(backups, f"upgrade-{index}")
+                _age(files, index)
+
+            plan = plan_cleanup(backups, ttl_days=365, keep_recent=2)
+            doomed = set(plan["expired"]) | set(plan["redundant"])
+
+            remaining_data = [p for p in backups.glob("upgrade-*.tar.gz") if p not in doomed]
+            remaining_files = [p for p in backups.iterdir()
+                               if p.is_dir() and p.name.startswith("project-files-") and p not in doomed]
+            self.assertEqual(
+                len(remaining_data), len(remaining_files),
+                f"两类保留数量必须一致（配对），实际 data={len(remaining_data)} files={len(remaining_files)}",
+            )
+            self.assertEqual(len(remaining_data), 2, "各保留最近 2 份")
+
+    def test_collect_lists_both_types_before_and_after(self) -> None:
+        from app.v2.upgrade.backup_retention import collect_backups, plan_cleanup
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backups = Path(tmpdir)
+            for index in range(4):
+                data = _write_data_backup(backups, f"2099010{index}000000")
+                _age(data, index)
+                files = _write_project_files(backups, f"upgrade-{index}")
+                _age(files, index)
+
+            self.assertEqual(len(collect_backups(backups)), 8)
+            plan = plan_cleanup(backups, ttl_days=365, keep_recent=3)
+            self.assertEqual(len(plan["expired"]) + len(plan["redundant"]), 2, "每类各裁 1 份")
+
     def test_plan_is_read_only(self) -> None:
         from app.v2.upgrade.backup_retention import plan_cleanup
 

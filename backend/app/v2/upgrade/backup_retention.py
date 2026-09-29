@@ -106,44 +106,51 @@ def plan_cleanup(
 ) -> dict[str, list[Path]]:
     """只读计算：该删哪些。返回 {"expired": [...], "redundant": [...]}。
 
-    - `expired`：超过 TTL 的旧备份。
+    **按类型分别计算**（data / project_files 各自一套），不是混在一起数：
+    回退需要「数据快照 + 项目文件备份」配对存在，若混合计数，
+    保留的可能是"3 份数据 + 2 份项目"，于是有 1 份数据备份的配对项目备份被删——
+    正是要避免的残缺备份。分类型后，最近 N 次升级的两半必然同时保留。
+
+    每类内部：
+    - `expired`：超过 TTL 的旧备份（最新 keep_recent 份豁免）。
     - `redundant`：未过期但超出保留数量的最旧备份。
-    两者都**保留最近 keep_recent 份**（无论多旧），避免保留窗口配错导致全清。
     """
     entries = collect_backups(backups_dir)
     if not entries:
         return {"expired": [], "redundant": []}
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=max(0, ttl_days))
-    # 从新到旧排序；最后 keep_recent 份是"回退的最后一道保险"，任何情况下都不删
-    newest_first = sorted(
-        entries, key=lambda item: (item["time"] or datetime.min.replace(tzinfo=timezone.utc)), reverse=True
-    )
-    protected = {entry["path"] for entry in newest_first[: max(0, keep_recent)]}
 
     expired: list[Path] = []
-    for entry in newest_first:
-        if entry["path"] in protected:
-            continue  # 保底份，不参与过期判定
-        stamp = entry["time"]
-        if stamp is None:
-            # 读不到时间的按最旧处理，但只要总量超限就会被裁掉
-            expired.append(entry["path"])
-            continue
-        if stamp < cutoff:
-            expired.append(entry["path"])
-
-    # 数量裁剪：从最旧开始删，始终保住 protected
     redundant: list[Path] = []
-    if len(entries) > keep_recent:
-        overflow = len(entries) - keep_recent
-        for entry in reversed(newest_first):  # 最旧 → 最新
-            if overflow <= 0:
-                break
-            if entry["path"] in protected or entry["path"] in expired:
-                continue
-            redundant.append(entry["path"])
-            overflow -= 1
+    for kind in ("data", "project_files"):
+        same_kind = [entry for entry in entries if entry["type"] == kind]
+        if not same_kind:
+            continue
+        # 该类型内从新到旧；最新 keep_recent 份是"回退的最后一道保险"，任何情况都不删
+        newest_first = sorted(
+            same_kind,
+            key=lambda item: (item["time"] or datetime.min.replace(tzinfo=timezone.utc)),
+            reverse=True,
+        )
+        protected = {entry["path"] for entry in newest_first[: max(0, keep_recent)]}
+
+        for entry in newest_first:
+            if entry["path"] in protected:
+                continue  # 保底份，不参与过期判定
+            stamp = entry["time"]
+            if stamp is None or stamp < cutoff:
+                expired.append(entry["path"])
+
+        if len(same_kind) > keep_recent:
+            overflow = len(same_kind) - keep_recent
+            for entry in reversed(newest_first):  # 最旧 → 最新
+                if overflow <= 0:
+                    break
+                if entry["path"] in protected or entry["path"] in expired:
+                    continue
+                redundant.append(entry["path"])
+                overflow -= 1
     return {"expired": expired, "redundant": redundant}
 
 
