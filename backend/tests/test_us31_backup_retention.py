@@ -111,16 +111,21 @@ class BackupRetentionTest(unittest.TestCase):
     # ---------- 安全约束 ----------
 
     def test_project_files_backups_are_also_cleaned(self) -> None:
+        """项目文件备份同样按 TTL 清理（数量要 > keep_recent，否则它是保底份）。"""
         from app.v2.upgrade.backup_retention import purge_backups
 
         with tempfile.TemporaryDirectory() as tmpdir:
             backups = Path(tmpdir)
-            old_dir = _write_project_files(backups, "upgrade-old")
-            _age(old_dir, 60)
+            for index in range(3):
+                files = _write_project_files(backups, f"upgrade-{index}")
+                _age(files, 60 + index)  # 全部超期
+            old_dir = backups / "project-files-upgrade-0"
 
             purge_backups(backups, ttl_days=14, keep_recent=1)
 
-            self.assertFalse(old_dir.exists(), "项目文件备份同样要按 TTL 清理")
+            self.assertFalse(old_dir.exists(), "超期的项目文件备份必须删除")
+            remaining = [p.name for p in backups.iterdir() if p.is_dir()]
+            self.assertEqual(len(remaining), 1, "仍须保留 keep_recent 份")
 
     def test_collect_lists_both_types(self) -> None:
         from app.v2.upgrade.backup_retention import collect_backups
