@@ -171,7 +171,13 @@
 - **修复一：所有 failed 任务都有收尾指引**（不只走人工 `recovery/fail` 的那些）。早期动作失败由 runner 自行判定 `failed`、不经任何人工入口，此前既无残留清单也无操作入口。两处根因：①`cleanup_required` 只挂在 `recovery/fail`；②**`setdefault` 陷阱**——`engine.py` 用 `setdefault` 兜 `available_recovery_actions`，而键存在且值为 `None` 时 `setdefault` **不替换**，失败任务带着 `None` 定格，前端 `?.includes()` 拿不到任何按钮。现 `_public_task` 对所有 `failed` 任务补残留探测+指引+`fail` 入口，engine 侧显式归一 `None`。
 - **修复二：残留探测必须在宿主视角判断**。探测在 web-api 容器内执行，而 `/data/backups`、`/data/exports`、`/data/compose-runtime`、`/prometheus-data` 是 bind mount 挂载点、容器视角**必然存在**（且必须存在，删掉会拆掉全机挂载，UPG-050）——旧实现直接 `Path.exists()` **永远误报**。`.12` 实测：7 个 legacy 宿主路径全部已清空（环境干净），探测却报 5 个"残留"，把管理员引向无意义的收尾操作。改为经 `_container_mount_source` 换算宿主真实路径：**有映射时，宿主源存在=正常布局、不存在=布局未建立（即真残留）；无映射时保守用容器路径**（宁多报不漏报）。
 - **`.12` 判别证据**：平台包 r13（SHA `60114ad9701be381275b6bf7aeac2bb4de10245d6d5dcdc6bd1d3327ccd9cca3`）升级 succeeded 后，历史失败任务 `upgrade-acf7a29bb647e5a2` 视图由 `cleanup_required=True / 5 条误报 / actions=None` 变为 `cleanup_required=False / residual_paths=[] / actions=['fail']`；health `v0.5.3 / runner v0.3.2` 三项 checks 全 true。
-- **仍未做（需排期）**：**失败任务留下的备份无人回收**。`.12` 实测 `backups/` 累积 **13 份 / 79MB**（`backup.create` 先成功、后续 `image.load` 失败所致）。需定策略：成功任务保留 N 份或按 TTL，失败任务随取证期到期清理。此项会持续增长磁盘占用，属运维债而非正确性问题。
+- **备份保留策略：🟢 已修（2026-09-29）**。新增 `backend/app/v2/upgrade/backup_retention.py` + 守护线程（`main.py` 接线），按 **TTL（默认 14 天）+ 保留最近 N 份（默认 5）** 裁剪两类产物（`upgrade-*-before-*.tar.gz` 数据快照、`project-files-<task_id>/` 项目备份），`SMARTX_UPGRADE_BACKUP_TTL_DAYS` / `_KEEP_RECENT` / `_CLEANUP_INTERVAL_SECONDS` 可调，两者为 0 即关闭。
+  - **安全约束一：最新 N 份豁免过期判定**。即使全部超期也必须保住 N 份——备份是"出事前能否回退"的最后一道保险，全清等于回退无门。
+  - **安全约束二：按类型分别计算**（不混在一起数）。回退需要「数据快照 + 项目备份」**配对**；混合计数会留下"3 数据 + 2 项目"，于是有 1 份数据备份的配对项目备份被删——正是要避免的残缺备份。实现初版正是这么错的，由测试抓出。
+  - 只清本模块命名的产物；`customer-manual-backup.tar.gz`、导出物等一律不动。`plan_cleanup` 只读。
+  - 排序口径：数据备份按**文件名内时间戳**，项目备份目录名无时间戳、按 **mtime**。
+  - 测试 14 例（TTL、数量裁剪、保底豁免、配对保持、只读性、非法配置回退、main 接线）。
+`.12` 实测 `backups/` 累积 **13 份 / 79MB**（`backup.create` 先成功、后续 `image.load` 失败所致）。需定策略：成功任务保留 N 份或按 TTL，失败任务随取证期到期清理。此项会持续增长磁盘占用，属运维债而非正确性问题。
 
 ### US-32 🔴→🟢 已修（第 5 批实测）：compose 的 runner tag 回写**自实现起从未生效**（只读挂载 + 静默吞错）
 
