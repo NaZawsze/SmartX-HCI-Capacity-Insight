@@ -359,14 +359,16 @@ def main() -> int:
     # 属于交付物内部自洽性，必须在构建期就断言。
     declared = declared_images_from_compose(project_dir / "docker-compose.offline.yml")
     provided: dict[str, str] = {}
+    available_tags: set[str] = set()
     for tar_path in sorted(images_dir.glob("*.tar")):
         archive_tags = image_tags_in_archive(tar_path)
         if not archive_tags:
             raise SystemExit(
                 f"[offline-delivery] 无法从 {tar_path.name} 读出镜像 tag（既无 index.json 也无 manifest.json）"
             )
+        available_tags |= archive_tags
         provided[tar_path.name] = ", ".join(sorted(archive_tags))
-    missing = sorted(declared - set(provided))
+    missing = sorted(declared - available_tags)
     if missing:
         log("交付物不自洽：compose 声明的镜像在 images/ 里没有对应归档或 tag 不符")
         for tag in missing:

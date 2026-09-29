@@ -758,6 +758,86 @@ class DeliveryBundleSelfConsistencyTest(unittest.TestCase):
             self.assertIn("repo/upgrade-runner:v0.3.1", declared)
             self.assertNotIn("repo/ignored:v0", declared, "注释里的 image 不得算作声明")
 
+    def test_comparison_logic_matches_tags_not_filenames(self) -> None:
+        """判别：比对必须用**真实 tag 集合**，不能用归档文件名集合。
+
+        曾经的 bug：`set(provided)` 取到的是 `{'web-api.tar', ...}` 这类**文件名**，
+        与 compose 声明的 tag 集合永不相交 → 即使每个 tag 都正确也报"不自洽"。
+        .3 真实构建当场暴露（5 个 tag 全对却报不自洽）。
+        """
+        import io as _io
+        import json as _json
+        import tarfile as _tarfile
+
+        from scripts.build_offline_delivery import (
+            declared_images_from_compose,
+            image_tags_in_archive,
+        )
+
+        # 造两个归档，tag 集合恰好覆盖 compose 声明
+        archives = {"web-api.tar": {"nazawsze/web-api:v0.5.3"},
+                    "upgrade-runner.tar": {"nazawsze/upgrade-runner:v0.3.1"}}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            images_dir = Path(tmpdir)
+            for name, tags in archives.items():
+                index = _json.dumps(
+                    {"manifests": [{"annotations": {
+                        "io.containerd.image.name": f"docker.io/{next(iter(tags))}"}}]}
+                ).encode("utf-8")
+                with _tarfile.open(images_dir / name, "w") as tar:
+                    info = _tarfile.TarInfo("index.json")
+                    info.size = len(index)
+                    tar.addfile(info, _io.BytesIO(index))
+
+            compose = Path(tmpdir) / "docker-compose.yml"
+            compose.write_text(
+                "services:\n  web-api:\n    image: nazawsze/web-api:v0.5.3\n"
+                "  upgrade-runner:\n    image: nazawsze/upgrade-runner:v0.3.1\n",
+                encoding="utf-8",
+            )
+
+            declared = declared_images_from_compose(compose)
+            available: set[str] = set()
+            for tar_path in sorted(images_dir.glob("*.tar")):
+                available |= image_tags_in_archive(tar_path)
+
+            self.assertEqual(declared - available, set(), "tag 全部匹配时不得报告缺失")
+            # 关键：available 必须是 tag，不能是文件名
+            self.assertNotIn("web-api.tar", available)
+
+    def test_comparison_detects_real_mismatch(self) -> None:
+        """US-33 判别：compose 要 v0.3.1、归档里是 v0.3.2 → 必须报缺失。"""
+        import io as _io
+        import json as _json
+        import tarfile as _tarfile
+
+        from scripts.build_offline_delivery import (
+            declared_images_from_compose,
+            image_tags_in_archive,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            images_dir = Path(tmpdir)
+            index = _json.dumps(
+                {"manifests": [{"annotations": {
+                    "io.containerd.image.name": "docker.io/nazawsze/upgrade-runner:v0.3.2"}}]}
+            ).encode("utf-8")
+            with _tarfile.open(images_dir / "upgrade-runner.tar", "w") as tar:
+                info = _tarfile.TarInfo("index.json")
+                info.size = len(index)
+                tar.addfile(info, _io.BytesIO(index))
+
+            compose = Path(tmpdir) / "docker-compose.yml"
+            compose.write_text(
+                "services:\n  upgrade-runner:\n    image: nazawsze/upgrade-runner:v0.3.1\n",
+                encoding="utf-8",
+            )
+            declared = declared_images_from_compose(compose)
+            available: set[str] = set()
+            for tar_path in sorted(images_dir.glob("*.tar")):
+                available |= image_tags_in_archive(tar_path)
+            self.assertEqual(declared - available, {"nazawsze/upgrade-runner:v0.3.1"})
+
     def test_builder_runs_self_consistency_gate(self) -> None:
         """构建流程必须真的调用这道门禁。"""
         from scripts.build_offline_delivery import ROOT
