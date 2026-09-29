@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import shutil
 import sqlite3
@@ -164,6 +165,82 @@ def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
         archive.extractall(destination, filter="data")
     except TypeError:  # Python < 3.12 has no extraction filter argument.
         archive.extractall(destination)
+
+
+def _runner_image_from_manifest(manifest: Any) -> str:
+    """从任务 manifest 里取 upgrade-runner 条目的镜像。
+
+    平台升级时 web-api 已把**现场实际镜像**注入到 manifest（US-26 `_inject_field_runner_image`），
+    组件升级时 manifest 里的就是本次要装的新镜像 —— 两种情形拿到的都是"该写进 compose 的 tag"。
+    """
+    if not isinstance(manifest, dict):
+        return ""
+    for component in manifest.get("components") or []:
+        if not isinstance(component, dict):
+            continue
+        for image in component.get("images") or []:
+            if isinstance(image, dict) and str(image.get("service") or "") == "upgrade-runner":
+                return str(image.get("image") or "").strip()
+    return ""
+
+
+def reconcile_project_runner_tag(context: ActionContext, task: dict[str, Any]) -> str:
+    """US-32：把 project compose 里的 runner tag 对齐到本次计划声明的镜像。
+
+    为什么必须在 runner 侧做：web-api 的 project 目录是**只读挂载**
+    （`docker-compose.yml` 里 `:ro`），它调用的同名回写函数写入必然抛 OSError 并被
+    `except OSError: continue` 吞掉 —— US-26 的 compose 回写因此自实现起从未生效，
+    compose 长期停留在包内基线（如 v0.3.1）而现场实际跑 v0.3.2。
+    任何一次宿主侧 `docker compose up -d` 都会据此把 runner 静默降级。
+
+    放在任务收尾（所有动作完成、project 文件同步之后）执行，用计划里已注入的现场镜像，
+    不需要 `docker inspect`，也不新增动作/能力集 —— 旧 runner 缺这段逻辑只是维持现状，
+    不会让升级失败，平台包的 minimum_runner_version 无需变更。
+    """
+    runner_image = _runner_image_from_manifest((task or {}).get("manifest"))
+    if not runner_image:
+        return ""
+    compose_path = context.project_path / "docker-compose.yml"
+    try:
+        if not compose_path.is_file():
+            return ""
+        lines = compose_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    except OSError as exc:
+        # 绝不静默：写不进去必须留痕，否则又是一次长期潜伏的多事实源
+        logging.getLogger(__name__).warning(
+            "US-32 runner tag 对账跳过（compose 不可读 %s）：%s", compose_path, exc
+        )
+        return ""
+    in_runner = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not in_runner:
+            if stripped == "upgrade-runner:" or stripped.startswith("upgrade-runner:"):
+                in_runner = True
+            continue
+        if line[:1].strip() == "" and stripped and ":" in stripped and not stripped.startswith("#"):
+            if not line.startswith((" ", "\t")):
+                break
+        if stripped.startswith("image:"):
+            current = stripped.split("image:", 1)[1].strip()
+            if current == runner_image:
+                return ""
+            prefix = line[: line.index("image:") + len("image:")]
+            newline = "\n" if line.endswith("\n") else ""
+            lines[index] = f"{prefix} {runner_image}{newline}"
+            try:
+                compose_path.write_text("".join(lines), encoding="utf-8")
+            except OSError as exc:
+                logging.getLogger(__name__).warning(
+                    "US-32 runner tag 对账失败（compose 不可写 %s）：%s", compose_path, exc
+                )
+                return ""
+            logging.getLogger(__name__).warning(
+                "US-32 compose runner tag 已对齐：%s -> %s（此前不一致会让 compose 重建降级 runner）",
+                current, runner_image,
+            )
+            return current
+    return ""
 
 
 def backup_create(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:

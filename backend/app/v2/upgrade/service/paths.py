@@ -1,8 +1,9 @@
-from __future__ import annotations
-
 """Host path resolution and override/backup writers."""
 
+from __future__ import annotations
+
 import json
+import logging
 import os
 
 import shutil
@@ -165,15 +166,15 @@ networks:
 
 
     def _sync_runner_image_into_compose_files(self, runner_image: str) -> list[str]:
-        """US-26：runner 组件升级成功后，把新 tag 回写到所有会被 `docker compose up` 读到的文件。
+        """[已废弃 US-32] 尝试回写 runner tag —— web-api 容器内**无法生效**。
 
-        此前只有 `compose-runtime/docker-compose.runner-bootstrap.yml` 记录新 tag，而
-        `project/docker-compose.yml` 与 `compose-runtime/docker-compose.runner-upgrade.yml`
-        保持旧 tag —— tag 没有单一事实源，下一次平台升级会按旧 tag 把 runner 拉回去。
-        回写后「project compose 为准，runtime compose 与其一致」。
+        web-api 的 project 目录是只读挂载（`docker-compose.yml` 里 `:ro`），因此这里的写入
+        必然抛 `OSError`。历史上该异常被 `except OSError: continue` 静默吞掉，导致 US-26 的
+        compose 回写自实现起从未生效、缺陷潜伏了很久（`.12` 实测 compose 长期停在 v0.3.1 而
+        现场跑 v0.3.2）。回写职责已移到 runner 侧 `actions.reconcile_project_runner_tag`。
 
-        用逐行状态机而非整块正则：真实 compose 里 `upgrade-runner:` 之后可能还有 `build:`/
-        `env_file:` 等多行键，`image:` 位置不固定。
+        保留本方法仅为兼容既有调用方与单测；**新增逻辑不要放这里**。任何写入失败都会记
+        warning，绝不静默。
         """
         if not runner_image:
             return []
@@ -187,7 +188,8 @@ networks:
                 if not candidate.is_file():
                     continue
                 lines = candidate.read_text(encoding="utf-8").splitlines(keepends=True)
-            except OSError:
+            except OSError as exc:
+                logging.getLogger(__name__).warning("compose 读取失败 %s：%s", candidate, exc)
                 continue
             in_runner = False
             changed = False
@@ -215,7 +217,12 @@ networks:
                 continue
             try:
                 candidate.write_text("".join(lines), encoding="utf-8")
-            except OSError:
+            except OSError as exc:
+                # 只读挂载下必然走到这里；记 warning，避免再次静默失效
+                logging.getLogger(__name__).warning(
+                    "compose 写入失败 %s（web-api 的 project 目录为只读挂载，回写职责在 runner 侧）：%s",
+                    candidate, exc,
+                )
                 continue
             updated.append(str(candidate))
         return updated

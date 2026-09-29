@@ -551,15 +551,19 @@ class ExecutionMixin:
             steps = _replace_step(steps, "restart", "succeeded")
 
             if _runner_only(task["manifest"]):
-                # US-26：runner 组件升级成功后回写 tag 到所有会被 compose up 读到的文件，
-                # 消除「bootstrap compose 是新 tag、project compose 仍是旧 tag」的多事实源。
+                # US-32：compose 的 runner tag 回写已移到 runner 侧任务收尾
+                # （`actions.reconcile_project_runner_tag`）。此处曾长期调用 web-api 侧同名
+                # 逻辑，但 web-api 的 project 目录是只读挂载（`docker-compose.yml` 的 `:ro`），
+                # 写入必抛 OSError 并被吞掉 —— US-26 的回写自实现起从未生效过。
+                # 保留提醒：不要在此再加回写，容器内无写权限。
                 runner_image = next(
                     (str(image.get("image")) for image in images if image.get("service") == "upgrade-runner"),
                     "",
                 )
-                synced = self._sync_runner_image_into_compose_files(runner_image)
-                if synced:
-                    logs.append(f"已回写 runner 镜像 tag 到：{', '.join(synced)}")
+                logs.append(
+                    f"runner 组件升级已提交（目标镜像 {runner_image or '未知'}）；"
+                    "compose tag 由 runner 在任务收尾时对齐"
+                )
 
             steps = _replace_step(steps, "healthcheck", "succeeded", "健康检查占位通过")
             task["status"] = "success"

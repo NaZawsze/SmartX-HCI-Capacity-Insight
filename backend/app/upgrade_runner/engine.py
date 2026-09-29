@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from app.upgrade_runner.actions import _runner_image_from_manifest, reconcile_project_runner_tag
 from app.upgrade_runner.store import TaskStore
 
 
@@ -160,6 +161,20 @@ class UpgradeEngine:
                 task["task_mirror_dir"] = mirror_dir
                 self._mirror_store = TaskStore(Path(mirror_dir))
             task = self._save(task)
+
+        # US-32：所有动作完成、project 文件同步之后，把 compose 里的 runner tag
+        # 对齐到计划声明的现场镜像。放在这里是因为再往后没有任何动作会覆盖 compose，
+        # 而平台升级的 project 同步会把包内基线写进来（实测 v0.3.1）。
+        try:
+            action_context = self.context.get("action_context")
+            previous_tag = reconcile_project_runner_tag(action_context, task)
+            if previous_tag:
+                task["logs"] = [
+                    *task.get("logs", []),
+                    f"compose runner tag 已对齐：{previous_tag} -> {_runner_image_from_manifest(task.get('manifest'))}",
+                ]
+        except Exception as exc:  # noqa: BLE001 - 对账失败不得让升级任务判失败
+            task["logs"] = [*task.get("logs", []), f"runner tag 对账跳过：{exc}"]
 
         task["status"] = "success"
         task["recovery_status"] = "none"

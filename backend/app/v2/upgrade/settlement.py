@@ -14,9 +14,6 @@
 本模块提供后台兜底：定期扫描「已成功但清理任务缺失」的升级任务并补建，使其不再依赖客户端行为。
 只保证 **成功** 升级的收尾；失败态收尾走 US-27 的 `cleanup_required` 提示（不自动执行）。
 
-同时承担 US-32 的 compose tag 对账（见 `reconcile_runner_compose_tag`）：平台升级会用包内基线
-覆盖项目文件，冲掉组件升级写回的 runner tag，必须按现场实际镜像周期性对齐。
-
 设计：docs/superpowers/specs/2026-09-28-upgrade-settlement-fallback-design.md
 """
 from __future__ import annotations
@@ -113,27 +110,6 @@ def ensure_settlement_once(settings: Any, database: Any) -> dict[str, list[Any]]
     return {"created": created, "failed": failed}
 
 
-def reconcile_runner_compose_tag(settings: Any, database: Any) -> list[str]:
-    """US-32：把 compose 里的 runner tag 对齐到现场实际运行的镜像。
-
-    实测缺陷（`.12` 2026-09-29，先组件升级后平台升级）：runner 组件升级会把新 tag
-    回写进 `project/docker-compose.yml`，但紧接着的平台升级会用包内**基线**（v0.3.1）
-    覆盖项目文件，把回写冲掉 —— 实际跑 v0.3.2、compose 却写 v0.3.1，多事实源复现。
-    任何一次 `docker compose up` 重建都会把 runner 静默降级（与 US-26 同类后果）。
-
-    正常交付顺序（先平台、后 runner）能自愈，但乱序或中途失败就会留下不一致，
-    因此这里按现场实际镜像做周期性对账，而不是依赖某条升级路径记得回写。
-    """
-    from app.v2.tasks.service import TaskService
-    from app.v2.upgrade.service import UpgradeService
-
-    service = UpgradeService(settings, TaskService(database), project_path=settings.project_path)
-    field_image = service._resolve_field_runner_image({})
-    if not field_image:
-        return []
-    return service._sync_runner_image_into_compose_files(field_image)
-
-
 def _settlement_loop(settings: Any, database: Any, stop_event: threading.Event, interval_seconds: int) -> None:
     # 启动即跑一次：覆盖 web-api 重启后仍未收尾的历史任务
     while not stop_event.is_set():
@@ -141,13 +117,6 @@ def _settlement_loop(settings: Any, database: Any, stop_event: threading.Event, 
             ensure_settlement_once(settings, database)
         except Exception as exc:  # noqa: BLE001 - 守护线程必须存活
             logger.warning("post-upgrade settlement sweep failed: %s", exc)
-        try:
-            synced = reconcile_runner_compose_tag(settings, database)
-            if synced:
-                # 能对齐说明此前不一致（如平台升级覆盖了组件升级的回写），属需留意的状态漂移
-                logger.warning("runner compose tag re-aligned to field image: %s", ", ".join(synced))
-        except Exception as exc:  # noqa: BLE001 - 守护线程必须存活
-            logger.warning("runner compose tag reconcile failed: %s", exc)
         stop_event.wait(interval_seconds)
 
 
