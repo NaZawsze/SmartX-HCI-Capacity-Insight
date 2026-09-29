@@ -681,3 +681,143 @@ class ShellQuotingTest(unittest.TestCase):
         self.assertIn('mark = "OK  " if check.get("ok") else "FAIL"', text)
         # python3 缺失时要有可读的兜底，而不是崩溃
         self.assertIn("系统无 python3", text)
+
+
+class DeliveryBundleSelfConsistencyTest(unittest.TestCase):
+    """US-33 防线 A：交付物必须在**构建期**自洽，无需干净机器即可断言。
+
+    做法：解包 `images/*.tar` 读出镜像的**真实 tag**，与 install compose 的声明逐一比对。
+    OCI 格式从 `index.json` 的 `io.containerd.image.name` 注解取，旧格式从
+    `manifest.json` 的 `RepoTags` 取。
+    """
+
+    def test_reads_tags_from_oci_archive(self) -> None:
+        import io as _io
+        import json as _json
+        import tarfile as _tarfile
+
+        from scripts.build_offline_delivery import image_tags_in_archive
+
+        index = _json.dumps(
+            {
+                "schemaVersion": 2,
+                "manifests": [
+                    {
+                        "annotations": {
+                            "io.containerd.image.name": "docker.io/nazawsze/repo:v0.3.1"
+                        }
+                    }
+                ],
+            }
+        ).encode("utf-8")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            archive = Path(tmpdir) / "img.tar"
+            with _tarfile.open(archive, "w") as tar:
+                info = _tarfile.TarInfo("index.json")
+                info.size = len(index)
+                tar.addfile(info, _io.BytesIO(index))
+            self.assertEqual(image_tags_in_archive(archive), {"nazawsze/repo:v0.3.1"})
+
+    def test_reads_tags_from_legacy_archive(self) -> None:
+        import io as _io
+        import json as _json
+        import tarfile as _tarfile
+
+        from scripts.build_offline_delivery import image_tags_in_archive
+
+        manifest = _json.dumps([{"RepoTags": ["nazawsze/repo:v0.3.2", "nazawsze/repo:latest"]}]).encode("utf-8")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            archive = Path(tmpdir) / "legacy.tar"
+            with _tarfile.open(archive, "w") as tar:
+                info = _tarfile.TarInfo("manifest.json")
+                info.size = len(manifest)
+                tar.addfile(info, _io.BytesIO(manifest))
+            self.assertEqual(
+                image_tags_in_archive(archive),
+                {"nazawsze/repo:v0.3.2", "nazawsze/repo:latest"},
+            )
+
+    def test_declared_images_parsed_from_compose(self) -> None:
+        from scripts.build_offline_delivery import declared_images_from_compose
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            compose = Path(tmpdir) / "docker-compose.offline.yml"
+            compose.write_text(
+                "services:\n"
+                "  web-api:\n"
+                "    image: repo/web-api:v0.5.3\n"
+                "  upgrade-runner:\n"
+                "    build:\n"
+                "      context: .\n"
+                "    image: repo/upgrade-runner:v0.3.1\n"
+                "    # image: repo/ignored:v0\n",
+                encoding="utf-8",
+            )
+            declared = declared_images_from_compose(compose)
+            self.assertIn("repo/web-api:v0.5.3", declared)
+            self.assertIn("repo/upgrade-runner:v0.3.1", declared)
+            self.assertNotIn("repo/ignored:v0", declared, "注释里的 image 不得算作声明")
+
+    def test_builder_runs_self_consistency_gate(self) -> None:
+        """构建流程必须真的调用这道门禁。"""
+        from scripts.build_offline_delivery import ROOT
+
+        source = (ROOT / "scripts" / "build_offline_delivery.py").read_text(encoding="utf-8")
+        self.assertIn("image_tags_in_archive(", source)
+        self.assertIn("declared_images_from_compose(", source)
+        self.assertIn("交付物不自洽", source)
+        self.assertIn("US-33", source)
+        # 门禁必须在写 SHA256SUMS 之前跑（否则清单先于失败产出）
+        self.assertLess(
+            source.index("交付物不自洽"),
+            source.index("install_sums = write_sha256sums"),
+            "自洽门禁应早于 SHA256SUMS 生成",
+        )
+
+
+class CriticalCommandVisibilityTest(unittest.TestCase):
+    """US-34 防线 B：关键命令失败不得被静默吞掉。
+
+    US-34 里 `python3 -c '...'` 的格式化失败被 `2>/dev/null` 吞掉，脚本照常往下走、
+    把整段 JSON 原样打给用户却毫无提示。
+
+    判定"关键命令"：health 探测、登录、上传、预检查、start、status 这些
+    **决定脚本分支走向**的调用——它们失败必须走 `|| true` 之外的显式错误分支。
+    探测类（`df` / `ss` / `find`）失败是正常分支，保留 `2>/dev/null` 合理。
+    """
+
+    CRITICAL = (
+        "api/auth/login",
+        "api/admin/upgrade/upload",
+        "api/admin/upgrade/precheck",
+        "api/admin/upgrade/start",
+        "api/admin/upgrade/status",
+        "api/system/health",
+    )
+
+    def test_no_critical_call_swallows_stderr_silently(self) -> None:
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        for relative, source in SCRIPT_SOURCES.items():
+            for number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), start=1):
+                if not any(endpoint in line for endpoint in self.CRITICAL):
+                    continue
+                if "2>/dev/null" not in line:
+                    continue
+                # 捕获变量并配 `|| true` 是允许的（失败会被后续的分支判定接住）
+                if "|| true" in line or "=$(" in line or "-s " in line:
+                    continue
+                self.fail(
+                    f"{relative}:{number} 关键调用静默吞掉 stderr，且无显式失败分支：{line.strip()[:90]}"
+                )
+
+    def test_scripts_report_when_probe_fails(self) -> None:
+        """健康探测失败时必须有可读提示，而不是只有空变量。"""
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        upgrade = SCRIPT_SOURCES["upgrade/upgrade.sh"].read_text(encoding="utf-8")
+        self.assertIn("平台不可达", upgrade, "health 失败必须给出可读原因")
+        install = SCRIPT_SOURCES["install/install.sh"].read_text(encoding="utf-8")
+        self.assertIn("服务未在超时内达到健康状态", install, "健康检查失败必须给出诊断与补救")
+        # install.sh 装了 ERR 陷阱，任何未预期失败都有行号可查
+        self.assertIn("BASH_LINENO", install)

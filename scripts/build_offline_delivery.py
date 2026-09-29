@@ -110,6 +110,57 @@ def scan_forbidden(root: Path) -> list[str]:
     return sorted(set(hits))
 
 
+def image_tags_in_archive(archive: Path) -> set[str]:
+    """读出 `docker save` 归档里镜像的真实 tag 集合（不加载到 Docker）。
+
+    兼容两种格式：
+      · OCI：index.json 的 manifests[].annotations["io.containerd.image.name"]
+      · 旧版：manifest.json 的 [].RepoTags
+
+    这是 US-33 的核心防线：**交付前**就知道 `images/*.tar` 里装的到底是哪个 tag，
+    而不是等客户 `docker load` 之后才发现与 compose 声明对不上。
+    """
+    tags: set[str] = set()
+    with tarfile.open(archive, "r:*") as tar:
+        for member_name, key in (("index.json", "io.containerd.image.name"), ("manifest.json", None)):
+            try:
+                handle = tar.extractfile(member_name)
+            except KeyError:
+                continue
+            if handle is None:
+                continue
+            try:
+                data = json.loads(handle.read().decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                continue
+            if key is not None:
+                for manifest in data.get("manifests") or []:
+                    annotations = manifest.get("annotations") or {}
+                    name = str(annotations.get(key) or "").strip()
+                    # 形如 docker.io/nazawsze/xxx:v0.5.3
+                    if "/" in name:
+                        name = name.split("/", 1)[1]
+                    if name:
+                        tags.add(name)
+            else:
+                for entry in data if isinstance(data, list) else []:
+                    for tag in entry.get("RepoTags") or []:
+                        tags.add(str(tag).strip())
+    return tags
+
+
+def declared_images_from_compose(compose_path: Path) -> set[str]:
+    """从 install compose 里读出它声明的镜像引用。"""
+    declared: set[str] = set()
+    for line in compose_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("image:"):
+            value = stripped.split("image:", 1)[1].strip()
+            if value:
+                declared.add(value)
+    return declared
+
+
 def extract_member(archive: Path, member_suffix: str, destination: Path) -> Path:
     """从 tar/ tar.gz 里按名字后缀取单个文件。"""
     with tarfile.open(archive, "r:*") as tar:
@@ -291,6 +342,34 @@ def main() -> int:
     docker_save(baseline_image, images_dir / "upgrade-runner.tar")
     image_names.append("upgrade-runner.tar")
 
+    # ---------- 门禁：交付物自洽（US-33）----------
+    # 逐个解包 images/*.tar 读出**真实 tag**，与 install compose 声明逐一比对。
+    # 这一步不需要干净机器就能抓到 US-33（compose 要 v0.3.1、镜像却是 v0.3.2），
+    # 属于交付物内部自洽性，必须在构建期就断言。
+    declared = declared_images_from_compose(project_dir / "docker-compose.offline.yml")
+    provided: dict[str, str] = {}
+    for tar_path in sorted(images_dir.glob("*.tar")):
+        archive_tags = image_tags_in_archive(tar_path)
+        if not archive_tags:
+            raise SystemExit(
+                f"[offline-delivery] 无法从 {tar_path.name} 读出镜像 tag（既无 index.json 也无 manifest.json）"
+            )
+        provided[tar_path.name] = ", ".join(sorted(archive_tags))
+    missing = sorted(declared - set(provided))
+    if missing:
+        log("交付物不自洽：compose 声明的镜像在 images/ 里没有对应归档或 tag 不符")
+        for tag in missing:
+            log(f"  compose 需要: {tag}")
+        for name, tags in provided.items():
+            log(f"  {name} 实际含: {tags}")
+        raise SystemExit(
+            "[offline-delivery] 交付物内部不自洽——compose 声明的镜像与 images/ 里的真实 tag 不一致。"
+            "（US-33：安装用镜像必须与 compose 的已发布 baseline 同 tag）"
+        )
+    log(f"交付物自洽校验：compose 声明 {len(declared)} 个镜像，全部有匹配归档")
+    for name, tags in provided.items():
+        log(f"  {name} → {tags}")
+
     install_sums = write_sha256sums(images_dir, image_names)
     log(f"install/images/SHA256SUMS 已生成（{len(image_names)} 个镜像）")
 
@@ -348,6 +427,7 @@ def main() -> int:
     if expected not in compose_text:
         raise SystemExit(f"[offline-delivery] compose 未落 runner 基线 {expected}")
     log(f"compose runner 基线校验：{expected} 命中")
+
 
     # ---------- 交付摘要 ----------
     log("")
