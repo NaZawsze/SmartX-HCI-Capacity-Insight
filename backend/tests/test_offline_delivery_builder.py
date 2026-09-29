@@ -27,6 +27,7 @@ if str(REPO_ROOT) not in sys.path:
 from scripts.build_offline_delivery import (  # noqa: E402
     FORBIDDEN_DIR_HINTS,
     extract_member,
+    render_all_delivery_composes,
     render_offline_compose,
     scan_forbidden,
     write_sha256sums,
@@ -107,6 +108,100 @@ class RenderOfflineComposeTest(unittest.TestCase):
             source.write_text("services:\n  web-api:\n    image: repo/web-api:v0.5.3\n", encoding="utf-8")
             with self.assertRaises(SystemExit):
                 render_offline_compose(source, Path(tmpdir) / "out.yml", "v0.3.1")
+
+
+class RenderAllDeliveryComposesTest(unittest.TestCase):
+    """交付 project 下**所有** compose 的 runner tag 都必须落已发布基线。
+
+    2026-09-30 `cli/package.sh` 端到端实测发现：原实现只渲染
+    `docker-compose.offline.yml`，`docker-compose.yml` 原样带着源码开发线 tag
+    （实测 v0.3.2）进了交付目录——而它就在现场、且是 `docker compose up` 的默认读取对象。
+    违反 AGENTS §8。
+    """
+
+    def _project(self, tmpdir: str) -> Path:
+        project = Path(tmpdir) / "project"
+        project.mkdir(parents=True, exist_ok=True)
+        for name in ("docker-compose.yml", "docker-compose.offline.yml"):
+            (project / name).write_text(
+                "services:\n"
+                "  web-api:\n"
+                "    image: repo/web-api:v0.5.3\n"
+                "  upgrade-runner:\n"
+                "    image: nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2\n"
+                "  prometheus:\n"
+                "    image: prom/prometheus:v2.55.1\n",
+                encoding="utf-8",
+            )
+        return project
+
+    def test_renders_every_compose_in_project(self) -> None:
+        from scripts.build_offline_delivery import render_all_delivery_composes
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = self._project(tmpdir)
+            rendered = render_all_delivery_composes(project, "v0.3.1")
+            self.assertIn("docker-compose.yml", rendered)
+            self.assertIn("docker-compose.offline.yml", rendered)
+            for name in rendered:
+                text = (project / name).read_text(encoding="utf-8")
+                self.assertIn(
+                    "upgrade-runner:v0.3.1", text, f"{name} 未落已发布基线"
+                )
+                self.assertNotIn(
+                    "upgrade-runner:v0.3.2", text, f"{name} 仍带源码开发线 tag"
+                )
+
+    def test_preserves_other_services(self) -> None:
+        from scripts.build_offline_delivery import render_all_delivery_composes
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = self._project(tmpdir)
+            render_all_delivery_composes(project, "v0.3.1")
+            text = (project / "docker-compose.yml").read_text(encoding="utf-8")
+            self.assertIn("image: repo/web-api:v0.5.3", text)
+            self.assertIn("image: prom/prometheus:v2.55.1", text)
+
+    def test_raises_when_no_compose(self) -> None:
+        from scripts.build_offline_delivery import render_all_delivery_composes
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            empty = Path(tmpdir) / "empty"
+            empty.mkdir()
+            with self.assertRaises(SystemExit):
+                render_all_delivery_composes(empty, "v0.3.1")
+
+    def test_main_script_uses_all_composes_helper(self) -> None:
+        """负向实证：若 main 只渲染 offline 一份，本断言必须 FAIL。"""
+        import inspect
+
+        from scripts import build_offline_delivery
+
+        source = inspect.getsource(build_offline_delivery)
+        self.assertIn(
+            "render_all_delivery_composes(",
+            source,
+            "main 必须调用渲染全部 compose 的辅助函数，而不是只渲染 offline 一份",
+        )
+        # 旧写法（只改 offline）不得再出现
+        self.assertNotIn(
+            "render_offline_compose(offline_src, offline_src",
+            source,
+            "不得只渲染 docker-compose.offline.yml（会漏掉现场主 compose）",
+        )
+
+    def test_baseline_assertion_covers_all_composes(self) -> None:
+        """基线断言必须遍历全部 compose，不能只查 offline。"""
+        import inspect
+
+        from scripts import build_offline_delivery
+
+        source = inspect.getsource(build_offline_delivery)
+        self.assertIn(
+            'project_dir.glob("docker-compose*.yml")',
+            source,
+            "基线校验必须遍历交付 project 下所有 compose",
+        )
 
 
 class Sha256SumsTest(unittest.TestCase):

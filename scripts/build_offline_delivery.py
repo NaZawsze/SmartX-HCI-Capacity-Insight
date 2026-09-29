@@ -179,7 +179,7 @@ def extract_member(archive: Path, member_suffix: str, destination: Path) -> Path
 
 
 def render_offline_compose(source: Path, destination: Path, runner_baseline: str) -> None:
-    """把源码 offline compose 渲染成交付版：runner tag 落已发布基线。
+    """把源码 compose 渲染成交付版：runner tag 落已发布基线。
 
     只改 upgrade-runner 的 image 一行，**不动其它任何内容**——交付物里的 compose
     必须与源码可对照（AGENTS §8「发布包中的 Compose 应写入明确、可审计的镜像身份」）。
@@ -206,6 +206,26 @@ def render_offline_compose(source: Path, destination: Path, runner_baseline: str
         raise SystemExit(f"[offline-delivery] 未能在 {source} 里定位 upgrade-runner 的 image 行")
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text("".join(lines), encoding="utf-8")
+
+
+def render_all_delivery_composes(project_dir: Path, runner_baseline: str) -> list[str]:
+    """把交付 project 目录下**所有** compose 的 runner tag 落已发布基线。
+
+    为什么不止 offline 那一份（2026-09-30 `cli/package.sh` T2 实测发现）：
+    原实现只渲染 `docker-compose.offline.yml`，而 `copy_project_files` 是整份复制，
+    于是 `docker-compose.yml` 原样带着**源码开发线** tag（实测 v0.3.2）进了交付目录。
+    而 `delivery/install/install.sh` 启动用 offline 那份（`COMPOSE_FILE`），却把**两个都装进**
+    目标目录——现场同时存在一份 tag 正确和一份 tag 错误的 compose。任何人工
+    `docker compose up`（默认读 `docker-compose.yml`）都会拉起未经本轮验收的 runner：
+    离线机直接失败（`images/` 里只有基线镜像），联网机则静默换人。违反 AGENTS §8。
+    """
+    rendered: list[str] = []
+    for compose in sorted(project_dir.glob("docker-compose*.yml")):
+        render_offline_compose(compose, compose, runner_baseline)
+        rendered.append(compose.name)
+    if not rendered:
+        raise SystemExit(f"[offline-delivery] {project_dir} 下没有任何 docker-compose*.yml")
+    return rendered
 
 
 def build_env_template(source: Path, destination: Path) -> None:
@@ -346,17 +366,32 @@ def main() -> int:
 
     # ---------- install/project ----------
     copied = copy_project_files(project_dir)
-    # offline compose 渲染为交付基线
-    offline_src = project_dir / "docker-compose.offline.yml"
-    render_offline_compose(offline_src, offline_src, args.runner_baseline)
-    log(f"install/project：{', '.join(copied)}（runner tag 落 {args.runner_baseline}）")
+    # 交付目录内**所有** compose 的 runner tag 都落已发布基线（不只是 offline 那份）
+    rendered = render_all_delivery_composes(project_dir, args.runner_baseline)
+    log(
+        f"install/project：{', '.join(copied)}"
+        f"（runner tag 落 {args.runner_baseline}：{', '.join(rendered)}）"
+    )
     shutil.copy2(ROOT / "pre_install.sh", project_dir / "pre_install.sh")
     (project_dir / "pre_install.sh").chmod(0o755)
 
     # ---------- 门禁：交付物自洽（US-33）----------
-    # 逐个解包 images/*.tar 读出**真实 tag**，与 install compose 声明逐一比对。
+    # 逐个解包 images/*.tar 读出**真实 tag**，与交付 compose 声明逐一比对。
     # 这一步不需要干净机器就能抓到 US-33（compose 要 v0.3.1、镜像却是 v0.3.2），
     # 属于交付物内部自洽性，必须在构建期就断言。
+    # 断言覆盖**全部** compose（2026-09-30 起）：只查 offline 会漏掉主 compose 带的
+    # 源码开发线 tag，而那份就在现场、且是 `docker compose up` 的默认读取对象。
+    compose_files = sorted(project_dir.glob("docker-compose*.yml"))
+    for compose in compose_files:
+        compose_declared = declared_images_from_compose(compose)
+        if compose_declared.get("upgrade-runner") != (
+            f"nazawsze/smartx-hci-capacity-insight-upgrade-runner:{args.runner_baseline}"
+        ):
+            raise SystemExit(
+                f"[offline-delivery] {compose.name} 的 upgrade-runner tag 未落基线 "
+                f"{args.runner_baseline}（实际 {compose_declared.get('upgrade-runner')}）——"
+                f"交付物 compose 必须写已发布基线，不得写源码开发线 tag（AGENTS §8）"
+            )
     declared = declared_images_from_compose(project_dir / "docker-compose.offline.yml")
     provided: dict[str, str] = {}
     available_tags: set[str] = set()
@@ -426,11 +461,16 @@ def main() -> int:
     log("禁含文件扫描：0 命中")
 
     # ---------- 门禁：compose 不得含未发布 runner tag ----------
-    compose_text = (project_dir / "docker-compose.offline.yml").read_text(encoding="utf-8")
+    # 覆盖交付目录内**全部** compose：只查 offline 会漏掉主 compose 带的源码开发线 tag
     expected = f"upgrade-runner:{args.runner_baseline}"
-    if expected not in compose_text:
-        raise SystemExit(f"[offline-delivery] compose 未落 runner 基线 {expected}")
-    log(f"compose runner 基线校验：{expected} 命中")
+    for compose in sorted(project_dir.glob("docker-compose*.yml")):
+        compose_text = compose.read_text(encoding="utf-8")
+        if expected not in compose_text:
+            raise SystemExit(
+                f"[offline-delivery] {compose.name} 未落 runner 基线 {expected}——"
+                f"交付物 compose 必须写已发布基线（AGENTS §8）"
+            )
+    log(f"compose runner 基线校验：{expected} 命中（{', '.join(c.name for c in sorted(project_dir.glob('docker-compose*.yml')))}）")
 
 
     # ---------- 交付摘要 ----------
