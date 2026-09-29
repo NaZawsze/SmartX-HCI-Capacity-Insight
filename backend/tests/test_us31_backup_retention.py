@@ -125,8 +125,9 @@ class BackupRetentionTest(unittest.TestCase):
                 files = _write_project_files(backups, f"upgrade-{days_ago}")
                 _age(files, days_ago)
                 created.append((days_ago, files))
-            oldest = min(created, key=lambda item: item[0])[1]   # 62 天前那份
-            newest = max(created, key=lambda item: item[0])[1]   # 60 天前那份
+            # days_ago 越小 = 越新：60 天前最新，62 天前最旧
+            newest = min(created, key=lambda item: item[0])[1]   # 60 天前
+            oldest = max(created, key=lambda item: item[0])[1]   # 62 天前
 
             purge_backups(backups, ttl_days=14, keep_recent=1)
 
