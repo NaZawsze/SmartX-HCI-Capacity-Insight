@@ -824,3 +824,29 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - **三类共性**：①**执行者即被升级对象**（源端 web-api 跑老代码、老代码 stop 新 runner、平台升级顺手降级 runner）；②**状态归属不唯一**（三个 compose 文件三个 runner tag、runner 版本号与能力不同源、任务收尾无人负责）；③**执行期共享可变资源**（runner 与 web-api 共用一个 SQLite，锁整文件级；同一 task.json 两个路径视图双写）。
 - **判据**：如果一个设计要求回答「出问题时谁说了算、怎么恢复」，而答案是「看情况/按约定」，那它就是这三类之一。**`project-guide-for-ai.md` §8 已列 10 条同类坑，本轮是第 11~14 条——模式在重复出现，说明一直在修症状。**
 - **工程侧纪律**：新缺陷先归类到这三类，再决定是打补丁还是挂到 #47 做结构性整改；**不要把「修完这批」当成「升级没问题了」**。
+
+## 2026-09-30 稳定结论：已发布 runner v0.3.1 的能力边界（逐字节核验）
+
+- **DockerHub 的 v0.3.1 与 GitHub Release `v0.5.1u2` 里的 runner 包是同一个镜像**，不是"两个 v0.3.1"。
+  Release 包 SHA `d10e15cf7b51…`、包内镜像 config digest `sha256:19b8b3e4…`；
+  DockerHub `nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1` manifest digest `sha256:90eb5a42…`、
+  同 config digest。直接拉 DockerHub 的代码层与 Release 包内层比对：`actions.py` / `main.py` / `engine.py` /
+  `lease.py` / `store.py` / `sandbox.py` **逐字节一致**，`actions.py` md5 均为 `573dd04b3618d2066b0326c2fd183c8d`。
+  **判据固化**：以后核验任何已发布 runner，config digest + 源码文件 sha256 双证即可，不必拉整包。
+- **"同版本号 = 同能力"这个坑在已发布资产上真实存在，且 v0.3.1 就是那个反例**：
+  v0.3.1 是 25 个动作，开发线 v0.3.2 是 26 个；但**共有的 25 个动作实现也全部变了**
+  （`store.py` / `sandbox.py` 是仅有的两个未变文件）。所以"动作数相同"不能推出"能力相同"，
+  必须比对动作类型集合 + 关键实现符号。
+- **v0.3.1 缺的三项能力**（在镜像内 grep 均为 0 命中，非推测）：
+  `reconcile_project_runner_tag` / `_writeback_runner_compose_tag`（US-32）、
+  `resolve_runner_stop_decision` / `_should_stop_previous_runner`（US-03/US-04）、
+  `lease._connect()` 返回裸连接（US-28 的连接泄漏未修）。
+  **含义：US-03/US-28/US-32 的修复只存在于 v0.3.2，v0.3.1 一概没有。**
+- **v0.3.1 仍足以执行 v0.5.3 平台升级**，这是"方案 A（49-49）"的直接收益，必须长期守住：
+  v0.5.3 包声明 `minimum_runner_version: v0.3.1`；方案 A 把 `post_upgrade.schedule_collection` 从编译计划里移除后
+  （`compiler.py` 该字符串只剩注释），compiler 全部 23 种动作类型都落在 v0.3.1 的 25 个动作内。
+  运行侧证据：`.12` 发布版 v0.3.1 直升 v0.5.3 task `upgrade-666284beec04cc87` succeeded（12 动作）+ 8 项验收全过。
+  **反过来说：如果哪天有人把 `post_upgrade.schedule_collection` 加回编译计划，已发布 v0.3.1 就会在 cutover 之后才失败**
+  —— 预检查失败得越晚越贵，改动此动作必须同时跑 `RELEASED_RUNNER_ACTIONS` 覆盖检查。
+- **`RELEASED_RUNNER_ACTIONS` 是"已发布能力"的代码化事实来源**：与本次从镜像实测的 25 个动作双向零差异。
+  任何新增/删除动作都要同步它，并跑 `.12` 直升回归，否则矩阵第 2 节的支持结论会悄悄失效。
