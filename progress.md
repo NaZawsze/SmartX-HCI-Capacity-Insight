@@ -8993,3 +8993,42 @@ vitest run       VITEST=0
 **「拉不到镜像」不等于「没有网络」**。当时只试了 `docker pull`（走 Docker Hub）就下了
 「外网受限」的结论，没验证其他域名。实际 nodejs.org 可达，只是 Docker Hub 单独不通。
 **环境类问题下结论前，先区分「哪条链路不通」**，否则会把可解的问题记成死结。
+
+## 2026-09-30 序 8：runner v0.3.2 交付准备（**已备好，等用户决定是否发布**）
+
+### 已完成（不需要授权的部分）
+交付件全部产出并过门禁，落在 `.3:/data/upgrade-packages/delivery-20260930/`：
+
+| 交付物 | SHA256 | 大小 |
+| --- | --- | --- |
+| `smartx-capacity-insight-upgrade-v0.5.3.tar.gz`（平台包） | `21a9e5c39411febdde82d592fb418d9ccd9e62da7367c2041e667473517be174` | 235M |
+| `smartx-upgrade-runner-v0.3.2.tar.gz`（runner 组件包） | `9651fbe7a2c4287ccf89485dea394e4659ece8f96aebb963c30ee6e0480dbfa1` | 78M |
+
+两份 `.sha256` sidecar 已生成，`sha256sum -c` 校验 **OK**。
+runner 镜像：`sha256:6a22cafc236aea09c393b1bc4733220c97067cbc0d3e29dd6bc16cdbf0773628`
+（推送用 tar 已备在 `.3:/tmp/runner-v032-push.tar`，211M）。
+
+**门禁**（全部 PASS）：
+- `verify_runner_delivery_consistency` **12 PASS / 0 FAIL**：repo `v0.3.2`、26 actions、
+  三个源码 compose 字面量 `v0.3.2`、manifest `v0.3.2`、包内镜像归档 SHA、
+  镜像内 `RUNNER_VERSION=v0.3.2`、**源码树指纹 `c93a72c3…`（7 模块）**、
+  `actions.py` md5 `944378c3…`、动作集 26。**C6 DockerHub SKIP**（v0.3.2 未发布，按口径）。
+- `verify_upgrade_package_identity` **EXIT=0**：平台包 `version_file=v0.5.3`、
+  **`runner_version_file=v0.3.1`**（基线正确落在已发布版本，不是源码的 v0.3.2）。
+- `.3` 后端全量 **689 tests OK (skipped=7)**；前端 **tsc 0 / vitest 107 passed**。
+
+### 剩下的三件需要用户决定/授权（我不擅自做）
+
+按 AGENTS §4「除非用户明确要求，不要推送 main、创建 release、创建 tag」，且本轮用户明确说
+「**不推送**」，以下三项**必须等授权**：
+
+1. **推 DockerHub 镜像** `…-upgrade-runner:v0.3.2`（需要凭据；AGENTS 记载本机/`.3`/`.12` 都无凭据）
+2. **打 git tag** `runner-v0.3.2` —— 这里有个**真实约束**：本地 `dev2` 领先 `origin/dev2`
+   **385 个未推送提交**（`git rev-list --count origin/dev2..dev2` = 385）。
+   tag 必须指向**远端可达**的提交才有意义，所以打 tag 前要先推送 `dev2`。
+   本轮明确不推送，故 tag 暂不打。
+3. **出 GitHub Release 资产**（把两个包 + sidecar 挂上去）
+
+**结论**：交付件已完全就绪并过全部门禁，**只差「发布动作」这一步**。
+在用户授权推送前，`v0.3.2` 仍只存在于 `.3` 与开发线——**这批已验证修复（US-24/26/27/28/32）
+客户依然拿不到**，与 #53 记录一致。
