@@ -68,10 +68,14 @@ class StopDecisionConvergenceTest(unittest.TestCase):
         from app.v2.upgrade.service.execution import _should_stop_previous_runner
 
         project = "smartx-hci-capacity-insight"
+        # 注意 None（没有 bootstrap 对象）与 {}（有对象但未声明 target_project）是两回事：
+        #   · None → web-api 返回 False（根本没拿到 bootstrap，不动）
+        #   · {}  → web-api 返回 True（保守停止，避免旧 runner 心跳覆盖）
+        # runner 侧决策函数只处理"有 target_project 语境"，用空串表示未声明 → 同样 True。
         cases = [
             ({"target_project": project}, False),          # 同 project → 不停
             ({"target_project": "other-project"}, True),   # 不同 project → 停
-            ({}, True),                                     # 未声明 → 停
+            ({}, True),                                     # 有对象未声明 → 停
         ]
         for bootstrap, expected in cases:
             web_api_says = _should_stop_previous_runner(bootstrap, project)
@@ -84,6 +88,15 @@ class StopDecisionConvergenceTest(unittest.TestCase):
             self.assertEqual(
                 runner_says, expected, f"runner 侧对 {bootstrap} 判定不符预期"
             )
+
+    def test_web_api_skips_when_bootstrap_absent(self) -> None:
+        """bootstrap 完全缺失（None）时 web-api 不做任何停止动作——这是既有语义，保留。"""
+        from app.v2.upgrade.service.execution import _should_stop_previous_runner
+
+        self.assertFalse(
+            _should_stop_previous_runner(None, "smartx-hci-capacity-insight"),
+            "没有 bootstrap 对象时不应停止",
+        )
 
     def test_stop_legacy_runtime_consults_decision(self) -> None:
         """legacy 清理动作必须经唯一决策处，且拒绝时给出结构化 skip_reason。"""
