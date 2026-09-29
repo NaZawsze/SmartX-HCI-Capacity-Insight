@@ -167,30 +167,53 @@ class ResidualPathFalsePositiveTest(unittest.TestCase):
     def test_mount_points_are_not_reported_as_residual(self) -> None:
         """判别：容器内挂载点存在 ≠ 宿主 legacy 残留。
 
-        构造：容器内**所有**候选路径都存在（挂载点必然存在），但映射出的宿主路径
-        只有目标布局目录（那正是"应该存在"的正常布局），而真正的 legacy 宿主路径不存在。
-        期望：报出的残留里**不含任何挂载点**。
+        构造宿主视角：目标布局目录（`/data/smartx-storage-forecast/*`）存在——那是**正常布局**、
+        不是残留；真正的 legacy 宿主路径（`/opt/...`、`/data/upgrades` 等）也已清空。
+        期望：**一条残留都不报**。旧实现会因为容器内挂载点必然存在而误报 4 条。
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             _settings, _database, service = self._service(tmpdir)
             service._container_mount_source = lambda dest: self.MOUNT_MAP.get(dest, "")  # type: ignore[method-assign]
 
-            def host_view(text: str) -> bool:
-                # 宿主视角：只有目标布局目录（正常布局，必须存在）存在；
-                # 真正的 legacy 宿主路径（/opt/...、/data/upgrades）已清空
-                return text.startswith("/data/smartx-storage-forecast/")
+            def fake(self):
+                # 宿主视角：只有目标布局目录存在（正常），legacy 路径都不存在
+                return str(self).startswith("/data/smartx-storage-forecast/")
 
-            def fake_exists(self):
-                return host_view(str(self))
+            with mock.patch.object(Path, "exists", fake), mock.patch.object(Path, "is_dir", fake):
+                self.assertEqual(service._residual_legacy_paths(), [])
 
-            def fake_is_dir(self):
-                return host_view(str(self))
+    def test_real_legacy_paths_still_reported(self) -> None:
+        """修误报的同时不能漏报：真 legacy 路径残留必须仍然报出来。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _settings, _database, service = self._service(tmpdir)
+            service._container_mount_source = lambda dest: self.MOUNT_MAP.get(dest, "")  # type: ignore[method-assign]
+            legacy = {"/opt/smartx-storage-forecast", "/data/upgrades"}
 
-            with mock.patch.object(Path, "exists", fake_exists), mock.patch.object(Path, "is_dir", fake_is_dir):
+            def fake(self):
+                text = str(self)
+                # 目标布局目录存在（正常），上面两个 legacy 宿主路径也残留
+                return text.startswith("/data/smartx-storage-forecast/") or text in legacy
+
+            with mock.patch.object(Path, "exists", fake), mock.patch.object(Path, "is_dir", fake):
                 residual = service._residual_legacy_paths()
 
-            for path in residual:
-                self.assertNotIn(path, self.MOUNT_MAP, f"挂载点 {path} 不该被报成残留")
+            self.assertIn("/opt/smartx-storage-forecast", residual)
+            self.assertIn("/data/upgrades", residual)
+            for mount_point in self.MOUNT_MAP:
+                self.assertNotIn(mount_point, residual, f"挂载点 {mount_point} 不该被报成残留")
+
+    def test_degrades_to_container_path_when_mapping_unavailable(self) -> None:
+        """拿不到映射时保守退化：仍能报出挂载点残留（宁多报不漏报）。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _settings, _database, service = self._service(tmpdir)
+            service._container_mount_source = lambda dest: None  # type: ignore[method-assign]
+            legacy = {"/prometheus-data"}
+
+            def fake(self):
+                return str(self) in legacy
+
+            with mock.patch.object(Path, "exists", fake), mock.patch.object(Path, "is_dir", fake):
+                self.assertEqual(service._residual_legacy_paths(), ["/prometheus-data"])
 
     def test_maps_container_path_to_host_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
