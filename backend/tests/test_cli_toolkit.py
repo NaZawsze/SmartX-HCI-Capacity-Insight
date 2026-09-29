@@ -211,6 +211,10 @@ class CliThinWrapperTest(unittest.TestCase):
 
     def test_wrappers_do_not_modify_delivery(self) -> None:
         """入口不得改动 delivery/ 下任何文件。"""
+        if not shutil.which("git"):
+            self.skipTest("环境无 git（如容器内跑测试），无法用 git status 判定")
+        if not (ROOT / ".git").exists():
+            self.skipTest("当前不是 git 检出（测试机用 git archive 同步），无 git status 可用")
         completed = subprocess.run(
             ["git", "status", "--porcelain", "delivery/"],
             cwd=str(ROOT), capture_output=True, text=True, check=False
@@ -218,6 +222,17 @@ class CliThinWrapperTest(unittest.TestCase):
         self.assertEqual(
             completed.stdout.strip(), "", "cli/ 实施不得改动 delivery/ 任何文件"
         )
+
+    def test_delivery_scripts_untouched_by_content(self) -> None:
+        """无 git 时的等价保证：薄封装引用的目标脚本必须存在且可执行。"""
+        for name, relative in (
+            ("install.sh", "delivery/install/install.sh"),
+            ("upgrade.sh", "delivery/upgrade/upgrade.sh"),
+        ):
+            target = ROOT / relative
+            self.assertTrue(target.is_file(), f"{relative} 必须存在（薄封装要指向它）")
+            text = (CLI / name).read_text(encoding="utf-8")
+            self.assertIn(relative, text, f"cli/{name} 必须指向 {relative}")
 
     def test_wrappers_fail_readably_when_repo_script_missing(self) -> None:
         """脚本不在仓库态时给可读错误，不静默失败。"""
