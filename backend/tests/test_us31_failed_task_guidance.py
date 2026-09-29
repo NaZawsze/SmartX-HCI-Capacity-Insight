@@ -175,17 +175,18 @@ class ResidualPathFalsePositiveTest(unittest.TestCase):
             _settings, _database, service = self._service(tmpdir)
             service._container_mount_source = lambda dest: self.MOUNT_MAP.get(dest, "")  # type: ignore[method-assign]
 
-            exists: set[str] = set()
-            real_exists = Path.exists
+            def host_view(text: str) -> bool:
+                # 宿主视角：只有目标布局目录（正常布局，必须存在）存在；
+                # 真正的 legacy 宿主路径（/opt/...、/data/upgrades）已清空
+                return text.startswith("/data/smartx-storage-forecast/")
 
             def fake_exists(self):
-                # 容器内视角一律"存在"；宿主视角只有目标布局目录存在
-                text = str(self)
-                if text.startswith("/data/smartx-storage-forecast/"):
-                    return True
-                return text in exists or real_exists(self)
+                return host_view(str(self))
 
-            with mock.patch.object(Path, "exists", fake_exists):
+            def fake_is_dir(self):
+                return host_view(str(self))
+
+            with mock.patch.object(Path, "exists", fake_exists), mock.patch.object(Path, "is_dir", fake_is_dir):
                 residual = service._residual_legacy_paths()
 
             for path in residual:
