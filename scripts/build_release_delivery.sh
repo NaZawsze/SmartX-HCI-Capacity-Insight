@@ -103,7 +103,6 @@ command -v sha256sum >/dev/null 2>&1 || { c_red "未找到 sha256sum"; exit 1; }
 VERSION="$(tr -d ' \n' < VERSION)"
 REPO_RUNNER_VERSION="$(tr -d ' \n' < RUNNER_VERSION)"
 RUNNER_VERSION="${RUNNER_VERSION_ARG:-$REPO_RUNNER_VERSION}"
-STAMP="$(date +%Y%m%d)"
 PKG_DIR="$OUTPUT_ROOT"
 mkdir -p "$PKG_DIR"
 
