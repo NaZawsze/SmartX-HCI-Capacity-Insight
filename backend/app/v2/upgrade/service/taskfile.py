@@ -35,6 +35,29 @@ class TaskFileMixin:
                     )
             except Exception:  # noqa: BLE001 - 视图不应因判定失败而报错
                 pass
+        # US-31：任何 failed 任务都要能看到收尾指引，不只是走人工 recovery/fail 的那些。
+        # 早期动作（如 image.load）失败是 runner 自行判定的，不经过任何人工入口，
+        # 此前既无残留清单也无后续出路（.12 实测 available_recovery_actions 为 None）。
+        if str(task.get("status") or "") == "failed":
+            actions = set(public.get("available_recovery_actions") or [])
+            if "cleanup_required" not in public:
+                try:
+                    public["residual_paths"] = public.get("residual_paths") or self._residual_legacy_paths()
+                except Exception:  # noqa: BLE001 - 探测失败不应让任务列表报错
+                    public["residual_paths"] = []
+                public["cleanup_required"] = bool(public["residual_paths"])
+            if public.get("cleanup_required") and public.get("residual_paths"):
+                public["cleanup_guidance"] = (
+                    f"环境可能处于半迁移状态，检测到残留路径：{'、'.join(public['residual_paths'])}。"
+                    "请重新上传并执行一次完整升级，由升级后清理（post-cleanup）收尾；"
+                    "在此之前不要开始新的升级任务。"
+                )
+            if not actions:
+                # 失败任务永远保留 fail 入口，便于统一走产品化的收尾/取证流程
+                public["available_recovery_actions"] = sorted(actions | {"fail"})
+        public.setdefault("available_recovery_actions", None)
+        if public["available_recovery_actions"] is None:
+            public["available_recovery_actions"] = []
         public["package_filename"] = task.get("filename") or task.get("package_filename")
         public["uploaded_at"] = task.get("created_at") or task.get("uploaded_at")
         public["package_sha256"] = task.get("package_sha256") or task.get("uploaded_sha256") or _task_package_sha256(task)

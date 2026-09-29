@@ -85,8 +85,15 @@ class UpgradeEngine:
     def run(self) -> dict[str, Any]:
         task = self.store.load()
         task["status"] = "running"
-        task.setdefault("recovery_status", "none")
-        task.setdefault("logs", [])
+        # 注意：不能用 setdefault 兜这些键——键存在且值为 None 时 setdefault 不会替换，
+        # 失败任务就会带着 available_recovery_actions=None 定格，前端拿不到任何操作入口
+        # （.12 实测）。这里显式判空。
+        if not task.get("recovery_status"):
+            task["recovery_status"] = "none"
+        if task.get("available_recovery_actions") is None:
+            task["available_recovery_actions"] = []
+        if not task.get("logs"):
+            task["logs"] = []
         task = self.store.save(task, expected_revision=int(task.get("revision") or 0))
         if self.on_update is not None:
             self.on_update(task)
