@@ -161,7 +161,8 @@ check_repo() {
 # ── 9. 基线 runner 镜像（发布产物，不在仓库里）──────────────
 # 只提示，不阻断打包平台包/组件包；仅在需要构建离线交付目录时才是硬前置。
 check_runner_baseline() {
-  local image="${CLI_RUNNER_BASELINE_IMAGE:-nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1}"
+  local tag="${CLI_RUNNER_BASELINE_TAG:-v0.3.1}"
+  local image="nazawsze/smartx-hci-capacity-insight-upgrade-runner:$tag"
   if docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -qx "$image"; then
     ok "基线 runner 镜像 $image"
   else

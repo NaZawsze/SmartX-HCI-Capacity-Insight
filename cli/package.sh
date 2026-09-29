@@ -240,43 +240,38 @@ ok "敏感文件扫描 0 命中"
 
 # ── 步骤 8/9：离线交付目录 ─────────────────────────────────
 step "步骤 8/9 · 离线交付目录"
-BASELINE_IMAGE="${CLI_RUNNER_BASELINE_IMAGE:-nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1}"
-BASELINE_TAR="$STAGE_DIR/runner-baseline.tar"
+# --runner-baseline 收的是**已发布基线 tag**（如 v0.3.1），不是镜像 tar 路径；
+# 镜像导出由 build_offline_delivery.py 自己做（它会 docker save 该 tag）。
+# 曾实测误传 tar 路径，脚本会拼成 upgrade-runner:/path/to.tar 而找不到镜像。
+BASELINE_TAG="${CLI_RUNNER_BASELINE_TAG:-v0.3.1}"
+BASELINE_IMAGE="nazawsze/smartx-hci-capacity-insight-upgrade-runner:$BASELINE_TAG"
 
 if [ "$SKIP_OFFLINE" = "1" ]; then
   warn "已指定 --skip-offline：不出离线交付目录。"
   OFFLINE_DIR=""
-else
-  if docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -qx "$BASELINE_IMAGE"; then
-    info "导出基线 runner 镜像 $BASELINE_IMAGE …"
-    if docker save "$BASELINE_IMAGE" -o "$BASELINE_TAR"; then
-      ok "基线镜像已导出"
-      info "构建离线交付目录 …"
-      if python3 scripts/build_offline_delivery.py \
-            --platform-package "$PLATFORM_PKG" \
-            --runner-package "$RUNNER_PKG" \
-            --runner-baseline "$BASELINE_TAR" \
-            --readme "$ROOT/delivery/README.md" \
-            --output-dir "$STAGE_DIR/offline-delivery" \
-            --platform-version "$VER"; then
-        OFFLINE_DIR="$STAGE_DIR/offline-delivery"
-        ok "离线交付目录已生成"
-      else
-        err "离线交付目录构建失败。"
-        exit 2
-      fi
-    else
-      err "导出基线镜像失败。"
-      exit 2
-    fi
+elif docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -qx "$BASELINE_IMAGE"; then
+  info "构建离线交付目录，基线 runner $BASELINE_TAG …"
+  if python3 scripts/build_offline_delivery.py \
+        --platform-package "$PLATFORM_PKG" \
+        --runner-package "$RUNNER_PKG" \
+        --runner-baseline "$BASELINE_TAG" \
+        --readme "$ROOT/delivery/README.md" \
+        --output-dir "$STAGE_DIR/offline-delivery" \
+        --platform-version "$VER"; then
+    OFFLINE_DIR="$STAGE_DIR/offline-delivery"
+    ok "离线交付目录已生成"
   else
-    warn "本机没有基线 runner 镜像：$BASELINE_IMAGE"
-    dim "它是**已发布**产物、不在仓库里，无法凭空生成。三条可选路径："
-    dim "  1) 从 GitHub Release 下载已发布组件包后 docker load"
-    dim "  2) 从已有导出目录复制（.3:/data/upgrade-packages/baseline-*/images/）"
-    dim "  3) 加 --skip-offline，只出平台包与 runner 组件包"
-    OFFLINE_DIR=""
+    err "离线交付目录构建失败。"
+    exit 2
   fi
+else
+  warn "本机没有基线 runner 镜像：$BASELINE_IMAGE"
+  dim "它是**已发布**产物、不在仓库里，无法凭空生成。三条可选路径："
+  dim "  1) 从 GitHub Release 下载已发布组件包后 docker load"
+  dim "  2) 从已有导出目录复制（.3:/data/upgrade-packages/baseline-*/images/）"
+  dim "  3) 加 --skip-offline，只出平台包与 runner 组件包"
+  dim "  另：基线 tag 可用 CLI_RUNNER_BASELINE_TAG 覆盖（默认 v0.3.1）"
+  OFFLINE_DIR=""
 fi
 
 # ── 步骤 9/9：归档 ─────────────────────────────────────────

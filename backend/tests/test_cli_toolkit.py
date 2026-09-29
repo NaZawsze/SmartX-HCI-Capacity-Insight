@@ -298,6 +298,28 @@ class CliPackageScriptTest(unittest.TestCase):
             "--no-fetch 路径必须在脏检查处显式告警（产物含本地改动）",
         )
 
+    def test_runner_baseline_is_tag_not_path(self) -> None:
+        """--runner-baseline 收**tag**（v0.3.1），不是镜像 tar 路径。
+
+        实测误传 tar 路径后，build_offline_delivery.py 拼出
+        `upgrade-runner:/path/to/runner-baseline.tar` 而找不到镜像，直接失败。
+        镜像导出由该脚本自己做，package.sh 不该插手。
+        """
+        text = self._text()
+        self.assertIn('CLI_RUNNER_BASELINE_TAG:-v0.3.1', text, "基线必须是 tag 形式")
+        self.assertIn('--runner-baseline "$BASELINE_TAG"', text,
+                      "传给 build_offline_delivery 的必须是 tag，不是 tar 路径")
+        self.assertNotIn('--runner-baseline "$BASELINE_TAR"', text,
+                         "不得把 tar 路径当 --runner-baseline 传入")
+        # 也不该自己 docker save（重复劳动且语义错位）——只查可执行代码行
+        code_lines = [
+            line for line in text.splitlines() if not line.lstrip().startswith("#")
+        ]
+        self.assertNotIn(
+            "docker save", "\n".join(code_lines),
+            "镜像导出由 build_offline_delivery.py 负责，不该在 package.sh 里重复",
+        )
+
     def test_no_build_flag_is_not_used(self) -> None:
         """禁止 --no-build：会复用带 v0.3.2 元数据的开发镜像导致 identity 门禁 FAIL。"""
         text = self._text()
