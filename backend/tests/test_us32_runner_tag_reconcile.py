@@ -226,7 +226,7 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
 
             result = UpgradeEngine(
                 store,
-                handlers={"image.load": handler},
+                handlers={"image.load": handler, "runner.handoff.v1": handler},
                 context={"action_context": context},
             ).run()
 
@@ -254,7 +254,7 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
 
             result = UpgradeEngine(
                 store,
-                handlers={"image.load": lambda _a, _c: {"ok": True}},
+                handlers={"image.load": lambda _a, _c: {"ok": True}, "runner.handoff.v1": lambda _a, _c: {"ok": True}},
                 context={"action_context": context},
             ).run()
 
