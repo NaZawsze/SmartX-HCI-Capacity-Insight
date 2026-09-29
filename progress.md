@@ -8868,3 +8868,95 @@ install/project/docker-compose.yml         -> v0.3.1  ✅（修复前是 v0.3.2�
 
 **共同教训**：这五个 bug 全部是**"写完自测才发现"**，其中 B/D/E 只有真机端到端才暴露。
 纯函数单测覆盖不到 main 的数据流（B 依赖 git 状态、E 依赖 set 语义在 main 中的使用）。
+
+## 2026-09-30 序 4 实测 T5/T6/T8：CLI 安装/升级链路（.14 干净 VM）
+
+物料：`.3:/data/cli-test/cli/packages/latest/`（`package.sh` 端到端产出）→ 打包传 `.14`。
+SHA：平台包 `21a9e5c3…`、runner 包 `9651fbe7…`、离线交付目录 tar `4de2864b…`。
+
+### T5 安装（通过，EXIT=0）
+`.14` 清空 `/data/smartx-storage-forecast` + 删 v0.5.3 三镜像（`docker rmi -f`，确保真从零装），
+再用**交付目录**的 `install/install.sh` 安装：
+```
+平台版本：v0.5.3
+Runner   ：v0.3.1          <- 基线正确（不是源码的 v0.3.2）
+8 项验收全过：health ok=True 三 checks true / 容器 tag v0.5.3×3 + runner v0.3.1 /
+  network 10.249.251.0/24 / SQLite integrity=ok users=1 / Prometheus 目标目录 Ready /
+  .env 600 root:root / 7 条 legacy 全 missing / UI 200
+```
+
+### T8 幂等（通过）
+`.env` 加标记 → 重复执行 `install.sh`：
+```
+已检测到安装：/data/smartx-storage-forecast/project/.env
+     本次不做任何修改。如需重新生成 .env，请加 --force-env；
+退出码=0
+标记是否还在: 1（未被覆盖）    容器ID 是否不变: 是（未重建）    容器数: 5
+```
+
+### T6 断网升级（通过，EXIT=0）
+断网确认：`docker pull` → `dial tcp 0.0.0.0:443: connect: connection refused`。
+降回 v0.5.2 + runner v0.3.1 基线（`ok=True` 三 checks 全 true），跑交付态 `upgrade/upgrade.sh`：
+```
+预检查通过（checksums 135 项）
+平台版本：v0.5.2 → v0.5.3
+Runner   ：v0.3.1 → v0.3.1
+8 项验收全过（.env sha ed894772… 全程未变；SQLite integrity=ok users=1 不变；
+  legacy 全清；UI 200）
+```
+**`--with-runner` 的 post-cleanup 等待逻辑生效**（本轮修复的竞态）：
+```
+─── 等待升级后清理（post-cleanup）收敛 ──
+  [OK] 升级后清理已收敛（succeeded）
+─── 可选：runner 组件升级 ──
+  [OK] runner 组件升级已提交（任务 upgrade-70641190dd18f9dd）
+```
+
+### T6 顺带暴露 US-32 二次失效（重要）
+
+组件升级后 `docker-compose.yml` **仍是 v0.3.1**（容器跑 v0.3.2）。在容器内手动复现拿到决定性证据：
+```
+status = 'success'    is_component = True    tag_aligned = False
+run_pending_once 执行数 = 0        <- 兜底没触发
+```
+
+**根因：兜底分支条件语义反了。** 我写成
+```python
+if ... and _runner_tag_aligned(settings, task):     # 已对齐才回写
+```
+于是**真正要修的「未对齐」被 continue 跳过**，已对齐的反而进分支。应为
+`not _runner_tag_aligned(...)`：未对齐才回写，已对齐跳过（幂等）。
+
+**为什么 21 例单测没抓到**：只测了辅助函数 `_runner_tag_aligned` 的返回值，
+**没断言 `run_pending_once` 里这个分支的走向**。补 2 例锁死：
+- `test_writeback_branch_condition_is_negated`：断言出现 `not _runner_tag_aligned`，
+  且不得出现未取反的形式；
+- `test_writeback_branch_calls_helper_after_condition`：断言回写调用在条件之后，
+  分支内含 `executed += 1` 与 `store.save`。
+US-32 定向 15 → **23 例**。
+
+**教训（值得写进规范）**：**「函数单测全绿」不等于「分支会走到」**。
+条件判断的极性（正/反）只能靠断言分支走向来锁，纯函数返回值测试完全测不到。
+这与 US-03「旧测试编码了错误行为」是同一类——测试没覆盖到出错的维度。
+
+### 修复后闭环证据（`.14`）
+用当前 HEAD 重建的包（`9651fbe7…`）组件升级 task `upgrade-f91d59076ddfcd1c`：
+```
+project/docker-compose.yml                     v0.3.1 -> v0.3.2   ✅
+compose-runtime/docker-compose.runner-bootstrap.yml  v0.3.2        ✅
+container image / runner-inner RUNNER_VERSION  v0.3.2 / v0.3.2    ✅
+health ok=True platform=v0.5.3 runner=v0.3.2                     ✅
+任务日志留痕「已对齐 compose runner tag：…v0.3.1 -> …v0.3.2」
+幂等：40 秒（3 个轮询周期）后日志条数稳定在 5                       ✅
+```
+
+### 顺带修的测试脆弱点
+`test_wrappers_do_not_modify_delivery` 依赖 `git status`，在容器内跑（`.3` 用
+`git archive` 同步，无 `.git` 也无 `git` 命令）直接 `FileNotFoundError` 把整轮
+全量测试带崩（688 tests → 1 error）。改为优雅 skip，并补
+`test_delivery_scripts_untouched_by_content` 作为无 git 时的等价保证。
+
+### 门禁
+- `.3` 后端全量 **689 tests OK (skipped=7)**
+- `package.sh` 端到端 **EXIT=0**（T2 复测）
+- `test_cli_toolkit` + `test_us32_runner_tag_reconcile` + `test_offline_delivery_builder` 共 **111 OK**
