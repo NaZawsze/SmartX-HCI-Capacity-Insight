@@ -203,6 +203,30 @@ class RenderAllDeliveryComposesTest(unittest.TestCase):
             "基线校验必须遍历交付 project 下所有 compose",
         )
 
+    def test_assertion_uses_set_semantics(self) -> None:
+        """`declared_images_from_compose` 返回 set，断言必须用 `in` 而不是 `.get()`。
+
+        实测踩过：写成 `.get('upgrade-runner')` 在 main 里直接
+        `AttributeError: 'set' object has no attribute 'get'`，
+        而纯函数级单测跑不到 main，覆盖不到。
+        """
+        import inspect
+
+        from scripts import build_offline_delivery
+
+        source = inspect.getsource(build_offline_delivery)
+        self.assertNotIn(
+            'compose_declared.get("upgrade-runner")',
+            source,
+            "declared_images_from_compose 返回 set，必须用 `in` 判定而非 .get()",
+        )
+        self.assertNotIn(
+            "compose_declared.get('upgrade-runner')",
+            source,
+        )
+        # 返回类型确认
+        self.assertIn("-> set[str]:", inspect.getsource(build_offline_delivery.declared_images_from_compose))
+
 
 class Sha256SumsTest(unittest.TestCase):
     def test_writes_verifiable_sums(self) -> None:

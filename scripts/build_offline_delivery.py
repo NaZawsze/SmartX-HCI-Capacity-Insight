@@ -382,14 +382,15 @@ def main() -> int:
     # 断言覆盖**全部** compose（2026-09-30 起）：只查 offline 会漏掉主 compose 带的
     # 源码开发线 tag，而那份就在现场、且是 `docker compose up` 的默认读取对象。
     compose_files = sorted(project_dir.glob("docker-compose*.yml"))
+    expected_runner_image = (
+        f"nazawsze/smartx-hci-capacity-insight-upgrade-runner:{args.runner_baseline}"
+    )
     for compose in compose_files:
-        compose_declared = declared_images_from_compose(compose)
-        if compose_declared.get("upgrade-runner") != (
-            f"nazawsze/smartx-hci-capacity-insight-upgrade-runner:{args.runner_baseline}"
-        ):
+        compose_declared = declared_images_from_compose(compose)  # 返回 set[str]
+        if expected_runner_image not in compose_declared:
             raise SystemExit(
                 f"[offline-delivery] {compose.name} 的 upgrade-runner tag 未落基线 "
-                f"{args.runner_baseline}（实际 {compose_declared.get('upgrade-runner')}）——"
+                f"{args.runner_baseline}（实际声明：{sorted(compose_declared)}）——"
                 f"交付物 compose 必须写已发布基线，不得写源码开发线 tag（AGENTS §8）"
             )
     declared = declared_images_from_compose(project_dir / "docker-compose.offline.yml")
