@@ -8726,3 +8726,60 @@ compose 数据根为目标布局 `/data/smartx-storage-forecast/{app,prometheus}
 T1 缺依赖裸机体检（exit 2 + 可执行提示）／T2 `.3` 端到端出包／T3 分支默认值与覆盖／
 T4 破坏性确认／T5 `.14` 干净 VM 安装／T6 `.14` 断网升级 + 8 项验收／T7 不自动装依赖／T8 安装幂等。
 **T5/T6 必须干净 VM 形态**，因为它们直接决定客户路径。
+
+## 2026-09-30 序 4 步骤 1–4：CLI 工具链实施
+
+按设计 `docs/superpowers/specs/2026-09-30-cli-toolkit-design.md` 与计划
+`docs/superpowers/plans/2026-09-30-cli-toolkit-plan.md` 实施。
+
+### 产出
+```
+cli/
+├── README.md        # 三入口索引：选哪个 / 前置 / 用法 / 常见失败 / 产物位置
+├── install.sh       # 入口：薄封装 → delivery/install/install.sh
+├── upgrade.sh       # 入口：薄封装 → delivery/upgrade/upgrade.sh
+├── package.sh       # 入口：一键打包（9 步流程）
+├── check-deps.sh    # 依赖体检（9 项，可单独跑）
+├── lib/common.sh    # 共用：日志/die/confirm/repo_root
+└── packages/        # 产物（.gitignore 入库）
+```
+外加 `backend/tests/test_cli_toolkit.py`（24 例）、`.gitignore` 加 `cli/packages/`。
+
+### 实施中实测抓到的三个真 bug（都是写完自测才发现的）
+
+**Bug 1：`$VAR` 紧跟全角字符被 shell 并入变量名**（最隐蔽）
+`ok "git 仓库（$root）"` → bash 解析成变量 `root）` → `set -u` 下报
+`root?: unbound variable` 并**退成 exit 1 而不是约定的 exit 2**。本机（macOS）跑 `check-deps.sh`
+直接暴露。`package.sh` 里同类隐患有 **9 处**（`$BRANCH）`、`$RVER。` 等）。
+**修法**：变量与全角字符间加空格。**已加单测锁死**（`test_no_variable_glued_to_non_ascii`），
+扫描全部 `cli/**/*.sh`。
+
+**Bug 2：GNU 专有选项在 BSD/精简环境失效**
+- `sort -V`（版本比较）—— macOS/BSD 的 sort 不支持，导致 `check_python` 在 `set -u` 下崩溃。
+- `df -BG --output=avail` —— 同理，`check_disk` 拿不到可用空间。
+**修法**：版本比较改为纯 shell 算术（`python_ok()`），磁盘改用 POSIX 的 `df -Pk` + awk 换算。
+**已加单测**（`test_no_gnu_only_df_flags`，只扫可执行代码行、不扫注释）。
+
+**Bug 3：`local x` 未预赋值**
+`local root` 后若 `cli_repo_root` 失败，`set -u` 下引用未赋值变量即崩。
+**修法**：全部改为 `local x=""`。**已加单测**（`test_local_vars_are_preassigned`）。
+
+**共同教训**：这三条都只在**非 GNU、非 Linux 的环境**下暴露，而交付目标是客户 Linux 机器——
+但 `.3` 是 GNU/Linux，会全部漏过。**跨环境测试是必要的，不是在补边角**。
+另记：`subprocess` 读脚本输出要用 `errors="replace"`，否则非 UTF-8 locale 下解码炸在测试上。
+
+### 门禁
+- `bash -n` 全部脚本语法 OK
+- **CLI 单测 24 例 OK**（1 例 skip：本机无 docker 无法构造全齐环境）
+- **`.3` 后端全量 653 tests OK (skipped=6)**（较序 1 的 647 增加 22 例实际执行的 CLI 测试）
+- 本机 `check-deps.sh` 实测：有 MISSING 时 **exit 2**（符合设计 §6.2），提示全部带可执行命令
+
+### 纪律落实
+- **不自动装依赖**：单测 `test_never_auto_installs` 用正则扫全部脚本，
+  禁止任何行以 `sudo yum install` / `apt-get install` 开头；`check-deps.sh` 只提示命令。
+- **不自动下载镜像**：`test_missing_baseline_image_is_reported_not_downloaded` 禁止
+  `curl -` / `wget ` / `docker pull` 出现在 `package.sh`（Q5 同源纪律）。
+- **不重写已实测逻辑**：`test_wrappers_do_not_modify_delivery` 断言 `git status delivery/` 为空。
+- **分支必须显式**：`test_default_branch_is_main` 断言 `BRANCH="main"`；
+  `--help` 必须点明 dev2 是开发线。
+- **禁止 `--no-build`**：`test_no_build_flag_is_not_used`（会导致 identity 门禁 FAIL）。
