@@ -68,14 +68,15 @@ class StopDecisionConvergenceTest(unittest.TestCase):
         from app.v2.upgrade.service.execution import _should_stop_previous_runner
 
         project = "smartx-hci-capacity-insight"
-        # 注意 None（没有 bootstrap 对象）与 {}（有对象但未声明 target_project）是两回事：
-        #   · None → web-api 返回 False（根本没拿到 bootstrap，不动）
-        #   · {}  → web-api 返回 True（保守停止，避免旧 runner 心跳覆盖）
-        # runner 侧决策函数只处理"有 target_project 语境"，用空串表示未声明 → 同样 True。
+        # None（无 bootstrap 对象）与 {}（有对象但未声明 target_project）是两回事：
+        #   · None → 不动（根本没拿到 bootstrap）
+        #   · {}  → 保守停止（与 {"target_project": ""} 同语义：避免旧 runner 心跳覆盖）
+        # `if not bootstrap` 曾把 {} 误判成"无对象"而跳过，已改为 `is None` 精确判断。
         cases = [
             ({"target_project": project}, False),          # 同 project → 不停
             ({"target_project": "other-project"}, True),   # 不同 project → 停
-            ({}, True),                                     # 有对象未声明 → 停
+            ({}, True),                                     # 空对象也按"未声明"保守停止
+            ({"target_project": ""}, True),                 # 显式空串 → 停止
         ]
         for bootstrap, expected in cases:
             web_api_says = _should_stop_previous_runner(bootstrap, project)

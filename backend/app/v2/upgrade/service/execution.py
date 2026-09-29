@@ -32,7 +32,10 @@ def _should_stop_previous_runner(bootstrap: Any, current_project: str) -> bool:
     停掉的是**刚 `up -d` 启动的新 runner**（2026-09-27 在 10.20.11.12 两轮实测：启动后 10 秒 SIGKILL、
     `exit=137`、心跳过期导致后续升级预检查失败；旧链路因源端 project 不同而从未触发）。
     """
-    if not bootstrap:
+    if bootstrap is None:
+        # 完全没有 bootstrap 对象：什么都不做。
+        # 注意必须用 `is None` 而非 `if not bootstrap`——空 dict（{}）同样"没有 target_project"，
+        # 语义上属于下面的"未声明 → 保守停止"，不能被误判成"无对象"而跳过（US-03 收敛）。
         return False
     target_project = str(bootstrap.get("target_project") or "").strip()
     if not target_project:
