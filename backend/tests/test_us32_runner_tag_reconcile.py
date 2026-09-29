@@ -15,6 +15,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 COMPOSE = (
     "services:\n"
@@ -351,3 +352,145 @@ class ComponentUpgradeTagWritebackTest(unittest.TestCase):
         self.assertIn("logging", source)
         self.assertIn("只读挂载", source, "必须点明只读挂载这一真实原因")
         self.assertNotIn("except OSError:\n                continue", source, "不得静默吞掉写入失败")
+
+
+class RunnerSuccessTaskWritebackTest(unittest.TestCase):
+    """`.14` 实测回归：组件升级任务已被 web-api 收尾成 success 时，回写必须仍然发生。
+
+    现场：runner=v0.3.2 但 compose 写 v0.3.1。根因是 runner 侧两条回写路径都以
+    "步骤未收尾 / runner_resume_pending" 为前提，而该任务步骤已全部 succeeded、
+    也没有 execution_plan，于是两条都不触发。
+    """
+
+    def _settings(self, tmp: Path, project: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            project_path=project,
+            data_path=tmp / "data",
+            upgrades_path=tmp / "upgrades",
+            backups_path=tmp / "backups",
+            exports_path=tmp / "exports",
+            compose_runtime_path=tmp / "compose-runtime",
+            prometheus_path=tmp / "prometheus",
+            compose_file="docker-compose.yml",
+            compose_project="smartx-hci-capacity-insight",
+        )
+
+    def _task(self) -> dict:
+        return {
+            "task_id": "upgrade-test",
+            "status": "success",
+            "runner_resume_pending": False,
+            "components": ["runner"],
+            "steps": [
+                {"id": "restart", "status": "succeeded"},
+                {"id": "healthcheck", "status": "succeeded"},
+            ],
+            "logs": ["组件升级完成。"],
+            "manifest": {
+                "package_type": "component",
+                "version": "v0.3.2",
+                "components": [
+                    {
+                        "type": "runner",
+                        "images": [
+                            {
+                                "service": "upgrade-runner",
+                                "image": "repo/upgrade-runner:v0.3.2",
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+
+    def _compose(self, project: Path, tag: str) -> Path:
+        project.mkdir(parents=True, exist_ok=True)
+        path = project / "docker-compose.yml"
+        path.write_text(
+            "services:\n"
+            "  web-api:\n"
+            "    image: repo/web-api:v1\n"
+            "  upgrade-runner:\n"
+            f"    image: repo/upgrade-runner:{tag}\n",
+            encoding="utf-8",
+        )
+        return path
+
+    def test_detects_misaligned_tag(self) -> None:
+        from app.upgrade_runner.main import _runner_tag_aligned
+
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            project = tmp / "project"
+            self._compose(project, "v0.3.1")
+            settings = self._settings(tmp, project)
+            self.assertFalse(
+                _runner_tag_aligned(settings, self._task()),
+                "compose 写 v0.3.1、任务声明 v0.3.2 时必须判定为未对齐",
+            )
+
+    def test_detects_aligned_tag(self) -> None:
+        from app.upgrade_runner.main import _runner_tag_aligned
+
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            project = tmp / "project"
+            self._compose(project, "v0.3.2")
+            settings = self._settings(tmp, project)
+            self.assertTrue(_runner_tag_aligned(settings, self._task()))
+
+    def test_missing_compose_is_treated_as_aligned(self) -> None:
+        """读不到 compose 时不反复扰动现场（与 reconcile 的既有口径一致）。"""
+        from app.upgrade_runner.main import _runner_tag_aligned
+
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            project = tmp / "nonexistent"
+            settings = self._settings(tmp, project)
+            self.assertTrue(_runner_tag_aligned(settings, self._task()))
+
+    def test_writeback_fixes_compose_for_already_success_task(self) -> None:
+        from app.upgrade_runner.main import _apply_tag_writeback_if_needed
+
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            project = tmp / "project"
+            path = self._compose(project, "v0.3.1")
+            settings = self._settings(tmp, project)
+            task = _apply_tag_writeback_if_needed(settings, self._task())
+            self.assertIn("repo/upgrade-runner:v0.3.2", path.read_text(encoding="utf-8"))
+            self.assertTrue(
+                any("对齐" in str(line) for line in task.get("logs") or []),
+                "回写必须在任务日志里留痕",
+            )
+
+    def test_writeback_is_idempotent(self) -> None:
+        """已对齐时不应重复追加日志（避免每次 runner 轮询都刷一遍）。"""
+        from app.upgrade_runner.main import _apply_tag_writeback_if_needed
+
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            project = tmp / "project"
+            self._compose(project, "v0.3.2")
+            settings = self._settings(tmp, project)
+            task = self._task()
+            first = _apply_tag_writeback_if_needed(settings, task)
+            second = _apply_tag_writeback_if_needed(settings, first)
+            self.assertEqual(
+                len(first.get("logs") or []),
+                len(second.get("logs") or []),
+                "已对齐时重复调用不得新增日志",
+            )
+
+    def test_success_component_task_enters_writeback_branch(self) -> None:
+        """回归锁定：run_pending_once 必须有一条处理 success 组件任务的分支。"""
+        import inspect
+
+        from app.upgrade_runner import main as runner_main
+
+        source = inspect.getsource(runner_main.run_pending_once)
+        self.assertIn(
+            "_runner_tag_aligned",
+            source,
+            "run_pending_once 必须有 success 组件任务的 tag 对齐兜底路径",
+        )

@@ -155,6 +155,56 @@ def _runner_image_from_task(task: dict[str, Any]) -> str:
     return resolve(task)
 
 
+def _compose_runner_tag_now(settings: Any) -> str:
+    """读 project compose 里当前声明的 runner tag（读不到返回空串）。"""
+    try:
+        compose_path = Path(settings.project_path) / "docker-compose.yml"
+        if not compose_path.is_file():
+            return ""
+        text = compose_path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    in_runner = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not in_runner:
+            if stripped.startswith("upgrade-runner:"):
+                in_runner = True
+            continue
+        if stripped.startswith("image:"):
+            return stripped.split("image:", 1)[1].strip()
+    return ""
+
+
+def _runner_tag_aligned(settings: Any, task: dict[str, Any]) -> bool:
+    """判断这个 runner 组件任务的 compose tag 是否已经对齐（幂等判据）。
+
+    对齐定义：compose 里的 tag == 任务声明的 runner 镜像 tag。
+    compose 读不到时返回 True（无从判断，不反复扰动现场）。
+    """
+    expected = _runner_image_from_task(task)
+    if not expected:
+        return True
+    current = _compose_runner_tag_now(settings)
+    if not current:
+        return True
+    return current == expected
+
+
+def _apply_tag_writeback_if_needed(settings: Any, task: dict[str, Any]) -> dict[str, Any]:
+    """已 success 的组件升级任务：仅在 compose tag 未对齐时回写，并留痕。"""
+    logs = list(task.get("logs") or [])
+    before = len(logs)
+    task = _finish_runner_component_steps(
+        task, task.get("logs") and logs[-1] or "组件升级完成。", settings
+    )
+    new_logs = task.get("logs") or []
+    if len(new_logs) == before:
+        return task
+    task["logs"] = new_logs
+    return task
+
+
 def _finish_runner_component_steps(
     task: dict[str, Any], message: str, settings: Any = None
 ) -> dict[str, Any]:
@@ -374,6 +424,16 @@ def run_pending_once(
         status = str(task.get("status") or "")
         if status == "success" and _is_runner_component_task(task) and _has_unfinished_steps(task):
             task = _finish_runner_component_steps(task, f"upgrade-runner {settings.runner_version} 已重新启动，组件升级完成。", settings)
+            result = store.save(task, expected_revision=int(task.get("revision") or 0))
+            _project_task(settings.database_path, result)
+            executed += 1
+            continue
+        # US-32 兜底：组件升级任务可能**已经**被 web-api 收尾成 success（步骤全 succeeded、
+        # 无 execution_plan），上面两条"未收尾"路径都不触发，于是 compose tag 永远对不齐
+        # （`.14` 实测：runner=v0.3.2 但 compose 写 v0.3.1）。这里用"是否已回写"做幂等判据：
+        # 只有真正对齐（或发现已对齐）才不再重复写。
+        if status == "success" and _is_runner_component_task(task) and _runner_tag_aligned(settings, task):
+            task = _apply_tag_writeback_if_needed(settings, task)
             result = store.save(task, expected_revision=int(task.get("revision") or 0))
             _project_task(settings.database_path, result)
             executed += 1
