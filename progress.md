@@ -8619,3 +8619,76 @@ Q4 入口与 `delivery/` 关系（倾向薄封装，交付目录须自包含不�
 
 **明确不做**（防误解）：不为跑主路径去动 v0.3.2（用户已定 + 主路径用 v0.3.1 足够）；
 不用旧候选 r6 充当当前代码的验证证据（缺本轮全部修复）；不在序 1 完成前发布 v0.5.3。
+
+## 2026-09-30 序 1 完成：v0.5.2 + runner v0.3.1 → v0.5.3 主路径验证（pending-tasks #57 阶段 A）
+
+**任务来源**：用户 2026-09-30 指令「确保 v0.5.2 可以升级到 v0.5.3」。**这是现场主路径**，也是版本偏斜矩阵标 ✅ 的核心格。
+
+### 1. 验证对象：必须用当前 HEAD 重建的包
+既有候选 `v0.5.3-r6`（`6253810b…`）是 2026-09-28 构建，**缺本轮全部修复**（US-26/27/28/30/31、US-06 事件驱动采集、
+备份保留、runner 能力门禁），验它等于验旧代码。故从当前 HEAD `2ef6e69` **完整重建**：
+
+- 包：`.3:/data/upgrade-packages/v053-cliopath-20260930/smartx-capacity-insight-upgrade-v0.5.3.tar.gz`
+- **SHA `d5e2261f0a671be1df6b78668f20dbc19cace7e188d9e8265dd8f516bc7ccbc8`**
+- 构建方式：`scripts/build_upgrade_package.py`（**未用 `--no-build`**，EXIT=0）
+- 门禁：`verify_upgrade_package_identity.py` **exit 0**（web-api `version_file=v0.5.3`、`runner_version_file=v0.3.1`
+  —— 平台包 runner 基线正确落在已发布 v0.3.1）；`.sha256` sidecar `sha256sum -c` **OK**；
+  **敏感文件扫描 0 命中**；包内 `images/` 仅三镜像（web-api/collector-worker/frontend），**未夹带 runner 镜像**。
+- manifest：`minimum_runner_version=v0.3.1`、`source_compatibility` 覆盖 v0.5.0~v0.5.3、
+  `environment_transitions`/`directory_transition`/`legacy_cleanup` 齐备、
+  `post_upgrade.auto_collection=false`（方案 A 生效）。
+
+### 2. 基线搭建中踩到的两个坑（都是**我的搭建失误**，非产品缺陷）
+
+**坑 1：`.3` 上的 `smartx-capacity-insight-upgrade-v0.5.2.tar.gz` 不是目标布局包。**
+该包 2026-06-28 构建（245187484 字节），`product=smartx-storage-forecast`、**无** `environment_transitions`/
+`directory_transition`/`legacy_cleanup`，compose 数据根是**旧布局** `/data/smartx-capacity-insight-data/`。
+用它起环境后 prometheus 反复 panic（`permission denied` + `Unable to create mmap-ed active query log`）。
+**教训**：`.3:/data/upgrade-packages/` 根目录的包是历史遗留，**不能按文件名判断版本布局**，必须看
+manifest 的 `environment_transitions` 与 compose 的数据根路径。
+
+**正确基线包**：`.12:/root/baselines/chain-from-u2-20260927-233059/upgrades/upgrade-5cae8764ee3226bb/…`
+SHA **`692aca8b58ad8199c43c02a3771fa4fd7a62f1d7bbf4f198af4bd2e4b2c67733`**——与
+`docs/upgrade-package-ledger.md` 记录的 `v0.5.2-upg048-fix8` **完全一致**，manifest 三项 transition 齐备、
+compose 数据根为目标布局 `/data/smartx-storage-forecast/{app,prometheus}`。
+
+**坑 2：目标布局的 prometheus 数据目录权限**。v0.5.2 容器以 uid/gid **65534** 运行，
+新建的 `prometheus/` 目录是 `root:root 755` 不可写 → 崩溃循环。按 v0.5.2 包内 `pre_install.sh` 的口径
+（`PROMETHEUS_DIR -> $PROMETHEUS_UID:$PROMETHEUS_GID, mode 755`）`chown 65534:65534` 后正常。
+**这是基线搭建缺一步，不是 v0.5.3 的问题**（`install.sh` / `pre_install.sh` 已含该步骤）。
+
+顺带清理了我误部署产生的残留：`/data/exports`（4 个空子目录，0 文件）、`/data/smartx-capacity-insight-data`
+（120K，仅一次误部署产生的 90KB 空库）、以及误建的 `/data/{upgrades,backups,compose-runtime}` 空目录。
+**确认真数据始终在目标布局未被触碰**（`app/smartx.db` integrity=ok users=1）。
+
+### 3. 升级执行（走产品 API，无任何临时 override / 手工改状态）
+
+- 上传 → **预检查 8 项全 ok**：`manifest` / `paths` / `source_compatibility`（明确列出
+  `支持 v0.5.0 -> v0.5.3 … v0.5.2 -> v0.5.3`）/ `runner_protocol`（v0.3.1 满足要求）/
+  `checksums`（132 项）/ `images` / `project_files`。
+- **主任务 `upgrade-ed52ed3f2c6bbcdd` → `succeeded`**。
+- **post-cleanup `post-cleanup-upgrade-ed52ed3f2c6bbcdd` → `succeeded`**（US-30 守护线程自动收敛，
+  客户端未轮询也补建——这正是 US-06 事件驱动 + US-30 的设计目标）。
+- 升级前备份：`/data/backups/upgrade-v0.5.3-before-20260929180838.tar.gz`。
+
+**过程中的一个自身失误**：我写的轮询脚本有 `UnboundLocalError`（`last` 变量作用域错误），
+在 `START status=200` 之后中断。**升级任务本身不受影响**（已由产品侧正常执行并 succeeded），
+改用独立查询脚本确认状态。教训：轮询脚本的变量初始化要放在函数外或加初值。
+
+### 4. 8 项验收（全过）
+
+| # | 项 | 基线（v0.5.2） | 升级后（v0.5.3） | 判定 |
+| --- | --- | --- | --- | --- |
+| 1 | health | `ok=True` 三 checks true | `ok=True platform=v0.5.3 runner=v0.3.1`，`{"directories":true,"database":true,"prometheus":true}` | ✅ |
+| 2 | 容器镜像 tag | v0.5.2×3 + runner v0.3.1 | **v0.5.3×3 + runner v0.3.1** | ✅ 平台升、**runner 未被降级（US-26 现场判别通过）** |
+| 3 | project/network/subnet | `smartx-hci-capacity-insight-net` `10.249.251.0/24` | 完全一致 | ✅ |
+| 4 | SQLite | `integrity=ok` users=1 / towers..tasks 全 0 | `integrity=ok` **users=1 不变**；新增 `metric_snapshots=1`、`collection_runs=1`、`tasks=4` | ✅ 业务数据未变，新增行均为升级动作自身产物（采集记录/任务），非业务数据变动 |
+| 5 | Prometheus | 挂 `/data/smartx-storage-forecast/prometheus`，Ready | 同路径、**`Prometheus Server is Ready.`** | ✅ 历史数据延续未重建 |
+| 6 | `.env` | `600 root:root 924B` sha `fbda5c3825b379a56877cffa402eda9643d4e7472e07593b0bb08c784998f9d2` | **mode/size/sha256 三者完全一致** | ✅ 全程未被改写 |
+| 7 | legacy 路径 | 7 条全 missing | **7 条全 missing** | ✅ |
+| 8 | UI | 200 | **200** | ✅ |
+
+### 5. 结论
+`v0.5.2 + runner v0.3.1 → v0.5.3` 主路径 **verified**：主任务 succeeded + post-cleanup succeeded + 8 项验收全过，
+且**用当前代码重建的包**验证（非旧 r6）。**US-26 顺带获得现场判别证据**：平台升级后 runner 保持 v0.3.1 未被降级。
+**已知环境限制（非缺陷）**：Tower `10.20.0.6` 自 09-12 不可达，故 `towers=0`、采集任务失败，属环境限制。
