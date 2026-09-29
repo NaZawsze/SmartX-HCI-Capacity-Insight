@@ -183,22 +183,32 @@ class ResidualPathFalsePositiveTest(unittest.TestCase):
                 self.assertEqual(service._residual_legacy_paths(), [])
 
     def test_real_legacy_paths_still_reported(self) -> None:
-        """修误报的同时不能漏报：真 legacy 路径残留必须仍然报出来。"""
+        """修误报的同时不能漏报：真 legacy 路径残留必须仍然报出来。
+
+        真实语义：宿主上 `/opt/smartx-storage-forecast`、`/data/upgrades` 确实还在
+        （半迁移残留），而目标布局目录也存在（正常）。挂载点经映射后指向目标布局目录，
+        因此**不该**被报成残留。
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             _settings, _database, service = self._service(tmpdir)
             service._container_mount_source = lambda dest: self.MOUNT_MAP.get(dest, "")  # type: ignore[method-assign]
-            legacy = {"/opt/smartx-storage-forecast", "/data/upgrades"}
+            # 宿主上真实存在的：目标布局目录（正常）+ 两个真 legacy 残留
+            present = {
+                "/data/smartx-storage-forecast/backups",
+                "/data/smartx-storage-forecast/exports",
+                "/data/smartx-storage-forecast/compose-runtime",
+                "/data/smartx-storage-forecast/prometheus",
+                "/opt/smartx-storage-forecast",
+                "/data/upgrades",
+            }
 
             def fake(self):
-                text = str(self)
-                # 目标布局目录存在（正常），上面两个 legacy 宿主路径也残留
-                return text.startswith("/data/smartx-storage-forecast/") or text in legacy
+                return str(self) in present
 
             with mock.patch.object(Path, "exists", fake), mock.patch.object(Path, "is_dir", fake):
                 residual = service._residual_legacy_paths()
 
-            self.assertIn("/opt/smartx-storage-forecast", residual)
-            self.assertIn("/data/upgrades", residual)
+            self.assertEqual(sorted(residual), ["/data/upgrades", "/opt/smartx-storage-forecast"])
             for mount_point in self.MOUNT_MAP:
                 self.assertNotIn(mount_point, residual, f"挂载点 {mount_point} 不该被报成残留")
 
