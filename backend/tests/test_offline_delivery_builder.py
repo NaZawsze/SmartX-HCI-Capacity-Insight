@@ -288,5 +288,45 @@ class DeliveryScriptsTest(unittest.TestCase):
             self.assertIn(endpoint, code, f"upgrade.sh 必须调用 {endpoint}")
 
 
+    def test_install_script_has_no_silent_exit_traps(self) -> None:
+        """set -e 下静默退出是最难排查的失败模式，必须有诊断。
+
+        `.3` 实测踩过：`df -PB1 <尚未存在的 --install-root>` 返回空 → 后续算术比较
+        在 set -e 下直接中止，脚本只打印了第一行就消失，用户完全看不到原因。
+        """
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        text = SCRIPT_SOURCES["install/install.sh"].read_text(encoding="utf-8")
+        self.assertIn("set -Eeuo pipefail", text)
+        # 必须装 ERR 陷阱打印行号与命令
+        self.assertIn("trap", text)
+        self.assertIn("BASH_LINENO", text)
+        self.assertIn("BASH_COMMAND", text)
+        # df 必须对"目录不存在"有兜底，而不是直接取空值
+        self.assertIn("avail_bytes_of", text)
+        self.assertIn('AVAIL_BYTES="$(avail_bytes_of', text)
+        # 端口探测工具缺失时不得假装端口空闲
+        self.assertIn("PORT_PROBE_TOOL", text)
+
+    def test_install_script_does_not_source_env_file(self) -> None:
+        """不得 source .env（会执行任意内容）；只能按键读取。"""
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        text = SCRIPT_SOURCES["install/install.sh"].read_text(encoding="utf-8")
+        code = "\n".join(ln for ln in text.splitlines() if not ln.strip().startswith("#"))
+        self.assertNotIn("source ", code)
+        self.assertNotIn("set -a", code)
+        self.assertNotIn(". \"$ENV_FILE\"", code)
+
+    def test_upgrade_script_reads_env_without_sourcing(self) -> None:
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        text = SCRIPT_SOURCES["upgrade/upgrade.sh"].read_text(encoding="utf-8")
+        code = "\n".join(ln for ln in text.splitlines() if not ln.strip().startswith("#"))
+        self.assertNotIn("source ", code)
+        self.assertNotIn("set -a", code)
+        self.assertIn("read_env_value", code)
+
+
 if __name__ == "__main__":
     unittest.main()

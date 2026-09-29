@@ -10,6 +10,16 @@
 #
 set -Eeuo pipefail
 
+# 任何"静默退出"都是最难排查的失败模式（用户只看到脚本没了、没有原因）。
+# 装一个陷阱：命令失败时打印行号与退出码，再由调用方决定如何提示。
+LAST_ERROR_LINE=""
+trap 'rc=$?; if [ $rc -ne 0 ] && [ -n "${BASH_COMMAND:-}" ]; then
+  printf "\n"
+  c_red "  [XX] 内部错误：第 ${BASH_LINENO[0]} 行命令失败（退出码 $rc）"
+  printf "       命令：%s\n" "$BASH_COMMAND"
+  printf "       当前步骤：%s\n" "${CURRENT_STEP_NAME:-（未记录）}"
+fi' ERR
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGES_DIR="$SCRIPT_DIR/images"
 PROJECT_SRC="$SCRIPT_DIR/project"
@@ -45,6 +55,7 @@ fail()  { c_red "  [XX] $*"; }
 
 step() {
   STEP=$((STEP + 1))
+  CURRENT_STEP_NAME="$1"
   printf '\n%s\n' "─── 步骤 $STEP/10：$1 ─────────────────────────────────────────"
 }
 mark_done() { COMPLETED_STEPS+=("$1"); }
@@ -134,30 +145,57 @@ docker info >/dev/null 2>&1 || die "docker 守护进程未运行或当前用户�
 ok "root 权限 / docker / 交付目录就绪"
 
 # 磁盘：镜像总和 ×3 + 余量（解包 + 加载 + 运行都需要空间）
-if command -v du >/dev/null 2>&1; then
-  IMAGES_BYTES=$(du -sb "$IMAGES_DIR" 2>/dev/null | awk '{print $1}')
-  IMAGES_BYTES=${IMAGES_BYTES:-0}
-  NEED_BYTES=$(( IMAGES_BYTES * 3 / 1024 / 1024 / 1024 + DISK_HEADROOM_GIB ))
-  AVAIL_BYTES=$(df -PB1 "$INSTALL_ROOT" 2>/dev/null | awk 'NR==2 {print $4}')
-  if [ -z "$AVAIL_BYTES" ]; then
-    AVAIL_BYTES=$(df -PB1 / | awk 'NR==2 {print $4}')
+# 注意：--install-root 指向的目录此时**可能还不存在**，`df` 会失败并返回空，
+# 必须在 set -e 下显式兜底，否则会静默退出（无任何提示，最难排查的一类失败）。
+avail_bytes_of() {
+  local target="$1" out
+  if [ -d "$target" ]; then
+    out="$(df -PB1 "$target" 2>/dev/null | awk 'END {print $4}')"
   fi
+  if [ -z "$out" ]; then
+    # 逐级向上找最近存在的祖先目录
+    local probe="$target"
+    while [ -n "$probe" ] && [ "$probe" != "/" ]; do
+      probe="$(dirname "$probe")"
+      if [ -d "$probe" ]; then
+        out="$(df -PB1 "$probe" 2>/dev/null | awk 'END {print $4}')"
+        [ -n "$out" ] && break
+      fi
+    done
+  fi
+  [ -z "$out" ] && out="$(df -PB1 / 2>/dev/null | awk 'END {print $4}')"
+  printf '%s' "${out:-0}"
+}
+
+if command -v du >/dev/null 2>&1 && command -v df >/dev/null 2>&1; then
+  IMAGES_BYTES="$(du -sb "$IMAGES_DIR" 2>/dev/null | awk 'END {print $1}')"
+  IMAGES_BYTES="${IMAGES_BYTES:-0}"
+  NEED_GIB=$(( IMAGES_BYTES * 3 / 1024 / 1024 / 1024 + DISK_HEADROOM_GIB ))
+  AVAIL_BYTES="$(avail_bytes_of "$INSTALL_ROOT")"
   AVAIL_GIB=$(( AVAIL_BYTES / 1024 / 1024 / 1024 ))
-  if [ "$AVAIL_BYTES" -lt $(( NEED_BYTES * 1024 * 1024 * 1024 )) ]; then
-    DIE_HINT="  磁盘可用 ${AVAIL_GIB} GiB < 需要约 ${NEED_BYTES} GiB（镜像 ${IMAGES_BYTES} 的 3 倍 + ${DISK_HEADROOM_GIB} GiB 余量）。
-  清理磁盘或用 --install-root 指定容量更大的挂载点后重跑。"
+  if [ "$AVAIL_BYTES" -lt $(( NEED_GIB * 1024 * 1024 * 1024 )); then
+    DIE_HINT="  磁盘可用 ${AVAIL_GIB} GiB < 需要约 ${NEED_GIB} GiB（镜像 ${IMAGES_BYTES} 字节的 3 倍 + ${DISK_HEADROOM_GIB} GiB 余量）。
+  清理磁盘或用 --install-root 指定容量更大的已存在目录后重跑。
+  服务**未**启动，宿主环境未被修改。"
     die "磁盘空间不足" "$DIE_HINT"
   fi
-  ok "磁盘可用 ${AVAIL_GIB} GiB（需要约 ${NEED_BYTES} GiB）"
+  ok "磁盘可用 ${AVAIL_GIB} GiB（需要约 ${NEED_GIB} GiB）"
 fi
 
 # 端口占用：8000/8080/9090 是对外服务端口
+PORT_PROBE_TOOL=""
 port_in_use() {
   local port="$1"
   if command -v ss >/dev/null 2>&1; then
+    PORT_PROBE_TOOL="ss"
     ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}\$" && return 0
   elif command -v netstat >/dev/null 2>&1; then
+    PORT_PROBE_TOOL="netstat"
     netstat -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}\$" && return 0
+  else
+    # 两者都没有：不能假装端口空闲（会在 compose up 时才炸，且信息更少）
+    PORT_PROBE_TOOL="none"
+    return 1
   fi
   return 1
 }
@@ -170,9 +208,14 @@ if [ -n "$BUSY_PORTS" ]; then
   warn "以下端口已被占用：$BUSY_PORTS"
   if [ ! -f "$ENV_FILE" ]; then
     DIE_HINT="  这些端口必须空闲（8000=web-api，8080=前端，9090=Prometheus）。
-  请先停止占用它们的服务，或修改 compose 中的端口映射后重跑。"
+  请先停止占用它们的服务，或修改 compose 中的端口映射后重跑。
+  服务**未**启动，宿主环境未被修改。"
     die "端口被占用" "$DIE_HINT"
   fi
+fi
+if [ "$PORT_PROBE_TOOL" = "none" ]; then
+  warn "系统既无 ss 也无 netstat，无法预检端口占用"
+  info "若 8000/8080/9090 已被占用，compose 启动时会报错，届时按步骤 8 的诊断处理。"
 fi
 mark_done "前置检查"
 ok "前置检查通过"
