@@ -1,6 +1,6 @@
 # 未完成任务清单（按优先级）
 
-快照时间：2026-09-13
+快照时间：2026-09-30
 维护规则：本文件是全项目未完成工作的合并视图；每完成一项同步更新本文件并在 task_plan.md 勾选；新任务立项时先加到 task_plan.md（关联设计文档），再登记到这里。详细口径以 task_plan.md 各 Phase 与 findings.md 为准，本文件只做队列索引。
 
 **交给他 AI 实施？先读 [ai-handoff-guide.md](ai-handoff-guide.md)**（执行环境、提交策略、测试基线、陷阱清单、设计文档索引）。
@@ -10,19 +10,22 @@
 | # | 事项 | 来源 | 说明 |
 | --- | --- | --- | --- |
 | 1 | Release canary 发布验收闭环 | Phase 29 | ✅ 口径已闭环（2026-09-20 用户定发布节奏）：canary 环境结论 = 10.20.0.6 为 frp Tower 主机不作为 canary，生产等价验收由 .12 代行（Phase 30 部署验收 + 2026-09-19/09-20 两轮正规升级验收，v0.5.3 门禁全过）。剩余动作 = ①~~.12 正规升级验收 + v0.5.1 基线升级链路回归~~ **✅ 已完成（2026-09-27）**：.12 恢复 v0.5.1 基线 → 三步链路全绿 → 本包 task `upgrade-72bfb3f52317ef7f` succeeded + post-cleanup succeeded + 8 项验收全过（progress.md 2026-09-27 发布验收）；②用户明确说「发布 v0.5.3」后执行发布动作链（推送 dev2/main、tag、GitHub Release 附包 54aa8807、状态翻转）+ 生产升级窗口（生产环境信息待用户提供）；③待决策：runner 组件包 `dd096bf2…` 是否随发布交付、预检查是否补动作级 runner 能力校验（findings.md 2026-09-27）。发布节奏见 version-governance.md「发布节奏」节 |
-
 | 2 | 49-52 修复轮 `.12` MVP 验收（US-05/US-23） | 2026-09-27 用户「继续」实施后待验 | **✅ US-23 已验（2026-09-28 `.12` 重复 start → 400 + 守卫释放）；US-05 顺序验收按用户口径 N/A（runner-first 不是受支持路径，r6 改为 `required_health` 无 `runner_version` 的顺序无关实现）**：按固定链路（AGENTS §7）用本包做「**平台先**」终验——`v0.5.1+runner v0.3.0 → u2 → runner v0.3.1(已发布 d10e15cf) → v0.5.2 → 本包 v0.5.3` + 8 项验收（与第四轮同形，只换包），验证 US-23 单飞与 r5 平台侧改动（磁盘预检查/产物清理/在场判定）不破坏链路；若 `.12` 已在 v0.5.3，可退化为 `v0.5.3→v0.5.3 同版本重装 + v0.5.2→v0.5.3 直升` 两格。**不需要 `.12`**：重复 start → 400（US-23）在 `.3` 用两个预检查通过的包连点即可验。**M3-08 不做（用户 2026-09-28）**：runner-first 不是受支持链路（链路只有先平台、后 runner），且需要不随本次发布的 v0.3.2 → 与 M3-10 一并记 N/A；US-05 按「代码 + manifest 实证的防御性修复」记录（见 audit-matrix 与验收计划「可跑范围」）。**不可执行**：M3-10 runner-first（v0.5.2 装不住 v0.3.2 runner，US-04 环境约束）。候选包 `b9560eee…`（`.3:/data/upgrade-packages/v053-r5-20260927/`），未过回退第四轮 `e1c0fde8…`。 **✅ 已完成（2026-09-27 第二轮，`.12` 从 u2 全链路演练）**：`v0.5.1→u2→runner v0.3.1(d10e15cf)→v0.5.2(692aca8b)→v0.5.3(r5 b9560eee)→runner v0.3.2(3d99599c)` 每步 succeeded、两处 post-cleanup success、**数据 556/89588 全程未变**、8 项验收在 r5 与 r5+v0.3.2 两次全过、**US-23「重复 start → 400」实测通过**。**唯一剩余**：M3-08 runner-first（依赖 v0.3.2 交付决策）。见 progress.md 2026-09-27 链路演练。见 audit-matrix MVP 节 |
+| **53** | **🔴 runner v0.3.2 无任何交付物——本轮最实质缺口** | 2026-09-30 核查 `git tag -l "runner-v*"` 仅 `runner-v0.3.0`；DockerHub registry 查 `…-upgrade-runner:v0.3.2` 返回 **404** | r8 包（`.3:/data/upgrade-packages/components-v032-r8-20260930/…`，SHA `cedbf4c4a77a38b719f19df2328e56de86716459f12ab6a87439121848856907`，完整构建、门禁 12 PASS、`.14` 判别通过）**只存在于 `.3` 本地目录**。它装着 US-24 / US-26 / US-27 / US-28 / US-32 等一批已验证修复，但**无 `runner-v0.3.2` git tag、无 DockerHub 镜像、无 Release 资产**——客户与后续版本都拿不到。**待用户决策**：是否现在补 tag + 推镜像 + 出 Release 资产。**顺序铁律提醒**：按 AGENTS §7，runner 组件升级必须在平台升级**之后**；v0.5.2 源端装不出活的 v0.3.2（US-04）。 |
+| **54** | **🟠 前端门禁本轮未跑（不是「已通过」）** | 2026-09-30 `.3` 宿主无 node / 无 `node_modules`；`docker pull node:22-alpine` 被拒（`dial tcp 221.228.32.13:443: connection refused`，`.3` 外网受限）；`.3` 本地无任何 node 镜像 | `tsc -b --force` + `vitest run` 未执行。**本轮改动零前端文件**（`git diff cd207ea~1..HEAD` 全为 backend/delivery/docs），不构成回归风险，但不得记作通过。解除条件：`.3` 恢复 node 环境或能拉到 node 镜像后补跑。 |
+| **55** | **🟠 v0.5.3 平台包未发布** | 候选包 `.3:/data/upgrade-packages/v053-r6-20260928/…` SHA `6253810b…`，`.12` 客户形态起点 8 项验收全过 | 发布动作（推 `dev2`/`main`、打 tag、GitHub Release 附包、CHANGELOG 状态翻转）**须用户明确指令**（说「发布 v0.5.3」即触发 `version-governance.md` 发布动作链）。发布前须补跑新包的 `.12` 升级验收硬门禁。 |
 
-## P0 — 发布流程（下一版发布前必须）
+### P0 已完成（2026-09-30 校准，备查）
 
-| # | 事项 | 来源 | 说明 |
-| --- | --- | --- | --- |
-| 48 | ~~US-24 同版本重装 runner 自伤~~ **🟢 已修并 `.12` 复验（2026-09-28：`upgrade-26856095c44869d1` 44s succeeded、attempt 最大 1、runner 重启 0）**；遗留：该修复随 v0.3.2 交付，下一版发布前须确认 US-26 已修 |sionConflict 崩溃循环、任务卡死** | 2026-09-27 `.12` 链路演练（实测 17 次重启、task `upgrade-d08f064e6e15166a`） | **🟢 已修（2026-09-28，用户「全修了吧」授权）**：`engine._save()` 在 mirror 与主 store 指向同一文件时无条件双写（source/mirror 是同一目录的两个路径视图）→ revision 每次 +2 → 下次保存必冲突。修法：`Path.resolve()`/inode 判等后跳过 mirror 写 + 回归测试（同版本重装 + mirror 同源）。修法：`engine._save` 用 `st_dev`+`st_ino` 判等（覆盖 bind-mount 双视图）→ 同文件时跳过 mirror 写；单测 4 例。**修复并入 `runner v0.3.2`**（用户 2026-09-28：该版本未交付，直接并入），随下一版 runner 交付，交付后在 `.12` 复验同版本重装全流程。见 findings.md D1 |
-| 49 | ~~US-25 卡在 `running` 的任务无产品化出路~~ **🟢 已修（2026-09-28）** | 同上（`cancel` 400 / `recovery/fail` 400 / `delete` 拒绝） | 修法：`recovery/{tid}/fail` 接受「running 且无活租约」的任务（`task_lease_is_alive`），视图暴露 `runner_lost` + `available_recovery_actions=["fail"]`；单测 7 例。web-api 侧，未动 runner。见 findings.md D2 |
+| # | 事项 | 结论 |
+| --- | --- | --- |
+| 48 | US-24 同版本重装 runner 自伤 | 🟢 已修并 `.12` 复验（2026-09-28 `upgrade-26856095c44869d1` 44s succeeded、attempt 最大 1、runner 重启 0）；修复随 v0.3.2 交付（见 #53） |
+| 49 | US-25 卡在 `running` 的任务无产品化出路 | 🟢 已修（2026-09-28）：`recovery/{tid}/fail` 接受「running 且无活租约」，视图暴露 `runner_lost` + `available_recovery_actions=["fail"]`，单测 7 例 |
+| 50 | US-26 现场 runner 够用时仍被按基线重建 | 🟢 已修并验证（2026-09-28 `.12` 判别格 `upgrade-7c0720d6207ea942` succeeded、runner 保持 v0.3.2 未降级）；tag 多事实源由 US-32 解决（2026-09-30 `.14` compose v0.3.1→v0.3.2、幂等成立） |
+| 51 | US-27 逃生门只改状态、不收尾残留 | 🟢 已修（web-api 侧暴露 `cleanup_required` / 残留清单 / 收尾指引，残留探测改宿主路径判据）；`.12` 实测 `cleanup_required=False`、`residual_paths=[]` |
+| 52 | US-28 组件升级后 SQLite 写锁窗口致 web-api 500 | 🟢 已修（runner 侧 `lease._connect()` 改 `@contextmanager` 显式 close；web-api 侧 `database is locked` 返 503 + 可读提示）；`.12` 实测 fd 120 秒恒为 3、无锁错误 |
+| 47 | 升级链路系统性整改（采集链路 / runner 能力契约 / 升级执行结构） | 🟢 三项范围均已实施（US-06 事件驱动采集 + `SMARTX_UPGRADE_POST_COLLECTION_FALLBACK_SECONDS`；`verify_runner_delivery_consistency` 硬门禁 + 预检查动作级 `runner_actions`；顺序铁律写入 AGENTS §7 / `upgrade-chain.md` / `version-skew-matrix.md` 并由 US-04 拦截）。验证：`.3` 647 tests OK、build_tests 26 OK、runner 交付门禁 12 PASS |
 
-| 50 | ~~US-26 现场 runner 已够用时，平台升级仍按包内基线 tag 重建 runner~~ **🟢 已修并验证（2026-09-28 `.12` 判别格 task `upgrade-7c0720d6207ea942` succeeded、runner 保持 v0.3.2 未降级；compose tag 多事实源由 US-32 解决，2026-09-30 `.14` 闭环）** | 2026-09-28 `.12` r6 验收：装 v0.3.2 → 同版本重装后三方版本全回 v0.3.1 | 修法：平台包对 runner 只有基线声明（`deploy:false`）无部署指令，web-api 编译计划时解析**现场运行镜像**注入 handoff，现场够用时零改动；tag 多事实源由 US-32 runner 侧幂等回写解决（`.14` 实测 compose v0.3.1→v0.3.2、40 秒内日志不重复）。**零动作新增、已发布 v0.3.1 直接兼容** |
-| 51 | ~~US-27 逃生门只改状态、不收尾半迁移残留~~ **🟢 已修（2026-09-28，web-api 侧）** | 2026-09-28 `.12`：US-25 标记失败后 `/data/upgrades/<task>/package` 与空骨架数据目录残留，验收第 7 项判异常 | 修法：失败任务视图暴露 `cleanup_required`、宿主视角残留路径清单与收尾指引（`available_recovery_actions=['fail']`）；残留探测改用宿主路径判据，避免 bind-mount 容器内视图误报。`.12` 实测 `cleanup_required=False`、`residual_paths=[]` |
-| 52 | ~~US-28 组件升级后 ~10 分钟 SQLite 写锁窗口致 web-api 500~~ **🟢 已修（2026-09-28）** | 2026-09-28 `.12`：runner 空闲态持 52 个 DB fd → 锁 10 分钟 → 预检查连 3 次 500 `database is locked` | ①**runner 侧治本**（并入 v0.3.2）：`lease.py::_connect()` 改为 `@contextmanager` 显式 `close()`——原先 `with self._connect()` 只提交事务不关连接，心跳每 5 秒漏一个；②**web-api 侧**：`database is locked` 返回 503 + 可读提示而非裸 500。`.12` 实测 fd 120 秒恒定为 3、无锁错误 |
 
 ## P1 — 数据正确性与产品缺口
 
@@ -79,6 +82,9 @@ P1 其余项（增长速率算法 Phase 31、预计耗尽算法增强、SQLite �
 | 21 | 测试机环境卫生低优项（2026-09-20 盘点，能力已产品化） | 2026-09-20 progress 盘点；49-24 能力扩展（de77cef） | ✅ ① .12 已走产品「空间清理」功能完成（2026-09-20 用户明确口径：清理必须走正常功能，不做宿主手工运维）：运行产物清理释放 8.45G（16 项升级任务目录）+ 悬空镜像清理释放 12.88G（60 个 dangling），磁盘 57%→约 30%，健康全绿。③ 备份权限已修正。**剩余②**：.12 的 4 个旧项目名 tag 镜像（`nazawsze/smartx-storage-forecast-*`）当前产品功能覆盖不到（v0.5.3 在跑包只清 dangling），等 49-24 随下次发版火车交付后走产品「清理未使用镜像」完成；.3 同类清理已在 49-24 验证中做掉 |
 
 P3 其余项（v1 死代码移除、helper 收敛、静默吞错清理、CORS 收紧）已于 2026-09-12/13 完成并验证，见文末"已完成"与 progress.md。
+
+| **56** | **🔴 升级执行模型的结构性隐患（本轮只治症状未治模式）** | 2026-09-28 用户判断「这种升级模式就是有问题的，而且这个项目就是因为升级不了才重构过一次」；归并分析见 `docs/upgrade-strategy-issues.md` §C2 | US-24 / 26 / 27 / 28 / 32 **全部落在同一模式**上，不是五个独立 bug。三类共性：①**执行者即被升级对象**（源端 web-api 跑老代码、老代码 stop 新 runner、平台升级顺手降级 runner）；②**状态归属不唯一**（三个 compose 文件三个 runner tag、runner 版本号与能力不同源、任务收尾无人负责）；③**执行期共享可变资源**（runner 与 web-api 共用一个 SQLite，锁整文件级；同一 task.json 两个路径视图双写）。'
+ '**判据**：如果一个设计要求回答「出问题时谁说了算、怎么恢复」，而答案是「看情况/按约定」，那它就属于这三类之一。**工程纪律**：新缺陷先归类到这三类，再决定打补丁还是挂到 #47 做结构性整改；**不要把「修完这批」当成「升级没问题了」**。本轮 US-32 闭环即典型——修了三处实现，模式（收尾责任归属不清）未变。 |',
 
 ## 已完成（2026-09-12，备查）
 
