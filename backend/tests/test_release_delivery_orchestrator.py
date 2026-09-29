@@ -8,10 +8,14 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
+# 容器内 PYTHONPATH 只含 backend/，仓库根需显式加入（否则 import 失败）
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 ORCHESTRATOR = REPO_ROOT / "scripts" / "build_release_delivery.sh"
 
 

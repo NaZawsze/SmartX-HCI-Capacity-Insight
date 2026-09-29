@@ -11,12 +11,19 @@ import json
 import os
 import subprocess
 import tarfile
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from scripts.build_offline_delivery import (
+# 容器内跑测试时 PYTHONPATH 只指向 backend/，仓库根的 scripts 包不在路径上；
+# 显式把仓库根加进去，否则整个模块 import 失败（.3 全量发现 3 个失败都源于此）。
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.build_offline_delivery import (  # noqa: E402
     FORBIDDEN_DIR_HINTS,
     extract_member,
     render_offline_compose,
