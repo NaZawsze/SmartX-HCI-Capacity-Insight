@@ -8299,3 +8299,38 @@ release_smoke=critical 0, warning 0
 - **门禁测试的关键教训**：最初用 `gate.*?exit 1` 跨行正则写门禁测试，**反向验证发现删掉 runner 门禁的失败分支后测试仍然通过**——正则一路匹配到了脚本后面别的 `exit 1`，属假阳性。改为逐行判定"门禁调用所在逻辑块内必须有 exit 1"，再对三个门禁逐一反向验证（删各自失败分支）确认全部能抓到。另加手册↔编排器**双向**一致性检查，当场抓出编排器缺 `--prometheus-archive` 透传（已补）以及手册漏写该选项。
 - **`.3` 真跑**：`bash scripts/build_release_delivery.sh --runner-baseline v0.3.1 --reuse-images` → **3m32s 跑通全链**，四道门禁全过，产出 1.4G 交付目录 + SHA 清单。shellcheck 零告警（修掉一个未用变量 SC2034）。缺 `--runner-baseline` 时正确拒绝并说明原因。
 - 测试 17 例（编排器）+ 39 例（交付脚本与 README）。
+
+## 2026-09-29 第 8 批：49-56 步骤 6 —— 干净 VM 实测（`.14`）通过，抓到并修掉 US-33
+
+### 环境准备
+- 用户从 `.12` 克隆出 `.14`（`smtx-hci-ci`，openEuler 24.03）。清理后为**真·干净 VM**：容器/镜像/卷/自定义网络全 0、`/data/smartx-storage-forecast` 不存在、端口 8000/8080/9090 全空、磁盘 47G 可用。
+- 清理时我**误删**了 `/root` 下的 shell 配置与登录配置（`.bashrc`/`.bash_profile`/`.bash_logout`/`.cshrc`/`.tcshrc`/`.ssh`/`.docker`），已从 `/etc/skel` 恢复前四个（+`.zprofile`/`.zshrc`），权限 644；SSH 密码登录全程正常（sshd 走 PAM，不依赖 `/root/.ssh`）。**`.ssh`/`.docker` 未能恢复**——若该机需密钥登录或私有仓库 pull 需重新配置；纯密码 + 离线交付场景无影响。
+- 外网屏蔽：`/etc/hosts` 屏蔽 `registry-1.docker.io` 等，`docker pull hello-world` 确认 `connection refused`。
+
+### US-33 🔴→🟢：安装包 runner 镜像与 compose baseline 不匹配（**干净 VM 才能暴露**）
+- **现象**：`install.sh` 在「镜像 tag 与 compose 声明不匹配」失败，**首次安装直接不可用**。交付包 compose 声明 `upgrade-runner:v0.3.1`（已发布基线，AGENTS §8 要求），但 `install/images/` 里装的是**组件包的当前版本 v0.3.2**。
+- **为什么 `.3` 上没暴露**：`.3` 本地恰好同时存在 v0.3.1 与 v0.3.2 两个 tag，掩盖了不匹配。**只有干净机才会撞上**——这正是步骤 6 不可省的理由。
+- **修复**：安装镜像改为 `docker save <baseline tag>`；本地缺该 tag 时**构建即失败**（不留到客户安装时才炸）；组件包仍进 `upgrade/packages/`（那里用当前版本是对的）。补 5 例单测（含反向断言：不得再从组件包提取安装镜像）。
+- **教训**：「已发布基线」与「当前版本」是两个不同概念，交付时**安装用基线、升级用当前版本**，两者放在同一份交付物里，必须分别保证自洽。
+
+### US-34：upgrade.sh 预检查格式化被引号嵌套击穿
+- **现象**：`.14` 离线升级时预检查把整段 JSON 原样打印，没有逐项格式化。
+- **根因**：格式化用的 python 代码被 shell **单引号**包裹，内部却写了 `check.get('name')` —— 单引号提前闭合，后续被 shell 当命令执行，格式化静默失效（原代码 `2>/dev/null` 还把报错吞了）。
+- **修复**：内部只用双引号；python3 缺失时给可读兜底（原为静默失败）。新增 `ShellQuotingTest` 静态扫所有内嵌 python 块的单引号，已反向验证能抓到。
+- **修复后**：9 项预检查逐项清晰打印。
+
+### 步骤 6 实测结果（`.14`，全程外网不可用）
+| 场景 | 结果 |
+| --- | --- |
+| SHA 校验 | 5 镜像 + 2 包 **全 OK** |
+| **全新安装** | `install.sh --yes` **46s 成功**；平台 v0.5.3 / runner **v0.3.1**（已发布基线，正确） |
+| 安装 8 项自检 | 全过；`towers=0 / clusters=0 / tasks=0` 证明无克隆数据残留；`.env` 密钥随机、`0600 root:root`、无占位符 |
+| **离线升级** | `upgrade.sh --yes` **2m18s 成功**；`upgrade-ab1f977fb3212674` + `post-cleanup` 均 succeeded |
+| 升级 8 项验收 | 全过；health 三项 true、5 容器 Up、Web 200、旧目录已清、DB `integrity=ok`、数据计数未变 |
+| 离线性 | 全程 `docker pull` `connection refused`，安装与升级均未依赖外网 |
+
+### 包与门禁
+- 平台包 `/data/upgrade-packages/smartx-capacity-insight-upgrade-v0.5.3.tar.gz`、runner 包 `smartx-upgrade-runner-v0.3.2.tar.gz`（门禁 C1–C5 12 PASS）。
+- 交付包 `smartx-capacity-insight-v0.5.3-offline`（1.4G）经 `build_offline_delivery.py` 重建，含 v0.3.1 baseline 安装镜像。
+- 测试：`test_offline_delivery_builder` 45 例 + `test_release_delivery_orchestrator` 17 例。
+- **注意**：`build_offline_delivery.py --allow-existing` 会先**清空输出目录**——若用 `--prometheus-archive` 指向输出目录内的文件会自毁（本次踩到），需先另存。
