@@ -8243,3 +8243,14 @@ release_smoke=critical 0, warning 0
 - **保留**：`progress.md` / `upgrade-strategy-issues.md` 里关于 v0.3.3 的历史记录**不删**——那是"曾 bump 后按用户更正回退"的审计链，正是这次残留的成因说明。
 - **复核**：删除后 v0.3.2-r4 包交付一致性门禁仍 **12 PASS / 0 FAIL**。
 - **教训**：**回退版本面时必须一并清理已构建的包与镜像**，否则留下"版本号与仓库不一致但看起来正常"的产物；这类残留只有交付门禁能兜住，而门禁是在发布前才跑。
+
+### US-31：失败任务的收尾指引缺失（已修）+ 残留探测永久误报（已修）
+
+- **判别格 1（指引缺失）**：`.12` 历史失败任务 `upgrade-acf7a29bb647e5a2`（`image.load` 校验失败）视图为 `available_recovery_actions=None`、`cleanup_required` 字段都没有。根因两层：US-27 的 `cleanup_required` 只挂在人工 `recovery/fail`；`engine.py` 用 `setdefault` 兜键，而**键存在且值为 `None` 时 `setdefault` 不替换**（`.12` 任务文件的 JSON 里就是 `null`），失败任务带着 `None` 定格。
+- **判别格 2（探测永久误报）**：修好指引后暴露——探测报出 `/data/backups`、`/data/exports`、`/data/compose-runtime`、`/prometheus-data` 四条"残留"，但宿主上 7 个 legacy 路径**全部 GONE、环境是干净的**。原因是这四个是 bind mount 挂载点，**容器视角必然存在**（且必须存在，删掉会拆掉全机挂载，UPG-050）。`Path.exists()` 在容器内判定 = 永远误报。
+- **判别格 3（方向反了）**：改为映射宿主路径后仍误报——因为把"映射后的宿主源路径**存在**"也判成残留。实际上**存在恰恰证明目标布局正常**，真残留是"挂载点宿主源**不存在**"（布局未建立）。修正判断方向后判别通过。
+- **最终结果**（平台包 r13，SHA `60114ad9…`）：`cleanup_required=False`、`residual_paths=[]`、`available_recovery_actions=['fail']` —— 既不误报，也不丢失收尾入口。
+- **包**：runner r5 `bcce3407…`（门禁 12 PASS/0 FAIL）、平台 r12 `cdf9d61a…`、平台 r13 `60114ad9…`（identity exit 0）。
+- **`.3` 门禁**：后端 **523 tests OK (skipped=2)**。
+- **仍未做**：失败任务留下的备份无人回收（`.12` `backups/` 13 份 / 79MB），需定保留策略并排期。
+- **过程教训**：这次连续三轮判别失败，暴露出我**先改测试去迁就代码**的倾向（第 1、2 轮都是 mock 语义写错而不是代码错）。正确顺序是：先在 `.3` 用**独立探针脚本**打印中间值确认真实行为，再改代码，最后才让测试反映已验证的事实。
