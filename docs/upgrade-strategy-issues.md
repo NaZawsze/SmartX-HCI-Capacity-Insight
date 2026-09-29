@@ -114,7 +114,7 @@
 - **数据红线**：**未受损**——live 库 `/data/smartx-storage-forecast/app/smartx.db` `integrity ok`、556/89588 与升级前一致；旧数据目录仅 12K 空骨架，无数据分叉。
 - **收干净的方式**：再跑一次成功升级，其 post-cleanup 会清掉全部 legacy 路径（本轮实测 `upgrade-26856095c44869d1` 的 post-cleanup succeeded，7 条路径全清）。
 - **方向**：逃生门在标记失败时提示"环境可能半迁移，需再跑一次升级让 post-cleanup 收尾"，或在 `recovery/fail` 响应里带 `cleanup_required=true` + 残留路径清单；理想是提供"标记失败并清理残留"的产品化收尾动作。
-- **状态**：🟠 **已实施（2026-09-28，提交 9d60a68/4a5b2f1，`.3` 门禁全过）**：`recovery/fail` 增加 `_residual_legacy_paths()` **只读**探测（7 条 legacy 路径）+ 任务视图暴露 `cleanup_required` / `residual_paths`；`error` **追加**（不覆盖原失败语义）收尾指引「环境可能半迁移 → 重跑一次完整升级由 post-cleanup 收尾 → 之前不要开始新升级」；前端新增「需要收尾」面板显示残留路径。测试 8 例（含只读性断言：探测不得含 rmtree/unlink/mkdir）。**`.12` 复验待授权**。
+- **状态**：🟢 **已实施并经 `.12`/`.14` 复验（2026-09-29）**（提交 9d60a68/4a5b2f1，`.3` 门禁全过）：`recovery/fail` 增加 `_residual_legacy_paths()` **只读**探测（7 条 legacy 路径）+ 任务视图暴露 `cleanup_required` / `residual_paths`；`error` **追加**（不覆盖原失败语义）收尾指引「环境可能半迁移 → 重跑一次完整升级由 post-cleanup 收尾 → 之前不要开始新升级」；前端新增「需要收尾」面板显示残留路径。测试 8 例（含只读性断言：探测不得含 rmtree/unlink/mkdir）。**`.12`/`.14` 复验通过**：`upgrade-acf7a29bb647e5a2` 视图由 `cleanup_required=True / 5 条误报 / actions=None` 变为 `cleanup_required=False / residual_paths=[] / actions=['fail']`（既不误报也不丢入口）。**其中残留探测的误报是 US-31 一并修掉的**（容器内 bind mount 挂载点必然存在，直接 `Path.exists()` 判定会永远误报）。
 
 ### US-28 🟠 新发现（本轮 .12 验收）：runner 组件升级后有约 10 分钟 SQLite 写锁窗口，web-api 写操作直接 500
 
@@ -150,7 +150,10 @@
 - **影响**：**升级"成功"但旧环境不清理**，磁盘持续增长（每次升级还留一份 ~4.7MB 备份，实测 `backups/` 累积 5 份），且残留目录会让后续升级的 legacy 扫描面变大。这是 US-27 的**第三个实例**，但机理不同（不是"标记失败不收尾"，而是"根本没人触发"）。
 - **方向**：①把「任务终态 → 投影 + 创建 post-cleanup」做成**后台兜底**（worker 或 web-api 守护线程扫 `success` 且无 `post_upgrade_cleanup_task_id` 的任务并补建），不依赖客户端轮询；②或由 runner 在 `schedule_cleanup` 后直接投递清理意图；③补一条断言：平台升级成功后，**不调用 status 接口**也应最终产生 cleanup 任务。
 - **证据**：`.12` 2026-09-28 13:30–14:0x（`auto_rollback.log` 收尾 8 项验收第 7 项报 3 条 EXISTS + U1 任务文件取证）。
-- **状态**：🔴 **新发现未修**（US-27 的延伸，建议与 US-27 一并修）。
+- **状态**：🟢 **已修（2026-09-29）**。**根因**：`_maybe_schedule_post_upgrade_cleanup()` 由 `_normalize_completed_runner_task()` 触发，而后者**只在 status 接口（客户端轮询）**与 `cleanup.py` 路径被调用 → 没人轮询则清理任务永不创建，任务却显示"成功"（`.12` task `upgrade-0de5b6ad24d41c56` 14/14 动作 succeeded 但 legacy 路径残留）。
+- **修复**：新增 `backend/app/v2/upgrade/settlement.py` 后台守护线程，定期扫描「status=success + manifest 有 `post_upgrade.create_cleanup_task` + `legacy_cleanup` 非空 + 清理任务目录不存在」并**幂等**补建；`main.py` startup/shutdown 接线；配置 `SMARTX_UPGRADE_SETTLEMENT_INTERVAL_SECONDS`（默认 300，≤0 关闭），**启动即扫一次**以覆盖历史漏网任务。
+- **判别证据**：`.3` 造「成功但缺 cleanup」fixture 后重启 web-api，清理任务于**容器启动后 6 秒**自动创建，**全程未调用 status 接口**（这正是原缺陷的触发条件）；幂等复验 `created=[]` 不重复创建；测试 9 例。
+- **顺带修的可观测性缺陷**：项目无 logging 基础配置、root logger 实际为 WARNING，原 `logger.info` 的"发现未收尾升级/已补建清理任务"在容器日志里**完全不可见** → 改用 `logger.warning`（发现未收尾升级本身即异常）。
 
 ### US-31 🟠 新发现（第 3 批实测）：失败自动回滚**只覆盖 `health.*` 失败**，不是通用安全网
 
