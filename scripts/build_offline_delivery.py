@@ -161,7 +161,12 @@ def build_env_template(source: Path, destination: Path) -> None:
 
 
 def copy_project_files(destination: Path) -> list[str]:
-    """复制平台部署文件（compose + prometheus 配置 + 文档）到 install/project/。"""
+    """复制平台部署文件到 install/project/。
+
+    prometheus.yml 必须落在 `project/prometheus/prometheus.yml` —— compose 里是按这个
+    路径挂载进容器的（`.../project/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro`），
+    放错位置会导致 Prometheus 起不来。
+    """
     copied: list[str] = []
     for name in ("docker-compose.offline.yml", "docker-compose.yml"):
         source = ROOT / name
@@ -170,10 +175,10 @@ def copy_project_files(destination: Path) -> list[str]:
             copied.append(name)
     prometheus_yml = ROOT / "prometheus" / "prometheus.yml"
     if prometheus_yml.is_file():
-        target = destination / "prometheus.yml"
+        target = destination / "prometheus" / "prometheus.yml"
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(prometheus_yml, target)
-        copied.append("prometheus.yml")
+        copied.append("prometheus/prometheus.yml")
     return copied
 
 

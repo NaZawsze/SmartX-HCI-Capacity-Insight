@@ -181,5 +181,34 @@ class ScriptContractTest(unittest.TestCase):
         self.assertIn("  prometheus:", compose)
 
 
+class ProjectFilesLayoutTest(unittest.TestCase):
+    """交付目录的 project/ 布局必须与 offline compose 的挂载路径对得上。"""
+
+    def test_prometheus_yml_lands_where_compose_mounts_it(self) -> None:
+        """compose 挂载 project/prometheus/prometheus.yml —— 放错位置 Prometheus 起不来。"""
+        from scripts.build_offline_delivery import copy_project_files
+
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        compose = (repo_root / "docker-compose.offline.yml").read_text(encoding="utf-8")
+        self.assertIn("project/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml", compose)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            destination = Path(tmpdir) / "project"
+            destination.mkdir(parents=True)
+            copied = copy_project_files(destination)
+            self.assertIn("prometheus/prometheus.yml", copied)
+            self.assertTrue((destination / "prometheus" / "prometheus.yml").is_file())
+            self.assertFalse((destination / "prometheus.yml").exists(), "不得再放 project 根下")
+
+    def test_pre_install_script_is_delivered_and_executable(self) -> None:
+        """安装脚本要复用 pre_install.sh 的目录/权限逻辑，必须随交付物一起发出。"""
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        self.assertTrue((repo_root / "pre_install.sh").is_file())
+        text = (repo_root / "pre_install.sh").read_text(encoding="utf-8")
+        # 目录与权限逻辑必须齐全，安装脚本不再重复发明
+        for marker in ("PROMETHEUS_UID", "PROMETHEUS_GID", "mkdir -p", "chown", "chmod"):
+            self.assertIn(marker, text)
+
+
 if __name__ == "__main__":
     unittest.main()
