@@ -8171,3 +8171,29 @@ release_smoke=critical 0, warning 0
 - **测试**：连接生命周期 5 例（含 fd 计数 50 轮不累积）、门禁回归 3 例、US-28 503 映射 6 例；门禁自身 25 例全绿。
 - **`.3` 门禁**：后端 **490 tests OK (skipped=2)**、build_tests **26 OK**、门禁 C1–C5 全 PASS。
 - **待办**：`.12` 复验本包（组件升级后紧接平台步，预检查不得再 500）。
+
+## 2026-09-29 第 5 批：US-30 收尾兜底守护线程——运行态判别验证通过 + 可观测性修正
+
+### 实施（commit `a04ed59`）
+- **缺陷**：`.12` task `upgrade-0de5b6ad24d41c56` 14/14 动作 succeeded、状态 `success`，但 legacy 路径 `/data/smartx-capacity-insight-data`、`/prometheus-data`、`/data/upgrades` 至今残留。
+- **根因链条**：`post_upgrade.schedule_cleanup` 动作只写标记不建任务 → `_maybe_schedule_post_upgrade_cleanup()` 由 `_normalize_completed_runner_task()` 调用 → 而它只在 `execution.py` 的 status 接口（**客户端轮询**）与 `cleanup.py` 路径触发 → **没人轮询 status，清理任务永不创建，而任务仍显示"成功"**。
+- **修复**：新增 `backend/app/v2/upgrade/settlement.py` 后台守护线程，定期扫描「status=success + manifest 有 `post_upgrade.create_cleanup_task` + `legacy_cleanup` 非空 + 清理任务目录不存在」并幂等补建；`main.py` startup/shutdown 接线；配置 `SMARTX_UPGRADE_SETTLEMENT_INTERVAL_SECONDS`（默认 300，≤0 关闭）。启动即扫一次，覆盖历史漏网任务。
+
+### 运行态判别验证（`.3`，**全程未调用 status 接口**）
+- 探针造 fixture：宿主 `/data/smartx-storage-forecast/upgrades/upgrade-us30probe02/task.json`，`status=success`、含 `post_upgrade.create_cleanup_task=true` 与非空 `legacy_cleanup`（指向**不存在的** `us30-probe-nonexistent` project/network，确保即便 runner 真执行也不碰真实容器）。
+- `docker compose up -d --force-recreate web-api` → 清理任务 `post-cleanup-upgrade-us30probe02` 于**容器启动后 6 秒**自动创建（容器 StartedAt `06:22:09.35` → 任务 created_at `06:22:15.33`），7 个动作全部 succeeded、任务终态 success。
+- **幂等复验**：清理任务已存在时 `scan_missing_settlement` 返回 `[]`、再次 `ensure_settlement_once` 返回 `created=[]`，不重复创建。
+- fixture 与误建目录已清理，`.3` upgrades 目录恢复空。
+
+### 过程中三个诊断陷阱（值得记住）
+1. **`docker compose up -d` 不会因 `build` 过就重建容器**：镜像 ID 未变时 compose 跳过 recreate，"启动即扫"根本没发生。必须 `--force-recreate` 或确认 `StartedAt` 已变。
+2. **不能用 `docker exec python -c "threading.enumerate()"` 验证守护线程**：`exec` 起的是**新进程**，看不到服务进程线程（当时据此误判"线程没起"）。要么看容器日志，要么用**功能判别**（造 fixture 看副作用）。
+3. **项目无 logging 基础配置**，root logger 实际级别为 WARNING：`logger.info` 在容器日志里完全不可见（`freshness` 那条 warning 可见正是对照）。已把「发现未收尾升级 / 已补建清理任务」改为 `logger.warning`（commit `77117e8`），并删除无信息量的启动横幅。
+
+### 探针路径口径（易错）
+容器内 `/data/upgrades` 映射的是宿主 **`/data/smartx-storage-forecast/upgrades`**，而宿主 `/data/upgrades` 是**待清理的 legacy 路径**。探针必须用前者；误用后者会污染 legacy 目录（本次误建 `upgrade-us30probe01` 已删除，其余 3 个 9-27 既有残留未动）。
+
+### `.3` 门禁
+- 后端 **499 tests OK (skipped=2)**；build_tests **26 OK**（须在可写副本跑：容器内 `tar` 整树复制到 `/tmp/bt2`，因这些用例会临时改写并还原 `VERSION`）。
+- `verify_api_docs.py` OK（api.md 77 条含 1 条白名单豁免 = 后端 76 条路由）；`verify_release_docs_safe.py` PASS。
+- 前端 `npx tsc -b` OK；`npx vitest run` **107 passed (11 files)**（`.3` 宿主无 node，用 `node:22` 容器跑，`node_modules` 已在宿主就位）。
