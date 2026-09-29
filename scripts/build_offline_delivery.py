@@ -342,6 +342,17 @@ def main() -> int:
     docker_save(baseline_image, images_dir / "upgrade-runner.tar")
     image_names.append("upgrade-runner.tar")
 
+
+
+    # ---------- install/project ----------
+    copied = copy_project_files(project_dir)
+    # offline compose 渲染为交付基线
+    offline_src = project_dir / "docker-compose.offline.yml"
+    render_offline_compose(offline_src, offline_src, args.runner_baseline)
+    log(f"install/project：{', '.join(copied)}（runner tag 落 {args.runner_baseline}）")
+    shutil.copy2(ROOT / "pre_install.sh", project_dir / "pre_install.sh")
+    (project_dir / "pre_install.sh").chmod(0o755)
+
     # ---------- 门禁：交付物自洽（US-33）----------
     # 逐个解包 images/*.tar 读出**真实 tag**，与 install compose 声明逐一比对。
     # 这一步不需要干净机器就能抓到 US-33（compose 要 v0.3.1、镜像却是 v0.3.2），
@@ -372,15 +383,6 @@ def main() -> int:
 
     install_sums = write_sha256sums(images_dir, image_names)
     log(f"install/images/SHA256SUMS 已生成（{len(image_names)} 个镜像）")
-
-    # ---------- install/project ----------
-    copied = copy_project_files(project_dir)
-    # offline compose 渲染为交付基线
-    offline_src = project_dir / "docker-compose.offline.yml"
-    render_offline_compose(offline_src, offline_src, args.runner_baseline)
-    log(f"install/project：{', '.join(copied)}（runner tag 落 {args.runner_baseline}）")
-    shutil.copy2(ROOT / "pre_install.sh", project_dir / "pre_install.sh")
-    (project_dir / "pre_install.sh").chmod(0o755)
     build_env_template(ROOT / ".env.example", install_dir / ".env.template")
     log("install/.env.template 已生成（密钥位为 __GENERATE__ 占位符）")
 
