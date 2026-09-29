@@ -8231,3 +8231,15 @@ release_smoke=critical 0, warning 0
 - 宿主 `/data/upgrades` 是**待清理的 legacy 路径**；容器内 `/data/upgrades` 映射的是宿主 `/data/smartx-storage-forecast/upgrades`。探针用错会在 legacy 目录留下垃圾。
 - 跨进程验证守护线程：`docker exec python -c "threading.enumerate()"` 是**新进程**，看不到服务线程。应用**功能判别**（造 fixture 看副作用）。
 - 项目**无 logging 基础配置**，root logger 实际是 WARNING：`logger.info` 在容器日志里完全不可见。异常/状态漂移类信息必须用 warning。
+
+### 清理孤立 runner v0.3.3 产物（用户确认后删除）
+
+- **背景**：2026-09-28 曾按"能力变更必 bump"把 US-24 改成 v0.3.3 并构建了组件包，随后按用户更正回退到 v0.3.2（v0.3.2 从未交付，无需 bump）。**回退只改了版本面，没删已构建的产物**，导致 `.3:/data/upgrade-packages/components-v033-20260928/` 与本地镜像 `upgrade-runner:v0.3.3` 残留。
+- **风险**：该产物与仓库 `RUNNER_VERSION=v0.3.2` 不符，交付一致性门禁会判 FAIL；目录名又与合法的 `components-v032-r*` 极为相似，日后极易误用或误交付。
+- **已删除**（用户 2026-09-29 确认）：
+  - `/data/upgrade-packages/components-v033-20260928/`（288M，含 `smartx-upgrade-runner-v0.3.3.tar.gz` SHA `ab03918e…`、解包目录、`.sha256`）
+  - 本地镜像 `nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.3`（`a6bf0a801604`，无容器引用；当前在跑的是 v0.3.2）
+  - `.12` 上无 v0.3.3 任何文件。
+- **保留**：`progress.md` / `upgrade-strategy-issues.md` 里关于 v0.3.3 的历史记录**不删**——那是"曾 bump 后按用户更正回退"的审计链，正是这次残留的成因说明。
+- **复核**：删除后 v0.3.2-r4 包交付一致性门禁仍 **12 PASS / 0 FAIL**。
+- **教训**：**回退版本面时必须一并清理已构建的包与镜像**，否则留下"版本号与仓库不一致但看起来正常"的产物；这类残留只有交付门禁能兜住，而门禁是在发布前才跑。
