@@ -57,6 +57,10 @@ class V2Settings:
     upgrade_housekeeping_interval_seconds: int = field(
         default_factory=lambda: int(os.environ.get("SMARTX_UPGRADE_HOUSEKEEPING_INTERVAL_SECONDS", "21600"))
     )
+    # US-30：升级收尾兜底扫描间隔（秒）。0 关闭。
+    upgrade_settlement_interval_seconds: int = field(
+        default_factory=lambda: int(os.environ.get("SMARTX_UPGRADE_SETTLEMENT_INTERVAL_SECONDS", "300"))
+    )
     cors_origins: tuple[str, ...] = field(
         default_factory=lambda: tuple(
             origin.strip() for origin in os.environ.get("SMARTX_CORS_ORIGINS", "").split(",") if origin.strip()
