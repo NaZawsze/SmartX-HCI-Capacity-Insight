@@ -8254,3 +8254,11 @@ release_smoke=critical 0, warning 0
 - **`.3` 门禁**：后端 **523 tests OK (skipped=2)**。
 - **仍未做**：失败任务留下的备份无人回收（`.12` `backups/` 13 份 / 79MB），需定保留策略并排期。
 - **过程教训**：这次连续三轮判别失败，暴露出我**先改测试去迁就代码**的倾向（第 1、2 轮都是 mock 语义写错而不是代码错）。正确顺序是：先在 `.3` 用**独立探针脚本**打印中间值确认真实行为，再改代码，最后才让测试反映已验证的事实。
+
+### 清理 `.12` 升级备份（用户指示"backups 全清理掉"）
+
+- **删除内容**：`/data/smartx-storage-forecast/backups/` 下 **26 项 / 98M**——10 个 `project-files-upgrade-*` 目录 + 15 个 `upgrade-v*-before-*.tar.gz`。**全部是升级前快照，无迁移/导入产物**（已按 `ls | grep -v '^upgrade-'` 复核，`project-files-*` 也是升级流程产物）。
+- **删除前健康确认**：health `v0.5.3 / runner v0.3.2` 三项 checks 全 true；SQLite `PRAGMA integrity_check = ok`（towers=1、clusters=1）——环境本身健康，不需要这些快照回滚。
+- **删除后复验**：`backups/` 98M → **4.0K / 0 项**；**目录本身保留**（`-> /data/backups RW=true` 挂载仍在，删目录会拆掉全机挂载，UPG-050）；health 三项仍 true，`integrity_check` 仍 ok。
+- **可恢复性**：**不可恢复**。这些是一次性升级前快照，无异地副本；因环境健康且升级链路已多轮验证通过，不需要回滚到任何历史点。
+- **遗留**：备份保留策略（成功任务保留 N 份/按 TTL、失败任务随取证期）**仍未实现**——本次是人工清理，下次升级又会重新累积。属运维债，49-56 之后再排。
