@@ -1542,6 +1542,56 @@ subprocess.run(
 """
 
 
+def resolve_runner_stop_decision(
+    *,
+    runner_project: str,
+    target_project: str,
+    purpose: str,
+) -> dict[str, Any]:
+    """US-03 收敛点：**"能不能停这个 runner"只有一个决策处**。
+
+    此前三个入口各自隐含判断，任何一处漏判就会误停刚启动的 runner——
+    US-04 正是这么产生的（v0.5.2 源端 web-api 无条件 stop，10s SIGKILL / exit=137）。
+    本函数把规则写成数据（可断言、可记录），三个入口都必须经它。
+
+    规则（唯一）：
+        **目标 project 与 runner 所在 project 不同才允许停。**
+        相同 = 原地组件升级，停掉的是刚 up 起来的新 runner。
+
+    返回 {"stop": bool, "reason": str, "runner_project": ..., "target_project": ...}。
+    `purpose` 用于决策留痕（handoff / legacy-cleanup），便于事后取证。
+    """
+    runner_project = str(runner_project or "").strip()
+    target_project = str(target_project or "").strip()
+    if not target_project:
+        # 未声明目标 project：保守停止（旧行为），避免旧 runner 心跳覆盖新环境
+        return {
+            "stop": True,
+            "reason": f"未声明目标 project（purpose={purpose}），保守停止以免旧 runner 心跳覆盖",
+            "runner_project": runner_project,
+            "target_project": target_project,
+        }
+    if runner_project and runner_project == target_project:
+        return {
+            "stop": False,
+            "reason": (
+                f"runner 与目标同属 project '{target_project}'，停掉的就是刚启动的新 runner"
+                f"（purpose={purpose}）——跳过"
+            ),
+            "runner_project": runner_project,
+            "target_project": target_project,
+        }
+    return {
+        "stop": True,
+        "reason": (
+            f"runner 属于旧 project '{runner_project or '未知'}'，目标为 '{target_project}'"
+            f"，停止以免旧 runner 心跳覆盖（purpose={purpose}）"
+        ),
+        "runner_project": runner_project,
+        "target_project": target_project,
+    }
+
+
 def _helper_container_name(task_id: str) -> str:
     safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in task_id)[:48]
     return f"smartx-runner-cutover-{safe or 'task'}"
@@ -1652,6 +1702,10 @@ def runner_stop_legacy_runtime(action: dict[str, Any], context_payload: dict[str
     legacy_project = _safe_docker_name(params.get("legacy_project"))
     legacy_runner_container = _safe_docker_name(params.get("legacy_runner_container") or f"{legacy_project}-upgrade-runner-1")
     target_project = str(params.get("target_project") or context.compose_project or "").strip()
+    # US-03：经唯一决策处判断能否停（不再由各入口各自隐含判断）
+    decision = resolve_runner_stop_decision(
+        runner_project=legacy_project, target_project=target_project, purpose="legacy-cleanup"
+    )
     try:
         inspected = context.executor.output(["docker", "inspect", legacy_runner_container])
     except Exception:
@@ -1686,6 +1740,27 @@ def runner_stop_legacy_runtime(action: dict[str, Any], context_payload: dict[str
         raise RuntimeError(f"不允许停止当前 runner：{container_name or container_id}")
     if target_project and (project_label == target_project or container_name == f"{target_project}-upgrade-runner-1"):
         raise RuntimeError(f"不允许停止目标 project runner：{container_name}")
+    # US-03：容器实际所属 project 与目标一致 → 停它就是停新 runner，必须拒绝。
+    # 这与 web-api 侧 `_should_stop_previous_runner` 是**同一条规则**（经
+    # `resolve_runner_stop_decision` 统一），三处入口不再各自隐含判断。
+    if not decision["stop"]:
+        return {
+            "container": container_name,
+            "container_id": container_id,
+            "status": "skipped",
+            "stopped": False,
+            "removed": False,
+            "skip_reason": decision["reason"],
+            "checkpoint": {
+                "completed": True,
+                "container": container_name,
+                "container_id": container_id,
+                "status": "skipped",
+                "stopped": False,
+                "removed": False,
+                "reason": decision["reason"],
+            },
+        }
     if not _is_legacy_runner_container(container, expected_name=legacy_runner_container, legacy_project=legacy_project):
         raise RuntimeError(
             f"拒绝停止非旧 runner 容器：name={container_name}, project={project_label}, service={service_label}"
