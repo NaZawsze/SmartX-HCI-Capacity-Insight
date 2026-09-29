@@ -105,13 +105,13 @@ def ensure_settlement_once(settings: Any, database: Any) -> dict[str, list[Any]]
             logger.warning("post-upgrade settlement failed for %s: %s", task_id, exc)
             failed.append({"task_id": task_id, "error": str(exc)})
     if created:
-        logger.info("post-upgrade settlement created for: %s", ", ".join(created))
+        # 走到这里说明有升级任务"成功却没清理干净"，属需人工留意的异常，用 warning 才可见
+        logger.warning("post-upgrade settlement created cleanup task for: %s", ", ".join(created))
     return {"created": created, "failed": failed}
 
 
 def _settlement_loop(settings: Any, database: Any, stop_event: threading.Event, interval_seconds: int) -> None:
     # 启动即跑一次：覆盖 web-api 重启后仍未收尾的历史任务
-    logger.info("post-upgrade settlement fallback started (interval=%ss)", interval_seconds)
     while not stop_event.is_set():
         try:
             ensure_settlement_once(settings, database)
