@@ -458,5 +458,128 @@ class UpgradeScriptExecutionTest(unittest.TestCase):
         self.assertIn("with-runner", result.stdout)
 
 
+class DeliveryReadmeTest(unittest.TestCase):
+    """交付 README 的内容门禁：必备章节齐全，且不得漏掉两条关键警告。"""
+
+    def _readme(self) -> str:
+        from scripts.build_offline_delivery import ROOT
+
+        path = ROOT / "delivery" / "README.md"
+        self.assertTrue(path.is_file(), "缺少交付 README 源文件")
+        return path.read_text(encoding="utf-8")
+
+    def test_required_sections_present(self) -> None:
+        text = self._readme()
+        for heading in (
+            "前置条件",
+            "目录结构",
+            "首次安装",
+            "离线升级",
+            "自检",
+            "常见失败与处理",
+            "卸载",
+            "安全建议",
+        ):
+            self.assertIn(heading, text, f"README 缺少章节：{heading}")
+
+    def test_warns_to_change_default_password(self) -> None:
+        """默认口令是公开的，README 必须明确要求首登改密。"""
+        text = self._readme()
+        self.assertIn("password", text)
+        self.assertTrue(
+            "修改管理员口令" in text or "改密" in text,
+            "README 必须提示首次登录后修改管理员口令",
+        )
+        self.assertIn("公开", text)
+
+    def test_warns_uninstall_is_irreversible(self) -> None:
+        """卸载会删数据，README 必须警告不可恢复。"""
+        text = self._readme()
+        self.assertIn("不可恢复", text)
+        self.assertIn("rm -rf /data/smartx-storage-forecast", text)
+
+    def test_documents_upgrade_order(self) -> None:
+        """必须写清"先平台、后 runner"，否则客户容易顺序颠倒导致升级中断。"""
+        text = self._readme()
+        self.assertIn("升级顺序", text)
+        self.assertTrue("成功之后" in text or "成功之后" in text)
+        self.assertIn("--with-runner", text)
+
+    def test_explains_why_upgrade_must_use_api(self) -> None:
+        """必须解释为什么不能自己 docker load 改环境（避免客户绕过脚本）。"""
+        text = self._readme()
+        self.assertIn("docker load", text)
+        self.assertIn("API", text)
+        for keyword in ("并发", "清理", "留痕", "锁死"):
+            self.assertIn(keyword, text, f"README 解释绕过 API 的后果时缺少：{keyword}")
+
+    def test_readme_is_release_doc_scanned(self) -> None:
+        """README 随包发给客户，必须纳入对外文档脱敏扫描。"""
+        from scripts.verify_release_docs_safe import PUBLIC_DOCS
+
+        self.assertIn("delivery/README.md", PUBLIC_DOCS)
+
+    def test_readme_passes_release_docs_scan(self) -> None:
+        from scripts.verify_release_docs_safe import scan_file
+        from scripts.build_offline_delivery import ROOT
+
+        violations = scan_file(ROOT / "delivery" / "README.md")
+        self.assertEqual(violations, [], "交付 README 触发脱敏门禁")
+
+    def test_readme_commands_use_placeholder_not_real_host(self) -> None:
+        """不得出现具体内网 IP（客户环境不同），统一用 <本机IP> 占位。"""
+        import re
+
+        text = self._readme()
+        self.assertIn("<本机IP>", text)
+        for match in re.finditer(r"\b10\.(?!249\.)\d{1,3}\.\d{1,3}\.\d{1,3}\b", text):
+            self.fail(f"README 含内网 IP：{match.group(0)}")
+
+    def test_documented_verification_state_is_honest(self) -> None:
+        """README 必须如实标注各条命令的验证状态，不得把"计划中"写成"已验证"。
+
+        设计 §7 场景 7 要求"每条命令都在实测中跑过"。当前进度：完整安装与离线升级
+        仍待**干净 VM 实测**（步骤 6），因此这里用显式清单锁住口径，后续实测完成时
+        再更新——避免文档长期给出未经验证的结论。
+        """
+        import re
+
+        from scripts.build_offline_delivery import ROOT
+
+        marker = ROOT / "delivery" / "README.verified.md"
+        self.assertTrue(
+            marker.is_file(),
+            "缺少 delivery/README.verified.md（各命令验证状态清单）——"
+            "禁止在无清单的情况下宣称 README 命令已验证",
+        )
+        text = marker.read_text(encoding="utf-8")
+        self.assertIn("干净 VM", text)
+        # 清单里必须同时出现"已验证"与"未验证"两类状态，避免全绿幻觉
+        self.assertRegex(text, r"已验证")
+        self.assertRegex(text, r"未验证|待实测")
+        # 交付 README 正文里必须带上这份清单的指引
+        readme = self._readme()
+        self.assertIn("验证", readme)
+
+        def normalize(value: str) -> str:
+            """归一化：去掉 sudo/bash 前缀、路径、换行；保留脚本名与长选项。"""
+            value = value.replace("sudo ", "").replace("bash ", "").replace("./", "")
+            return re.sub(r"\s+", " ", value).strip()
+
+        readme_norm = normalize(readme)
+        for command, state in re.findall(r"^\| `([^`]+)` \| (\S+?) \|", text, re.M):
+            self.assertIn(state, ("已验证", "未验证", "待实测"), f"未知状态：{state}")
+            normalized = normalize(command)
+            script = normalized.split()[0].split("/")[-1] if normalized.split() else ""
+            # 脚本名必须在 README 里出现
+            self.assertIn(script, readme_norm, f"README 里找不到脚本 {script}（清单条目：{command}）")
+            # 命令里出现的每个长选项也必须在 README 里出现
+            for option in (t for t in normalized.split() if t.startswith("--")):
+                self.assertIn(
+                    option, readme_norm,
+                    f"README 里找不到选项 {option}（清单条目：{command}）",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

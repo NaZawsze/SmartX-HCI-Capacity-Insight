@@ -36,6 +36,7 @@ PUBLIC_DOCS: list[str] = [
     "docs/v1-data-compatibility.md",
     "docs/ova-delivery.md",
     "docs/upgrade-runner-lifecycle.md",
+    "delivery/README.md",  # 随交付包发给客户的说明书（49-56）
 ]
 
 # 明确允许的子网（docker 网络、Docker 默认 bridge）
