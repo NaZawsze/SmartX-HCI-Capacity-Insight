@@ -166,6 +166,22 @@
 - **方向**：①修正文档口径（"安全网"仅覆盖 health 阶段失败）；②早期失败时给出「残留物清单 + 收尾指引」（复用 US-27 的 `cleanup_required` 机制，覆盖**所有**失败态而非仅 `recovery/fail`）；③备份保留策略（成功任务保留 N 份/按 TTL，失败任务随取证期）。
 - **状态**：🟠 **新发现未修**（口径更正可立即做，机制改动需排期）。
 
+### US-32 🔴→🟢 已修（第 5 批实测）：compose 的 runner tag 回写**自实现起从未生效**（只读挂载 + 静默吞错）
+
+- **现象**：`.12` 上反复出现「现场跑 `v0.3.2`、`project/docker-compose.yml` 却写 `v0.3.1`」的多事实源。宿主任何一次 `docker compose up -d` 都会据此把 runner 静默降级（与 US-26 同类后果）。
+- **根因（两层，都很典型）**：
+  1. **回写放在 web-api 侧，但它没有写权限**。`docker-compose.yml:26` 把 project 目录以 `:ro` 挂给 web-api，容器内实测 `WRITE FAILED: Read-only file system`。`_sync_runner_image_into_compose_files` 的写入必然抛 `OSError`，又被 `except OSError: continue` **静默吞掉** → US-26（r8）的"compose 回写消除多事实源"**一次都没成功过**。
+  2. **修好权限还不够：取数来源也是错的**。首次实现放在 US-30 守护线程里按现场镜像对账，但守护线程同样没有写权限；改到 runner 侧后仍不生效——因为平台升级时 web-api 只在**内存里**把现场镜像注入编译用的计划（`_inject_field_runner_image`），落盘 `task.json` 的 `manifest` 仍是包内基线。`.12` 实测：manifest 里 `v0.3.1`、计划 `schedule-runner-target-runtime-handoff` 的 `params.image` 里才是现场 `v0.3.2`。按 manifest 取值 → 与 compose 相同 → 空转。
+- **最终修复**（`backend/app/upgrade_runner/actions.py::reconcile_project_runner_tag` + `engine.py` 收尾）：
+  - 放在**runner** 侧任务收尾（所有动作完成、project 文件同步之后）——runner 以宿主身份运行、写入无阻碍，且它才是"我是哪个镜像"的权威；"谁写 project 文件"也只有它一个答案（平台升级的 project 同步本来就由 runner 做）。
+  - 镜像取自**执行计划**：`runner.handoff` 的 `params.image` → `compose.override` 的 `images[]` → 兜底 manifest。
+  - **不新增动作、不改能力集**：动作表仍 26 个，`required_capabilities` 不变，旧 runner 缺这段逻辑只是维持现状，平台包 `minimum_runner_version` 无需变更。
+  - 善后动作不参与成败判定：写失败/异常只记 warning 与 task log，**绝不**把已成功的升级判成失败。
+  - web-api 侧同名方法保留仅作兼容，并改为**写入失败记 warning**——"静默吞错"才是让这个缺陷潜伏这么久的元凶。
+- **`.12` 判别证据**：平台升级前 compose `v0.3.1`（陈旧）→ 升级 `upgrade-2874d3eb97b67ce4` succeeded → 升级后 compose 自动 `v0.3.2`，task log 留痕「compose runner tag 已对齐：…v0.3.1 -> …v0.3.2」，health `v0.5.3 / runner v0.3.2` 三项 checks 全 true。
+- **交付形态**：runner 组件包 `components-v032-r4-20260929/smartx-upgrade-runner-v0.3.2.tar.gz` SHA `26dfcdd7e6c942a7944ad3c6e3006f193126af6bd4beacdf7a5cfdcf9fbf5b29`；门禁 C1–C5 **12 项 PASS / 0 FAIL**（C6 DockerHub 按用户决定 SKIP）；动作数仍 26，证明未新增动作。
+- **教训（值得写进规范）**：①"某功能上线了"不等于"它生效过"——只读挂载 + 宽泛 `except` 能让一个函数长期空转而无任何告警；②跨进程传递"修正后的数据"时，落盘副本与内存副本可能不一致，**消费方必须确认自己读的是权威副本**（本例是执行计划，不是 manifest）；③功能放在哪个进程，要看那个进程**有没有权限**做，而不是逻辑上"谁更懂"。
+
 ## C. 已修复并验证（🟢，列此以备回归）
 
 | 编号 | 问题 | 修复 | 证据 |

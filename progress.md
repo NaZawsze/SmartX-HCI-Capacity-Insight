@@ -8197,3 +8197,37 @@ release_smoke=critical 0, warning 0
 - 后端 **499 tests OK (skipped=2)**；build_tests **26 OK**（须在可写副本跑：容器内 `tar` 整树复制到 `/tmp/bt2`，因这些用例会临时改写并还原 `VERSION`）。
 - `verify_api_docs.py` OK（api.md 77 条含 1 条白名单豁免 = 后端 76 条路由）；`verify_release_docs_safe.py` PASS。
 - 前端 `npx tsc -b` OK；`npx vitest run` **107 passed (11 files)**（`.3` 宿主无 node，用 `node:22` 容器跑，`node_modules` 已在宿主就位）。
+
+## 2026-09-29 第 5 批（续）：`.12` 反复验证（49-57 阶段 A）+ US-32 根因与修复
+
+### `.12` 实测结果
+| 格 | 结果 | 证据 |
+| --- | --- | --- |
+| US-28 根因（runner 连接泄漏） | ✅ | 装新 runner 后 **fd 恒定 3、120s 零增长**（旧版 10min 堆到 50+）；`lease.py` 命中 `contextmanager`；web-api 日志零 `database is locked` |
+| US-24 同版本重装 | ✅ | `upgrade-430b4a66aa1314ba` succeeded（runner v0.3.2 → v0.3.2） |
+| US-26 保留现场 runner | ✅ | 平台升级后 `runner_version` 仍 **v0.3.2**（未降回 v0.3.1），8/9 checks OK，attempt max=1 |
+| US-30 收尾兜底 | ✅ | `.3` 判别：启动后 6s 自动补建 cleanup，**全程未调 status**；幂等复验 `created=[]` |
+| US-32 compose tag 对账 | ✅ | 升级前 compose `v0.3.1` → 升级后自动 `v0.3.2`，task log 留痕 |
+
+### US-32：两个都是"看起来做了、其实没生效"的坑
+1. **只读挂载 + 静默吞错**：web-api 的 project 目录 `:ro`（`docker-compose.yml:26`），US-26 的回写函数写入必抛 `OSError` 且被 `except OSError: continue` 吞掉 → **自实现起从未生效**，`.12` compose 长期停在 `v0.3.1`。危害：宿主任何一次 `docker compose up -d` 把 runner 静默降级。
+2. **读错了数据源**：改到 runner 侧后仍空转——平台升级时 web-api 只在**内存**里把现场镜像注入编译用的计划，落盘 `task.json` 的 manifest 仍是包内基线。实测 manifest=`v0.3.1`、计划 `runner.handoff.params.image`=现场 `v0.3.2`。**消费方必须确认自己读的是权威副本**。
+
+### 修复形态
+- 回写移到 **runner 侧任务收尾**（所有动作完成、project 文件同步之后）。选 runner 不选 web-api：它以宿主身份运行有写权限、它才是镜像身份权威、且平台升级的 project 文件同步本来就由 runner 做，"谁写 project 文件"只有一个答案。**未改任何挂载姿态**（去掉 `:ro` 换来的安全收益近乎为零——web-api 已挂 `docker.sock`，但会让一个 web-api bug 能改写定义整个栈的 compose）。
+- 镜像取自**执行计划**：`runner.handoff.params.image` → `compose.override.images[]` → 兜底 manifest。
+- **不新增动作/不改能力集**（动作表仍 26），旧 runner 缺这段逻辑只是维持现状，`minimum_runner_version` 无需变更。
+- 善后动作不参与成败判定：写失败只记 warning + task log，绝不把已成功的升级判成失败。
+- web-api 侧同名方法保留仅兼容，并改为**写失败记 warning**——静默吞错才是让缺陷潜伏的元凶。
+
+### 包与门禁
+- runner：`components-v032-r4-20260929` SHA `26dfcdd7e6c942a7944ad3c6e3006f193126af6bd4beacdf7a5cfdcf9fbf5b29`；C1–C5 **12 PASS / 0 FAIL**（C6 SKIP）。
+- 平台：`v053-r11-20260929` SHA `41d8e9e49548561316e95f87918601eb26403d3a9cba463566462331f1a5dbe9`，identity exit 0。
+- `.3` 后端 **510 tests OK (skipped=2)**；build_tests 26 OK；api.md 77=76；release docs PASS；tsc OK；vitest 107 passed。
+- 发现 `.3:/data/upgrade-packages/components-v033-20260928/`（v0.3.3，SHA `ab03918e…`）是 9-28 的**孤立产物**，与仓库 `RUNNER_VERSION=v0.3.2` 不符，**不可使用**（会被交付门禁判 FAIL）。
+
+### 诊断陷阱（新增，踩了两次）
+- `docker compose up -d` 因镜像 ID 未变会**跳过 recreate**，"启动即跑"的验证根本没发生；必须 `--force-recreate` 或核对 `StartedAt`。
+- 宿主 `/data/upgrades` 是**待清理的 legacy 路径**；容器内 `/data/upgrades` 映射的是宿主 `/data/smartx-storage-forecast/upgrades`。探针用错会在 legacy 目录留下垃圾。
+- 跨进程验证守护线程：`docker exec python -c "threading.enumerate()"` 是**新进程**，看不到服务线程。应用**功能判别**（造 fixture 看副作用）。
+- 项目**无 logging 基础配置**，root logger 实际是 WARNING：`logger.info` 在容器日志里完全不可见。异常/状态漂移类信息必须用 warning。
