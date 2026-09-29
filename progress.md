@@ -8262,3 +8262,21 @@ release_smoke=critical 0, warning 0
 - **删除后复验**：`backups/` 98M → **4.0K / 0 项**；**目录本身保留**（`-> /data/backups RW=true` 挂载仍在，删目录会拆掉全机挂载，UPG-050）；health 三项仍 true，`integrity_check` 仍 ok。
 - **可恢复性**：**不可恢复**。这些是一次性升级前快照，无异地副本；因环境健康且升级链路已多轮验证通过，不需要回滚到任何历史点。
 - **遗留**：备份保留策略（成功任务保留 N 份/按 TTL、失败任务随取证期）**仍未实现**——本次是人工清理，下次升级又会重新累积。属运维债，49-56 之后再排。
+
+## 2026-09-29 第 6 批：49-56 离线一键安装/升级 —— 步骤 1 交付目录制作工具
+
+### 步骤 1 · `scripts/build_offline_delivery.py`（提交 `7a93eb0`、`8591ccc`）
+- **为什么先做**：交付目录必须**可复现、可审计**，不能手工拼装。工具从**已门禁的产物**组装：
+  - 平台三件套镜像 ← 平台升级包内 `images/*.tar`（**解包**，不经 `docker save`）
+  - runner 镜像 ← runner 组件包内 `images/upgrade-runner.tar`（解包）
+  - prometheus ← `docker save`（或 `--prometheus-archive` 传入预存归档）
+  - `project/` 部署文件 ← 仓库；`upgrade/packages/` ← `.3` 构建产物 + `.sha256`
+- **两条硬约束落实**：①安装交付镜像 / 升级交付包，`install/` 与 `upgrade/` **互不依赖**；②交付 compose 的 runner tag 渲染为**已发布基线 v0.3.1**（不是源码 compose 的开发线 v0.3.2），且**只改这一行**，用工具内单测锁死"其它服务与键不得改动"。
+- **门禁**：每目录一份 `SHA256SUMS`（`sha256sum -c` 可直接校验，名称排序保证可复现）；**禁含文件扫描**按 `docs/ova-delivery.md` 制品边界（`.env` / SQLite / 凭据 / backups / exports / prometheus-data），命中即构建失败。`.env.template` 明确豁免并有单测锁定（它是交付物必需的，误伤会导致无法安装）。
+- **测试**：新增 `backend/tests/test_offline_delivery_builder.py` **13 例**（本地可跑，不依赖 fastapi）：解包（精确名 + 嵌套后缀）、compose 渲染（换基线 / 不动其它行 / 定位失败即退出）、SHA256SUMS（格式 + 排序）、禁含扫描（干净通过 / 真实 `.env` / DB 与备份目录 / `.env.template` 豁免）、脚本必填参数与三件套服务覆盖。
+- **`.3` 真包实测**（平台 r13 + runner r5，产出 **1.4 GiB**）：
+  - 结构清单 `diff` **空 → 完全一致**；`install/images/SHA256SUMS` 5 个镜像 **全 OK**；`upgrade/packages/SHA256SUMS` 2 个包 **全 OK**。
+  - 交付 compose：`upgrade-runner:v0.3.1` ✅，平台三件套仍 `v0.5.3`（3 处未被误改）✅。
+  - 禁含扫描 **0 命中**。
+- **可复现性实测结论**：平台三件套与 runner 镜像**字节级一致**（解包），升级包**字节级一致**（复制）；**只有 `prometheus.tar` 每次 SHA 不同**——`docker save` 会写入时间戳（同镜像连存两次 SHA 即不同，`.3` 实测确认），属固有行为而非工具缺陷。为此加 `--prometheus-archive` 供需要字节级可复现时传入预存归档。
+- 顺带清理：`.3` 上 `v053-r8` 旧包已删（被 r13 取代）。
