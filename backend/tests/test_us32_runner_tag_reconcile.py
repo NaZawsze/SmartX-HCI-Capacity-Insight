@@ -494,3 +494,40 @@ class RunnerSuccessTaskWritebackTest(unittest.TestCase):
             source,
             "run_pending_once 必须有 success 组件任务的 tag 对齐兜底路径",
         )
+
+    def test_writeback_branch_condition_is_negated(self) -> None:
+        """兜底分支的条件必须是 `not 已对齐` —— 语义反了真机就不生效。
+
+        实测踩过（2026-09-30 `.14`）：条件误写成 `_runner_tag_aligned(...)`，
+        于是「已对齐」才回写、真正要修的「未对齐」被跳过；单元测试只测辅助函数返回值、
+        没断言本分支走向，21 例全绿而真机 compose 仍是 v0.3.1。
+        """
+        import inspect
+
+        from app.upgrade_runner import main as runner_main
+
+        source = inspect.getsource(runner_main.run_pending_once)
+        self.assertIn(
+            "not _runner_tag_aligned(settings, task)",
+            source,
+            "兜底分支必须判断「未对齐」（not _runner_tag_aligned），否则永不触发",
+        )
+        self.assertNotIn(
+            "and _runner_tag_aligned(settings, task):",
+            source,
+            "不得出现未取反的条件：已对齐时才回写是语义反了",
+        )
+
+    def test_writeback_branch_calls_helper_after_condition(self) -> None:
+        """兜底分支必须在条件成立后才调回写函数，并计入 executed。"""
+        import inspect
+
+        from app.upgrade_runner import main as runner_main
+
+        source = inspect.getsource(runner_main.run_pending_once)
+        cond_at = source.index("not _runner_tag_aligned(settings, task)")
+        call_at = source.index("_apply_tag_writeback_if_needed(settings, task)")
+        self.assertLess(cond_at, call_at, "回写必须在条件之后调用")
+        branch = source[cond_at : source.index("continue", call_at)]
+        self.assertIn("executed += 1", branch, "回写后必须计入 executed（否则主循环不认为有进展）")
+        self.assertIn("store.save", branch, "回写后必须落盘，否则下次轮询看不到结果")

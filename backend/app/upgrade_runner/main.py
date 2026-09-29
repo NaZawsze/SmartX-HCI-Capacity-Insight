@@ -430,9 +430,12 @@ def run_pending_once(
             continue
         # US-32 兜底：组件升级任务可能**已经**被 web-api 收尾成 success（步骤全 succeeded、
         # 无 execution_plan），上面两条"未收尾"路径都不触发，于是 compose tag 永远对不齐
-        # （`.14` 实测：runner=v0.3.2 但 compose 写 v0.3.1）。这里用"是否已回写"做幂等判据：
-        # 只有真正对齐（或发现已对齐）才不再重复写。
-        if status == "success" and _is_runner_component_task(task) and _runner_tag_aligned(settings, task):
+        # （`.14` 实测：runner=v0.3.2 但 compose 写 v0.3.1）。这里用"是否已对齐"做幂等判据：
+        # **未对齐**才回写，已对齐则跳过（否则每次轮询都刷一遍日志）。
+        # 注意条件是 `not _runner_tag_aligned(...)`——曾误写成 `_runner_tag_aligned(...)`，
+        # 语义正好相反：已对齐时才回写，于是真要修的场景（未对齐）反被跳过。
+        # 单元测试只测了辅助函数的返回值，没断言本分支的走向，单测全绿而真机不生效。
+        if status == "success" and _is_runner_component_task(task) and not _runner_tag_aligned(settings, task):
             task = _apply_tag_writeback_if_needed(settings, task)
             result = store.save(task, expected_revision=int(task.get("revision") or 0))
             _project_task(settings.database_path, result)
