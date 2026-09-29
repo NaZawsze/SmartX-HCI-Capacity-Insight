@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import signal
 import time
@@ -16,6 +17,22 @@ from app.v2.data_quality.service import DataQualityService
 from app.v2.database import V2Database
 from app.v2.metrics.formatter import merge_metrics_text
 from app.v2.tasks.service import TaskService
+
+logger = logging.getLogger(__name__)
+
+
+def _int_setting(settings, env_name: str, default: int) -> int:
+    """读整型环境配置；非法值或负数回退默认。"""
+    raw = os.environ.get(env_name)
+    if raw is None:
+        raw = getattr(settings, env_name.lower(), None)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return value if value >= 0 else default
 
 
 def metrics_body(database: V2Database) -> bytes:
@@ -195,6 +212,7 @@ def _auto_collection_platform_task(task: dict) -> bool:
 
 
 def _ensure_post_upgrade_collection_marker(database: V2Database, tasks: TaskService) -> Path | None:
+    """确保存在"该采集"的标记文件（不改原有语义，供轮询与事件驱动共用）。"""
     settings = database.settings
     candidates: list[tuple[float, str, Path, dict]] = []
     for task_file in settings.upgrades_dir.glob("*/task.json"):
@@ -226,6 +244,26 @@ def _ensure_post_upgrade_collection_marker(database: V2Database, tasks: TaskServ
     }
     _write_collection_marker(marker_path, marker)
     return marker_path
+
+
+def ensure_post_upgrade_collection_for(settings, database) -> str:
+    """US-06：事件驱动投递升级后采集，返回新建的采集 task_id（无则空串）。
+
+    原先"升级成功 → 该采集"只能靠 worker 每 5 秒扫 `upgrades/*/` 发现。这是事件驱动的事
+    用高频轮询：链路隐蔽、难观测、难以关闭（用户想临时停掉没有任何开关）。
+    现在由升级收尾守护线程在**扫到成功任务时顺手投递**，轮询降级为兜底。
+
+    幂等：同一父任务只会产生一个采集任务（沿用标记文件 + task 存在性双重判定）。
+    """
+    tasks = TaskService(database)
+    marker_path = _ensure_post_upgrade_collection_marker(database, tasks)
+    if marker_path is None or not marker_path.is_file():
+        return ""
+    try:
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    return str(marker.get("task_id") or "")
 
 
 def run_pending_post_upgrade_collection(database: V2Database):
@@ -456,14 +494,23 @@ def main() -> None:
         coalesce=True,
         misfire_grace_time=120,
     )
-    scheduler.add_job(
-        lambda: run_pending_post_upgrade_collection(database),
-        "interval",
-        seconds=5,
-        id="post-upgrade-auto-collection",
-        replace_existing=True,
-        max_instances=1,
+    # US-06：兜底轮询间隔可配置（默认 30s），0 表示关闭——事件驱动已是主路径，
+    # 保留轮询只为覆盖"守护线程未跑/失败"的场景。原先固定 5 秒且无开关。
+    _collection_fallback_seconds = _int_setting(
+        database.settings, "SMARTX_UPGRADE_POST_COLLECTION_FALLBACK_SECONDS", 30
     )
+    if _collection_fallback_seconds > 0:
+        scheduler.add_job(
+            lambda: run_pending_post_upgrade_collection(database),
+            "interval",
+            seconds=_collection_fallback_seconds,
+            id="post-upgrade-auto-collection",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+    else:
+        logger.info("升级后采集兜底轮询已关闭（事件驱动为主路径）")
     scheduler.start()
 
     stop = False

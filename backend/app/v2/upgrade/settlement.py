@@ -82,31 +82,44 @@ def scan_missing_settlement(settings: Any) -> list[tuple[str, dict[str, Any]]]:
 
 
 def ensure_settlement_once(settings: Any, database: Any) -> dict[str, list[Any]]:
-    """对漏网任务补建升级后清理任务。单个失败不影响其余；整体幂等。"""
+    """对漏网任务补建升级后清理任务。单个失败不影响其余；整体幂等。
+
+    同时**事件驱动**地投递升级后采集（US-06）：过去只能靠 worker 每 5 秒扫 `upgrades/*/`
+    来发现"该采集了"——事件驱动的事用高频轮询，链路隐蔽、难观测、难关闭。
+    这里在守护线程扫到成功任务时顺手投递，5 秒轮询降级为兜底。
+    """
     created: list[str] = []
     failed: list[dict[str, str]] = []
     targets = scan_missing_settlement(settings)
-    if not targets:
-        return {"created": created, "failed": failed}
+    if targets:
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
 
-    from app.v2.upgrade.service import UpgradeService
-    from app.v2.tasks.service import TaskService
+        service = UpgradeService(settings, TaskService(database), project_path=settings.project_path)
+        for task_id, legacy_cleanup in targets:
+            try:
+                # 二次确认（与客户端轮询并发时收敛，避免重复创建）
+                current = _read_task(Path(settings.upgrades_dir) / task_id / "task.json")
+                if not _needs_settlement(settings, current):
+                    continue
+                service.create_post_upgrade_cleanup_task(task_id, legacy_cleanup)
+                created.append(task_id)
+            except Exception as exc:  # noqa: BLE001 - 兜底线程不得因单个任务失败而中断
+                logger.warning("post-upgrade settlement failed for %s: %s", task_id, exc)
+                failed.append({"task_id": task_id, "error": str(exc)})
+        if created:
+            # 走到这里说明有升级任务"成功却没清理干净"，属需人工留意的异常，用 warning 才可见
+            logger.warning("post-upgrade settlement created cleanup task for: %s", ", ".join(created))
 
-    service = UpgradeService(settings, TaskService(database), project_path=settings.project_path)
-    for task_id, legacy_cleanup in targets:
-        try:
-            # 二次确认（与客户端轮询并发时收敛，避免重复创建）
-            current = _read_task(Path(settings.upgrades_dir) / task_id / "task.json")
-            if not _needs_settlement(settings, current):
-                continue
-            service.create_post_upgrade_cleanup_task(task_id, legacy_cleanup)
-            created.append(task_id)
-        except Exception as exc:  # noqa: BLE001 - 兜底线程不得因单个任务失败而中断
-            logger.warning("post-upgrade settlement failed for %s: %s", task_id, exc)
-            failed.append({"task_id": task_id, "error": str(exc)})
-    if created:
-        # 走到这里说明有升级任务"成功却没清理干净"，属需人工留意的异常，用 warning 才可见
-        logger.warning("post-upgrade settlement created cleanup task for: %s", ", ".join(created))
+    # US-06：投递升级后采集（幂等；worker 侧仍有兜底轮询）
+    try:
+        from app.v2.worker import ensure_post_upgrade_collection_for
+
+        dispatched = ensure_post_upgrade_collection_for(settings, database)
+        if dispatched:
+            logger.info("post-upgrade collection dispatched: %s", dispatched)
+    except Exception as exc:  # noqa: BLE001 - 采集投递失败不得影响清理兜底
+        logger.warning("post-upgrade collection dispatch failed: %s", exc)
     return {"created": created, "failed": failed}
 
 
