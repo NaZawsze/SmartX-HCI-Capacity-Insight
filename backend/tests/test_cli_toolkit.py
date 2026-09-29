@@ -267,6 +267,37 @@ class CliPackageScriptTest(unittest.TestCase):
         # 门禁失败必须 exit 2 而不是继续
         self.assertGreaterEqual(text.count("exit 2"), 5, "门禁/预检失败必须中止")
 
+    def test_version_prefix_not_doubled(self) -> None:
+        """VERSION 文件已带 v 前缀，路径不能再补一个 v（曾拼出 vv0.5.3 导致找不到包）。"""
+        text = self._text()
+        self.assertIn('${VER_RAW#v}', text, "必须去掉原始版本的前导 v 再归一化")
+        self.assertIn('${RVER_RAW#v}', text)
+        # 归一化后 VER/RVER 已含 v，路径里不得再写 v$VER（会变成 vv0.5.3）
+        for bad in ("upgrade-v$VER.tar.gz", "构建平台包 v$VER"):
+            self.assertNotIn(bad, text, f"版本号重复加 v：{bad}")
+        # 正确的写法应是直接用归一化后的变量
+        self.assertIn("upgrade-$VER.tar.gz", text)
+        self.assertIn("smartx-upgrade-runner-$RVER.tar.gz", text)
+
+    def test_dirty_tree_checked_even_with_no_fetch(self) -> None:
+        """--no-fetch 也必须检查工作树脏状态。
+
+        实测漏掉：脏检查被包在 `if [ -d .git ] && [ "$DO_FETCH" = 1 ]` 里，
+        于是 --no-fetch 时完全不提示，而产物其实来自被改过的工作树。
+        """
+        text = self._text()
+        # 脏检查必须在 fetch 判断之外
+        dirty_at = text.index("git status --porcelain")
+        guard_at = text.index('if [ -d "$ROOT/.git" ] && [ "$DO_FETCH" = "1" ]')
+        self.assertLess(
+            dirty_at, guard_at,
+            "脏检查必须早于 fetch 分支判断（否则 --no-fetch 会跳过它）",
+        )
+        self.assertIn(
+            "--no-fetch", text[dirty_at:guard_at],
+            "--no-fetch 路径必须在脏检查处显式告警（产物含本地改动）",
+        )
+
     def test_no_build_flag_is_not_used(self) -> None:
         """禁止 --no-build：会复用带 v0.3.2 元数据的开发镜像导致 identity 门禁 FAIL。"""
         text = self._text()

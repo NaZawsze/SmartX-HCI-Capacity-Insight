@@ -98,6 +98,30 @@ if [ "$DO_FETCH" = "1" ]; then
   fi
 fi
 
+if [ -d "$ROOT/.git" ]; then
+  # 无论是否 fetch，都先检查工作树是否干净。
+  # 曾实测漏掉这一步：--no-fetch 会整块跳过脏检查，导致「有本地改动」也不提示，
+  # 而产物来自这份被改过的树 —— 用户以为在打 origin，实际打的是自己的改动。
+  DIRTY="$(git status --porcelain 2>/dev/null | head -20)"
+  if [ -n "$DIRTY" ]; then
+    warn "工作树有本地改动："
+    printf '%s\n' "$DIRTY" | sed 's/^/    /'
+    if [ "$DO_FETCH" = "1" ]; then
+      dim "下一步的 git reset --hard 会丢弃它们。"
+    else
+      dim "你用了 --no-fetch，将**直接用这份被改过的工作树打包**（产物含本地改动）。"
+    fi
+    if ! confirm "确认在当前工作树（含这些改动）上继续打包？"; then
+      err "已取消（未做任何修改）。"
+      info "如需丢弃改动：去掉 --no-fetch 让脚本自动对齐 origin/$BRANCH"
+      info "如需保留改动：git stash"
+      exit 1
+    fi
+  fi
+else
+  warn "不是 git 仓库，跳过同步与脏检查。产物无法溯源到具体提交。"
+fi
+
 if [ -d "$ROOT/.git" ] && [ "$DO_FETCH" = "1" ]; then
   CURRENT="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
   if [ "$CURRENT" != "$BRANCH" ]; then
@@ -105,17 +129,6 @@ if [ -d "$ROOT/.git" ] && [ "$DO_FETCH" = "1" ]; then
     if ! git checkout "$BRANCH" 2>/dev/null; then
       err "本地没有分支 $BRANCH 。创建并跟踪远端：git checkout -b $BRANCH origin/$BRANCH"
       exit 2
-    fi
-  fi
-
-  DIRTY="$(git status --porcelain 2>/dev/null | head -20)"
-  if [ -n "$DIRTY" ]; then
-    warn "工作树有本地改动，将被 git reset --hard 丢弃："
-    printf '%s\n' "$DIRTY" | sed 's/^/    /'
-    if ! confirm "确认丢弃这些本地改动并对齐 origin/$BRANCH ？"; then
-      err "已取消（未做任何修改）。"
-      info "如需保留改动：git stash，或用 --no-fetch 只构建当前工作树。"
-      exit 1
     fi
   fi
 
@@ -132,19 +145,23 @@ if [ -d "$ROOT/.git" ] && [ "$DO_FETCH" = "1" ]; then
     err "同步后依赖体检未通过，已中止。"
     exit 2
   fi
-else
-  warn "跳过代码同步，使用当前工作树。产物可能与远端不一致。"
+elif [ "$DO_FETCH" = "0" ]; then
+  warn "已指定 --no-fetch：跳过代码同步，使用当前工作树。产物可能与远端不一致。"
 fi
 
 # ── 步骤 4/9：版本一致性预检（早失败，省掉整轮门禁）────────
 step "步骤 4/9 · 版本一致性预检"
 cd "$ROOT" || die "无法进入仓库根目录"
 
-VER="$(cat "$ROOT/VERSION" 2>/dev/null | tr -d '[:space:]')"
-RVER="$(cat "$ROOT/RUNNER_VERSION" 2>/dev/null | tr -d '[:space:]')"
-[ -n "$VER" ] || die "读不到 VERSION"
-[ -n "$RVER" ] || die "读不到 RUNNER_VERSION"
-info "平台 VERSION=$VER  runner RUNNER_VERSION=$RVER"
+VER_RAW="$(cat "$ROOT/VERSION" 2>/dev/null | tr -d '[:space:]')"
+RVER_RAW="$(cat "$ROOT/RUNNER_VERSION" 2>/dev/null | tr -d '[:space:]')"
+[ -n "$VER_RAW" ] || die "读不到 VERSION"
+[ -n "$RVER_RAW" ] || die "读不到 RUNNER_VERSION"
+# 归一化：VERSION 文件本身已带 v 前缀（实测 v0.5.3），不要再补一个 v
+VER="${VER_RAW#v}"; VER="v$VER"
+RVER="${RVER_RAW#v}"; RVER="v$RVER"
+info "平台 VERSION=$VER （原始 $VER_RAW ）"
+info "runner RUNNER_VERSION=$RVER （原始 $RVER_RAW ）"
 
 # 三个源码 compose 的 runner tag 必须与 RUNNER_VERSION 一致
 COMPOSE_TAGS="$(grep -hE '^\s*image:.*upgrade-runner:' \
@@ -175,12 +192,12 @@ ok "暂存目录 $STAGE_DIR"
 step "步骤 6/9 · 构建升级包"
 cd "$ROOT" || die "无法进入仓库根目录"
 
-info "构建平台包 v$VER …"
+info "构建平台包 $VER …"
 if ! python3 scripts/build_upgrade_package.py --output-dir "$STAGE_DIR"; then
   err "平台包构建失败（详见上方输出）。"
   exit 2
 fi
-PLATFORM_PKG="$STAGE_DIR/smartx-capacity-insight-upgrade-v$VER.tar.gz"
+PLATFORM_PKG="$STAGE_DIR/smartx-capacity-insight-upgrade-$VER.tar.gz"
 [ -f "$PLATFORM_PKG" ] || die "平台包未生成：$PLATFORM_PKG"
 ok "平台包 $(basename "$PLATFORM_PKG")"
 
