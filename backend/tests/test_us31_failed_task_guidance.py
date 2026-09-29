@@ -13,6 +13,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 class FailedTaskGuidanceTest(unittest.TestCase):
@@ -130,6 +131,100 @@ class FailedTaskGuidanceTest(unittest.TestCase):
             self.assertEqual(saved["available_recovery_actions"], [])
             self.assertEqual(saved["recovery_status"], "none")
             self.assertEqual(saved["logs"], [])
+
+
+class ResidualPathFalsePositiveTest(unittest.TestCase):
+    """US-31：残留探测必须在**宿主**视角判断，否则挂载点永远误报。
+
+    `.12` 实测：7 个 legacy 宿主路径全部已清空（环境干净），但 web-api 容器内
+    `/data/backups`、`/data/exports`、`/data/compose-runtime`、`/prometheus-data`
+    是 bind mount 挂载点、必然存在 → 旧实现报 5 个"残留"，把管理员引向无意义的收尾操作。
+    """
+
+    MOUNT_MAP = {
+        "/data/backups": "/data/smartx-storage-forecast/backups",
+        "/data/exports": "/data/smartx-storage-forecast/exports",
+        "/data/compose-runtime": "/data/smartx-storage-forecast/compose-runtime",
+        "/prometheus-data": "/data/smartx-storage-forecast/prometheus",
+    }
+
+    def _service(self, tmpdir: str):
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        project_dir = Path(tmpdir) / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        settings = V2Settings(
+            data_root=Path(tmpdir), secret_key="us31b-secret", app_version="v0.5.3",
+            project_path_override=project_dir,
+        )
+        database = V2Database(settings)
+        database.initialize()
+        return settings, database, UpgradeService(settings, TaskService(database), project_path=project_dir)
+
+    def test_mount_points_are_not_reported_as_residual(self) -> None:
+        """判别：容器内挂载点存在 ≠ 宿主 legacy 残留。
+
+        构造：容器内**所有**候选路径都存在（挂载点必然存在），但映射出的宿主路径
+        只有目标布局目录（那正是"应该存在"的正常布局），而真正的 legacy 宿主路径不存在。
+        期望：报出的残留里**不含任何挂载点**。
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _settings, _database, service = self._service(tmpdir)
+            service._container_mount_source = lambda dest: self.MOUNT_MAP.get(dest, "")  # type: ignore[method-assign]
+
+            exists: set[str] = set()
+            real_exists = Path.exists
+
+            def fake_exists(self):
+                # 容器内视角一律"存在"；宿主视角只有目标布局目录存在
+                text = str(self)
+                if text.startswith("/data/smartx-storage-forecast/"):
+                    return True
+                return text in exists or real_exists(self)
+
+            with mock.patch.object(Path, "exists", fake_exists):
+                residual = service._residual_legacy_paths()
+
+            for path in residual:
+                self.assertNotIn(path, self.MOUNT_MAP, f"挂载点 {path} 不该被报成残留")
+
+    def test_maps_container_path_to_host_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _settings, _database, service = self._service(tmpdir)
+            service._container_mount_source = lambda dest: self.MOUNT_MAP.get(dest, "")  # type: ignore[method-assign]
+
+            self.assertEqual(
+                service._legacy_residual_host_path("/data/backups"), Path("/data/smartx-storage-forecast/backups")
+            )
+            self.assertEqual(
+                service._legacy_residual_host_path("/prometheus-data"), Path("/data/smartx-storage-forecast/prometheus")
+            )
+            # 非挂载点：容器与宿主同路径
+            self.assertEqual(service._legacy_residual_host_path("/opt/smartx-storage-forecast"),
+                             Path("/opt/smartx-storage-forecast"))
+            self.assertEqual(service._legacy_residual_host_path("/data/upgrades"), Path("/data/upgrades"))
+
+    def test_falls_back_to_container_path_when_inspect_unavailable(self) -> None:
+        """拿不到映射时保守用容器路径——宁可多报也不漏报。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _settings, _database, service = self._service(tmpdir)
+            service._container_mount_source = lambda dest: None  # type: ignore[method-assign]
+            self.assertEqual(service._legacy_residual_host_path("/data/backups"), Path("/data/backups"))
+
+    def test_inspect_exception_does_not_break_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _settings, _database, service = self._service(tmpdir)
+
+            def boom(_dest):
+                raise RuntimeError("docker unavailable")
+
+            service._container_mount_source = boom  # type: ignore[method-assign]
+            self.assertEqual(service._legacy_residual_host_path("/data/backups"), Path("/data/backups"))
+            # 探测整体不应抛异常
+            self.assertIsInstance(service._residual_legacy_paths(), list)
 
 
 if __name__ == "__main__":

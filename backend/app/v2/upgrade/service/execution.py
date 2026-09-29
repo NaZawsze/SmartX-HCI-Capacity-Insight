@@ -190,6 +190,16 @@ class ExecutionMixin:
 
         放弃人工回滚后，失败任务的唯一出路是「标记失败 → 再跑一次成功升级，由 post-cleanup
         收尾」。本方法只负责告诉管理员"环境现在脏在哪里"，不代替 post-cleanup 执行清理。
+
+        US-31 注意：本方法在 **web-api 容器内**执行。`/data/backups`、`/data/exports`、
+        `/data/compose-runtime` 等是 bind mount 的**容器内挂载点**，容器视角下永远存在
+        （且必须存在，删掉会拆掉全机挂载，见 UPG-050）。直接 `Path.exists()` 判定会
+        **永远误报残留**，把管理员引向无意义的收尾操作（`.12` 实测：7 个 legacy 宿主路径
+        全部已清空，探测却报 5 个"残留"）。
+
+        因此必须把容器内路径翻译成**宿主真实路径**再判断：真正的 legacy 残留（如
+        `/opt/smartx-storage-forecast`、`/data/upgrades`）在宿主上本来就不该存在，
+        而目标布局目录的宿主路径是 `/data/smartx-storage-forecast/*`，与容器内挂载点路径不同。
         """
         candidates = [
             "/opt/smartx-storage-forecast",
@@ -203,11 +213,27 @@ class ExecutionMixin:
         found: list[str] = []
         for path in candidates:
             try:
-                if Path(path).exists():
+                host_path = self._legacy_residual_host_path(path)
+                if host_path.is_dir() or host_path.exists():
                     found.append(path)
-            except OSError:
+            except Exception:  # noqa: BLE001 - 探测异常不应让任务视图报错
                 continue
         return found
+
+    def _legacy_residual_host_path(self, container_path: str) -> Path:
+        """把 legacy 候选路径换算成宿主路径。
+
+        挂载点路径（`/data/backups`、`/prometheus-data` 等）走 `_container_mount_source` 拿真实
+        宿主源路径；非挂载点（`/opt/...`、`/data/upgrades` 等）容器与宿主同路径，直接用。
+        拿不到映射时**保守返回容器路径**——宁可多报也不漏报（漏报会让管理员误以为环境干净）。
+        """
+        try:
+            source = self._container_mount_source(container_path)
+        except Exception:  # noqa: BLE001 - docker inspect 失败不应让探测整体崩掉
+            source = None
+        if source:
+            return Path(source)
+        return Path(container_path)
 
     def recovery_fail(self, task_id: str) -> dict[str, Any]:
         task_dir = self.settings.upgrades_dir / task_id
