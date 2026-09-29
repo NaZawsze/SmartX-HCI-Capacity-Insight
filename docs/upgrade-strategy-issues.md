@@ -139,6 +139,33 @@
 - **执行口径**：UI 隐藏回滚入口；API 保留但标记废弃（避免老客户端 404）；自动回滚路径与 `rolled_back` 状态**不动**。
 - **状态**：🟢 **已实施（2026-09-28，提交 9d60a68）**：前端恢复操作区**移除「执行回滚」按钮**（保留「继续执行」「标记失败」）；服务层 `rollback()` / `recovery_rollback()` **保留实现与路由**（老客户端/历史任务不 404），加注释标注已下线；**失败自动回滚路径（`rolled_back` 终态、`rollback_config` 恢复步骤）未动**——测试固化该边界。审计矩阵 US-17 转 N/A。
 
+### US-30 🔴 新发现（第 3 批实测）：升级成功但 post-cleanup 从不执行——**没有客户端轮询就永不收尾**
+
+- **现象**：`.12` 上 task `upgrade-0de5b6ad24d41c56` **14 个动作全部 succeeded**（含 `post_upgrade.schedule_cleanup`），任务状态 `success`，但 `/data/smartx-capacity-insight-data`、`/prometheus-data`、`/data/upgrades` 三条 legacy 路径**至今残留**。
+- **根因（代码定位）**：`_maybe_schedule_post_upgrade_cleanup()`（`execution.py:648`）只在 `_normalize_completed_runner_task()` 里被调用，而后者**仅在两处被触发**：`execution.py:151`（`status` 接口，即**客户端轮询**）与 `cleanup.py:104`。**worker 侧没有任何后台兜底**。
+  - 任务执行完毕 → 计划已落 `post_upgrade_cleanup_task_id: None`（清理任务未创建）
+  - `post_upgrade.schedule_cleanup` 动作只写了**标记文件**（`marker_path: /data/upgrades/<id>/post-upgrade-collection`），本身不清理
+  - **只要没人调用 `status` 接口，清理任务就永远不会被创建**
+- **触发场景**：本轮实测——start 后**未等完成就返回/取消**，期间无任何 UI 轮询。真实客户若用脚本/定时任务发起升级而不持续轮询状态，就会命中。
+- **影响**：**升级"成功"但旧环境不清理**，磁盘持续增长（每次升级还留一份 ~4.7MB 备份，实测 `backups/` 累积 5 份），且残留目录会让后续升级的 legacy 扫描面变大。这是 US-27 的**第三个实例**，但机理不同（不是"标记失败不收尾"，而是"根本没人触发"）。
+- **方向**：①把「任务终态 → 投影 + 创建 post-cleanup」做成**后台兜底**（worker 或 web-api 守护线程扫 `success` 且无 `post_upgrade_cleanup_task_id` 的任务并补建），不依赖客户端轮询；②或由 runner 在 `schedule_cleanup` 后直接投递清理意图；③补一条断言：平台升级成功后，**不调用 status 接口**也应最终产生 cleanup 任务。
+- **证据**：`.12` 2026-09-28 13:30–14:0x（`auto_rollback.log` 收尾 8 项验收第 7 项报 3 条 EXISTS + U1 任务文件取证）。
+- **状态**：🔴 **新发现未修**（US-27 的延伸，建议与 US-27 一并修）。
+
+### US-31 🟠 新发现（第 3 批实测）：失败自动回滚**只覆盖 `health.*` 失败**，不是通用安全网
+
+- **现象**：注入 `image.load` 失败（破坏镜像归档）→ task `upgrade-acf7a29bb647e5a2` 终态 `failed`，**未触发任何回滚**（`rollback_attempts: None`，`recovery_status: none`）。
+- **根因**：`engine.py:146` 的触发条件是
+  ```python
+  if str(action.get("type", "")).startswith("health.") and int(task.get("rollback_attempts") or 0) < 1:
+      return self._automatic_rollback(task, exc, action)
+  ```
+  即**只有 `health.*` 动作失败才自动回滚**；`image.load` / `files.sync` / `compose.apply` 等失败一律直接 `failed`。
+- **这本身是合理设计**：早期动作失败时环境尚未改变，回滚无意义。但**文档与认知必须纠正**——US-29 决定放弃人工回滚后，文档把「失败自动回滚」称为"唯一安全网"，而实际上它**只覆盖升级末段的健康检查失败**这一段窗口。
+- **附带发现**：`backup.create` 已成功（留下 ~4.7MB 备份）后才失败，**该备份无人回收**；实测 `backups/` 累积 5 份历史备份。
+- **方向**：①修正文档口径（"安全网"仅覆盖 health 阶段失败）；②早期失败时给出「残留物清单 + 收尾指引」（复用 US-27 的 `cleanup_required` 机制，覆盖**所有**失败态而非仅 `recovery/fail`）；③备份保留策略（成功任务保留 N 份/按 TTL，失败任务随取证期）。
+- **状态**：🟠 **新发现未修**（口径更正可立即做，机制改动需排期）。
+
 ## C. 已修复并验证（🟢，列此以备回归）
 
 | 编号 | 问题 | 修复 | 证据 |
