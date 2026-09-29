@@ -8334,3 +8334,49 @@ release_smoke=critical 0, warning 0
 - 交付包 `smartx-capacity-insight-v0.5.3-offline`（1.4G）经 `build_offline_delivery.py` 重建，含 v0.3.1 baseline 安装镜像。
 - 测试：`test_offline_delivery_builder` 45 例 + `test_release_delivery_orchestrator` 17 例。
 - **注意**：`build_offline_delivery.py --allow-existing` 会先**清空输出目录**——若用 `--prometheus-archive` 指向输出目录内的文件会自毁（本次踩到），需先另存。
+
+## 2026-09-29 第 9 批：A/B 两层防线（用户选定）—— 堵死"只在干净机暴露"的那类问题
+
+### 背景
+US-33（交付包 runner 镜像与 compose baseline 不匹配）与 US-34（引号嵌套致格式化静默失效）
+都是**有历史的机器上永远抓不到**的问题：失败条件在 `.3` 上根本不成立。
+用户选定先做 A + B 两层（成本低、不改交付行为），暂不做 C（install.sh 支持自定义端口，
+以便 `.3` 上并行装一套做可重复的干净环境演练——涉及改 compose ports，属交付行为变更）。
+
+### A · 交付物自洽门禁（构建期，**不需要干净机器**）
+- `build_offline_delivery.py` 新增 `image_tags_in_archive()`：解包 `images/*.tar` 读出镜像的**真实 tag**。兼容两种格式——OCI 从 `index.json` 的 `io.containerd.image.name` 注解取，旧格式从 `manifest.json` 的 `RepoTags` 取。
+- 新增 `declared_images_from_compose()`：解析 install compose 声明的镜像（跳过注释行）。
+- 构建流程里断言两者逐一匹配，不一致即**构建失败**并打印"compose 需要 X / 各归档实际含 Y"。
+- 门禁位置刻意为：**镜像导出 → 部署文件渲染 → 自洽门禁 → SHA256SUMS 生成**。早于清单，否则清单描述的是一个未通过校验的交付物。
+- 门禁本身也踩了两个坑，都已修：
+  1. 一度放在部署文件复制**之前** → `FileNotFoundError`（compose 还不存在）。移到渲染之后。
+  2. 比对时用了 `set(provided)`（取到的是 `{'web-api.tar', ...}` **文件名**）与 tag 集合永不相交 → 5 个 tag 全对却报"不自洽"。改为收集所有归档的**真实 tag** 集合。
+
+### B · 关键命令不得静默吞错（静态）
+- 新增 `CriticalCommandVisibilityTest`：决定脚本分支走向的关键调用（health / login / upload / precheck / start / status）不得静默吞 stderr 且无显式失败分支；探测类（`df` / `ss` / `find`）失败属正常分支，保留 `2>/dev/null` 合理。
+
+### 过程中被门禁与测试反复抓住的问题（都已修）
+| 问题 | 怎么发现的 |
+| --- | --- |
+| 自洽门禁放在 compose 存在之前 | `.3` 真实构建直接 `FileNotFoundError` |
+| 比对用文件名而非 tag | `.3` 真实构建当场报"不自洽"（5 个 tag 其实全对） |
+| 门禁晚于 SHA256SUMS | 单测断言位置失败 |
+| 容器内 `scripts` 包不可见 | `.3` 全量 541 tests 报 3 个失败，根因同一处 import |
+| 交付物料/curl 缺失时用例硬失败 | `.3` 全量 2 failures，属环境不满足，改为 skip |
+
+### 反向验证（每道门禁都确认"能抓到"而非空跑）
+- 撤掉自洽门禁 → 测试抓到 ✅
+- 把门禁挪到 SHA256SUMS 之后 → 测试抓到 ✅
+- 比对改回 `set(provided)` → 端到端测试抓到 ✅
+- shell 单引号内嵌 python 引入单引号 → `ShellQuotingTest` 抓到 ✅
+
+### 最终状态
+- `.3` 后端全量 **593 tests OK (skipped=6)**。
+- `.3` 真实构建：自洽门禁列出 5 个镜像各自真实 tag 并全部匹配、禁含扫描 0 命中、compose runner 基线 `v0.3.1` 命中。
+- 交付脚本测试 53 例、编排器测试 17 例。
+
+### 教训（值得写进规范）
+- **"交付物内部自洽"是构建期可断言的性质，不该等客户安装时才发现**。compose 声明的 tag 与随包镜像的真实 tag 必须由工具在构建时比对。
+- **跨格式读取要兜底**：docker save 同时存在 OCI（`index.json` 注解）与旧版（`manifest.json` 的 `RepoTags`）两种结构。
+- **比对逻辑本身也要测**：只测两个解析函数、不测"解析结果如何比对"，会让"全部正确却判失败"这类 bug 溜过去。
+- **测试要区分"环境不满足"与"代码缺陷"**：依赖交付物料/curl 的用例在容器内必然失败，应 skip；否则全量变红会掩盖真回归。
