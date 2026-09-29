@@ -148,7 +148,10 @@ ok "root 权限 / docker / 交付目录就绪"
 # 注意：--install-root 指向的目录此时**可能还不存在**，`df` 会失败并返回空，
 # 必须在 set -e 下显式兜底，否则会静默退出（无任何提示，最难排查的一类失败）。
 avail_bytes_of() {
-  local target="$1" out
+  local target="$1"
+  # 注意 set -u：必须先给 out 赋空值，否则"目录不存在"分支里引用未定义变量会报
+  # unbound variable（而这恰恰是最常见的路径——install-root 通常还没建）
+  local out=""
   if [ -d "$target" ]; then
     out="$(df -PB1 "$target" 2>/dev/null | awk 'END {print $4}')"
   fi
@@ -163,7 +166,9 @@ avail_bytes_of() {
       fi
     done
   fi
-  [ -z "$out" ] && out="$(df -PB1 / 2>/dev/null | awk 'END {print $4}')"
+  if [ -z "$out" ]; then
+    out="$(df -PB1 / 2>/dev/null | awk 'END {print $4}')"
+  fi
   printf '%s' "${out:-0}"
 }
 

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -221,8 +223,6 @@ class DeliveryScriptsTest(unittest.TestCase):
             self.assertTrue(source.stat().st_mode & 0o111, f"{relative} 必须带可执行位")
 
     def test_scripts_pass_bash_syntax_check(self) -> None:
-        import subprocess
-
         from scripts.build_offline_delivery import SCRIPT_SOURCES
 
         for relative, source in SCRIPT_SOURCES.items():
@@ -326,6 +326,104 @@ class DeliveryScriptsTest(unittest.TestCase):
         self.assertNotIn("source ", code)
         self.assertNotIn("set -a", code)
         self.assertIn("read_env_value", code)
+
+
+class InstallScriptExecutionTest(unittest.TestCase):
+    """**真实执行** install.sh 的前置检查，验证不会静默退出。
+
+    只跑到磁盘/端口检查为止（非 root 环境会在这里退出），因此本机与 `.3` 都能跑。
+    覆盖 `.3` 实测踩到的坑：`--install-root` 指向**尚不存在**的目录时，
+    `set -u` 下未定义变量会让脚本以 1 退出且只打印第一行。
+    """
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess:
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        return subprocess.run(
+            ["bash", str(SCRIPT_SOURCES["install/install.sh"]), "--yes", *args],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+    def test_non_existent_install_root_does_not_crash(self) -> None:
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        missing = "/nonexistent-smartx-install-root-for-test"
+        self.assertFalse(Path(missing).exists())
+        result = self._run("--install-root", missing)
+        combined = result.stdout + result.stderr
+        # 非 root 环境会在 root 检查处退出；关键是**不能**出现未定义变量错误，
+        # 且必须给出可读原因而不是只打印一行就消失
+        self.assertNotIn("unbound variable", combined, combined)
+        if result.returncode != 0:
+            self.assertTrue(
+                any(marker in combined for marker in ("必须以 root", "root 运行", "磁盘", "端口", "内部错误")),
+                f"失败时必须给出可读原因，实际输出：{combined}",
+            )
+
+    def test_non_root_exits_with_clear_reason(self) -> None:
+        """非 root 时必须明确说明原因（而不是 trace 或静默）。"""
+        if os.geteuid() == 0:
+            self.skipTest("当前就是 root，跳过非 root 路径")
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        result = self._run()
+        combined = result.stdout + result.stderr
+        self.assertIn("root", combined)
+        self.assertNotIn("unbound variable", combined)
+
+    def test_help_exits_zero_without_touching_anything(self) -> None:
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        result = subprocess.run(
+            ["bash", str(SCRIPT_SOURCES["install/install.sh"]), "--help"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("install-root", result.stdout)
+        self.assertIn("force-env", result.stdout)
+
+    def test_unknown_option_is_rejected(self) -> None:
+        result = self._run("--no-such-option")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("未知选项", result.stdout + result.stderr)
+
+
+class UpgradeScriptExecutionTest(unittest.TestCase):
+    """真实执行 upgrade.sh 的失败路径，确认它**不碰环境**且提示可读。"""
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess:
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        return subprocess.run(
+            ["bash", str(SCRIPT_SOURCES["upgrade/upgrade.sh"]), "--yes", *args],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+    def test_unreachable_platform_fails_cleanly(self) -> None:
+        result = self._run("--base-url", "http://127.0.0.1:59999")
+        combined = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("平台不可达", combined)
+        # 必须说明"不会自行修改环境"
+        self.assertIn("不会自行修改环境", combined)
+
+    def test_help_exits_zero(self) -> None:
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        result = subprocess.run(
+            ["bash", str(SCRIPT_SOURCES["upgrade/upgrade.sh"]), "--help"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("with-runner", result.stdout)
 
 
 if __name__ == "__main__":
