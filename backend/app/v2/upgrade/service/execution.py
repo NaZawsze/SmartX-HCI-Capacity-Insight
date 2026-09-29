@@ -214,7 +214,15 @@ class ExecutionMixin:
         for path in candidates:
             try:
                 host_path = self._legacy_residual_host_path(path)
-                if host_path.is_dir() or host_path.exists():
+                if host_path == Path(path):
+                    # 没有宿主映射可依据：容器与宿主同路径，宿主上存在即为残留
+                    if host_path.exists():
+                        found.append(path)
+                    continue
+                # 有映射：说明这个容器路径是**正常挂载点**（目标布局目录）。
+                # 它的宿主源路径存在恰恰证明布局正常，**不是**残留；
+                # 真正的残留是"挂载点根本不存在"——即目标布局还没建立。
+                if not host_path.exists():
                     found.append(path)
             except Exception:  # noqa: BLE001 - 探测异常不应让任务视图报错
                 continue

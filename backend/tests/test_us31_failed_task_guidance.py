@@ -176,7 +176,7 @@ class ResidualPathFalsePositiveTest(unittest.TestCase):
             service._container_mount_source = lambda dest: self.MOUNT_MAP.get(dest, "")  # type: ignore[method-assign]
 
             def fake(self):
-                # 宿主视角：只有目标布局目录存在（正常），legacy 路径都不存在
+                # 宿主视角：目标布局目录存在（正常布局），legacy 路径都不存在
                 return str(self).startswith("/data/smartx-storage-forecast/")
 
             with mock.patch.object(Path, "exists", fake), mock.patch.object(Path, "is_dir", fake):
