@@ -391,6 +391,38 @@ class InstallScriptExecutionTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("未知选项", result.stdout + result.stderr)
 
+    def test_precheck_produces_no_shell_errors(self) -> None:
+        """前置检查全程不得有任何 shell 报错输出。
+
+        `.3` 实测踩到：`$(( ... ))` 少一个右括号，`bash -n` 查不出来（它只查语法结构，
+        不查算术展开），只有真跑才报 `[: missing ']'`。
+        """
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        result = self._run("--install-root", "/nonexistent-smartx-install-root-for-test")
+        combined = result.stdout + result.stderr
+        for pattern in ("missing `]'", "unbound variable", "syntax error", "integer expression expected"):
+            self.assertNotIn(pattern, combined, f"前置检查出现 shell 报错：{combined}")
+
+    def test_disk_check_line_is_valid_arithmetic(self) -> None:
+        """直接抽出磁盘比较那行做算术求值，确保括号配平。"""
+        import re
+
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        text = SCRIPT_SOURCES["install/install.sh"].read_text(encoding="utf-8")
+        match = re.search(r"if \[ \"\$AVAIL_BYTES\" -lt \$\(\((.*?)\)\)\s*\]; then", text)
+        self.assertIsNotNone(match, "找不到磁盘比较语句（格式可能变了）")
+        expression = match.group(1)
+        # 能被 bash 正确求值即括号配平
+        result = subprocess.run(
+            ["bash", "-c", f"NEED_GIB=1; echo $(( {expression} ))"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, f"算术表达式有问题：{expression} → {result.stderr}")
+        self.assertTrue(result.stdout.strip().isdigit(), result.stdout)
+
 
 class UpgradeScriptExecutionTest(unittest.TestCase):
     """真实执行 upgrade.sh 的失败路径，确认它**不碰环境**且提示可读。"""

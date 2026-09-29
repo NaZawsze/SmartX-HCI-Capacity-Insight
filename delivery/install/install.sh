@@ -178,7 +178,7 @@ if command -v du >/dev/null 2>&1 && command -v df >/dev/null 2>&1; then
   NEED_GIB=$(( IMAGES_BYTES * 3 / 1024 / 1024 / 1024 + DISK_HEADROOM_GIB ))
   AVAIL_BYTES="$(avail_bytes_of "$INSTALL_ROOT")"
   AVAIL_GIB=$(( AVAIL_BYTES / 1024 / 1024 / 1024 ))
-  if [ "$AVAIL_BYTES" -lt $(( NEED_GIB * 1024 * 1024 * 1024 )); then
+  if [ "$AVAIL_BYTES" -lt $(( NEED_GIB * 1024 * 1024 * 1024 )) ]; then
     DIE_HINT="  磁盘可用 ${AVAIL_GIB} GiB < 需要约 ${NEED_GIB} GiB（镜像 ${IMAGES_BYTES} 字节的 3 倍 + ${DISK_HEADROOM_GIB} GiB 余量）。
   清理磁盘或用 --install-root 指定容量更大的已存在目录后重跑。
   服务**未**启动，宿主环境未被修改。"
