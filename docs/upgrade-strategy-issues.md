@@ -34,7 +34,8 @@
 - **证据**：`execution.py` 的 bootstrap stop、`actions.py:1449` handoff、`actions.py:1548` stop_legacy。
 - **影响**：时序 bug 温床 —— US-04 就是这么产生的。
 - **方向**：收敛到单一入口（建议统一由"当前源端"决定，且**先比对 compose project 再决定是否停**）。
-- **状态**：🟠 平台侧已加守卫（`_should_stop_previous_runner`），**未收敛**。
+- **状态**：🟢 **已收敛（2026-09-29）**。抽出 `resolve_runner_stop_decision()` 作为**唯一决策处**（返回可断言、可留痕的纯数据 `stop/reason/runner_project/target_project`，`reason` 带 `purpose` 便于事后取证）；`stop_legacy_runtime` 经它判断、拒绝时给结构化 `skip_reason`；web-api 侧 `_should_stop_previous_runner` 语义对齐，并有**收敛一致性测试**（逐输入比对两侧判定）。
+- **收敛测试抓到的真 bug**：web-api 侧 `if not bootstrap` 把空 dict（`{}`）当成"没有 bootstrap 对象"而跳过停止，但它紧邻的 `target_project` 空串分支本意是"未声明 → 保守停止"——两者语义相同、判定相反。改为 `is None` 精确判断。旧测试 `test_runner_bootstrap_stop.py` 曾用 `{}` 表示"非 bootstrap"，掩盖了这个不一致，一并更正。
 
 ### US-04 🟠 老 web-api 的无条件 stop（v0.5.2 源端，改不到）
 - **现象**：目标布局机器上**原地**做 runner 组件升级，新 runner 启动后 10 秒被 SIGKILL（`exit=137`），心跳过期 → 后续预检查报"未检测到 upgrade-runner 心跳"。
@@ -42,7 +43,10 @@
 - **证据**：`.12` 两轮复现（08:16、09:04 UTC，启动后 10s kill，docker events `start → kill(+10s) → stop/die`）；第四轮加守卫后 **runner 存活 90s**。
 - **影响**：**B-b「先升 runner 再升平台」在 v0.5.2 现场不可行**；客户若强行先升 runner 仍会踩（老镜像改不到）。
 - **方向**：流程定死「先平台、后 runner」（#47③）；老现场无代码解法，只能靠文档与升级中心提示。
-- **状态**：🟠 已绕开未根治。
+- **状态**：🟢 **已根治为「预检查拦截」（2026-09-29）**。源端镜像确实改不到（那是已发布版本），但此前"已绕开"只写在台账里、**没有任何机制阻止客户踩**。现新增预检查项 `runner_first_order`：
+  - **拦截**：源端 < v0.5.3 且属**原地升级**（bootstrap 目标 project == 当前 project）→ 预检查失败，消息含实测症状（10s SIGKILL / 心跳过期）、可执行指引（**先升级平台再升级 runner**）与"源端无法修改"说明，避免运维试图改镜像；
+  - **放行**：非原地升级（旧桥接布局 bootstrap 到不同 project，历来可行）；源端 ≥ v0.5.3（已含平台侧守卫）。
+- **为什么这样算根治**：把"踩了之后排查半天"变成"当场看到可读错误并知道怎么做"。源端代码缺陷仍在（改不到），但**它不再能以静默方式伤害客户**。测试 8 例含接线断言。
 
 ---
 
