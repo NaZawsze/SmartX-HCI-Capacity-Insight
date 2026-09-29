@@ -111,6 +111,7 @@ def ensure_settlement_once(settings: Any, database: Any) -> dict[str, list[Any]]
 
 def _settlement_loop(settings: Any, database: Any, stop_event: threading.Event, interval_seconds: int) -> None:
     # 启动即跑一次：覆盖 web-api 重启后仍未收尾的历史任务
+    logger.info("post-upgrade settlement fallback started (interval=%ss)", interval_seconds)
     while not stop_event.is_set():
         try:
             ensure_settlement_once(settings, database)
