@@ -597,10 +597,19 @@ class ExecutionMixin:
                     (str(image.get("image")) for image in images if image.get("service") == "upgrade-runner"),
                     "",
                 )
-                logs.append(
-                    f"runner 组件升级已提交（目标镜像 {runner_image or '未知'}）；"
-                    "compose tag 由 runner 在任务收尾时对齐"
-                )
+                # US-32：组件升级成功后由**本进程**对齐 compose tag。
+                # runner 侧 engine 的对账只覆盖"runner 执行计划"的路径（平台升级），
+                # 而组件升级是 web-api 的 execute_task 收尾——此前这里只写了句注释，
+                # 实际从不执行，导致 compose 长期停在旧 tag（.14 实测：runner 已是 v0.3.2，
+                # compose 仍写 v0.3.1）。
+                synced = self._sync_runner_image_into_compose_files(runner_image)
+                if synced:
+                    logs.append(f"已回写 runner 镜像 tag 到：{', '.join(synced)}")
+                else:
+                    logs.append(
+                        f"runner 组件升级已提交（目标镜像 {runner_image or '未知'}）；"
+                        "compose tag 回写未生效（见 task 视图与 web-api 日志告警）"
+                    )
 
             steps = _replace_step(steps, "healthcheck", "succeeded", "健康检查占位通过")
             task["status"] = "success"

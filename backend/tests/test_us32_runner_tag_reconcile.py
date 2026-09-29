@@ -276,3 +276,52 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ComponentUpgradeTagWritebackTest(unittest.TestCase):
+    """US-32 补洞：组件升级（web-api execute_task 收尾）也必须回写 compose tag。
+
+    `.14` 实测：runner 组件升级成功后 `runner_version` 已是 v0.3.2，但
+    `project/docker-compose.yml` 仍写 v0.3.1。根因是代码里**只有一句注释**
+    （"compose tag 由 runner 在任务收尾时对齐"），而 runner 侧 engine 的对账
+    只覆盖"runner 执行计划"的路径（平台升级）——组件升级由 web-api 收尾，那段对账
+    从未执行。典型的"注释声称做了、代码没做"。
+    """
+
+    def test_component_upgrade_path_calls_writeback(self) -> None:
+        import inspect
+
+        from app.v2.upgrade.service import execution
+
+        source = inspect.getsource(execution)
+        self.assertIn(
+            "_sync_runner_image_into_compose_files(runner_image)",
+            source,
+            "组件升级收尾必须调用 compose tag 回写",
+        )
+        # 不得再出现"由 runner 在任务收尾时对齐"这种把责任推给别人的注释
+        self.assertNotIn(
+            "compose tag 由 runner 在任务收尾时对齐",
+            source,
+            "组件升级由 web-api 收尾，不能声称由 runner 对齐",
+        )
+
+    def test_writeback_failure_is_logged_not_silent(self) -> None:
+        """回写失败必须留痕（web-api 的 project 目录是只读挂载，可能失败）。"""
+        import inspect
+
+        from app.v2.upgrade.service import execution
+
+        source = inspect.getsource(execution)
+        self.assertIn("compose tag 回写未生效", source, "回写失败必须写进任务日志")
+
+    def test_writeback_helper_warns_on_failure(self) -> None:
+        """底层回写函数在只读挂载下必然失败，必须 warning 而非静默。"""
+        from app.v2.upgrade.service.paths import PathsMixin
+
+        import inspect as _inspect
+
+        source = _inspect.getsource(PathsMixin._sync_runner_image_into_compose_files)
+        self.assertIn("logging", source)
+        self.assertIn("只读挂载", source, "必须点明只读挂载这一真实原因")
+        self.assertNotIn("except OSError:\n                continue", source, "不得静默吞掉写入失败")
