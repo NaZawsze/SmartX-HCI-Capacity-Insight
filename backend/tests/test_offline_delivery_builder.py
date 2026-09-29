@@ -583,3 +583,63 @@ class DeliveryReadmeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InstallRunnerBaselineTest(unittest.TestCase):
+    """US-33：安装用 runner 镜像必须与 install compose 声明的 baseline 同 tag。
+
+    `.14` 干净 VM 实测暴露的缺陷：交付包把 install compose 的 runner tag 渲染成
+    **已发布基线** v0.3.1（AGENTS §8 版本治理要求），却把组件包里"当前版本"的
+    v0.3.2 镜像塞进 `install/images/` —— 干净 VM 上 `install.sh` 必然在
+    「镜像 tag 与 compose 声明不匹配」这一步失败。
+
+    这个缺陷在 `.3` 上被掩盖了：`.3` 本地恰好同时存在 v0.3.1 与 v0.3.2。
+    """
+
+    def _source(self) -> str:
+        from scripts.build_offline_delivery import ROOT
+
+        return (ROOT / "scripts" / "build_offline_delivery.py").read_text(encoding="utf-8")
+
+    def test_install_runner_image_comes_from_baseline_not_component_package(self) -> None:
+        """安装镜像必须 docker save baseline tag，而不是从组件包解包。"""
+        source = self._source()
+        self.assertIn(
+            "docker_save(baseline_image, images_dir / \"upgrade-runner.tar\")",
+            source,
+            "安装用 runner 镜像必须按 baseline tag 导出",
+        )
+        # 旧的错误来源：从组件包提取当前版本镜像
+        self.assertNotIn(
+            'extract_member(runner_package, "images/upgrade-runner.tar", images_dir / "upgrade-runner.tar")',
+            source,
+            "不得再把组件包的当前版本镜像当作安装镜像（US-33 根因）",
+        )
+
+    def test_baseline_image_name_is_built_from_runner_baseline(self) -> None:
+        source = self._source()
+        self.assertIn(
+            'baseline_image = f"nazawsze/smartx-hci-capacity-insight-upgrade-runner:{args.runner_baseline}"',
+            source,
+            "baseline 镜像名必须由 --runner-baseline 拼出，保证与 compose 一致",
+        )
+
+    def test_missing_baseline_image_fails_at_build_time(self) -> None:
+        """本地没有 baseline 镜像时必须**构建即失败**，而不是留给客户安装时炸。"""
+        source = self._source()
+        self.assertIn('["docker", "image", "inspect", baseline_image]', source)
+        self.assertIn("本地没有安装用 runner 镜像", source)
+        self.assertIn("raise SystemExit", source)
+
+    def test_install_sh_rejects_tag_mismatch(self) -> None:
+        """install.sh 必须真的校验 tag（这也是当初拦下 US-33 的那道关）。"""
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        text = SCRIPT_SOURCES["install/install.sh"].read_text(encoding="utf-8")
+        self.assertIn("EXPECTED_IMAGES", text)
+        self.assertIn("docker image inspect", text)
+        self.assertIn("镜像 tag 与 compose 声明不匹配", text)
+
+
+if __name__ == "__main__":
+    unittest.main()

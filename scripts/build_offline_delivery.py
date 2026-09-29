@@ -259,10 +259,6 @@ def main() -> int:
         extract_member(platform_package, f"images/{member}", target)
         image_names.append(member)
 
-    log("从 runner 组件包提取 upgrade-runner.tar")
-    extract_member(runner_package, "images/upgrade-runner.tar", images_dir / "upgrade-runner.tar")
-    image_names.append("upgrade-runner.tar")
-
     prometheus_tar = images_dir / "prometheus.tar"
     if args.prometheus_archive:
         archive = Path(args.prometheus_archive)
@@ -273,6 +269,27 @@ def main() -> int:
     else:
         docker_save(args.prometheus_image, prometheus_tar)
     image_names.append("prometheus.tar")
+
+    # runner 安装镜像必须与 compose 声明的 baseline **同 tag**（US-33）。
+    # 组件包里装的是"当前版本"（如 v0.3.2），而 install compose 按版本治理落"已发布基线"
+    # （v0.3.1）——两者天然不同。若直接把组件包的镜像塞进 install/images/，干净 VM 上
+    # `install.sh` 会在"镜像 tag 与 compose 声明不匹配"这一步失败（.14 实测）。
+    baseline_image = f"nazawsze/smartx-hci-capacity-insight-upgrade-runner:{args.runner_baseline}"
+    inspect = subprocess.run(
+        ["docker", "image", "inspect", baseline_image],
+        capture_output=True,
+        text=True,
+    )
+    if inspect.returncode != 0:
+        raise SystemExit(
+            f"[offline-delivery] 本地没有安装用 runner 镜像：{baseline_image}\n"
+            f"  安装 compose 按版本治理落**已发布基线** {args.runner_baseline}，\n"
+            f"  因此交付物必须携带该 tag 的镜像（不是组件包的当前版本）。\n"
+            f"  请先在构建机上准备好该镜像，或改用 --runner-baseline 指定本地已有的已发布版本。"
+        )
+    log(f"导出安装用 runner 镜像（baseline {args.runner_baseline}）：{baseline_image}")
+    docker_save(baseline_image, images_dir / "upgrade-runner.tar")
+    image_names.append("upgrade-runner.tar")
 
     install_sums = write_sha256sums(images_dir, image_names)
     log(f"install/images/SHA256SUMS 已生成（{len(image_names)} 个镜像）")
