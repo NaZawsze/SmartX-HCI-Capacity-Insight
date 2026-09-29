@@ -8783,3 +8783,88 @@ cli/
 - **分支必须显式**：`test_default_branch_is_main` 断言 `BRANCH="main"`；
   `--help` 必须点明 dev2 是开发线。
 - **禁止 `--no-build`**：`test_no_build_flag_is_not_used`（会导致 identity 门禁 FAIL）。
+
+## 2026-09-30 序 4 实测 T2/T3/T4：package.sh 端到端（.3）
+
+### 准备
+`.3` 的 `/data/upgrade-packages/` 累积 24G 历史构建产物，磁盘仅剩 13G（低于体检门槛 20G）。
+按 ledger 保留关键包（`v053-cliopath-20260930`、`baseline-v052-20260930`、
+`components-v032-r8-20260930`、`v053-r6-20260928`），删除 16 个被取代的中间轮次目录 +
+10 个旧 runner 组件包目录，另清 Docker 构建缓存 3.6G。**磁盘 14G → 34G**。
+未删除任何 ledger 记录在用的包；所有被删目录的 SHA 都已登记在 ledger/progress。
+
+另：`sync3.sh` 用 `git archive`，`.3` 上不是 git 仓库。为测 `package.sh`，
+复制一份到 `/data/cli-test` 并 `git init`（不动主同步目录）。
+
+### T4 破坏性确认（通过）
+造脏文件 → 非交互不给 `--yes`：
+```
+警告 工作树有本地改动： ?? dirty-file.txt
+你用了 --no-fetch，将**直接用这份被改过的工作树打包**（产物含本地改动）。
+错误 需要确认但当前不是交互式终端：…
+错误 已取消（未做任何修改）。
+退出码=1
+```
+**脏文件仍在**（未做任何修改）。T3（`--help` 点明 dev2 是开发线、默认 main）亦通过。
+
+### T2 端到端（首次 EXIT=2，暴露两个真 bug）
+
+**Bug A：版本号双 v** —— `VERSION` 文件内容已带 v（`v0.5.3`），脚本又拼 `v$VER`
+得到 `vv0.5.3`，找不到刚构建出的包直接 exit 2。
+修法：读原始值后归一化（`${VER_RAW#v}` 再补 v），路径直接用归一化后的变量。
+
+**Bug B：`--no-fetch` 绕过脏检查** —— 脏检查被包在
+`if [ -d .git ] && [ "$DO_FETCH" = 1 ]` 里，`--no-fetch` 时整块跳过。
+用户以为在打 origin，实际打的是自己改过的树，且**无任何提示**。
+修法：脏检查提到 fetch 判断之外；`--no-fetch` 时显式告警「产物含本地改动」。
+
+**Bug C（实现中我自己写错）** —— `--runner-baseline` 收的是**已发布基线 tag**
+（`v0.3.1`），我误传了 `docker save` 出来的 tar 路径，脚本拼成
+`upgrade-runner:/path/to/runner-baseline.tar` 找不到镜像，离线交付目录构建失败。
+修法：直接传 tag（`CLI_RUNNER_BASELINE_TAG` 可覆盖），镜像导出交回
+`build_offline_delivery.py`（它本就负责 `docker save`）。
+
+**Bug D（实测发现的既有缺陷，非本次引入）** —— 交付目录两个 compose 不一致：
+```
+install/project/docker-compose.offline.yml -> v0.3.1  正确
+install/project/docker-compose.yml         -> v0.3.2  错误（源码开发线 tag）
+```
+根因：`build_offline_delivery.py` 只对 offline 那份做基线渲染，
+`copy_project_files` 整份复制 compose，主 compose 原样带着源码 tag 进交付目录；
+自洽门禁也只查 offline 那份，同样漏掉。
+**为什么必须修**：`install.sh` 启动用 offline 那份，却把两个都装进目标目录；
+主 compose 是 `docker compose up`（不带 `-f`）的默认读取对象——
+离线机直接失败（`images/` 只有基线镜像），联网机则静默拉起未经本轮验收的 runner。
+与 US-26 同类：多事实源。违反 AGENTS §8。
+
+设计文档 `docs/superpowers/specs/2026-09-30-delivery-compose-runner-baseline-design.md`；
+修法：新增 `render_all_delivery_composes()` 渲染交付 project 下所有 compose，
+自洽门禁与末尾基线断言同步改为遍历全部；只改该脚本，不动 `delivery/` 与任何 compose 源文件。
+
+**Bug E（我自己写错的 set/dict）** —— `declared_images_from_compose` 返回 `set`，
+我却写 `.get('upgrade-runner')`，main 里 `AttributeError`。
+纯函数级单测跑不到 main，覆盖不到 → 补 `test_assertion_uses_set_semantics` 锁死。
+
+### T2 通过证据（EXIT=0）
+```
+OK  打包完成（分支 origin/main，commit 8b60c91）
+产物清单：
+  smartx-capacity-insight-upgrade-v0.5.3.tar.gz        235M
+  smartx-upgrade-runner-v0.3.2.tar.gz                  78M
+  offline-delivery/                                    1.4G
+校验：
+  c192e7e0ad18f6d622b12b31371845cda1b1005683fcfc6f04d3812cc0e4854e  平台包
+  3fcdb3e6728de574d2ad6f0bc4ff63dd9bf1762756582e2ed0c0bf2682e5b399  runner 包
+```
+交付物自洽复核（修复后）：
+```
+install/project/docker-compose.offline.yml -> v0.3.1  ✅
+install/project/docker-compose.yml         -> v0.3.1  ✅（修复前是 v0.3.2）
+```
+
+### 门禁累计
+- `test_cli_toolkit` 27 例、`test_offline_delivery_builder` 60 例，全过
+- 负向实证：把 Bug D 的修复临时回退，`test_main_script_uses_all_composes_helper` **立即 FAIL** —— 证明测试真能抓到
+
+**共同教训**：这五个 bug 全部是**"写完自测才发现"**，其中 B/D/E 只有真机端到端才暴露。
+纯函数单测覆盖不到 main 的数据流（B 依赖 git 状态、E 依赖 set 语义在 main 中的使用）。
