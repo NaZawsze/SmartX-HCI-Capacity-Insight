@@ -111,21 +111,29 @@ class BackupRetentionTest(unittest.TestCase):
     # ---------- 安全约束 ----------
 
     def test_project_files_backups_are_also_cleaned(self) -> None:
-        """项目文件备份同样按 TTL 清理（数量要 > keep_recent，否则它是保底份）。"""
+        """项目文件备份同样按 TTL 清理（数量要 > keep_recent，否则它是保底份）。
+
+        注意排序口径：数据备份按**文件名里的时间戳**排序，项目备份目录名里没有时间戳，
+        按 **mtime** 排序。因此这里显式把"最旧"的那份建成 mtime 最早的。
+        """
         from app.v2.upgrade.backup_retention import purge_backups
 
         with tempfile.TemporaryDirectory() as tmpdir:
             backups = Path(tmpdir)
-            for index in range(3):
-                files = _write_project_files(backups, f"upgrade-{index}")
-                _age(files, 60 + index)  # 全部超期
-            old_dir = backups / "project-files-upgrade-0"
+            created = []
+            for days_ago in (62, 61, 60):  # 62 天前最旧
+                files = _write_project_files(backups, f"upgrade-{days_ago}")
+                _age(files, days_ago)
+                created.append((days_ago, files))
+            oldest = min(created, key=lambda item: item[0])[1]   # 62 天前那份
+            newest = max(created, key=lambda item: item[0])[1]   # 60 天前那份
 
             purge_backups(backups, ttl_days=14, keep_recent=1)
 
-            self.assertFalse(old_dir.exists(), "超期的项目文件备份必须删除")
+            self.assertFalse(oldest.exists(), "最旧的项目文件备份必须删除")
+            self.assertTrue(newest.exists(), "最新的那份是保底份，必须保留")
             remaining = [p.name for p in backups.iterdir() if p.is_dir()]
-            self.assertEqual(len(remaining), 1, "仍须保留 keep_recent 份")
+            self.assertEqual(len(remaining), 1, f"仍须保留 keep_recent 份，实际 {remaining}")
 
     def test_collect_lists_both_types(self) -> None:
         from app.v2.upgrade.backup_retention import collect_backups
