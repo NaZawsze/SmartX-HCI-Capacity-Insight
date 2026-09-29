@@ -194,6 +194,12 @@ def main() -> int:
     parser.add_argument("--platform-package", required=True, help="平台升级包 tar.gz（提供三件套镜像）")
     parser.add_argument("--runner-package", required=True, help="runner 组件包 tar.gz（提供 runner 镜像）")
     parser.add_argument("--prometheus-image", default="prom/prometheus:v2.55.1", help="prometheus 镜像（docker save）")
+    parser.add_argument(
+        "--prometheus-archive",
+        default=None,
+        help="已备好的 prometheus 镜像归档（tar）。给了就直接复制、不再 docker save，"
+        "用于字节级可复现构建（docker save 每次会写入时间戳）。",
+    )
     parser.add_argument("--runner-baseline", required=True, help="交付 compose 里 runner 的已发布基线 tag，如 v0.3.1")
     parser.add_argument("--readme", required=True, help="交付根 README.md 源文件")
     parser.add_argument("--output-dir", required=True, help="交付目录输出位置")
@@ -247,7 +253,14 @@ def main() -> int:
     image_names.append("upgrade-runner.tar")
 
     prometheus_tar = images_dir / "prometheus.tar"
-    docker_save(args.prometheus_image, prometheus_tar)
+    if args.prometheus_archive:
+        archive = Path(args.prometheus_archive)
+        if not archive.is_file():
+            raise SystemExit(f"[offline-delivery] --prometheus-archive 不存在：{archive}")
+        log(f"复制已备好的 prometheus 归档 {archive.name}（字节级可复现）")
+        shutil.copy2(archive, prometheus_tar)
+    else:
+        docker_save(args.prometheus_image, prometheus_tar)
     image_names.append("prometheus.tar")
 
     install_sums = write_sha256sums(images_dir, image_names)
@@ -305,6 +318,13 @@ def main() -> int:
         if path.is_file():
             size_mb = path.stat().st_size / 1024 / 1024
             log(f"  {path.relative_to(output)}  ({size_mb:.1f} MiB)")
+    log("")
+    log("可复现性口径（.3 实测两次构建）：")
+    log("  · 文件清单结构：完全一致")
+    log("  · 平台三件套与 runner 镜像：**字节级一致**（从已门禁的包内解包，不经 docker save）")
+    log("  · 升级包：**字节级一致**（文件复制）")
+    log("  · prometheus.tar：**每次 SHA 不同** —— `docker save` 会写入时间戳，属固有行为；")
+    log("    如需字节级可复现，请预先 `docker save` 一次并把该 tar 作为 --prometheus-archive 传入。")
     return 0
 
 
