@@ -65,6 +65,8 @@ usage() {
 顺序说明:
   默认**只升平台**。runner 组件升级请在平台升级成功之后单独发起（--with-runner），
   顺序颠倒（旧平台的 web-api 会停掉刚启动的新 runner）可能导致升级中断。
+  --with-runner 会先等平台升级后的清理任务（post-cleanup）收敛，再发起 runner 组件升级，
+  避免被"同一时刻只允许一个升级任务"的守卫拒绝。
 USAGE
 }
 
@@ -352,6 +354,40 @@ if [ -n "$RUNNER_PACKAGE" ]; then
   if [ ! -f "$RUNNER_PACKAGE" ]; then
     warn "runner 组件包不存在，跳过：$RUNNER_PACKAGE"
   else
+    # 等平台升级后的清理任务（post-cleanup）收敛，再发起 runner 组件升级。
+    # 原因：单飞守卫（US-23）会拒绝"还有任务在跑"时发起的新任务。平台升级返回 succeeded 时，
+    # post-cleanup 往往刚被创建、仍在 pending/running，此时直接升级 runner 必然 400。
+    printf '  ── 等待升级后清理（post-cleanup）收敛 ──\n'
+    CLEANUP_WAITED=0
+    while [ "$CLEANUP_WAITED" -lt "$POLL_TIMEOUT" ]; do
+      PC_BODY="$(curl -s --max-time 20 "$BASE_URL/api/admin/upgrade/post-cleanup/$TASK_ID" "${AUTH[@]}" 2>/dev/null || true)"
+      PC_STATUS="$(printf '%s' "$PC_BODY" | sed -nE 's/.*"status"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')"
+      [ -n "$PC_STATUS" ] || PC_STATUS="unknown"
+      case "$PC_STATUS" in
+        not_required|succeeded|success)
+          printf '\n'
+          ok "升级后清理已收敛（$PC_STATUS）"
+          CLEANUP_WAITED=-1
+          break
+          ;;
+        failed|cancelled|rolled_back|rollback_failed|recovery_required)
+          # 清理失败不影响 runner 组件升级（runner 是独立组件），继续但如实告知。
+          printf '\n'
+          warn "升级后清理终态为 $PC_STATUS（不影响 runner 组件升级，继续）"
+          CLEANUP_WAITED=-1
+          break
+          ;;
+      esac
+      printf '.'
+      sleep "$POLL_INTERVAL"
+      CLEANUP_WAITED=$((CLEANUP_WAITED + POLL_INTERVAL))
+    done
+    if [ "$CLEANUP_WAITED" -ge 0 ]; then
+      printf '\n'
+      warn "升级后清理未在 ${POLL_TIMEOUT}s 内收敛，仍尝试 runner 组件升级；若被单飞守卫拒绝请稍后重试"
+    fi
+
+    printf '\n'
     printf '  ── 可选：runner 组件升级 ──\n'
     RU_BODY="$(curl -s --max-time 900 -X POST "$BASE_URL/api/admin/component-upgrade/upload" \
       "${AUTH[@]}" -F "file=@$RUNNER_PACKAGE" 2>/dev/null || true)"
@@ -368,8 +404,18 @@ if [ -n "$RUNNER_PACKAGE" ]; then
           info "  curl -s $HEALTH_URL"
           ;;
         *)
-          warn "runner 组件升级未成功：$(printf '%s' "$RU_START" | head -c 200)"
-          info "平台升级已完成，runner 保持 $NEW_RUNNER，不影响使用；可稍后单独重试。"
+          # US-23 单飞守卫拒绝是最常见原因，给出可操作的下一步而不是只报错。
+          case "$RU_START" in
+            *'正在执行'*|*'需要恢复'*)
+              warn "runner 组件升级被单飞守卫拒绝（仍有升级/清理任务未收敛）：$(printf '%s' "$RU_START" | head -c 200)"
+              info "先在 Web 界面「升级中心」确认无 running 任务（必要时对卡住任务「标记失败」），再单独执行："
+              info "  bash upgrade/upgrade.sh --with-runner <组件包>"
+              ;;
+            *)
+              warn "runner 组件升级未成功：$(printf '%s' "$RU_START" | head -c 200)"
+              info "平台升级已完成，runner 保持 $NEW_RUNNER，不影响使用；可稍后单独重试。"
+              ;;
+          esac
           ;;
       esac
     fi

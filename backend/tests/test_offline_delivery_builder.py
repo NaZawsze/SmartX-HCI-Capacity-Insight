@@ -926,3 +926,22 @@ class CriticalCommandVisibilityTest(unittest.TestCase):
         self.assertIn("服务未在超时内达到健康状态", install, "健康检查失败必须给出诊断与补救")
         # install.sh 装了 ERR 陷阱，任何未预期失败都有行号可查
         self.assertIn("BASH_LINENO", install)
+
+    def test_with_runner_waits_for_post_cleanup(self) -> None:
+        """--with-runner 必须先等 post-cleanup 收敛（US-23 单飞守卫，`.14` 实测 400）。"""
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        text = SCRIPT_SOURCES["upgrade/upgrade.sh"].read_text(encoding="utf-8")
+        self.assertIn(
+            "/api/admin/upgrade/post-cleanup/",
+            text,
+            "--with-runner 必须查询 post-cleanup 状态，否则会在清理任务仍运行时被单飞守卫拒绝",
+        )
+        wait_at = text.index("/api/admin/upgrade/post-cleanup/")
+        start_at = text.index("/api/admin/component-upgrade/start/")
+        self.assertLess(
+            wait_at,
+            start_at,
+            "等 post-cleanup 的逻辑必须在发起 runner 组件升级之前（顺序颠倒必然 400）",
+        )
+        self.assertIn("单飞守卫", text, "被单飞守卫拒绝时必须给出可操作的下一步")
