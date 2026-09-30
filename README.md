@@ -64,6 +64,9 @@ frontend (React + TypeScript + ECharts)
 backend/       FastAPI API, collector, CloudTower client, forecast logic, CLI
 frontend/      React + TypeScript frontend
 prometheus/    Prometheus scrape configuration
+ops/           Operations entry points: install / upgrade / package (see ops/README.md)
+scripts/       Build and verification tooling (package builders, gates)
+delivery/      Source files for the offline delivery bundle (copied into it, not run from repo)
 docs/          API, deployment, usage documentation, and screenshots
 docker-compose.yml
 .env.example
@@ -289,10 +292,19 @@ The printed `host_path` is the migration package path. The package includes the 
 
 ## Documentation
 
+### Install, upgrade, and delivery
+
+- [**Delivery Handover Guide**](docs/delivery-handover-guide.md) — **start here when packaging output needs to reach a customer**: where the packages land, pre-delivery self-checks, what to send (and what not to), how the customer installs and upgrades
+- [Operations Scripts](ops/README.md) — the `install.sh` / `upgrade.sh` / `package.sh` entry points
+- [Offline Upgrade Package](#offline-upgrade-package) — package structure and upgrade procedure
+- [OVA Delivery](docs/ova-delivery.md) — what the bundle may and may not contain
+
+### Reference
+
 - [Deployment Guide](docs/deployment.md)
 - [Usage Guide](docs/usage.md)
 - [API Reference](docs/api.md)
-- [OVA Delivery](docs/ova-delivery.md)
+- [Troubleshooting](docs/troubleshooting.md)
 - [upgrade-runner Lifecycle and Component Upgrade Policy](docs/upgrade-runner-lifecycle.md)
 - [Version Governance](docs/version-governance.md)
 - [v0.2 Release Notes](docs/releases/v0.2.md)

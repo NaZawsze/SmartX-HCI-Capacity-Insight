@@ -67,6 +67,9 @@ frontend (React + TypeScript + ECharts)
 backend/       FastAPI API、采集器、CloudTower 客户端、预测逻辑和 CLI
 frontend/      React + TypeScript 前端
 prometheus/    Prometheus 抓取配置
+ops/           运维操作入口：安装 / 升级 / 打包（详见 ops/README.md）
+scripts/       构建与校验工具（打包脚本、各类门禁）
+delivery/      离线交付物料的源文件（会被复制进交付目录，不在仓库里直接跑）
 docs/          API、部署、使用说明和截图资源
 docker-compose.yml
 .env.example
@@ -294,10 +297,20 @@ sha256sum "$host_path"
 
 ## 文档
 
+### 安装、升级与交付
+
+- [**交付手册**](docs/delivery-handover-guide.md) —— **打包产物要交给客户时从这份看起**：产物在哪、交付前自检、
+  该发什么与不该发什么、客户如何安装与升级
+- [运维操作脚本](ops/README.md) —— `install.sh` / `upgrade.sh` / `package.sh` 三个入口
+- [离线升级包结构](#离线升级包结构) —— 升级包构成与升级流程
+- [OVA 交付说明](docs/ova-delivery.md) —— 交付物该含什么、禁含什么
+
+### 参考文档
+
 - [部署说明](docs/deployment.md)
 - [使用说明](docs/usage.md)
 - [API 参考](docs/api.md)
-- [OVA 交付说明](docs/ova-delivery.md)
+- [故障排查](docs/troubleshooting.md)
 - [upgrade-runner 生命周期与组件升级策略](docs/upgrade-runner-lifecycle.md)
 - [版本治理说明](docs/version-governance.md)
 - [v0.2 更新说明](docs/releases/v0.2.md)
