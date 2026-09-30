@@ -505,9 +505,11 @@ class V2MigrationServiceTest(unittest.TestCase):
 
             from fastapi import HTTPException
 
+            # confirmed=True 绕过通用确认闸，确保 400 打到数据包专属拒绝（否则测不到目标分支）
             with self.assertRaises(HTTPException) as ctx:
-                MigrationService(target_db, target_settings, TaskService(target_db)).restore_archive_bytes(archive_content, filename="data.tar.gz", mode="overwrite")
+                MigrationService(target_db, target_settings, TaskService(target_db)).restore_archive_bytes(archive_content, filename="data.tar.gz", mode="overwrite", confirmed=True)
             self.assertEqual(ctx.exception.status_code, 400)
+            self.assertIn("整库替换", ctx.exception.detail)
             with target_db.connection() as conn:
                 self.assertEqual(conn.execute("SELECT name FROM towers").fetchone()[0], "Tower B")
                 self.assertEqual(conn.execute("SELECT id FROM towers").fetchone()[0], target_tower.id)
