@@ -16,8 +16,11 @@
 ```bash
 # 健康与版本（前端代理，免 token）
 curl -fsS http://localhost:8080/api/system/health | python3 -m json.tool
-# 容器状态
-cd /data/smartx-storage-forecast/project && docker compose -f docker-compose.offline.yml ps
+# 容器状态（先过守卫取当前实例真正生效的 compose，别照抄文件名——见 §10）
+bash /data/smartx-storage-forecast/project/compose-guard.sh check \
+     /data/smartx-storage-forecast/project/.env docker-compose.offline.yml \
+  && cd /data/smartx-storage-forecast/project \
+  && docker compose -f docker-compose.offline.yml ps
 # 磁盘
 df -h /data
 # 挂载体检（UPG-050 专用工具）
@@ -132,3 +135,53 @@ docker compose exec web-api python -m app.cli reset-password --username admin --
 ```
 
 重置后重新登录。
+
+## 10. 容器被 SIGKILL：exit 137 且 OOMKilled=false（US-37）
+
+**这是「被人为杀掉」，不是内存不足。** 判据是 `OOMKilled=false`：
+内核 OOM 会把它置为 `true`。
+
+```bash
+docker inspect --format '{{.State.ExitCode}} OOM={{.State.OOMKilled}}' <容器名>
+# 137 OOM=false  → 人为 SIGKILL，继续往下查
+# 137 OOM=true   → 真 OOM，查内存与 limit
+```
+
+### 10.1 最常见成因：同一 project 混用不同 compose 变体（2026-09-30 .3 事故）
+
+仓库有 4 个 compose 变体共享同一个 project 名，但服务定义不同
+（`build:` vs `image:`、`pull_policy`、额外挂载），因此 `config-hash` 必然不同。
+用错变体执行 `up/down/restart` → Docker 判定「配置变了」→ **recreate** →
+旧容器被 SIGKILL → 服务中断。
+
+```bash
+# ① 确认是谁在用哪份 compose（容器标签 = 地面真相）
+docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' \
+  <project>-web-api-1
+
+# ② 与 .env 里记录的生效变体比对（不一致返回 exit 2）
+bash /data/smartx-storage-forecast/project/compose-guard.sh check \
+     /data/smartx-storage-forecast/project/.env <你要用的-compose> <project>
+```
+
+守卫返回 **exit 2** 就是这个问题。三条出路见守卫自身输出：
+改用正确的 compose / 加 `--force-compose-switch`（先完整 down 再换，会中断服务）/
+先手工 `down --remove-orphans` 再换。
+
+**若 `.env` 里没有标记**（旧环境）：重跑一次 `install/install.sh` 即可补上。
+它会从**运行中容器的 compose 标签**回填地面真相，不靠猜。
+
+### 10.2 其他成因
+
+| 成因 | 判别 |
+| --- | --- |
+| 卡死任务被标记失败 / 升级回滚 | 查升级中心任务时间点是否与容器重启时间吻合 |
+| 宿主机内存压力 | `dmesg -T | grep -i "killed process"`，有记录才是真 OOM |
+| 人工 `docker kill` / `docker compose down` | 查 bash history 与任务记录 |
+
+### 10.3 预防
+
+- 任何 `docker compose` 操作前先过守卫，不要凭文件名猜。
+- 交付物里的 `compose-guard.sh` 与 install/upgrade 脚本放在一起，就是给这件事用的。
+- 升级中心已把「预检查 → 执行 → post-cleanup」串起来，正常升级路径不会碰 compose 变体。
+

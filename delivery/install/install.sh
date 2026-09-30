@@ -354,6 +354,15 @@ for name in "$COMPOSE_FILE" docker-compose.yml; do
   fi
 done
 cp -a "$PROJECT_SRC/." "$PROJECT_DIR/"
+
+# US-37：把 compose 变体守卫也放进 project 目录。
+# 交付目录可能被客户挪走或删除，但 project 目录是长期驻留的——
+# 运维手册与 troubleshooting §10 指引的诊断路径是
+# /data/smartx-storage-forecast/project/compose-guard.sh，必须真实存在。
+if [ -n "$COMPOSE_GUARD" ] && [ -f "$COMPOSE_GUARD" ]; then
+  install -m 0755 "$COMPOSE_GUARD" "$PROJECT_DIR/compose-guard.sh"
+  ok "compose 守卫已就位（$PROJECT_DIR/compose-guard.sh）"
+fi
 ok "compose 与 prometheus 配置已就位"
 
 # 非默认 install-root 时渲染 compose 里的绝对路径，并**校验渲染彻底**

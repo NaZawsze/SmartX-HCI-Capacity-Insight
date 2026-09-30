@@ -395,3 +395,33 @@ class GuardWiringTest(unittest.TestCase):
         builder = (ROOT / "scripts" / "build_offline_delivery.py").read_text(encoding="utf-8")
         self.assertIn('"install/compose-guard.sh"', builder)
         self.assertIn('"upgrade/compose-guard.sh"', builder)
+
+
+class GuardInstallationTest(unittest.TestCase):
+    """文档写的诊断路径必须真实存在。
+
+    背景：troubleshooting §10 与 delivery/README §9.1 都在指引客户执行
+    `/data/smartx-storage-forecast/project/compose-guard.sh`。
+    但守卫原本只从**交付目录**被 source，交付目录会被客户挪走或删除——
+    文档指向的路径根本不存在，等于给了客户一条跑不通的命令。
+    交付目录移走后，project 目录才是长期驻留的那一个。
+    """
+
+    def test_install_copies_guard_into_project_dir(self) -> None:
+        install = (ROOT / "delivery" / "install" / "install.sh").read_text(encoding="utf-8")
+        self.assertRegex(
+            install,
+            r'install\s+-m\s+0?755\s+"\$COMPOSE_GUARD"\s+"\$PROJECT_DIR/compose-guard\.sh"',
+            "install.sh 必须把守卫以 755 装进 PROJECT_DIR",
+        )
+
+    def test_documented_paths_are_produced(self) -> None:
+        """文档与脚本提到的守卫路径必须一致（都是 project 目录）。"""
+        install = (ROOT / "delivery" / "install" / "install.sh").read_text(encoding="utf-8")
+        docs = (ROOT / "docs" / "troubleshooting.md").read_text(encoding="utf-8")
+        readme = (ROOT / "delivery" / "README.md").read_text(encoding="utf-8")
+        expected = "/data/smartx-storage-forecast/project/compose-guard.sh"
+        self.assertIn(expected, docs, "troubleshooting 必须给出可执行的守卫路径")
+        self.assertIn(expected, readme, "交付包 README 必须给出可执行的守卫路径")
+        # 脚本里用 $PROJECT_DIR 拼出来的路径，默认 install-root 下必须等于文档写的那个
+        self.assertIn('"$PROJECT_DIR/compose-guard.sh"', install)

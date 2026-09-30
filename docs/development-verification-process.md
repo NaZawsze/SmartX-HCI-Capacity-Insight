@@ -102,6 +102,40 @@ v0.5.1 + runner v0.3.0 -> v0.5.1u2 -> runner v0.3.1 -> v0.5.2 -> v0.5.3
 - 升级前记录基线（health、容器、网络、SQLite 行数、Prometheus series、Tower 凭据、.env 状态）。
 - 升级前备份 `.env` 和 DB，确认配对（避免 Tower 凭据丢失）。
 
+## 4.5 在运行着实例的机器上做测试（US-37 硬纪律）
+
+> 2026-09-30 `.3` 服务中断事故的直接成因：在一台**正跑着平台实例**的机器上，
+> 用另一份 compose 文件对**同一个 project 名**执行 `up` → Docker 判定配置变了 →
+> recreate → 旧容器 SIGKILL（`exit 137`、`OOMKilled=false`）→ 服务中断。
+> 详见 [troubleshooting.md](troubleshooting.md) §10。
+
+**以下纪律不可省略：**
+
+1. **必须用独立 project 名**
+   在 `.3` / `.12` 这类有实例在跑的机器上做测试，一律加 `-p <独立名字>`，例如：
+
+   ```bash
+   docker compose -f docker-compose.offline.yml -p smartx-verify-<时间戳> up -d
+   ```
+
+   物理隔离，不会碰到在跑的那套。**这是首选做法。**
+
+2. **实在不能用独立 project 时**（验证的就是生产布局本身），
+   **先完整 down/up 一次再测**，测完恢复原状。不要在运行中的实例上直接 `up`。
+
+3. **测试目录用完即删**。事故当日残留两个测试目录各 3.4G，
+   且长期滞留会持续污染现场。收工前 `docker compose -p <独立名> down -v` 并 `rm -rf` 测试目录。
+
+4. **不要把 `.3` 当成"随便跑 compose 的构建机"**。它在某些时段是真实服务现场；
+   `.14` 才是可以放手做 compose 实验的机器。
+
+5. **`ops/package.sh` 不调用 compose**（只做镜像构建与打包），在运行中的机器上跑它是安全的。
+   风险只在手工执行 `docker compose` 时。
+
+> 曾提议加 `ops/lib/test-env.sh` 提供 `test_project_name` 辅助函数，**已否决**：
+> 薄封装约束不了真正危险的场景（人在错误机器上手敲 `docker compose`），
+> 反而制造「已经有防护」的错觉。改为以上纯纪律。
+
 ## 5. 验证脚本
 
 - `scripts/verify_full_upgrade_chain.py`：v0.5.1 + runner v0.3.0 → v0.5.1u2 → runner v0.3.1 → v0.5.2 一键回归。

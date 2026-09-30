@@ -32,6 +32,7 @@ smartx-capacity-insight-v0.5.3-offline/
 ├── README.md                     本文件
 ├── install/                      首次部署
 │   ├── install.sh                一键安装入口
+│   ├── compose-guard.sh          compose 变体守卫（防误用变体导致服务中断，见 §9.1）
 │   ├── images/                   5 个镜像归档
 │   │   ├── web-api.tar
 │   │   ├── collector-worker.tar
@@ -297,6 +298,40 @@ curl -s http://127.0.0.1:8000/api/system/health
 ```
 
 ---
+
+## 9.1 compose 变体守卫（US-37）
+
+平台部署目录里有 **4 份 compose 变体**（`docker-compose.yml` /
+`docker-compose.offline.yml` / `.release.yml` / `.upgrade.yml`），
+它们**共用同一个 project 名**，但服务定义不同。
+
+**如果你用错变体执行 `docker compose up/down/restart`，Docker 会判定「配置变了」
+并 recreate 容器，旧容器被 SIGKILL（`exit 137`）——服务会中断。**
+
+平台为此做了防护：
+
+- **安装时**会把实际生效的 compose 记入 `/data/smartx-storage-forecast/project/.env`
+  的 `SMARTX_COMPOSE_FILE_ACTIVE`；
+- **任何 compose 操作前**可以用守卫自查：
+
+```bash
+# 返回 0 = 你用的就是生效的那份，可以继续
+# 返回 2 = 变体不一致，会 recreate 掉服务，按提示选一条路
+bash /data/smartx-storage-forecast/project/compose-guard.sh check \
+     /data/smartx-storage-forecast/project/.env \
+     <你打算用的-compose文件名> \
+     smartx-hci-capacity-insight
+
+# 只看当前实例用的是哪份
+bash /data/smartx-storage-forecast/project/compose-guard.sh show \
+     /data/smartx-storage-forecast/project/.env
+```
+
+**日常运维请用平台升级中心的升级流程**，它已把「预检查 → 执行 → 收尾」串起来，
+不需要手工敲 `docker compose`。确需手工操作时，**先过守卫**。
+
+若守卫报「无法判定」，说明这是旧环境、没有标记：重跑一次 `install/install.sh` 即可补上
+（它会从运行中容器的标签读取真实使用的变体，不会乱猜）。
 
 ## 10. 排障速查
 
