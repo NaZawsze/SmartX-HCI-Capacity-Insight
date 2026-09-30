@@ -248,7 +248,9 @@ step "记录生效的 compose 变体（US-37）"
 #
 # 必须放在幂等检查**之前**：已有安装时本脚本会在下面直接 exit 0，
 # 放到之后就永远补不上标记——而那恰恰是最需要守卫的现场（2026-09-30 .3 事故）。
-if [ -f "$ENV_FILE" ] && [ -n "${compose_guard_resolve:-}" ]; then
+# 注意必须用 declare -F 验证**函数**存在：守卫加载的是函数不是变量，
+# 写成 ${compose_guard_resolve:-} 恒为空、整个分支永远不执行（.14 实测踩坑）。
+if [ -f "$ENV_FILE" ] && declare -F compose_guard_resolve >/dev/null; then
   RESOLVED_COMPOSE="$(compose_guard_resolve "$ENV_FILE" "$COMPOSE_PROJECT" "$COMPOSE_FILE")"
   ok "生效 compose 变体：${RESOLVED_COMPOSE}"
   mark_done "记录生效的 compose 变体"
@@ -461,7 +463,7 @@ fi
 # 若这里不补写，装完的 .env 永远没有标记（T5 判据不成立，守卫对全新环境失效）。
 # RESOLVED_COMPOSE 是重装场景的地面真相（旧标记/容器标签），保留它才能让
 # --force-env 重装路径仍受守卫的变体不一致判定保护。
-if [ -n "${compose_guard_write:-}" ]; then
+if declare -F compose_guard_write >/dev/null; then
   if compose_guard_write "$ENV_FILE" "${RESOLVED_COMPOSE:-$COMPOSE_FILE}"; then
     ok "compose 变体标记已写入（${RESOLVED_COMPOSE:-$COMPOSE_FILE}）"
   else
@@ -493,7 +495,7 @@ compose_cmd() {
 }
 
 # US-37：启动前拦截 compose 变体不一致。守卫缺失时只提醒不阻断（向后兼容）。
-if [ -n "${compose_guard_check:-}" ]; then
+if declare -F compose_guard_check >/dev/null; then
   if ! compose_guard_check "$ENV_FILE" "$COMPOSE_FILE" "$COMPOSE_PROJECT"; then
     if [ "$FORCE_COMPOSE_SWITCH" -eq 1 ]; then
       c_yellow "已指定 --force-compose-switch，按「先完整停机再换变体」执行。"

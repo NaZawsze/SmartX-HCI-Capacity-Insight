@@ -383,6 +383,48 @@ class GuardWiringTest(unittest.TestCase):
         self.assertIn("--force-compose-switch", self.install, "缺少 --force-compose-switch 选项")
         self.assertIn("compose_guard_down_then_switch", self.install, "必须实现先 down 再换")
 
+    def test_install_never_gates_guard_on_variable_expansion(self) -> None:
+        """守卫函数名当变量展开 = 恒空 = 防护整体失效。
+
+        背景：2026-09-30 .14 实测抓到——install.sh 用
+        `[ -n \"\\${compose_guard_check:-}\" ]` 判断守卫是否可用，但守卫加载的是
+        **函数**不是变量，参数展开恒为空，守卫判定/标记回填/标记写入三个分支
+        **从未执行过**。36 例静态单测全绿、真机全死，与 2026-09-30
+        「21 例单测全绿、条件极性写反」是同一类教训。
+        """
+        import re as _re
+        code_lines = [ln for ln in self.install.splitlines() if not ln.strip().startswith("#")]
+        offenders = _re.findall(r"\$\{compose_guard_[A-Za-z_]+[:-]", "\n".join(code_lines))
+        self.assertEqual(
+            offenders, [],
+            f"install.sh 不得用变量展开判断守卫函数（函数不是变量，恒为假）：{offenders}",
+        )
+        for fn in ("compose_guard_resolve", "compose_guard_write", "compose_guard_check"):
+            self.assertRegex(
+                self.install, rf"declare -F {fn} ",
+                f"调用 {fn} 的分支必须用 declare -F 验证函数存在",
+            )
+
+    def test_guard_functions_satisfies_declare_f_at_runtime(self) -> None:
+        """行为级：真实守卫文件 source 后，declare -F 必须认得出全部入口函数。
+
+        上一个测试锁「写法」，本测试锁「写法在真实守卫上真的为真」——
+        防止将来函数改名后 declare -F 静默失配，守卫又整体哑火。
+        """
+        import subprocess
+        guard = ROOT / "delivery" / "compose-guard.sh"
+        script = (
+            f'. "{guard}"; '
+            "for fn in compose_guard_marker compose_guard_detect_running "
+            "compose_guard_write compose_guard_resolve compose_guard_check "
+            "compose_guard_down_then_switch; do "
+            'declare -F "$fn" >/dev/null || echo "MISSING:$fn"; done; echo DONE'
+        )
+        proc = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, f"守卫加载失败：{proc.stderr}")
+        self.assertIn("DONE", proc.stdout)
+        self.assertNotIn("MISSING:", proc.stdout, proc.stdout)
+
     def test_install_writes_marker_into_generated_env(self) -> None:
         """T5：全新安装结束后 .env 必须含 SMARTX_COMPOSE_FILE_ACTIVE。
 
