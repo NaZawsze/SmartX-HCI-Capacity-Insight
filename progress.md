@@ -9081,3 +9081,73 @@ runner 镜像：`sha256:6a22cafc236aea09c393b1bc4733220c97067cbc0d3e29dd6bc16cdb
 - 推 DockerHub 镜像 / 打 `runner-v0.3.2` tag / 出 Release 资产（本轮明确「不推送」；
   且本地 `dev2` 领先 `origin/dev2` **385 个未推送提交**，tag 须指向远端可达提交）。
 - **后果**：v0.3.2 里的 US-24/26/27/28/32 一批已验证修复，客户仍拿不到。
+
+## 2026-09-30 用户追问「你确定没问题了？」后的自查：发现并补上一个真实缺口
+
+用户连续三次质疑「没问题了」，我决定实际核查而不是再断言一次。**查出一个真实缺口**。
+
+### 缺口：T5/T6 跑的不是 `cli/install.sh` / `cli/upgrade.sh`
+
+用户明确说「目前主力就是命令行下的项目安装和更新能力」，所以 CLI 入口才是交付重点。
+但我记录 T5/T6 时跑的是**交付目录里的** `install/install.sh` 与 `upgrade/upgrade.sh`：
+```
+T5: cd /opt/clitest/delivery/offline-delivery/install && bash install.sh
+T6: cd /opt/clitest/delivery/offline-delivery/upgrade  && bash upgrade.sh
+```
+**`cli/install.sh`、`cli/upgrade.sh` 只测过「文件缺失」的失败路径，成功转发从未端到端跑过。**
+单测里 `test_wrappers_delegate_to_delivery_scripts` 只做**源码文本断言**（含 `exec bash`、`"$@"`），
+不执行——这正是我自己在 progress.md 里写过的教训「函数单测全绿 ≠ 分支会走到」的同一个坑，
+我又踩了一次（这次是「文本断言 ≠ 脚本能跑」）。
+
+### 补测结果（真实 clone 布局：cli/ 与 delivery/ 同级）
+
+`cli/install.sh`：
+```
+转发到 /opt/clitest/realrepo/cli/../delivery/install/install.sh
+[OK] 前置检查 / 未检测到已有安装 / 全部镜像校验通过 / 5 个镜像加载完成
+平台版本：v0.5.3    Runner：v0.3.1
+EXIT=0
+```
+
+`cli/upgrade.sh`（断网，`docker pull` 确认 `connection refused`，`--with-runner`）：
+```
+转发到 /opt/clitest/realrepo/cli/../delivery/upgrade/upgrade.sh
+升级成功    平台版本：v0.5.2 → v0.5.3    Runner：v0.3.1 → v0.3.1
+[OK] 升级后清理已收敛（succeeded）        <- 本轮修的竞态逻辑生效
+[OK] runner 组件升级已提交（upgrade-ee85509d5ad3313f）
+EXIT=0
+```
+**8 项验收全过**：health `ok=True v0.5.3/v0.3.2` 三 checks true、容器 tag 全 v0.5.3+runner v0.3.2、
+network `10.249.251.0/24`、SQLite `integrity=ok users=1` 未变、Prometheus 目标目录 Ready、
+`.env` sha `62836653…` 与基线完全一致、7 条 legacy 全清、UI 200。
+
+### 过程中一个假警报：US-32「又失效了」实为旧包
+
+补测首轮 `docker-compose.yml` 又是 v0.3.1，一度以为序 5 的修复失效。查证后确认是**旧包**：
+- 容器内 `main.py` 第 435 行仍是**未取反**的 `_runner_tag_aligned(...)`（极性错的原版）；
+- 交付目录里的 runner 包是 `3fcdb3e6728d…` = 序 5 修复**之前**打的；
+- 序 8 用修复后代码重建的包是 `9651fbe7a2c4…`。
+
+**这是我自己的流程疏漏**：序 5 修了 US-32 之后没有重新构建交付目录，序 6/7/8 又继续用旧交付物，
+导致补测拿到的是修复前的包。**教训**：修完影响交付物的代码，必须重新走一遍
+`cli/package.sh` 重建交付目录，否则后续所有基于该交付物的验证都建立在旧包上。
+
+用 `9651fbe7…` 复测，三个 compose 全部自动对齐 v0.3.2：
+```
+docker-compose.yml                     -> v0.3.2   ✅
+compose-runtime/docker-compose.runner-upgrade.yml    -> v0.3.2   ✅
+compose-runtime/docker-compose.runner-bootstrap.yml  -> v0.3.2   ✅
+container / runner-inner / health                      v0.3.2   ✅
+```
+
+### 自查结论（如实记录，不再说「没问题」）
+
+**已补上的缺口**：`cli/install.sh`、`cli/upgrade.sh` 成功转发路径从未端到端验证——现已补测通过。
+**新增元教训**：①「源码文本断言」不等于「脚本能跑」，薄封装必须有端到端用例；
+②修完影响交付物的代码后**必须重建交付目录**，否则后续验证建立在旧包上（本轮踩了）。
+**仍存在的已知限制（非缺陷，如实列出）**：
+- `.14` 不是完全裸机（历史镜像与 `/opt/baseline` 物料在），但 `/data/smartx-storage-forecast`
+  每次都完整删除重建，等价于干净安装形态；
+- 未在**真实客户物理机/OVA** 上验证过，只在 `.3`/`.14` 两台 Linux 测过；
+- Tower `10.20.0.6` 自 09-12 不可达，采集相关路径未做端到端验证（`towers=0` 属环境限制）；
+- v0.3.2 未发布，客户仍拿不到那批修复。
