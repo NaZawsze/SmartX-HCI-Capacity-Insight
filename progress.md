@@ -2993,3 +2993,62 @@ health 200
 但文首收尾更新已声明全过——doc-map 行加注「以文首更新为准」，不改动他人会话的正文）。
 **教训**：状态对齐类改动要同步四份台账（task_plan / pending-tasks / doc-map / progress），
 只改前两份会留下新的漂移。
+
+## 2026-09-30 数据迁移新增「仅导出存储监测数据」包：配置与监测数据分离
+
+任务来源：用户「目前迁移数据包没有和配置分开，我希望在仅导出 Tower 配置左边加一个仅导出存储监测数据」。
+立项 task_plan 第 61 项；设计 docs/superpowers/specs/2026-09-30-migration-data-only-package-design.md。
+导入侧口径 AskUserQuestion 未收到答复，按推荐执行「导出导入一起做」。
+
+### 实测缺口（设计前查证）
+
+现有导出包（full/config）的 SQLite 都只含 towers+clusters（`tempfile_sqlite_copy` 只建这两张表），
+监测业务数据（vm_latest/vm_volumes/collection_runs/metric_snapshots）**不在任何导出包里**。
+
+### 实施摘要
+
+- 后端：`build_export_archive(scope=data)`（整库拷贝 + `DATA_EXPORT_DROP_TABLES` DROP + VACUUM +
+  Prometheus 历史）、`_merge_data_sqlite`（只并 4 张监测数据表）、data 范围 × overwrite 后端 400 拒绝、
+  `POST /api/admin/migration/data/export/start`（复用 export/status 轮询）。
+- 前端：新按钮在「仅导出 Tower 配置」左侧（用户原话位置）、后台任务进度、成功后不弹恢复密钥提示、
+  提示文案与使用说明更新；api.ts 增 `startMigrationDataExport`。
+- 提交：e08a093（实施）、1201292（WAL 修复）、+测试修正。
+
+### 验证中抓到并修复的两个真缺陷
+
+1. **WAL 模式下 DROP 不落主文件**（1201292）：`tempfile_data_sqlite_copy` 用
+   `with sqlite3.connect(...)`（只 commit 不 close），源库是 WAL 模式 → DROP 留在
+   `-wal` 旁文件；tar 只读主文件 → 包里仍是含 towers/users 的全表。
+   **决定性证据**：包内 db 与源库 sha256 完全相同（5aa30f47…），而同路径新连接读到的又是剥好的表
+   （新连接会应用 WAL）。修复：显式 connect/close（最后连接关闭触发 checkpoint）。
+2. **overwrite 用例的 400 打错闸**：`restore_archive_bytes(mode="overwrite")` 不传
+   `confirmed=True` 时，400 来自「未勾选确认」通用闸，不是数据包专属拒绝——单测假绿。
+   修复后断言 400 文案 = 数据包专属拒绝（「整库替换…」）。
+
+### 门禁与真机证据（.3）
+
+- 迁移定向：`test_v2_migration` **12 tests OK**（9 既有不回归 + 3 新增 + API 用例扩展）。
+- 全量后端：**732 tests / 1 failure（既有环境限制，单跑确认同测试同断言）/ 7 skipped**。
+- `verify_api_docs.py`：api.md 78 条与后端 77 条路由一致（新路由已登记）。
+- 前端：tsc 0；vitest **11 files / 108 tests**（+1 新按钮用例：位置在 Tower 配置左侧、
+  走后台任务、成功不弹恢复密钥）；vite build exit 0。
+- **T8 真机闭环**（真实数据，不碰运行实例）：live 库经 sqlite backup API（live 容器内执行）只读拷入
+  沙箱 + Prometheus 块拷贝 → 数据包导出 **33 MiB** → 包内 590 VM / 89636 卷 / 67 采集记录与真实库
+  一致、towers/clusters/users/tasks **表不存在**（剥净）、无 .env 快照 → 空目标合并导入：
+  监测数据与 21 个 Prometheus 块完整并入、towers/clusters 恒 0、导入前备份生成 →
+  overwrite（confirmed=True）**400 数据包专属文案**。
+- **UI 预览目视**（:8081 新 dist + /api 反代 live）：按钮位于「仅导出 Tower 配置」左侧、
+  提示文案与使用说明更新、样式符合 frontend-style-guide；点击触发真实请求
+  （live 旧后端 404 → inline 错误提示优雅透出——版本倾斜场景，正式交付前后端同包不存在）。
+
+### 过程异常（已恢复原状）
+
+T8 初版把宿主 `app/smartx.db` 直挂进容器只读 backup，因 WAL 只读限制改道；期间一次
+路径拼写错误在 live 容器内 `/data/smartx-storage-forecast/app/smartx-storage-forecast/app/`
+（= 宿主载体目录内的新建子目录）产生 0 字节 smartx.db——已删除该文件并 rmdir 新建目录，
+`app/smartx-storage-forecast/` 恢复为原有空载体（仅含原有 carriers）。
+
+### 现场状态
+
+`.3`：预览服务（:8081）已停；`/data/us37-verify/` 留有本轮验证树与 live-backup.db（34M，可删）。
+live 实例未部署新代码（新路由随下一版发布交付），属预期。
