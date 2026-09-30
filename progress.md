@@ -9337,3 +9337,82 @@ SQLite integrity=ok users=1（与基线一致）
 - **本轮补上第 10 个**：CLI 入口设计错误（仓库 delivery/ 无 images/），已修为「多候选定位 + 校验完整性」
 - **真 clone 全链路**（不是复制文件）复验通过
 - `.3` 后端 689 tests OK、前端 tsc 0 / vitest 107、runner 门禁 12 PASS
+
+## 2026-09-30 `.3` 服务中断事故（用户发现）：根因是**我的测试污染**，不是导入包
+
+### 用户报告
+「我在 10.20.11.3 导入了一个迁移包，应该只包含数据才对，现在服务应该挂了。」
+
+### 现场取证
+
+| 项 | 值 |
+| --- | --- |
+| `web-api` 容器 | `Exited (137)`，`OOMKilled=false`，`Error=`（空） |
+| 残留容器 | `12524e10d4ab 64ff891973e4_...web-api-1  Created`（卡住从未启动） |
+| 内存 | 15Gi 总量、3.3Gi 已用、12Gi available —— **不是 OOM** |
+| 导入任务 | `migration-import-24fc0c44b1f0b0a2` → **`success`**，message「数据迁移导入完成」 |
+| 导入包内容 | `manifest.json` + `app/smartx.db` + `prometheus/*/blocks` —— **只含数据，用户判断正确** |
+| 迁移代码是否碰 compose | `grep -c compose backend/app/v2/migration/service.py` = **0** |
+
+### 真正的根因：两个 compose 混用导致 config-hash 冲突
+
+`docker events` 是决定性证据（10:31:40 那一刻）：
+
+```
+container create 12524e10d4ab ... name=64ff891973e4_...web-api-1
+  └─ config_files=.../docker-compose.offline.yml
+container create fdd23b8037e5 ... name=139d1039e466_...collector-worker-1
+  └─ config_files=.../docker-compose.offline.yml
+container kill 64ff891973e4 ... signal=15     <- 杀老 web-api（用 docker-compose.yml 起的）
+container die  64ff891973e4 ... exitCode=137  <- SIGKILL 后的 137
+```
+
+修复前各容器实际用的 compose（**混用**）：
+```
+web-api            -> docker-compose.yml
+collector-worker   -> docker-compose.offline.yml     <- 不一致
+残留容器            -> docker-compose.offline.yml
+```
+
+两个 compose 的 web-api 定义**实质不同**（`diff` 实测）：
+```
+主 compose:      build: {context: ., dockerfile: backend/Dockerfile}
+offline compose: pull_policy: never
+                 + env SMARTX_COMPOSE_FILE
+                 + 挂载 project:/data/smartx-storage-forecast/project:ro
+```
+用 A compose 起的容器，被 B compose 判定为「配置变了」→ recreate → 老容器被 SIGKILL → 137。
+
+### 我的责任
+
+`/data/clone-test`（我 09:52 跑 `package.sh` 的真 clone 测试目录）与 `/data/cli-test` 一直留在 `.3` 上。
+我在 `.3` 这台**正在运行的开发/测试机**上跑安装/打包测试，用了 `docker-compose.offline.yml`，
+而 `.3` 上的平台实例原本是用 `docker-compose.yml` 起的 —— **我没意识到同 project 混用两个 compose 会触发 recreate**。
+
+**这是我的操作纪律问题**：在有真实服务运行的机器上做会操作 docker 的测试，
+必须先确认 project/容器命名空间不冲突，或用独立 project name 隔离。
+
+### 修复
+
+1. 删掉两个卡在 `Created` 的残留容器（`12524e10d4ab`、`fdd23b8037e5`）。
+2. 用**主 compose**（`docker-compose.yml`，与原 web-api 一致）统一下来：
+   `down --remove-orphans` → `up -d`。
+3. 验证：**5/5 容器 Up，且全部统一用 `docker-compose.yml`**，health `ok=True v0.5.3/v0.3.2` 三 checks 全 true。
+4. **删除我的两个测试目录**（`/data/clone-test`、`/data/cli-test`，各 3.4G），避免再次污染。
+
+### 数据完好性（导入确实成功了）
+```
+integrity_check = ok
+users=1  towers=1  clusters=1  vm_latest=590  vm_volumes=89636
+metric_snapshots=1  collection_runs=67  tasks=42
+.env mode=600 owner=root:root（未破坏）    smartx.db 34M
+health 200
+```
+
+### 三条纪律（如实记下来）
+1. **在有服务运行的机器上跑会动 docker 的测试，必须隔离 project name**（如 `-p smartx-cli-test`），
+   或先确认不与现有实例冲突。
+2. **同一个 compose project 绝不能混用两个 compose 文件起服务**——它们的 `config-hash` 不同，
+   Docker 会判定「配置变了」并 recreate，被 SIGKILL 的容器退出码是 **137**（不是 137=内存不足那么简单，
+   本次 `OOMKilled=false` 排除了 OOM）。**exit 137 + OOMKilled=false = 被人为 SIGKILL**。
+3. **测试目录用完即删**（本次两个目录各 3.4G，且留在上面会持续污染现场）。
