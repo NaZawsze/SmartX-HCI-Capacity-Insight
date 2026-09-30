@@ -113,7 +113,7 @@ class RenderOfflineComposeTest(unittest.TestCase):
 class RenderAllDeliveryComposesTest(unittest.TestCase):
     """交付 project 下**所有** compose 的 runner tag 都必须落已发布基线。
 
-    2026-09-30 `cli/package.sh` 端到端实测发现：原实现只渲染
+    2026-09-30 `ops/package.sh` 端到端实测发现：原实现只渲染
     `docker-compose.offline.yml`，`docker-compose.yml` 原样带着源码开发线 tag
     （实测 v0.3.2）进了交付目录——而它就在现场、且是 `docker compose up` 的默认读取对象。
     违反 AGENTS §8。

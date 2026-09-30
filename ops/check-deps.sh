@@ -125,7 +125,7 @@ check_git() {
 # ── 7. 磁盘空间 ─────────────────────────────────────────────
 # 不用 `df -BG`（GNU 专有，BSD/精简环境不支持）：退回 POSIX 的 df -k 再换算。
 check_disk() {
-  local need_gb="${CLI_MIN_DISK_GB:-20}"
+  local need_gb="${OPS_MIN_DISK_GB:-20}"
   local avail_kb avail_gb
   avail_kb="$(df -Pk "$PWD" 2>/dev/null | awk 'NR==2 {print $4}')"
   if [ -z "$avail_kb" ] || ! [ "$avail_kb" -eq "$avail_kb" ] 2>/dev/null; then
@@ -148,7 +148,7 @@ check_disk() {
 check_repo() {
   # 局部变量先赋空值：set -u 下若命令失败会引用未赋值变量而中断（退成 exit 1 而非 2）
   local root=""
-  root="$(cli_repo_root 2>/dev/null || true)"
+  root="$(ops_repo_root 2>/dev/null || true)"
   if [ -n "$root" ] && [ -d "$root/.git" ]; then
     ok "git 仓库 $root"
   else
@@ -161,7 +161,7 @@ check_repo() {
 # ── 9. 基线 runner 镜像（发布产物，不在仓库里）──────────────
 # 只提示，不阻断打包平台包/组件包；仅在需要构建离线交付目录时才是硬前置。
 check_runner_baseline() {
-  local tag="${CLI_RUNNER_BASELINE_TAG:-v0.3.1}"
+  local tag="${OPS_RUNNER_BASELINE_TAG:-v0.3.1}"
   local image="nazawsze/smartx-hci-capacity-insight-upgrade-runner:$tag"
   if docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -qx "$image"; then
     ok "基线 runner 镜像 $image"

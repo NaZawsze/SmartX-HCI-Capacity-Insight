@@ -4,9 +4,9 @@
 # 用法：
 #   git clone https://github.com/NaZawsze/SmartX-HCI-Capacity-Insight.git
 #   cd SmartX-HCI-Capacity-Insight
-#   bash cli/package.sh
+#   bash ops/package.sh
 #
-# 做四件事：同步代码 → 体检依赖 → 构建平台包/runner 组件包/离线交付目录 → 归档到 cli/packages/
+# 做四件事：同步代码 → 体检依赖 → 构建平台包/runner 组件包/离线交付目录 → 归档到 ops/packages/
 # 设计见 docs/superpowers/specs/2026-09-30-cli-toolkit-design.md
 #
 # 纪律：依赖缺失**只提示不自动装**（Q5）；失败**不在中途静默继续**，每步都有明确判据。
@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── 参数 ────────────────────────────────────────────────────
 BRANCH="main"                 # Q1：默认 main（发布线）。dev2 是开发线，必须显式指定才会用。
-OUTPUT_DIR=""                 # 默认 <repo>/cli/packages
+OUTPUT_DIR=""                 # 默认 <repo>/ops/packages
 SKIP_OFFLINE=0                # 缺基线 runner 镜像时可跳过离线交付目录
 ASSUME_YES=0
 DO_FETCH=1
@@ -29,21 +29,21 @@ usage() {
 一键打包 SmartX HCI Capacity Insight 升级包
 
 用法:
-  bash cli/package.sh [选项]
+  bash ops/package.sh [选项]
 
 选项:
   --branch <分支>     要打包的分支（默认 main = 发布线）
                       ⚠ 本项目 dev2 是开发线，打包发客户请务必确认分支
-  --output-dir <目录> 产物输出根目录（默认 cli/packages）
+  --output-dir <目录> 产物输出根目录（默认 ops/packages）
   --skip-offline      跳过离线交付目录（只出平台包 + runner 组件包）
   --no-fetch          跳过 git fetch（用当前工作树）
   --yes               非交互模式，跳过破坏性操作确认
   -h, --help          显示本帮助
 
 示例:
-  bash cli/package.sh                          # 打包 main（发布线）
-  bash cli/package.sh --branch dev2            # 打包开发线
-  bash cli/package.sh --skip-offline           # 本机无基线 runner 镜像时
+  bash ops/package.sh                          # 打包 main（发布线）
+  bash ops/package.sh --branch dev2            # 打包开发线
+  bash ops/package.sh --skip-offline           # 本机无基线 runner 镜像时
 
 产物:
   <output-dir>/latest/       最新可用（平台包 + runner 组件包 + 离线交付目录）
@@ -63,9 +63,9 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-ROOT="$(cli_repo_root)" || die "无法定位仓库根目录（cli_repo_root 失败）。当前目录：$PWD"
+ROOT="$(ops_repo_root)" || die "无法定位仓库根目录（ops_repo_root 失败）。当前目录：$PWD"
 [ -n "$ROOT" ] || die "仓库根目录解析为空。当前目录：$PWD"
-[ -n "$OUTPUT_DIR" ] || OUTPUT_DIR="$ROOT/cli/packages"
+[ -n "$OUTPUT_DIR" ] || OUTPUT_DIR="$ROOT/ops/packages"
 LATEST_DIR="$OUTPUT_DIR/latest"
 ARCHIVE_DIR="$OUTPUT_DIR/archive"
 STAGE_DIR="$OUTPUT_DIR/.stage"
@@ -78,7 +78,7 @@ RUN_TAG="$(date +%H%M%S)"
 step "步骤 1/9 · 依赖体检"
 if ! bash "$SCRIPT_DIR/check-deps.sh"; then
   err "依赖体检未通过，已中止。"
-  info "按上面提示逐条处理后重跑；只想看诊断可单独执行：bash cli/check-deps.sh"
+  info "按上面提示逐条处理后重跑；只想看诊断可单独执行：bash ops/check-deps.sh"
   exit 2
 fi
 
@@ -243,7 +243,7 @@ step "步骤 8/9 · 离线交付目录"
 # --runner-baseline 收的是**已发布基线 tag**（如 v0.3.1），不是镜像 tar 路径；
 # 镜像导出由 build_offline_delivery.py 自己做（它会 docker save 该 tag）。
 # 曾实测误传 tar 路径，脚本会拼成 upgrade-runner:/path/to.tar 而找不到镜像。
-BASELINE_TAG="${CLI_RUNNER_BASELINE_TAG:-v0.3.1}"
+BASELINE_TAG="${OPS_RUNNER_BASELINE_TAG:-v0.3.1}"
 BASELINE_IMAGE="nazawsze/smartx-hci-capacity-insight-upgrade-runner:$BASELINE_TAG"
 
 if [ "$SKIP_OFFLINE" = "1" ]; then
@@ -270,7 +270,7 @@ else
   dim "  1) 从 GitHub Release 下载已发布组件包后 docker load"
   dim "  2) 从已有导出目录复制（.3:/data/upgrade-packages/baseline-*/images/）"
   dim "  3) 加 --skip-offline，只出平台包与 runner 组件包"
-  dim "  另：基线 tag 可用 CLI_RUNNER_BASELINE_TAG 覆盖（默认 v0.3.1）"
+  dim "  另：基线 tag 可用 OPS_RUNNER_BASELINE_TAG 覆盖（默认 v0.3.1）"
   OFFLINE_DIR=""
 fi
 

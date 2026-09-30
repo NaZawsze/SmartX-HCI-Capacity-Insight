@@ -211,7 +211,7 @@ def render_offline_compose(source: Path, destination: Path, runner_baseline: str
 def render_all_delivery_composes(project_dir: Path, runner_baseline: str) -> list[str]:
     """把交付 project 目录下**所有** compose 的 runner tag 落已发布基线。
 
-    为什么不止 offline 那一份（2026-09-30 `cli/package.sh` T2 实测发现）：
+    为什么不止 offline 那一份（2026-09-30 `ops/package.sh` T2 实测发现）：
     原实现只渲染 `docker-compose.offline.yml`，而 `copy_project_files` 是整份复制，
     于是 `docker-compose.yml` 原样带着**源码开发线** tag（实测 v0.3.2）进了交付目录。
     而 `delivery/install/install.sh` 启动用 offline 那份（`COMPOSE_FILE`），却把**两个都装进**

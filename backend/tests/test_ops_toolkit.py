@@ -1,4 +1,4 @@
-"""CLI 工具链（task_plan #58 / pending-tasks #58）单测。
+"""运维操作工具（task_plan #58 / pending-tasks #58）单测。
 
 覆盖设计 §6.1 的提示规范与 §6.2 的退出码约定，以及"只提示不自动装"的纪律（Q5）。
 这些是纯 shell 脚本，用桩命令（stub）构造环境来验证，不用真机。
@@ -15,21 +15,21 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CLI = ROOT / "cli"
-CHECK_DEPS = CLI / "check-deps.sh"
-COMMON = CLI / "lib" / "common.sh"
+OPS = ROOT / "ops"
+CHECK_DEPS = OPS / "check-deps.sh"
+COMMON = OPS / "lib" / "common.sh"
 
 
-class CliScriptPresenceTest(unittest.TestCase):
+class OpsScriptPresenceTest(unittest.TestCase):
     """脚本存在、语法正确、入口齐全。"""
 
     def test_required_files_exist(self) -> None:
         for relative in ("README.md", "install.sh", "upgrade.sh", "package.sh", "check-deps.sh"):
-            self.assertTrue((CLI / relative).is_file(), f"缺少 cli/{relative}")
-        self.assertTrue(COMMON.is_file(), "缺少 cli/lib/common.sh")
+            self.assertTrue((OPS / relative).is_file(), f"缺少 ops/{relative}")
+        self.assertTrue(COMMON.is_file(), "缺少 ops/lib/common.sh")
 
     def test_all_scripts_pass_syntax_check(self) -> None:
-        for script in sorted(CLI.rglob("*.sh")):
+        for script in sorted(OPS.rglob("*.sh")):
             completed = subprocess.run(
                 ["bash", "-n", str(script)], capture_output=True, text=True, check=False
             )
@@ -39,11 +39,11 @@ class CliScriptPresenceTest(unittest.TestCase):
 
     def test_scripts_are_executable(self) -> None:
         for name in ("install.sh", "upgrade.sh", "package.sh", "check-deps.sh"):
-            path = CLI / name
-            self.assertTrue(os.access(path, os.X_OK), f"cli/{name} 缺少可执行位")
+            path = OPS / name
+            self.assertTrue(os.access(path, os.X_OK), f"ops/{name} 缺少可执行位")
 
 
-class CliDependencyCheckTest(unittest.TestCase):
+class OpsDependencyCheckTest(unittest.TestCase):
     """check-deps.sh 的退出码与提示规范（设计 §6.1 / §6.2）。"""
 
     def _stub_bin(self, directory: Path, stubs: dict[str, str]) -> Path:
@@ -67,7 +67,7 @@ class CliDependencyCheckTest(unittest.TestCase):
         env = dict(os.environ)
         env["NO_COLOR"] = "1"
         # 强制低磁盘阈值，避开 CI 机器真实空间差异
-        env.setdefault("CLI_MIN_DISK_GB", "1")
+        env.setdefault("OPS_MIN_DISK_GB", "1")
         if env_extra:
             env.update(env_extra)
         completed = subprocess.run(
@@ -107,7 +107,7 @@ class CliDependencyCheckTest(unittest.TestCase):
 
     def test_never_auto_installs(self) -> None:
         """Q5 纪律：脚本内不得出现任何安装动作，只能提示。"""
-        for script in sorted(CLI.rglob("*.sh")):
+        for script in sorted(OPS.rglob("*.sh")):
             text = script.read_text(encoding="utf-8")
             # 允许出现在 info/echo 的提示字符串里，但不允许作为真实命令执行
             offenders = [
@@ -130,7 +130,7 @@ class CliDependencyCheckTest(unittest.TestCase):
         self.assertIn(result.returncode, (0, 2))
 
 
-class CliCommonLibTest(unittest.TestCase):
+class OpsCommonLibTest(unittest.TestCase):
     """共用库的退出码与确认逻辑。"""
 
     def test_die_exits_2(self) -> None:
@@ -179,24 +179,24 @@ class CliCommonLibTest(unittest.TestCase):
             self.assertIn("ALLOW", result.stdout)
 
 
-class CliRepoRootTest(unittest.TestCase):
-    """cli_repo_root 必须解析到仓库根（薄封装定位 delivery/ 靠它）。"""
+class OpsRepoRootTest(unittest.TestCase):
+    """ops_repo_root 必须解析到仓库根（薄封装定位 delivery/ 靠它）。"""
 
     def test_repo_root_resolves_to_project_root(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             script = Path(raw) / "t.sh"
             script.write_text(
-                f'. "{COMMON}"\ncli_repo_root\n', encoding="utf-8"
+                f'. "{COMMON}"\nops_repo_root\n', encoding="utf-8"
             )
             result = subprocess.run(
                 ["bash", str(script)], capture_output=True, text=True, check=False
             )
             self.assertEqual(
-                result.stdout.strip(), str(ROOT), "cli_repo_root 必须解析到仓库根"
+                result.stdout.strip(), str(ROOT), "ops_repo_root 必须解析到仓库根"
             )
 
 
-class CliThinWrapperTest(unittest.TestCase):
+class OpsThinWrapperTest(unittest.TestCase):
     """install.sh / upgrade.sh 的转发逻辑（Q4）。
 
     2026-09-30 修正过一次设计错误：原实现直接 `exec ../delivery/install/install.sh`，
@@ -211,40 +211,40 @@ class CliThinWrapperTest(unittest.TestCase):
             ("install.sh", '"$CANDIDATE/images"'),
             ("upgrade.sh", '"$CANDIDATE/packages"'),
         ):
-            text = (CLI / name).read_text(encoding="utf-8")
-            self.assertIn("for CANDIDATE in", text, f"cli/{name} 必须遍历候选交付目录")
+            text = (OPS / name).read_text(encoding="utf-8")
+            self.assertIn("for CANDIDATE in", text, f"ops/{name} 必须遍历候选交付目录")
             self.assertIn(
                 marker, text,
-                f"cli/{name} 必须校验交付物料完整性（{marker}），不能只看脚本存在",
+                f"ops/{name} 必须校验交付物料完整性（{marker}），不能只看脚本存在",
             )
-            self.assertIn("exec bash", text, f"cli/{name} 找到物料后必须 exec 转发")
-            self.assertIn('"$@"', text, f"cli/{name} 必须原样透传参数")
+            self.assertIn("exec bash", text, f"ops/{name} 找到物料后必须 exec 转发")
+            self.assertIn('"$@"', text, f"ops/{name} 必须原样透传参数")
 
     def test_wrappers_explain_repo_delivery_is_incomplete(self) -> None:
         """必须点明「仓库里的 delivery/ 不完整」，否则用户会以为脚本坏了。"""
         for name in ("install.sh", "upgrade.sh"):
-            text = (CLI / name).read_text(encoding="utf-8")
+            text = (OPS / name).read_text(encoding="utf-8")
             self.assertIn(
                 "不是**给客户用的",
                 text,
-                f"cli/{name} 必须说明它不是给客户用的（避免与交付目录脚本混淆）",
+                f"ops/{name} 必须说明它不是给客户用的（避免与交付目录脚本混淆）",
             )
             self.assertIn(
                 "不进 git",
                 text,
-                f"cli/{name} 必须解释交付物料为何不在仓库里",
+                f"ops/{name} 必须解释交付物料为何不在仓库里",
             )
 
     def test_wrappers_fail_readably_without_delivery(self) -> None:
         """无交付物料时给可操作的三条路径，不是静默失败。"""
         with tempfile.TemporaryDirectory() as raw:
             fake_root = Path(raw)
-            (fake_root / "cli" / "lib").mkdir(parents=True)
-            shutil.copy2(COMMON, fake_root / "cli" / "lib" / "common.sh")
+            (fake_root / "ops" / "lib").mkdir(parents=True)
+            shutil.copy2(COMMON, fake_root / "ops" / "lib" / "common.sh")
             for name in ("install.sh", "upgrade.sh"):
-                shutil.copy2(CLI / name, fake_root / "cli" / name)
+                shutil.copy2(OPS / name, fake_root / "ops" / name)
                 result = subprocess.run(
-                    ["bash", str(fake_root / "cli" / name)],
+                    ["bash", str(fake_root / "ops" / name)],
                     capture_output=True, text=True,
                     env={**os.environ, "NO_COLOR": "1"}, check=False
                 )
@@ -252,7 +252,7 @@ class CliThinWrapperTest(unittest.TestCase):
                 combined = result.stdout + result.stderr
                 self.assertIn("找不到可用", combined, f"{name} 必须说明缺什么")
                 self.assertIn(
-                    "bash cli/package.sh", combined,
+                    "bash ops/package.sh", combined,
                     f"{name} 必须给出「先打包」这条路径",
                 )
                 self.assertIn(
@@ -272,7 +272,7 @@ class CliThinWrapperTest(unittest.TestCase):
             cwd=str(ROOT), capture_output=True, text=True, check=False
         )
         self.assertEqual(
-            completed.stdout.strip(), "", "cli/ 实施不得改动 delivery/ 任何文件"
+            completed.stdout.strip(), "", "ops/ 实施不得改动 delivery/ 任何文件"
         )
 
     def test_delivery_scripts_untouched_by_content(self) -> None:
@@ -286,23 +286,23 @@ class CliThinWrapperTest(unittest.TestCase):
         """锁定一个已确认的事实：仓库里的 delivery/install 没有 images/ 与 project/。
 
         这是 2026-09-30 发现的设计缺陷的根据——若哪天决定把镜像目录也纳入版本控制，
-        本测试会失败，提醒同步更新 cli/install.sh 的定位逻辑与 README 文案。
+        本测试会失败，提醒同步更新 ops/install.sh 的定位逻辑与 README 文案。
         """
         install_dir = ROOT / "delivery" / "install"
         self.assertTrue((install_dir / "install.sh").is_file())
         self.assertFalse(
             (install_dir / "images").exists(),
             "仓库里不应存在 delivery/install/images/（1.1G 产物，不进 git）；"
-            "若已纳入版本控制，请同步更新 cli/install.sh 与 cli/README.md",
+            "若已纳入版本控制，请同步更新 ops/install.sh 与 ops/README.md",
         )
 
 
 
-class CliPackageScriptTest(unittest.TestCase):
+class OpsPackageScriptTest(unittest.TestCase):
     """package.sh 的关键行为：分支默认、门禁、破坏性确认。"""
 
     def _text(self) -> str:
-        return (CLI / "package.sh").read_text(encoding="utf-8")
+        return (OPS / "package.sh").read_text(encoding="utf-8")
 
     def test_default_branch_is_main(self) -> None:
         """Q1：默认必须是发布线 main，dev2 是开发线。"""
@@ -313,7 +313,7 @@ class CliPackageScriptTest(unittest.TestCase):
     def test_help_mentions_branch_risk(self) -> None:
         """帮助文本必须警告 dev2 是开发线（防止打错包发客户）。"""
         result = subprocess.run(
-            ["bash", str(CLI / "package.sh"), "--help"],
+            ["bash", str(OPS / "package.sh"), "--help"],
             capture_output=True, text=True, check=False
         )
         self.assertEqual(result.returncode, 0)
@@ -367,7 +367,7 @@ class CliPackageScriptTest(unittest.TestCase):
         镜像导出由该脚本自己做，package.sh 不该插手。
         """
         text = self._text()
-        self.assertIn('CLI_RUNNER_BASELINE_TAG:-v0.3.1', text, "基线必须是 tag 形式")
+        self.assertIn('OPS_RUNNER_BASELINE_TAG:-v0.3.1', text, "基线必须是 tag 形式")
         self.assertIn('--runner-baseline "$BASELINE_TAG"', text,
                       "传给 build_offline_delivery 的必须是 tag，不是 tar 路径")
         self.assertNotIn('--runner-baseline "$BASELINE_TAR"', text,
@@ -407,7 +407,7 @@ class CliPackageScriptTest(unittest.TestCase):
             )
 
 
-class CliShellPitfallTest(unittest.TestCase):
+class OpsShellPitfallTest(unittest.TestCase):
     """锁住两个已实测踩到的 shell 陷阱（macOS/精简环境会复现）。"""
 
     def test_no_variable_glued_to_non_ascii(self) -> None:
@@ -417,7 +417,7 @@ class CliShellPitfallTest(unittest.TestCase):
         在 set -u 下直接中断，脚本退成 exit 1 而不是约定的 exit 2。
         """
         pattern = re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7f]")
-        for script in sorted(CLI.rglob("*.sh")):
+        for script in sorted(OPS.rglob("*.sh")):
             text = script.read_text(encoding="utf-8")
             bad = [
                 f"{i}: {line.strip()[:80]}"
@@ -430,7 +430,7 @@ class CliShellPitfallTest(unittest.TestCase):
 
     def test_no_gnu_only_df_flags(self) -> None:
         """`df -BG` / `sort -V` 是 GNU 专有，BSD 与精简环境不支持 → 脚本会静默失效。"""
-        for script in sorted(CLI.rglob("*.sh")):
+        for script in sorted(OPS.rglob("*.sh")):
             # 只看可执行代码行：注释里说明"为什么不用它"不算使用
             code_lines = [
                 line for line in script.read_text(encoding="utf-8").splitlines()
@@ -461,7 +461,7 @@ class CliShellPitfallTest(unittest.TestCase):
     def test_local_vars_are_preassigned(self) -> None:
         """`local x` 后立刻被命令赋值，命令失败会在 set -u 下崩；必须先赋空值。"""
         pattern = re.compile(r"^\s*local\s+[A-Za-z_][A-Za-z0-9_]*\s*$")
-        for script in sorted(CLI.rglob("*.sh")):
+        for script in sorted(OPS.rglob("*.sh")):
             text = script.read_text(encoding="utf-8")
             bad = [
                 f"{i}: {line.strip()}"

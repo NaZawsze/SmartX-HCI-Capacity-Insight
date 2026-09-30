@@ -5,7 +5,7 @@
 #    `install/install.sh`（含 images/ 与 project/），直接跑那个即可，不需要仓库。
 #
 # 本脚本给**本项目开发者/运维**用：从仓库 clone 后想在本机装一套环境时用。
-# 它先确保有可用的离线交付物料（没有就调用 cli/package.sh 生成），再转发给交付态脚本。
+# 它先确保有可用的离线交付物料（没有就调用 ops/package.sh 生成），再转发给交付态脚本。
 #
 # 为什么不直接 exec ../delivery/install/install.sh：
 #   仓库里的 delivery/install/ **只有 install.sh 一个文件**，没有 images/ 与 project/
@@ -21,8 +21,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # 1) 优先用已有交付目录
 for CANDIDATE in \
     "$SCRIPT_DIR/../delivery/install" \
-    "$SCRIPT_DIR/../cli/packages/latest/offline-delivery/install" \
-    "$SCRIPT_DIR/../cli/packages/latest/install" ; do
+    "$SCRIPT_DIR/../ops/packages/latest/offline-delivery/install" \
+    "$SCRIPT_DIR/../ops/packages/latest/install" ; do
   if [ -d "$CANDIDATE/images" ] && [ -d "$CANDIDATE/project" ]; then
     dim "使用交付物料：$CANDIDATE"
     dim "（若要装到别处，加 --install-dir <交付目录>）"
@@ -37,17 +37,17 @@ cat >&2 <<'EOF'
 
 已查找的位置:
   ../delivery/install
-  ../cli/packages/latest/offline-delivery/install
-  ../cli/packages/latest/install
+  ../ops/packages/latest/offline-delivery/install
+  ../ops/packages/latest/install
 
 仓库里的 delivery/install/ 只有 install.sh 本体，没有镜像与部署文件——
-它们是 cli/package.sh 打包时生成的产物（1.1 GB），不进 git。
+它们是 ops/package.sh 打包时生成的产物（1.1 GB），不进 git。
 
 怎么办（按你的目的选一个）:
 
   A) 你要在本机装一套环境
      先打包出交付物料（需要 Docker，耗时约 10 分钟）:
-         bash cli/package.sh --skip-offline --yes
+         bash ops/package.sh --skip-offline --yes
      然后重跑本脚本。注意 --skip-offline 时需自己准备 install/images/，
      最省事的做法是不加该参数，让 package.sh 产出完整 offline-delivery/。
 

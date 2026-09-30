@@ -1,4 +1,4 @@
-# CLI 工具链
+# 运维操作工具
 
 命令行下的**安装、升级、打包**。三个入口都在这里。
 
@@ -12,7 +12,7 @@
 | **本项目开发者 / 运维** | 本目录的 `install.sh`、`upgrade.sh` | 只有仓库、没交付目录时用。它会先定位（或提示你打包出）交付物料，再转发 |
 
 **关键**：`delivery/install/` 在仓库里**只有 `install.sh` 一个文件**，没有 `images/` 和 `project/`。
-那些是 `cli/package.sh` 打包时生成的产物（1.1 GB），不可能进 git。
+那些是 `ops/package.sh` 打包时生成的产物（1.1 GB），不可能进 git。
 所以在仓库里直接跑 `delivery/install/install.sh` **必然失败**（报「找不到镜像目录」）。
 
 三个脚本都能 `--help`。不确定选哪个就看下表。
@@ -40,7 +40,7 @@
 不确定环境是否满足？先跑体检：
 
 ```bash
-bash cli/check-deps.sh
+bash ops/check-deps.sh
 ```
 
 它会逐项告诉你缺什么、**以及怎么装**。它**不会替你装任何东西**——在客户机器上自动装系统包太危险，这个决定留给你自己。
@@ -55,11 +55,11 @@ bash cli/check-deps.sh
 git clone https://github.com/NaZawsze/SmartX-HCI-Capacity-Insight.git
 cd SmartX-HCI-Capacity-Insight
 # 若还没有交付物料，先打包一个（见第 3 节）
-bash cli/package.sh
-sudo bash cli/install.sh
+bash ops/package.sh
+sudo bash ops/install.sh
 ```
 
-脚本会依次尝试 `delivery/install/`、`cli/packages/latest/offline-delivery/install/`，
+脚本会依次尝试 `delivery/install/`、`ops/packages/latest/offline-delivery/install/`，
 找到含 `images/` 与 `project/` 的那个就转发过去；都没有则明确告诉你先打包。
 
 装完检查：
@@ -78,9 +78,9 @@ docker ps --filter name=smartx-hci   # 应有 5 个容器
 **开发者/运维**升级本机环境。客户请用交付目录的 `upgrade/upgrade.sh`。
 
 ```bash
-sudo bash cli/upgrade.sh --yes
+sudo bash ops/upgrade.sh --yes
 # 或指定包 + 连带升级 runner
-sudo bash cli/upgrade.sh --yes \
+sudo bash ops/upgrade.sh --yes \
   --package <平台包路径> \
   --with-runner <runner 组件包路径>
 ```
@@ -98,8 +98,8 @@ sudo bash cli/upgrade.sh --yes \
 ```bash
 git clone https://github.com/NaZawsze/SmartX-HCI-Capacity-Insight.git
 cd SmartX-HCI-Capacity-Insight
-bash cli/package.sh                    # 打包 main（发布线）
-bash cli/package.sh --branch dev2      # 打包开发线
+bash ops/package.sh                    # 打包 main（发布线）
+bash ops/package.sh --branch dev2      # 打包开发线
 ```
 
 它会：同步代码 → 体检依赖 → 版本一致性预检 → 构建平台包 + runner 组件包 → 跑三道门禁 → 归档。
@@ -111,7 +111,7 @@ bash cli/package.sh --branch dev2      # 打包开发线
 ### 产物在哪
 
 ```
-cli/packages/
+ops/packages/
 ├── latest/                 ← 最新可用（推荐交付这个）
 │   ├── smartx-capacity-insight-upgrade-v0.5.3.tar.gz
 │   ├── smartx-upgrade-runner-v0.3.2.tar.gz
@@ -123,7 +123,7 @@ cli/packages/
 └── archive/YYYYMMDD-HHMMSS/   ← 历史归档，保留最近 5 份
 ```
 
-`cli/packages/` **不入 git**，产物靠本机留存。换机器要自己传。
+`ops/packages/` **不入 git**，产物靠本机留存。换机器要自己传。
 
 ### 关于离线交付目录
 
@@ -155,7 +155,7 @@ cli/packages/
 ## 目录结构
 
 ```
-cli/
+ops/
 ├── README.md        ← 本文件
 ├── install.sh       入口：安装（薄封装）
 ├── upgrade.sh       入口：升级（薄封装）

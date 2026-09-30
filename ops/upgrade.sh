@@ -19,8 +19,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # 1) 优先用已有交付目录
 for CANDIDATE in \
     "$SCRIPT_DIR/../delivery/upgrade" \
-    "$SCRIPT_DIR/../cli/packages/latest/offline-delivery/upgrade" \
-    "$SCRIPT_DIR/../cli/packages/latest/upgrade" ; do
+    "$SCRIPT_DIR/../ops/packages/latest/offline-delivery/upgrade" \
+    "$SCRIPT_DIR/../ops/packages/latest/upgrade" ; do
   if [ -d "$CANDIDATE/packages" ]; then
     dim "使用交付物料：$CANDIDATE"
     step "转发到 $CANDIDATE/upgrade.sh"
@@ -34,18 +34,18 @@ cat >&2 <<'EOF'
 
 已查找的位置:
   ../delivery/upgrade
-  ../cli/packages/latest/offline-delivery/upgrade
-  ../cli/packages/latest/upgrade
+  ../ops/packages/latest/offline-delivery/upgrade
+  ../ops/packages/latest/upgrade
 
 仓库里的 delivery/upgrade/ 只有 upgrade.sh 本体，没有 packages/——
-升级包是 cli/package.sh 打包时生成的产物（313 MB），不进 git。
+升级包是 ops/package.sh 打包时生成的产物（313 MB），不进 git。
 
 怎么办（按你的目的选一个）:
 
   A) 仓库态升级（开发者/运维，本机已装好平台）
      先生成升级物料:
-         bash cli/package.sh --skip-offline --yes
-     再重跑本脚本。升级包会落在 cli/packages/latest/。
+         bash ops/package.sh --skip-offline --yes
+     再重跑本脚本。升级包会落在 ops/packages/latest/。
 
   B) 客户升级 / 离线环境升级
      用**交付目录**里的脚本，不要用本仓库的:

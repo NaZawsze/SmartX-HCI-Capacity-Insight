@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# CLI 工具链共用库：日志、错误处理、交互确认。
-# 由 cli/install.sh、cli/upgrade.sh、cli/package.sh、cli/check-deps.sh 引用。
+# 运维操作工具共用库：日志、错误处理、交互确认。
+# 由 ops/install.sh、ops/upgrade.sh、ops/package.sh、ops/check-deps.sh 引用。
 # 设计见 docs/superpowers/specs/2026-09-30-cli-toolkit-design.md
 
 # 非交互环境（CI、管道）自动关闭颜色
@@ -53,9 +53,9 @@ confirm() {
   esac
 }
 
-# 定位仓库根目录（本文件在 <root>/cli/lib/common.sh）
+# 定位仓库根目录（本文件在 <root>/ops/lib/common.sh）
 # 不改动调用方的 cwd；失败时返回非 0 而不是崩在 set -u 上。
-cli_repo_root() {
+ops_repo_root() {
   local here=""
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || return 1
   ( cd "$here/../.." 2>/dev/null && pwd )
