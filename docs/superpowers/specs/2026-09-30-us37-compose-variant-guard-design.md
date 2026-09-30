@@ -110,8 +110,8 @@ offline-delivery/
 
 事故的直接成因是我在**运行中的机器**上用另一份 compose 操作同一 project。工具层要挡这个：
 
-- `cli/package.sh` **本身不调用 compose**（实测确认，只做构建），所以它无此风险——**保持现状，不要加多余逻辑**。
-- 新增 `cli/lib/test-env.sh`：提供 `test_project_name` / `test_compose_for`，让**任何测试脚本**在
+- `ops/package.sh` **本身不调用 compose**（实测确认，只做构建），所以它无此风险——**保持现状，不要加多余逻辑**。
+- 新增 `ops/lib/test-env.sh`：提供 `test_project_name` / `test_compose_for`，让**任何测试脚本**在
   有服务运行的机器上跑时能用**独立 project 名**（如 `smartx-cli-test`），物理隔离。
 - 更重要的一条纪律写进 `docs/development-verification-process.md`：
   **在 `.3`/`.12` 这类运行着实例的机器上做测试，必须用独立 project 名**；
@@ -136,8 +136,8 @@ offline-delivery/
 | `scripts/build_offline_delivery.py` | `SCRIPT_SOURCES` 增加两条，把守卫复制进 `install/` 与 `upgrade/` | 3 行 |
 | `delivery/install/install.sh` | 启动前把 `SMARTX_COMPOSE_FILE_ACTIVE=$COMPOSE_FILE` 写入 `.env`；`compose up` 前调守卫 | 新增写入 + 一次调用 |
 | `delivery/upgrade/upgrade.sh` | 若有 compose 操作则调守卫（当前不碰 compose，仍加防护位） | 轻量 |
-| `cli/install.sh`、`cli/upgrade.sh` | 转发前调守卫，给使用者一致性提示 | 轻量 |
-| `cli/lib/test-env.sh` | 新增：测试隔离助手 | 新文件 |
+| `ops/install.sh`、`ops/upgrade.sh` | 转发前调守卫，给使用者一致性提示 | 轻量 |
+| `ops/lib/test-env.sh` | 新增：测试隔离助手 | 新文件 |
 | `backend/tests/test_us37_compose_guard.py` | 新增：守卫行为单测 | 新测试 |
 | `docs/development-verification-process.md` | 补「运行中机器做测试」的纪律 | 文档 |
 | `docs/troubleshooting.md` | 新增症状：**`exit 137` + `OOMKilled=false` = 被人为 SIGKILL，先查谁在 recreate** | 文档 |
@@ -166,17 +166,17 @@ offline-delivery/
 - **风险 2：`--force-compose-switch` 被滥用** → 它的语义是"完整停机再换"，
   比 recreate 安全；但仍会造成**计划内停机**。缓解：提示语明确写"会中断服务"，
   且不提供"静默强制"选项。
-- **风险 3：守卫放在 `cli/install.sh` 里，但客户用的是交付目录的 `install.sh`** →
+- **风险 3：守卫只放在 `ops/install.sh` 里，但客户用的是交付目录的 `install.sh`** →
   **守卫必须同时放在交付态脚本里**（`delivery/install/install.sh`、`delivery/upgrade/upgrade.sh`），
   否则只保护开发者、放过客户。**这一点是本设计成败的关键**，实施时必须覆盖交付态。
 - **回滚**：改动集中且不触碰 compose 与业务代码，`git revert` 即可。
 
 ## 7. 实施顺序
 
-1. `cli/lib/compose-guard.sh` + 单测（T1–T3）
-2. `cli/lib/test-env.sh`
+1. `delivery/compose-guard.sh` + 单测（T1–T3）
+2. `ops/lib/test-env.sh`
 3. `delivery/install/install.sh` 写标记 + 调守卫 → T5、T6（`.14` 实测）
 4. `delivery/upgrade/upgrade.sh` 调守卫
-5. `cli/install.sh`、`cli/upgrade.sh` 提示 + 文档（T7）
+5. `ops/install.sh`、`ops/upgrade.sh` 提示 + 文档（T7）
 6. `.3` 全量门禁（T8）
 7. 更新 `docs/upgrade-strategy-issues.md` US-37 状态、`progress.md`、ledger
