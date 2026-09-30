@@ -9416,3 +9416,51 @@ health 200
    Docker 会判定「配置变了」并 recreate，被 SIGKILL 的容器退出码是 **137**（不是 137=内存不足那么简单，
    本次 `OOMKilled=false` 排除了 OOM）。**exit 137 + OOMKilled=false = 被人为 SIGKILL**。
 3. **测试目录用完即删**（本次两个目录各 3.4G，且留在上面会持续污染现场）。
+
+## 2026-09-30 US-37 收录与设计（用户「这个问题收录一下，设计解决办法」）
+
+### 收录
+- `docs/upgrade-strategy-issues.md` 新增 **US-37**（含现场取证、根因分析、结构性归类、诊断教训）
+- `docs/pending-tasks.md` 新增 **#59**
+- `task_plan.md` 新增第 **59** 项
+- `docs/doc-map.md` 登记设计文档
+
+### 设计要点（`docs/superpowers/specs/2026-09-30-us37-compose-variant-guard-design.md`）
+
+**根因重新表述**：事故的直接触发是"我在运行中的机器上用另一份 compose 操作同一 project"，
+但**真正的结构性问题是系统无法自保**——仓库有 4 个 compose 变体共享同一 project 名，
+而**没有任何机制记录「这个实例是用哪个 compose 起的」**。下一次可能是客户运维照着文档敲
+`docker compose -f docker-compose.yml up -d`（主 compose 名字最"正统"）就把实例 recreate 掉。
+**这是文档可读性诱导的误操作，不是纪律能挡住的。**
+
+**三层防护**：
+
+| 层 | 手段 | 挡什么 |
+| --- | --- | --- |
+| 1 标记 | `install.sh` 启动前把 `SMARTX_COMPOSE_FILE_ACTIVE=$COMPOSE_FILE` 写入 `.env` | 留下单一事实源。`.env` 已 0600、容器内已挂载 → **诊断无需登录宿主** |
+| 2 守卫 | `delivery/compose-guard.sh` 在任何 `compose up/down` 前比对，不一致**默认拒绝** + 三条路径；`--force-compose-switch` 走**完整 down 再 up**（不是硬 replace） | 误操作。默认拒绝而非警告，因为代价是**服务中断**而正确操作成本只是改一个参数 |
+| 3 隔离 | `cli/lib/test-env.sh` 提供独立 project 名；文档写明"运行中机器做测试必须隔离" | 开发/测试侧污染 |
+
+**一个实测出来的关键约束**：`scripts/build_offline_delivery.py` 的 `SCRIPT_SOURCES`
+只复制**单个 .sh 文件**，交付目录**没有 `lib/`**。所以守卫**不能作为外部库依赖**——
+必须是自包含独立脚本，并给 `SCRIPT_SOURCES` 加两条（`install/compose-guard.sh` 与
+`upgrade/compose-guard.sh`，两份内容相同、避免路径耦合）。
+
+**成败关键**：守卫必须同时装进**交付态**脚本。只放 `cli/` 侧 = 只保护开发者、放过客户。
+这一条在设计里单独标出。
+
+**否决的备选方案**（都写进设计，避免后人重复讨论）：
+- 删掉多余 compose → 交付需要 offline 变体、升级需要 upgrade 变体，删不掉
+- 给每个变体不同 project 名 → 同一套环境不能同时跑在不同 project 名下，语义错误
+- 只改文档提醒 → 本次事故就是照"最正统的名字"用错，文档挡不住可读性诱导
+- 关闭 config-hash 比较 → 它是 Compose 核心机制，关掉保护更危险
+- 升级/迁移时自动纠正 compose → 属善后动作，会掩盖问题；本设计选**事前拦住**
+
+**测试计划 T1–T8**，其中 **T6「故意用错 compose 敲 up → 被拒且服务不中断」不可省**——
+它直接对应本次事故的判别用例。
+
+**改动面**：`delivery/compose-guard.sh`（新）、`build_offline_delivery.py`（+2 行）、
+`delivery/{install,upgrade}/*.sh`（写标记 + 调守卫）、`cli/*`（提示 + test-env）、
+新单测、两份文档。**不触碰** compose 变体与后端业务代码，回滚即 `git revert`。
+
+**状态：已立项 + 设计已出，待实施。**

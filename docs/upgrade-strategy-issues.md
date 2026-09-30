@@ -218,6 +218,52 @@
   - **补测**：US-32 定向 15 → **21 例**，覆盖 success 终态的未对齐/已对齐/compose 缺失/回写生效/幂等/分支存在六种情形。
   - **教训（补）**：④**回写/收尾类逻辑必须用「任务真实终态」判别**，只在单测 happy path 里跑通不足以证明生效——本例 15 个单测全绿但真机不触发，直到按真实终态补测才暴露。
 
+### US-37 🔴 未修：同一 compose project 下混用不同 compose 文件起服务 → Docker 判定「配置变了」→ 静默 recreate + SIGKILL（exit 137）
+
+- **现场（2026-09-30 `.3`，用户发现）**：用户在 `.3` 导入迁移包后发现服务挂了。
+  `web-api` 容器 `Exited (137)`、`OOMKilled=false`、`Error=` 空；另有两个卡在 `Created` 的残留容器。
+  内存 15Gi 总量 / 12Gi 可用 → **排除 OOM**。
+- **先排除的误判方向**：迁移包确实只含数据（`manifest.json` + `app/smartx.db` + `prometheus/*/blocks`），
+  导入任务 `migration-import-24fc0c44b1f0b0a2` 为 `success`，且
+  `grep -c compose backend/app/v2/migration/service.py` = **0**（迁移代码完全不碰 compose）。
+  **数据完好**（`integrity=ok`、590 VM、89636 volume、`.env` 600 未破坏）。
+- **真正的根因（`docker events` 决定性证据）**：
+  ```
+  10:31:40 container create 12524e10d4ab  name=64ff891973e4_...web-api-1
+           └─ config_files=.../docker-compose.offline.yml
+  10:31:40 container kill    64ff891973e4     signal=15      <- 杀老 web-api
+  10:31:51 container die     64ff891973e4     exitCode=137   <- SIGKILL 后的 137
+  ```
+  修复前各容器用的 compose **不一致**：
+  ```
+  web-api            -> docker-compose.yml
+  collector-worker   -> docker-compose.offline.yml
+  ```
+  Docker Compose 用 **`com.docker.compose.config-hash`** 判定「配置是否变了」。
+  同一 project 名下用**不同 compose 文件**起服务，config-hash 必然不同 →
+  判定为「配置变更」→ **recreate 旧容器** → 旧容器被 `signal=15`/`signal=9` 杀掉 → `exitCode=137`。
+- **为什么会 config-hash 不同（实测 diff）**：三个服务在两个 compose 里的定义**全部不同**——
+  主 compose 用 `build: {context: ., dockerfile: backend/Dockerfile}`；
+  offline compose 用 `image:` + `pull_policy: never`，并多注入 `SMARTX_COMPOSE_FILE`、
+  多挂载 `project:/data/smartx-storage-forecast/project:ro`。
+- **结构性根因（比事故本身更重要）**：仓库里有 **4 个 compose 变体**
+  （`docker-compose.yml` / `.offline.yml` / `.release.yml` / `.upgrade.yml`），
+  **共享同一个 project 名** `smartx-hci-capacity-insight`，
+  而**没有任何机制记录「这个实例当初是用哪个 compose 起的」**：
+  - `.env.example` 里**没有** compose 文件字段（实测 grep 无命中）；
+  - `install.sh` 硬编码 `COMPOSE_FILE="docker-compose.offline.yml"`（第 41 行），但把
+    **两个 compose 都装进** `$PROJECT_DIR`（第 322 行的循环）；
+  - `upgrade.sh` 完全不碰 compose；
+  - `.env` 与 `project/` 目录里**没有留下任何标记**说明用的是哪一个。
+  **→ 现场同时存在两份 compose，任何人（包括自动化脚本）都可能用错那一份，
+  而系统不会、也没法给出任何提示。** 这与 US-26（compose tag 多事实源）同源：
+  **同一实体有两个可写的真相来源，且没有单一事实源仲裁**。
+- **触发方式（本次的具体成因）**：开发者在**有真实服务运行的机器**上跑测试，
+  用了与运行实例不同的 compose 变体操作同一 project。**这不是产品缺陷，
+  是"缺少防护"与"操作缺少隔离"叠加**——但产品完全有能力把它挡下来。
+- **诊断教训（值得写进规范）**：**`exit 137` + `OOMKilled=false` = 被人为 SIGKILL**，
+  不是内存不足。若两者都成立应优先查「谁在 recreate 我」而不是查内存。
+
 ## C. 已修复并验证（🟢，列此以备回归）
 
 | 编号 | 问题 | 修复 | 证据 |

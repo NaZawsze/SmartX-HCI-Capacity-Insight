@@ -2071,3 +2071,37 @@ cli/
 1. **先写详细设计文档** → `docs/superpowers/specs/2026-09-30-cli-toolkit-design.md`，须逐条回答 Q1–Q6、给出目录结构定稿、`package.sh` 的 git 增量与破坏性操作确认流程、依赖体检项清单与提示文案规范；
 2. 设计获用户确认后，再写实施计划 → `docs/superpowers/plans/2026-09-30-cli-toolkit-plan.md`；
 3. 计划确认后才实施。**设计与计划均未获批前不动手改代码**（AGENTS §3）。
+
+### 59. US-37：compose 变体多事实源根治（标记 + 守卫 + 测试隔离）[已立项·**设计已出**·待实施]
+
+来源：2026-09-30 `.3` 服务中断事故（用户在 `.3` 导入迁移包后发现服务挂了，web-api `Exited 137`）。
+**根因不是迁移包、不是 OOM**：同一 compose project 名下混用不同 compose 变体起服务，
+Docker 判定「配置变了」→ recreate → 旧容器被 SIGKILL。
+
+**结构性根因**：仓库有 4 个 compose 变体共享同一 project 名，
+而系统**没有任何机制记录「这个实例是用哪个 compose 起的」**（`.env.example` 无该字段，
+`install.sh` 硬编码 offline 却把两份都装进 `project/`，`upgrade.sh` 不碰 compose）。
+与 US-26 同源：**同一实体有两个可写的真相来源，且无单一事实源仲裁**。
+
+**设计**：`docs/superpowers/specs/2026-09-30-us37-compose-variant-guard-design.md`
+（2026-09-30 定稿）。三层防护：
+1. **标记**：`install.sh` 启动前把 `SMARTX_COMPOSE_FILE_ACTIVE` 写入 `.env`（0600 已受保护，
+   且容器内可读，无需登录宿主即可诊断）；
+2. **守卫**：自包含 `delivery/compose-guard.sh`（**必须是独立脚本而非 lib/ 依赖**——
+   实测 `SCRIPT_SOURCES` 只复制单个 .sh、交付目录无 `lib/`），
+   在任何 `compose up/down` 前比对，不一致**默认拒绝**并给出三条路径，
+   `--force-compose-switch` 走**完整 down 再 up**（而非硬 replace）；
+3. **测试隔离**：`cli/lib/test-env.sh` 提供独立 project 名；文档写明「运行中机器做测试必须隔离」。
+
+**关键约束（成败所在）**：守卫必须同时装进**交付态**脚本，只放 `cli/` 侧会放过客户。
+**诊断教训**：**`exit 137` + `OOMKilled=false` = 被人为 SIGKILL**，不是内存不足。
+
+**改动面**：`delivery/compose-guard.sh`（新）、`build_offline_delivery.py`（SCRIPT_SOURCES +2）、
+`delivery/{install,upgrade}/*.sh`（写标记 + 调守卫）、`cli/*`（提示 + test-env）、
+新单测 `test_us37_compose_guard.py`、两份文档。**不触碰** compose 变体与后端业务代码。
+
+**测试**：T1 无标记放行（向后兼容）／T2 一致放行／T3 不一致拒绝／T4 force-switch 无 recreate 冲突／
+T5 安装后标记存在／**T6 故意用错 compose 被拒且服务不中断**（不可省，直接对应事故）／
+T7 诊断文档／T8 全量门禁。
+
+**回滚**：改动集中、不碰 compose 与业务代码，`git revert` 即可。
