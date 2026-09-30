@@ -67,7 +67,8 @@ class MigrationService:
                 "format": "smartx-capacity-insight-v2-migration",
                 "version": 1,
                 "migration_scope": scope,
-                "sqlite_scope": scope,
+                # full 包保持既有对外格式（sqlite_scope=config，既有用例与旧导入方都认这个值）
+                "sqlite_scope": DATA_SCOPE if scope == DATA_SCOPE else CONFIG_SCOPE,
                 "generated_at": generated_at.isoformat(),
                 "contains": {
                     "sqlite": config_db.is_file(),
@@ -748,11 +749,17 @@ def tempfile_data_sqlite_copy(source_db: Path) -> Iterator[Path]:
         target_db = Path(tmpdir) / DB_FILENAME
         if source_db.is_file():
             shutil.copy2(source_db, target_db)
-            with sqlite3.connect(target_db) as conn:
+            # 源库是 WAL 模式：DROP 会先落在 -wal 旁文件里，必须显式 close 让
+            # SQLite checkpoint 回写主文件——tar 只读主文件，不 close 就会把
+            # 没剥的表原样打进包里（.14/.3 实测踩坑：with connect 只 commit 不 close）。
+            conn = sqlite3.connect(target_db)
+            try:
                 for table in DATA_EXPORT_DROP_TABLES:
                     conn.execute(f"DROP TABLE IF EXISTS {table}")
                 conn.commit()
                 conn.execute("VACUUM")
+            finally:
+                conn.close()
         else:
             # 源库不存在（异常安装）：产出空库文件，导入侧按「表不存在 → 0 行」处理。
             sqlite3.connect(target_db).close()

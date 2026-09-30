@@ -385,8 +385,6 @@ class V2MigrationServiceTest(unittest.TestCase):
             self.assertTrue(status["download_url"])
             self.assertTrue(Path(status["saved_path"]).is_file())
 
-
-@unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
     def test_data_export_archive_strips_config_and_keeps_monitoring_data(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
@@ -512,9 +510,10 @@ class V2MigrationServiceTest(unittest.TestCase):
             self.assertEqual(ctx.exception.status_code, 400)
             with target_db.connection() as conn:
                 self.assertEqual(conn.execute("SELECT name FROM towers").fetchone()[0], "Tower B")
-                self.assertEqual(conn.execute("SELECT tower_id FROM towers").fetchone()[0], target_tower.id)
+                self.assertEqual(conn.execute("SELECT id FROM towers").fetchone()[0], target_tower.id)
 
 
+@unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2MigrationApiTest(unittest.TestCase):
     def test_migration_api_requires_auth_exports_downloads_and_imports_with_backup(self) -> None:
         import os
