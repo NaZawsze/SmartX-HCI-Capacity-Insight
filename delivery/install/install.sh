@@ -55,6 +55,8 @@ PROMETHEUS_GID="${PROMETHEUS_GID:-65534}"
 # ---- 输出helpers ----
 STEP=0
 COMPLETED_STEPS=()
+# 总步数 = step 调用数（含 US-37 的「记录生效的 compose 变体」）。
+TOTAL_STEPS=11
 c_red()   { printf '\033[31m%s\033[0m\n' "$*"; }
 c_green() { printf '\033[32m%s\033[0m\n' "$*"; }
 c_yellow(){ printf '\033[33m%s\033[0m\n' "$*"; }
@@ -66,7 +68,7 @@ fail()  { c_red "  [XX] $*"; }
 step() {
   STEP=$((STEP + 1))
   CURRENT_STEP_NAME="$1"
-  printf '\n%s\n' "─── 步骤 $STEP/10：$1 ─────────────────────────────────────────"
+  printf '\n%s\n' "─── 步骤 $STEP/${TOTAL_STEPS}：$1 ─────────────────────────────────────────"
 }
 mark_done() { COMPLETED_STEPS+=("$1"); }
 
