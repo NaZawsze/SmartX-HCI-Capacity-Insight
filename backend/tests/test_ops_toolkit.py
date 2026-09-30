@@ -80,13 +80,28 @@ class OpsDependencyCheckTest(unittest.TestCase):
         completed.stderr = completed.stderr.decode("utf-8", errors="replace")
         return completed
 
+    @staticmethod
+    def _blind_bin(root: Path, names: tuple[str, ...]) -> Path:
+        """造一个"什么都找不到"的 bin 目录。
+
+        不能只把 PATH 设成「空目录:/usr/bin:/bin」来假装缺依赖——
+        在装了 docker 的标准 Linux 宿主（如 10.20.11.3）上，/usr/bin/docker
+        真实存在，依赖照样被找到，测试只在 macOS 上碰巧通过（2026-09-30 实测）。
+        正确做法：先放一个同名但 exit 127 的桩，抢在真实命令前面。
+        """
+        bindir = root / "blind-bin"
+        bindir.mkdir(parents=True, exist_ok=True)
+        for name in names:
+            stub = bindir / name
+            stub.write_text("#!/bin/sh\nexit 127\n", encoding="utf-8")
+            stub.chmod(0o755)
+        return bindir
+
     def test_exits_2_when_docker_missing(self) -> None:
         """缺 Docker 时必须 exit 2（阻断），而不是继续。"""
         with tempfile.TemporaryDirectory() as raw:
-            empty = Path(raw) / "empty-bin"
-            empty.mkdir(parents=True, exist_ok=True)
-            # PATH 只留系统基础命令，故意不含 docker
-            result = self._run({"PATH": f"{empty}:/usr/bin:/bin"})
+            bindir = self._blind_bin(Path(raw), ("docker",))
+            result = self._run({"PATH": f"{bindir}:/usr/bin:/bin"})
             self.assertEqual(
                 result.returncode, 2, f"缺 docker 时应 exit 2，实际 {result.returncode}"
             )
@@ -94,9 +109,8 @@ class OpsDependencyCheckTest(unittest.TestCase):
     def test_missing_items_give_actionable_commands(self) -> None:
         """每项 MISSING 必须带可执行命令（设计 §6.1 文案规范）。"""
         with tempfile.TemporaryDirectory() as raw:
-            empty = Path(raw) / "empty-bin"
-            empty.mkdir(parents=True, exist_ok=True)
-            result = self._run({"PATH": f"{empty}:/usr/bin:/bin"})
+            bindir = self._blind_bin(Path(raw), ("docker", "git", "python3"))
+            result = self._run({"PATH": f"{bindir}:/usr/bin:/bin"})
             output = result.stdout + result.stderr
             for expected in ("docker", "git", "python3"):
                 self.assertIn(expected, output, f"缺 {expected} 时应在输出中说明")

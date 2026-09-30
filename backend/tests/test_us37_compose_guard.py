@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -25,8 +26,10 @@ PROJECT = "smartx-hci-capacity-insight"
 def run_guard(func: str, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     """source 守卫并调用一个函数，返回退出码与输出。"""
     script = f'source "{GUARD}"\n{func} "$@"\nexit $?\n'
+    # 用绝对路径的 bash：调用方可能把 PATH 极简化到连 bash 都找不到
+    bash = shutil.which("bash") or "/bin/bash"
     return subprocess.run(
-        ["bash", "-c", script, "_", *args],
+        [bash, "-c", script, "_", *args],
         capture_output=True,
         text=True,
         check=False,
@@ -285,9 +288,15 @@ class GuardResolveTest(unittest.TestCase):
 
     def test_t0_backfill_works_without_docker(self) -> None:
         """没有 docker 命令时不能崩，退回本次要用的 compose。"""
-        # 只屏蔽 docker（保留 bash 与 coreutils，否则 shell 自身都起不来）
+        # 必须用 exit 127 的同名桩抢在真实 docker 前面。
+        # 只 prepend 一个空目录**挡不住** /usr/bin/docker——在 10.20.11.3 上
+        # 实测会命中真实 docker，读到真机在跑的 compose 变体而失败；
+        # 本地 macOS 没有 docker 才碰巧通过。
         bindir = self.base / "nodocker-bin"
         bindir.mkdir(exist_ok=True)
+        stub = bindir / "docker"
+        stub.write_text("#!/bin/sh\nexit 127\n", encoding="utf-8")
+        stub.chmod(0o755)
         env = dict(os.environ)
         env["PATH"] = f"{bindir}{os.pathsep}{env['PATH']}"
         result = run_guard(
