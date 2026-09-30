@@ -1235,23 +1235,25 @@ docker network ls | grep smartx
   - [x] 主动容量告警机制：采集完成后按集群检查容量阈值（使用率比率 + 剩余绝对空间），跨阈值生成任务中心 warning/critical 告警（复用 severity 体系，确认去重、升级新建）；Tower 原生告警接入保留为后续增强。
   - [ ] 生产现场定位（只读）：浏览器对比总览页 `/api/dashboard/summary`（无参）请求状态与 `capacity_risk.level`，区分"请求慢/失败"与"数据本身 normal"；待生产现象复现时执行。
 
-### 9. 首页与风险链路设计优化 [部分完成]
+### 9. 首页与风险链路设计优化 [已完成 2026-09-13]
 
 设计文档：与第 8 项共用 [docs/superpowers/specs/2026-09-12-capacity-alert-and-overview-freshness-design.md](docs/superpowers/specs/2026-09-12-capacity-alert-and-overview-freshness-design.md)（第 3 节）。
 
 补充审计发现（详见 findings.md「风险链路补充审计」），与第 8 项同链路：
 
 - [x] `_in_enabled_scope` 空集放行修复需覆盖三处复制粘贴：dashboard/vms/reports service，抽公共函数。
-- [x] 前端清理静默吞错：summary 轮询路径已完成（失败横幅 + 保留旧数据）；tasks 轮询等其他 `catch(() => undefined)` 路径待后续处理。
+- [x] 前端清理静默吞错：summary 轮询路径已完成（失败横幅 + 保留旧数据）；tasks 轮询等其他 `catch(() => undefined)` 路径已于 2026-09-13 P3 卫生批次补齐（任务列表刷新失败进数据状态横幅 `App tasksError`，commit `d12028c`；发即忘类按设计保留）。
 - [x] 消除双重轮询：DashboardPage 的 scope 变化拉取已移除（保留采集运行期 5s 局部刷新）；App 刷新加 single-flight。
 - [x] summary 慢查询治理：60s TTL 缓存（接口拆分作为后续优化项保留）。
 - [x] 容量阈值统一：capacity_risk payload 下发 thresholds（后端常量 CAPACITY_WARNING/DANGER_RATIO），DashboardPage 三处改读后端值并带同值回退；VmsPage VM 红线语义不同暂不动。
 - [x] 时区统一：`_day_bounds` 按 settings.timezone 计算零点（ZoneInfo，非法时区回退 UTC）。
 - [x] capacity_risk payload 增加 evaluated_at 与最后采集成功时间，支撑前端"数据截至"展示。
 
-### 10. 全项目架构与代码治理 [待实施]
+**2026-09-30 状态对齐**：原标「部分完成」的唯一尾巴（tasks 轮询静默吞错）已由 P3 卫生批次收口，本项转「已完成」。第 8 项仍留一条未勾选（生产现场只读定位，待现象复现），两者不要混。
 
-状态：待立项设计。按 AGENTS.md 开发流程标准，实施前需先编写设计文档（建议 `docs/superpowers/specs/`，逐项拆分立项）。
+### 10. 全项目架构与代码治理 [已完成 2026-09-13·余 1 项已记录取舍]
+
+状态：原「待立项设计」的扫描结论已全部落地（下列 6 项治理 + 第 12/13/14/16 项），仅剩一条**已记录、不排期**的取舍。本项不再作为待实施任务。
 
 2026-09-12 全项目扫描结论（详见 findings.md「全项目架构与代码扫描」），按收益排序：
 
@@ -1282,11 +1284,13 @@ docker network ls | grep smartx
 - 文件 3/4 reports/export.py（commit d0577c1）：export/ 包（common/word/excel/legacy）；全量 317 测试回基线、真实 Word/Excel 导出为有效客户版文件。
 - 文件 4/4 upgrade/service.py（commit 32d56e7）：Mixin 包（intake/precheck/execution/cleanup/verification/taskfile/paths/fs + _compat/constants）；构造签名与 20 个公开方法集合不变、127 upgrade 测试通过、全量 317 测试回基线、web-api 重建健康。
 
-### 14. API 响应模型分批落地 [批次 1-4 已完成 2026-09-13；批次 5 重新立项为契约对齐]
+### 14. API 响应模型分批落地 [已完成 2026-09-13·批次 5 以第 16 项契约对齐收口]
 
 设计文档：[docs/superpowers/specs/2026-09-13-api-response-models-design.md](docs/superpowers/specs/2026-09-13-api-response-models-design.md)。
 
 原则"模型描述现状"：五批推进（towers → dashboard/tasks → vms/reports → admin 读类 → 删前端 normalize），每批金样本对比（键集与类型 diff 为空）+ 单测 + 前端回归 + 独立提交部署；风险（response_model 剔除未声明字段）以 extra="allow" 过渡与金样本对比缓解。
+
+**2026-09-30 状态对齐**：批次 5「重新立项为契约对齐」即第 16 项，已于 2026-09-13 完成（后端补发 `kpis`/`latest_run`/`top_vms`/`tower_runs` 与 item `metric`/`value`，前端删兼容 normalizer，金样本「既有键全等 + 新增键到位」+ 55 前端测试）。五批全部完成，本项转「已完成」。
 
 ### 15. 升级包 compose 字面量 tag 渲染 [已完成 2026-09-13]
 
@@ -1668,7 +1672,7 @@ docker network ls | grep smartx
 - 为什么不能走 Actions：Actions 只照 git 源码构建，而没有任何提交等于发行镜像（tag `baaffcd` 11 动作 / main 26 动作 / 发行版 25 动作）。
 - [x] 实施完成（2026-09-27）
 
-### 52. US-05/US-23 发布阻塞项修复：post-cleanup 顺序敏感 + 升级单飞守卫（49-52）[实施完成·`.12` MVP 待授权]
+### 52. US-05/US-23 发布阻塞项修复：post-cleanup 顺序敏感 + 升级单飞守卫（49-52）[已完成·US-23 已验，US-05 顺序格按用户口径 N/A]
 
 来源：2026-09-27 升级策略复查（`docs/upgrade-strategy-issues.md` US-05/US-23，P0；审计矩阵 MVP 格 M3-08/M3-10 与「重复 start」列）。
 设计：[docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md](docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md)。
@@ -1676,7 +1680,7 @@ docker network ls | grep smartx
 - [x] US-23：`execution.py::start()` 增加 `_ensure_no_active_upgrade` 单飞守卫（平台/组件两入口共用 `start()`，一处覆盖；retry/recovery/rollback 同守卫 + 类级锁）
 - [x] 新测试：`test_upgrade_single_flight.py` 9 例 + build_tests 断言 `required_health` 无 `runner_version` + API 测试补单飞断言（32f9a95）
 - [x] 重打 v0.5.3 候选包 `b9560eee…`（v053-r5-20260927）+ `.3` 门禁全量（386 OK / 26 OK / tsc 0 / vitest 107 / api docs / release docs / identity / 敏感 0）
-- [ ] `.12` MVP 格（M3-08/M3-10 先 runner 后平台 → post-cleanup 必须成功；重复 start → 400；平台先回归）——**待用户授权**
+- [x] `.12` MVP 格：**2026-09-28 用户定口径后关闭**——US-23 重复 start → 400 实测通过（`upgrade-925f38527816ae1f` 执行中，第二个 `upgrade-88e7262584becb7c` 被拒，守卫随后释放）；M3-08（runner-first）按用户口径记 **N/A**（受支持链路只有先平台后 runner，且需未随本次发布的 v0.3.2）、M3-10 同 N/A；US-05 顺序无关实现保留为「代码 + manifest 实证的防御性修复」，不作为未完成项挂账
 - [x] US-04 顺序写死进发布材料（`docs/deployment.md` §10.1、CHANGELOG 工程与运维、AGENTS §7）
 - [x] 实施（2026-09-27 用户指示「继续」后执行；提交 8115c41 / 32f9a95）
 
@@ -1760,16 +1764,16 @@ docker network ls | grep smartx
 - [ ] 纪律：新缺陷先归类到三类，再决定「打补丁」还是「挂 #47 结构性整改」
 - 当前**不实施**：US-24/26/27/28 已各自按小改动修复并登记；此处只保留结构性判断与方向记录
 
-### 55. US-26/27/28 修复（49-55）[计划已出·未实施]
+### 55. US-26/27/28 修复（49-55）[已完成 2026-09-28]
 
 计划：`docs/superpowers/plans/2026-09-28-us26-us27-us28-fix-plan.md`；问题记录 `docs/upgrade-strategy-issues.md` US-26/27/28（结构性归并见 §C2）。
-- [ ] US-26 现场 runner 够用时平台升级不重建 runner（compiler 条件解析 + 动作层兜底 + 组件侧回写 compose + 回归）｜**硬时限：下一版交付 runner v0.3.2 之前**
-- [ ] US-27 逃生门收尾提示（`cleanup_required` + 残留路径清单 + UI 提示）
-- [ ] US-28 web-api 侧 `database is locked` 退避重试 + 503 可读提示（不动 runner）
-- [ ] 技术债登记：runner `lease.py::_connect()` 连接泄漏**治本**需改 runner（用户同意 + bump），本批只做缓解
-- [ ] 三条各自 `.3` 门禁 → 合并一次 `.12` 复验 → 记账
+- [x] US-26 现场 runner 够用时平台升级不重建 runner（compiler 条件解析 + 动作层兜底 + 组件侧回写 compose + 回归）｜**硬时限：下一版交付 runner v0.3.2 之前**——已完成：`.12` 判别格 task `upgrade-7c0720d6207ea942` succeeded，容器 tag 显示**平台升而 runner 保持 v0.3.2 未降级**
+- [x] US-27 逃生门收尾提示（`cleanup_required` + 残留路径清单 + UI 提示）——已完成：web-api 侧暴露三字段，`.12` 实测 `cleanup_required=False`、`residual_paths=[]`
+- [x] US-28 web-api 侧 `database is locked` 退避重试 + 503 可读提示（不动 runner）——已完成：`.12` 实测 fd 120 秒恒为 3、无锁错误
+- [x] 技术债登记：runner `lease.py::_connect()` 连接泄漏**治本**需改 runner（用户同意 + bump）——本批先缓解后**已治本**（2026-09-28 第 4 批，`@contextmanager` 显式 close）
+- [x] 三条各自 `.3` 门禁 → 合并一次 `.12` 复验 → 记账（r6 `6253810b…` 门禁全过 + `.12` 复验 + pending-tasks #50/#51/#52 销项）
 
-### 56. 离线交付：一键安装脚本 + 一键升级脚本 + 使用说明（49-56）[已立项·待设计]
+### 56. 离线交付：一键安装脚本 + 一键升级脚本 + 使用说明（49-56）[已完成 2026-09-30]
 
 来源：2026-09-28 用户需求：「做一个一键安装脚本，然后把镜像放在一个文件夹内，再做一个一键升级脚本，也把镜像放在一个文件夹内，并且要有使用说明」。**走正规流程**：先立项 → 设计 → 计划 → 实施。
 
@@ -1801,12 +1805,12 @@ docker network ls | grep smartx
 - 本项属**方案 D（执行者与被升级对象解耦）**的落地雏形，与 `docs/upgrade-architecture-options.md` §3 长期方向一致。
 
 **验收标准**（设计后回填细化）：
-- [ ] 在**干净机器形态**（无 Docker 环境的干净 VM）上 `install.sh` 一次跑通，出可访问 URL 与健康全绿
-- [ ] 离线升级（断网/无 DockerHub 访问）`upgrade.sh` 一次跑通，8 项验收全过
-- [ ] 交付目录结构有明确规范，镜像来源与 tag 可审计
-- [ ] 中文使用说明覆盖：前置条件、目录结构、安装、升级、常见失败与处理
-- [ ] 脚本失败可诊断（明确错误信息与下一步），中途失败不留下半成品
-- [ ] 全部脚本与说明进 `.3` 门禁 + 至少一次 `.12` 或干净 VM 实测
+- [x] 在**干净机器形态**（无 Docker 环境的干净 VM）上 `install.sh` 一次跑通，出可访问 URL 与健康全绿——`.14` 干净 VM T5 `EXIT=0`、8 项自检全过、runner 落已发布基线 `v0.3.1`
+- [x] 离线升级（断网/无 DockerHub 访问）`upgrade.sh` 一次跑通，8 项验收全过——T6 `docker pull` 确认 refused 后仍 `EXIT=0`、8 项全过、`--with-runner` 的 post-cleanup 等待逻辑生效
+- [x] 交付目录结构有明确规范，镜像来源与 tag 可审计——`ops/package.sh` + `build_offline_delivery.py`，客户 README 源文件 `delivery/README.md`（逐命令验证状态清单 `README.verified.md` 被单测锁定）
+- [x] 中文使用说明覆盖：前置条件、目录结构、安装、升级、常见失败与处理——`delivery/README.md` §前置条件→目录结构→首次安装→离线升级→8 项自检
+- [x] 脚本失败可诊断（明确错误信息与下一步），中途失败不留下半成品——A/B 两层防线（缺依赖裸机体检 `EXIT=2` + 可执行提示；破坏性操作二次确认）
+- [x] 全部脚本与说明进 `.3` 门禁 + 至少一次 `.12` 或干净 VM 实测——`.3` 门禁 + `.14` 干净 VM 实测（期间抓到并修掉 US-33、US-32 兜底分支条件极性写反）
 
 **用户已定口径（2026-09-28）**：Q1 升级脚本**走 API**；Q2 安装镜像与升级包**分开放**（工程决定为：安装交付镜像 tar、升级交付升级包 tar.gz——「安装交付运行物料、升级交付版本单元」）；**管理员固定 `admin` / `password`**。
 
@@ -1814,29 +1818,37 @@ docker network ls | grep smartx
 - 设计 `docs/superpowers/specs/2026-09-28-offline-one-click-install-upgrade-design.md`
 - 计划 `docs/superpowers/plans/2026-09-28-offline-one-click-install-upgrade-plan.md`（6 步，含**干净 VM 实测**不可省）
 
-**下一步**：等用户批准后按计划实施。**未批准前不实施**（AGENTS §3 硬性规则）。
+**下一步**：~~等用户批准后按计划实施。**未批准前不实施**（AGENTS §3 硬性规则）。~~
 
-### 57. 反复验证闭环：升级链路 + CLI 安装/升级，直到完全无问题（49-57）[已立项·待前序完成]
+**2026-09-30 实施结果（状态对齐补记）**：设计与计划均已获批并实施完成——
+设计 `docs/superpowers/specs/2026-09-28-offline-one-click-install-upgrade-design.md`、
+计划 `docs/superpowers/plans/2026-09-28-offline-one-click-install-upgrade-plan.md`（6 步全走完，含**干净 VM 实测**）。
+产物：交付目录制作工具（`ops/package.sh` + `build_offline_delivery.py`）、`install.sh`、走升级中心 API 的 `upgrade.sh`、
+客户 README（源 `delivery/README.md`）。证据见 progress.md 2026-09-29 第 6/7/8 批与 2026-09-30 序 4（T2~T8 实测）。
+**遗留**：US-32 组件路径兜底条件极性写反（已修，`.14` 闭环 `compose v0.3.1 → v0.3.2`、幂等成立）；
+CLI 侧的同类归置与打包脚本 git-clone 化见第 58 项（已完成）。
+
+### 57. 反复验证闭环：升级链路 + CLI 安装/升级，直到完全无问题（49-57）[阶段 A 全过；阶段 B 4/6 项已验·2 项无实测记录]
 
 来源：2026-09-28 用户新增任务：「修复完成后对升级链路进行反复验证，自动修复，直到完全没问题为止，然后开始测试 cli 安装升级，执行安装、升级测试，在 `.12` 上，直到完全没问题」。
 
 **性质**：这是**验证闭环**，不是新功能开发。核心要求是「**发现问题当场修、修完重跑，直到全绿**」，禁止把失败留给下一轮。
 
 **阶段 A · 升级链路反复验证**（前序修复批次完成后开始）
-- [ ] 主路径：v0.5.2 + 已发布 runner v0.3.1 → 候选包直升 v0.5.3，8 项验收全过
-- [ ] 判别格：装 runner v0.3.2 → 同版本重装 → runner 不被降级（US-26）
-- [ ] 失败自愈：中断任务 → 逃生门 `recovery/fail` → `cleanup_required`/残留清单正确（US-27）→ 重跑升级由 post-cleanup 收尾
-- [ ] 锁冲突窗口：组件升级后紧接平台步，预检查不得裸 500（US-28，需容忍 503 后重试成功）
-- [ ] 单飞守卫：重复 start → 400（US-23）
-- [ ] **每格失败 → 定位根因 → 修复 → 从该格重跑**；不在半升级现场补跑（AGENTS 硬性规则）
+- [x] 主路径：v0.5.2 + 已发布 runner v0.3.1 → 候选包直升 v0.5.3，8 项验收全过（`upgrade-ed52ed3f2c6bbcdd` succeeded + post-cleanup succeeded，2026-09-30 序 1）
+- [x] 判别格：装 runner v0.3.2 → 同版本重装 → runner 不被降级（US-26，`.12` task `upgrade-7c0720d6207ea942` succeeded，runner 保持 v0.3.2）
+- [x] 失败自愈：中断任务 → 逃生门 `recovery/fail` → `cleanup_required`/残留清单正确（US-27）→ 重跑升级由 post-cleanup 收尾（`.12` `cleanup_required=False`、`residual_paths=[]`）
+- [x] 锁冲突窗口：组件升级后紧接平台步，预检查不得裸 500（US-28，需容忍 503 后重试成功）——`.12` 实测 fd 120 秒恒为 3、无锁错误
+- [x] 单飞守卫：重复 start → 400（US-23，`.12` 实测）
+- [x] **每格失败 → 定位根因 → 修复 → 从该格重跑**；不在半升级现场补跑（AGENTS 硬性规则）——2026-09-28/29 十一批次即此纪律的产出（台账 6 项清零）
 
 **阶段 B · CLI 安装/升级反复验证**（49-56 实施后开始，`.12` 实测）
-- [ ] 全新安装：干净形态跑 `install.sh` → 8 项自检全过
-- [ ] 安装幂等：重复执行不覆盖 `.env`、不重建容器
-- [ ] 镜像损坏：SHA 校验失败并中止，不启动服务
-- [ ] 离线升级：断网/屏蔽 DockerHub 跑 `upgrade.sh` → 8 项验收全过
-- [ ] 预检查失败 / 重复升级：正确中止并给指引
-- [ ] **每项失败 → 修脚本或设计 → 重跑**；说明书与实测不符时先修说明书
+- [x] 全新安装：干净形态跑 `install.sh` → 8 项自检全过（T5，`.14` 干净 VM `EXIT=0`）
+- [x] 安装幂等：重复执行不覆盖 `.env`、不重建容器（T8 通过）
+- [ ] 镜像损坏：SHA 校验失败并中止，不启动服务——**无实测记录**（只有正向校验全 OK 的取证 + 单测覆盖 `write_sha256sums` 格式）；要关闭需在 `.14` 故意损坏一个镜像 tar 跑一次
+- [x] 离线升级：断网/屏蔽 DockerHub 跑 `upgrade.sh` → 8 项验收全过（T6）
+- [ ] 预检查失败 / 重复升级：正确中止并给指引——**无实测记录**（T8 是安装幂等，不等于重复升级中止）；要关闭需在 `.14` 用一个预检查不过的包跑一次
+- [x] **每项失败 → 修脚本或设计 → 重跑**；说明书与实测不符时先修说明书——序 9「A/B 两层防线」即此纪律产出
 
 **纪律**：
 - 失败必须记 `progress.md`（含 task id、错误原文、当时容器/目录/库状态），禁止静默重试同一失败操作；
@@ -1845,7 +1857,7 @@ docker network ls | grep smartx
 
 **与既有台账关系**：本项是 `docs/upgrade-remediation-roadmap.md` §6 推进顺序的执行体，不新增问题分类。
 
-### 37. 手动采集失败清空指标快照修复 + 仪表盘数据过期标注（49-37）[进行中]
+### 37. 手动采集失败清空指标快照修复 + 仪表盘数据过期标注（49-37）[已完成 2026-09-27·余 UI 目视]
 
 来源：2026-09-25 用户反馈「有段时间没获取到数据就把我整个看板停了，应该标注最后更新时间」+ 看板归零截图。
 根因：`run_manual_collection` 对 `metric_snapshots` 整体替换，API 手动采集路径缺 worker 侧既有的 `_merge_metrics_text` 合并保护；2026-09-18 17:43 一次全失败手动采集把快照抹成 357 字节表头 → `/metrics` 无样本 → Prometheus instant 查询为空 → 看板归零（虚拟机 KPI 读 SQLite 故仍显示 244）。
@@ -1855,15 +1867,15 @@ docker network ls | grep smartx
 - [x] 测试：全失败/部分失败/过滤重试不清空快照 + freshness 三态 + 前端标注 → .3 后端全量 **343 tests OK (skipped=1)**、tsc exit 0、vitest **96 passed**
 - [x] .3 重建部署验证：三镜像重建 + health 三 checks 全 true + 真实 payload `last_success_at=2026-09-12 15:21:10/threshold_minutes=120/data_freshness=stale` + 真实失败手动采集后快照 357 字节未变（progress.md 49-37）
 - [x] 提交（55d4145 + 7d1aca4，2026-09-26 批次）
-- [ ] UI 目视确认（过期提示条 + 最后成功采集行）
-- 独立于本条：`.3` 快照回填（从 Prometheus 09-18 前最后样本写回 `metric_snapshots`）须单独征得用户确认后执行
+- [ ] UI 目视确认（过期提示条 + 最后成功采集行）——**唯一未完成项，需用户目视**
+- [x] 独立于本条：`.3` 快照回填（从 Prometheus 09-18 前最后样本写回 `metric_snapshots`）已于 2026-09-25 执行并验证（`last_over_time[400d]` 重建 235 序列，357 字节表头 → 37639 字节；pending-tasks 已完成段备查）
 
-### 58. CLI 三件套：安装 / 升级 / 打包入口统一归置与打包脚本 git-clone 化（49-58）[已立项·**待写设计文档**·未实施]
+### 58. CLI 三件套：安装 / 升级 / 打包入口统一归置与打包脚本 git-clone 化（49-58）[已完成 2026-09-30]
 
 来源：2026-09-30 用户需求：
 > 「然后还需要 cli 下的安装、升级脚本和文件夹放在合适的位置，方便别人找到，然后确保安装，升级链路在 cli 下没问题。同时希望在 cli 下升级打包功能也做一个脚本，升级包也放在一个文件夹内。我个人觉得这 3 个 cli 功能放在一个文件夹下比较好，但我不懂程序设计，依你为准。希望打包脚本是这样的，他直接 git clone 我的项目，会自动增量项目文件，然后他 clone 后，直接执行打包脚本就可以进行打包，当然如果缺少工具和依赖也要给提示。目前主力就是命令行下的项目安装和更新能力。」
 
-**关键约束（用户明确）**：**执行本计划之前必须先写详细设计文档；本条登记时设计文档尚未撰写**（AGENTS §3 硬性规则：未关联设计文档不得开始实施）。
+**关键约束（用户明确）**：~~执行本计划之前必须先写详细设计文档；本条登记时设计文档尚未撰写~~（**已履行**：设计 `docs/superpowers/specs/2026-09-30-cli-toolkit-design.md` → 计划 `docs/superpowers/plans/2026-09-30-cli-toolkit-plan.md` → 才实施）。
 
 #### 现状核实（2026-09-30）
 
@@ -1940,9 +1952,17 @@ cli/
 本项实施完才轮到 **序 5（#57 阶段 B：CLI 链路反复验证）**。
 
 **下一步（用户明确"现在不写"）**：
-1. **先写详细设计文档** → `docs/superpowers/specs/2026-09-30-cli-toolkit-design.md`，须逐条回答 Q1–Q6、给出目录结构定稿、`package.sh` 的 git 增量与破坏性操作确认流程、依赖体检项清单与提示文案规范；
-2. 设计获用户确认后，再写实施计划 → `docs/superpowers/plans/2026-09-30-cli-toolkit-plan.md`；
-3. 计划确认后才实施。**设计与计划均未获批前不动手改代码**（AGENTS §3）。
+1. ~~**先写详细设计文档**~~ → 已写：`docs/superpowers/specs/2026-09-30-cli-toolkit-design.md`（逐条回答 Q1–Q6、目录结构定稿、`package.sh` git 增量与破坏性操作确认、依赖体检项与提示文案规范）；
+2. ~~设计获用户确认后写实施计划~~ → 已写并获批：`docs/superpowers/plans/2026-09-30-cli-toolkit-plan.md`；
+3. ~~计划确认后才实施~~ → 已实施完成。
+
+**2026-09-30 实施结果（状态对齐补记）**：Q1–Q6 全部落地并经真机验证——
+`ops/`（原 `cli/`，按行业惯例改名，AGENTS §11.1）下归置安装/升级/打包三入口，
+`ops/package.sh` 走 `git clone` + 自动增量项目文件后直接打包、缺工具依赖给可执行提示；
+T1~T8 全部有证据（T2/T3/T4 在 `.3` 端到端、T5/T6/T8 在 `.14` 干净 VM、T1 缺依赖体检在本机 macOS 实测 exit 2 + Linux 9 项全 OK exit 0、T7 由单测 `test_never_auto_installs` 扫全部脚本锁定不自动装依赖），
+期间抓到并修掉 US-33 与 US-32 兜底分支条件极性写反；`.14` 闭环 `compose v0.3.1 → v0.3.2`、幂等成立。
+证据见 progress.md 2026-09-30 序 2/3/4 与 2026-09-29 第 9 批（A/B 两层防线）。
+**衍生**：本轮用户连续 7 次纠错目录层级 → 立 AGENTS §11.1「用户视角放置规则」+ 三行导航口径（commit `9da006d`、`d050769`）。
 
 ### 59. US-37：compose 变体多事实源根治（标记 + 守卫 + 测试隔离）[**✅ 已完成（2026-09-30 `.14` 真机验证通过，详见 progress.md 同名节与 pending-tasks #59）**]
 
