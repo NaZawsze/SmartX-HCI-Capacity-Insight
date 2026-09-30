@@ -197,6 +197,6 @@ docker compose -f docker-compose.offline.yml -p smartx-opstest up -d
 | --- | --- | --- |
 | `offline-delivery/README.md` | **客户** | 包内文档：安装、升级、自检、卸载、FAQ |
 | 本文件 | 交付负责人 | 打包 → 交付 → 客户使用的全链路 |
-| `ops/README.md` | 开发者 | 三个运维脚本的用法与参数 |
-| `docs/release-build-guide.md` | 开发者 | 发版构建流程 |
-| `docs/troubleshooting.md` | 运维 | 故障排查手册 |
+| `../ops/README.md` | 开发者 | 三个运维脚本的用法与参数 |
+| [release-build-guide.md](release-build-guide.md) | 开发者 | 发版构建流程 |
+| [troubleshooting.md](troubleshooting.md) | 运维 | 故障排查手册 |

@@ -125,6 +125,30 @@ ops/packages/
 
 `ops/packages/` **不入 git**，产物靠本机留存。换机器要自己传。
 
+### 打包之后：怎么交给客户
+
+> 完整流程（含打给客户前的自检、交付话术、禁发清单、客户怎么用）见
+> **[交付手册 `docs/delivery-handover-guide.md`](../docs/delivery-handover-guide.md)**。
+
+一句话版：
+
+```bash
+# 1. 打给客户前自检（三项，详见交付手册）
+cd ops/packages/latest/offline-delivery
+(cd install/images && sha256sum -c SHA256SUMS)          # 镜像完整
+grep -A6 'upgrade-runner:' install/project/docker-compose*.yml | grep image:  # tag 必须是已发布基线
+find . -name ".env" -o -name "*.db"                     # 应无输出
+
+# 2. 只把这一个目录给客户（自包含），压缩并生成校验值
+cd ops/packages/latest
+tar -czf smartx-capacity-insight-offline-20260930.tar.gz offline-delivery/
+sha256sum smartx-capacity-insight-offline-20260930.tar.gz
+
+# 3. 把 SHA256 值单独发给客户，并让他先读 offline-delivery/README.md
+```
+
+**不要给客户**：整个仓库、`ops/` 目录、任何真实数据（`.env` / 业务库）。
+
 ### 关于离线交付目录
 
 `offline-delivery/` 需要**已发布的基线 runner 镜像**（如 `upgrade-runner:v0.3.1`）——它是**发布产物，不在仓库里**。缺镜像时脚本会明确告诉你，并给三条路径：
@@ -155,14 +179,26 @@ ops/packages/
 ## 目录结构
 
 ```
-ops/
-├── README.md        ← 本文件
-├── install.sh       入口：安装（薄封装）
-├── upgrade.sh       入口：升级（薄封装）
-├── package.sh       入口：打包
-├── check-deps.sh    依赖体检（可单独跑）
-├── lib/common.sh    共用：日志、错误处理、确认提示
-└── packages/        产物（不入 git）
+ops/                     ← 本目录：只放**可执行脚本**，手册一律在 docs/
+├── README.md            本文件（脚本用法）
+├── install.sh           入口：安装（薄封装）
+├── upgrade.sh           入口：升级（薄封装）
+├── package.sh           入口：打包
+├── check-deps.sh        依赖体检（可单独跑）
+├── lib/common.sh        共用：日志、错误处理、确认提示
+└── packages/            产物（不入 git）
 ```
 
+## 相关手册（都在 `docs/`）
+
+| 文档 | 给谁 | 什么时候看 |
+| --- | --- | --- |
+| [**交付手册 `delivery-handover-guide.md`**](../docs/delivery-handover-guide.md) | 交付负责人 | **打包完要交给客户时**——产物在哪、自检、交付话术、禁发清单、客户怎么用 |
+| [排障手册 `troubleshooting.md`](../docs/troubleshooting.md) | 运维 | 脚本报错、服务异常、升级失败时 |
+| [发版构建指南 `release-build-guide.md`](../docs/release-build-guide.md) | 开发者 | 正式发版时的构建与门禁流程 |
+| [部署文档 `deployment.md`](../docs/deployment.md) | 开发者 | 架构、目录布局、升级链路设计 |
+| [交付制品边界 `ova-delivery.md`](../docs/ova-delivery.md) | 开发者 | 交付物该含什么、禁含什么 |
+| [开发验证流程 `development-verification-process.md`](../docs/development-verification-process.md) | 开发者 | 在测试机上跑验证时的标准做法 |
+
 设计文档：[`docs/superpowers/specs/2026-09-30-cli-toolkit-design.md`](../docs/superpowers/specs/2026-09-30-cli-toolkit-design.md)
+（该文档成文时目录名还是 `cli/`，现已改名为 `ops/`，内容与决策仍然有效）

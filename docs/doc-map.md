@@ -68,7 +68,7 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | [superpowers/plans/2026-09-27-remaining-work-sequence.md](superpowers/plans/2026-09-27-remaining-work-sequence.md) | **执行顺序（逐步推进）**：剩余问题按 S1（本地可闭环缺陷 US-07/08/09）→ S2（运行时整改 #47 US-06/US-03）→ S3（矩阵纯代码 M6/M1/M2/M5）→ S4（`.12` 终验，需授权）→ S5（发布会话）→ S6（待环境收尾）；含每步改动面/验证/完成判据/是否需授权。 | pending-tasks #47、#1、#2 |
 | [superpowers/specs/2026-09-20-source-compose-literal-tags-design.md](superpowers/specs/2026-09-20-source-compose-literal-tags-design.md) | 源码 compose 镜像 tag 字面量化设计（49-3 收尾）：三个源码 compose 全字面量化（prefix+tag）、check_versions 门禁适配、不重打 e940e07c。✅ 已实施并验证（2026-09-20，见 progress.md）。 | task_plan Phase 49 第 3 项 |
 | [superpowers/specs/2026-09-30-us37-compose-variant-guard-design.md](superpowers/specs/2026-09-30-us37-compose-variant-guard-design.md) | **US-37 设计：compose 变体多事实源根治**（三层：`.env` 写 `SMARTX_COMPOSE_FILE_ACTIVE` 标记 / `compose-guard.sh` 操作前守卫（不一致即拒绝，`--force-compose-switch` 走完整停机再换）/ `test-env.sh` 测试隔离）；含交付目录无 `lib/` 的约束与 8 项测试计划。 | upgrade-strategy-issues US-37 |
-| [superpowers/specs/2026-09-30-cli-toolkit-design.md](superpowers/specs/2026-09-30-cli-toolkit-design.md) | **CLI 工具链设计**：`cli/` 三件套（install/upgrade 薄封装 + package.sh 一键打包 + check-deps 依赖自检）；目录「入口归置、产物分离」决策与 Q1~Q6 逐条决策（分支必须显式指定、依赖只提示不自动装、`cli/` 不进交付目录）；含 8 项实测用例。 | task_plan 第 58 项、pending-tasks #58 |
+| [superpowers/specs/2026-09-30-cli-toolkit-design.md](superpowers/specs/2026-09-30-cli-toolkit-design.md) | **CLI 工具链设计**：`cli/` 三件套（install/upgrade 薄封装 + package.sh 一键打包 + check-deps 依赖自检）；目录「入口归置、产物分离」决策与 Q1~Q6 逐条决策（分支必须显式指定、依赖只提示不自动装、`cli/` 不进交付目录）；含 8 项实测用例。 | task_plan 第 58 项、pending-tasks #58 |（成文时目录名为 `cli/`，2026-09-30 用户指出「安装脚本不该放 cli」后已改名 `ops/`，决策与内容仍有效）
 | [superpowers/plans/2026-09-30-cli-toolkit-plan.md](superpowers/plans/2026-09-30-cli-toolkit-plan.md) | **CLI 工具链实施计划**：5 步（common+check-deps → package.sh → install/upgrade 薄封装 → README+索引 → 全量门禁），每步含单测与实测判据（T1~T8）、回滚方式与已知限制。 | task_plan 第 58 项、pending-tasks #58 |
 | [superpowers/specs/2026-09-20-migration-page-ux-review.md](superpowers/specs/2026-09-20-migration-page-ux-review.md) | 数据迁移页面梳理与 UI 优化输入：逐元素核对代码后的真实行为、迁移包/恢复密钥概念、两种导出两种导入的关系、现状问题清单与改版方向（供后续 UI 优化立项）。 | pending-tasks #26 |
 | [superpowers/specs/2026-09-21-migration-page-three-zone-design.md](superpowers/specs/2026-09-21-migration-page-three-zone-design.md) | 数据迁移页三区结构重组设计（导出/导入/环境状态 + 健康检查常驻化），49-26p 已实施并验证。 | task_plan 第 33 项 |
@@ -123,6 +123,8 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | [releases/v0.2.md](releases/v0.2.md) | v0.2 历史发布说明。 | — |
 | [ova-delivery.md](ova-delivery.md) | OVA 交付说明：OVA 模板与升级包、迁移包的边界。 | — |
 | [project-progress-2026-08-12.md](project-progress-2026-08-12.md) | 阶段性项目进度摘要（对外可读）。 | — |
+
+| [delivery-handover-guide.md](delivery-handover-guide.md) | **交付手册**：从打包到客户安装升级的全链路（三个角色三类文件的区分、`ops/package.sh` 产物位置、打给客户前 3 项自检、交付话术与禁发清单、客户安装升级命令、运行中机器做测试的隔离纪律）。面向**交付负责人**，客户看的是包内 `README.md`。 |
 
 ## 7. 未完成任务队列
 
