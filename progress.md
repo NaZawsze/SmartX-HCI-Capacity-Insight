@@ -9228,3 +9228,112 @@ cli/upgrade.sh -> ==> 转发到 .../upgrade.sh           退出码=0（--help �
 | **打包** | `cli/package.sh` |
 
 **仓库里的 `delivery/install/install.sh` 单独跑会失败**（缺 images/），它只是交付态脚本的**源文件**。
+
+## 2026-09-30 用户要求「反复检查」+ 质疑 `cli` 命名 → 真·git clone 全链路复验
+
+### 命名问题：我的判断
+
+查了项目现状：`scripts/` 已有 15 个文件，全是 `build_*` / `verify_*` / `capture_*`，
+性质是**构建与校验工具**；用户要的三个是**运维操作入口**。两类混一起会让人搞不清谁该在哪跑，
+所以**单独开顶层目录是对的**。
+
+业界惯例对照：
+
+| 名字 | 惯例含义 | 是否适合本项目 |
+| --- | --- | --- |
+| `bin/` | 可直接执行的命令（POSIX 惯例；Rails `bin/setup`、Ansible `bin/`） | 语义最准，但易让人以为会装进 `PATH` |
+| `scripts/` | 构建/开发工具（最常见） | **已被占用**（15 个构建脚本） |
+| `cli/` | CLI 应用的**源码**（如 Python `cli.py` 包） | 语义偏窄，通常指代码而非可执行脚本 |
+| `tools/` | 泛用开发工具 | 太泛 |
+
+**决定：保持 `cli/` 不改**。理由：①与 `scripts/` 的区分一眼就懂，README 有对照表；
+②`bin/` 会让人误以为能 `which` 到；③**`cli/` 不进交付目录**——客户拿的是
+`install/install.sh` 与 `upgrade/upgrade.sh`，与这个名字无关，所以它只影响开发者找入口的体验，
+改名收益低于改动成本（用户说"我不懂程序设计，依你为准"）。
+
+### 复验方式升级：之前都是"复制文件"，这轮用真 `git clone`
+
+前几轮的测试有个共同缺陷：我在 `.3`/`.14` 上**用 scp 复制文件**搭环境，
+不是真的 clone。补测 `cli/install.sh` 时甚至**手工把构建好的交付目录复制到 `delivery/` 下**，
+等于自己造了个假仓库——这直接掩盖了上一节那个设计缺陷。
+
+这轮改用真 clone：
+```
+1. 本地整仓打包（含 .git，49M）→ .3:/data/repo-source
+   注：必须 COPYFILE_DISABLE=1，否则 macOS tar 会写 ._pack-* AppleDouble 文件，
+   导致 git clone 报 "index file ... is too small"（实测踩到）
+2. git clone /data/repo-source /data/clone-test
+   -> dev2 @ 2db0428，git status 0 个改动，._ 文件 0 个
+3. 从 clone 跑完整 CLI 链路
+```
+
+### clone 后的验证结果
+
+**clone 出来的东西正是用户会看到的**：
+```
+cli/                    README.md check-deps.sh install.sh lib/common.sh package.sh upgrade.sh
+delivery/install/       install.sh          <- 只有脚本，无 images（符合预期）
+delivery/install/images                     <- 不存在（产物 1.1G，不进 git）
+cli/packages/                              <- 不存在（被 .gitignore）
+```
+
+**check-deps.sh**：9 项全 OK，退出码 0（Linux / Docker 26.1.5 / compose 2.26.1 / python 3.13 /
+git 2.47.3 / 磁盘 28G / git 仓库 / 基线 runner 镜像 v0.3.1）。
+
+**install.sh（无交付物料）**：退出码 2，给出三条路径 + 解释「产物 1.1 GB 不进 git」。
+**upgrade.sh（无交付物料）**：退出码 2，同上。
+**package.sh --help**：正常，警告 dev2 是开发线。
+**package.sh 端到端**：**EXIT=0**，产出平台包 235M + runner 包 78M + offline-delivery 1.4G。
+
+**交付物自洽**：
+```
+docker-compose.offline.yml -> v0.3.1   ✅
+docker-compose.yml         -> v0.3.1   ✅（本轮修的缺陷，clone 产出也是对的）
+install/images SHA256SUMS  5 个全部 OK ✅
+upgrade/packages           两个包 + sidecar ✅
+禁含文件扫描              0 命中 ✅
+runner 包内代码            第 438 行含 not _runner_tag_aligned（US-32 修复在）✅
+```
+
+### .14 真裸机闭环
+
+**彻底清空**（删 v0.5.2/v0.5.3 三镜像，只留 baseline runner v0.3.1，0 容器）→
+**客户安装** `install/install.sh` **EXIT=0**，8 项验收全过
+（health `ok=True v0.5.3/v0.3.1` 三 checks true、5 容器 tag 正确、
+network `10.249.251.0/24`、SQLite `integrity=ok users=1`、Prometheus 目标目录 Ready、
+`.env` 600、7 条 legacy 全清、UI 200）。
+
+**降回 v0.5.2 基线**（`ok=True v0.5.2/v0.3.1` 三 checks true，`.env` sha `494ebef2…`）
+→ **断网**（`docker pull` → `connection refused`）
+→ **客户升级** `upgrade/upgrade.sh --yes --with-runner` **EXIT=0**：
+```
+升级成功        平台版本：v0.5.2 → v0.5.3    Runner：v0.3.1 → v0.3.1
+[OK] 升级后清理已收敛（succeeded）              <- 本轮修的竞态逻辑
+[OK] runner 组件升级已提交（upgrade-a350894eadc67b7d）
+```
+
+**最终 8 项验收全过**：
+```
+health ok=True platform=v0.5.3 runner=v0.3.2，checks 三项全 true
+容器 tag: v0.5.3×3 + upgrade-runner v0.3.2 + prometheus v2.55.1
+compose docker-compose.yml            -> v0.3.2   ✅（US-32 生效）
+       runner-bootstrap.yml           -> v0.3.2   ✅
+SQLite integrity=ok users=1（与基线一致）
+.env mode=600 sha=494ebef2…（与基线 sha 完全一致）
+7 条 legacy 路径全 missing
+```
+
+### 过程中修正的一个搭建错误（我的）
+
+降回 v0.5.2 时用 `docker compose -p ... up -d`（默认读 `docker-compose.yml`）失败：
+`lstat .../project/backend: no such file or directory`。
+原因：v0.5.2 的主 compose 是 **build 模式**（`dockerfile: backend/Dockerfile`），
+而离线部署要用 `docker-compose.offline.yml`（预构建镜像 + `pull_policy: never`）。
+**这是我搭建基线时的疏忽，不是产品缺陷**——`install.sh` 本身就指定了
+`COMPOSE_FILE="docker-compose.offline.yml"`（第 41 行）。
+
+### 累计确认
+- **9 个 bug 全部已修**（序 8 交付件过门禁）
+- **本轮补上第 10 个**：CLI 入口设计错误（仓库 delivery/ 无 images/），已修为「多候选定位 + 校验完整性」
+- **真 clone 全链路**（不是复制文件）复验通过
+- `.3` 后端 689 tests OK、前端 tsc 0 / vitest 107、runner 门禁 12 PASS
