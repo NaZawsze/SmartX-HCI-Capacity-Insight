@@ -125,6 +125,7 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | [ova-delivery.md](ova-delivery.md) | OVA 交付说明：OVA 模板与升级包、迁移包的边界。 | — |
 | [project-progress-2026-08-12.md](project-progress-2026-08-12.md) | 阶段性项目进度摘要（对外可读）。 | — |
 
+| [ai-handoff-2026-09-30.md](ai-handoff-2026-09-30.md) | **本轮（2026-09-30）交接文档**：目录层级纠错与 AGENTS §11.1 新规、US-37 守卫实施与真机验证结论、本轮踩的坑、**未完成项（US-37 T4/T5/T6 需 .14 真机验证）**、当前验证基线（726 tests）。新接手者从这里开始，再读 ai-handoff-guide.md |
 | [delivery-handover-guide.md](delivery-handover-guide.md) | **交付手册**：从打包到客户安装升级的全链路（三个角色三类文件的区分、`ops/package.sh` 产物位置、打给客户前 3 项自检、交付话术与禁发清单、客户安装升级命令、运行中机器做测试的隔离纪律）。面向**交付负责人**，客户看的是包内 `README.md`。 |
 
 ## 7. 未完成任务队列

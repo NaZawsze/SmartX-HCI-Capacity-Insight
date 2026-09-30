@@ -1,6 +1,6 @@
 # AI 交接执行手册（接手待办任务前必读）
 
-更新时间：2026-09-19
+更新时间：2026-09-19（**2026-09-30 增量见 [ai-handoff-2026-09-30.md](ai-handoff-2026-09-30.md)**）
 用途：本项目的待办任务（见 [pending-tasks.md](pending-tasks.md)）可能交给不同的 AI 会话实施。本文档是交接执行的总纲——执行环境、流程、基线、陷阱。**三份待实施设计文档（49-13/49-14/49-15）都假设你已读完本文。**
 
 ## 1. 入口与必读顺序
@@ -41,7 +41,7 @@
 ### 测试基线
 
 - 本地（macOS，python3.9，无 fastapi/apscheduler/cryptography/pytest）：部分测试**环境跳过或报 ModuleNotFoundError** 属正常——fastapi 依赖的测试已加 skipTest。
-- .3 容器内全量：**386 tests 全绿**（2026-09-27 起；此前时点：2026-09-19 为 310、2026-09-13 为 308；`skipped=2` 为环境条件跳过）。构建测试 `test_v2_package_builders` 已移到 `backend/build_tests/`（需写项目根 VERSION，web-api 容器只读挂载，改在宿主机跑 26 tests OK）；`test_deployment_config` 已改 unittest（无 pytest 依赖）。**任何失败都是真回归。**
+- ⚠️ **本行基线已过时**：2026-09-30 轮实测为 **726 tests**（含本轮新增守卫测试），唯一失败经对照证明为既有环境限制。详见 [ai-handoff-2026-09-30.md](ai-handoff-2026-09-30.md) §6。原始记录：.3 容器内全量 386 tests 全绿（2026-09-27 起；此前时点：2026-09-19 为 310、2026-09-13 为 308；`skipped=2` 为环境条件跳过）。构建测试 `test_v2_package_builders` 已移到 `backend/build_tests/`（需写项目根 VERSION，web-api 容器只读挂载，改在宿主机跑 26 tests OK）；`test_deployment_config` 已改 unittest（无 pytest 依赖）。**任何失败都是真回归。**
 - 容器内跑法：
   ```bash
   docker compose exec -T web-api sh -lc "cd /data/smartx-storage-forecast/project/backend && PYTHONPATH=/data/smartx-storage-forecast/project/backend python -m unittest discover -s tests 2>&1 | tail -3"
