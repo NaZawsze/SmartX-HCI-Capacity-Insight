@@ -15,15 +15,7 @@ SmartX HCI Capacity Insight 是一个面向 SmartX/HCI 容量趋势、虚拟机�
 
 文档定位：本文件只记录稳定发现和坑点；文档总体地图见 [docs/doc-map.md](docs/doc-map.md)，各 Phase 的设计文档对照见 [task_plan.md](task_plan.md) 的「Phase 与任务设计文档对照」。
 
-## 专项升级链路发现归档
-
-`v0.5.1 + runner v0.3.0 -> v0.5.1u2 -> runner v0.3.1 -> v0.5.2` 的详细根因、修复计划、失败记录、包记录和验证证据，统一维护在：
-
-```text
-docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
-```
-
-本文件只保留稳定结论和项目级注意事项。详细过程、失败记录和中间包仍查专项 worklog。
+> 本节已归档至 [docs/archive/findings-chain-archive.md](docs/archive/findings-chain-archive.md)（2026-09-30 逐字搬运，原文未改写）
 
 ## UPG-036 v0.5.2 完整链路稳定结论
 
@@ -540,20 +532,7 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 - `upgrade-runner v0.3.0` 没有 Docker Compose project/network 迁移原子能力；沙箱脚本不能访问 Docker socket，不能承担这类迁移。
 - 因此本次需要发布 `upgrade-runner v0.3.1`，并在平台包中声明 `environment_transitions`，由 runner 在 `compose.apply` 前迁移旧 project/network。
 
-## 专项升级链路历史发现归档（已完成）
-
-`v0.5.1u2 -> v0.5.2` 升级链路的 UPG-038~048 已完成闭环，详细发现归档到 `docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md`。
-
-核心发现摘要：
-- UPG-038/039：数据迁移门禁与 cleanup guard 路径归一化
-- UPG-040：空业务库 cleanup 兼容
-- UPG-041/045：升级后自动采集（worker 兼容已发布 u2 缺失 marker）
-- UPG-042：凭据与 .env 成对迁移保护（0600、fail-closed、XOR 同源配对）
-- UPG-043：credential helper target_root 路径映射
-- UPG-044：verification 历史排序只读化与最近包稳定选择
-- UPG-046：任务中心投影幂等化
-- UPG-047：runner 发布包 .env 权限兼容（compose 启动 shim）
-- UPG-048/fix8：最终 .env 权限修复与链路闭环
+> 本节已归档至 [docs/archive/findings-chain-archive.md](docs/archive/findings-chain-archive.md)（2026-09-30 逐字搬运，原文未改写）
 
 ## 2026-08-12 v0.5.2 后续治理与风险发现
 

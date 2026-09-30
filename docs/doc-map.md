@@ -13,6 +13,17 @@
 | [findings.md](../findings.md) | 项目发现与接手笔记：服务职责、数据路径、网络、已知坑点、各 Phase 稳定结论。 |
 | [progress.md](../progress.md) | 工作进度流水：按日期记录每轮执行、测试输出和失败证据（历史日志，不作为结论来源）。 |
 
+三个工作文件的**历史流水已按月 / 按阶段逐字归档**到 [docs/archive/](archive/)（2026-09-30 拆分，内容与原文 byte 级一致、原位置留指针、归档文件此后只读）。按 AGENTS「根 README 不为内部归档建入口」的分工，本表是归档的唯一索引：
+
+| 归档文件 | 迁出内容 | 来源 |
+| --- | --- | --- |
+| [archive/progress-2026-06.md](archive/progress-2026-06.md) | 9 个 `## ` 小节：2026-06 全部执行记录（`## 2026-06-01` 大节内含 2026-05-22 ~ 06-24 早期记录） | progress.md |
+| [archive/progress-2026-07.md](archive/progress-2026-07.md) | 52 个 `## ` 小节：2026-07-02 ~ 07-17 升级链路修复记录（UPG-030 ~ UPG-048） | progress.md |
+| [archive/task-plan-chain-archive.md](archive/task-plan-chain-archive.md) | 4 个已收官整节：当前执行项 UPG-036/037/038/039、当前执行项 UPG-031/fix20、专项升级链路历史任务归档、UPG 修复链路摘要 | task_plan.md |
+| [archive/findings-chain-archive.md](archive/findings-chain-archive.md) | 2 个指针节：专项升级链路发现归档、专项升级链路历史发现归档（已完成） | findings.md |
+
+留在主文件的稳定结论不得迁走：`findings.md` 的 UPG-050 定案等（`scripts/bind-mount-recover.sh` 运行时输出按「findings.md UPG-050」指向）、`task_plan.md` 的「Phase 与任务设计文档对照」（本文件 §8 引用）。
+
 ## 2. 项目说明与架构
 
 | 文档 | 说明 | 关联任务 |
@@ -83,7 +94,7 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | [superpowers/specs/2026-09-26-recycle-lifecycle-sync-design.md](superpowers/specs/2026-09-26-recycle-lifecycle-sync-design.md) | 回收站 VM 生命周期同步：采集记录 `in_recycle_bin`/`original_name`/`deleted_at`，采集成功且 Tower 取不到即删除本地行。✅ 已实施并验证（2026-09-26，.3 362 tests / 真实库升级通过；端到端待 Tower）。 | task_plan Phase 49 第 47 项（49-47） |
 | [superpowers/specs/2026-09-27-v053-platform-side-post-upgrade-collection-design.md](superpowers/specs/2026-09-27-v053-platform-side-post-upgrade-collection-design.md) | 49-49 设计：v0.5.3 升级后自动采集改平台侧调度（manifest `auto_collection=false` + 新键 `platform_collection` + compiler 不再下发动作；含「源端编译」关键约束）。 | task_plan Phase 49 第 49 项 |
 | [superpowers/specs/2026-09-27-runner-v032-and-action-level-precheck-design.md](superpowers/specs/2026-09-27-runner-v032-and-action-level-precheck-design.md) | 49-50 设计：runner **v0.3.2** 交付（bump/打包/推 tag 三步）+ 升级预检查**动作级**校验（`RUNNER_ACTION_SUPPORT` 表 + `_check_runner_actions`）。 | task_plan Phase 49 第 50 项 |
-| [superpowers/plans/2026-09-30-implementation-docs-split.md](superpowers/plans/2026-09-30-implementation-docs-split.md) | **实施流水三件套拆分·交接执行文档（待执行）**：progress.md（733KB）/task_plan.md（195KB）/findings.md（101KB）按「主文件只留当前阶段」逐字拆分归档至 `docs/archive/`；含现状实测、硬性红线（逐字搬运、原位指针、UPG-050 稳定结论留主文件）、分步执行与验收标准，可直接交接外部 AI 执行。合并设计（纯文档搬运无代码改动）。 | task_plan 待立项（执行 AI 的 Step 0） |
+| [superpowers/plans/2026-09-30-implementation-docs-split.md](superpowers/plans/2026-09-30-implementation-docs-split.md) | **实施流水三件套拆分·交接执行文档（已执行）**：progress.md（733KB）/task_plan.md（195KB）/findings.md（101KB）按「主文件只留当前阶段」逐字拆分归档至 `docs/archive/`；含现状实测、硬性红线（逐字搬运、原位指针、UPG-050 稳定结论留主文件）、分步执行与验收标准。合并设计（纯文档搬运无代码改动）。 | task_plan 第 60 项（49-60）｜✅ 已完成（2026-09-30，证据见 progress.md 同日「实施流水三件套拆分归档」） |
 
 ## 5. 升级链路专项文档
 
