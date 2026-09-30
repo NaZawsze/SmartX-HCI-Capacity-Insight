@@ -218,7 +218,7 @@
   - **补测**：US-32 定向 15 → **21 例**，覆盖 success 终态的未对齐/已对齐/compose 缺失/回写生效/幂等/分支存在六种情形。
   - **教训（补）**：④**回写/收尾类逻辑必须用「任务真实终态」判别**，只在单测 happy path 里跑通不足以证明生效——本例 15 个单测全绿但真机不触发，直到按真实终态补测才暴露。
 
-### US-37 🟡 代码已完成·待 `.14` 真机 compose 验证：同一 compose project 下混用不同 compose 文件起服务 → Docker 判定「配置变了」→ 静默 recreate + SIGKILL（exit 137）
+### US-37 🟢 已修复并经 `.14` 真机验证（2026-09-30）：同一 compose project 下混用不同 compose 文件起服务 → Docker 判定「配置变了」→ 静默 recreate + SIGKILL（exit 137）
 
 - **现场（2026-09-30 `.3`，用户发现）**：用户在 `.3` 导入迁移包后发现服务挂了。
   `web-api` 容器 `Exited (137)`、`OOMKilled=false`、`Error=` 空；另有两个卡在 `Created` 的残留容器。
@@ -263,6 +263,37 @@
   是"缺少防护"与"操作缺少隔离"叠加**——但产品完全有能力把它挡下来。
 - **诊断教训（值得写进规范）**：**`exit 137` + `OOMKilled=false` = 被人为 SIGKILL**，
   不是内存不足。若两者都成立应优先查「谁在 recreate 我」而不是查内存。
+
+#### 2026-09-30 `.14` 真机验证收尾（T4/T5/T6 全过，过程抓出两个实施缺陷）
+
+交付物：`ops/package.sh` 从 dev2 `7135d40` 重建的离线交付目录（tar SHA `7dddc1ef…`）。
+`.14` 干净 VM，真实 Docker compose 全程操作。
+
+| 用例 | 结果 | 关键证据 |
+| --- | --- | --- |
+| 存量回填（P1 路径） | ✅ | 旧实例（无标记）跑新 `install.sh`：守卫从容器 `config_files` 标签取地面真相 `docker-compose.offline.yml` 回填标记，EXIT=0，5 容器 ID 与 health 逐字节不变 |
+| T5 全新安装 | ✅ | 清空目录+删镜像后从交付目录安装：`.env` 含 `SMARTX_COMPOSE_FILE_ACTIVE=docker-compose.offline.yml`（600），与容器标签地面真相一致；守卫装进 project 目录（755）；health ok |
+| T6 用错变体被拒 | ✅ | `compose-guard.sh check .env docker-compose.yml` → **exit 2** + 三条路径；`guard && up` 组合下 up 根本未执行；前后容器 ID diff 为空、health 逐字节相同 |
+| T6b install.sh 拒绝分支 | ✅ | 标记改为错变体 + `--force-env`（不带 switch）→ EXIT=1「compose 变体不一致，已拒绝启动」，die 发生在 up 之前，容器零扰动；标记跨 `.env` 重生成被保留（RESOLVED_COMPOSE 通路生效） |
+| T4 `--force-compose-switch` | ✅ | 守卫序列「1/2 用 docker-compose.yml 停机（不做 recreate）→ 2/2 更新标记」→ 5 容器全部干净重建（ID 全变）、restarts=0、OOMKilled=false、health ok、标记切回 offline |
+
+**验证过程抓出并修复的两个实施缺陷**（都是单测全绿、真机才暴露——正是 AGENTS §12 要求真机收尾的原因）：
+
+1. **守卫接线三处恒假**（`41fc86e` 修复）：install.sh 用 `[ -n "${compose_guard_check:-}" ]`
+   判断守卫是否可用，但守卫加载的是**函数**不是变量，参数展开恒为空 →
+   标记回填、标记写入、up 前守卫判定三个分支**从未执行过**。36 例静态单测全绿、真机全死。
+   修复为 `declare -F`，并补静态禁令 + 行为级双测试（38 例）。
+2. **全新安装不写标记**（`c466f42` 修复）：`compose_guard_resolve` 只在已有 `.env` 时执行，
+   全新安装的 `.env` 由模板重新生成、天然不含标记——T5 判据不成立。修复为
+   `.env` 生成校验通过后补写（值取 RESOLVED_COMPOSE 地面真相，全新安装退到本次待用变体），
+   写在守卫判定之前，`--force-env` 重装路径仍受保护。
+
+另修一处外观回归：US-37 步骤插入后总步数 11、进度头仍写死 `/10`（`7135d40`，改为 `TOTAL_STEPS`）。
+
+**遗留观察（不阻塞，供后续参考）**：`--force-env` 重装在守卫拒绝路径上会**先重新生成 `.env`
+（密钥更换）再 die**，此时在跑容器仍用旧密钥——下次重启才吃到新密钥。`--force-env` 本身
+就是显式破坏性选项（文档已警示），但「拒绝启动却说宿主环境未被改动」的提示语不完全准确。
+若后续有环境真实配置了 Tower 凭据，需注意该窗口。
 
 ## C. 已修复并验证（🟢，列此以备回归）
 

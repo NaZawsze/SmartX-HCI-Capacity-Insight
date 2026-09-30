@@ -67,7 +67,7 @@ python3 scripts/build_runner_component_package.py --version v0.3.1
 docker compose exec -T web-api sh -lc "cd /data/smartx-storage-forecast/project/backend && PYTHONPATH=/data/smartx-storage-forecast/project/backend python -m unittest discover -s tests 2>&1 | tail -3"
 ```
 
-- 基线：容器内全量 **386 tests 全绿**（2026-09-27 起；此前时点：2026-09-19 为 310、2026-09-13 为 308；`skipped=2` 为环境条件跳过）。构建测试 `test_v2_package_builders` 在宿主机跑（`cd backend && python3 -m unittest build_tests.test_v2_package_builders`，26 tests OK）。**任何失败都是真回归。**
+- 基线：**以 `docs/ai-handoff-2026-09-30.md` §6 为准（2026-09-30：全量约 728 tests，其中 1 失败为既有环境限制、非回归；对照证据见该文档）**。历史时点：2026-09-27 为 386 全绿（更早：2026-09-19 为 310、2026-09-13 为 308）。构建测试 `test_v2_package_builders` 在宿主机跑（`cd backend && python3 -m unittest build_tests.test_v2_package_builders`，26 tests OK）。**失败是否回归，先与最近一次基线对照再下结论。**
 
 ### 4.2 前端测试 + 构建
 

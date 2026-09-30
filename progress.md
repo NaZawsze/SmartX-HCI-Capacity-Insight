@@ -2885,3 +2885,61 @@ health 200
 本任务按计划**只迁指定的 4+2 个整节**，剩下的体积是 `task_plan.md` 的
 「注意事项」71KB 与「Phase 49」102KB、`findings.md` 的 61 条稳定结论。
 再瘦身属于计划 §7 明确不做的 Tier B（已完成条目详情迁出 + Phase 收官），**需用户单独批准**。
+
+## 2026-09-30 US-37 收尾：`.14` 真机验证（T4/T5/T6）——过程抓出并修复两个实施缺陷
+
+任务来源：交接文档 `docs/ai-handoff-2026-09-30.md` §4 P0（US-37 代码完成后唯一收尾项）。
+机器：`.14`（干净 VM，可放手做 compose 实验），全程真实 Docker compose；
+`.3` 仅承担构建（`ops/package.sh`）与全量测试（一次性容器）。
+
+### 验证前先修了两个「单测全绿、真机必挂」的实施缺陷
+
+1. **守卫接线三处恒假**（`41fc86e`）：install.sh 用 `[ -n "${compose_guard_check:-}" ]`
+   判断守卫是否可用——守卫加载的是**函数**不是**变量**，参数展开恒为空，
+   标记回填 / 标记写入 / up 前守卫判定三个分支从未执行。
+   **发现方式**：`.14` 存量实例上首次跑 install.sh，步骤 2 全静默 → 现场排查复现
+   （source 守卫后 `${compose_guard_resolve:-}` 为空、`type` 却能找到函数）。
+   修复为 `declare -F`；补 2 例：静态禁令（非注释代码禁止该模式 + 三处必须 declare -F）
+   与行为级（真实守卫 source 后 declare -F 认得出全部 6 个入口函数）。
+2. **全新安装不写标记**（`c466f42`）：`compose_guard_resolve` 只在已有 `.env` 时执行，
+   全新安装的 `.env` 由模板重生成、天然无标记——T5 判据（装完含标记）不成立。
+   修复为 `.env` 生成校验通过后补写（值 = RESOLVED_COMPOSE 地面真相，全新安装退到本次待用变体），
+   且写在守卫判定之前，`--force-env` 重装路径仍受变体不一致判定保护。
+3. 外观回归（`7135d40`）：US-37 步骤插入后共 11 步、进度头写死 `/10`（.14 日志出现「步骤 11/10」），
+   改为 `TOTAL_STEPS`。
+
+每次改交付物后均按 AGENTS §12 重新 `ops/package.sh` 打包并重传 `.14` 再验证；
+最终包 dev2 `7135d40` 重建，离线交付目录 tar SHA256 `7dddc1ef…`。
+
+### 真机验证结果（最终包）
+
+| 用例 | 结果 | 关键证据 |
+| --- | --- | --- |
+| 存量回填（P1 路径） | ✅ | 旧实例（无标记）跑新 install.sh：守卫从容器 `config_files` 标签取地面真相 `docker-compose.offline.yml` 回填，EXIT=0，5 容器 ID 与 health 逐字节不变（`.3` 同类存量可用同法回填） |
+| T5 全新安装 | ✅ | 清空 `/data/smartx-storage-forecast` + 删 5 镜像后从交付目录安装 EXIT=0：`.env` 含 `SMARTX_COMPOSE_FILE_ACTIVE=docker-compose.offline.yml`（600 root:root），与 web-api 容器标签地面真相一致；守卫装进 project 目录 755；health `v0.5.3`/runner `v0.3.1` 三 checks true |
+| T6 错变体被拒 | ✅ | `compose-guard.sh check .env docker-compose.yml` → exit 2 + 三条路径；`guard && up` 组合下 up 未执行；前后容器 ID diff 为空、health 逐字节相同。**这是 .3 事故的直接判别用例** |
+| T6b install.sh 拒绝分支 | ✅ | 标记改错变体 + `--force-env`（不带 switch）→ EXIT=1「compose 变体不一致，已拒绝启动」，die 在 up 之前，容器零扰动；标记跨 `.env` 重生成保留（RESOLVED_COMPOSE 通路生效） |
+| T4 `--force-compose-switch` | ✅ | 守卫序列「1/2 用 docker-compose.yml 停机（不做 recreate）→ 2/2 更新标记」→ 5 容器干净重建（ID 全变）、restarts=0、OOMKilled=false、health ok、标记切回 offline |
+| 最终包复验 | ✅ | 最终包再走一次全新安装：步骤头 `/11` 正常、标记/守卫/health 全绿 |
+
+### 门禁
+
+- `.3` 全量后端（一次性容器跑当前 HEAD `/data/us37-verify/repo`）：
+  **729 tests，1 failure（既有环境限制）/ 7 skipped**——唯一失败为
+  `test_v2_upgrade...test_start_can_submit_task_for_runner_and_runner_executes_it`
+  （`'failed' != 'success'`），与交接文档基线记录的既有失败完全相同，非本轮回归。
+  729 = 726 基线 + 本轮新增 3 例（c466f42 ×1、41fc86e ×2）。
+- 本地 `test_us37_compose_guard`：35 → **38 例全过**。
+- `bash -n` install.sh / compose-guard.sh 通过。
+
+### 遗留观察（不阻塞）
+
+`--force-env` 重装在守卫拒绝路径上会**先重生成 `.env`（密钥更换）再 die**，
+在跑容器仍用旧密钥、下次重启才吃到新密钥；「宿主环境未被改动」的提示语在该路径不完全准确。
+`--force-env` 本身是显式破坏性选项，暂不改；有环境真配 Tower 凭据时需注意（已记 issues 文档）。
+
+### 现场状态
+
+`.14`：v0.5.3 + runner v0.3.1 五容器 Up、health ok、`.env` 含标记；
+安装物料与验证日志保留在 `/data/us37/`（传输用 tar 包已删）。
+`.3`：`/data/us37-verify/` 为本轮构建与测试目录（含 3 次打包产物），保留备查，后续可删。
