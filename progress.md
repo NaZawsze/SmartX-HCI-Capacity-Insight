@@ -9464,3 +9464,78 @@ health 200
 新单测、两份文档。**不触碰** compose 变体与后端业务代码，回滚即 `git revert`。
 
 **状态：已立项 + 设计已出，待实施。**
+
+## 2026-09-30 目录层级三次纠错 + 立「用户视角放置规则」（用户连续 7 次叫停）
+
+用户连续指出放置/引用层级错误，最后要求"用用户视角处理文档和文件以及脚本的存放位置，写进 AGENTS"。
+
+| # | 用户指出的问题 | 我的错误 | 修正 |
+| --- | --- | --- | --- |
+| 1 | 安装脚本不该放 `cli/` | `cli/` 惯例指命令行**应用源码**（装 PATH、能调）；这些是运维动作脚本（不装 PATH、客户拿不到）。业界用 `ops/`（K8s `hack/`、Docker `contrib/`）。也否决了 `bin/`——Rails/Node 的 `bin/` 专指"装完能调的工具" | `git mv cli ops`，全部引用更新，`CLI_*` → `OPS_*` |
+| 2 | 手册不该放 `ops/` 下 | `ops/` 是放可执行脚本的目录，手册属文档 | 移到 `docs/delivery-handover-guide.md`，登记 doc-map |
+| 3 | 手册应在**项目根 README** 引用，不该只放 `ops/README.md` | 把"这个目录干什么"的第一入口放错层级——子目录 README 面向已知位置的人，根 README 面向还不知道它存在的人 | 根 `README.md` + `README.zh-CN.md` 两份都补：Repository Layout 加 `ops/`/`scripts/`/`delivery/`，Documentation 拆两组、交付手册置首 |
+
+**根因（已写进 AGENTS §11.1）**：我总从"我刚建的东西"往外看，而不是从"用户从哪进来"往外看。
+新增 §11.1 三条硬性要求（入口在最上层 / 目录语义单一且用行业惯例命名 / 动手前先勘察既有结构），
+含 6 条自检清单与 4 条反面教材表。
+
+同时新增 **AGENTS §12 交付类改动的验证纪律**：改安装升级打包链路必须干净 VM 形态真机跑通、
+写"已验证"前先问证据是跑出来的还是推断的、动过交付物代码必须重新打包再验证。
+
+## 2026-09-30 US-37 实施：compose 变体守卫
+
+提交：`21fb325`（守卫+接线）、`cf11635`（可执行位）、`8b935bb`（文档+装进 project 目录）、`5529e23`（修测试）。
+
+### 实施期发现设计缺陷（已回写设计文档）
+
+设计初稿写「`install.sh` 把自己用的 `$COMPOSE_FILE` 写进 `.env`」。核对代码后发现这会写出**假标记**：
+
+- `install.sh` 幂等检查在已有 `.env` 时**直接 `exit 0`**（第 231-236 行），
+  而 `.3` 事故现场恰恰是**已有 `.env`** 的实例 → 标记永远补不上，
+  守卫对最需要保护的环境一直走"放行"分支；
+- 写入值是硬编码常量，现场可能用别的变体。**用另一个猜测源去补事实源，
+  正是 US-26/US-32 同类错误的翻版。**
+
+改为从运行中容器的 `com.docker.compose.project.config_files` 标签取**地面真相**
+（实测 `.3` 返回 `/data/smartx-storage-forecast/project/docker-compose.yml`）。
+项目已有读 compose 标签先例（`upgrade_runner/actions.py:1694`、`verification.py:86`）。
+回填规则：已有标记→保持；无标记+容器在跑→取标签 basename；无标记+无容器→取本次要用的。
+
+### 修一处「文档写了但跑不通」
+
+`troubleshooting.md` §10 与 `delivery/README.md` §9.1 都指引客户执行
+`/data/smartx-storage-forecast/project/compose-guard.sh`，
+但守卫原本只从**交付目录**被 source——交付目录会被客户挪走或删除，那条命令在真实环境跑不通。
+已让 `install.sh` 用 `install -m 0755` 把守卫装进 `PROJECT_DIR`（长期驻留的那一个），
+并加测试锁住"文档写的路径必须真被创建"。
+
+同时修掉 `troubleshooting.md` §1 快速分诊里**本身就是事故诱导源**的那条命令
+（硬编码 `docker compose -f docker-compose.offline.yml ps`——照抄最正统的文件名就会用错变体）。
+
+### 真机验证（`.3`）
+
+- 守卫单测：本地 35 例 OK；`.3` 上 `test_us37` + `test_ops_toolkit` 65 例 OK。
+- **全量 726 tests → 1 failure / 7 skipped**。唯一失败
+  `test_v2_upgrade...test_start_can_submit_task_for_runner_and_runner_executes_it`
+  经对照确认为**既有环境限制、非本次回归**：在动手前的 `9da006d` 上同环境跑同一测试，
+  结果完全相同（`'failed' != 'success'`）。
+
+验证过程中发现并修了 **2 个依赖宿主机环境的测试 bug**（AGENTS §12 的反向案例——
+单测在本地全绿、真机失效）：
+
+- `test_ops_toolkit` 两个用例靠 `PATH=<空目录>:/usr/bin:/bin` 假装缺 docker。
+  `.3` 的 docker 就在 `/usr/bin` → 依赖被找到，测试要的 MISSING 文案永不出现。
+  改为在 PATH 前放 `exit 127` 的同名桩。
+- 我自己新写的 `test_t0_backfill_works_without_docker` **犯的是同一个错**：
+  只 prepend 空目录挡不住真 docker，`.3` 上命中真 docker 读到真机在跑的 compose 变体而失败；
+  本地 macOS 无 docker 才碰巧通过。改为 `exit 127` 桩 + 绝对路径 bash。
+
+### 验证方法论修正
+
+第一次跑全量时我只挂了 `backend/` 到一次性容器，104 个失败/错误——**是我的验证环境搭错了**
+（这些测试按 `ROOT=parents[2]` 找仓库根的 `delivery/`、`ops/`、`scripts/`），
+不是代码问题。改为挂整个仓库后收敛到 1 个（即上述既有失败）。
+用同一 web-api 镜像起一次性容器（`docker run`，无 compose 参与），**不碰在跑实例**。
+
+**未完成**：T4/T5/T6 需真实 Docker compose，须在 `.14` 执行。其中
+**T6（故意用错 compose → 被拒且容器 ID/health 不变）是本次事故的直接判别用例，不可省。**

@@ -218,7 +218,7 @@
   - **补测**：US-32 定向 15 → **21 例**，覆盖 success 终态的未对齐/已对齐/compose 缺失/回写生效/幂等/分支存在六种情形。
   - **教训（补）**：④**回写/收尾类逻辑必须用「任务真实终态」判别**，只在单测 happy path 里跑通不足以证明生效——本例 15 个单测全绿但真机不触发，直到按真实终态补测才暴露。
 
-### US-37 🔴 未修：同一 compose project 下混用不同 compose 文件起服务 → Docker 判定「配置变了」→ 静默 recreate + SIGKILL（exit 137）
+### US-37 🟡 代码已完成·待 `.14` 真机 compose 验证：同一 compose project 下混用不同 compose 文件起服务 → Docker 判定「配置变了」→ 静默 recreate + SIGKILL（exit 137）
 
 - **现场（2026-09-30 `.3`，用户发现）**：用户在 `.3` 导入迁移包后发现服务挂了。
   `web-api` 容器 `Exited (137)`、`OOMKilled=false`、`Error=` 空；另有两个卡在 `Created` 的残留容器。
@@ -277,6 +277,35 @@
 | US-16 | 验收曾用开发期重建镜像充当基线（验收≠交付） | 规则写死"必须用 Release 资产" | AGENTS §10-7、development-verification §4.4 |
 
 ---
+---
+
+#### 修复进展（2026-09-30，提交 `21fb325` / `cf11635` / `8b935bb` / `5529e23`）
+
+| 层 | 状态 | 落点 |
+| --- | --- | --- |
+| 标记（单一事实源） | ✅ 已实施 | `install.sh` 写 `.env` 的 `SMARTX_COMPOSE_FILE_ACTIVE`（0600、容器内 `/run/smartx-runtime.env` 可读） |
+| 守卫（操作前拦截） | ✅ 已实施 | `delivery/compose-guard.sh`，自包含；`up/down/restart` 前比对，不一致默认 exit 2 |
+| 交付态接线 | ✅ 已实施 | `install/` 与 `upgrade/` 各一份（`SCRIPT_SOURCES`）；`install.sh` 装进 `PROJECT_DIR`（0755） |
+| 诊断文档 | ✅ 已实施 | `troubleshooting.md` §10、`delivery/README.md` §9.1、`development-verification-process.md` §4.5 |
+| **实施期设计修正** | ✅ 已记录 | 标记**取自容器 compose 标签**（地面真相），不取自脚本硬编码值——见下 |
+| **`.14` 真机验证** | ⏳ **未做** | T4 / T5 / T6 需真实 Docker compose，**是本项的收尾门禁** |
+
+**实施期发现的设计缺陷（已修正，值得记住）**：设计初稿写「`install.sh` 把自己用的
+`$COMPOSE_FILE` 写进 `.env`」。核对后发现这会写出**假标记**——
+`install.sh` 在已有 `.env` 时会**直接 `exit 0`**（第 231-236 行），
+而 `.3` 事故现场恰恰是**已有 `.env`** 的实例，标记永远补不上；
+且写入值是硬编码常量，现场可能用别的变体。
+**用另一个猜测源去补事实源，正是 US-26/US-32 同类错误的翻版。**
+现改为从运行中容器的 `com.docker.compose.project.config_files` 标签取地面真相
+（实测 `.3` 返回 `/data/.../project/docker-compose.yml`），
+回填规则：已有标记→保持；无标记+容器在跑→取标签 basename；无标记+无容器→取本次要用的。
+
+**T6 仍是收尾必做项**：它是本次事故的直接判别用例
+（故意用错 compose → 必须被拒 → 容器 ID 与 health 不变）。
+
+**真机验证记录（`.3`，2026-09-30）**：一次性容器跑全量 **726 tests → 1 failure / 7 skipped**。
+唯一失败 `test_v2_upgrade...runner_executes_it` 经对照确认为**既有环境限制、非本次回归**：
+在动手前的 `9da006d` 上同环境跑同一测试，结果完全相同（`'failed' != 'success'`）。
 
 ### 已排查、确认不是问题（避免重复争论）
 - **post-cleanup 失败会被忽略？** 否——存在重试入口 `POST /api/admin/upgrade/post-cleanup/{task_id}/retry`（`api/admin/upgrade.py:145`），且任务 severity 由 `_severity()` 按类型/状态推导，`UPGRADE` 类失败 = **critical**（`tasks/service.py:294`），会进任务中心高亮。

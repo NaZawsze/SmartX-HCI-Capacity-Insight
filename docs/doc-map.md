@@ -83,6 +83,7 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | [superpowers/specs/2026-09-26-recycle-lifecycle-sync-design.md](superpowers/specs/2026-09-26-recycle-lifecycle-sync-design.md) | 回收站 VM 生命周期同步：采集记录 `in_recycle_bin`/`original_name`/`deleted_at`，采集成功且 Tower 取不到即删除本地行。✅ 已实施并验证（2026-09-26，.3 362 tests / 真实库升级通过；端到端待 Tower）。 | task_plan Phase 49 第 47 项（49-47） |
 | [superpowers/specs/2026-09-27-v053-platform-side-post-upgrade-collection-design.md](superpowers/specs/2026-09-27-v053-platform-side-post-upgrade-collection-design.md) | 49-49 设计：v0.5.3 升级后自动采集改平台侧调度（manifest `auto_collection=false` + 新键 `platform_collection` + compiler 不再下发动作；含「源端编译」关键约束）。 | task_plan Phase 49 第 49 项 |
 | [superpowers/specs/2026-09-27-runner-v032-and-action-level-precheck-design.md](superpowers/specs/2026-09-27-runner-v032-and-action-level-precheck-design.md) | 49-50 设计：runner **v0.3.2** 交付（bump/打包/推 tag 三步）+ 升级预检查**动作级**校验（`RUNNER_ACTION_SUPPORT` 表 + `_check_runner_actions`）。 | task_plan Phase 49 第 50 项 |
+| [superpowers/plans/2026-09-30-implementation-docs-split.md](superpowers/plans/2026-09-30-implementation-docs-split.md) | **实施流水三件套拆分·交接执行文档（待执行）**：progress.md（733KB）/task_plan.md（195KB）/findings.md（101KB）按「主文件只留当前阶段」逐字拆分归档至 `docs/archive/`；含现状实测、硬性红线（逐字搬运、原位指针、UPG-050 稳定结论留主文件）、分步执行与验收标准，可直接交接外部 AI 执行。合并设计（纯文档搬运无代码改动）。 | task_plan 待立项（执行 AI 的 Step 0） |
 
 ## 5. 升级链路专项文档
 

@@ -2072,7 +2072,7 @@ cli/
 2. 设计获用户确认后，再写实施计划 → `docs/superpowers/plans/2026-09-30-cli-toolkit-plan.md`；
 3. 计划确认后才实施。**设计与计划均未获批前不动手改代码**（AGENTS §3）。
 
-### 59. US-37：compose 变体多事实源根治（标记 + 守卫 + 测试隔离）[已立项·**设计已出**·待实施]
+### 59. US-37：compose 变体多事实源根治（标记 + 守卫 + 测试隔离）[**代码已完成**·待 `.14` 真机验证收尾]
 
 来源：2026-09-30 `.3` 服务中断事故（用户在 `.3` 导入迁移包后发现服务挂了，web-api `Exited 137`）。
 **根因不是迁移包、不是 OOM**：同一 compose project 名下混用不同 compose 变体起服务，
@@ -2105,3 +2105,35 @@ T5 安装后标记存在／**T6 故意用错 compose 被拒且服务不中断**�
 T7 诊断文档／T8 全量门禁。
 
 **回滚**：改动集中、不碰 compose 与业务代码，`git revert` 即可。
+
+**2026-09-30 实施结果**
+
+已完成（提交 `21fb325`、`cf11635`、`8b935bb`、`5529e23`）：
+
+- `delivery/compose-guard.sh`——自包含守卫（交付目录无 `lib/`，不能作外部库依赖）。
+  提供 marker 读写、`detect_running`（读容器 compose 标签）、`resolve`（地面真相回填）、
+  `check`（0 放行 / 2 拒绝）、`down_then_switch`（`--force-compose-switch` 的实现）。
+- 接线：`install.sh` 加 `--force-compose-switch`；**幂等 exit 之前**回填标记；
+  `compose up` 之前调守卫；把守卫 `install -m 0755` 进 `PROJECT_DIR`。
+  `upgrade.sh` 只加**只读**诊断（原有单测静态锁定「不含 compose 操作」，已验证未破坏）。
+  `build_offline_delivery.py` 的 `SCRIPT_SOURCES` 加两条。
+- 文档：`troubleshooting.md` §10（并修掉 §1 里那条本身就是事故诱导源的硬编码命令）、
+  `delivery/README.md` §9.1、`development-verification-process.md` §4.5。
+- 测试：`backend/tests/test_us37_compose_guard.py` 35 例，含接线静态锁定
+  与「文档写的路径必须真被创建」。
+
+实施期修正（已回写设计文档）：标记取自**容器 compose 标签**而非脚本硬编码值。
+原设计会写出假标记——`install.sh` 遇已有 `.env` 直接 `exit 0`，
+而事故现场恰是已有 `.env` 的实例，标记永远补不上。
+**用猜测源补事实源 = US-26/US-32 同类错误。**
+
+真机验证（`.3`）：全量 726 tests → 1 failure / 7 skipped。唯一失败经对照
+（动手前 `9da006d` 同环境同结果）确认为既有环境限制、非本次回归。
+过程中还发现并修了 2 个**依赖宿主机环境**的测试 bug（靠「PATH 里恰好没有某命令」
+模拟缺依赖，在装了 docker 的标准 Linux 上失效）。
+
+**未完成（收尾必做）**：T4 / T5 / T6 需真实 Docker compose，须在 `.14` 执行：
+
+- T4 `--force-compose-switch` → 先 down 再 up，无 recreate 冲突
+- T5 `install.sh` 装完后 `.env` 含 `SMARTX_COMPOSE_FILE_ACTIVE` 且值正确
+- **T6 故意用错 compose → 被守卫拒绝，容器 ID 与 health 不变**（本次事故的直接判别用例，不可省）
