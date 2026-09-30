@@ -51,15 +51,51 @@
 **安装时把「用了哪个 compose」写进 `.env`**，作为此后所有操作的权威来源。
 
 - 变量名：`SMARTX_COMPOSE_FILE_ACTIVE`（用 `_ACTIVE` 后缀强调"这是当前生效的那份"，
-  与 offline compose 已有的 `SMARTX_COMPOSE_FILE` 注入区分开，避免混淆）。
+  与 offline compose 往容器注入的 `SMARTX_COMPOSE_FILE` 区分开，避免混淆）。
 - 值：相对文件名，如 `docker-compose.offline.yml`。
-- 写入时机：`install.sh` 启动服务**之前**（`compose apply` 阶段），与 `.env` 一起落盘。
+- 写入时机：`install.sh` 启动服务**之前**，与 `.env` 一起落盘。
 - 权限：`.env` 已是 0600，该变量随之受保护。
 
 **为什么放 `.env` 而不是别的文件**：
 - `.env` 已经是所有环境口径的既有落点（含 `SMARTX_DB_PATH` 等），不新增概念；
-- web-api 容器已把 `.env` 挂进容器，**诊断时无需登录宿主即可读到**；
+- `.env` 既作为 `env_file:` 注入容器、又被挂载到 `/run/smartx-runtime.env`
+  （实测确认），**诊断时无需登录宿主即可读到**；
 - 升级/备份流程已把 `.env` 当成成对资产处理（AGENTS §9「Tower 凭据加密所需的配套 .env 必须与数据库成对迁移」）。
+
+#### 2.1.1 实施期修正：标记必须取自地面真相，不能取自「脚本认为的 compose」
+
+设计初稿写的是「`install.sh` 把自己用的 `$COMPOSE_FILE` 写进 `.env`」。实施前核对发现**这条会写出假标记**：
+
+1. `install.sh` 的幂等检查在第 231-236 行：`.env` 存在且未加 `--force-env` 时**直接 `exit 0`**。
+   而事故现场的 `.3` 恰恰是**已有 `.env`** 的实例——标记永远补不上，
+   守卫对最需要保护的旧环境反而一直走 T1 放行分支。
+2. 即使把写入挪到退出之前，写入值也是**脚本的硬编码常量** `docker-compose.offline.yml`（第 41 行），
+   而现场实际可能用的是别的变体。**写死的值不是观测值**——这正是 US-26/US-32
+   「多事实源」同类错误的翻版：用另一个猜测源去补事实源。
+
+**修正为：从运行中容器的 compose 标签取地面真相。**
+
+Docker 会把实际使用的 compose 文件绝对路径写在容器标签里（实测 `.3` 返回
+`/data/smartx-storage-forecast/project/docker-compose.yml`）：
+
+~~~text
+com.docker.compose.project.config_files   ← 实际用的 compose 文件（绝对路径）
+com.docker.compose.project.working_dir
+~~~
+
+标记回填规则（`compose_guard_resolve`）：
+
+| 情况 | 标记取值 | 理由 |
+| --- | --- | --- |
+| `.env` 已有标记 | 保持不变 | 已是既定事实源 |
+| 无标记 + **有运行中容器** | 容器 `config_files` 标签的 basename | **地面真相**，非猜测 |
+| 无标记 + 无容器 | `$COMPOSE_FILE`（本次要用的） | 无在跑服务，不存在 recreate 风险，且即将用它启动 |
+
+本项目已有读 compose 标签的先例（`backend/app/upgrade_runner/actions.py:1694`、
+`backend/app/upgrade/service/verification.py:86`），不引入新机制。
+
+**这一条比原设计更强**：它让守卫对**事故现场那种「标记缺失但服务在跑」的历史环境**
+也能立刻生效，而不是等客户重装。
 
 ### 2.2 第二层：操作前守卫（拦住误操作）
 
@@ -111,9 +147,10 @@ offline-delivery/
 事故的直接成因是我在**运行中的机器**上用另一份 compose 操作同一 project。工具层要挡这个：
 
 - `ops/package.sh` **本身不调用 compose**（实测确认，只做构建），所以它无此风险——**保持现状，不要加多余逻辑**。
-- 新增 `ops/lib/test-env.sh`：提供 `test_project_name` / `test_compose_for`，让**任何测试脚本**在
-  有服务运行的机器上跑时能用**独立 project 名**（如 `smartx-cli-test`），物理隔离。
-- 更重要的一条纪律写进 `docs/development-verification-process.md`：
+- ~~新增 `ops/lib/test-env.sh` 提供 `test_project_name`~~ —— **用户否决**（2026-09-30）：
+  这类薄封装脚本约束不了真正危险的场景（人在错误机器上手敲 `docker compose`），
+  反而增加一层"看起来有防护"的错觉。**改为纯纪律**，写进
+  `docs/development-verification-process.md`：
   **在 `.3`/`.12` 这类运行着实例的机器上做测试，必须用独立 project 名**；
   实在不能用独立 project（如验证的就是生产布局），**先完整 down/up 一次**再测，
   测完恢复原状。测试目录用完即删（本次两个目录各 3.4G，且长期滞留会持续污染现场）。
@@ -134,10 +171,9 @@ offline-delivery/
 | --- | --- | --- |
 | `delivery/compose-guard.sh` | 新增：自包含守卫脚本（**不依赖 lib/**，因为交付目录无 lib） | 新文件 |
 | `scripts/build_offline_delivery.py` | `SCRIPT_SOURCES` 增加两条，把守卫复制进 `install/` 与 `upgrade/` | 3 行 |
-| `delivery/install/install.sh` | 启动前把 `SMARTX_COMPOSE_FILE_ACTIVE=$COMPOSE_FILE` 写入 `.env`；`compose up` 前调守卫 | 新增写入 + 一次调用 |
+| `delivery/install/install.sh` | 幂等检查**之前**回填标记（取自容器标签，见 §2.1.1）；`compose up` 前调守卫；新增 `--force-compose-switch` | 回填 + 一次调用 + 新选项 |
 | `delivery/upgrade/upgrade.sh` | 若有 compose 操作则调守卫（当前不碰 compose，仍加防护位） | 轻量 |
 | `ops/install.sh`、`ops/upgrade.sh` | 转发前调守卫，给使用者一致性提示 | 轻量 |
-| `ops/lib/test-env.sh` | 新增：测试隔离助手 | 新文件 |
 | `backend/tests/test_us37_compose_guard.py` | 新增：守卫行为单测 | 新测试 |
 | `docs/development-verification-process.md` | 补「运行中机器做测试」的纪律 | 文档 |
 | `docs/troubleshooting.md` | 新增症状：**`exit 137` + `OOMKilled=false` = 被人为 SIGKILL，先查谁在 recreate** | 文档 |
@@ -148,7 +184,8 @@ offline-delivery/
 
 | # | 用例 | 环境 | 判据 |
 | --- | --- | --- | --- |
-| T1 | 守卫：无 `.env` 标记（旧环境）时**放行**并提示"无法判定，按当前 compose 执行" | 本地 | 不阻断（向后兼容） |
+| T0 | 标记回填：无标记 + 有运行容器 → 取容器 `config_files` 标签 basename；无容器 → 取 `$COMPOSE_FILE` | 本地（mock docker） | 取值正确 |
+| T1 | 守卫：无 `.env` 标记且**无法回填**（无 docker/无容器）时**放行**并提示 | 本地 | 不阻断（向后兼容） |
 | T2 | 守卫：标记与传入一致 → 放行 | 本地 | exit 0 |
 | T3 | 守卫：标记与传入**不一致** → 拒绝，给出三条路径 | 本地 | exit 2 + 提示含 active 值 |
 | T4 | 守卫：`--force-compose-switch` → 先 down 再 up | `.14` | 无 recreate 冲突，容器干净重建 |
@@ -173,10 +210,10 @@ offline-delivery/
 
 ## 7. 实施顺序
 
-1. `delivery/compose-guard.sh` + 单测（T1–T3）
-2. `ops/lib/test-env.sh`
-3. `delivery/install/install.sh` 写标记 + 调守卫 → T5、T6（`.14` 实测）
-4. `delivery/upgrade/upgrade.sh` 调守卫
-5. `ops/install.sh`、`ops/upgrade.sh` 提示 + 文档（T7）
+1. `delivery/compose-guard.sh`（含 `compose_guard_resolve` 地面真相回填）+ 单测（T0–T3）
+2. `scripts/build_offline_delivery.py` `SCRIPT_SOURCES` 接线（交付态必须自包含）
+3. `delivery/install/install.sh` 回填标记 + 调守卫 + `--force-compose-switch` → T4、T5、T6（`.14` 实测）
+4. `delivery/upgrade/upgrade.sh` 加防护位
+5. `ops/install.sh`、`ops/upgrade.sh` 提示 + 文档（T7，含删除 test-env.sh 的决定）
 6. `.3` 全量门禁（T8）
 7. 更新 `docs/upgrade-strategy-issues.md` US-37 状态、`progress.md`、ledger

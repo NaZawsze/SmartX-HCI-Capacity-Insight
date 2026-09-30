@@ -24,6 +24,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGES_DIR="$SCRIPT_DIR/images"
 PROJECT_SRC="$SCRIPT_DIR/project"
 ENV_TEMPLATE="$SCRIPT_DIR/.env.template"
+COMPOSE_GUARD="$SCRIPT_DIR/compose-guard.sh"
+
+# US-37：加载 compose 变体守卫。守卫自包含，不依赖 lib/。
+if [ -f "$COMPOSE_GUARD" ]; then
+  # shellcheck source=/dev/null
+  . "$COMPOSE_GUARD"
+else
+  COMPOSE_GUARD=""
+fi
 
 # ---- 默认值（可由命令行覆盖）----
 INSTALL_ROOT="/data/smartx-storage-forecast"
@@ -34,6 +43,7 @@ TOWER_USER=""
 TOWER_PASSWORD=""
 ASSUME_YES=0
 FORCE_ENV=0
+FORCE_COMPOSE_SWITCH=0
 HEALTH_TIMEOUT=180
 DISK_HEADROOM_GIB=10
 
@@ -96,6 +106,10 @@ usage() {
   --health-timeout <秒>     健康检查超时（默认 180）
   --yes                     非交互模式（跳过确认）
   --force-env               已存在 .env 时重新生成（默认不覆盖）
+  --force-compose-switch    确认要把实例换成另一份 compose 变体。
+                            会**先完整停机（down）再启动**，造成计划内中断。
+                            不加此参数时，若 .env 记录的 compose 与本脚本使用的
+                            不一致，将直接拒绝执行（防服务被 recreate 掉）。
   -h, --help                显示本帮助
 
 示例:
@@ -123,6 +137,7 @@ while [ $# -gt 0 ]; do
     --health-timeout) HEALTH_TIMEOUT="${2:?}"; shift 2 ;;
     --yes|-y)         ASSUME_YES=1; shift ;;
     --force-env)      FORCE_ENV=1; shift ;;
+    --force-compose-switch) FORCE_COMPOSE_SWITCH=1; shift ;;
     -h|--help)        usage; exit 0 ;;
     *) fail "未知选项：$1"; usage; exit 1 ;;
   esac
@@ -224,6 +239,20 @@ if [ "$PORT_PROBE_TOOL" = "none" ]; then
 fi
 mark_done "前置检查"
 ok "前置检查通过"
+
+# ══════════════════════════════════════════════════════════════
+step "记录生效的 compose 变体（US-37）"
+# ══════════════════════════════════════════════════════════════
+# .env 里的 SMARTX_COMPOSE_FILE_ACTIVE 是「这个实例用哪份 compose 起」的唯一事实源，
+# 供 compose-guard.sh 在后续任何 up/down/restart 前拦截误用别的变体。
+#
+# 必须放在幂等检查**之前**：已有安装时本脚本会在下面直接 exit 0，
+# 放到之后就永远补不上标记——而那恰恰是最需要守卫的现场（2026-09-30 .3 事故）。
+if [ -f "$ENV_FILE" ] && [ -n "${compose_guard_resolve:-}" ]; then
+  RESOLVED_COMPOSE="$(compose_guard_resolve "$ENV_FILE" "$COMPOSE_PROJECT" "$COMPOSE_FILE")"
+  ok "生效 compose 变体：${RESOLVED_COMPOSE}"
+  mark_done "记录生效的 compose 变体"
+fi
 
 # ══════════════════════════════════════════════════════════════
 step "幂等检查：是否已安装"
@@ -441,6 +470,21 @@ fi
 compose_cmd() {
   docker compose -f "$COMPOSE_PATH" -p "$COMPOSE_PROJECT" "$@"
 }
+
+# US-37：启动前拦截 compose 变体不一致。守卫缺失时只提醒不阻断（向后兼容）。
+if [ -n "${compose_guard_check:-}" ]; then
+  if ! compose_guard_check "$ENV_FILE" "$COMPOSE_FILE" "$COMPOSE_PROJECT"; then
+    if [ "$FORCE_COMPOSE_SWITCH" -eq 1 ]; then
+      c_yellow "已指定 --force-compose-switch，按「先完整停机再换变体」执行。"
+      compose_guard_down_then_switch "$ENV_FILE" "$PROJECT_DIR" "$COMPOSE_PROJECT" "$COMPOSE_FILE" \
+        || die "compose 变体切换失败（停机阶段出错）" "服务当前状态：已停机或原样，请用 docker compose -f $PROJECT_DIR/$COMPOSE_FILE -p $COMPOSE_PROJECT ps 确认。"
+    else
+      die "compose 变体不一致，已拒绝启动（见上方守卫输出）" \
+        "确认要换变体请加 --force-compose-switch（会先完整停机，造成计划内中断）。服务**未**启动，宿主环境未被改动。"
+    fi
+  fi
+fi
+
 if ! compose_cmd up -d >/dev/null 2>&1; then
   c_red "docker compose up 失败，输出如下："
   compose_cmd up -d 2>&1 | tail -20 || true

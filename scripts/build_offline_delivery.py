@@ -48,6 +48,10 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_SOURCES: dict[str, Path] = {
     "install/install.sh": ROOT / "delivery" / "install" / "install.sh",
     "upgrade/upgrade.sh": ROOT / "delivery" / "upgrade" / "upgrade.sh",
+    # US-37 compose 变体守卫。交付目录没有 lib/，所以守卫必须自包含，
+    # 且 install/ 与 upgrade/ 各放一份（避免两目录间的相对路径耦合）。
+    "install/compose-guard.sh": ROOT / "delivery" / "compose-guard.sh",
+    "upgrade/compose-guard.sh": ROOT / "delivery" / "compose-guard.sh",
 }
 
 # 交付物禁含清单（docs/ova-delivery.md 制品边界）。

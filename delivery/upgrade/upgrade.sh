@@ -109,6 +109,16 @@ if [ -z "$ADMIN_PASSWORD" ]; then
 fi
 
 # ══════════════════════════════════════════════════════════════
+# US-37：加载 compose 变体守卫，仅用于**只读**诊断。
+# 本脚本不含 docker load / compose up / rm（有单测静态锁定），守卫不改变这一点。
+COMPOSE_GUARD="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/compose-guard.sh"
+if [ -f "$COMPOSE_GUARD" ]; then
+  # shellcheck source=/dev/null
+  . "$COMPOSE_GUARD"
+else
+  COMPOSE_GUARD=""
+fi
+
 printf '\n══ 离线一键升级 · SmartX HCI Capacity Insight ══\n'
 # ══════════════════════════════════════════════════════════════
 
@@ -130,6 +140,26 @@ esac
 CURRENT_VERSION="$(printf '%s' "$HEALTH_BODY" | sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')"
 CURRENT_RUNNER="$(printf '%s' "$HEALTH_BODY" | sed -nE 's/.*"runner_version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')"
 ok "平台可达：版本 ${CURRENT_VERSION:-unknown}，runner ${CURRENT_RUNNER:-unknown}"
+
+# ── US-37 只读诊断：当前实例生效的 compose 变体 ──
+# 不阻断升级（旧环境可能没有标记），只是把事实摆出来：
+# 后续若有人手工敲 docker compose up，用错变体会 recreate 掉服务（2026-09-30 .3 事故）。
+if [ -n "$COMPOSE_GUARD" ]; then
+  _upg_project_dir="/data/smartx-storage-forecast/project"
+  _upg_env="$_upg_project_dir/.env"
+  if [ -f "$_upg_env" ]; then
+    _upg_active="$(compose_guard_marker "$_upg_env")"
+    if [ -n "$_upg_active" ]; then
+      info "当前实例的 compose 变体：${_upg_active}（记录于 .env）"
+    else
+      _upg_detected="$(compose_guard_detect_running smartx-hci-capacity-insight)"
+      if [ -n "$_upg_detected" ]; then
+        warn "compose 变体未记录在 .env；按容器标签实测为 ${_upg_detected}"
+        info "建议重跑 install/install.sh 以补上标记（防误用其它变体导致服务 recreate）。"
+      fi
+    fi
+  fi
+fi
 
 # ── 选定升级包 ──
 if [ -z "$PACKAGE" ]; then
