@@ -456,6 +456,18 @@ CK_IN_FILE=$(grep '^SMARTX_CREDENTIAL_KEY=' "$ENV_FILE" | cut -d= -f2-)
 if [ "$SK_IN_FILE" = "$CK_IN_FILE" ]; then
   die "两把密钥相同（模板替换异常）" "请勿手工复用同一密钥；重跑本脚本会重新生成。服务**未**启动。"
 fi
+# US-37：新生成的 .env 必须带上 compose 变体标记（守卫的事实源）。
+# 开头的 compose_guard_resolve 只在「已有 .env」时执行，全新安装拿不到它的输出——
+# 若这里不补写，装完的 .env 永远没有标记（T5 判据不成立，守卫对全新环境失效）。
+# RESOLVED_COMPOSE 是重装场景的地面真相（旧标记/容器标签），保留它才能让
+# --force-env 重装路径仍受守卫的变体不一致判定保护。
+if [ -n "${compose_guard_write:-}" ]; then
+  if compose_guard_write "$ENV_FILE" "${RESOLVED_COMPOSE:-$COMPOSE_FILE}"; then
+    ok "compose 变体标记已写入（${RESOLVED_COMPOSE:-$COMPOSE_FILE}）"
+  else
+    warn "compose 变体标记写入失败（守卫将按无标记放行，不影响本次安装）"
+  fi
+fi
 ok ".env 已生成（0600 root:root），密钥为随机值且两把不同"
 info "管理员：$ADMIN_USER / $ADMIN_PASSWORD"
 unset ENV_CONTENT SECRET_KEY CREDENTIAL_KEY SK_IN_FILE CK_IN_FILE

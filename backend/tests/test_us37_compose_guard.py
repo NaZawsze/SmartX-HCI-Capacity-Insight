@@ -383,6 +383,27 @@ class GuardWiringTest(unittest.TestCase):
         self.assertIn("--force-compose-switch", self.install, "缺少 --force-compose-switch 选项")
         self.assertIn("compose_guard_down_then_switch", self.install, "必须实现先 down 再换")
 
+    def test_install_writes_marker_into_generated_env(self) -> None:
+        """T5：全新安装结束后 .env 必须含 SMARTX_COMPOSE_FILE_ACTIVE。
+
+        背景：2026-09-30 验证期发现——compose_guard_resolve 只在「已有 .env」时
+        执行，而全新安装的 .env 由模板重新生成、天然不含标记；若生成后不补写，
+        装完的 .env 永远没有标记，守卫对全新环境只能走无标记放行分支。
+        """
+        self.assertIn(
+            "${RESOLVED_COMPOSE:-$COMPOSE_FILE}", self.install,
+            "标记值必须用 RESOLVED_COMPOSE（重装时的地面真相），全新安装才退到本次待用变体",
+        )
+        write_at = self.install.find('compose_guard_write "$ENV_FILE"')
+        gen_at = self.install.find('printf \'%s\\n\' "$ENV_CONTENT" > "$ENV_FILE"')
+        check_at = self.install.find("compose_guard_check")
+        self.assertNotEqual(write_at, -1, "install.sh 必须在生成 .env 后写入标记")
+        self.assertNotEqual(gen_at, -1)
+        self.assertNotEqual(check_at, -1)
+        self.assertLess(gen_at, write_at, "标记必须写在 .env 生成之后")
+        self.assertLess(write_at, check_at,
+                        "标记必须写在守卫判定之前——--force-env 重装路径才受变体不一致判定保护")
+
     def test_upgrade_uses_guard_readonly(self) -> None:
         self.assertIn("compose-guard.sh", self.upgrade, "upgrade.sh 必须带守卫诊断")
         self.assertIn("compose_guard_marker", self.upgrade, "upgrade.sh 应只读标记")
