@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# CLI 入口 1：一键安装（薄封装）
+# CLI 入口 1：一键安装
 #
-# 逻辑全部在 delivery/install/install.sh（已在 .14 断网实测通过）。
-# 本脚本只做三件事：定位 → 存在性检查 → exec 参数透传。**不加任何业务逻辑**。
+# ⚠ 这个脚本**不是**给客户用的。客户拿到的离线交付目录里自带
+#    `install/install.sh`（含 images/ 与 project/），直接跑那个即可，不需要仓库。
 #
-# 设计依据 docs/superpowers/specs/2026-09-30-cli-toolkit-design.md §4 Q4：
-# delivery/install/install.sh 是被 build_offline_delivery.py 复制进交付目录的源文件，
-# 交付目录必须自包含，所以逻辑必须留在 delivery/。
+# 本脚本给**本项目开发者/运维**用：从仓库 clone 后想在本机装一套环境时用。
+# 它先确保有可用的离线交付物料（没有就调用 cli/package.sh 生成），再转发给交付态脚本。
+#
+# 为什么不直接 exec ../delivery/install/install.sh：
+#   仓库里的 delivery/install/ **只有 install.sh 一个文件**，没有 images/ 与 project/
+#   ——那是 build_offline_delivery.py 打包时才生成的产物（1.1G），不可能进 git。
+#   直接转发必然在「找不到镜像目录」处失败（2026-09-30 核查发现的设计缺陷）。
 
 set -uo pipefail
 
@@ -14,18 +18,45 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
 
-TARGET="$SCRIPT_DIR/../delivery/install/install.sh"
+# 1) 优先用已有交付目录
+for CANDIDATE in \
+    "$SCRIPT_DIR/../delivery/install" \
+    "$SCRIPT_DIR/../cli/packages/latest/offline-delivery/install" \
+    "$SCRIPT_DIR/../cli/packages/latest/install" ; do
+  if [ -d "$CANDIDATE/images" ] && [ -d "$CANDIDATE/project" ]; then
+    dim "使用交付物料：$CANDIDATE"
+    dim "（若要装到别处，加 --install-dir <交付目录>）"
+    step "转发到 $CANDIDATE/install.sh"
+    exec bash "$CANDIDATE/install.sh" "$@"
+  fi
+done
 
-if [ ! -f "$TARGET" ]; then
-  err "找不到安装脚本：$TARGET"
-  info ""
-  info "两种可能："
-  info "  1) 你不在仓库里。安装请用**离线交付目录**中的 install/install.sh"
-  info "     （交付目录自带 install/ + upgrade/ + 镜像，不依赖仓库）。"
-  info "  2) 仓库不完整。重新克隆："
-  info "     git clone https://github.com/NaZawsze/SmartX-HCI-Capacity-Insight.git"
-  exit 2
-fi
+# 2) 都没有 → 明确告诉用户怎么办，不静默失败
+cat >&2 <<'EOF'
+错误：找不到可用的离线交付物料（需要含 images/ 与 project/ 的目录）。
 
-dim "转发到 $TARGET"
-exec bash "$TARGET" "$@"
+已查找的位置:
+  ../delivery/install
+  ../cli/packages/latest/offline-delivery/install
+  ../cli/packages/latest/install
+
+仓库里的 delivery/install/ 只有 install.sh 本体，没有镜像与部署文件——
+它们是 cli/package.sh 打包时生成的产物（1.1 GB），不进 git。
+
+怎么办（按你的目的选一个）:
+
+  A) 你要在本机装一套环境
+     先打包出交付物料（需要 Docker，耗时约 10 分钟）:
+         bash cli/package.sh --skip-offline --yes
+     然后重跑本脚本。注意 --skip-offline 时需自己准备 install/images/，
+     最省事的做法是不加该参数，让 package.sh 产出完整 offline-delivery/。
+
+  B) 客户安装 / 离线环境安装
+     用**交付目录**里的脚本，不要用本仓库的:
+         bash install/install.sh
+     交付目录（offline-delivery/）自带 images/、project/、install.sh，是自包含的。
+
+  C) 你手上已有交付压缩包
+     解开后进入该目录跑 install/install.sh。
+EOF
+exit 2

@@ -197,17 +197,69 @@ class CliRepoRootTest(unittest.TestCase):
 
 
 class CliThinWrapperTest(unittest.TestCase):
-    """install.sh / upgrade.sh 必须只做「定位 + exec 透传」，不改逻辑（Q4）。"""
+    """install.sh / upgrade.sh 的转发逻辑（Q4）。
 
-    def test_wrappers_delegate_to_delivery_scripts(self) -> None:
-        for name, target in (
-            ("install.sh", "delivery/install/install.sh"),
-            ("upgrade.sh", "delivery/upgrade/upgrade.sh"),
+    2026-09-30 修正过一次设计错误：原实现直接 `exec ../delivery/install/install.sh`，
+    但**仓库里 `delivery/install/` 只有 install.sh 本体**，没有 `images/`、`project/`——
+    那些是 build_offline_delivery.py 打包时的产物（1.1G），不进 git。直接转发必然失败。
+    现实现：先在几个候选位置找**自包含**的交付物料（含 images/+project/ 或 packages/），
+    找到才转发；找不到则明确告知三条路径，不静默失败。
+    """
+
+    def test_wrappers_search_multiple_delivery_locations(self) -> None:
+        for name, marker in (
+            ("install.sh", '"$CANDIDATE/images"'),
+            ("upgrade.sh", '"$CANDIDATE/packages"'),
         ):
             text = (CLI / name).read_text(encoding="utf-8")
-            self.assertIn(target, text, f"cli/{name} 必须指向 {target}")
-            self.assertIn("exec bash", text, f"cli/{name} 必须用 exec 透传，不重写逻辑")
+            self.assertIn("for CANDIDATE in", text, f"cli/{name} 必须遍历候选交付目录")
+            self.assertIn(
+                marker, text,
+                f"cli/{name} 必须校验交付物料完整性（{marker}），不能只看脚本存在",
+            )
+            self.assertIn("exec bash", text, f"cli/{name} 找到物料后必须 exec 转发")
             self.assertIn('"$@"', text, f"cli/{name} 必须原样透传参数")
+
+    def test_wrappers_explain_repo_delivery_is_incomplete(self) -> None:
+        """必须点明「仓库里的 delivery/ 不完整」，否则用户会以为脚本坏了。"""
+        for name in ("install.sh", "upgrade.sh"):
+            text = (CLI / name).read_text(encoding="utf-8")
+            self.assertIn(
+                "不是**给客户用的",
+                text,
+                f"cli/{name} 必须说明它不是给客户用的（避免与交付目录脚本混淆）",
+            )
+            self.assertIn(
+                "不进 git",
+                text,
+                f"cli/{name} 必须解释交付物料为何不在仓库里",
+            )
+
+    def test_wrappers_fail_readably_without_delivery(self) -> None:
+        """无交付物料时给可操作的三条路径，不是静默失败。"""
+        with tempfile.TemporaryDirectory() as raw:
+            fake_root = Path(raw)
+            (fake_root / "cli" / "lib").mkdir(parents=True)
+            shutil.copy2(COMMON, fake_root / "cli" / "lib" / "common.sh")
+            for name in ("install.sh", "upgrade.sh"):
+                shutil.copy2(CLI / name, fake_root / "cli" / name)
+                result = subprocess.run(
+                    ["bash", str(fake_root / "cli" / name)],
+                    capture_output=True, text=True,
+                    env={**os.environ, "NO_COLOR": "1"}, check=False
+                )
+                self.assertEqual(result.returncode, 2, f"{name} 应 exit 2")
+                combined = result.stdout + result.stderr
+                self.assertIn("找不到可用", combined, f"{name} 必须说明缺什么")
+                self.assertIn(
+                    "bash cli/package.sh", combined,
+                    f"{name} 必须给出「先打包」这条路径",
+                )
+                self.assertIn(
+                    "install/install.sh" if name == "install.sh" else "upgrade/upgrade.sh",
+                    combined,
+                    f"{name} 必须指出客户该用交付目录里的脚本",
+                )
 
     def test_wrappers_do_not_modify_delivery(self) -> None:
         """入口不得改动 delivery/ 下任何文件。"""
@@ -224,32 +276,26 @@ class CliThinWrapperTest(unittest.TestCase):
         )
 
     def test_delivery_scripts_untouched_by_content(self) -> None:
-        """无 git 时的等价保证：薄封装引用的目标脚本必须存在且可执行。"""
-        for name, relative in (
-            ("install.sh", "delivery/install/install.sh"),
-            ("upgrade.sh", "delivery/upgrade/upgrade.sh"),
-        ):
+        """无 git 时的等价保证：交付态脚本必须存在且可执行。"""
+        for relative in ("delivery/install/install.sh", "delivery/upgrade/upgrade.sh"):
             target = ROOT / relative
-            self.assertTrue(target.is_file(), f"{relative} 必须存在（薄封装要指向它）")
-            text = (CLI / name).read_text(encoding="utf-8")
-            self.assertIn(relative, text, f"cli/{name} 必须指向 {relative}")
+            self.assertTrue(target.is_file(), f"{relative} 必须存在")
+            self.assertTrue(os.access(target, os.X_OK), f"{relative} 必须可执行")
 
-    def test_wrappers_fail_readably_when_repo_script_missing(self) -> None:
-        """脚本不在仓库态时给可读错误，不静默失败。"""
-        with tempfile.TemporaryDirectory() as raw:
-            # 造一个只有 cli/ 没有 delivery/ 的目录
-            fake_root = Path(raw)
-            (fake_root / "cli" / "lib").mkdir(parents=True)
-            shutil.copy2(COMMON, fake_root / "cli" / "lib" / "common.sh")
-            shutil.copy2(CLI / "install.sh", fake_root / "cli" / "install.sh")
-            result = subprocess.run(
-                ["bash", str(fake_root / "cli" / "install.sh")],
-                capture_output=True, text=True,
-                env={**os.environ, "NO_COLOR": "1"}, check=False
-            )
-            self.assertEqual(result.returncode, 2)
-            self.assertIn("找不到安装脚本", result.stderr)
-            self.assertIn("离线交付目录", result.stdout + result.stderr)
+    def test_repo_delivery_lacks_generated_artifacts(self) -> None:
+        """锁定一个已确认的事实：仓库里的 delivery/install 没有 images/ 与 project/。
+
+        这是 2026-09-30 发现的设计缺陷的根据——若哪天决定把镜像目录也纳入版本控制，
+        本测试会失败，提醒同步更新 cli/install.sh 的定位逻辑与 README 文案。
+        """
+        install_dir = ROOT / "delivery" / "install"
+        self.assertTrue((install_dir / "install.sh").is_file())
+        self.assertFalse(
+            (install_dir / "images").exists(),
+            "仓库里不应存在 delivery/install/images/（1.1G 产物，不进 git）；"
+            "若已纳入版本控制，请同步更新 cli/install.sh 与 cli/README.md",
+        )
+
 
 
 class CliPackageScriptTest(unittest.TestCase):

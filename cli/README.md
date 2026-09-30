@@ -1,14 +1,29 @@
 # CLI 工具链
 
-命令行下的**安装、升级、打包**三件事。三个入口都在这里，按你要做的事选一个。
+命令行下的**安装、升级、打包**。三个入口都在这里。
+
+## ⚠ 先看这条：客户用哪个，开发用哪个
+
+两套脚本，**不是一回事**，用错会失败：
+
+| 你是谁 | 用哪个 | 为什么 |
+| --- | --- | --- |
+| **客户 / 离线环境** | 交付目录里的 `install/install.sh`、`upgrade/upgrade.sh` | 交付目录**自包含**：带 `images/`、`project/`、`packages/`。客户手上只有这份，不需要仓库 |
+| **本项目开发者 / 运维** | 本目录的 `install.sh`、`upgrade.sh` | 只有仓库、没交付目录时用。它会先定位（或提示你打包出）交付物料，再转发 |
+
+**关键**：`delivery/install/` 在仓库里**只有 `install.sh` 一个文件**，没有 `images/` 和 `project/`。
+那些是 `cli/package.sh` 打包时生成的产物（1.1 GB），不可能进 git。
+所以在仓库里直接跑 `delivery/install/install.sh` **必然失败**（报「找不到镜像目录」）。
+
+三个脚本都能 `--help`。不确定选哪个就看下表。
 
 | 我要做的事 | 跑哪个 | 前置 |
 | --- | --- | --- |
-| **首次安装**一台机器 | [`install.sh`](#1-安装installsh) | Linux + Docker + root |
-| 把已有环境**升级**到新版本 | [`upgrade.sh`](#2-升级upgradesh) | 已装好的环境 |
-| **打包**（出升级包给客户/发布用） | [`package.sh`](#3-打包packagesh) | Linux + Docker + Python 3.11+ + git |
-
-不确定选哪个就看下面。三个脚本都能 `--help`。
+| **打包**（出交付物给客户/发布用） | [`package.sh`](#3-打包packagesh) | Linux + Docker + Python 3.11+ + git |
+| 在**本机**装一套环境（开发者） | [`install.sh`](#1-安装installsh) | Linux + Docker + root；无交付物料时需先打包 |
+| 把**本机已有环境**升级（开发者） | [`upgrade.sh`](#2-升级upgradesh) | 同上 |
+| **客户安装** | 交付目录的 `install/install.sh` | 交付目录（自包含） |
+| **客户升级** | 交付目录的 `upgrade/upgrade.sh` | 交付目录（自包含） |
 
 ---
 
@@ -34,13 +49,18 @@ bash cli/check-deps.sh
 
 ## 1. 安装（`install.sh`）
 
-首次在一台空机器上部署。
+**开发者/运维**在开发机装一套环境。客户请用交付目录的 `install/install.sh`（见文首表格）。
 
 ```bash
 git clone https://github.com/NaZawsze/SmartX-HCI-Capacity-Insight.git
 cd SmartX-HCI-Capacity-Insight
+# 若还没有交付物料，先打包一个（见第 3 节）
+bash cli/package.sh
 sudo bash cli/install.sh
 ```
+
+脚本会依次尝试 `delivery/install/`、`cli/packages/latest/offline-delivery/install/`，
+找到含 `images/` 与 `project/` 的那个就转发过去；都没有则明确告诉你先打包。
 
 装完检查：
 
@@ -51,28 +71,25 @@ docker ps --filter name=smartx-hci   # 应有 5 个容器
 
 浏览器打开 `http://<本机IP>:8080`，用 `admin` / `password` 登录。
 
-> `install.sh` 是**薄封装**，实际逻辑在 [`delivery/install/install.sh`](../delivery/install/install.sh)（已实测通过）。
-> **离线交付目录**里的 `install/install.sh` 是同一个脚本，不依赖仓库。
-
 幂等：重复执行不会覆盖已有 `.env`、不会重建容器。
 
 ## 2. 升级（`upgrade.sh`）
 
-在**已装好的环境**上升级到新版本。**只走平台自己的 API**——不直接改 Docker、不手工改文件。
+**开发者/运维**升级本机环境。客户请用交付目录的 `upgrade/upgrade.sh`。
 
 ```bash
-sudo bash cli/upgrade.sh
+sudo bash cli/upgrade.sh --yes
 # 或指定包 + 连带升级 runner
-sudo bash cli/upgrade.sh \
-  --package packages/smartx-capacity-insight-upgrade-v0.5.3.tar.gz \
-  --with-runner packages/smartx-upgrade-runner-v0.3.2.tar.gz
+sudo bash cli/upgrade.sh --yes \
+  --package <平台包路径> \
+  --with-runner <runner 组件包路径>
 ```
-
-`--with-runner` 会**先等升级后清理（post-cleanup）收敛**再升级 runner，避免被"同一时刻只允许一个升级任务"的守卫拒绝。
 
 **升级顺序：先平台，后 runner。** 顺序颠倒（旧平台的 web-api 会停掉刚启动的新 runner）会导致升级中断。只有平台明确要求更高 runner 能力时才例外。
 
-> 同样是薄封装，实际逻辑在 [`delivery/upgrade/upgrade.sh`](../delivery/upgrade/upgrade.sh)。
+`--with-runner` 会**先等升级后清理（post-cleanup）收敛**再升级 runner，避免被"同一时刻只允许一个升级任务"的守卫拒绝。
+
+升级**只走平台自己的 API**——不直接改 Docker、不手工改文件。
 
 ## 3. 打包（`package.sh`）
 

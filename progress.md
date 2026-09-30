@@ -9151,3 +9151,80 @@ container / runner-inner / health                      v0.3.2   ✅
 - 未在**真实客户物理机/OVA** 上验证过，只在 `.3`/`.14` 两台 Linux 测过；
 - Tower `10.20.0.6` 自 09-12 不可达，采集相关路径未做端到端验证（`towers=0` 属环境限制）；
 - v0.3.2 未发布，客户仍拿不到那批修复。
+
+## 2026-09-30 用户追问「那我到底是走 cli 还是走 install/install.sh」：发现设计缺陷并修正
+
+### 核查暴露的缺陷（我自己的设计错误）
+
+用户问「到底走哪个」时我先去验证，发现 `cli/install.sh` 的设计是**错的**：
+
+```
+$ ls delivery/install/
+install.sh          <- 只有这一个文件
+$ ls delivery/install/images
+ls: cannot access 'delivery/install/images': No such file or directory
+```
+
+但 `delivery/install/install.sh` 依赖三个目录（第 24-26 行）：
+```bash
+IMAGES_DIR="$SCRIPT_DIR/images"
+PROJECT_SRC="$SCRIPT_DIR/project"
+ENV_TEMPLATE="$SCRIPT_DIR/.env.template"
+...
+[ -d "$IMAGES_DIR" ] || die "找不到镜像目录"
+```
+
+**镜像归档与部署文件是 `build_offline_delivery.py` 打包时生成的产物（1.1 GB），不进 git。**
+所以原实现 `exec ../delivery/install/install.sh` 在**任何真实 clone 出来的新机器上必然失败**。
+
+更严重的是：我之前那个「`cli/install.sh` 端到端 EXIT=0」的补测是**假的**——
+我在 `/opt/clitest/realrepo/` 里**手工把构建好的交付目录复制到了 `delivery/` 下面**，
+等于自己造了个假仓库。测试通过只证明「脚本能转发」，不证明「clone 完能用」。
+
+### 修正
+
+`cli/install.sh` / `cli/upgrade.sh` 改为：
+1. 在三个候选位置找**自包含**的交付物料——
+   `delivery/install`、`cli/packages/latest/offline-delivery/install`、`cli/packages/latest/install`，
+   且**校验完整性**（install 要有 `images/`+`project/`，upgrade 要有 `packages/`）；
+2. 找到才 `exec` 转发；
+3. 找不到则明确给出**三条路径**（先打包 / 用交付目录的脚本 / 已有压缩包），并解释
+   「为什么仓库里没有 images/」，不静默失败。
+
+`cli/README.md` 开头新增**「客户用哪个，开发用哪个」对照表**，并在两个脚本头部写明
+「本脚本不是给客户用的」。
+
+### 验证（`.14` 两种形态）
+
+**场景 0：真·空仓库**（只有 `cli/`，无任何交付物料）：
+```
+cli/install.sh  -> 错误「找不到可用的离线交付物料（需要含 images/ 与 project/ 的目录）」
+                  列出已查找的 3 个位置 + 解释「产物 1.1GB 不进 git」
+                  给出 A/B/C 三条路径      退出码=2
+cli/upgrade.sh -> 错误「找不到可用的离线升级物料（需要含 packages/ 的目录）」
+                  同上                      退出码=2
+```
+
+**场景 1：有交付物料**（放 `cli/packages/latest/offline-delivery/`，即 `package.sh` 默认产物位置）：
+```
+cli/install.sh  -> 使用交付物料：.../cli/packages/latest/offline-delivery/install
+                  ==> 转发到 .../install.sh
+                  [OK] 前置检查 / 幂等检查识别已安装    退出码=0
+cli/upgrade.sh -> ==> 转发到 .../upgrade.sh           退出码=0（--help 正常透传）
+```
+
+### 测试
+- `test_cli_toolkit` 27 -> **30 例**：新增「遍历多个候选位置」「说明仓库 delivery/ 不完整」
+  「无物料时给三条可操作路径」「锁定仓库里不应有 images/」四条；
+  原「直接 exec ../delivery/」的断言已随设计修正。
+- `.14` 两种形态实测通过。
+
+### 直接回答用户的问题
+
+| 场景 | 走哪个 |
+| --- | --- |
+| **客户 / 离线环境** | **交付目录里的 `install/install.sh` 与 `upgrade/upgrade.sh`**（自包含，带 images/、project/、packages/）。客户手上只有这份，不需要仓库。 |
+| **开发者 / 运维，只有仓库** | `cli/install.sh` / `cli/upgrade.sh`（会自动定位交付物料；没有则提示先跑 `cli/package.sh`） |
+| **打包** | `cli/package.sh` |
+
+**仓库里的 `delivery/install/install.sh` 单独跑会失败**（缺 images/），它只是交付态脚本的**源文件**。
