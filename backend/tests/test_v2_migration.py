@@ -387,6 +387,134 @@ class V2MigrationServiceTest(unittest.TestCase):
 
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
+    def test_data_export_archive_strips_config_and_keeps_monitoring_data(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+        from app.v2.migration.service import MigrationService
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="migration-secret")
+            database = V2Database(settings)
+            database.initialize()
+            inventory = InventoryService(database, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="cluster-a", name="Cluster A")])
+            with database.connection() as conn:
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (?, ?, ?, ?, ?)", (tower.id, "cluster-a", "vm-1", "VM 1", 1024))
+                conn.execute("INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, name, used_bytes) VALUES (?, ?, ?, ?, ?, ?)", (tower.id, "cluster-a", "vm-1", "vol-1", "Vol 1", 512))
+            block = settings.prometheus_data_dir / "01ABC"
+            block.mkdir(parents=True)
+            (block / "meta.json").write_text("{}", encoding="utf-8")
+
+            content, filename, path, _ = MigrationService(database, settings, TaskService(database)).build_export_archive(scope="data")
+
+            self.assertTrue(filename.startswith("smartx-data-migration-"))
+            self.assertTrue(path.is_file())
+            with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
+                names = set(archive.getnames())
+                manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
+                archived_db = archive.extractfile("app/smartx.db").read()
+            self.assertEqual(manifest["migration_scope"], "data")
+            self.assertEqual(manifest["sqlite_scope"], "data")
+            self.assertTrue(manifest["contains"]["prometheus"])
+            self.assertIn("prometheus/01ABC/meta.json", names)
+            exported_db = Path(tmpdir) / "exported-data.db"
+            exported_db.write_bytes(archived_db)
+            with sqlite3.connect(exported_db) as conn:
+                tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM vm_latest").fetchone()[0], 1)
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM vm_volumes").fetchone()[0], 1)
+            # 配置与本机运行状态必须被剥掉
+            for stripped in ("towers", "clusters", "users", "tasks", "upgrade_runner_state", "upgrade_task_leases"):
+                self.assertNotIn(stripped, tables, f"数据包不应包含 {stripped}")
+            # 数据包不需要恢复密钥：任务无恢复密钥链接、服务器无 .env 快照
+            task = TaskService(database).list_tasks()[0]
+            self.assertEqual(task["title"], "仅导出存储监测数据")
+            self.assertFalse(any(link["label"].startswith("恢复密钥") for link in task["links"]))
+            self.assertFalse(path.with_suffix(".env").is_file())
+
+    def test_data_import_merge_keeps_towers_and_adds_monitoring_data(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+        from app.v2.migration.service import MigrationService
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as source_tmp, tempfile.TemporaryDirectory() as target_tmp:
+            source_settings = V2Settings(data_root=Path(source_tmp), secret_key="source-secret")
+            source_db = V2Database(source_settings)
+            source_db.initialize()
+            source_inventory = InventoryService(source_db, source_settings)
+            source_tower = source_inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            source_inventory.sync_clusters(source_tower.id, [ClusterInput(cluster_id="cluster-a", name="Cluster A")])
+            with source_db.connection() as conn:
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (?, ?, ?, ?, ?)", (source_tower.id, "cluster-a", "vm-1", "VM 1", 1024))
+            (source_settings.prometheus_data_dir / "01SOURCE").mkdir(parents=True)
+            (source_settings.prometheus_data_dir / "01SOURCE" / "meta.json").write_text("{}", encoding="utf-8")
+            archive_content, _, _, _ = MigrationService(source_db, source_settings, TaskService(source_db)).build_export_archive(record_task=False, scope="data")
+
+            target_settings = V2Settings(data_root=Path(target_tmp), secret_key="target-secret")
+            target_db = V2Database(target_settings)
+            target_db.initialize()
+            target_inventory = InventoryService(target_db, target_settings)
+            target_tower = target_inventory.create_tower(TowerInput(name="Tower B", base_url="https://tower-b.example.com"))
+            target_inventory.sync_clusters(target_tower.id, [ClusterInput(cluster_id="cluster-b", name="Cluster B")])
+            (target_settings.prometheus_data_dir / "01TARGET").mkdir(parents=True)
+            (target_settings.prometheus_data_dir / "01TARGET" / "meta.json").write_text("{}", encoding="utf-8")
+
+            result = MigrationService(target_db, target_settings, TaskService(target_db)).restore_archive_bytes(archive_content, filename="data.tar.gz", mode="merge")
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["summary"]["scope"], "data")
+            self.assertEqual(result["summary"]["sqlite"]["tables"]["vm_latest"], 1)
+            self.assertIn("prometheus", result["restored"])
+            with target_db.connection() as conn:
+                # 本机 Tower 配置原样保留，源机的 Tower/集群不并入
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM towers").fetchone()[0], 1)
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM clusters").fetchone()[0], 1)
+                self.assertEqual(conn.execute("SELECT name FROM clusters").fetchone()[0], "Cluster B")
+                self.assertEqual(conn.execute("SELECT name FROM towers").fetchone()[0], "Tower B")
+                # 监测数据并入
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM vm_latest").fetchone()[0], 1)
+            self.assertTrue((target_settings.prometheus_data_dir / "01TARGET" / "meta.json").is_file())
+            self.assertTrue((target_settings.prometheus_data_dir / "01SOURCE" / "meta.json").is_file())
+
+    def test_data_import_overwrite_is_rejected_and_changes_nothing(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+        from app.v2.migration.service import MigrationService
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as source_tmp, tempfile.TemporaryDirectory() as target_tmp:
+            source_settings = V2Settings(data_root=Path(source_tmp), secret_key="source-secret")
+            source_db = V2Database(source_settings)
+            source_db.initialize()
+            with source_db.connection() as conn:
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'c', 'vm-1', 'VM 1', 1024)")
+            archive_content, _, _, _ = MigrationService(source_db, source_settings, TaskService(source_db)).build_export_archive(record_task=False, scope="data")
+
+            target_settings = V2Settings(data_root=Path(target_tmp), secret_key="target-secret")
+            target_db = V2Database(target_settings)
+            target_db.initialize()
+            target_inventory = InventoryService(target_db, target_settings)
+            target_tower = target_inventory.create_tower(TowerInput(name="Tower B", base_url="https://tower-b.example.com"))
+
+            from fastapi import HTTPException
+
+            with self.assertRaises(HTTPException) as ctx:
+                MigrationService(target_db, target_settings, TaskService(target_db)).restore_archive_bytes(archive_content, filename="data.tar.gz", mode="overwrite")
+            self.assertEqual(ctx.exception.status_code, 400)
+            with target_db.connection() as conn:
+                self.assertEqual(conn.execute("SELECT name FROM towers").fetchone()[0], "Tower B")
+                self.assertEqual(conn.execute("SELECT tower_id FROM towers").fetchone()[0], target_tower.id)
+
+
 class V2MigrationApiTest(unittest.TestCase):
     def test_migration_api_requires_auth_exports_downloads_and_imports_with_backup(self) -> None:
         import os
@@ -406,6 +534,7 @@ class V2MigrationApiTest(unittest.TestCase):
                 app = create_app()
                 with TestClient(app) as client:
                     self.assertEqual(client.get("/api/admin/migration/export").status_code, 401)
+                    self.assertEqual(client.post("/api/admin/migration/data/export/start").status_code, 401)
                     token = client.post("/api/auth/login", json={"username": "admin", "password": "password"}).json()["access_token"]
                     headers = {"Authorization": f"Bearer {token}"}
 
@@ -452,6 +581,36 @@ class V2MigrationApiTest(unittest.TestCase):
                     self.assertEqual(config_manifest["migration_scope"], "config")
                     self.assertIn("app/smartx.db", config_names)
                     self.assertFalse(any(name.startswith("prometheus/") for name in config_names))
+
+                    data_start = client.post("/api/admin/migration/data/export/start", headers=headers)
+                    self.assertEqual(data_start.status_code, 200)
+                    data_payload = data_start.json()
+                    self.assertEqual(data_payload["status"], "running")
+                    data_status_payload: dict = {}
+                    for _ in range(30):
+                        data_status = client.get(f"/api/admin/migration/export/status/{data_payload['task_id']}", headers=headers)
+                        self.assertEqual(data_status.status_code, 200)
+                        data_status_payload = data_status.json()
+                        if data_status_payload["status"] == "succeeded":
+                            break
+                        time.sleep(0.1)
+                    self.assertEqual(data_status_payload["status"], "succeeded")
+                    self.assertFalse(any("恢复密钥" in (link.get("label") or "") for link in data_status_payload.get("links") or []))
+                    data_download = client.get(data_status_payload["download_url"], headers=headers)
+                    self.assertEqual(data_download.status_code, 200)
+                    with tarfile.open(fileobj=io.BytesIO(data_download.content), mode="r:gz") as archive:
+                        data_manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
+                    self.assertEqual(data_manifest["migration_scope"], "data")
+                    self.assertEqual(data_manifest["sqlite_scope"], "data")
+
+                    data_overwrite = client.post(
+                        "/api/admin/migration/import",
+                        data={"mode": "overwrite", "confirmed": "true"},
+                        files={"file": ("data.tar.gz", data_download.content, "application/gzip")},
+                        headers=headers,
+                    )
+                    self.assertEqual(data_overwrite.status_code, 400)
+                    self.assertIn("合并数据", data_overwrite.json()["detail"])
 
                     imported = client.post(
                         "/api/admin/migration/import",

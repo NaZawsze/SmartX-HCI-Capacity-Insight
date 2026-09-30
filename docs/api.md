@@ -521,6 +521,7 @@ Admin endpoints require an admin token. Platform upgrade follows upload → prec
 | GET | `/api/admin/migration/export` | Download migration package (synchronous export) |
 | GET | `/api/admin/migration/config/export` | Download configuration export |
 | POST | `/api/admin/migration/export/start` | Start asynchronous export task |
+| POST | `/api/admin/migration/data/export/start` | Start asynchronous monitoring-data export task (strips Tower config and local runtime state; no recovery key needed; progress via export status route) |
 | GET | `/api/admin/migration/export/status/{task_id}` | Export task status |
 | POST | `/api/admin/migration/import/start` | Start asynchronous import task |
 | GET | `/api/admin/migration/import/status/{task_id}` | Import task status |

@@ -25,6 +25,7 @@ const apiMock = vi.hoisted(() => ({
   migrationImportStatus: vi.fn(),
   migrationHealth: vi.fn(),
   startMigrationExport: vi.fn(),
+  startMigrationDataExport: vi.fn(),
   migrationExportStatus: vi.fn(),
   exportConfigMigration: vi.fn(),
   downloadSavedExport: vi.fn(),
@@ -279,6 +280,40 @@ describe("ServicePage migration overwrite mode", () => {
     await waitFor(() => expect(apiMock.exportConfigMigration).toHaveBeenCalled());
     expect(addTask).toHaveBeenCalledWith(expect.objectContaining({ kind: "export", title: "仅导出 Tower 配置" }));
     expect(updateTask).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: "succeeded", detail: "smartx-config-migration-20260607120000.tar.gz" }));
+  });
+
+  it("exports a monitoring-data package as a background task without the recovery key prompt", async () => {
+    mockServicePageBootstrap();
+    apiMock.startMigrationDataExport.mockResolvedValue({
+      task_id: "migration-export-data-1",
+      status: "running",
+      progress: 10
+    });
+    apiMock.migrationExportStatus.mockResolvedValue({
+      task_id: "migration-export-data-1",
+      status: "succeeded",
+      progress: 100,
+      filename: "smartx-data-migration-20260930120000.tar.gz",
+      download_url: "/api/admin/exports/migrations/smartx-data-migration-20260930120000.tar.gz",
+      saved_path: "/data/exports/migrations/smartx-data-migration-20260930120000.tar.gz"
+    });
+    apiMock.downloadSavedExport.mockResolvedValue({ blob: new Blob(["data"]), filename: "smartx-data-migration-20260930120000.tar.gz" });
+    const addTask = vi.fn();
+    const updateTask = vi.fn();
+    render(<ServicePage addTask={addTask} updateTask={updateTask} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "数据迁移" }));
+    const dataButton = await screen.findByRole("button", { name: "仅导出存储监测数据" });
+    const configButton = screen.getByRole("button", { name: "仅导出 Tower 配置" });
+    // 用户要求：数据包按钮在「仅导出 Tower 配置」左侧
+    expect(dataButton.compareDocumentPosition(configButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(dataButton);
+
+    await waitFor(() => expect(apiMock.startMigrationDataExport).toHaveBeenCalled());
+    expect(addTask).toHaveBeenCalledWith(expect.objectContaining({ kind: "export", title: "仅导出存储监测数据" }));
+    await waitFor(() => expect(updateTask).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: "succeeded", detail: "smartx-data-migration-20260930120000.tar.gz" })));
+    // 数据包没有 Tower 凭据：不弹恢复密钥提示
+    expect(screen.queryByText("迁移包已下载，还需下载恢复密钥")).not.toBeInTheDocument();
   });
 
   it("shows persistent environment status after entering migration page and supports re-check", async () => {

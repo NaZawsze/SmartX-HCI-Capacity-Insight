@@ -37,6 +37,12 @@ OVERWRITE_MODE = "overwrite"
 PROMETHEUS_RUNTIME_ENTRIES = {"chunks_head", "lock", "queries.active", "wal"}
 CONFIG_SCOPE = "config"
 FULL_SCOPE = "full"
+DATA_SCOPE = "data"
+
+# 数据包导出时从 SQLite 拷贝里 DROP 掉的表：Tower 配置（towers/clusters）
+# 与本机运行状态（users/tasks/升级状态）。其余表（含未来新增的业务表）默认随数据包走；
+# 若将来新增「不该离开本机的状态表」，必须显式加进这个清单（test_v2_migration 锁住）。
+DATA_EXPORT_DROP_TABLES = ("towers", "clusters", "users", "tasks", "upgrade_runner_state", "upgrade_task_leases")
 
 
 class MigrationService:
@@ -45,19 +51,23 @@ class MigrationService:
         self.settings = settings
         self.tasks = tasks
 
-    def build_export_archive(self, *, record_task: bool = True, task_id: str | None = None, steps: list[dict[str, Any]] | None = None) -> tuple[bytes, str, Path, str]:
+    def build_export_archive(self, *, record_task: bool = True, task_id: str | None = None, steps: list[dict[str, Any]] | None = None, scope: str = FULL_SCOPE) -> tuple[bytes, str, Path, str]:
         generated_at = _now()
-        filename = f"smartx-capacity-insight-migration-{generated_at.strftime('%Y%m%d%H%M%S')}-{token_hex(4)}.tar.gz"
+        if scope == DATA_SCOPE:
+            filename = f"smartx-data-migration-{generated_at.strftime('%Y%m%d%H%M%S')}-{token_hex(4)}.tar.gz"
+        else:
+            filename = f"smartx-capacity-insight-migration-{generated_at.strftime('%Y%m%d%H%M%S')}-{token_hex(4)}.tar.gz"
         buffer = io.BytesIO()
-        with tempfile_sqlite_copy(self.settings.sqlite_path) as config_db:
+        copy_ctx = tempfile_data_sqlite_copy if scope == DATA_SCOPE else tempfile_sqlite_copy
+        with copy_ctx(self.settings.sqlite_path) as config_db:
             candidate_files = _export_candidate_files(config_db, self.settings.prometheus_data_dir)
             total_bytes = sum(path.stat().st_size for path, _ in candidate_files if path.is_file())
             files = {archive_name: _file_manifest(path) for path, archive_name in candidate_files if path.is_file()}
             manifest = {
                 "format": "smartx-capacity-insight-v2-migration",
                 "version": 1,
-                "migration_scope": FULL_SCOPE,
-                "sqlite_scope": CONFIG_SCOPE,
+                "migration_scope": scope,
+                "sqlite_scope": scope,
                 "generated_at": generated_at.isoformat(),
                 "contains": {
                     "sqlite": config_db.is_file(),
@@ -85,19 +95,28 @@ class MigrationService:
         self.settings.migrations_dir.mkdir(parents=True, exist_ok=True)
         path = self.settings.migrations_dir / filename
         path.write_bytes(content)
-        env_snapshot = self._snapshot_env_for_bundle(path)
+        # 数据包里没有 Tower 凭据，不需要恢复密钥，也不生成 .env 快照；
+        # full 包无论是否记录任务都要生成快照（后台任务流程靠 path.with_suffix(".env") 找回它）。
+        env_snapshot = None if scope == DATA_SCOPE else self._snapshot_env_for_bundle(path)
         download_url = f"/api/admin/exports/migrations/{quote(filename)}"
         if record_task:
-            links = [{"label": "迁移包", "filename": filename, "url": download_url, "path": str(path)}]
-            if env_snapshot is not None:
-                links.append(self._env_link(env_snapshot))
+            if scope == DATA_SCOPE:
+                links = [{"label": "监测数据包", "filename": filename, "url": download_url, "path": str(path), "scope": DATA_SCOPE}]
+                message = "监测数据包已生成（不含 Tower 配置，无需恢复密钥）"
+                title = "仅导出存储监测数据"
+            else:
+                links = [{"label": "迁移包", "filename": filename, "url": download_url, "path": str(path)}]
+                if env_snapshot is not None:
+                    links.append(self._env_link(env_snapshot))
+                message = "迁移包已生成" + ("，已同步生成恢复密钥（任务中心可下载）" if env_snapshot is not None else "（警告：未找到密钥文件，未生成恢复密钥）")
+                title = "导出迁移包"
             self.tasks.create_task(
                 f"migration-export-{token_hex(8)}",
                 TaskType.MIGRATION_EXPORT,
-                "导出迁移包",
+                title,
                 status=TaskStatus.SUCCESS,
                 progress=100,
-                message="迁移包已生成" + ("，已同步生成恢复密钥（任务中心可下载）" if env_snapshot is not None else "（警告：未找到密钥文件，未生成恢复密钥）"),
+                message=message,
                 links=links,
             )
         return content, filename, path, download_url
@@ -163,7 +182,10 @@ class MigrationService:
             )
         return content, filename, path, download_url
 
-    def start_export_task(self, *, run_inline: bool = False) -> dict[str, Any]:
+    def start_export_task(self, *, run_inline: bool = False, scope: str = FULL_SCOPE) -> dict[str, Any]:
+        if scope not in {FULL_SCOPE, DATA_SCOPE}:
+            raise HTTPException(status_code=400, detail="不支持的导出范围。")
+        title = "仅导出存储监测数据" if scope == DATA_SCOPE else "导出迁移包"
         task_id = f"migration-export-{token_hex(8)}"
         steps = [
             _step("scan", "扫描迁移数据", "running"),
@@ -174,7 +196,7 @@ class MigrationService:
         self.tasks.create_task(
             task_id,
             TaskType.MIGRATION_EXPORT,
-            "导出迁移包",
+            title,
             status=TaskStatus.RUNNING,
             progress=1,
             message="正在扫描迁移数据",
@@ -182,11 +204,11 @@ class MigrationService:
             steps=steps,
         )
         if not run_inline:
-            worker = threading.Thread(target=self._run_export_task_safely, args=(task_id, steps), daemon=True)
+            worker = threading.Thread(target=self._run_export_task_safely, args=(task_id, steps, scope), daemon=True)
             worker.start()
             return _migration_export_task(self.tasks.get_task(task_id) or {})
         try:
-            result = self._run_export_task(task_id, steps)
+            result = self._run_export_task(task_id, steps, scope=scope)
             return result
         except Exception as exc:
             self.tasks.update_task(
@@ -199,10 +221,10 @@ class MigrationService:
             )
             raise
 
-    def _run_export_task_safely(self, task_id: str, steps: list[dict[str, Any]]) -> None:
+    def _run_export_task_safely(self, task_id: str, steps: list[dict[str, Any]], scope: str = FULL_SCOPE) -> None:
         try:
             self.database.initialize()
-            self._run_export_task(task_id, steps)
+            self._run_export_task(task_id, steps, scope=scope)
         except Exception as exc:
             self.tasks.update_task(
                 task_id,
@@ -225,8 +247,9 @@ class MigrationService:
             raise HTTPException(status_code=404, detail="迁移导入任务不存在。")
         return _migration_import_task(task)
 
-    def _run_export_task(self, task_id: str, steps: list[dict[str, Any]]) -> dict[str, Any]:
-        with tempfile_sqlite_copy(self.settings.sqlite_path) as config_db:
+    def _run_export_task(self, task_id: str, steps: list[dict[str, Any]], *, scope: str = FULL_SCOPE) -> dict[str, Any]:
+        copy_ctx = tempfile_data_sqlite_copy if scope == DATA_SCOPE else tempfile_sqlite_copy
+        with copy_ctx(self.settings.sqlite_path) as config_db:
             candidate_files = _export_candidate_files(config_db, self.settings.prometheus_data_dir)
             total_bytes = sum(path.stat().st_size for path, _ in candidate_files if path.is_file())
         logs = [f"扫描完成：{len(candidate_files)} 个文件，约 {_size_label(total_bytes)}"]
@@ -234,7 +257,7 @@ class MigrationService:
         steps = _replace_step(steps, "archive", "running")
         self.tasks.update_task(task_id, progress=10, message="正在打包迁移包", logs=logs, steps=steps)
 
-        content, filename, path, download_url = self.build_export_archive(record_task=False, task_id=task_id, steps=steps)
+        content, filename, path, download_url = self.build_export_archive(record_task=False, task_id=task_id, steps=steps, scope=scope)
         processed_bytes = total_bytes
         if candidate_files:
             logs.append(f"当前文件：{candidate_files[-1][1]} ({_size_label(processed_bytes)}/{_size_label(total_bytes)})")
@@ -326,6 +349,8 @@ class MigrationService:
             logs.append(f"迁移包格式：{manifest.get('format')}")
             if migration_scope == CONFIG_SCOPE:
                 logs.append("迁移范围：配置迁移，仅导入 Tower 和集群")
+            if migration_scope == DATA_SCOPE:
+                logs.append("迁移范围：数据迁移，仅合并监测数据（不动本机 Tower 配置）")
             steps = _replace_step(steps, "extract", "succeeded", "manifest 校验通过")
             steps = _replace_step(steps, "backup", "running")
             self.tasks.update_task(task_id, progress=30, message="正在生成导入前备份", logs=logs, steps=steps)
@@ -396,6 +421,23 @@ class MigrationService:
         summary: dict[str, Any] = {"scope": scope, "sqlite": {"inserted": 0}, "prometheus": {"copied": 0, "skipped": 0}}
         source_db = _first_existing(package_dir / APP_DIR / DB_FILENAME, package_dir / V1_APP_DIR / DB_FILENAME)
         source_prometheus = _first_existing(package_dir / PROMETHEUS_DIR, package_dir / V1_PROMETHEUS_DIR)
+        if scope == DATA_SCOPE:
+            # 数据包的 SQLite 被剥掉了 towers/clusters/users/tasks，整库替换会把
+            # 目标机这些表一并清掉——必须在进入任何写动作前挡死。
+            if mode == OVERWRITE_MODE:
+                raise HTTPException(
+                    status_code=400,
+                    detail="数据包不支持「整库替换」：替换会把本机 Tower 配置、集群和账号一并清空。监测数据包请用「合并数据」导入。",
+                )
+            if source_db and source_db.exists():
+                summary["sqlite"] = self._merge_data_sqlite(source_db)
+                restored.append("smartx_db")
+                logs.append(f"SQLite：监测数据合并导入 {summary['sqlite']['inserted']} 条记录（不含 Tower 配置）")
+            if source_prometheus and source_prometheus.exists():
+                summary["prometheus"] = _copy_missing_tree(source_prometheus, self.settings.prometheus_data_dir, skip_names=PROMETHEUS_RUNTIME_ENTRIES)
+                restored.append("prometheus")
+                logs.append(f"Prometheus：复制 {summary['prometheus']['copied']} 个 block，跳过 {summary['prometheus']['skipped']} 个 block")
+            return {"restored": restored, "summary": summary, "logs": logs}
         if scope == CONFIG_SCOPE:
             if source_db and source_db.exists():
                 summary["sqlite"] = self._merge_config_sqlite(source_db)
@@ -437,6 +479,25 @@ class MigrationService:
                 counts = {
                     "towers": _merge_towers(target),
                     "clusters": _merge_clusters(target),
+                }
+                target.commit()
+                return {"inserted": sum(counts.values()), "tables": counts}
+            finally:
+                target.execute("DETACH DATABASE incoming")
+
+    def _merge_data_sqlite(self, source_db: Path) -> dict[str, Any]:
+        """数据包（DATA_SCOPE）合并导入：只动监测数据表，不碰 towers/clusters。"""
+        self.database.initialize()
+        with sqlite3.connect(self.settings.sqlite_path) as target:
+            target.row_factory = sqlite3.Row
+            target.execute("PRAGMA foreign_keys = ON")
+            target.execute("ATTACH DATABASE ? AS incoming", (str(source_db),))
+            try:
+                counts = {
+                    "vm_latest": _merge_vm_latest(target),
+                    "vm_volumes": _merge_vm_volumes(target) + _merge_v1_latest_vm_volume_payloads(target),
+                    "collection_runs": _merge_collection_runs(target),
+                    "metric_snapshots": _merge_metric_snapshot(target),
                 }
                 target.commit()
                 return {"inserted": sum(counts.values()), "tables": counts}
@@ -673,6 +734,28 @@ def tempfile_sqlite_copy(source_db: Path) -> Iterator[Path]:
                     conn.commit()
                 finally:
                     conn.execute("DETACH DATABASE incoming")
+        yield target_db
+
+
+@contextmanager
+def tempfile_data_sqlite_copy(source_db: Path) -> Iterator[Path]:
+    """数据包导出用的 SQLite 拷贝：整库拷贝后 DROP 掉配置与本机运行状态表再 VACUUM。
+
+    用「拷贝后 DROP」而不是「新建空库拷数据」：schema 与源库版本天然一致，
+    未来新增业务表默认随数据包走（见 DATA_EXPORT_DROP_TABLES 注释）。
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        target_db = Path(tmpdir) / DB_FILENAME
+        if source_db.is_file():
+            shutil.copy2(source_db, target_db)
+            with sqlite3.connect(target_db) as conn:
+                for table in DATA_EXPORT_DROP_TABLES:
+                    conn.execute(f"DROP TABLE IF EXISTS {table}")
+                conn.commit()
+                conn.execute("VACUUM")
+        else:
+            # 源库不存在（异常安装）：产出空库文件，导入侧按「表不存在 → 0 行」处理。
+            sqlite3.connect(target_db).close()
         yield target_db
 
 

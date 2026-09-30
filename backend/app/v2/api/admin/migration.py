@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, Upl
 from app.v2.auth.service import CurrentUser
 from fastapi.responses import FileResponse
 
-from app.v2.migration.service import ARCHIVE_MEDIA_TYPE, MigrationService
+from app.v2.migration.service import ARCHIVE_MEDIA_TYPE, DATA_SCOPE, MigrationService
 
 from app.v2.api.deps import get_auth_service, get_migration_service, require_user
 from app.v2.api.models import AdminTaskResponse, EnvFileDownloadRequest, MigrationHealthResponse
@@ -41,6 +41,15 @@ def start_migration_export(
     migration: Annotated[MigrationService, Depends(get_migration_service)],
 ) -> dict:
     return migration.start_export_task()
+
+
+@router.post("/api/admin/migration/data/export/start")
+def start_migration_data_export(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    migration: Annotated[MigrationService, Depends(get_migration_service)],
+) -> dict:
+    """仅导出存储监测数据：剥掉 Tower 配置与本机运行状态的后台导出任务，进度走 export/status 轮询。"""
+    return migration.start_export_task(scope=DATA_SCOPE)
 
 
 @router.get("/api/admin/migration/export/status/{task_id}", response_model=AdminTaskResponse)

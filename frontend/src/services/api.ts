@@ -412,6 +412,9 @@ export const api = {
   async startMigrationExport(): Promise<MigrationExportTask> {
     return request<MigrationExportTask>("/api/admin/migration/export/start", { method: "POST" });
   },
+  async startMigrationDataExport(): Promise<MigrationExportTask> {
+    return request<MigrationExportTask>("/api/admin/migration/data/export/start", { method: "POST" });
+  },
   async migrationExportStatus(taskId: string): Promise<MigrationExportTask> {
     return request<MigrationExportTask>(`/api/admin/migration/export/status/${taskId}`);
   },
