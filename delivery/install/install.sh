@@ -442,6 +442,14 @@ if [ -n "$TOWER_PASSWORD" ]; then
 SMARTX_TOWER_PASSWORD=$TOWER_PASSWORD"
 fi
 
+# US-37 遗留修复：--force-env 重生成 .env（密钥更换）。若后续守卫因变体不一致拒绝启动，
+# 必须恢复原 .env——在跑容器持有的还是原密钥，密钥错位会让下次重启后 Tower 凭据解不开。
+# 备份在重生成**之前**落盘（0600）；守卫放行路径在启动成功后删除。
+PREEXISTING_ENV_BACKUP=0
+if [ "$FORCE_ENV" -eq 1 ] && [ -f "$ENV_FILE" ]; then
+  cp -p "$ENV_FILE" "$ENV_FILE.pre-reinstall" && chmod 600 "$ENV_FILE.pre-reinstall"
+  PREEXISTING_ENV_BACKUP=1
+fi
 printf '%s\n' "$ENV_CONTENT" > "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 chown root:root "$ENV_FILE" 2>/dev/null || true
@@ -504,6 +512,13 @@ if declare -F compose_guard_check >/dev/null; then
       compose_guard_down_then_switch "$ENV_FILE" "$PROJECT_DIR" "$COMPOSE_PROJECT" "$COMPOSE_FILE" \
         || die "compose 变体切换失败（停机阶段出错）" "服务当前状态：已停机或原样，请用 docker compose -f $PROJECT_DIR/$COMPOSE_FILE -p $COMPOSE_PROJECT ps 确认。"
     else
+      if [ "$PREEXISTING_ENV_BACKUP" -eq 1 ] && [ -f "$ENV_FILE.pre-reinstall" ]; then
+        cat "$ENV_FILE.pre-reinstall" > "$ENV_FILE"
+        chmod 600 "$ENV_FILE"
+        rm -f "$ENV_FILE.pre-reinstall"
+        PREEXISTING_ENV_BACKUP=0
+        warn "已恢复原有 .env（密钥与标记未更换，与在跑容器保持一致）"
+      fi
       die "compose 变体不一致，已拒绝启动（见上方守卫输出）" \
         "确认要换变体请加 --force-compose-switch（会先完整停机，造成计划内中断）。服务**未**启动，宿主环境未被改动。"
     fi
@@ -522,6 +537,11 @@ if ! compose_cmd up -d >/dev/null 2>&1; then
 fi
 ok "compose 已提交启动"
 mark_done "启动服务"
+# 重装已完成切换、新 .env 已被容器启用：原 .env 备份不再需要（0600 敏感文件不留盘）。
+if [ "$PREEXISTING_ENV_BACKUP" -eq 1 ] && [ -f "$ENV_FILE.pre-reinstall" ]; then
+  rm -f "$ENV_FILE.pre-reinstall"
+  PREEXISTING_ENV_BACKUP=0
+fi
 
 # ══════════════════════════════════════════════════════════════
 step "健康检查"

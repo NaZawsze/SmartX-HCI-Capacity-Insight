@@ -446,6 +446,26 @@ class GuardWiringTest(unittest.TestCase):
         self.assertLess(write_at, check_at,
                         "标记必须写在守卫判定之前——--force-env 重装路径才受变体不一致判定保护")
 
+    def test_install_restores_env_when_guard_rejects_force_reinstall(self) -> None:
+        """--force-env 重装被守卫拒绝时必须恢复原 .env（在跑容器持有原密钥）。
+
+        背景：US-37 遗留观察——守卫拒绝发生在 .env 重生成（密钥更换）之后，
+        拒绝时容器仍持有原密钥，密钥错位会让下次重启后 Tower 凭据解不开，
+        且提示语「宿主环境未被改动」不准确。备份必须在重生成前落盘、
+        拒绝时恢复、启动成功后删除（0600 敏感文件不留盘）。
+        """
+        backup_at = self.install.find('cp -p "$ENV_FILE" "$ENV_FILE.pre-reinstall"')
+        gen_at = self.install.find('printf \'%s\\n\' "$ENV_CONTENT" > "$ENV_FILE"')
+        restore_at = self.install.find('cat "$ENV_FILE.pre-reinstall" > "$ENV_FILE"')
+        reject_at = self.install.find("compose 变体不一致，已拒绝启动")
+        up_at = self.install.find('ok "compose 已提交启动"')
+        cleanup_at = self.install.rfind('rm -f "$ENV_FILE.pre-reinstall"')  # 最后一处 = 启动成功后的清理（拒绝分支里也有一处）
+        for name, pos in (("备份", backup_at), ("重生成", gen_at), ("恢复", restore_at), ("拒绝 die", reject_at), ("启动完成", up_at), ("备份清理", cleanup_at)):
+            self.assertNotEqual(pos, -1, f"未找到{name}逻辑")
+        self.assertLess(backup_at, gen_at, "备份必须在 .env 重生成之前")
+        self.assertLess(restore_at, reject_at, "恢复必须发生在拒绝 die 之前")
+        self.assertGreater(cleanup_at, up_at, "备份清理必须在启动成功之后")
+
     def test_upgrade_uses_guard_readonly(self) -> None:
         self.assertIn("compose-guard.sh", self.upgrade, "upgrade.sh 必须带守卫诊断")
         self.assertIn("compose_guard_marker", self.upgrade, "upgrade.sh 应只读标记")
