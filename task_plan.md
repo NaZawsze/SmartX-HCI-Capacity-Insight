@@ -2106,3 +2106,20 @@ Phase 49 已完成条目的详情迁出（Tier B）需用户单独批准。
 
 **下一步**：写设计文档（docs/superpowers/specs/，逐条回答 C2 验收维度「出问题时谁说了算、怎么恢复」），
 设计获批前不改代码（AGENTS §3）。
+
+### 63. 合并导入 tower_id 重映射：跨系统导入不再照搬源库自增 ID（49-63）[实施中]
+
+来源：2026-10-01 用户确认「导入用的是上传+合并数据」后查实——`.3` 库 `vm_latest` 590 行实为
+244 台 VM 的三代冗余（tower_id 1/2/3 并存，VM 集合完全相同、并集=244）；根因是合并导入把
+源库 `tower_id`（本机自增主键）原样写入，源系统 Tower 换代残留的旧 ID 随包带入。
+这是 #56「状态归属不唯一」的数据面实例。
+
+**修复口径**：合并导入时建立「源 tower_id → 目标 tower_id」映射——按 (name, base_url) 匹配
+Tower 身份，匹配上则重映射到目标现役 ID，匹配不上则新增 Tower 并分配新 ID 后重映射；
+clusters 与全部数据表（vm_latest/vm_volumes）随映射归一。源包内同一集群的多代 tower_id
+全部收敛到目标现役 Tower（`.3` 场景即 1/2/3 → 3，冗余行被 PK 冲突自然去重）。
+ID 对齐时映射为恒等，行为与现状完全一致（既有用例不回归）。
+
+**设计**：docs/superpowers/specs/2026-10-01-merge-import-tower-remap-design.md（2026-10-01 写就，**待批准，未实施**——用户指示先写 plan、代码与数据都不动）。
+**只读审计扩大**：vm_volumes 同病（89636 行 = 44744 真实卷，tower 1/2 各 44634 冗余）；`clusters.tower_id` 与 towers 合并本身也有跨系统 ID 冲突错挂风险（同设计一并修）；其余表（tasks/users/collection_runs/metric_snapshots/Prometheus）已核实安全。
+**配套**：`.3` 存量清理（vm_latest 346 行 + vm_volumes 89268 行冗余）单独执行——先 VACUUM INTO 快照 + 沙箱演练、列影响面，用户确认后才动真库。
