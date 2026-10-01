@@ -89,6 +89,44 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# ── 包路径归一化（2026-09-30 `.14` 实测修）──
+# 相对路径原本按**调用者当前目录**解析，于是交付包 README 里写的
+#   bash upgrade/upgrade.sh --with-runner upgrade/packages/smartx-upgrade-runner-v0.3.2.tar.gz
+# 只在「恰好 cd 到交付根目录」时成立；在 /root、/tmp 等处调用就报
+# 「runner 组件包不存在，跳过：…」——**照文档做却静默不升级**，是最难查的一类问题。
+#
+# 现在按**脚本自身位置**（SCRIPT_DIR，即 upgrade/）解析，且兼容两种历史写法：
+#   packages/<包名>              —— 相对脚本目录（README 与 usage 的标准写法）
+#   upgrade/packages/<包名>      —— 相对交付根目录（旧 README 写法，仍兼容）
+# 绝对路径原样保留。逐个回退，取第一个真实存在的文件。
+# 归一化一个包路径变量（间接传参，bash 3.2 无 nameref）
+_normalize_pkg_path() {
+  _np_in="$1"
+  case "$_np_in" in
+    /*) printf '%s' "$_np_in"; return 0 ;;      # 绝对路径原样
+    *)  : ;;
+  esac
+  # 候选顺序：脚本同级 → 交付根（去掉 upgrade/ 前缀）→ 调用者 cwd（保持旧行为兜底）
+  for _np_cand in \
+      "$SCRIPT_DIR/$_np_in" \
+      "$SCRIPT_DIR/../$_np_in" \
+      "$_np_in" ; do
+    if [ -f "$_np_cand" ]; then
+      printf '%s' "$(cd "$(dirname "$_np_cand")" && pwd)/$(basename "$_np_cand")"
+      return 0
+    fi
+  done
+  # 都不存在：按脚本同级拼一个，让后续报错信息指向正确位置
+  printf '%s' "$SCRIPT_DIR/$_np_in"
+}
+
+if [ -n "$PACKAGE" ]; then
+  PACKAGE="$(_normalize_pkg_path "$PACKAGE")"
+fi
+if [ -n "$RUNNER_PACKAGE" ]; then
+  RUNNER_PACKAGE="$(_normalize_pkg_path "$RUNNER_PACKAGE")"
+fi
+
 die() {
   fail "$1"
   [ -n "${DIE_HINT:-}" ] && printf '\n%s\n' "$DIE_HINT"

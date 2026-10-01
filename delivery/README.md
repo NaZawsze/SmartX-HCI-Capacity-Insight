@@ -138,6 +138,10 @@ sudo bash upgrade/upgrade.sh --package upgrade/packages/smartx-capacity-insight-
 sudo bash upgrade/upgrade.sh --with-runner upgrade/packages/smartx-upgrade-runner-v0.3.2.tar.gz --yes
 ```
 
+> **在哪个目录执行都行。** `--package` / `--with-runner` 的相对路径按**脚本自身位置**
+> 解析（不是按你当前所在的目录），所以在 `/root`、`/tmp` 等任意目录下执行上面两条命令
+> 都能正确找到包；写绝对路径当然也可以。
+
 ### 4.1 升级脚本做了什么
 
 1. 访问本机 `http://127.0.0.1:8000/api/system/health`，读出当前平台与 runner 版本
