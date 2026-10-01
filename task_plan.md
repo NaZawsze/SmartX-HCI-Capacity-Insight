@@ -2123,3 +2123,15 @@ ID 对齐时映射为恒等，行为与现状完全一致（既有用例不回�
 **设计**：docs/superpowers/specs/2026-10-01-merge-import-tower-remap-design.md（2026-10-01 写就，**待批准，未实施**——用户指示先写 plan、代码与数据都不动）。
 **只读审计扩大**：vm_volumes 同病（89636 行 = 44744 真实卷，tower 1/2 各 44634 冗余）；`clusters.tower_id` 与 towers 合并本身也有跨系统 ID 冲突错挂风险（同设计一并修）；其余表（tasks/users/collection_runs/metric_snapshots/Prometheus）已核实安全。
 **配套**：`.3` 存量清理（vm_latest 346 行 + vm_volumes 89268 行冗余）单独执行——先 VACUUM INTO 快照 + 沙箱演练、列影响面，用户确认后才动真库。
+
+### 64. 「导出迁移包」名实相符：SQLite 携带全量业务数据（49-64）[实施中]
+
+来源：2026-10-01 三按钮名称与功能一致性审计（用户「数据迁移的3个按钮功能是否和名称一致？」）。
+实证：全量导出的 SQLite 一直只用 `tempfile_sqlite_copy`（仅 towers+clusters），
+库内监测数据不在包内——「迁移包+恢复密钥=完整恢复」的承诺从不成立（pending-tasks #68）。
+
+**设计**：docs/superpowers/specs/2026-10-01-full-export-complete-design.md。
+全量导出 SQLite 改为全量业务拷贝（towers/clusters + 4 张监测表，剥 users/tasks/upgrade_* 本机
+运行状态，与 #63 的 DROP 机制同 helper 参数化）；manifest sqlite_scope=config→full；
+导入侧零改动（_merge_sqlite 含 #63 重映射本就支持全量合入）；前端文案同步。
+修复后语义：迁移包=完整备份 / 监测数据包=只搬数据 / Tower 配置包=只接 Tower。
