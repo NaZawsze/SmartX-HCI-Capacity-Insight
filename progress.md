@@ -3132,3 +3132,41 @@ live 实例未部署新代码（新路由随下一版发布交付），属预期
 
 `.3`：5 容器 Up（offline 变体）、health ok、数据 244 台/368 卷、冗余清零、备份在 backups/。
 `.3:/data/us37-verify/` 验证树含本轮门禁代码；`:8081` 预览服务在跑（用户在用，看完可关）。
+
+## 2026-10-01 发布级验证推进：#65/#66 修复 + r9 候选包重建 + `.14` 端到端演练
+
+用户质询「确定 bug 修完验证过了吗」——诚实盘点后差距：新修复未进候选包、`.12` 验收未跑、
+#65/#66 未修。本轮收口前三项：
+
+### #65/#66 修复（`a1d04fc`）
+
+- 整库替换 copy2 后清理目标 `-wal/-shm`（旧 WAL 帧套新主文件的一致性风险）；
+- `_replace_directory` 改**先拷后清**（rmtree 先行会拆 prometheus 的 bind mount——UPG-050；
+  中断窗口从"数据丢失"降级为"多旧块"；拷贝失败目标保留原内容，有测试锁死）；
+- 数据包导出 404（混合部署）改可读提示；
+- 测试 +2（WAL 清理 / 先拷后清与失败保原），迁移 15 例全过，tsc 0 / vitest 108。
+
+### r9 候选包（`cf2172a4…`，取代 r6 `6253810b…`）
+
+- `ops/package.sh` 端到端 EXIT=0（完整构建，非 --no-build）：身份门禁 PASS、runner 一致性
+  门禁 PASS、敏感 0；最终全量 **737 tests / 1 failure（既有环境限制，同断言确认）/ 7 skipped**；
+- 构建前清理了本轮验证产物释放 10G（4×701M tar + packages/archive 6.7G + live-backup 34M）；
+  首跑因 Docker Hub 元数据 TLS 抖动失败，重试成功（连通性实测 401 challenge 正常）；
+- ledger 登记：v0.5.3-r9-20261001，取代 r6，`.12` 升级验收待补。
+
+### `.14` 端到端演练（CLI 同版本重装，任务 `upgrade-e7dda60ebfae8604`）
+
+- 旧代码实例（7135d40 镜像）→ `upgrade.sh --yes --package candidate-r9 --allow-same-version`
+  → EXIT=0，预检查 7 项 OK（checksums 146 项），14 动作 succeeded；
+- **#67 关闭**：守卫只读诊断真实输出「当前实例的 compose 变体：docker-compose.offline.yml（记录于 .env）」；
+- **US-26 再判别**：升级后 3 平台容器重建（新镜像），runner 容器 Up 2 hours 未动（v0.3.1）；
+- **#68 真机验证**：全量导出 manifest full/full，业务表（towers/clusters/vm_latest/vm_volumes/
+  collection_runs/metric_snapshots）随包、users/tasks/upgrade_* 已剥；
+- **#61 真机验证**：数据包导出任务 succeeded → 下载 200 → manifest data/data，
+  包内仅监测表（towers/clusters/users 已剥）；
+- health `v0.5.3`/`v0.3.1` 三 checks true，5/5 容器 Up。
+
+### 剩余（发布前最后一步）
+
+`.12` 补升级验收硬门禁（**需用户授权动 `.12`**）：目标布局 v0.5.2 基线 → r9 平台包直升 +
+8 项验收。全绿后发布材料与证据包齐备，等用户发布指令。
