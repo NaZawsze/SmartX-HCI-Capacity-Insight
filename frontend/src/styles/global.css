@@ -5014,7 +5014,9 @@ button.risk-cluster-row:hover {
 }
 
 .service-migration-actions .service-header-button {
-  width: 168px;
+  /* 三个导出按钮文字长度不同（最长的「仅导出存储监测数据」9 字 + 图标），
+     固定 168px 会把最后一个字的图标挤没——改自适应、保最小宽度对齐观感 */
+  width: auto;
   min-width: 168px;
 }
 
