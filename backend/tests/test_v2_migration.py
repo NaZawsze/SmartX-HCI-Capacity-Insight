@@ -148,7 +148,8 @@ class V2MigrationServiceTest(unittest.TestCase):
             self.assertIn("files", manifest)
             self.assertIn("app/smartx.db", manifest["files"])
             self.assertEqual(manifest["migration_scope"], "full")
-            self.assertEqual(manifest["sqlite_scope"], "config")
+            # #68 名实相符：全量包 SQLite 携带全量业务数据（sqlite_scope 如实标 full）
+            self.assertEqual(manifest["sqlite_scope"], "full")
             self.assertTrue(manifest["contains"]["prometheus"])
             self.assertEqual(manifest["files"]["app/smartx.db"]["sha256"], __import__("hashlib").sha256(archived_db).hexdigest())
             exported_db = Path(tmpdir) / "exported-full-config.db"
@@ -157,10 +158,17 @@ class V2MigrationServiceTest(unittest.TestCase):
                 tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM towers").fetchone()[0], 1)
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM clusters").fetchone()[0], 1)
-            self.assertNotIn("vm_latest", tables)
-            self.assertNotIn("vm_volumes", tables)
-            self.assertNotIn("collection_runs", tables)
-            self.assertNotIn("metric_snapshots", tables)
+                # #68：业务数据随全量包走
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM vm_latest").fetchone()[0], 1)
+            self.assertIn("vm_latest", tables)
+            self.assertIn("vm_volumes", tables)
+            self.assertIn("collection_runs", tables)
+            self.assertIn("metric_snapshots", tables)
+            # 本机运行状态仍不随包
+            self.assertNotIn("users", tables)
+            self.assertNotIn("tasks", tables)
+            self.assertNotIn("upgrade_runner_state", tables)
+            self.assertNotIn("upgrade_task_leases", tables)
             tasks = TaskService(database).list_tasks()
             self.assertEqual(tasks[0]["type"], "migration_export")
             self.assertEqual(tasks[0]["links"][0]["url"], download_url)
@@ -484,6 +492,37 @@ class V2MigrationServiceTest(unittest.TestCase):
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM vm_latest").fetchone()[0], 0)
             self.assertTrue((target_settings.prometheus_data_dir / "01TARGET" / "meta.json").is_file())
             self.assertTrue((target_settings.prometheus_data_dir / "01SOURCE" / "meta.json").is_file())
+
+
+    def test_full_package_merge_restores_monitoring_data(self) -> None:
+        """#68 T2：迁移包+恢复密钥=完整恢复——业务数据真随全量包走。"""
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+        from app.v2.migration.service import MigrationService
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as source_tmp, tempfile.TemporaryDirectory() as target_tmp:
+            source_settings = V2Settings(data_root=Path(source_tmp), secret_key="s")
+            source_db = V2Database(source_settings)
+            source_db.initialize()
+            source_inventory = InventoryService(source_db, source_settings)
+            source_tower = source_inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            source_inventory.sync_clusters(source_tower.id, [ClusterInput(cluster_id="cm551", name="Cluster A")])
+            with source_db.connection() as conn:
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (?, 'cm551', 'vm-1', 'VM 1', 1)", (source_tower.id,))
+            archive_content, _, _, _ = MigrationService(source_db, source_settings, TaskService(source_db)).build_export_archive(record_task=False)
+
+            target_settings = V2Settings(data_root=Path(target_tmp), secret_key="t")
+            target_db = V2Database(target_settings)
+            target_db.initialize()
+            result = MigrationService(target_db, target_settings, TaskService(target_db)).restore_archive_bytes(archive_content, filename="full.tar.gz", mode="merge")
+
+            self.assertTrue(result["ok"])
+            with target_db.connection() as conn:
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM vm_latest").fetchone()[0], 1, "监测数据随全量包恢复")
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM towers").fetchone()[0], 1)
 
     def test_data_import_overwrite_is_rejected_and_changes_nothing(self) -> None:
         from app.v2.config import V2Settings

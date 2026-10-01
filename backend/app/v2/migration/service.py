@@ -43,6 +43,9 @@ DATA_SCOPE = "data"
 # 与本机运行状态（users/tasks/升级状态）。其余表（含未来新增的业务表）默认随数据包走；
 # 若将来新增「不该离开本机的状态表」，必须显式加进这个清单（test_v2_migration 锁住）。
 DATA_EXPORT_DROP_TABLES = ("towers", "clusters", "users", "tasks", "upgrade_runner_state", "upgrade_task_leases")
+# 全量迁移包导出的剥离清单：只剥**本机运行状态**（账号/任务历史/升级状态），
+# Tower 配置与全部业务数据都随包——「迁移包+恢复密钥=完整恢复」由此成立（#68）。
+FULL_EXPORT_DROP_TABLES = ("users", "tasks", "upgrade_runner_state", "upgrade_task_leases")
 
 
 class MigrationService:
@@ -58,8 +61,14 @@ class MigrationService:
         else:
             filename = f"smartx-capacity-insight-migration-{generated_at.strftime('%Y%m%d%H%M%S')}-{token_hex(4)}.tar.gz"
         buffer = io.BytesIO()
-        copy_ctx = tempfile_data_sqlite_copy if scope == DATA_SCOPE else tempfile_sqlite_copy
-        with copy_ctx(self.settings.sqlite_path) as config_db:
+        if scope == DATA_SCOPE:
+            copy_ctx = tempfile_sqlite_copy_without(self.settings.sqlite_path, DATA_EXPORT_DROP_TABLES)
+        elif scope == FULL_SCOPE:
+            # #68：全量包名实相符——SQLite 携带全量业务数据（仅剥本机运行状态）
+            copy_ctx = tempfile_sqlite_copy_without(self.settings.sqlite_path, FULL_EXPORT_DROP_TABLES)
+        else:
+            copy_ctx = tempfile_sqlite_copy
+        with copy_ctx as config_db:
             candidate_files = _export_candidate_files(config_db, self.settings.prometheus_data_dir)
             total_bytes = sum(path.stat().st_size for path, _ in candidate_files if path.is_file())
             files = {archive_name: _file_manifest(path) for path, archive_name in candidate_files if path.is_file()}
@@ -67,8 +76,8 @@ class MigrationService:
                 "format": "smartx-capacity-insight-v2-migration",
                 "version": 1,
                 "migration_scope": scope,
-                # full 包保持既有对外格式（sqlite_scope=config，既有用例与旧导入方都认这个值）
-                "sqlite_scope": DATA_SCOPE if scope == DATA_SCOPE else CONFIG_SCOPE,
+                # sqlite_scope 如实反映包内 SQLite 内容（#68：full 包现为全量业务数据）
+                "sqlite_scope": scope,
                 "generated_at": generated_at.isoformat(),
                 "contains": {
                     "sqlite": config_db.is_file(),
@@ -249,8 +258,13 @@ class MigrationService:
         return _migration_import_task(task)
 
     def _run_export_task(self, task_id: str, steps: list[dict[str, Any]], *, scope: str = FULL_SCOPE) -> dict[str, Any]:
-        copy_ctx = tempfile_data_sqlite_copy if scope == DATA_SCOPE else tempfile_sqlite_copy
-        with copy_ctx(self.settings.sqlite_path) as config_db:
+        if scope == DATA_SCOPE:
+            copy_ctx = tempfile_sqlite_copy_without(self.settings.sqlite_path, DATA_EXPORT_DROP_TABLES)
+        elif scope == FULL_SCOPE:
+            copy_ctx = tempfile_sqlite_copy_without(self.settings.sqlite_path, FULL_EXPORT_DROP_TABLES)
+        else:
+            copy_ctx = tempfile_sqlite_copy
+        with copy_ctx as config_db:
             candidate_files = _export_candidate_files(config_db, self.settings.prometheus_data_dir)
             total_bytes = sum(path.stat().st_size for path, _ in candidate_files if path.is_file())
         logs = [f"扫描完成：{len(candidate_files)} 个文件，约 {_size_label(total_bytes)}"]
@@ -813,11 +827,11 @@ def tempfile_sqlite_copy(source_db: Path) -> Iterator[Path]:
 
 
 @contextmanager
-def tempfile_data_sqlite_copy(source_db: Path) -> Iterator[Path]:
-    """数据包导出用的 SQLite 拷贝：整库拷贝后 DROP 掉配置与本机运行状态表再 VACUUM。
+def tempfile_sqlite_copy_without(source_db: Path, drop_tables: tuple[str, ...]) -> Iterator[Path]:
+    """导出用的 SQLite 拷贝：整库拷贝后 DROP 指定表再 VACUUM。
 
     用「拷贝后 DROP」而不是「新建空库拷数据」：schema 与源库版本天然一致，
-    未来新增业务表默认随数据包走（见 DATA_EXPORT_DROP_TABLES 注释）。
+    未来新增业务表默认随包走（drop 清单由调用方按导出语义给定）。
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         target_db = Path(tmpdir) / DB_FILENAME
@@ -828,7 +842,7 @@ def tempfile_data_sqlite_copy(source_db: Path) -> Iterator[Path]:
             # 没剥的表原样打进包里（.14/.3 实测踩坑：with connect 只 commit 不 close）。
             conn = sqlite3.connect(target_db)
             try:
-                for table in DATA_EXPORT_DROP_TABLES:
+                for table in drop_tables:
                     conn.execute(f"DROP TABLE IF EXISTS {table}")
                 conn.commit()
                 conn.execute("VACUUM")

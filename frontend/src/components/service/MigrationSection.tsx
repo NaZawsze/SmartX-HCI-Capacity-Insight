@@ -256,7 +256,7 @@ export function MigrationSection({ active, onNavigate, addTask, updateTask }: Mi
         <div className="service-operation-head">
           <div>
             <strong>导出迁移包</strong>
-            <span>包含 Tower 配置与全部历史数据的备份文件，用于备份或搬到另一台服务器。导出后还需单独下载“恢复密钥”，两者一起保存才能完整恢复。</span>
+            <span>包含 Tower 配置、库内监测数据与全部历史指标的完整备份，用于备份或搬到另一台服务器。导出后还需单独下载“恢复密钥”，两者一起保存才能完整恢复。</span>
           </div>
         </div>
         <p className="migration-export-hint">“仅导出存储监测数据”只导监测数据与历史指标、不带 Tower 配置，导入时不动本机配置、无需恢复密钥；“仅导出 Tower 配置”只导配置、不带历史数据，适合让新环境快速接入同一批 Tower。除监测数据包外，其余导出都需再单独下载恢复密钥。</p>
@@ -389,7 +389,7 @@ export function MigrationSection({ active, onNavigate, addTask, updateTask }: Mi
           </div>
         </div>
         <ul>
-          <li><strong>导出迁移包</strong>：把 Tower 配置和全部历史数据打包下载，用于备份或搬到另一台服务器。导出完成后需再单独下载“恢复密钥”（需验证平台密码），请与迁移包一起保存。</li>
+          <li><strong>导出迁移包</strong>：完整备份——Tower 配置、库内监测数据和全部历史指标一起打包，用于备份或搬到另一台服务器。导出完成后需再单独下载“恢复密钥”（需验证平台密码），请与迁移包一起保存。</li>
           <li><strong>仅导出 Tower 配置</strong>：只导配置、不带历史数据，适合让新环境快速接入同一批 Tower。</li>
           <li><strong>仅导出存储监测数据</strong>：把 VM、卷、采集记录和全部历史指标打包，不含 Tower 配置，无需恢复密钥。导入时用「合并数据」，不会改动目标机的 Tower 配置和账号。</li>
           <li><strong>恢复密钥</strong>：迁移包里的 Tower 密码是加密保存的，恢复时必须配上导出时的密钥才能解开；没带密钥也可以在导入后到 Tower 设置里重新输入密码。</li>
