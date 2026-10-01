@@ -829,3 +829,21 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
   —— 预检查失败得越晚越贵，改动此动作必须同时跑 `RELEASED_RUNNER_ACTIONS` 覆盖检查。
 - **`RELEASED_RUNNER_ACTIONS` 是"已发布能力"的代码化事实来源**：与本次从镜像实测的 25 个动作双向零差异。
   任何新增/删除动作都要同步它，并跑 `.12` 直升回归，否则矩阵第 2 节的支持结论会悄悄失效。
+
+## 2026-10-01 数据面稳定结论：本地自增 ID 不是跨系统身份（#63）
+
+**结论**：`tower_id` 是目标机 `towers` 表的自增主键，**不具备跨系统身份语义**——任何
+"导入/合并数据行时直接写入源库 tower_id"的实现都会把源系统 Tower 换代残留的旧 ID 带进来，
+形成同实体多代并存（`.3` 实测：vm_latest 590 行 = 244 台 VM 三代并存、vm_volumes 89636 行
+= 44744 真实卷，均已清理）。
+
+**修复后的口径**（`backend/app/v2/migration/service.py`，已随 r9 验证）：
+- Tower 合并按身份 `(name, base_url)` 匹配建映射，不按 ID 照搬；
+- 数据行按 `cluster_id` 归属优先解析目标 tower（cluster_id 是 Tower API 全局标识），
+  解析不出跳过并留日志；ID 对齐时映射恒等，既有行为不变；
+- 同类审计结论：`collection_runs`/`metric_snapshots`（无 tower 引用或全局单行）、
+  `tasks`/`users`（不参与合并）、Prometheus blocks（内容寻址）均安全。
+
+**教训（US-03 同类）**：`.3` 冗余不是 09-30 导入带来的（该次 SQLite 合并 0 行），是更早
+迁移历史存量；而"验证数据包导入"的旧测试曾断言「未配置集群的行也能插进去」——
+**测试编码了错误行为**。新语义落地时必须审一遍旧断言的语义前提。
