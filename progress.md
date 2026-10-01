@@ -3090,3 +3090,45 @@ live 实例未部署新代码（新路由随下一版发布交付），属预期
 `docker-compose.yml`（开发变体）运行——这是 09-30 事故恢复时留下的状态，**不是混用**；
 标记如实记录为 `docker-compose.yml`，守卫自此保护该现状（用 offline 变体的操作会被拒）。
 是否要把 `.3` 归一到 offline 变体（`--force-compose-switch`，数分钟计划内中断）由用户决定。
+
+## 2026-10-01 修复批次：#63 重映射 / #68 全量导出名实相符 / #64 存量清理 / #70 compose 归一
+
+用户批准第一、二梯队按序修复，一项一项来（设计 → 关联 → 实施 → 验证 → 下一项）。
+
+### #63 合并导入 Tower 身份重映射（`7245966`，设计 2026-10-01-merge-import-tower-remap-design.md）
+
+- `_merge_towers` 改按身份 (name, base_url) 匹配建映射（匹配复用现役 ID / 未匹配新增分配新 ID）；
+- clusters 与 vm_latest/vm_volumes（含 v1 payload）全部经映射写入；数据行按 cluster_id 归属
+  优先解析目标 tower，解析不出跳过并留日志——不造孤儿；ID 对齐时恒等。
+- 测试：迁移 13 例全过。**一个旧测试断言的正是「造孤儿」的旧行为（数据包导入未配置集群时
+  硬插源 tower_id），随新语义修正**——US-03「旧测试编码错误行为」同类。
+- `.3` 全量 736 tests，唯一失败仍为既有环境限制用例（同断言确认，非回归）。
+
+### #68 导出迁移包名实相符（`769a2e4`，设计 2026-10-01-full-export-complete-design.md）
+
+- 剥离机制参数化 `tempfile_sqlite_copy_without(db, drop_tables)`：全量导出仅剥
+  users/tasks/upgrade_*（本机运行状态），Tower 配置 + 全部业务数据随包；
+- manifest sqlite_scope 如实标 full（旧导入方只读 migration_scope，兼容）；导入侧零改动；
+- 前端文案同步。三按钮语义归位：迁移包=完整备份 / 监测数据包=只搬数据 / Tower 配置包=只接 Tower。
+- 门禁：迁移 13 例 + tsc 0 + vitest 108。
+
+### #64 `.3` 存量冗余清理（已执行）
+
+- 备份：`VACUUM INTO` 快照 `/data/backups/pre-orphan-cleanup-20261001125718.db`（可整库回退）；
+- 沙箱演练 PASS 后执行真库：删 `vm_latest` 346 行 + `vm_volumes` 89268 行（tower_id 1/2 残代），
+  终态 vm_latest=244 / vm_volumes=368 / integrity ok / 零孤儿；
+- **界面数字 244 不变**（此前显示的就是去重后的真实数据），dashboard `vm_count=244` 复核一致；
+- 过程坑：ssh 命令尾部 heredoc 重定向会抢 `su` 的 stdin（密码被顶掉，表现为间歇性
+  「su: Authentication failure」）——改 docker cp 进容器 + argv 传参后稳定。
+
+### #70 `.3` compose 归一到 offline（已执行）
+
+- 用守卫标准切换语义（`compose_guard_down_then_switch`：先完整 down 再 up）+ 手动 up offline；
+- 终态：5 容器 config_files 标签全部为 `docker-compose.offline.yml`，标记=offline，
+  health `v0.5.3`/`v0.3.2` 三 checks true，dashboard 244 台完好；
+- 至此 `.3` 与交付标准布局一致，US-37 守卫对 `.3` 的保护与标记完全对齐。
+
+### 现场状态
+
+`.3`：5 容器 Up（offline 变体）、health ok、数据 244 台/368 卷、冗余清零、备份在 backups/。
+`.3:/data/us37-verify/` 验证树含本轮门禁代码；`:8081` 预览服务在跑（用户在用，看完可关）。
