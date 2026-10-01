@@ -466,6 +466,12 @@ class MigrationService:
             if source_db and source_db.exists():
                 self.settings.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_db, self.settings.sqlite_path)
+                # #65①：目标库若残留旧 -wal/-shm，会与新主文件错配（旧 WAL 帧套新库）。
+                # 覆盖后立即清理——这两个文件属于被换掉的旧库，不属于新库。
+                for suffix in ("-wal", "-shm"):
+                    residue = Path(str(self.settings.sqlite_path) + suffix)
+                    if residue.exists():
+                        residue.unlink()
                 self.database.initialize()
                 restored.append("smartx_db")
                 summary["sqlite"]["inserted"] = _count_sqlite_rows(self.settings.sqlite_path)
@@ -949,9 +955,22 @@ def _copy_missing_tree(source: Path, target: Path, *, skip_names: set[str]) -> d
 
 
 def _replace_directory(source: Path, target: Path) -> None:
-    if target.exists():
-        shutil.rmtree(target)
-    shutil.copytree(source, target)
+    """镜像 source → target：**先拷贝后清理**，绝不 rmtree 先行。
+
+    target 通常是 prometheus 数据目录——bind mount 挂载点，rmtree/rename 会拆挂载
+    （UPG-050）；先拷后清的中断残留只是"多出旧 block"，不是数据丢失。
+    """
+    if not target.exists():
+        shutil.copytree(source, target)
+        return
+    shutil.copytree(source, target, dirs_exist_ok=True)
+    source_names = {entry.name for entry in source.iterdir()}
+    for entry in target.iterdir():
+        if entry.name not in source_names:
+            if entry.is_dir():
+                shutil.rmtree(entry)
+            else:
+                entry.unlink()
 
 
 def _prometheus_summary(source: Path) -> dict[str, int]:

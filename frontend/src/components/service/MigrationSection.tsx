@@ -114,7 +114,11 @@ export function MigrationSection({ active, onNavigate, addTask, updateTask }: Mi
       });
       setExportMessage("监测数据包已导出（不含 Tower 配置，无需恢复密钥）。导入时用「合并数据」，不会改动本机 Tower 配置。");
     } catch (exc) {
-      const message = exc instanceof Error ? exc.message : "导出失败";
+      let message = exc instanceof Error ? exc.message : "导出失败";
+      if (message === "Not Found") {
+        // #66：新前端 + 旧后端（混合部署/升级窗口）时 404 原样透出，用户看不懂
+        message = "后端暂未提供该导出接口（平台版本较旧），请先升级平台后再使用";
+      }
       updateTask(id, { status: "failed", progress: 100, detail: message, logs: ["导出失败", message] });
       setExportMessage(message);
     } finally {

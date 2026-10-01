@@ -848,3 +848,73 @@ if __name__ == "__main__":
             with target_db.connection() as conn:
                 self.assertEqual(conn.execute("SELECT tower_id FROM vm_latest WHERE vm_id='vm-1'").fetchone()[0], target_tower.id)
                 self.assertIsNone(conn.execute("SELECT 1 FROM vm_latest WHERE vm_id='vm-2'").fetchone(), "孤儿集群的行不得入库")
+
+    def test_overwrite_replaces_database_and_clears_wal_residue(self) -> None:
+        """#65①：整库替换后目标库的旧 -wal/-shm 必须清掉（旧 WAL 帧套新库 = 一致性风险）。"""
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import TowerInput
+        from app.v2.inventory.service import InventoryService
+        from app.v2.migration.service import MigrationService
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as source_tmp, tempfile.TemporaryDirectory() as target_tmp:
+            source_settings = V2Settings(data_root=Path(source_tmp), secret_key="s")
+            source_db = V2Database(source_settings)
+            source_db.initialize()
+            source_inventory = InventoryService(source_db, source_settings)
+            source_tower = source_inventory.create_tower(TowerInput(name="Source Tower", base_url="https://s.example.com"))
+            with source_db.connection() as conn:
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (?, 'c', 'vm-src', 'VM', 1)", (source_tower.id,))
+            archive_content, _, _, _ = MigrationService(source_db, source_settings, TaskService(source_db)).build_export_archive(record_task=False)
+
+            target_settings = V2Settings(data_root=Path(target_tmp), secret_key="t")
+            target_db = V2Database(target_settings)
+            target_db.initialize()
+            target_inventory = InventoryService(target_db, target_settings)
+            target_inventory.create_tower(TowerInput(name="Target Tower", base_url="https://t.example.com"))
+            # 模拟目标库残留旧 WAL/SHM
+            wal = Path(str(target_settings.sqlite_path) + "-wal")
+            shm = Path(str(target_settings.sqlite_path) + "-shm")
+            wal.write_bytes(b"stale-wal-frames")
+            shm.write_bytes(b"stale-shm")
+
+            result = MigrationService(target_db, target_settings, TaskService(target_db)).restore_archive_bytes(archive_content, filename="m.tar.gz", mode="overwrite", confirmed=True)
+
+            self.assertTrue(result["ok"])
+            with target_db.connection() as conn:
+                # 整库被源库替换（含源库 towers），目标旧 Tower 不在
+                self.assertEqual(conn.execute("SELECT name FROM towers").fetchone()[0], "Source Tower")
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM vm_latest").fetchone()[0], 1)
+            self.assertFalse(wal.exists(), "旧 WAL 残留必须被清理")
+            self.assertFalse(shm.exists(), "旧 SHM 残留必须被清理")
+
+    def test_replace_directory_copies_first_and_keeps_target_on_failure(self) -> None:
+        """#65②：目录替换必须先拷后清——中断时目标保留原内容（数据不丢），多余项被清理。"""
+        import shutil as _shutil
+        from unittest import mock
+
+        from app.v2.migration import service as migration_service
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "src"
+            target = Path(tmp) / "tgt"
+            (source / "sub").mkdir(parents=True)
+            (source / "a.txt").write_text("new-a", encoding="utf-8")
+            (source / "sub" / "b.txt").write_text("b", encoding="utf-8")
+            target.mkdir()
+            (target / "a.txt").write_text("old-a", encoding="utf-8")
+            (target / "extra.txt").write_text("extra", encoding="utf-8")
+
+            migration_service._replace_directory(source, target)
+            self.assertEqual((target / "a.txt").read_text(encoding="utf-8"), "new-a")
+            self.assertTrue((target / "sub" / "b.txt").is_file())
+            self.assertFalse((target / "extra.txt").exists(), "源里没有的多余项应被清理")
+
+            # 中断容错：拷贝阶段失败 → 目标原内容完整保留（绝不先删后拷）
+            (target / "keep.txt").write_text("precious", encoding="utf-8")
+            with mock.patch.object(migration_service.shutil, "copytree", side_effect=OSError("disk full")):
+                with self.assertRaises(OSError):
+                    migration_service._replace_directory(source, target)
+            self.assertTrue((target / "keep.txt").is_file(), "拷贝失败时目标不得已被清空")
+            self.assertEqual((target / "a.txt").read_text(encoding="utf-8"), "new-a", "失败后保持上次成功状态")
