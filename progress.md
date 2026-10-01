@@ -3170,3 +3170,22 @@ live 实例未部署新代码（新路由随下一版发布交付），属预期
 
 `.12` 补升级验收硬门禁（**需用户授权动 `.12`**）：目标布局 v0.5.2 基线 → r9 平台包直升 +
 8 项验收。全绿后发布材料与证据包齐备，等用户发布指令。
+
+## 2026-10-01 `.14` 全清重跑（用户指令：清理所有环境再来一遍）
+
+**全清**：0 容器、0 smartx/prometheus 镜像、`/data/smartx-storage-forecast`、`/data/us37`、
+测试 tar 与旧源码克隆全删（旧交付目录 `a96b48bf…` 亦随之清除——安装物料换用 r9）。
+
+**干净机房全流程**（物料：r9 交付目录 tar `36077eba…`，SHA 校验一致）：
+
+1. **全新安装**（r9 delivery）EXIT=0：health `v0.5.3`/`v0.3.1`、标记=offline、守卫 755、
+   5 容器 Up、runner 基线正确；
+2. **CLI 升级**（`candidate-r9.tar.gz` SHA `cf2172a4…` 与 ledger 一致 + `--allow-same-version`）
+   EXIT=0：守卫诊断输出正常、预检查通过、任务 succeeded；
+3. **8 项验收全过**：①health 三 checks true ②5 容器镜像正确、**runner 未重建（Up 2min vs
+   平台 41s，US-26 再判别）** ③project=smartx-hci-capacity-insight、subnet 10.249.251.0/24
+   ④SQLite integrity ok ⑤Prometheus /-/ready 200 ⑥.env 600 root:root ⑦7 条 legacy 全清
+   ⑧UI 200。
+
+**意义**：r9 最终产物在零残留干净 VM 上的「安装→升级→验收」完整闭环通过。
+`.12` 发布机验收待用户提供登录方式后执行（`.3` 同款凭据在 `.12` 无效）。
