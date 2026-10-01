@@ -434,6 +434,8 @@ class MigrationService:
                 summary["sqlite"] = self._merge_data_sqlite(source_db)
                 restored.append("smartx_db")
                 logs.append(f"SQLite：监测数据合并导入 {summary['sqlite']['inserted']} 条记录（不含 Tower 配置）")
+                if summary["sqlite"].get("skipped"):
+                    logs.append(f"SQLite：跳过无法归属到本机 Tower 的源行 {summary['sqlite']['skipped']} 条（不照搬源库自增 ID）")
             if source_prometheus and source_prometheus.exists():
                 summary["prometheus"] = _copy_missing_tree(source_prometheus, self.settings.prometheus_data_dir, skip_names=PROMETHEUS_RUNTIME_ENTRIES)
                 restored.append("prometheus")
@@ -464,6 +466,8 @@ class MigrationService:
             summary["sqlite"] = self._merge_sqlite(source_db)
             restored.append("smartx_db")
             logs.append(f"SQLite：合并导入 {summary['sqlite']['inserted']} 条记录")
+            if summary["sqlite"].get("skipped"):
+                logs.append(f"SQLite：跳过无法归属到本机 Tower 的源行 {summary['sqlite']['skipped']} 条（不照搬源库自增 ID）")
         if source_prometheus and source_prometheus.exists():
             summary["prometheus"] = _copy_missing_tree(source_prometheus, self.settings.prometheus_data_dir, skip_names=PROMETHEUS_RUNTIME_ENTRIES)
             restored.append("prometheus")
@@ -477,31 +481,44 @@ class MigrationService:
             target.execute("PRAGMA foreign_keys = ON")
             target.execute("ATTACH DATABASE ? AS incoming", (str(source_db),))
             try:
+                tower_map = _merge_towers(target)
                 counts = {
-                    "towers": _merge_towers(target),
-                    "clusters": _merge_clusters(target),
+                    "towers": len(tower_map),
+                    "clusters": _merge_clusters(target, tower_map),
                 }
                 target.commit()
                 return {"inserted": sum(counts.values()), "tables": counts}
             finally:
                 target.execute("DETACH DATABASE incoming")
 
-    def _merge_data_sqlite(self, source_db: Path) -> dict[str, Any]:
-        """数据包（DATA_SCOPE）合并导入：只动监测数据表，不碰 towers/clusters。"""
+    def _merge_data_sqlite(self, source_db: Path, *, tower_map: dict[int, int] | None = None) -> dict[str, Any]:
+        """数据包（DATA_SCOPE）合并导入：只动监测数据表，不碰 towers/clusters。
+
+        tower_id 一律经解析归一（cluster_id 归属优先，其次调用方传入的 tower 映射），
+        解析不出的行跳过——**绝不照搬源库自增 ID 产生新孤儿**。
+        """
         self.database.initialize()
         with sqlite3.connect(self.settings.sqlite_path) as target:
             target.row_factory = sqlite3.Row
             target.execute("PRAGMA foreign_keys = ON")
             target.execute("ATTACH DATABASE ? AS incoming", (str(source_db),))
             try:
-                counts = {
-                    "vm_latest": _merge_vm_latest(target),
-                    "vm_volumes": _merge_vm_volumes(target) + _merge_v1_latest_vm_volume_payloads(target),
-                    "collection_runs": _merge_collection_runs(target),
-                    "metric_snapshots": _merge_metric_snapshot(target),
-                }
+                cluster_tower = _cluster_tower_index(target)
+                tower_map = tower_map or {}
+                counts: dict[str, int] = {}
+                skipped = 0
+                counts["vm_latest"], skip = _merge_vm_latest(target, tower_map, cluster_tower)
+                skipped += skip
+                vol_inserted, skip = _merge_vm_volumes(target, tower_map, cluster_tower)
+                v1_inserted, skip1 = _merge_v1_latest_vm_volume_payloads(target, tower_map, cluster_tower)
+                counts["vm_volumes"] = vol_inserted + v1_inserted
+                skipped += skip + skip1
+                counts["collection_runs"], skip = _merge_collection_runs(target)
+                skipped += skip
+                counts["metric_snapshots"], skip = _merge_metric_snapshot(target)
+                skipped += skip
                 target.commit()
-                return {"inserted": sum(counts.values()), "tables": counts}
+                return {"inserted": sum(counts.values()), "tables": counts, "skipped": skipped}
             finally:
                 target.execute("DETACH DATABASE incoming")
 
@@ -512,16 +529,25 @@ class MigrationService:
             target.execute("PRAGMA foreign_keys = ON")
             target.execute("ATTACH DATABASE ? AS incoming", (str(source_db),))
             try:
+                tower_map = _merge_towers(target)
                 counts = {
-                    "towers": _merge_towers(target),
-                    "clusters": _merge_clusters(target),
-                    "vm_latest": _merge_vm_latest(target),
-                    "vm_volumes": _merge_vm_volumes(target) + _merge_v1_latest_vm_volume_payloads(target),
-                    "collection_runs": _merge_collection_runs(target),
-                    "metric_snapshots": _merge_metric_snapshot(target),
+                    "towers": len(tower_map),
+                    "clusters": _merge_clusters(target, tower_map),
                 }
+                cluster_tower = _cluster_tower_index(target)
+                skipped = 0
+                counts["vm_latest"], skip = _merge_vm_latest(target, tower_map, cluster_tower)
+                skipped += skip
+                vol_inserted, skip = _merge_vm_volumes(target, tower_map, cluster_tower)
+                v1_inserted, skip1 = _merge_v1_latest_vm_volume_payloads(target, tower_map, cluster_tower)
+                counts["vm_volumes"] = vol_inserted + v1_inserted
+                skipped += skip + skip1
+                counts["collection_runs"], skip = _merge_collection_runs(target)
+                skipped += skip
+                counts["metric_snapshots"], skip = _merge_metric_snapshot(target)
+                skipped += skip
                 target.commit()
-                return {"inserted": sum(counts.values()), "tables": counts}
+                return {"inserted": sum(counts.values()), "tables": counts, "skipped": skipped}
             finally:
                 target.execute("DETACH DATABASE incoming")
 
@@ -538,20 +564,32 @@ class MigrationService:
         }
 
 
-def _merge_towers(conn: sqlite3.Connection) -> int:
-    if not _incoming_table_exists(conn, "towers"):
-        return 0
-    inserted = 0
+def _merge_towers(conn: sqlite3.Connection) -> dict[int, int]:
+    """按身份 (name, base_url) 合并源 towers，返回 {源 tower_id: 目标 tower_id} 映射。
+
+    身份匹配到目标现役 Tower → 直接复用其 ID（不产生重复 Tower）；
+    未匹配 → 作为新 Tower 插入（AUTOINCREMENT 分配新 ID）。
+    绝不按源库自增 ID 照搬——那是跨系统导入产生三代冗余/错挂的根因（#63）。
+    """
+    mapping: dict[int, int] = {}
     for row in conn.execute("SELECT * FROM incoming.towers ORDER BY id").fetchall():
+        name = row["name"]
+        base_url = row["base_url"]
+        existing = conn.execute(
+            "SELECT id FROM towers WHERE name = ? AND base_url = ? ORDER BY enabled DESC, id LIMIT 1",
+            (name, base_url),
+        ).fetchone()
+        if existing is not None:
+            mapping[int(row["id"])] = int(existing["id"])
+            continue
         cursor = conn.execute(
             """
-            INSERT OR IGNORE INTO towers (id, name, base_url, username, password_encrypted, api_token_encrypted, verify_tls, enabled, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
+            INSERT INTO towers (name, base_url, username, password_encrypted, api_token_encrypted, verify_tls, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
             """,
             (
-                row["id"],
-                row["name"],
-                row["base_url"],
+                name,
+                base_url,
                 row["username"] if "username" in row.keys() else None,
                 row["password_encrypted"] if "password_encrypted" in row.keys() else None,
                 row["api_token_encrypted"] if "api_token_encrypted" in row.keys() else None,
@@ -561,47 +599,76 @@ def _merge_towers(conn: sqlite3.Connection) -> int:
                 row["updated_at"] if "updated_at" in row.keys() else None,
             ),
         )
-        inserted += int(cursor.rowcount or 0)
-    return inserted
+        mapping[int(row["id"])] = int(cursor.lastrowid)
+    return mapping
 
 
-def _merge_clusters(conn: sqlite3.Connection) -> int:
+def _cluster_tower_index(conn: sqlite3.Connection) -> dict[str, int]:
+    """cluster_id → 目标 tower_id 索引（同 cluster 多条时优先 enabled、其次最新一代）。"""
+    index: dict[str, int] = {}
+    for row in conn.execute("SELECT tower_id, cluster_id FROM clusters ORDER BY enabled DESC, tower_id DESC"):
+        index.setdefault(str(row["cluster_id"]), int(row["tower_id"]))
+    return index
+
+
+def _resolve_row_tower(row: sqlite3.Row, tower_map: dict[int, int], cluster_tower: dict[str, int]) -> int | None:
+    """数据行的目标 tower_id：cluster_id 归属优先，其次 tower 映射；都解析不出 → None（跳过，不留孤儿）。"""
+    resolved = cluster_tower.get(str(row["cluster_id"]))
+    if resolved is not None:
+        return resolved
+    return tower_map.get(int(row["tower_id"]))
+
+
+def _merge_clusters(conn: sqlite3.Connection, tower_map: dict[int, int]) -> int:
     if not _incoming_table_exists(conn, "clusters"):
         return 0
     inserted = 0
     for row in conn.execute("SELECT * FROM incoming.clusters ORDER BY id").fetchall():
+        tower_id = tower_map.get(int(row["tower_id"]))
+        if tower_id is None:
+            continue  # 源集群引用的 Tower 不存在（孤儿集群）——不搬，避免制造新孤儿
         cursor = conn.execute(
             """
             INSERT OR IGNORE INTO clusters (tower_id, cluster_id, name, enabled, updated_at)
             VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
             """,
-            (row["tower_id"], row["cluster_id"], row["name"], row["enabled"] if "enabled" in row.keys() else 1, row["updated_at"] if "updated_at" in row.keys() else None),
+            (tower_id, row["cluster_id"], row["name"], row["enabled"] if "enabled" in row.keys() else 1, row["updated_at"] if "updated_at" in row.keys() else None),
         )
         inserted += int(cursor.rowcount or 0)
     return inserted
 
 
-def _merge_vm_latest(conn: sqlite3.Connection) -> int:
+def _merge_vm_latest(conn: sqlite3.Connection, tower_map: dict[int, int], cluster_tower: dict[str, int]) -> tuple[int, int]:
     if not _incoming_table_exists(conn, "vm_latest"):
-        return 0
+        return 0, 0
     inserted = 0
+    skipped = 0
     for row in conn.execute("SELECT * FROM incoming.vm_latest").fetchall():
+        tower_id = _resolve_row_tower(row, tower_map, cluster_tower)
+        if tower_id is None:
+            skipped += 1
+            continue
         cursor = conn.execute(
             """
             INSERT OR IGNORE INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes, updated_at)
             VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
             """,
-            (row["tower_id"], row["cluster_id"], row["vm_id"], row["name"], row["used_bytes"], row["updated_at"] if "updated_at" in row.keys() else None),
+            (tower_id, row["cluster_id"], row["vm_id"], row["name"], row["used_bytes"], row["updated_at"] if "updated_at" in row.keys() else None),
         )
         inserted += int(cursor.rowcount or 0)
-    return inserted
+    return inserted, skipped
 
 
-def _merge_vm_volumes(conn: sqlite3.Connection) -> int:
+def _merge_vm_volumes(conn: sqlite3.Connection, tower_map: dict[int, int], cluster_tower: dict[str, int]) -> tuple[int, int]:
     if not _incoming_table_exists(conn, "vm_volumes"):
-        return 0
+        return 0, 0
     inserted = 0
+    skipped = 0
     for row in conn.execute("SELECT * FROM incoming.vm_volumes").fetchall():
+        tower_id = _resolve_row_tower(row, tower_map, cluster_tower)
+        if tower_id is None:
+            skipped += 1
+            continue
         cursor = conn.execute(
             """
             INSERT OR IGNORE INTO vm_volumes (
@@ -611,7 +678,7 @@ def _merge_vm_volumes(conn: sqlite3.Connection) -> int:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
             """,
             (
-                row["tower_id"],
+                tower_id,
                 row["cluster_id"],
                 row["vm_id"],
                 row["volume_id"],
@@ -628,14 +695,19 @@ def _merge_vm_volumes(conn: sqlite3.Connection) -> int:
             ),
         )
         inserted += int(cursor.rowcount or 0)
-    return inserted
+    return inserted, skipped
 
 
-def _merge_v1_latest_vm_volume_payloads(conn: sqlite3.Connection) -> int:
+def _merge_v1_latest_vm_volume_payloads(conn: sqlite3.Connection, tower_map: dict[int, int], cluster_tower: dict[str, int]) -> tuple[int, int]:
     if not _incoming_table_exists(conn, "latest_vm_volumes"):
-        return 0
+        return 0, 0
     inserted = 0
+    skipped = 0
     for row in conn.execute("SELECT * FROM incoming.latest_vm_volumes").fetchall():
+        tower_id = _resolve_row_tower(row, tower_map, cluster_tower)
+        if tower_id is None:
+            skipped += 1
+            continue
         volumes = _loads_json_list(row["payload_json"])
         for index, volume in enumerate(volumes):
             normalized = _v1_volume_to_v2(volume, index)
@@ -648,7 +720,7 @@ def _merge_v1_latest_vm_volume_payloads(conn: sqlite3.Connection) -> int:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
                 """,
                 (
-                    row["tower_id"],
+                    tower_id,
                     row["cluster_id"],
                     row["vm_id"],
                     normalized["volume_id"],
@@ -665,33 +737,35 @@ def _merge_v1_latest_vm_volume_payloads(conn: sqlite3.Connection) -> int:
                 ),
             )
             inserted += int(cursor.rowcount or 0)
-    return inserted
+    return inserted, skipped
 
 
-def _merge_collection_runs(conn: sqlite3.Connection) -> int:
+def _merge_collection_runs(conn: sqlite3.Connection) -> tuple[int, int]:
     if not _incoming_table_exists(conn, "collection_runs"):
-        return 0
+        return 0, 0
     inserted = 0
+    skipped = 0
     for row in conn.execute("SELECT * FROM incoming.collection_runs").fetchall():
         cursor = conn.execute(
             "INSERT OR IGNORE INTO collection_runs (id, status, message, started_at, finished_at) VALUES (?, ?, ?, ?, ?)",
             (row["id"], row["status"], row["message"], row["started_at"], row["finished_at"]),
         )
         inserted += int(cursor.rowcount or 0)
-    return inserted
+    return inserted, skipped
 
 
-def _merge_metric_snapshot(conn: sqlite3.Connection) -> int:
+def _merge_metric_snapshot(conn: sqlite3.Connection) -> tuple[int, int]:
     if not _incoming_table_exists(conn, "metric_snapshots"):
-        return 0
+        return 0, 0
     inserted = 0
+    skipped = 0
     for row in conn.execute("SELECT * FROM incoming.metric_snapshots").fetchall():
         cursor = conn.execute(
             "INSERT OR IGNORE INTO metric_snapshots (id, metrics_text, updated_at) VALUES (?, ?, ?)",
             (row["id"], row["metrics_text"], row["updated_at"]),
         )
         inserted += int(cursor.rowcount or 0)
-    return inserted
+    return inserted, skipped
 
 
 @contextmanager
