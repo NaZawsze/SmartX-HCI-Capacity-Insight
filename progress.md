@@ -3189,3 +3189,22 @@ live 实例未部署新代码（新路由随下一版发布交付），属预期
 
 **意义**：r9 最终产物在零残留干净 VM 上的「安装→升级→验收」完整闭环通过。
 `.12` 发布机验收待用户提供登录方式后执行（`.3` 同款凭据在 `.12` 无效）。
+
+## 2026-10-01 `.12` 发布机验收（r9 硬门禁）——发布级验证全部完成
+
+用户授权 `.12`（登录 root/password，与 `.14` 相同；首连失败为限流瞬断）。`.12` 基线：
+v0.5.3 + runner **v0.3.2**（09-28 验收后状态）、数据 556/89588/1、`.env` sha `8b644112…`。
+
+**执行**：r9 包（`cf2172a4…`）经 `.3` 直传 `.12:/opt/r9-candidate.tar.gz`（SHA 一致）→
+产品 API upload → **预检查 9 项全 OK**（disk 7.42G≥2.58G、runner_actions 14 动作 v0.3.2 全支持）→
+start → 任务 **`upgrade-922fab7a0ecca1a8` succeeded**（14 动作含 post_upgrade / runner_handoff 全
+succeeded）→ **post-cleanup succeeded**（US-30 settlement 机制在发布机生效）。
+
+**8 项验收全过**：①health `v0.5.3`/`v0.3.2` 三 checks true ②5 容器正常，平台三件套重建自 r9
+镜像、**runner 镜像 tag 保持 v0.3.2 未降级（US-26 现场判别：包基线 v0.3.1 < 现场 v0.3.2）**
+③project 正确 ④SQLite integrity ok、数据 **556/89588/1 逐位不变** ⑤Prometheus ready 200
+⑥`.env` sha `8b644112…` 全程未变、600 root:root ⑦7 条 legacy 全清 ⑧UI 200。
+
+**发布级验证链（全部完成）**：r9 构建门禁（identity/一致性/敏感 0）→ `.3` 全量 737 tests →
+`.14` 干净机安装→升级→8 项闭环 → `.12` 发布机同版本重装 + 8 项 + US-26 判别。
+发布动作（推送 dev2/main、tag、Release、CHANGELOG 翻转）等用户指令。
