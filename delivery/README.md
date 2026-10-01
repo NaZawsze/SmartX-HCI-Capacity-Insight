@@ -48,10 +48,11 @@ smartx-capacity-insight-v0.5.3-offline/
 └── upgrade/                      离线升级
     ├── upgrade.sh                一键升级入口
     └── packages/
-        ├── smartx-capacity-insight-upgrade-v0.5.3.tar.gz
-        ├── smartx-upgrade-runner-v0.3.2.tar.gz
+        ├── smartx-capacity-insight-upgrade-<版本>.tar.gz
         ├── SHA256SUMS
         └── *.sha256
+    # packages/ 里有什么就用什么：本交付批次的交付范围（是否含 runner 组件包）
+    # 以随包交付说明为准——不在本批次交付范围的组件包不会出现在这里
 ```
 
 **请不要修改交付目录内的任何文件**——`install.sh` 与 `upgrade.sh` 每次运行前都会校验 SHA256。
@@ -97,6 +98,7 @@ sudo bash install/install.sh \
 | `--health-timeout <秒>` | `180` | 健康检查等待上限 |
 | `--yes` | — | 非交互，跳过启动前确认 |
 | `--force-env` | — | 重新生成 `.env`（默认**不覆盖**已存在的） |
+| `--force-compose-switch` | 拦截 | `.env` 记录的 compose 变体与本脚本不一致时默认**拒绝启动**（防 recreate 中断服务）；确认要换变体才加（会先完整停机，造成计划内中断） |
 
 ### 3.3 安装脚本做了什么
 
@@ -132,10 +134,11 @@ sudo bash upgrade/upgrade.sh
 
 ```bash
 # 指定包
-sudo bash upgrade/upgrade.sh --package upgrade/packages/smartx-capacity-insight-upgrade-v0.5.3.tar.gz --yes
+sudo bash upgrade/upgrade.sh --package upgrade/packages/<随包提供的平台升级包名>.tar.gz --yes
 
-# 平台升级成功之后，连带升级 runner 组件
-sudo bash upgrade/upgrade.sh --with-runner upgrade/packages/smartx-upgrade-runner-v0.3.2.tar.gz --yes
+# 平台升级成功之后，若本批次交付了 runner 组件包（以随包交付说明为准），
+# 连带升级 runner 组件
+sudo bash upgrade/upgrade.sh --with-runner upgrade/packages/<随包提供的 runner 组件包名>.tar.gz --yes
 ```
 
 > **在哪个目录执行都行。** `--package` / `--with-runner` 的相对路径按**脚本自身位置**
@@ -182,6 +185,7 @@ sudo bash upgrade/upgrade.sh --with-runner upgrade/packages/smartx-upgrade-runne
 | `--admin-user` / `--admin-password` | 读 `.env`，回退 `admin` / `password` | 管理员凭据 |
 | `--env-file <路径>` | `/data/smartx-storage-forecast/project/.env` | 读取凭据用的 `.env` 位置 |
 | `--poll-timeout <秒>` | `1800` | 等待升级完成的超时 |
+| `--allow-same-version` | 拦截 | 目标版本与当前版本相同时（同版本重装，恢复手段、服务会中断）默认**拦截**并给指引；确认要重装才加此参数 |
 | `--yes` | — | 非交互，跳过确认 |
 
 ---
@@ -302,6 +306,23 @@ curl -s http://127.0.0.1:8000/api/system/health
 ```
 
 ---
+
+## 9.0 数据迁移与恢复密钥（Web 界面 · 服务管理 → 数据迁移）
+
+三个导出入口（按钮在页面右上角），语义各不相同：
+
+| 入口 | 包内容 | 需要恢复密钥？ | 适用 |
+| --- | --- | --- | --- |
+| **导出迁移包** | Tower 配置 + 库内监测数据 + 全部历史指标（**完整备份**） | **需要** | 备份 / 整机搬迁 |
+| **仅导出存储监测数据** | 只导监测业务数据与历史指标（不含 Tower 配置） | 不需要 | 把数据搬到已配好 Tower 的新环境 |
+| **仅导出 Tower 配置** | 只导 Tower 与集群清单（不含历史数据） | 需要 | 让新环境快速接入同一批 Tower |
+
+- **恢复密钥**：迁移包里的 Tower 密码是加密的，恢复时必须配上导出时**单独下载**的
+  恢复密钥（`.env`，需验证平台密码）。**迁移包与密钥必须成对保存**，缺一则 Tower
+  凭据无法解密（可在 Web 界面重新输入密码补救）。
+- **导入**：数据迁移页上传包 → 选导入方式 → 导入 → 服务重启。「合并数据」只补缺的、
+  最安全；「整库替换」会清空现有数据（数据类导入包不支持此模式，后端直接拒绝）。
+- 导入完成后需执行「服务重启」新数据才完全生效。
 
 ## 9.1 compose 变体守卫（US-37）
 

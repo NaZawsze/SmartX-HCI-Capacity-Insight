@@ -108,6 +108,9 @@ sha256sum smartx-capacity-insight-offline-20260930.tar.gz > smartx-capacity-insi
 1. **包的来源与版本**：`v0.5.3`，以及对应的 runner 组件包版本（`v0.3.2`）。
 2. **SHA256 校验值**（见上）。
 3. **客户从 `offline-delivery/README.md` 开始看**——那份是写给客户的，本文件不用给。
+4. **本批次交付范围**：交付目录 `upgrade/packages/` 里有什么组件包，就只承诺什么
+   （README 已写成版本无关）；**不要口头承诺包里没有的组件**（如 runner 组件随下一版
+   才交付时，不得让客户执行 `--with-runner`）。
 
 ### 3.3 不要给客户的东西
 

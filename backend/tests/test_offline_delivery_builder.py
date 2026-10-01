@@ -1064,3 +1064,50 @@ class CriticalCommandVisibilityTest(unittest.TestCase):
             "等 post-cleanup 的逻辑必须在发起 runner 组件升级之前（顺序颠倒必然 400）",
         )
         self.assertIn("单飞守卫", text, "被单飞守卫拒绝时必须给出可操作的下一步")
+
+
+class DeliveryReadmeCustomerViewTest(unittest.TestCase):
+    """客户 README 是唯一说明书——版本无关 + 功能覆盖（2026-10-01 客户视角审计）。
+
+    D1：示例不得写死具体版本号（每发一版就过时，且曾宣传了未随本批交付的组件包）；
+    D2：脚本新能力必须同步进 README（守卫选项/数据包/恢复密钥）；
+    D3：打包脚本必须在构建时校验 README 关键章节（r9 教训：README 过时无机制提醒）。
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.readme = (REPO_ROOT / "delivery" / "README.md").read_text(encoding="utf-8")
+        cls.builder = (REPO_ROOT / "scripts" / "build_offline_delivery.py").read_text(encoding="utf-8")
+
+    def test_readme_does_not_hardcode_component_versions(self) -> None:
+        import re as _re
+        hardcoded = _re.findall(r"smartx-(?:capacity-insight-)?(?:upgrade-)?(?:runner-)?v\d+\.\d+(?:\.\d+)?(?:\.\d+)?\.tar\.gz", self.readme)
+        self.assertEqual(
+            hardcoded, [],
+            f"README 不得写死具体包文件名（改用 <版本> 占位或「以随包交付说明为准」）：{hardcoded}",
+        )
+        self.assertIn("以随包交付说明为准", self.readme)
+
+    def test_readme_documents_new_capabilities(self) -> None:
+        for needle, why in (
+            ("--force-compose-switch", "install.sh 守卫选项"),
+            ("--allow-same-version", "upgrade.sh 防呆选项"),
+            ("仅导出存储监测数据", "数据包导出入口"),
+            ("恢复密钥", "迁移核心概念"),
+            ("compose 变体守卫", "US-37 守卫章节"),
+        ):
+            self.assertIn(needle, self.readme, f"客户 README 缺 {why} 的说明")
+
+    def test_builder_enforces_readme_sections(self) -> None:
+        self.assertIn("缺少必需章节", self.builder, "打包脚本必须校验 README 关键章节")
+        for heading in ("前置条件", "恢复密钥", "compose 变体守卫", "常见失败"):
+            self.assertIn(f'"{heading}"', self.builder)
+
+    def test_readme_data_package_semantics_correct(self) -> None:
+        """数据包语义不得写错：不需要恢复密钥 / 后端拒绝整库替换。"""
+        import re as _re
+        section = self.readme.split("仅导出存储监测数据", 1)[1][:800]
+        self.assertTrue(
+            "不需要" in section or "无需" in section,
+            "数据包必须写明不需要恢复密钥",
+        )

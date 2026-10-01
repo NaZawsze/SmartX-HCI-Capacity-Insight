@@ -296,6 +296,23 @@ def main() -> int:
     platform_package = Path(args.platform_package)
     runner_package = Path(args.runner_package)
     readme = Path(args.readme)
+    # 交付 README 是客户唯一的使用说明书：缺关键章节 = 客户拿到与脚本能力脱节的文档。
+    # 随脚本能力演进必须同步更新 README（教训：r9 交付目录里的 README 没有守卫章节）。
+    readme_text = readme.read_text(encoding="utf-8")
+    for required_heading in (
+        "前置条件",
+        "首次安装",
+        "离线升级",
+        "恢复密钥",
+        "compose 变体守卫",
+        "数据迁移与恢复密钥",
+        "常见失败",
+    ):
+        if required_heading not in readme_text:
+            raise SystemExit(
+                f"交付 README 缺少必需章节「{required_heading}」——请更新 README 后重试。"
+                "（README 是客户唯一说明书，必须与交付脚本能力同步）"
+            )
     output = Path(args.output_dir)
     for path, label in ((platform_package, "平台升级包"), (runner_package, "runner 组件包"), (readme, "README")):
         if not path.is_file():
