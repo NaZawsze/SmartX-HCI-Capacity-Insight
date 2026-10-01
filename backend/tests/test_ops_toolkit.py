@@ -487,5 +487,32 @@ class OpsShellPitfallTest(unittest.TestCase):
             )
 
 
+class DeliveryUpgradeSameVersionGateTest(unittest.TestCase):
+    """upgrade.sh 的重复升级防呆（pending-tasks #60②）。
+
+    同版本重装是已验证的恢复手段（会造成计划内中断），但不该被误触双击
+    静默执行——默认拦截并给指引，显式 --allow-same-version 才放行。
+    """
+
+    def setUp(self) -> None:
+        self.upgrade = (ROOT / "delivery" / "upgrade" / "upgrade.sh").read_text(encoding="utf-8")
+
+    def test_gate_exists_before_start(self) -> None:
+        gate_at = self.upgrade.find("重复升级已拦截")
+        start_at = self.upgrade.find("api/admin/upgrade/start")
+        self.assertNotEqual(gate_at, -1, "缺少同版本重装拦截")
+        self.assertNotEqual(start_at, -1)
+        self.assertLess(gate_at, start_at, "拦截必须发生在调用 start 之前")
+
+    def test_option_documented_and_parsed(self) -> None:
+        self.assertIn("--allow-same-version", self.upgrade)
+        self.assertIn("ALLOW_SAME_VERSION=0", self.upgrade, "默认必须拦截（显式放行才开）")
+
+    def test_gate_ignores_unknown_versions(self) -> None:
+        # 版本解析失败（unknown）时不得误拦——放行判定要求两侧都是已解析版本
+        self.assertIn('"$TARGET_VERSION" != "unknown"', self.upgrade)
+        self.assertIn('"$CURRENT_VERSION" != "unknown"', self.upgrade)
+
+
 if __name__ == "__main__":
     unittest.main()

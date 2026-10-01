@@ -23,6 +23,7 @@ PACKAGE=""
 RUNNER_PACKAGE=""
 ADMIN_USER=""
 ADMIN_PASSWORD=""
+ALLOW_SAME_VERSION=0
 ENV_FILE="/data/smartx-storage-forecast/project/.env"
 ASSUME_YES=0
 POLL_INTERVAL=10
@@ -46,6 +47,8 @@ usage() {
 选项:
   --package <包路径>        平台升级包（默认自动选 packages/ 里唯一的平台包）
   --with-runner <组件包>    平台升级成功后再升级 runner 组件（默认不做）
+  --allow-same-version      允许目标版本与当前版本相同的**同版本重装**（恢复手段，
+                            服务会中断；默认不加此参数时同版本重装会被拦截）
   --base-url <地址>         平台 API（默认 http://127.0.0.1:8000，即本机）
   --admin-user <用户名>     管理员用户名（默认从 .env 读，再回退 admin）
   --admin-password <口令>   管理员口令（默认从 .env 读，再回退 password）
@@ -74,6 +77,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --package)        PACKAGE="${2:?}"; shift 2 ;;
     --with-runner)    RUNNER_PACKAGE="${2:?}"; shift 2 ;;
+    --allow-same-version) ALLOW_SAME_VERSION=1; shift ;;
     --base-url)       BASE_URL="${2:?}"; shift 2 ;;
     --admin-user)     ADMIN_USER="${2:?}"; shift 2 ;;
     --admin-password) ADMIN_PASSWORD="${2:?}"; shift 2 ;;
@@ -223,6 +227,18 @@ if [ -z "$TASK_ID" ]; then
 fi
 TARGET_VERSION="$(printf '%s' "$UPLOAD_BODY" | sed -nE 's/.*"target_version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')"
 ok "已上传：$PACKAGE_NAME → 任务 $TASK_ID（目标 ${TARGET_VERSION:-unknown}）"
+
+# 重复升级防呆（pending-tasks #60②）：目标版本与当前相同 = 同版本重装——
+# 是恢复手段但会造成计划内服务中断，误触双击不该静默执行；默认拦截并给指引，
+# 显式 --allow-same-version 才放行（同版本重装本身是已验证能力，不删除）。
+if [ -n "$TARGET_VERSION" ] && [ "$TARGET_VERSION" != "unknown" ] \
+   && [ -n "${CURRENT_VERSION:-}" ] && [ "$CURRENT_VERSION" != "unknown" ] \
+   && [ "$TARGET_VERSION" = "$CURRENT_VERSION" ] && [ "$ALLOW_SAME_VERSION" -eq 0 ]; then
+  DIE_HINT="  目标版本 ${TARGET_VERSION} 与当前运行版本相同：继续会执行一次**同版本重装**
+  （恢复手段，服务会中断数分钟）。确要执行请加 --allow-same-version 重跑。
+  本次**未调用 start**，升级未发起；已上传的任务可在升级中心删除或忽略。"
+  die "重复升级已拦截：目标版本与当前版本相同" "$DIE_HINT"
+fi
 
 # ── 预检查（逐项打印；任一失败即停）──
 PRECHECK_BODY="$(curl -s --max-time 300 -X POST "$BASE_URL/api/admin/upgrade/precheck/$TASK_ID" "${AUTH[@]}" 2>/dev/null || true)"
