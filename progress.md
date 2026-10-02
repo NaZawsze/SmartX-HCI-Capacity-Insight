@@ -3350,3 +3350,37 @@ prometheus 历史 31 块（用户两包的数据已找回）。
 **结论**：旧包（09-30 前导出）搬不动业务数据是**版本局限**；r10 起用「导出迁移包」（全量）
 或「仅导出存储监测数据」都能真正搬数据。跨机器合并导入时 tower_id 自动重映射到目标现役
 Tower，不会产生新的三代冗余。
+
+## 2026-10-02 五问题批次实施（#72-75，`30a6fdf`/`8d8582c`）——.3 真机闭环
+
+### #72 调度停摆：两个连环隐藏 bug（重试与日志机制立功）
+
+1. `sync_collection_schedules` 每分钟对 APScheduler Job `setattr(job, "signature", ...)` →
+   **AttributeError**（3.x 禁止任意属性）→ 每次同步失败且被静默吞掉 →
+   **启用 Tower 自 09-12 后零次 scheduled 采集、Tower 恢复后 20 天不自愈**。
+   修复：签名存进程内字典 `_JOB_SIGNATURES`（`8d8582c`）。
+2. worker 零日志（无 logging 配置）+ `_run_schedule_sync`/`_run_tower_collection`
+   静默吞异常 → 上述失败完全不可观测。修复：main 加 `logging.basicConfig`、
+   启动即同步（5×30s 重试 + 显式日志）、两处 except 改 `logger.exception`（`30a6fdf`）。
+
+**真机闭环（.3）**：重启 collector-worker → 日志逐次报「同步失败（第 1/5 次）+ AttributeError
+完整栈」（第一轮注入暴露 bug）→ 修复后「采集调度同步完成（第 1 次尝试）」→ collect-tower-3
+注册 → 临时 2 分钟间隔实测 **scheduled run 71 success（199 台，20 天来首次 scheduled 成功）**
+→ 间隔恢复 60 分钟。US-38 的重试/日志框架在调试中直接兑现价值。
+
+### 其余四项
+
+- #73：横幅改「数据未更新：已约 X 小时/天未成功采集（提示阈值 Y 小时，最近成功采集于 …）」；
+  阈值口径保持 2×最小间隔自适应（改 24h 属产品决策，设计文档留了三案）；
+- #74：三处说明合并为对比表（权威说明唯一化）、补相邻卡片间距 CSS 规则（此前迁移页 4 卡
+  彼此贴死是全局缺口）、密钥弹窗/错误提示写明「本系统（存储监测平台）密码，非 CloudTower」；
+- #75：已分配从 get-clusters 的 perf_allocated_data_space（性能层，8.5TiB < 全集群已用
+  35TiB 同框荒谬）改为 get-cluster-storage-info 同源 total-free 推导；collection 改从
+  payload 直取，废弃二次请求路径。数值与 CloudTower 界面对照待用户提供界面截图后复核。
+
+### 门禁
+
+迁移/采集/client/freshness 33 例全过（新口径断言 + 回收站 4 例一并归位真实执行）；
+`.3` 全量 **756 tests / 1 failure（既有环境限制）/ 7 skipped**；前端 tsc 0 / vitest 108
+（2 例断言随新文案更新）。**r11 重建**：本轮修复含 worker/collection 行为变更，进交付物
+需重建候选包（待用户决定是否与发布合并）。
