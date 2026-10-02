@@ -137,6 +137,7 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | [project-progress-2026-08-12.md](project-progress-2026-08-12.md) | 阶段性项目进度摘要（对外可读）。 | — |
 
 | [ai-handoff-2026-09-30.md](ai-handoff-2026-09-30.md) | **本轮（2026-09-30）交接文档**：目录层级纠错与 AGENTS §11.1 新规、US-37 守卫实施与真机验证结论、本轮踩的坑、当前验证基线（726 tests）。⚠️ 正文 §2/§4 仍按「US-37 T4/T5/T6 未做」写，但**文首收尾更新（2026-09-30 当晚）已声明 T4/T5/T6 全过、US-37 关闭**（`.14` 实测，见 pending-tasks #59）——以文首更新为准。新接手者从这里开始，再读 ai-handoff-guide.md |
+| [delivery/README.md](../delivery/README.md) | **客户离线交付包说明书（随包交付，客户唯一手册）**：前置条件、首次安装、离线升级、8 项自检、常见失败、卸载、安全建议、数据迁移与恢复密钥、compose 变体守卫。由 `scripts/build_offline_delivery.py` 复制进交付目录（构建时强制校验关键章节，#71）。面向**客户**；仓库内 `delivery/` 不直接执行。 |
 | [delivery-handover-guide.md](delivery-handover-guide.md) | **交付手册**：从打包到客户安装升级的全链路（三个角色三类文件的区分、`ops/package.sh` 产物位置、打给客户前 3 项自检、交付话术与禁发清单、客户安装升级命令、运行中机器做测试的隔离纪律）。面向**交付负责人**，客户看的是包内 `README.md`。 |
 
 ## 7. 未完成任务队列

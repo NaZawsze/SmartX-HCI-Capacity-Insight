@@ -296,6 +296,10 @@ The printed `host_path` is the migration package path. The package includes the 
 
 - [**Delivery Handover Guide**](docs/delivery-handover-guide.md) — **start here when packaging output needs to reach a customer**: where the packages land, pre-delivery self-checks, what to send (and what not to), how the customer installs and upgrades
 - [Operations Scripts](ops/README.md) — the `install.sh` / `upgrade.sh` / `package.sh` entry points
+- **Data migration & recovery key**: used in the web UI under Service Management → Data Migration
+  (three export flavors — full backup / data-only / Tower-config-only; see the bundled
+  `offline-delivery/README.md` §9.0 for semantics). ⚠️ A migration package and its recovery key
+  **must be stored together** — without the key, encrypted Tower credentials cannot be decrypted
 - [Offline Upgrade Package](#offline-upgrade-package) — package structure and upgrade procedure
 - [OVA Delivery](docs/ova-delivery.md) — what the bundle may and may not contain
 
@@ -305,6 +309,8 @@ The printed `host_path` is the migration package path. The package includes the 
 - [Usage Guide](docs/usage.md)
 - [API Reference](docs/api.md)
 - [Troubleshooting](docs/troubleshooting.md)
+- [Backup & Recovery](docs/backup-recovery.md) — backup inventory, the five-step restore procedure, and red lines; read before migration/reinstall
+- [Changelog](docs/releases/CHANGELOG.md) — what each version adds, fixes, and known issues
 - [upgrade-runner Lifecycle and Component Upgrade Policy](docs/upgrade-runner-lifecycle.md)
 - [Version Governance](docs/version-governance.md)
 - [v0.2 Release Notes](docs/releases/v0.2.md)

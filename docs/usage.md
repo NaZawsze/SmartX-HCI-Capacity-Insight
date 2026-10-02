@@ -173,3 +173,23 @@ Open `Service` in the left navigation. The page is independent of the cluster sc
 - **History**: task history with status, steps, and downloadable results.
 
 A task-center menu shows background task notifications. Info-level tasks clear when read; warning and critical failures stay until acknowledged or deleted.
+
+## 10. Data Migration & Recovery Key
+
+Used in the web UI under **Service Management → Data Migration** (Chinese UI: 服务管理 → 数据迁移).
+Three export flavors with different semantics:
+
+| Export | Contents | Recovery key needed? | Use case |
+| --- | --- | --- | --- |
+| Full migration package | Tower config + monitoring data + all history (**complete backup**) | **Yes** | Backup / server migration |
+| Monitoring data only | Monitoring business data + history (no Tower config) | No | Move data to a new environment that already has Towers configured |
+| Tower config only | Tower & cluster list (no history) | Yes | Bring a new environment onto the same Towers |
+
+⚠️ A migration package and its recovery key (a separately downloaded `.env`) **must be stored
+together** — without the key, encrypted Tower credentials cannot be decrypted (re-entering
+passwords in the Tower settings is the fallback).
+
+Import: upload the package → choose merge (safe, default) or full replace → import → restart
+data services. Full details, options, and troubleshooting live in the **offline delivery
+bundle's `README.md`** (§9.0 数据迁移与恢复密钥 / §9.1 compose 守卫 / §10 排障速查) —
+that file is the authoritative customer manual for install/upgrade/migration.

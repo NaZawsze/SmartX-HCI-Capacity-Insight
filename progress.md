@@ -3256,3 +3256,20 @@ succeeded）→ **post-cleanup succeeded**（US-30 settlement 机制在发布机
 - **r10 候选包** `41304c3a…`（`ops/package.sh` EXIT=0，门禁全过，README 校验在构建链内
   生效）：交付目录 README 实查含新章节、`--allow-same-version` 4 处、**硬编码包名 0 处**；
   代码与 r9 相同（r9 的 `.12`/`.14` 验收结论对代码部分沿用）；ledger 已登记 r9→r10。
+
+## 2026-10-02 根 README 文档入口审计与补齐（用户「项目 README 引用了 CLI 文档和其他客户需要读的文档吗」）
+
+逐条实查（中英双份根 README 全部 docs/ 引用验存在、关键概念覆盖、doc-map 登记）：
+
+- **引用结构达标**：交付手册、ops/README（CLI 三入口）、OVA、deployment、usage、api、
+  troubleshooting、runner 生命周期、版本治理——中英双份齐且零死链；
+- **缺口 1**：`docs/backup-recovery.md`（AGENTS §2.1 定义的必备手册）完全未被根 README 引用
+  → 中英双份「参考文档」补引用；
+- **缺口 2**：`docs/releases/CHANGELOG.md` 无入口 → 中英双份补引用；
+- **缺口 3**：恢复密钥/数据迁移概念在根 README 零覆盖 → 「安装、升级与交付」组补入口段
+  （三导出语义一句话 + ⚠️ 迁移包与密钥必须成对保存），细节指向包内 README §9.0；
+- **结构问题**：`docs/usage.md`（被根 README 引用的"使用说明"）没有数据迁移章节且与
+  包内 README 互不相认 → 补第 10 节（三入口语义表 + 密钥警示 + 指向包内 README 为权威）；
+- **doc-map 补登记**：`delivery/README.md`（客户唯一手册，构建时强制校验章节）此前未登记。
+
+更新后全部 22 条 docs/ 引用（双份合计）逐个验存在，零死链。
