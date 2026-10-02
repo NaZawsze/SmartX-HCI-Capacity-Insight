@@ -3384,3 +3384,18 @@ Tower，不会产生新的三代冗余。
 `.3` 全量 **756 tests / 1 failure（既有环境限制）/ 7 skipped**；前端 tsc 0 / vitest 108
 （2 例断言随新文案更新）。**r11 重建**：本轮修复含 worker/collection 行为变更，进交付物
 需重建候选包（待用户决定是否与发布合并）。
+
+## 2026-10-03 已分配口径收尾（方案 B）+ CloudTower 比率解密
+
+用户确认 perf 指标有意义并提供 CloudTower「存储效率」截图。**实测推翻方案 A**：
+total−free 精确等于 used（35.16 TiB），零信息量。**落地方案 B**：
+- 取数回退 perf_allocated_data_space（性能层已分配）；
+- StorageBar 标签改「性能层已分配」+ title 口径说明（与全集群"已使用"不同源不同义）；
+- `get_cluster_allocations` docstring 补口径澄清。
+
+**CloudTower 比率用原始字段解密（全部对上）**：
+- 有效容量比 0.58:1 = logical_used(20.54)/used(35.16)=0.584（副本/EC 开销）；
+- 整体存储效率 5.66:1 = (total−logical)/used ≈ 5.65（剩余空间按当前效率可再写倍数）；
+- perf 层内 allocated == used（8.48 TiB，层内使用率 47%）。
+
+门禁：采集/client/freshness 33 例 + vitest 108 全过（StorageBar 标签断言随改）。

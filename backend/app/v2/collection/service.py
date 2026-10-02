@@ -60,6 +60,8 @@ class CollectionService:
         success_targets: list[dict[str, object]] = []
         failed_targets: list[dict[str, object]] = []
         for tower in towers:
+            # 已分配容量（性能层，49-36/#75）：每塔一次 get-clusters，best-effort。
+            allocations = self._cluster_allocations(tower)
             for cluster in tower.clusters:
                 if not cluster.enabled:
                     continue
@@ -74,7 +76,7 @@ class CollectionService:
                             cluster_id=cluster.cluster_id,
                             used_bytes=int(cluster_payload.get("used_bytes") or 0),
                             total_bytes=int(cluster_payload.get("total_bytes") or 0),
-                            allocated_bytes=int(cluster_payload.get("allocated_bytes") or 0),
+                            allocated_bytes=int(allocations.get(cluster.cluster_id) or 0),
                         )
                     )
                     for vm in payload.get("vms", []):
@@ -130,6 +132,12 @@ class CollectionService:
         if failed_targets and self.tasks is not None and trigger not in {"manual", "post_upgrade"}:
             self._record_collection_warning(run_id, status, message, success_targets, failed_targets, attempt=attempt, max_attempts=max_attempts)
         return CollectionResult(run_id=run_id, status=status, message=message, metrics_text=metrics_text)
+
+    def _cluster_allocations(self, tower: TowerRecord) -> dict[str, int]:
+        try:
+            return self.cloudtower_client.cluster_allocations(tower)
+        except Exception:  # noqa: BLE001 - 已分配容量是增强信息，失败按 0 处理，不阻断采集。
+            return {}
 
     def latest_vm(self, tower_id: int, cluster_id: str, vm_id: str) -> dict | None:
         with self.database.connection() as conn:

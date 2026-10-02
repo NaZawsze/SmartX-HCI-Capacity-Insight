@@ -98,9 +98,13 @@ class CloudTowerClient:
         return [cluster for cluster in (_normalize_cluster(item) for item in self.paged_post("/v2/api/get-clusters")) if cluster is not None]
 
     def get_cluster_allocations(self, cluster_ids: list[str]) -> dict[str, int]:
-        """已分配容量：get-clusters 的 perf_allocated_data_space（int64，可超总容量）。
+        """性能层已分配容量：get-clusters 的 perf_allocated_data_space（int64）。
 
-        缺失/null 按 0 处理（49-36 口径）；该字段不在 get-cluster-storage-info 中。
+        #75 实测口径澄清：该字段是**性能层（performance tier）**的已分配水位
+        （实测 perf_allocated == perf_used，层内 8.48/18.5 TiB），不是全集群口径——
+        get-cluster-storage-info 只有 total/used/free，没有集群级 allocated 字段。
+        展示侧必须标注"性能层"，不得与全集群已使用同框直接对比。
+        缺失/null 按 0 处理（49-36 口径）。
         """
         if not cluster_ids:
             return {}
@@ -129,23 +133,14 @@ class CloudTowerClient:
 
     def collect_cluster(self, cluster_id: str) -> dict[str, Any]:
         storage = self.get_cluster_storage_info(cluster_id)
-        used_bytes = int(
-            _number(storage.get("used_data_space"), storage.get("used_capacity"), storage.get("used_size"), storage.get("capacity_used")) or 0
-        )
-        total_bytes = int(
-            _number(storage.get("total_data_capacity"), storage.get("total_capacity"), storage.get("total_size"), storage.get("capacity_total")) or 0
-        )
-        free_bytes = int(_number(storage.get("free_data_space")) or 0)
-        # #75：已分配口径与 used/total 同源（get-cluster-storage-info，全集群语义）。
-        # 旧口径 perf_allocated_data_space 是**性能层**的已分配（.3 实测 8.5TiB < 全集群已用
-        # 35TiB，同框对比荒谬）；Tower 未提供集群级 allocated 字段，用 total-free 推导
-        # （缺 free 时退 0，界面按"未提供"处理而不是显示矛盾的分层值）。
-        allocated_bytes = max(total_bytes - free_bytes, 0) if free_bytes else 0
         return {
             "cluster": {
-                "used_bytes": used_bytes,
-                "total_bytes": total_bytes,
-                "allocated_bytes": allocated_bytes,
+                "used_bytes": int(
+                    _number(storage.get("used_data_space"), storage.get("used_capacity"), storage.get("used_size"), storage.get("capacity_used")) or 0
+                ),
+                "total_bytes": int(
+                    _number(storage.get("total_data_capacity"), storage.get("total_capacity"), storage.get("total_size"), storage.get("capacity_total")) or 0
+                ),
             },
             "vms": self._collect_vms_with_volumes(cluster_id),
         }

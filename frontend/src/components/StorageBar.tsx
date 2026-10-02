@@ -26,7 +26,7 @@ export function StorageBar({ used, total, allocated = 0 }: StorageBarProps) {
           <span className="storage-meta-value">{formatBytes(total)}</span>
         </div>
         <div className="storage-meta-item">
-          <span className="storage-meta-label">已分配</span>
+          <span className="storage-meta-label" title="CloudTower 性能层（performance tier）已分配容量；与左侧“已使用”（全集群物理占用，含副本）口径不同">性能层已分配</span>
           <span className="storage-meta-value">{`${formatBytes(allocated)} · ${(allocatedRatio * 100).toFixed(2)}%`}</span>
         </div>
       </div>

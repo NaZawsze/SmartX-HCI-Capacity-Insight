@@ -91,13 +91,17 @@
   `max_physical_data_capacity` 400 TiB——分层语义明确；
 - **get-cluster-storage-info 里没有集群级 allocated 字段**（只有 total/used/free）。
 
-### 修复设计（决策项，默认方案 A）
+### 修复设计（实施结果：方案 B，2026-10-03）
 
-- **A（推荐）：已分配改用 `total_data_capacity - free_data_space`**（全集群口径自洽，
-  219.18 − 202.33 = 16.85 TiB，与已使用/总容量同源同框，语义="已供给/已写入的分配量"）；
-- B：保留 perf 层值但展示标注「性能层已分配」；
-- C：下架已分配展示。
-- 实施时用 CloudTower 界面的"已分配"数值对照验证（用户提供或截 CloudTower 页面）。
+**实测推翻方案 A**：total−free 精确等于 used（219.18−184.02=35.16 TiB），信息量为零。
+用户确认 perf 指标有意义，并提供 CloudTower「存储效率」面板佐证语义体系：
+有效容量比 0.58:1 = logical_used(20.5)/used(35.2)（副本开销）、
+整体存储效率 5.66:1 ≈ (total−logical)/used。
+
+- **落地（方案 B）**：取数回退 `perf_allocated_data_space`（性能层已分配），
+  UI 标签改「性能层已分配」+ title 说明与全集群"已使用"口径不同；
+  `get_cluster_allocations` docstring 补口径澄清（防再误用）。
+- 数据侧不变：`.3` 实测 perf 层 8.48/18.5 TiB（层内使用率 47%），全集群物理已用 35.16 TiB。
 
 ## 测试计划
 

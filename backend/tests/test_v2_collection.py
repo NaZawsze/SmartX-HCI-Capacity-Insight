@@ -14,7 +14,7 @@ class FakeCloudTowerClient:
     def collect_cluster(self, tower, cluster):
         self.collected_cluster_ids.append(cluster.cluster_id)
         return {
-            "cluster": {"used_bytes": 80, "total_bytes": 100, "allocated_bytes": 270},
+            "cluster": {"used_bytes": 80, "total_bytes": 100},
             "vms": [
                 {
                     "vm_id": "vm-1",
