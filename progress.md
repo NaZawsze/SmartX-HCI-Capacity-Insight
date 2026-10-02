@@ -3273,3 +3273,61 @@ succeeded）→ **post-cleanup succeeded**（US-30 settlement 机制在发布机
 - **doc-map 补登记**：`delivery/README.md`（客户唯一手册，构建时强制校验章节）此前未登记。
 
 更新后全部 22 条 docs/ 引用（双份合计）逐个验存在，零死链。
+
+## 2026-10-01~02 恢复验证（用户两个环境的包 × `.12`/`.14`）+ US-38 修复 + 冷备五步演练
+
+用户给了两个不同环境导出的迁移包（09-30 旧代码导出，full 包 SQLite 仅配置 +
+Prometheus 历史；Tower 地址分别为 10.12.10.60 与 10.20.0.6:5443，同一集群 SMARTX-TT-WW），
+要求在 `.12`/`.14` 上验证恢复。
+
+### 结果矩阵（产品流程合并导入，四格全跑）
+
+| | `.14`（r10 干净机） | `.12`（发布机，现役 Tower 10.20.11.7） |
+| --- | --- | --- |
+| 包1（10.12.10.60） | ✅ succeeded：towers+1、clusters+1、Prometheus +14 块 | ✅ succeeded：towers+1、Prometheus +14 块 |
+| 包2（10.20.0.6:5443） | ✅ succeeded：towers+1、Prometheus +17 块（与包1 重叠 5 块去重） | ⚠️ 首跑 failed（US-38 竞态）→ 重试 ✅ +12 块（重叠 10 去重） |
+
+导入后两机 health ok、integrity ok。**如实说明两点**：①导入的 Tower 是历史地址记录，
+凭据密文为目标机密钥解不开（设计使然）——`.14` 上需在 Tower 设置重输一次 OPS 密码采集
+才能恢复；②`.12` 的 vm/vol 计数较验收时变化（556→583/89588→89624）是 Tower 迁移后
+采集同步的真实变化，非导入造成（导入 SQLite 0 行，日志为证）。
+
+### US-38 修复（`07775a0`）：导入与 prometheus 压实的并发竞态
+
+`.12` 包2 首跑失败于 **backup 步**：`_create_import_backup` 逐文件读 prometheus 目录时，
+prometheus 容器并发压实删除了块 → FileNotFoundError。读侧全部容错
+（`_add_directory`/`_copy_missing_tree`/`_export_candidate_files`/导出主循环），
+被压实删掉的块跳过并计数。mock 测试 1 例。
+
+### 整库替换抹任务表（同轮发现，已修）
+
+整库替换 copy2 把 tasks 表一起换掉 → 导入任务自身记录消失 → 收尾 KeyError。
+修复：替换后重建当前任务记录。测试锁死。
+
+### 测试结构自纠（重要）
+
+此前 `cat >>` 追加的 6 个测试落在 `if __name__ == "__main__"` 块内——**从未被执行**，
+而我说过「13/15 例全过含新增」——不成立。已重构归位到 ServiceTest 并真实运行：
+迁移 **19 例全过**（含此前从未跑过的 6 例，跑出 2 断言口径错误 + 2 测试自身 bug，
+均已修）；`.3` 全量 **756 tests / 1 failure（既有环境限制）/ 7 skipped**。
+
+### 冷备五步演练（`.14`，backup-recovery.md §3→§4）
+
+VACUUM INTO 快照 + `.env` + prometheus 目录 → 模拟数据丢失 → 按五步恢复 → 验证清单。
+**演练抓到手册一处缺失**：恢复 prometheus 目录后必须 `chown -R 65534:65534`（容器 uid），
+漏了会 panic 循环（queries.active permission denied）——已补进手册 §4 与验证清单（`4030f15`）。
+另一教训实证：**跳过「先停写入方」直接 cp 恢复会撞 WAL 写入 → database disk image is malformed**
+——手册第 1 步"停平台写入方"是必须的，跳步必坑。
+
+### Web 功能覆盖盘点（对照 functional-modules.md §1-10）
+
+- API 层：59 个测试文件 / 756 例全覆盖（§1-10 全部域）；
+- UI 层：vitest 108 例（组件行为）+ 本周多次预览目视；
+- 真机专项：迁移/恢复（本轮四格）、升级（r9/r10 两级验收）、安装（干净机）；
+- **无浏览器 E2E 自动化套件**（不做 Playwright 全 UI 巡检）——界面回归靠 vitest + API 测试 + 预览目视；
+- 备份恢复：本轮实测（冷备五步 + 迁移恢复双路径）。
+
+### `.14` 现状
+
+r10 运行中、health ok、towers 1/2（历史地址记录，重输 OPS 密码后采集即恢复）、
+prometheus 历史 31 块（用户两包的数据已找回）。
