@@ -391,6 +391,12 @@ def _schedule_signature(entry: dict) -> tuple:
     return ("interval", entry["interval_minutes"] if entry["interval_minutes"] > 0 else 60)
 
 
+# job.id -> 已注册调度签名。APScheduler 3.x 的 Job 对象禁止任意 setattr
+#（.3 实测 AttributeError: 'Job' object has no attribute 'signature'），
+# 签名缓存在进程内字典，避免每分钟重建 job。
+_JOB_SIGNATURES: dict[str, tuple] = {}
+
+
 def sync_collection_schedules(scheduler, database: V2Database, *, timezone: str) -> None:
     """Align per-tower collection jobs with the towers table.
 
@@ -404,7 +410,7 @@ def sync_collection_schedules(scheduler, database: V2Database, *, timezone: str)
         job_id = f"{prefix}{tower_id}"
         signature = _schedule_signature(entry)
         job = existing.pop(job_id, None)
-        if job is not None and getattr(job, "signature", None) == signature:
+        if job is not None and _JOB_SIGNATURES.get(job_id) == signature:
             continue
         if job is not None:
             scheduler.remove_job(job_id)
@@ -431,7 +437,7 @@ def sync_collection_schedules(scheduler, database: V2Database, *, timezone: str)
                 id=job_id,
                 **kwargs,
             )
-        setattr(scheduler.get_job(job_id), "signature", signature)
+        _JOB_SIGNATURES[job_id] = signature
     for job_id in existing:
         scheduler.remove_job(job_id)
 
