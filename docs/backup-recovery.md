@@ -80,6 +80,8 @@ chmod 600 /data/smartx-storage-forecast/project/.env
 # 4) 恢复 Prometheus 历史（整目录替换前先移走旧目录留证）
 mv /data/smartx-storage-forecast/prometheus /data/smartx-storage-forecast/prometheus.pre-restore-$(date +%Y%m%d-%H%M)
 cp -a <备份目录>/prometheus /data/smartx-storage-forecast/prometheus
+chown -R 65534:65534 /data/smartx-storage-forecast/prometheus   # 必做：容器以 uid 65534 运行，
+                                                                # 属主为 root 时 prometheus panic 循环（queries.active permission denied）
 
 # 5) 起服务并重建容器（保证挂载齐全）
 docker compose -f docker-compose.offline.yml up -d --force-recreate
@@ -90,6 +92,8 @@ docker compose -f docker-compose.offline.yml up -d --force-recreate
 1. `curl -fsS http://localhost:8080/api/system/health` → `ok=true`，`checks` 三项全 `true`，版本符合预期。
 2. `PRAGMA integrity_check` 返回 `ok`；`counts.txt` 与备份时行数一致（`users/towers/clusters/vm_latest/vm_volumes` 不减少）。
 3. Tower 连接测试通过（证明 `.env` 与凭据配对正确；若报 XOR 解密错误，说明 `.env` 与库不同代）。
+3b. Prometheus 容器稳定运行（若反复重启且日志 `queries.active permission denied`，是恢复时漏了
+    `chown -R 65534:65534`，见上方第 4 步）。
 4. 手动采集一次成功，`collection_runs` 产生新记录。
 5. Prometheus 历史可查：任选一个历史时间点的容量序列能返回旧样本。
 6. 登录 UI 抽查总览/虚拟机/报表页面数据；确认旧库备份（`*.pre-restore-*`）妥善留存后再决定清理。
