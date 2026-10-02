@@ -397,3 +397,19 @@
 4. **择机**：US-07/08/09（磁盘校验、长任务心跳、任务噪音清理）、US-20（等 Tower）
 
 > 每条问题的根因细节在 `findings.md` 2026-09-27 各条；执行记录在 `progress.md`。
+
+### US-38 🟢 已修（2026-10-01 `.12` 实测）：迁移导入与 prometheus 压实的并发竞态——导入前备份 FileNotFoundError 失败
+
+- **现象（`.12` 实测，task `migration-import-0fe9891921320426`）**：合并导入第二个迁移包时，
+  **backup 步**（导入前备份）失败：`[Errno 2] No such file or directory: '/prometheus-data/01M3N406…'`
+  → 整个导入 failed（SQLite/prometheus 均未执行；因 backup 在最前，无部分生效问题）。
+- **根因**：web-api 备份时逐文件读取 prometheus 数据目录，而 **prometheus 容器并发压实
+  （compaction）**——目录列表后、读取前，旧块被删除/合并 → 读侧 FileNotFoundError。
+  C2 ③（执行期共享可变资源）的读侧实例：读列表与读文件之间没有对压实并发的一事务性。
+- **为何 `.14` 未踩**：其 prometheus 块少且刚导入，压实窗口没撞上；`.12` 块多且持续运行。
+- **修复**：读侧全部容错——`_add_directory`（备份）、`_copy_missing_tree`（合并导入）、
+  `_export_candidate_files` 与导出主循环（导出）对「读取中消失的文件/块」跳过并计数
+  （被压实删掉的块本来就要消失，备份/导入少它无害；硬失败让导入前备份做不出来才致命）。
+- **测试**：mock「拷贝/打包时文件消失」——合并路径跳过且计 raced、备份路径跳过不中断、
+  blockA 正常入包。
+- **状态**：🟢 修复并测试；`.12` 包2 重导已验证通过（见 progress.md 2026-10-01 恢复验证）。
