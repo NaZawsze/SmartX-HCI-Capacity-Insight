@@ -558,6 +558,256 @@ class V2MigrationServiceTest(unittest.TestCase):
                 self.assertEqual(conn.execute("SELECT id FROM towers").fetchone()[0], target_tower.id)
 
 
+    def test_merge_remaps_source_tower_generations_onto_current_tower(self) -> None:
+        """#63 T2/T5：源包数据行带多代 tower_id（含源库孤儿 ID）→ 全部归一到目标现役 Tower。
+
+        复刻 .3 实况：同一 (Tower, 集群) 的数据在源库里挂了三代 tower_id，
+        目标机现役 Tower 是另一代。修复前照搬会造出孤儿行；修复后按 cluster 归属归一。
+        """
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+        from app.v2.migration.service import MigrationService
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as source_tmp, tempfile.TemporaryDirectory() as target_tmp:
+            source_settings = V2Settings(data_root=Path(source_tmp), secret_key="s")
+            source_db = V2Database(source_settings)
+            source_db.initialize()
+            source_inventory = InventoryService(source_db, source_settings)
+            source_tower = source_inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            source_inventory.sync_clusters(source_tower.id, [ClusterInput(cluster_id="cm551", name="Cluster A")])
+            with source_db.connection() as conn:
+                # 源库换代残留：tower_id 2 / 9 在源 towers 表里不存在（孤儿代）
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cm551', 'vm-1', 'VM 1', 1)")
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (2, 'cm551', 'vm-1', 'VM 1', 1)")
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (9, 'cm551', 'vm-2', 'VM 2', 2)")
+                conn.execute("INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, used_bytes) VALUES (2, 'cm551', 'vm-1', 'vol-1', 5)")
+            # 全量导出包的 SQLite 只含配置表（#68 范畴），数据行重映射直接对 _merge_sqlite 单元验证
+            source_db_path = Path(source_tmp) / "manual-source.db"
+            shutil.copy2(source_settings.sqlite_path, source_db_path)
+
+            target_settings = V2Settings(data_root=Path(target_tmp), secret_key="t")
+            target_db = V2Database(target_settings)
+            target_db.initialize()
+            target_inventory = InventoryService(target_db, target_settings)
+            # 目标机 Tower 换过两代：现役「Tower A」不是 id=1
+            target_inventory.create_tower(TowerInput(name="Old Tower", base_url="https://old.example.com"))
+            target_tower = target_inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+
+            summary = MigrationService(target_db, target_settings, TaskService(target_db))._merge_sqlite(source_db_path)
+
+            self.assertEqual(summary["tables"]["towers"], 1, "源 Tower 按身份合并（匹配到目标现役，不新增）")
+            self.assertEqual(summary["skipped"], 0, "三行都能按 cluster 归属解析")
+            with target_db.connection() as conn:
+                # 三代全部归一到目标现役 Tower（身份匹配，不新增重复 Tower）
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM towers").fetchone()[0], 2)
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM vm_latest").fetchone()[0], 2)
+                self.assertEqual(conn.execute("SELECT DISTINCT tower_id FROM vm_latest").fetchall()[0][0], target_tower.id)
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM vm_volumes").fetchone()[0], 1)
+                self.assertEqual(conn.execute("SELECT DISTINCT tower_id FROM vm_volumes").fetchall()[0][0], target_tower.id)
+                self.assertEqual(conn.execute("SELECT tower_id FROM clusters WHERE cluster_id='cm551'").fetchone()[0], target_tower.id)
+
+    def test_merge_resolves_cross_system_tower_id_collision(self) -> None:
+        """#63 T3/T4：源库 tower id=1 与目标库 id=1 是不同 Tower → 源 Tower 以新 ID 插入，集群挂对。"""
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+        from app.v2.migration.service import MigrationService
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as source_tmp, tempfile.TemporaryDirectory() as target_tmp:
+            source_settings = V2Settings(data_root=Path(source_tmp), secret_key="s")
+            source_db = V2Database(source_settings)
+            source_db.initialize()
+            source_inventory = InventoryService(source_db, source_settings)
+            # 源库第一个 Tower（id=1）叫 TowerX
+            source_tower = source_inventory.create_tower(TowerInput(name="TowerX", base_url="https://towerx.example.com"))
+            source_inventory.sync_clusters(source_tower.id, [ClusterInput(cluster_id="cmX", name="Cluster X")])
+
+            target_settings = V2Settings(data_root=Path(target_tmp), secret_key="t")
+            target_db = V2Database(target_settings)
+            target_db.initialize()
+            target_inventory = InventoryService(target_db, target_settings)
+            # 目标库 id=1 是另一个 Tower
+            target_inventory.create_tower(TowerInput(name="TowerY", base_url="https://towery.example.com"))
+            archive_content, _, _, _ = MigrationService(source_db, source_settings, TaskService(source_db)).build_export_archive(record_task=False)
+
+            result = MigrationService(target_db, target_settings, TaskService(target_db)).restore_archive_bytes(archive_content, filename="m.tar.gz", mode="merge")
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["summary"]["sqlite"]["tables"]["towers"], 1, "一个源 Tower 按身份合并")
+            with target_db.connection() as conn:
+                rows = {r[0]: (r[1], r[2]) for r in conn.execute("SELECT id, name, base_url FROM towers")}
+                self.assertEqual(rows[1], ("TowerY", "https://towery.example.com"), "目标现役 Tower 不被源库同 ID 记录污染")
+                towerx_ids = [tid for tid, (name, _) in rows.items() if name == "TowerX"]
+                self.assertEqual(len(towerx_ids), 1, "源 TowerX 以新 ID 插入")
+                # 集群挂在 TowerX 名下，而不是被同 ID 的 TowerY 吞掉
+                self.assertEqual(conn.execute("SELECT tower_id FROM clusters WHERE cluster_id='cmX'").fetchone()[0], towerx_ids[0])
+
+    def test_data_package_import_remaps_to_target_tower(self) -> None:
+        """#63 T6：数据包（DATA_SCOPE）导入同样经 cluster 归属重映射；无法归属的行跳过。"""
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+        from app.v2.migration.service import MigrationService
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as source_tmp, tempfile.TemporaryDirectory() as target_tmp:
+            source_settings = V2Settings(data_root=Path(source_tmp), secret_key="s")
+            source_db = V2Database(source_settings)
+            source_db.initialize()
+            source_inventory = InventoryService(source_db, source_settings)
+            source_tower = source_inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            source_inventory.sync_clusters(source_tower.id, [ClusterInput(cluster_id="cm551", name="Cluster A")])
+            with source_db.connection() as conn:
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (7, 'cm551', 'vm-1', 'VM 1', 1)")
+                # 源库孤儿集群（clusters 表里没有 cmUnknown）——导入应跳过而不是造孤儿
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (7, 'cmUnknown', 'vm-2', 'VM 2', 2)")
+            archive_content, _, _, _ = MigrationService(source_db, source_settings, TaskService(source_db)).build_export_archive(record_task=False, scope="data")
+
+            target_settings = V2Settings(data_root=Path(target_tmp), secret_key="t")
+            target_db = V2Database(target_settings)
+            target_db.initialize()
+            target_inventory = InventoryService(target_db, target_settings)
+            target_tower = target_inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            target_inventory.sync_clusters(target_tower.id, [ClusterInput(cluster_id="cm551", name="Cluster A")])
+
+            result = MigrationService(target_db, target_settings, TaskService(target_db)).restore_archive_bytes(archive_content, filename="d.tar.gz", mode="merge")
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["summary"]["sqlite"]["tables"]["vm_latest"], 1)
+            self.assertEqual(result["summary"]["sqlite"]["skipped"], 1, "无法归属的源行应跳过")
+            with target_db.connection() as conn:
+                self.assertEqual(conn.execute("SELECT tower_id FROM vm_latest WHERE vm_id='vm-1'").fetchone()[0], target_tower.id)
+                self.assertIsNone(conn.execute("SELECT 1 FROM vm_latest WHERE vm_id='vm-2'").fetchone(), "孤儿集群的行不得入库")
+
+    def test_overwrite_replaces_database_and_clears_wal_residue(self) -> None:
+        """#65①：整库替换后目标库的旧 -wal/-shm 必须清掉（旧 WAL 帧套新库 = 一致性风险）。"""
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import TowerInput
+        from app.v2.inventory.service import InventoryService
+        from app.v2.migration.service import MigrationService
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as source_tmp, tempfile.TemporaryDirectory() as target_tmp:
+            source_settings = V2Settings(data_root=Path(source_tmp), secret_key="s")
+            source_db = V2Database(source_settings)
+            source_db.initialize()
+            source_inventory = InventoryService(source_db, source_settings)
+            source_tower = source_inventory.create_tower(TowerInput(name="Source Tower", base_url="https://s.example.com"))
+            with source_db.connection() as conn:
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (?, 'c', 'vm-src', 'VM', 1)", (source_tower.id,))
+            archive_content, _, _, _ = MigrationService(source_db, source_settings, TaskService(source_db)).build_export_archive(record_task=False)
+
+            target_settings = V2Settings(data_root=Path(target_tmp), secret_key="t")
+            target_db = V2Database(target_settings)
+            target_db.initialize()
+            target_inventory = InventoryService(target_db, target_settings)
+            target_inventory.create_tower(TowerInput(name="Target Tower", base_url="https://t.example.com"))
+            # 模拟目标库残留旧 WAL/SHM
+            wal = Path(str(target_settings.sqlite_path) + "-wal")
+            shm = Path(str(target_settings.sqlite_path) + "-shm")
+            wal.write_bytes(b"stale-wal-frames")
+            shm.write_bytes(b"stale-shm")
+
+            result = MigrationService(target_db, target_settings, TaskService(target_db)).restore_archive_bytes(archive_content, filename="m.tar.gz", mode="overwrite", confirmed=True)
+
+            self.assertTrue(result["ok"])
+            with target_db.connection() as conn:
+                # 整库被源库替换（含源库 towers），目标旧 Tower 不在
+                self.assertEqual(conn.execute("SELECT name FROM towers").fetchone()[0], "Source Tower")
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM vm_latest").fetchone()[0], 1)
+            # 新库被 initialize 连接后会重建自己的空 -wal/-shm（正常）；
+            # 关键不变量：旧库的 WAL 字节不得残留（防旧帧套新库）
+            self.assertTrue(not wal.exists() or b"stale-wal-frames" not in wal.read_bytes(),
+                            "旧 WAL 字节必须已清除")
+            self.assertTrue(not shm.exists() or shm.stat().st_size == 0 or b"stale" not in shm.read_bytes(),
+                            "旧 SHM 残留必须已清除")
+
+    def test_replace_directory_copies_first_and_keeps_target_on_failure(self) -> None:
+        """#65②：目录替换必须先拷后清——中断时目标保留原内容（数据不丢），多余项被清理。"""
+        import shutil as _shutil
+        from unittest import mock
+
+        from unittest import mock
+
+        from app.v2.migration import service as migration_service
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "src"
+            target = Path(tmp) / "tgt"
+            (source / "sub").mkdir(parents=True)
+            (source / "a.txt").write_text("new-a", encoding="utf-8")
+            (source / "sub" / "b.txt").write_text("b", encoding="utf-8")
+            target.mkdir()
+            (target / "a.txt").write_text("old-a", encoding="utf-8")
+            (target / "extra.txt").write_text("extra", encoding="utf-8")
+
+            migration_service._replace_directory(source, target)
+            self.assertEqual((target / "a.txt").read_text(encoding="utf-8"), "new-a")
+            self.assertTrue((target / "sub" / "b.txt").is_file())
+            self.assertFalse((target / "extra.txt").exists(), "源里没有的多余项应被清理")
+
+            # 中断容错：拷贝阶段失败 → 目标原内容完整保留（绝不先删后拷）
+            (target / "keep.txt").write_text("precious", encoding="utf-8")
+            with mock.patch.object(migration_service.shutil, "copytree", side_effect=OSError("disk full")):
+                with self.assertRaises(OSError):
+                    migration_service._replace_directory(source, target)
+            self.assertTrue((target / "keep.txt").is_file(), "拷贝失败时目标不得已被清空")
+            self.assertEqual((target / "a.txt").read_text(encoding="utf-8"), "new-a", "失败后保持上次成功状态")
+
+    def test_prometheus_compaction_race_is_tolerated(self) -> None:
+        """#72：prometheus 压实并发删除读侧文件时，备份/合并/导出必须跳过而不是失败。
+
+        .12 实测：导入前备份逐文件读 prometheus 目录，prometheus 容器并发压实删除了
+        块 01M3N406…，`_create_import_backup` FileNotFoundError → 整个导入失败。
+        """
+        from app.v2.migration import service as migration_service
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "prom"
+            (source / "blockA" / "chunks").mkdir(parents=True)
+            (source / "blockA" / "meta.json").write_text("{}", encoding="utf-8")
+            (source / "blockA" / "chunks" / "000001").write_text("x", encoding="utf-8")
+            (source / "blockB" / "chunks").mkdir(parents=True)
+            (source / "blockB" / "meta.json").write_text("{}", encoding="utf-8")
+            (source / "blockB" / "chunks" / "000001").write_text("y", encoding="utf-8")
+            target = Path(tmp) / "tgt"
+
+            # 合并路径：copy2 在拷 blockB 的 chunk 时文件被压实删除 → 跳过该文件，不抛
+            from unittest import mock
+            import shutil as real_shutil
+            real_copy2 = real_shutil.copy2
+            with mock.patch.object(migration_service.shutil, "copy2", side_effect=lambda src, dst: (
+                (_ for _ in ()).throw(FileNotFoundError(2, "No such file", str(src))) if "blockB" in str(src) else real_copy2(src, dst)
+            )):
+                summary = migration_service._copy_missing_tree(source, target, skip_names=migration_service.PROMETHEUS_RUNTIME_ENTRIES)
+            self.assertGreaterEqual(summary["copied"], 1, "blockA 应已拷入")
+            self.assertGreaterEqual(summary.get("raced", 0), 1, "blockB 的消失应计为 raced")
+            self.assertTrue((target / "blockA" / "meta.json").is_file())
+
+            # 备份路径：archive.add 对消失文件抛 FileNotFoundError → 跳过不中断
+            import tarfile
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w:gz") as archive:
+                original_add = archive.add
+                def flaky_add(path, *args, **kwargs):
+                    if "blockB" in str(path):
+                        raise FileNotFoundError(2, "No such file", str(path))
+                    return original_add(path, *args, **kwargs)
+                archive.add = flaky_add  # type: ignore[method-assign]
+                migration_service._add_directory(archive, source, "prometheus", skip_names=set())
+            with tarfile.open(fileobj=io.BytesIO(buf.getvalue()), mode="r:gz") as a:
+                names = a.getnames()
+            self.assertTrue(any("blockA" in n for n in names), "blockA 应在备份内")
+            self.assertFalse(any("blockB" in n for n in names), "消失的 blockB 被跳过")
+
+
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2MigrationApiTest(unittest.TestCase):
     def test_migration_api_requires_auth_exports_downloads_and_imports_with_backup(self) -> None:
@@ -719,202 +969,7 @@ class V2MigrationApiTest(unittest.TestCase):
                 os.environ.pop("SMARTX_PROJECT_PATH", None)
 
 
+
+
 if __name__ == "__main__":
     unittest.main()
-
-    def test_merge_remaps_source_tower_generations_onto_current_tower(self) -> None:
-        """#63 T2/T5：源包数据行带多代 tower_id（含源库孤儿 ID）→ 全部归一到目标现役 Tower。
-
-        复刻 .3 实况：同一 (Tower, 集群) 的数据在源库里挂了三代 tower_id，
-        目标机现役 Tower 是另一代。修复前照搬会造出孤儿行；修复后按 cluster 归属归一。
-        """
-        from app.v2.config import V2Settings
-        from app.v2.database import V2Database
-        from app.v2.inventory.models import ClusterInput, TowerInput
-        from app.v2.inventory.service import InventoryService
-        from app.v2.migration.service import MigrationService
-        from app.v2.tasks.service import TaskService
-
-        with tempfile.TemporaryDirectory() as source_tmp, tempfile.TemporaryDirectory() as target_tmp:
-            source_settings = V2Settings(data_root=Path(source_tmp), secret_key="s")
-            source_db = V2Database(source_settings)
-            source_db.initialize()
-            source_inventory = InventoryService(source_db, source_settings)
-            source_tower = source_inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
-            source_inventory.sync_clusters(source_tower.id, [ClusterInput(cluster_id="cm551", name="Cluster A")])
-            with source_db.connection() as conn:
-                # 源库换代残留：tower_id 2 / 9 在源 towers 表里不存在（孤儿代）
-                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cm551', 'vm-1', 'VM 1', 1)")
-                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (2, 'cm551', 'vm-1', 'VM 1', 1)")
-                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (9, 'cm551', 'vm-2', 'VM 2', 2)")
-                conn.execute("INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, used_bytes) VALUES (2, 'cm551', 'vm-1', 'vol-1', 5)")
-            # 全量导出包的 SQLite 只含配置表（#68 范畴），数据行重映射直接对 _merge_sqlite 单元验证
-            source_db_path = Path(source_tmp) / "manual-source.db"
-            shutil.copy2(source_settings.sqlite_path, source_db_path)
-
-            target_settings = V2Settings(data_root=Path(target_tmp), secret_key="t")
-            target_db = V2Database(target_settings)
-            target_db.initialize()
-            target_inventory = InventoryService(target_db, target_settings)
-            # 目标机 Tower 换过两代：现役「Tower A」不是 id=1
-            target_inventory.create_tower(TowerInput(name="Old Tower", base_url="https://old.example.com"))
-            target_tower = target_inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
-
-            summary = MigrationService(target_db, target_settings, TaskService(target_db))._merge_sqlite(source_db_path)
-
-            self.assertEqual(summary["tables"]["towers"], 2, "Old Tower + 身份匹配的 Tower A（不新增）")
-            self.assertEqual(summary["skipped"], 0, "三行都能按 cluster 归属解析")
-            with target_db.connection() as conn:
-                # 三代全部归一到目标现役 Tower（身份匹配，不新增重复 Tower）
-                self.assertEqual(conn.execute("SELECT COUNT(*) FROM towers").fetchone()[0], 2)
-                self.assertEqual(conn.execute("SELECT COUNT(*) FROM vm_latest").fetchone()[0], 2)
-                self.assertEqual(conn.execute("SELECT DISTINCT tower_id FROM vm_latest").fetchall()[0][0], target_tower.id)
-                self.assertEqual(conn.execute("SELECT COUNT(*) FROM vm_volumes").fetchone()[0], 1)
-                self.assertEqual(conn.execute("SELECT DISTINCT tower_id FROM vm_volumes").fetchall()[0][0], target_tower.id)
-                self.assertEqual(conn.execute("SELECT tower_id FROM clusters WHERE cluster_id='cm551'").fetchone()[0], target_tower.id)
-
-    def test_merge_resolves_cross_system_tower_id_collision(self) -> None:
-        """#63 T3/T4：源库 tower id=1 与目标库 id=1 是不同 Tower → 源 Tower 以新 ID 插入，集群挂对。"""
-        from app.v2.config import V2Settings
-        from app.v2.database import V2Database
-        from app.v2.inventory.models import ClusterInput, TowerInput
-        from app.v2.inventory.service import InventoryService
-        from app.v2.migration.service import MigrationService
-        from app.v2.tasks.service import TaskService
-
-        with tempfile.TemporaryDirectory() as source_tmp, tempfile.TemporaryDirectory() as target_tmp:
-            source_settings = V2Settings(data_root=Path(source_tmp), secret_key="s")
-            source_db = V2Database(source_settings)
-            source_db.initialize()
-            source_inventory = InventoryService(source_db, source_settings)
-            # 源库第一个 Tower（id=1）叫 TowerX
-            source_tower = source_inventory.create_tower(TowerInput(name="TowerX", base_url="https://towerx.example.com"))
-            source_inventory.sync_clusters(source_tower.id, [ClusterInput(cluster_id="cmX", name="Cluster X")])
-
-            target_settings = V2Settings(data_root=Path(target_tmp), secret_key="t")
-            target_db = V2Database(target_settings)
-            target_db.initialize()
-            target_inventory = InventoryService(target_db, target_settings)
-            # 目标库 id=1 是另一个 Tower
-            target_inventory.create_tower(TowerInput(name="TowerY", base_url="https://towery.example.com"))
-            archive_content, _, _, _ = MigrationService(source_db, source_settings, TaskService(source_db)).build_export_archive(record_task=False)
-
-            result = MigrationService(target_db, target_settings, TaskService(target_db)).restore_archive_bytes(archive_content, filename="m.tar.gz", mode="merge")
-
-            self.assertTrue(result["ok"])
-            self.assertEqual(result["summary"]["sqlite"]["tables"]["towers"], 2)
-            with target_db.connection() as conn:
-                rows = {r[0]: (r[1], r[2]) for r in conn.execute("SELECT id, name, base_url FROM towers")}
-                self.assertEqual(rows[1], ("TowerY", "https://towery.example.com"), "目标现役 Tower 不被源库同 ID 记录污染")
-                towerx_ids = [tid for tid, (name, _) in rows.items() if name == "TowerX"]
-                self.assertEqual(len(towerx_ids), 1, "源 TowerX 以新 ID 插入")
-                # 集群挂在 TowerX 名下，而不是被同 ID 的 TowerY 吞掉
-                self.assertEqual(conn.execute("SELECT tower_id FROM clusters WHERE cluster_id='cmX'").fetchone()[0], towerx_ids[0])
-
-    def test_data_package_import_remaps_to_target_tower(self) -> None:
-        """#63 T6：数据包（DATA_SCOPE）导入同样经 cluster 归属重映射；无法归属的行跳过。"""
-        from app.v2.config import V2Settings
-        from app.v2.database import V2Database
-        from app.v2.inventory.models import ClusterInput, TowerInput
-        from app.v2.inventory.service import InventoryService
-        from app.v2.migration.service import MigrationService
-        from app.v2.tasks.service import TaskService
-
-        with tempfile.TemporaryDirectory() as source_tmp, tempfile.TemporaryDirectory() as target_tmp:
-            source_settings = V2Settings(data_root=Path(source_tmp), secret_key="s")
-            source_db = V2Database(source_settings)
-            source_db.initialize()
-            source_inventory = InventoryService(source_db, source_settings)
-            source_tower = source_inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
-            source_inventory.sync_clusters(source_tower.id, [ClusterInput(cluster_id="cm551", name="Cluster A")])
-            with source_db.connection() as conn:
-                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (7, 'cm551', 'vm-1', 'VM 1', 1)")
-                # 源库孤儿集群（clusters 表里没有 cmUnknown）——导入应跳过而不是造孤儿
-                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (7, 'cmUnknown', 'vm-2', 'VM 2', 2)")
-            archive_content, _, _, _ = MigrationService(source_db, source_settings, TaskService(source_db)).build_export_archive(record_task=False, scope="data")
-
-            target_settings = V2Settings(data_root=Path(target_tmp), secret_key="t")
-            target_db = V2Database(target_settings)
-            target_db.initialize()
-            target_inventory = InventoryService(target_db, target_settings)
-            target_tower = target_inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
-            target_inventory.sync_clusters(target_tower.id, [ClusterInput(cluster_id="cm551", name="Cluster A")])
-
-            result = MigrationService(target_db, target_settings, TaskService(target_db)).restore_archive_bytes(archive_content, filename="d.tar.gz", mode="merge")
-
-            self.assertTrue(result["ok"])
-            self.assertEqual(result["summary"]["sqlite"]["tables"]["vm_latest"], 1)
-            self.assertEqual(result["summary"]["sqlite"]["skipped"], 1, "无法归属的源行应跳过")
-            with target_db.connection() as conn:
-                self.assertEqual(conn.execute("SELECT tower_id FROM vm_latest WHERE vm_id='vm-1'").fetchone()[0], target_tower.id)
-                self.assertIsNone(conn.execute("SELECT 1 FROM vm_latest WHERE vm_id='vm-2'").fetchone(), "孤儿集群的行不得入库")
-
-    def test_overwrite_replaces_database_and_clears_wal_residue(self) -> None:
-        """#65①：整库替换后目标库的旧 -wal/-shm 必须清掉（旧 WAL 帧套新库 = 一致性风险）。"""
-        from app.v2.config import V2Settings
-        from app.v2.database import V2Database
-        from app.v2.inventory.models import TowerInput
-        from app.v2.inventory.service import InventoryService
-        from app.v2.migration.service import MigrationService
-        from app.v2.tasks.service import TaskService
-
-        with tempfile.TemporaryDirectory() as source_tmp, tempfile.TemporaryDirectory() as target_tmp:
-            source_settings = V2Settings(data_root=Path(source_tmp), secret_key="s")
-            source_db = V2Database(source_settings)
-            source_db.initialize()
-            source_inventory = InventoryService(source_db, source_settings)
-            source_tower = source_inventory.create_tower(TowerInput(name="Source Tower", base_url="https://s.example.com"))
-            with source_db.connection() as conn:
-                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (?, 'c', 'vm-src', 'VM', 1)", (source_tower.id,))
-            archive_content, _, _, _ = MigrationService(source_db, source_settings, TaskService(source_db)).build_export_archive(record_task=False)
-
-            target_settings = V2Settings(data_root=Path(target_tmp), secret_key="t")
-            target_db = V2Database(target_settings)
-            target_db.initialize()
-            target_inventory = InventoryService(target_db, target_settings)
-            target_inventory.create_tower(TowerInput(name="Target Tower", base_url="https://t.example.com"))
-            # 模拟目标库残留旧 WAL/SHM
-            wal = Path(str(target_settings.sqlite_path) + "-wal")
-            shm = Path(str(target_settings.sqlite_path) + "-shm")
-            wal.write_bytes(b"stale-wal-frames")
-            shm.write_bytes(b"stale-shm")
-
-            result = MigrationService(target_db, target_settings, TaskService(target_db)).restore_archive_bytes(archive_content, filename="m.tar.gz", mode="overwrite", confirmed=True)
-
-            self.assertTrue(result["ok"])
-            with target_db.connection() as conn:
-                # 整库被源库替换（含源库 towers），目标旧 Tower 不在
-                self.assertEqual(conn.execute("SELECT name FROM towers").fetchone()[0], "Source Tower")
-                self.assertEqual(conn.execute("SELECT COUNT(*) FROM vm_latest").fetchone()[0], 1)
-            self.assertFalse(wal.exists(), "旧 WAL 残留必须被清理")
-            self.assertFalse(shm.exists(), "旧 SHM 残留必须被清理")
-
-    def test_replace_directory_copies_first_and_keeps_target_on_failure(self) -> None:
-        """#65②：目录替换必须先拷后清——中断时目标保留原内容（数据不丢），多余项被清理。"""
-        import shutil as _shutil
-        from unittest import mock
-
-        from app.v2.migration import service as migration_service
-
-        with tempfile.TemporaryDirectory() as tmp:
-            source = Path(tmp) / "src"
-            target = Path(tmp) / "tgt"
-            (source / "sub").mkdir(parents=True)
-            (source / "a.txt").write_text("new-a", encoding="utf-8")
-            (source / "sub" / "b.txt").write_text("b", encoding="utf-8")
-            target.mkdir()
-            (target / "a.txt").write_text("old-a", encoding="utf-8")
-            (target / "extra.txt").write_text("extra", encoding="utf-8")
-
-            migration_service._replace_directory(source, target)
-            self.assertEqual((target / "a.txt").read_text(encoding="utf-8"), "new-a")
-            self.assertTrue((target / "sub" / "b.txt").is_file())
-            self.assertFalse((target / "extra.txt").exists(), "源里没有的多余项应被清理")
-
-            # 中断容错：拷贝阶段失败 → 目标原内容完整保留（绝不先删后拷）
-            (target / "keep.txt").write_text("precious", encoding="utf-8")
-            with mock.patch.object(migration_service.shutil, "copytree", side_effect=OSError("disk full")):
-                with self.assertRaises(OSError):
-                    migration_service._replace_directory(source, target)
-            self.assertTrue((target / "keep.txt").is_file(), "拷贝失败时目标不得已被清空")
-            self.assertEqual((target / "a.txt").read_text(encoding="utf-8"), "new-a", "失败后保持上次成功状态")

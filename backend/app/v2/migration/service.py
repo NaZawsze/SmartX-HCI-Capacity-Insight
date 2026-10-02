@@ -70,7 +70,17 @@ class MigrationService:
             copy_ctx = tempfile_sqlite_copy
         with copy_ctx as config_db:
             candidate_files = _export_candidate_files(config_db, self.settings.prometheus_data_dir)
-            total_bytes = sum(path.stat().st_size for path, _ in candidate_files if path.is_file())
+            def _safe_total(entries: list[tuple[Path, str]]) -> int:
+                # #72：清单生成后文件可能被 prometheus 压实删除——消失的按 0 计
+                total = 0
+                for path, _ in entries:
+                    try:
+                        if path.is_file():
+                            total += path.stat().st_size
+                    except FileNotFoundError:
+                        continue
+                return total
+            total_bytes = _safe_total(candidate_files)
             files = {archive_name: _file_manifest(path) for path, archive_name in candidate_files if path.is_file()}
             manifest = {
                 "format": "smartx-capacity-insight-v2-migration",
@@ -90,7 +100,11 @@ class MigrationService:
                 processed_bytes = 0
                 logs = []
                 for path, archive_name in candidate_files:
-                    archive.add(path, arcname=archive_name, recursive=False)
+                    try:
+                        archive.add(path, arcname=archive_name, recursive=False)
+                    except FileNotFoundError:
+                        # #72：候选清单生成后被 prometheus 压实删除——跳过该文件
+                        continue
                     processed_bytes += path.stat().st_size
                     logs.append(f"当前文件：{archive_name} ({_size_label(processed_bytes)}/{_size_label(total_bytes)})")
                     if task_id and steps:
@@ -266,7 +280,17 @@ class MigrationService:
             copy_ctx = tempfile_sqlite_copy
         with copy_ctx as config_db:
             candidate_files = _export_candidate_files(config_db, self.settings.prometheus_data_dir)
-            total_bytes = sum(path.stat().st_size for path, _ in candidate_files if path.is_file())
+            def _safe_total(entries: list[tuple[Path, str]]) -> int:
+                # #72：清单生成后文件可能被 prometheus 压实删除——消失的按 0 计
+                total = 0
+                for path, _ in entries:
+                    try:
+                        if path.is_file():
+                            total += path.stat().st_size
+                    except FileNotFoundError:
+                        continue
+                return total
+            total_bytes = _safe_total(candidate_files)
         logs = [f"扫描完成：{len(candidate_files)} 个文件，约 {_size_label(total_bytes)}"]
         steps = _replace_step(steps, "scan", "succeeded", f"{len(candidate_files)} 个文件")
         steps = _replace_step(steps, "archive", "running")
@@ -374,7 +398,7 @@ class MigrationService:
             steps = _replace_step(steps, "backup", "succeeded", str(backup_path))
             steps = _replace_step(steps, "sqlite", "running")
             self.tasks.update_task(task_id, progress=55, message="正在导入业务库", logs=logs, steps=steps)
-            restore_result = self._restore_package(package_dir, normalized_mode, scope=migration_scope)
+            restore_result = self._restore_package(package_dir, normalized_mode, scope=migration_scope, task_id=task_id)
             logs.extend(restore_result["logs"])
             steps = _replace_step(steps, "sqlite", "succeeded", _summary_label(restore_result["summary"].get("sqlite", {})))
             steps = _replace_step(steps, "prometheus", "succeeded", _summary_label(restore_result["summary"].get("prometheus", {})))
@@ -430,7 +454,7 @@ class MigrationService:
             _add_directory(archive, self.settings.prometheus_data_dir, PROMETHEUS_DIR, skip_names=PROMETHEUS_RUNTIME_ENTRIES)
         return path
 
-    def _restore_package(self, package_dir: Path, mode: str, *, scope: str = FULL_SCOPE) -> dict[str, Any]:
+    def _restore_package(self, package_dir: Path, mode: str, *, scope: str = FULL_SCOPE, task_id: str | None = None) -> dict[str, Any]:
         restored: list[str] = []
         logs: list[str] = []
         summary: dict[str, Any] = {"scope": scope, "sqlite": {"inserted": 0}, "prometheus": {"copied": 0, "skipped": 0}}
@@ -473,6 +497,17 @@ class MigrationService:
                     if residue.exists():
                         residue.unlink()
                 self.database.initialize()
+                # 整库替换把 tasks 表一起换掉了——当前导入任务的记录随之消失，
+                # 收尾的状态更新会 KeyError（任务永远停在 running）。重建任务记录。
+                if task_id:
+                    self.tasks.create_task(
+                        task_id,
+                        TaskType.MIGRATION_IMPORT,
+                        "导入迁移包",
+                        status=TaskStatus.RUNNING,
+                        progress=60,
+                        message="整库替换完成，恢复任务记录",
+                    )
                 restored.append("smartx_db")
                 summary["sqlite"]["inserted"] = _count_sqlite_rows(self.settings.sqlite_path)
                 logs.append(f"SQLite：覆盖导入 {summary['sqlite']['inserted']} 条记录")
@@ -888,10 +923,19 @@ def _add_json(archive: tarfile.TarFile, arcname: str, payload: dict[str, Any], g
 def _add_directory(archive: tarfile.TarFile, source: Path, arcname: str, *, skip_names: set[str]) -> None:
     if not source.exists():
         return
-    for path in sorted(source.rglob("*")):
+    # prometheus 容器会并发压实/删除旧块：目录列表后、读取前文件可能已消失——跳过即可
+    # （被压实删掉的块本来就要消失，备份少它无害；硬失败反而让导入前备份做不出来，#72）
+    try:
+        all_paths = sorted(source.rglob("*"))
+    except FileNotFoundError:
+        return
+    for path in all_paths:
         if any(part in skip_names for part in path.relative_to(source).parts):
             continue
-        archive.add(path, arcname=str(Path(arcname) / path.relative_to(source)), recursive=False)
+        try:
+            archive.add(path, arcname=str(Path(arcname) / path.relative_to(source)), recursive=False)
+        except FileNotFoundError:
+            continue
 
 
 def _collect_manifest_files(files: list[tuple[Path, str]], directory: Path, arcname: str) -> dict[str, dict[str, Any]]:
@@ -932,26 +976,40 @@ def _copy_missing_tree(source: Path, target: Path, *, skip_names: set[str]) -> d
     target.mkdir(parents=True, exist_ok=True)
     copied_blocks = 0
     skipped_blocks = 0
+    raced_blocks = 0
     seen_blocks: set[str] = set()
-    for path in sorted(source.rglob("*")):
+    # prometheus 压实并发删除容错（#72）：逐条 try，读时消失的文件/块跳过
+    try:
+        all_paths = sorted(source.rglob("*"))
+    except FileNotFoundError:
+        return {"copied": 0, "skipped": 0, "raced": 1}
+    for path in all_paths:
         relative = path.relative_to(source)
         if any(part in skip_names for part in relative.parts):
             continue
         destination = target / relative
-        if path.is_dir():
-            destination.mkdir(parents=True, exist_ok=True)
-        elif not destination.exists():
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, destination)
-            if relative.parts:
-                block = relative.parts[0]
-                if block not in seen_blocks and (source / block / "meta.json").is_file():
-                    copied_blocks += 1
-                    seen_blocks.add(block)
-        elif relative.parts and relative.parts[0] not in seen_blocks and (source / relative.parts[0] / "meta.json").is_file():
-            skipped_blocks += 1
-            seen_blocks.add(relative.parts[0])
-    return {"copied": copied_blocks, "skipped": skipped_blocks}
+        try:
+            if path.is_dir():
+                destination.mkdir(parents=True, exist_ok=True)
+            elif not destination.exists():
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, destination)
+                if relative.parts:
+                    block = relative.parts[0]
+                    if block not in seen_blocks and (source / block / "meta.json").is_file():
+                        copied_blocks += 1
+                        seen_blocks.add(block)
+            elif relative.parts and relative.parts[0] not in seen_blocks and (source / relative.parts[0] / "meta.json").is_file():
+                skipped_blocks += 1
+                seen_blocks.add(relative.parts[0])
+        except FileNotFoundError:
+            raced_blocks += 1
+            block = relative.parts[0] if relative.parts else ""
+            if block and block not in seen_blocks:
+                seen_blocks.add(block)
+                raced_blocks = raced_blocks  # 该块按已处理计，不中断整个导入
+            continue
+    return {"copied": copied_blocks, "skipped": skipped_blocks, "raced": raced_blocks}
 
 
 def _replace_directory(source: Path, target: Path) -> None:
@@ -1108,7 +1166,12 @@ def _export_candidate_files(sqlite_path: Path, prometheus_dir: Path) -> list[tup
     if sqlite_path.is_file():
         files.append((sqlite_path, f"{APP_DIR}/{DB_FILENAME}"))
     if prometheus_dir.exists():
-        for path in sorted(prometheus_dir.rglob("*")):
+        # prometheus 压实并发删除容错（#72）：读时消失的文件跳过
+        try:
+            all_paths = sorted(prometheus_dir.rglob("*"))
+        except FileNotFoundError:
+            all_paths = []
+        for path in all_paths:
             if not path.is_file() or any(part in PROMETHEUS_RUNTIME_ENTRIES for part in path.relative_to(prometheus_dir).parts):
                 continue
             files.append((path, str(Path(PROMETHEUS_DIR) / path.relative_to(prometheus_dir))))
