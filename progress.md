@@ -3399,3 +3399,24 @@ total−free 精确等于 used（35.16 TiB），零信息量。**落地方案 B*
 - perf 层内 allocated == used（8.48 TiB，层内使用率 47%）。
 
 门禁：采集/client/freshness 33 例 + vitest 108 全过（StorageBar 标签断言随改）。
+
+## 2026-10-03 #75 终版：已分配口径按用户定义落地（Σ 卷供给 × 副本数）
+
+用户明确口径："所有虚拟机共分配了多少存储空间 = 每个虚拟机的每个虚拟卷空间 × 副本数"。
+方案 A（total−free）实测推翻（恰等于 used，零信息量）后，改按用户定义实现：
+
+- `.3` 实算：**214.04 TiB / 总容量 219.18 TiB = 97.6% 分配水位**（瘦供给池，
+  物理已写 35.16 TiB）——REPLICA_2 卷 286 个（73 TiB×2）、REPLICA_3 卷 86 个
+  （22.5 TiB×3）、厚卷 0.47 TiB；语义完全成立：池子分配额度几乎用满，
+  物理写入还早（瘦供给），两个数字各有各的运维意义；
+- dashboard：总览 kpis 与集群容量明细行的 allocated 改从 vm_volumes 实时聚合
+  （副本卷 ×N，EC 卷 ×(k+m)/k，enabled scope 过滤，scope 外排除）；
+- 采集侧 perf_allocated_data_space 指标路径废弃（口径澄清写入 client docstring）；
+- 测试：dashboard 用例更新（含 scope 外排除断言）+ VolumeAllocatedAggregationTest
+  （副本/EC/空 scope 3 断言）+ 采集/client fake 改为 payload 提供 allocated；
+- 门禁：迁移 20 例 + dashboard 16 例 + 采集/client/freshness 33 例全过；
+  `.3` 全量 **757 tests / 1 failure（既有环境限制）/ 7 skipped**；
+  集群容量明细行的数值也应同步变化（214 TiB 按簇分摊）。
+
+注：采集侧 `smartx_cluster_storage_allocated_bytes` 指标（perf 层口径）随本次
+代码变更一并废弃取数路径，历史 Prometheus 序列自然过期。
