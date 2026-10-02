@@ -973,3 +973,37 @@ class V2MigrationApiTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class VolumeAllocatedAggregationTest(unittest.TestCase):
+    """#75 用户口径：已分配 = Σ(每卷供给容量 × 副本数)，EC 按 (k+m)/k。"""
+
+    def test_dashboard_allocated_uses_volume_provisioned_sum(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.dashboard.service import _volume_allocated_bytes, _volume_allocated_by_cluster
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = V2Settings(data_root=Path(tmp), secret_key="s")
+            db = V2Database(settings)
+            db.initialize()
+            inventory = InventoryService(db, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://t.example.com"))
+            inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="c-a", name="CA", enabled=True), ClusterInput(cluster_id="c-b", name="CB", enabled=True)])
+            with db.connection() as conn:
+                # cluster-a: 瘦卷 1TiB×Replica-2 = 2TiB；厚卷 0.5TiB×Replica-2 = 1TiB
+                conn.execute("INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, size_bytes, thin_provision, replica_num) VALUES (1,'c-a','vm-1','v1',1099511627776,1,2)")
+                conn.execute("INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, size_bytes, thin_provision, replica_num) VALUES (1,'c-a','vm-1','v2',549755813888,0,2)")
+                # cluster-b: EC 卷 1TiB, k=2,m=1 → ×1.5 = 1.5TiB
+                conn.execute("INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, size_bytes, thin_provision, ec_k, ec_m) VALUES (1,'c-b','vm-2','v3',1099511627776,1,2,1)")
+
+            scope = {(tower.id, "c-a"), (tower.id, "c-b")}
+            total = _volume_allocated_bytes(db, scope)
+            # 1TiB×2 + 0.5TiB×2 + 1TiB×1.5 = 2+1+1.5 = 4.5 TiB
+            expected = int((2 + 1 + 1.5) * 1024**4)
+            self.assertEqual(total, expected, f"total={total} expected={expected}")
+            by_cluster = _volume_allocated_by_cluster(db, scope)
+            self.assertEqual(by_cluster[(tower.id, "c-a")], int(3 * 1024**4))
+            self.assertEqual(by_cluster[(tower.id, "c-b")], int(1.5 * 1024**4))
+            self.assertEqual(_volume_allocated_bytes(db, set()), 0)

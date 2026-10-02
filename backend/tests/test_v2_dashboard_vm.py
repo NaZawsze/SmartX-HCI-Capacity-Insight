@@ -209,19 +209,33 @@ class V2DashboardVmTest(unittest.TestCase):
             self.assertEqual(summary["day_new_vms"], [])
 
     def test_dashboard_summary_exposes_allocated_capacity_ratio_over_total(self) -> None:
-        """49-36：已分配容量与比例（分母为总容量，可 > 100%）。"""
+        """#75 用户口径：已分配 = Σ(卷供给容量 × 副本数)，分母为总容量。
+
+        种子数据 cluster-a 有一卷供给 100 × Replica-2 = 200；scope 外（tower 9）的卷不计入。
+        """
         from app.v2.dashboard.service import DashboardService
 
         with tempfile.TemporaryDirectory() as tmpdir:
             settings, db = self._seed_inventory(tmpdir)
+            # scope 外的卷（orphan tower 9）——必须被排除
+            with db.connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO vm_volumes (
+                        tower_id, cluster_id, vm_id, volume_id, name, path, size_bytes,
+                        used_bytes, storage_policy, replica_num, thin_provision
+                    )
+                    VALUES (9, 'orphan-cluster', 'vm-orphan', 'vol-x', 'X', '/x', 999999, 0, 'Replica-2', 2, 1)
+                    """
+                )
             summary = DashboardService(db, settings, prometheus=FakePrometheus(), now_ts=200).summary()
 
-            self.assertEqual(summary["storage"]["allocated_bytes"], 270)
-            self.assertEqual(summary["storage"]["allocated_ratio"], 270 / 200)
-            self.assertEqual(summary["kpis"]["allocated_bytes"], 270)
-            self.assertEqual(summary["kpis"]["allocated_ratio"], 270 / 200)
+            self.assertEqual(summary["storage"]["allocated_bytes"], 200)
+            self.assertEqual(summary["storage"]["allocated_ratio"], 200 / 200)
+            self.assertEqual(summary["kpis"]["allocated_bytes"], 200)
+            self.assertEqual(summary["kpis"]["allocated_ratio"], 200 / 200)
             clusters = {cluster["cluster_id"]: cluster for cluster in summary["clusters"]}
-            self.assertEqual(clusters["cluster-a"]["allocated_bytes"], 270)
+            self.assertEqual(clusters["cluster-a"]["allocated_bytes"], 200)
             self.assertEqual(clusters["cluster-b"]["allocated_bytes"], 0)
 
     def test_dashboard_capacity_risk_summarizes_multiple_risk_clusters(self) -> None:

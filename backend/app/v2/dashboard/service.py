@@ -47,6 +47,61 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _volume_allocated_bytes(database: V2Database, enabled_scope: set[tuple[int, str]]) -> int:
+    """#75 用户口径：已分配容量 = Σ(每卷供给容量 × 副本数)，EC 卷按 (k+m)/k 折算。
+
+    数据源是 vm_volumes（采集落库的每卷供给量），不是 Tower 分层指标——
+    perf_allocated_data_space 只是性能层水位，语义不同（实测 8.5TiB vs 全集群 214TiB）。
+    """
+    if not enabled_scope:
+        return 0
+    placeholders = ",".join("(?,?)" for _ in enabled_scope)
+    params = [pair for scope_pair in enabled_scope for pair in scope_pair]
+    with database.connection() as conn:
+        row = conn.execute(
+            f"""
+            SELECT COALESCE(SUM(
+                v.size_bytes * CASE
+                    WHEN COALESCE(v.ec_k, 0) > 0 THEN (v.ec_k + v.ec_m) * 1.0 / v.ec_k
+                    ELSE COALESCE(v.replica_num, 0)
+                END
+            ), 0)
+            FROM vm_volumes v
+            WHERE (v.tower_id, v.cluster_id) IN ({placeholders})
+            """,
+            params,
+        ).fetchone()
+    return int(row[0] or 0)
+
+
+def _volume_allocated_by_cluster(database: V2Database, enabled_scope: set[tuple[int, str]]) -> dict[tuple[int, str], int]:
+    """同 _volume_allocated_bytes，但按 (tower_id, cluster_id) 分组返回。"""
+    if not enabled_scope:
+        return {}
+    placeholders = ",".join("(?,?)" for _ in enabled_scope)
+    params = [pair for scope_pair in enabled_scope for pair in scope_pair]
+    out: dict[tuple[int, str], int] = {}
+    with database.connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT v.tower_id, v.cluster_id,
+                   COALESCE(SUM(
+                       v.size_bytes * CASE
+                           WHEN COALESCE(v.ec_k, 0) > 0 THEN (v.ec_k + v.ec_m) * 1.0 / v.ec_k
+                           ELSE COALESCE(v.replica_num, 0)
+                       END
+                   ), 0) AS allocated
+            FROM vm_volumes v
+            WHERE (v.tower_id, v.cluster_id) IN ({placeholders})
+            GROUP BY v.tower_id, v.cluster_id
+            """,
+            params,
+        ).fetchall()
+    for row in rows:
+        out[(int(row["tower_id"]), str(row["cluster_id"]))] = int(row["allocated"] or 0)
+    return out
+
+
 def _collection_freshness(last_success_at: str | None, threshold_minutes: int, now_ts: int) -> str:
     """看板数据新鲜度：fresh=阈值内有成功采集，stale=超过阈值，unknown=无成功记录或时间不可解析。
 
@@ -103,7 +158,8 @@ class DashboardService:
         collection_payload = self._latest_collection()
         total_bytes = sum(float(cluster.get("total_bytes") or 0) for cluster in clusters)
         used_bytes = sum(float(cluster.get("used_bytes") or 0) for cluster in clusters)
-        allocated_bytes = sum(float(cluster.get("allocated_bytes") or 0) for cluster in clusters)
+        # #75 用户口径：已分配 = Σ(每卷供给容量 × 副本数)（数据源 vm_volumes）
+        allocated_bytes = float(_volume_allocated_bytes(self.database, enabled_scope))
         kpis = {
             "tower_count": len(towers),
             "cluster_count": len(clusters),
@@ -183,7 +239,12 @@ class DashboardService:
     def _cluster_capacity(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
         used_by_key = self._cluster_metric_map(CLUSTER_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         total_by_key = self._cluster_metric_map(CLUSTER_TOTAL_METRIC, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
-        allocated_by_key = self._cluster_metric_map(CLUSTER_ALLOCATED_METRIC, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        # #75：明细行已分配同样改卷级口径（Σ 卷供给 × 副本），与总览条一致
+        allocated_by_key = {
+            (tower_id, cluster_id): float(v)
+            for (tower_id, cluster_id), v in _volume_allocated_by_cluster(self.database, enabled_scope).items()
+            if (tower_id is None or tower_id == tower_id) and (cluster_id is None or cluster_id == cluster_id)
+        }
         names = self._cluster_names()
         clusters: list[dict[str, Any]] = []
         for key in sorted(set(used_by_key) | set(total_by_key) | set(allocated_by_key)):
