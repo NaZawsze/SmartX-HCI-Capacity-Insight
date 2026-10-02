@@ -356,7 +356,7 @@ describe("ServicePage migration overwrite mode", () => {
 
     // 点“下载恢复密钥”→ 打开密码弹窗，需输入平台密码
     fireEvent.click(within(prompt).getByRole("button", { name: /下载恢复密钥/ }));
-    const passwordInput = await screen.findByPlaceholderText(/平台登录密码/);
+    const passwordInput = await screen.findByPlaceholderText(/存储监测平台.的登录密码/);
     fireEvent.change(passwordInput, { target: { value: "secret-pass" } });
     fireEvent.click(screen.getByRole("button", { name: "确认下载" }));
     await waitFor(() => expect(apiMock.downloadEnvFile).toHaveBeenCalledWith("secret-pass"));

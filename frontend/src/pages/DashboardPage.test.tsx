@@ -522,7 +522,14 @@ describe("DashboardPage", () => {
     );
 
     expect(screen.getByText("最后成功采集")).toBeInTheDocument();
-    const notice = screen.getByText(/数据未更新：最近成功采集于/);
+    // #73：横幅改为自解释文案（已等多久 + 阈值 + 最近成功时间）
+    const notice = screen.getByText((_, element) =>
+      element?.textContent?.includes("数据未更新：已约") === true &&
+      element?.textContent?.includes("未成功采集") === true &&
+      element?.textContent?.includes("最近成功采集于") === true &&
+      element?.className?.toString().includes("stale-title-notice") === true
+    );
+    expect(notice).not.toBeNull();
     expect(notice.className).toContain("stale-title-notice");
     expect(screen.queryByText("数据过期")).toBeNull();
     const staleRow = screen.getByText("最后成功采集").closest(".collection-last-success")!;

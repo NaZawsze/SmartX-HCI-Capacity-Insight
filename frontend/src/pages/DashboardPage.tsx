@@ -89,6 +89,18 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRis
   const collectionInfo = summary?.collection;
   const lastSuccessLabel = collectionInfo?.last_success_at ? formatLastSuccess(collectionInfo.last_success_at) : "";
   const dataStale = collectionInfo?.data_freshness === "stale";
+  // #73：横幅自解释——写清"已等多久、阈值多少"，消除与采集状态卡「正常」的矛盾感
+  const staleBanner = (() => {
+    if (!dataStale) return "";
+    const thresholdHours = Math.round((collectionInfo?.threshold_minutes ?? 120) / 60 * 10) / 10;
+    if (!collectionInfo?.last_success_at) return `数据未更新：暂无成功采集记录（提示阈值 ${thresholdHours} 小时）`;
+    const parsed = new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(collectionInfo.last_success_at.trim())
+      ? collectionInfo.last_success_at.trim()
+      : `${collectionInfo.last_success_at.trim().replace(" ", "T")}Z`);
+    const hours = Number.isNaN(parsed.getTime()) ? null : (Date.now() - parsed.getTime()) / 3600000;
+    const waited = hours == null ? "" : `已约 ${hours >= 24 ? Math.round(hours / 24) + " 天" : Math.max(1, Math.round(hours)) + " 小时"}未成功采集`;
+    return `数据未更新：${waited}（提示阈值 ${thresholdHours} 小时，最近成功采集于 ${lastSuccessLabel}）`;
+  })();
   const scopeLabel = summary?.scope?.label || "全部数据中心";
   const towerLabel =
     scope.type === "all"
@@ -143,7 +155,7 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRis
         title="SmartX ZBS"
         subtitle={scopeLabel}
         className="wide-card zbs-overview-card"
-        notice={dataStale ? <span className="stale-title-notice">{lastSuccessLabel ? `数据未更新：最近成功采集于 ${lastSuccessLabel}` : "数据未更新：暂无成功采集记录"}</span> : undefined}
+        notice={dataStale ? <span className="stale-title-notice">{staleBanner}</span> : undefined}
       >
         <StorageBar used={kpis?.used_bytes ?? 0} total={kpis?.total_bytes ?? 0} allocated={kpis?.allocated_bytes ?? 0} />
         <div className="cluster-capacity-section">

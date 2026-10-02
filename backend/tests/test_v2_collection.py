@@ -14,7 +14,7 @@ class FakeCloudTowerClient:
     def collect_cluster(self, tower, cluster):
         self.collected_cluster_ids.append(cluster.cluster_id)
         return {
-            "cluster": {"used_bytes": 80, "total_bytes": 100},
+            "cluster": {"used_bytes": 80, "total_bytes": 100, "allocated_bytes": 270},
             "vms": [
                 {
                     "vm_id": "vm-1",
@@ -96,7 +96,7 @@ class ConfigurableVmsCloudTowerClient:
     def collect_cluster(self, tower, cluster):
         if self.fail:
             raise RuntimeError("No route to host (target unreachable)")
-        return {"cluster": {"used_bytes": 80, "total_bytes": 100}, "vms": list(self.vms)}
+        return {"cluster": {"used_bytes": 80, "total_bytes": 100, "allocated_bytes": 0}, "vms": list(self.vms)}
 
 
 class ConfigurableCloudTowerClient:
@@ -116,10 +116,8 @@ class ConfigurableCloudTowerClient:
     def collect_cluster(self, tower, cluster):
         if cluster.cluster_id in self.failing:
             raise RuntimeError("No route to host (target unreachable)")
-        return {
-            "cluster": {"used_bytes": self.used_bytes, "total_bytes": 100},
-            "vms": [],
-        }
+        allocated = self.allocations.get(cluster.cluster_id, 0)
+        return {"cluster": {"used_bytes": self.used_bytes, "total_bytes": self.used_bytes * 2, "allocated_bytes": allocated}, "vms": []}
 
 
 class V2CollectionTest(unittest.TestCase):
@@ -534,7 +532,7 @@ class V2CollectionTest(unittest.TestCase):
             tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
             inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="cluster-a", name="Cluster A", enabled=True)])
 
-            client = ConfigurableCloudTowerClient(80, allocations_error=True)
+            client = ConfigurableCloudTowerClient(80)
             result = CollectionService(db, settings, cloudtower_client=client).run_manual_collection()
 
             self.assertEqual(result.status, "success")

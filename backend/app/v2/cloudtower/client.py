@@ -129,12 +129,23 @@ class CloudTowerClient:
 
     def collect_cluster(self, cluster_id: str) -> dict[str, Any]:
         storage = self.get_cluster_storage_info(cluster_id)
+        used_bytes = int(
+            _number(storage.get("used_data_space"), storage.get("used_capacity"), storage.get("used_size"), storage.get("capacity_used")) or 0
+        )
+        total_bytes = int(
+            _number(storage.get("total_data_capacity"), storage.get("total_capacity"), storage.get("total_size"), storage.get("capacity_total")) or 0
+        )
+        free_bytes = int(_number(storage.get("free_data_space")) or 0)
+        # #75：已分配口径与 used/total 同源（get-cluster-storage-info，全集群语义）。
+        # 旧口径 perf_allocated_data_space 是**性能层**的已分配（.3 实测 8.5TiB < 全集群已用
+        # 35TiB，同框对比荒谬）；Tower 未提供集群级 allocated 字段，用 total-free 推导
+        # （缺 free 时退 0，界面按"未提供"处理而不是显示矛盾的分层值）。
+        allocated_bytes = max(total_bytes - free_bytes, 0) if free_bytes else 0
         return {
             "cluster": {
-                "used_bytes": int(_number(storage.get("used_data_space"), storage.get("used_capacity"), storage.get("used_size"), storage.get("capacity_used")) or 0),
-                "total_bytes": int(
-                    _number(storage.get("total_data_capacity"), storage.get("total_capacity"), storage.get("total_size"), storage.get("capacity_total")) or 0
-                ),
+                "used_bytes": used_bytes,
+                "total_bytes": total_bytes,
+                "allocated_bytes": allocated_bytes,
             },
             "vms": self._collect_vms_with_volumes(cluster_id),
         }

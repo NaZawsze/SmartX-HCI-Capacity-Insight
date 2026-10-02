@@ -2845,6 +2845,34 @@ button.risk-cluster-row:hover {
   color: var(--muted);
 }
 
+.migration-export-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0 4px;
+  font-size: 13px;
+}
+
+.migration-export-table th,
+.migration-export-table td {
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+  line-height: 1.55;
+}
+
+.migration-export-table th {
+  background: var(--surface-muted, #f6f8fb);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.migration-export-table td:first-child {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .service-restart-link {
   margin-left: auto;
   min-height: 30px;
@@ -3889,6 +3917,12 @@ button.risk-cluster-row:hover {
 .service-operation-card {
   display: grid;
   gap: 20px;
+}
+
+/* Section 内平铺的相邻卡片间距（迁移页 4 卡等）——此前无任何规则，卡片彼此贴死 */
+.service-content-panel > .service-operation-card + .service-operation-card,
+.service-content-panel > .service-migration-card + .service-migration-card {
+  margin-top: 26px;
 }
 
 .service-operation-head {

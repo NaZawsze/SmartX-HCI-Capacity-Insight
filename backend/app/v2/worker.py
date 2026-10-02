@@ -455,17 +455,38 @@ def _run_tower_collection(database: V2Database, scheduler, tower_id: int) -> Non
         tasks = TaskService(database)
         _handle_collection_outcome(database, scheduler, tasks, service, result, previous_metrics)
     except Exception:
-        return
+        # #72：定时采集的异常必须可见，否则「scheduled 采集消失」无从排查
+        logger.exception("Tower %s 定时采集执行异常", tower_id)
 
 
 def _run_schedule_sync(scheduler, database: V2Database, *, timezone: str) -> None:
     try:
         sync_collection_schedules(scheduler, database, timezone=timezone)
     except Exception:
-        return
+        # #72：静默吞掉 = 调度停摆不可观测（Tower 恢复后定时采集永不自愈的帮凶）
+        logger.exception("采集调度同步失败")
+
+
+def _sync_schedules_with_retry(scheduler, database: V2Database, *, timezone: str, attempts: int = 5) -> None:
+    """#72：启动即同步采集调度，带重试与显式日志。
+
+    此前只依赖 60s 周期任务做首次同步，且异常被静默吞掉——首次同步若撞上
+    SQLite 锁窗口等瞬态错误，定时采集会静默消失且不可观测（.3 实测停摆 20 天）。
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            sync_collection_schedules(scheduler, database, timezone=timezone)
+            logger.info("采集调度同步完成（第 %s 次尝试）", attempt)
+            return
+        except Exception:
+            logger.exception("采集调度同步失败（第 %s/%s 次）", attempt, attempts)
+            if attempt < attempts:
+                time.sleep(30)
+    logger.error("采集调度同步在 %s 次尝试后仍未成功，定时采集可能不可用", attempts)
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     settings = settings_from_environment()
     database = V2Database(settings)
     database.initialize()
@@ -512,6 +533,8 @@ def main() -> None:
     else:
         logger.info("升级后采集兜底轮询已关闭（事件驱动为主路径）")
     scheduler.start()
+    # #72：调度器起来后**立即**同步一次（不依赖 60s 周期任务的首跳），失败已带重试与日志
+    _sync_schedules_with_retry(scheduler, database, timezone=settings.timezone)
 
     stop = False
 

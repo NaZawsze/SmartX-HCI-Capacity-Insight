@@ -212,7 +212,12 @@ export function MigrationSection({ active, onNavigate, addTask, updateTask }: Mi
       setKeyPassword("");
       setExportMessage("已下载恢复密钥。恢复迁移包时请与其一同使用；若没有密钥，也可导入后在 Tower 设置中重新输入密码。");
     } catch (exc) {
-      setKeyError(exc instanceof Error ? exc.message : "下载恢复密钥失败");
+      const message = exc instanceof Error ? exc.message : "";
+      setKeyError(
+        message.includes("密码不正确")
+          ? "本系统（存储监测平台）密码不正确，请重新输入（注意：不是 CloudTower 的密码）"
+          : message || "下载恢复密钥失败",
+      );
     } finally {
       setKeyBusy(false);
     }
@@ -260,10 +265,19 @@ export function MigrationSection({ active, onNavigate, addTask, updateTask }: Mi
         <div className="service-operation-head">
           <div>
             <strong>导出迁移包</strong>
-            <span>包含 Tower 配置、库内监测数据与全部历史指标的完整备份，用于备份或搬到另一台服务器。导出后还需单独下载“恢复密钥”，两者一起保存才能完整恢复。</span>
+            <span>三种导出按用途选择，内容与是否需要“恢复密钥”见下表。</span>
           </div>
         </div>
-        <p className="migration-export-hint">“仅导出存储监测数据”只导监测数据与历史指标、不带 Tower 配置，导入时不动本机配置、无需恢复密钥；“仅导出 Tower 配置”只导配置、不带历史数据，适合让新环境快速接入同一批 Tower。除监测数据包外，其余导出都需再单独下载恢复密钥。</p>
+        <table className="migration-export-table">
+          <thead>
+            <tr><th>导出</th><th>包内容</th><th>恢复密钥</th><th>适用场景</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>导出迁移包</td><td>Tower 配置 + 库内监测数据 + 全部历史指标（完整备份）</td><td>需要</td><td>备份 / 整机搬迁</td></tr>
+            <tr><td>仅导出存储监测数据</td><td>监测业务数据 + 全部历史指标（不含 Tower 配置）</td><td>不需要</td><td>把数据搬到已配好 Tower 的新环境</td></tr>
+            <tr><td>仅导出 Tower 配置</td><td>Tower 与集群清单（不含历史数据）</td><td>需要</td><td>让新环境快速接入同一批 Tower</td></tr>
+          </tbody>
+        </table>
         {exportMessage && <div className="inline-message">{exportMessage}</div>}
       </div>
       <div className="service-operation-card service-migration-card">
@@ -393,9 +407,7 @@ export function MigrationSection({ active, onNavigate, addTask, updateTask }: Mi
           </div>
         </div>
         <ul>
-          <li><strong>导出迁移包</strong>：完整备份——Tower 配置、库内监测数据和全部历史指标一起打包，用于备份或搬到另一台服务器。导出完成后需再单独下载“恢复密钥”（需验证平台密码），请与迁移包一起保存。</li>
-          <li><strong>仅导出 Tower 配置</strong>：只导配置、不带历史数据，适合让新环境快速接入同一批 Tower。</li>
-          <li><strong>仅导出存储监测数据</strong>：把 VM、卷、采集记录和全部历史指标打包，不含 Tower 配置，无需恢复密钥。导入时用「合并数据」，不会改动目标机的 Tower 配置和账号。</li>
+          <li><strong>三种导出</strong>的内容与区别见上方「导出迁移包」的对比表。</li>
           <li><strong>恢复密钥</strong>：迁移包里的 Tower 密码是加密保存的，恢复时必须配上导出时的密钥才能解开；没带密钥也可以在导入后到 Tower 设置里重新输入密码。</li>
           <li><strong>导入</strong>：选择文件 → 选导入方式 → 导入 → 服务重启。“合并数据”只补缺的、最安全；“整库替换”会清空现有数据，请确认后再用。</li>
           <li><strong>环境状态</strong>：进入页面自动检查一次，也可随时“重新检查”；只查看、不修改任何内容。</li>
@@ -431,11 +443,12 @@ export function MigrationSection({ active, onNavigate, addTask, updateTask }: Mi
             <strong id="migration-key-dialog-title">下载恢复密钥</strong>
             <p>恢复密钥等同于本系统全部 Tower 密码的钥匙：任何拿到它的人都能解开迁移包中的 Tower 凭据并登录对应集群。</p>
             <p>请只保存在受控的存储位置，不要通过聊天工具、邮箱等不安全渠道传输；如果怀疑泄露，请立即在 Tower 设置中重置相关密码。</p>
+            <p>这里要输入的是<b>本系统（存储监测平台）的登录密码</b>，不是 CloudTower 的密码。</p>
             <form className="migration-key-form" onSubmit={(event) => { event.preventDefault(); downloadEnvFile(); }}>
               <input
                 type="password"
                 className="migration-key-password"
-                placeholder="请输入平台登录密码确认身份"
+                placeholder="请输入本系统（存储监测平台）的登录密码"
                 value={keyPassword}
                 autoComplete="current-password"
                 disabled={keyBusy}

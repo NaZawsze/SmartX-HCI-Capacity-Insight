@@ -53,7 +53,7 @@ class V2CloudTowerClientTest(unittest.TestCase):
         http = FakeHttpClient(
             [
                 FakeResponse(200, {"data": {"token": "token-1"}}),
-                FakeResponse(200, {"data": {"used_data_space": 1024, "total_data_capacity": 4096}}),
+                FakeResponse(200, {"data": {"used_data_space": 1024, "total_data_capacity": 4096, "free_data_space": 2048}}),
                 FakeResponse(200, {"data": {"items": [{"id": "vm-1", "name": "VM One", "used_size": 512}]}}),
                 FakeResponse(
                     200,
@@ -81,7 +81,8 @@ class V2CloudTowerClientTest(unittest.TestCase):
 
         payload = client.collect_cluster("cluster-a")
 
-        self.assertEqual(payload["cluster"], {"used_bytes": 1024, "total_bytes": 4096})
+        # #75：allocated = total - free（同源全集群口径）；4096-2048=2048
+        self.assertEqual(payload["cluster"], {"used_bytes": 1024, "total_bytes": 4096, "allocated_bytes": 2048})
         self.assertEqual(payload["vms"][0]["vm_id"], "vm-1")
         self.assertEqual(payload["vms"][0]["name"], "VM One")
         self.assertEqual(payload["vms"][0]["used_bytes"], 512)
