@@ -104,6 +104,13 @@ class CollectionService:
                         cluster_id=cluster.cluster_id,
                         kept_vm_ids={str(vm.get("vm_id")) for vm in payload.get("vms", [])},
                     )
+                    # #77：已彻底删除 VM 的卷行随 VM 行一并清理——否则 vm_volumes 永久残留，
+                    # Σ(卷×副本) 的"已分配"被已删 VM 撑大（.3 实测残留 40.79 TiB）。
+                    self._purge_missing_vm_volumes(
+                        tower_id=tower.id,
+                        cluster_id=cluster.cluster_id,
+                        kept_vm_ids={str(vm.get("vm_id")) for vm in payload.get("vms", [])},
+                    )
                     success_targets.append(_target_payload(tower, cluster, attempt=attempt))
                 except Exception as exc:  # noqa: BLE001 - collector failures are summarized for UI.
                     failed_targets.append(_target_payload(tower, cluster, attempt=attempt, message=self._collection_error_message(exc)))
@@ -237,6 +244,25 @@ class CollectionService:
                     sample.deleted_at,
                 ),
             )
+
+    def _purge_missing_vm_volumes(self, *, tower_id: int, cluster_id: str, kept_vm_ids: set[str]) -> int:
+        """#77：已彻底删除 VM 的卷行核对（与 49-47 同守卫：仅采集成功后调用）。
+
+        删除「不在本次返回集合、且其 VM 行已因彻底删除被移除」的卷行——
+        即只清理 _purge_missing_recycle_vms 刚删掉的那些 VM 的卷，不动回收站
+        保留期内的任何行。返回删除的卷行数。
+        """
+        with self.database.connection() as conn:
+            cursor = conn.execute(
+                """
+                DELETE FROM vm_volumes
+                WHERE tower_id = ? AND cluster_id = ? AND vm_id NOT IN (
+                    SELECT vm_id FROM vm_latest WHERE tower_id = ? AND cluster_id = ?
+                )
+                """,
+                (tower_id, cluster_id, tower_id, cluster_id),
+            )
+        return cursor.rowcount or 0
 
     def _purge_missing_recycle_vms(self, *, tower_id: int, cluster_id: str, kept_vm_ids: set[str]) -> int:
         """回收站 VM 彻底删除核对（49-47）：Tower 已不再返回该 VM = 已彻底删除 → 删本地行。

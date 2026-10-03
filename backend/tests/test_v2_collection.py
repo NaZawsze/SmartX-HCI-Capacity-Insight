@@ -637,3 +637,48 @@ class V2CollectionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_purges_volumes_of_fully_deleted_vms_after_successful_collection(self) -> None:
+        """#77：彻底删除 VM 的卷行随 VM 行一并清理；回收站 VM 的卷保留。
+
+        .3 实测：49-47 只清 vm_latest 行，vm_volumes 的已删 VM 卷永久残留，
+        Σ(卷×副本) 的"已分配"被撑大 40.79 TiB。
+        """
+        from app.v2.collection.service import CollectionService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="s")
+            db = V2Database(settings)
+            db.initialize()
+            inventory = InventoryService(db, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://t.example.com"))
+            inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="c-a", name="CA", enabled=True)])
+
+            client = ConfigurableVmsCloudTowerClient(vms=[
+                {"vm_id": "vm-live", "name": "Live", "used_bytes": 10, "in_recycle_bin": 0, "volumes": [
+                    {"volume_id": "v-live", "size_bytes": 100, "used_bytes": 5, "storage_policy": "Replica-2", "replica_num": 2},
+                ]},
+            ])
+            service = CollectionService(db, settings, cloudtower_client=client)
+            service.run_manual_collection()
+            with db.connection() as conn:
+                # 种下"已彻底删除 VM"的卷（模拟 49-47 清理前遗留：vm_latest 无此 VM，卷还在）
+                conn.execute("INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, size_bytes, used_bytes, storage_policy, replica_num, thin_provision) VALUES (1, 'c-a', 'vm-deleted', 'v-old', 999, 0, 'Replica-2', 2, 1)")
+                # 种下"回收站 VM"的卷（保留期内的回收站 VM 卷必须保留）
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes, in_recycle_bin) VALUES (1, 'c-a', 'vm-recycled', 'Recycled', 5, 1)")
+                conn.execute("INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, size_bytes, used_bytes, storage_policy, replica_num, thin_provision) VALUES (1, 'c-a', 'vm-recycled', 'v-rec', 50, 5, 'Replica-2', 2, 1)")
+
+            result = service.run_manual_collection()
+
+            self.assertEqual(result.status, "success")
+            with db.connection() as conn:
+                vm_ids = {r[0] for r in conn.execute("SELECT vm_id FROM vm_volumes")}
+                self.assertNotIn("vm-deleted", vm_ids, "已彻底删除 VM 的卷行必须被清理")
+                self.assertIn("vm-live", vm_ids)
+                self.assertIn("vm-recycled", vm_ids, "回收站 VM 的卷保留（随 VM 行口径）")
+                # vm-deleted 的 vm_latest 行也应已被 49-47 清理
+                self.assertIsNone(conn.execute("SELECT 1 FROM vm_latest WHERE vm_id='vm-deleted'").fetchone())
