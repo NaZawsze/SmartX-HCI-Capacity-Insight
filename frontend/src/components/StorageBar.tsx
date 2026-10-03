@@ -18,15 +18,15 @@ export function StorageBar({ used, total, allocated = 0 }: StorageBarProps) {
       </div>
       <div className="storage-meta">
         <div className="storage-meta-item">
-          <span className="storage-meta-label">已使用</span>
+          <span className="storage-meta-label"><span className="storage-dot storage-dot-used" />已使用</span>
           <span className="storage-meta-value">{`${formatBytes(used)} · ${(usedRatio * 100).toFixed(2)}%`}</span>
         </div>
         <div className="storage-meta-item">
-          <span className="storage-meta-label">总容量</span>
+          <span className="storage-meta-label"><span className="storage-dot storage-dot-total" />总容量</span>
           <span className="storage-meta-value">{formatBytes(total)}</span>
         </div>
         <div className="storage-meta-item">
-          <span className="storage-meta-label" title="已分配 = Σ(每个虚拟卷的供给容量 × 副本数/EC 折算)。瘦供给下物理已写入（左侧“已使用”）通常远小于分配量">已分配</span>
+          <span className="storage-meta-label" title="已分配 = Σ(每个虚拟卷的供给容量 × 副本数/EC 折算)。瘦供给下物理已写入（“已使用”）通常远小于分配量"><span className="storage-dot storage-dot-allocated" />已分配</span>
           <span className="storage-meta-value">{`${formatBytes(allocated)} · ${(allocatedRatio * 100).toFixed(2)}%`}</span>
         </div>
       </div>
