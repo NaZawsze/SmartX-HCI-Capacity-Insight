@@ -63,7 +63,9 @@ def _volume_allocated_bytes(database: V2Database, enabled_scope: set[tuple[int, 
             SELECT COALESCE(SUM(
                 v.size_bytes * CASE
                     WHEN COALESCE(v.ec_k, 0) > 0 THEN (v.ec_k + v.ec_m) * 1.0 / v.ec_k
-                    ELSE COALESCE(v.replica_num, 0)
+                    WHEN v.replica_num IS NOT NULL THEN v.replica_num
+                    WHEN v.storage_policy LIKE 'REPLICA_%' THEN CAST(SUBSTR(v.storage_policy, 9) AS INTEGER)
+                    ELSE 0
                 END
             ), 0)
             FROM vm_volumes v
@@ -88,7 +90,9 @@ def _volume_allocated_by_cluster(database: V2Database, enabled_scope: set[tuple[
                    COALESCE(SUM(
                        v.size_bytes * CASE
                            WHEN COALESCE(v.ec_k, 0) > 0 THEN (v.ec_k + v.ec_m) * 1.0 / v.ec_k
-                           ELSE COALESCE(v.replica_num, 0)
+                           WHEN v.replica_num IS NOT NULL THEN v.replica_num
+                           WHEN v.storage_policy LIKE 'REPLICA_%' THEN CAST(SUBSTR(v.storage_policy, 9) AS INTEGER)
+                           ELSE 0
                        END
                    ), 0) AS allocated
             FROM vm_volumes v

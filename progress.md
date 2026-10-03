@@ -3420,3 +3420,15 @@ total−free 精确等于 used（35.16 TiB），零信息量。**落地方案 B*
 
 注：采集侧 `smartx_cluster_storage_allocated_bytes` 指标（perf 层口径）随本次
 代码变更一并废弃取数路径，历史 Prometheus 序列自然过期。
+
+## 2026-10-03 #75 补强：副本数不写死 + 策略名兜底（用户质询"副本卷不一定是两副本还是三副本"）
+
+- 落地确认：代码乘的是每卷从 Tower 采集的 `replica_num` 字段（几副本乘几，2/3/4 均正确），
+  不写死；`.3` 实测 288 卷 ×2、86 卷 ×3、无 EC 卷；
+- 补边界兜底：`replica_num` 为 NULL 时从 `storage_policy` 名解析（`REPLICA_N_*` → ×N，
+  SQL SUBSTR+CAST）；EC 卷仍按 (k+m)/k；
+- 过程坑两连：SQLite LIKE 不支持 `[...]` 字符类（`REPLICA[_]%` 永不匹配）；本地复现脚本
+  列序错位误导排查一轮（教训：复现必须与真实调用同列序）；
+- 测试：VolumeAllocatedAggregationTest 补 REPLICA_4 兜底用例与 by_cluster 精确断言
+  （c-a=3.0/c-b=3.5 逐簇核对），迁移 20 例全过；
+- 门禁：`.3` 全量 **757 tests / 1 failure（既有环境限制，同断言确认）/ 7 skipped**。

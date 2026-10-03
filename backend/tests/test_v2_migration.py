@@ -997,13 +997,15 @@ class VolumeAllocatedAggregationTest(unittest.TestCase):
                 conn.execute("INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, size_bytes, thin_provision, replica_num) VALUES (1,'c-a','vm-1','v2',549755813888,0,2)")
                 # cluster-b: EC 卷 1TiB, k=2,m=1 → ×1.5 = 1.5TiB
                 conn.execute("INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, size_bytes, thin_provision, ec_k, ec_m) VALUES (1,'c-b','vm-2','v3',1099511627776,1,2,1)")
+                # 副本数缺失时从策略名兜底：REPLICA_4 → ×4（不写死 2/3）
+                conn.execute("INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, size_bytes, thin_provision, storage_policy) VALUES (1,'c-b','vm-3','v4',549755813888,1,'REPLICA_4_THIN_PROVISION')")
 
             scope = {(tower.id, "c-a"), (tower.id, "c-b")}
             total = _volume_allocated_bytes(db, scope)
-            # 1TiB×2 + 0.5TiB×2 + 1TiB×1.5 = 2+1+1.5 = 4.5 TiB
-            expected = int((2 + 1 + 1.5) * 1024**4)
+            # 1TiB×2(副本) + 0.5TiB×2(副本) + 1TiB×1.5(EC) + 0.5TiB×4(策略名兜底) = 5.5 TiB
+            expected = int((2 + 1 + 1.5 + 2) * 1024**4)
             self.assertEqual(total, expected, f"total={total} expected={expected}")
             by_cluster = _volume_allocated_by_cluster(db, scope)
-            self.assertEqual(by_cluster[(tower.id, "c-a")], int(3 * 1024**4))
-            self.assertEqual(by_cluster[(tower.id, "c-b")], int(1.5 * 1024**4))
+            self.assertEqual(by_cluster[(tower.id, "c-a")], int(3 * 1024**4), "c-a: 1TiB×2 + 0.5TiB×2")
+            self.assertEqual(by_cluster[(tower.id, "c-b")], int(3.5 * 1024**4), "c-b: 1TiB×1.5(EC) + 0.5TiB×4(策略名兜底)")
             self.assertEqual(_volume_allocated_bytes(db, set()), 0)
