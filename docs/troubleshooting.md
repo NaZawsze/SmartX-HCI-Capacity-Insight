@@ -185,3 +185,26 @@ bash /data/smartx-storage-forecast/project/compose-guard.sh check \
 - 交付物里的 `compose-guard.sh` 与 install/upgrade 脚本放在一起，就是给这件事用的。
 - 升级中心已把「预检查 → 执行 → post-cleanup」串起来，正常升级路径不会碰 compose 变体。
 
+## 11. 快速自检：站点验收 9 项
+
+排障前先跑一次标准验收，把「哪里坏了」变成清单：
+
+```bash
+bash scripts/verify_site_acceptance.sh --expected-version v0.5.3 --expected-runner v0.3.1
+```
+
+只读、不改任何状态（除登录换 token），凭据只从 `.env` 读、不回显。
+9 项逐条打印 OK/FAIL，退出码 0 表示全过。
+
+| 项 | 检查什么 | FAIL 时的方向 |
+| --- | --- | --- |
+| ① health + 三项 checks | 平台可达、`directories`/`database`/`prometheus` | 见 §1 快速分诊 |
+| ② 容器数 5 | 五个容器均 Up | 见 §1、§2 |
+| ③ 镜像内版本文件 | `/app/VERSION`、`/app/RUNNER_VERSION` 与期望一致 | 镜像与包不匹配，重装 |
+| ④ compose project/network | project 标签与唯一网络名 | 用了错 compose 变体，见 §10 |
+| ⑤ `.env` 权限与 compose 标记 | 0600、`SMARTX_COMPOSE_FILE_ACTIVE` 存在 | 权限被改会读不到凭据；缺标记见 §10.1 |
+| ⑥ SQLite 完整性与计数 | `integrity_check=ok` 与各表行数 | 见 §3 |
+| ⑦ 旧路径清理 | `/opt/smartx-storage-forecast` 等 6 条已不存在 | 升级收尾未完成，看升级中心 post-cleanup |
+| ⑧ 前端/Prometheus | 8080 首页 200、9090 health 200 | 见 §5、§7 |
+| ⑨ 升级任务历史 | 最近任务状态与消息 | 有 failed 就按 §6 排查 |
+
