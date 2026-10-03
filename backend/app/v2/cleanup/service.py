@@ -6,8 +6,11 @@ import json
 import os
 import subprocess
 from datetime import datetime, timedelta, timezone
+import logging
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from app.v2.config import V2Settings
 from app.v2.tasks.models import TaskStatus, TaskType
@@ -72,7 +75,16 @@ class CleanupService:
             "free_label": _size_label(free),
         }
 
-    def cleanup_artifacts(self, keep_recent_upgrades: int = 0) -> dict[str, Any]:
+    def cleanup_artifacts(self, keep_recent_upgrades: int = 1) -> dict[str, Any]:
+        """清理运行产物。
+
+        `keep_recent_upgrades`：保留**最近 N 个升级任务目录的完整包**（含镜像归档），
+        供回滚/重装取用旧版本镜像。用户口径 2026-10-04：**默认 1，且下限强制为 1**
+        ——即使显式传 0 也不允许把包清光，否则回滚将失去唯一的旧镜像来源。
+
+        升级任务目录只删体积产物（`package/`、`*.tar.gz`），**保留 `task.json` 等记录**
+        （升级中心历史依赖它，见 `_purge_upgrade_payload`）。
+        """
         active_tasks = self._active_upgrade_tasks()
         if active_tasks:
             active_ids = ", ".join(sorted({str(task.get("id") or "") for task in active_tasks if task.get("id")}))
@@ -85,7 +97,9 @@ class CleanupService:
                 "logs": [message],
                 "message": message,
             }
-        keep_recent = max(0, min(int(keep_recent_upgrades or 0), 100))
+        # 下限强制为 1：保留最近一次升级的完整包（回滚/重装需用其镜像）。
+        # 用户口径 2026-10-04：即使显式传 0 也不允许把包清光。
+        keep_recent = max(1, min(int(keep_recent_upgrades or 1), 100))
         scan = self.scan_artifacts()
         logs: list[str] = []
         deleted_count = 0
@@ -105,13 +119,22 @@ class CleanupService:
                 kept_count += len(kept)
                 if kept:
                     logs.append(f"{item['label']}：按设置保留最近 {len(kept)} 项")
+            purged = 0
             for child in children:
-                if child.is_dir():
+                if item["key"] == "upgrades":
+                    # 升级任务：只删体积产物（package/ 与 *.tar.gz），
+                    # **保留 task.json 等记录**——升级中心的历史完全依赖它
+                    # （intake.py::history 只扫 */task.json，不读 package/）。
+                    # 用户口径 2026-10-04：宁留记录不留包。
+                    purged += self._purge_upgrade_payload(child)
+                elif child.is_dir():
                     shutil.rmtree(child)
+                    purged += 1
                 else:
                     child.unlink()
-                deleted_count += 1
-            logs.append(f"{item['label']}：清理 {len(children)} 项，释放 {item['size_label']}")
+                    purged += 1
+            deleted_count += purged
+            logs.append(f"{item['label']}：清理 {purged} 项，释放 {item['size_label']}")
         if kept_count:
             logs.append(f"共保留最近 {kept_count} 个升级任务项")
         self.tasks.create_task(
@@ -133,16 +156,97 @@ class CleanupService:
             "message": f"清理完成，释放 {scan['total_size_label']}。",
         }
 
+    #: 升级任务目录里**必须保留**的记录文件（升级中心历史依赖它们，见 intake.py::history）
+    UPGRADE_RECORD_FILES = frozenset({"task.json"})
+
+    def _purge_upgrade_payload(self, task_dir: Path) -> int:
+        """只删升级任务目录里的**体积产物**，保留记录。
+
+        用户口径 2026-10-04：「保留记录不留包」——
+        升级中心历史只读 `task.json`（intake.py::history 扫 `*/task.json`），
+        不读 `package/`；而单个任务的包占 200M~853M，是磁盘堆积的主因。
+
+        保留：`task.json`（历史记录）、`post-upgrade-*.json`（采集/清理标记）。
+        删除：`package/`（解包副本）、`*.tar.gz` / `*.sha256`（上传的包本体）。
+
+        返回删除的条目数。目录本身保留（`post-cleanup-*` 的任务.json 也在同层）。
+        """
+        if not task_dir.is_dir():
+            # 不是升级任务目录（如散落在upgrades/ 下的单个 .tar.gz 包）→ 整删
+            if task_dir.exists():
+                task_dir.unlink()
+                return 1
+            return 0
+        removed = 0
+        for child in sorted(task_dir.iterdir(), key=lambda c: c.name):
+            if child.name in self.UPGRADE_RECORD_FILES:
+                continue
+            # post-upgrade-cleanup.json / post-upgrade-collection.json 是小标记，保留
+            if child.is_file() and child.stat().st_size < 64 * 1024 and child.suffix == ".json":
+                continue
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+            removed += 1
+        return removed
+
+    #: 僵尸任务判定：状态卡在 pending/running 且**任务目录不存在**超过该秒数。
+    #: 取 6 小时——远大于任何真实升级的执行时长（`.12` 观测：14 动作约 30~90 秒），
+    #: 又远小于「永远卡住」的实际表现（`.12` 两个僵尸滞留 82~86 天）。
+    GHOST_TASK_STALE_SECONDS = 6 * 3600
+
     def _active_upgrade_tasks(self) -> list[dict[str, Any]]:
+        """当前真正占用 `upgrades/` 的升级任务（会阻塞清理）。
+
+        **必须排除僵尸任务**。`.12` 实测（2026-10-04）：`tasks` 表里有两个 7 月的
+        `running` 任务（`upgrade-d50ecdcf5a316b1f` / `upgrade-5abf32abd0faa85b`），
+        其目录早已不存在，但状态永远停在 `running` ⇒ `cleanup_artifacts` 一直返回
+        「存在正在执行的升级任务」——**该机从 7 月起空间清理功能实际是废的**，
+        磁盘因此堆到 94%（14G 历史升级包）。
+
+        判定用**双重条件**（目录缺失 **且** 状态陈旧），缺一不可：
+        - 只看「目录不存在」会误放行**刚创建、目录尚未落盘**的真任务
+          （实测：`create_task` 与目录创建之间存在窗口）；
+        - 只看「陈旧」会误放行目录尚在但已卡死的真任务，那仍需人工介入。
+        """
         try:
             tasks = self.tasks.list_tasks(limit=200)
         except Exception:
             return []
-        return [
-            task
-            for task in tasks
-            if str(task.get("type")) == TaskType.UPGRADE.value and str(task.get("status")) in ACTIVE_UPGRADE_STATUSES
-        ]
+        upgrades_dir = Path(self.settings.upgrades_dir)
+        now = datetime.now(timezone.utc)
+        active: list[dict[str, Any]] = []
+        for task in tasks:
+            if str(task.get("type")) != TaskType.UPGRADE.value:
+                continue
+            if str(task.get("status")) not in ACTIVE_UPGRADE_STATUSES:
+                continue
+            task_id = str(task.get("id") or "")
+            if task_id and not (upgrades_dir / task_id).is_dir():
+                stamp = str(task.get("updated_at") or task.get("created_at") or "")
+                stale_seconds = self._seconds_since(stamp, now)
+                if stale_seconds is not None and stale_seconds > self.GHOST_TASK_STALE_SECONDS:
+                    logger.info(
+                        "cleanup: 忽略僵尸升级任务 %s（status=%s、目录已不存在、状态陈旧 %.0f 秒）",
+                        task_id, task.get("status"), stale_seconds,
+                    )
+                    continue
+            active.append(task)
+        return active
+
+    @staticmethod
+    def _seconds_since(stamp: str, now: datetime) -> float | None:
+        """解析 ISO 时间戳并返回距今秒数；解析不了返回 None（保守当作仍活跃）。"""
+        if not stamp:
+            return None
+        try:
+            moment = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        return (now - moment).total_seconds()
 
     def scan_sqlite_vacuum(self) -> dict[str, Any]:
         path = self.settings.sqlite_path

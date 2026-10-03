@@ -39,7 +39,11 @@ class V2CleanupServiceTest(unittest.TestCase):
 
             result = cleanup.cleanup_artifacts()
 
-            self.assertEqual(result["deleted_count"], 4)
+            # 语义更新（2026-10-04）：keep_recent 下限强制为 1，upgrades/ 下唯一那个
+            # `pkg.tar.gz` 被保留（回滚需旧镜像，用户口径），其余 3 个目录条目各删 1。
+            self.assertEqual(result["kept_count"], 1)
+            self.assertEqual(result["deleted_count"], 3)
+            self.assertTrue((settings.upgrades_dir / "pkg.tar.gz").exists())
             self.assertEqual(result["space_reclaimed"], scan["total_size"])
             self.assertTrue((settings.backups_dir / "keep.tar.gz").is_file())
             self.assertFalse((settings.reports_dir / "report.xlsx").exists())
@@ -73,11 +77,20 @@ class V2CleanupServiceTest(unittest.TestCase):
             cleanup = CleanupService(settings, TaskService(database))
             result = cleanup.cleanup_artifacts(keep_recent_upgrades=2)
 
+            # 语义更新（2026-10-04）：3 个任务目录 + 1 个报表，共 4 个条目；
+            # keep_recent=2 保留 upgrades 下最近 2 个目录，故删 1 个目录 + 1 个报表 = 2。
             self.assertEqual(result["deleted_count"], 2)
             self.assertEqual(result["kept_count"], 2)
-            self.assertFalse(dirs[0].exists())
+            # 语义更新（2026-10-04）：被清理的任务目录**本身保留**（记录优先），
+            # 只有其中的体积产物 package.tar.gz 被删。
+            self.assertTrue(dirs[0].exists(), "任务目录本身应保留")
+            self.assertFalse(
+                (dirs[0] / "package.tar.gz").exists(), "最旧任务的包应被删"
+            )
             self.assertTrue(dirs[1].exists())
+            self.assertTrue((dirs[1] / "package.tar.gz").exists(), "保留的目录其包不应删")
             self.assertTrue(dirs[2].exists())
+            self.assertTrue((dirs[2] / "package.tar.gz").exists())
             self.assertFalse((settings.reports_dir / "report.xlsx").exists())
 
     def test_cleanup_artifacts_refuses_while_upgrade_task_active(self) -> None:
@@ -455,3 +468,190 @@ class V2CleanupApiTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CleanupKeepsRecordsDropsPackagesTest(unittest.TestCase):
+    """清理只删包、保留记录（用户口径 2026-10-04）。
+
+    背景：单个升级任务目录里 `package/` + `*.tar.gz` 占 200M~853M，
+    而 `task.json` 只有 40K~172K，且**升级中心历史完全依赖它**
+    （`intake.py::history` 只扫 `*/task.json`，不读 `package/`）。
+    """
+
+    def _make_task(self, settings, name: str, age_seconds: int) -> Path:
+        import os
+
+        task_dir = settings.upgrades_dir / name
+        (task_dir / "package" / "images").mkdir(parents=True)
+        (task_dir / "package" / "images" / "web-api.tar").write_bytes(b"x" * 4096)
+        (task_dir / "smartx-capacity-insight-upgrade-v0.5.3.tar.gz").write_bytes(b"y" * 4096)
+        (task_dir / "task.json").write_text('{"status": "success"}', encoding="utf-8")
+        (task_dir / "post-upgrade-cleanup.json").write_text("{}", encoding="utf-8")
+        stamp = datetime.now().timestamp() - age_seconds
+        os.utime(task_dir, (stamp, stamp))
+        return task_dir
+
+    def test_old_task_loses_package_but_keeps_record(self) -> None:
+        from app.v2.cleanup.service import CleanupService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="s")
+            database = V2Database(settings)
+            database.initialize()
+            old = self._make_task(settings, "upgrade-old", age_seconds=10_000)
+            self._make_task(settings, "upgrade-new", age_seconds=10)
+
+            cleanup = CleanupService(settings, TaskService(database))
+            result = cleanup.cleanup_artifacts()
+
+            self.assertTrue(result["ok"])
+            # 记录仍在（升级中心历史靠它）
+            self.assertTrue((old / "task.json").is_file(), "旧任务的 task.json 必须保留")
+            self.assertTrue(
+                (old / "post-upgrade-cleanup.json").is_file(), "小标记文件应保留"
+            )
+            # 包被删
+            self.assertFalse((old / "package").exists(), "旧任务的 package/ 应被删")
+            self.assertFalse(
+                (old / "smartx-capacity-insight-upgrade-v0.5.3.tar.gz").exists(),
+                "旧任务的升级包本体应被删",
+            )
+
+    def test_keep_recent_defaults_to_one_and_is_floored(self) -> None:
+        """默认保留最近 1 个包；即使显式传 0 也不得清光（回滚需旧镜像）。"""
+        from app.v2.cleanup.service import CleanupService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="s")
+            database = V2Database(settings)
+            database.initialize()
+            newest = self._make_task(settings, "upgrade-newest", age_seconds=10)
+            self._make_task(settings, "upgrade-older", age_seconds=5_000)
+
+            cleanup = CleanupService(settings, TaskService(database))
+            result = cleanup.cleanup_artifacts(keep_recent_upgrades=0)
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(
+                result["kept_count"], 1, "传 0 也必须保留下限 1 个（回滚需旧镜像来源）"
+            )
+            self.assertTrue(
+                (newest / "package").exists(), "最近一次的包应保留（供回滚/重装）"
+            )
+
+    def test_ghost_running_task_does_not_block_cleanup(self) -> None:
+        """僵尸 running 任务（目录已不存在）不得锁死清理。
+
+        `.12` 实测 2026-10-04：tasks 表有两个 7 月的 running 僵尸任务，
+        目录早已不存在，导致该机从 7 月起空间清理功能实际是废的、磁盘堆到 94%。
+        """
+        from app.v2.cleanup.service import CleanupService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.models import TaskStatus, TaskType
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="s")
+            database = V2Database(settings)
+            database.initialize()
+            tasks = TaskService(database)
+            # 僵尸：库里有 running 记录、磁盘上无目录、且状态陈旧（数月前）
+            tasks.create_task(
+                "upgrade-ghost", TaskType.UPGRADE, "平台升级",
+                status=TaskStatus.RUNNING, progress=10,
+            )
+            with tasks.database.connection() as conn:
+                conn.execute(
+                    "UPDATE tasks SET updated_at = ?, created_at = ? WHERE id = ?",
+                    (
+                        (datetime.now(timezone.utc) - timedelta(days=90)).isoformat(),
+                        (datetime.now(timezone.utc) - timedelta(days=91)).isoformat(),
+                        "upgrade-ghost",
+                    ),
+                )
+            self.assertFalse((settings.upgrades_dir / "upgrade-ghost").exists())
+            # 两个任务目录：因keep_recent 下限为 1，会保留最近 1 个、清理更旧的 1 个
+            for name, age in (("upgrade-old", 5000), ("upgrade-new", 10)):
+                d = settings.upgrades_dir / name
+                (d / "package").mkdir(parents=True)
+                (d / "package" / "a.tar").write_bytes(b"z" * 2048)
+                (d / "task.json").write_text("{}", encoding="utf-8")
+                import os as _os
+                stamp = datetime.now().timestamp() - age
+                _os.utime(d, (stamp, stamp))
+
+            cleanup = CleanupService(settings, tasks)
+            result = cleanup.cleanup_artifacts()
+
+            self.assertTrue(result["ok"], f"僵尸任务不应阻塞清理：{result.get('message')}")
+            self.assertGreater(
+                result["deleted_count"], 0, "放行后应能实际清理旧任务的包"
+            )
+            # 记录仍保留（历史可查）
+            self.assertTrue((settings.upgrades_dir / "upgrade-old" / "task.json").is_file())
+
+    def test_real_running_task_still_blocks_cleanup(self) -> None:
+        """真正在跑的任务（目录存在）仍必须阻塞清理——不能为了清僵尸而放开真任务。"""
+        from app.v2.cleanup.service import CleanupService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.models import TaskStatus, TaskType
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="s")
+            database = V2Database(settings)
+            database.initialize()
+            tasks = TaskService(database)
+            tasks.create_task(
+                "upgrade-live", TaskType.UPGRADE, "平台升级",
+                status=TaskStatus.RUNNING, progress=10,
+            )
+            live_dir = settings.upgrades_dir / "upgrade-live"
+            (live_dir / "package").mkdir(parents=True)
+            (live_dir / "package" / "a.tar").write_bytes(b"z" * 2048)
+
+            cleanup = CleanupService(settings, tasks)
+            result = cleanup.cleanup_artifacts()
+
+            self.assertFalse(result["ok"], "真在跑的任务必须继续阻塞清理")
+            self.assertTrue((live_dir / "package").exists(), "活跃任务的包不能被删")
+
+
+    def test_fresh_running_task_without_dir_still_blocks(self) -> None:
+        """目录缺失但状态新鲜 ⇒ 仍按活跃处理（刚创建、目录尚未落盘的窗口）。
+
+        这条锁住双重判定：若只按「目录不存在」放行，会在任务刚创建时误清其产物。
+        """
+        from app.v2.cleanup.service import CleanupService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.models import TaskStatus, TaskType
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="s")
+            database = V2Database(settings)
+            database.initialize()
+            tasks = TaskService(database)
+            tasks.create_task(
+                "upgrade-fresh", TaskType.UPGRADE, "平台升级",
+                status=TaskStatus.RUNNING, progress=10,
+            )
+            self.assertFalse((settings.upgrades_dir / "upgrade-fresh").exists())
+            stray = settings.upgrades_dir / "old-payload" / "package"
+            stray.mkdir(parents=True)
+            (stray / "a.tar").write_bytes(b"z" * 2048)
+
+            cleanup = CleanupService(settings, tasks)
+            result = cleanup.cleanup_artifacts()
+
+            self.assertFalse(result["ok"], "状态新鲜的 running 任务必须继续阻塞清理")
+            self.assertTrue(stray.exists())
