@@ -131,7 +131,8 @@ class DashboardService:
 
     def _build_summary(self, *, tower_id: int | None, cluster_id: str | None) -> dict[str, Any]:
         enabled_scope = self._enabled_cluster_scope(tower_id=tower_id, cluster_id=cluster_id)
-        clusters = self._cluster_capacity(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        allocated_by_cluster = _volume_allocated_by_cluster(self.database, enabled_scope)
+        clusters = self._cluster_capacity(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, allocated_by_cluster=allocated_by_cluster)
         cluster_forecasts = self._cluster_forecasts(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         day_fastest_growing_vms = self._day_fastest_growing_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         month_fastest_growing_vms = self._period_fastest_growing_vms(tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, days=30, limit=100)
@@ -145,8 +146,9 @@ class DashboardService:
         collection_payload = self._latest_collection()
         total_bytes = sum(float(cluster.get("total_bytes") or 0) for cluster in clusters)
         used_bytes = sum(float(cluster.get("used_bytes") or 0) for cluster in clusters)
-        # #75 用户口径：已分配 = Σ(每卷供给容量 × 副本数)（数据源 vm_volumes）
-        allocated_bytes = float(_volume_allocated_bytes(self.database, enabled_scope))
+        # #75 用户口径：已分配 = Σ(每卷供给容量 × 副本数)（数据源 vm_volumes）；
+        # 与上方 _cluster_capacity 共享同一次扫描的结果（75 万卷 ~250ms/次，不扫两遍）
+        allocated_bytes = float(sum(allocated_by_cluster.values()))
         kpis = {
             "tower_count": len(towers),
             "cluster_count": len(clusters),
@@ -223,13 +225,15 @@ class DashboardService:
             row = conn.execute(f"SELECT enabled FROM clusters WHERE {filters}", params).fetchone()
         return bool(row["enabled"]) if row else False
 
-    def _cluster_capacity(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
+    def _cluster_capacity(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]], allocated_by_cluster: dict[tuple[int, str], int] | None = None) -> list[dict[str, Any]]:
         used_by_key = self._cluster_metric_map(CLUSTER_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         total_by_key = self._cluster_metric_map(CLUSTER_TOTAL_METRIC, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
-        # #75：明细行已分配同样改卷级口径（Σ 卷供给 × 副本），与总览条一致
+        # #75：明细行已分配同样改卷级口径（Σ 卷供给 × 副本），与总览条一致；
+        # 允许调用方传入一次扫描的结果（summary 里总览与明细共享同一次扫描）
+        allocated_source = allocated_by_cluster if allocated_by_cluster is not None else _volume_allocated_by_cluster(self.database, enabled_scope)
         allocated_by_key = {
             (tower_id, cluster_id): float(v)
-            for (tower_id, cluster_id), v in _volume_allocated_by_cluster(self.database, enabled_scope).items()
+            for (tower_id, cluster_id), v in allocated_source.items()
             if (tower_id is None or tower_id == tower_id) and (cluster_id is None or cluster_id == cluster_id)
         }
         names = self._cluster_names()
