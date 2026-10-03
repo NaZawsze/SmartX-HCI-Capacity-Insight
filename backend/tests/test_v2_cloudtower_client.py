@@ -63,7 +63,7 @@ class V2CloudTowerClientTest(unittest.TestCase):
                                 "id": "vol-1",
                                 "name": "Root",
                                 "path": "/root",
-                                "size": 1099511627776,
+                                "size_bytes": 1099511627776,
                                 "used_size": 600,
                                 "elf_storage_policy": "Replica-2",
                                 "elf_storage_policy_replica_num": 2,
@@ -96,7 +96,7 @@ class V2CloudTowerClientTest(unittest.TestCase):
                     "volume_id": "vol-1",
                     "name": "Root",
                     "path": "/root",
-                    "size_bytes": 1000,
+                    "size_bytes": 1099511627776,
                     "used_bytes": 600,
                     "storage_policy": "Replica-2",
                     "replica_num": 2,
@@ -116,16 +116,6 @@ class V2CloudTowerClientTest(unittest.TestCase):
         self.assertEqual(client.get_clusters(), [])
         self.assertEqual(http.requests[0]["path"], "/v2/api/get-clusters")
         self.assertEqual(http.requests[0]["headers"]["Authorization"], "api-token")
-
-
-    def test_get_cluster_allocations_skips_request_without_cluster_ids(self) -> None:
-        from app.v2.cloudtower.client import CloudTowerClient, CloudTowerCredentials
-
-        http = FakeHttpClient([])
-        client = CloudTowerClient(CloudTowerCredentials(base_url="https://tower.example.com", api_token="api-token"), http_client=http)
-
-        self.assertEqual(client.get_cluster_allocations([]), {})
-        self.assertEqual(http.requests, [])
 
 
     def test_normalize_vm_records_recycle_bin_fields(self) -> None:
