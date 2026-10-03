@@ -176,7 +176,7 @@
 - **这本身是合理设计**：早期动作失败时环境尚未改变，回滚无意义。但**文档与认知必须纠正**——US-29 决定放弃人工回滚后，文档把「失败自动回滚」称为"唯一安全网"，而实际上它**只覆盖升级末段的健康检查失败**这一段窗口。
 - **附带发现**：`backup.create` 已成功（留下 ~4.7MB 备份）后才失败，**该备份无人回收**；实测 `backups/` 累积 5 份历史备份。
 - **方向**：①修正文档口径（"安全网"仅覆盖 health 阶段失败）；②早期失败时给出「残留物清单 + 收尾指引」（复用 US-27 的 `cleanup_required` 机制，覆盖**所有**失败态而非仅 `recovery/fail`）；③备份保留策略（成功任务保留 N 份/按 TTL，失败任务随取证期）。
-- **状态**：🟠 **部分修复**（`.12` 已闭环；备份保留策略仍待排期，见下）。
+- **状态**：🟢 **已修（2026-09-29）**。三条方向全部落地：①所有 failed 任务都有收尾指引（`cleanup_required` 覆盖全部失败态）；②残留探测改在宿主视角判断（容器视角必然存在 bind mount 挂载点）；③备份保留策略已实施（`upgrade/backup_retention.py` + 守护线程，TTL 14 天 + 保留最近 5 份，配对备份分别计数、最新 N 份豁免过期）。此前记为「🟠 部分修复·备份保留策略仍待排期」是**滞后**——下方「备份保留策略」小节与代码（`main.py` 已接线 `start_backup_cleanup_daemon`）均显示已实施。
 - **修复一：所有 failed 任务都有收尾指引**（不只走人工 `recovery/fail` 的那些）。早期动作失败由 runner 自行判定 `failed`、不经任何人工入口，此前既无残留清单也无操作入口。两处根因：①`cleanup_required` 只挂在 `recovery/fail`；②**`setdefault` 陷阱**——`engine.py` 用 `setdefault` 兜 `available_recovery_actions`，而键存在且值为 `None` 时 `setdefault` **不替换**，失败任务带着 `None` 定格，前端 `?.includes()` 拿不到任何按钮。现 `_public_task` 对所有 `failed` 任务补残留探测+指引+`fail` 入口，engine 侧显式归一 `None`。
 - **修复二：残留探测必须在宿主视角判断**。探测在 web-api 容器内执行，而 `/data/backups`、`/data/exports`、`/data/compose-runtime`、`/prometheus-data` 是 bind mount 挂载点、容器视角**必然存在**（且必须存在，删掉会拆掉全机挂载，UPG-050）——旧实现直接 `Path.exists()` **永远误报**。`.12` 实测：7 个 legacy 宿主路径全部已清空（环境干净），探测却报 5 个"残留"，把管理员引向无意义的收尾操作。改为经 `_container_mount_source` 换算宿主真实路径：**有映射时，宿主源存在=正常布局、不存在=布局未建立（即真残留）；无映射时保守用容器路径**（宁多报不漏报）。
 - **`.12` 判别证据**：平台包 r13（SHA `60114ad9701be381275b6bf7aeac2bb4de10245d6d5dcdc6bd1d3327ccd9cca3`）升级 succeeded 后，历史失败任务 `upgrade-acf7a29bb647e5a2` 视图由 `cleanup_required=True / 5 条误报 / actions=None` 变为 `cleanup_required=False / residual_paths=[] / actions=['fail']`；health `v0.5.3 / runner v0.3.2` 三项 checks 全 true。
@@ -186,7 +186,7 @@
   - 只清本模块命名的产物；`customer-manual-backup.tar.gz`、导出物等一律不动。`plan_cleanup` 只读。
   - 排序口径：数据备份按**文件名内时间戳**，项目备份目录名无时间戳、按 **mtime**。
   - 测试 14 例（TTL、数量裁剪、保底豁免、配对保持、只读性、非法配置回退、main 接线）。
-`.12` 实测 `backups/` 累积 **13 份 / 79MB**（`backup.create` 先成功、后续 `image.load` 失败所致）。需定策略：成功任务保留 N 份或按 TTL，失败任务随取证期到期清理。此项会持续增长磁盘占用，属运维债而非正确性问题。
+`.12` 实测 `backups/` 累积 **13 份 / 79MB**（`backup.create` 先成功、后续 `image.load` 失败所致）。→ 该策略已于 2026-09-29 按「TTL 14 天 + 保留最近 5 份 + 配对分别计数」实施（见上）。
 
 ### US-32 🟢 已修（第 5 批实测）：compose 的 runner tag 回写**自实现起从未生效**（只读挂载 + 静默吞错）
 
