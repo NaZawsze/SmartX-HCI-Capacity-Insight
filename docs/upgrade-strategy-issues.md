@@ -10,7 +10,7 @@
 
 ## A. 架构/契约层（骨架级）
 
-### US-01 🔴 源端执行：平台包的新校验对"当次升级"无效
+### US-01 🟢 源端执行：平台包的新校验对"当次升级"无效
 - **现象**：编译计划（`execution.py:32 compile_execution_plan`）、预检查、执行编排全部运行在**源端 web-api**；平台包带来的新逻辑只存在于目标镜像里，**当次升级用不到**。
 - **证据**：49-50 的动作级预检查与"同 project 不停 runner"修复，对 `v0.5.2 → v0.5.3` 这一次完全无效（`.12` 三轮实测：老 web-api 照跑老逻辑）。
 - **影响**：所有安全增强都"晚一代"；v0.5.3 的预检查只能保护 v0.5.3→v0.5.4。
@@ -22,14 +22,14 @@
 - **门禁的实际作用**：写矩阵时我一度把"manifest 声明支持"当成"已验证"写进 ✅ 行，**被门禁当场拦下**并要求补真实 task id——这正是本项最有价值的部分，防止矩阵在后续改动中悄悄失真。
 - 未实测组合（v0.5.0/v0.5.1/v0.5.1u1 → v0.5.3）**保留声明但标注未实测**，不得对客户承诺。
 
-### US-02 🔴 runner 版本号是隐式契约（同版本不同能力）
+### US-02 🟢 runner 版本号是隐式契约（同版本不同能力）
 - **现象**：`RUNNER_VERSION` 不随能力变更 → 同一 `v0.3.1` 三副面孔（仓库 26 动作 / 发行包 25 动作 / DockerHub 干脆没有）。
 - **证据**：`dab2e0f`(08-12) 给 runner +2053 行但 `git show dab2e0f -- RUNNER_VERSION` 为空；DockerHub tags API 只有 `latest`/`runner-sha-31a1209`/`v0.3.0`。
 - **影响**：能力级预检查分辨不了 → 失败落在 cutover 之后。
 - **方向**：bump 纪律 + **硬门禁脚本**（发布前自动比对三处同源）+ 动作级校验。
 - **状态**：🟢 **已完成（2026-09-27，49-54）**：`scripts/verify_runner_delivery_consistency.py` 把「三处同源核对」做成一条命令（C1 仓库 `RUNNER_VERSION`／C2 动作表 AST 静态提取／C3 三个源码 compose 字面量 tag／C4 组件包 manifest 与镜像归档 SHA256／C5 **离线解析包内镜像归档比对 `RUNNER_VERSION` 与 `actions.py` md5 与仓库一致**／C6 DockerHub tag 200 默认关闭），任一 FAIL 非零退出、SKIP 必须显式；配对单测 22 例；**已接入 `docs/release-acceptance.md` 发布门禁第 4 步**。`.3` 实证：v0.3.2 包全绿，v0.3.1 包（`dd096bf2…`）正确 FAIL。**本条关闭**。
 
-### US-03 🟠 runner 生命周期散落三个入口
+### US-03 🟢 runner 生命周期散落三个入口
 - **现象**：组件升级（web-api `compose stop/up`）、平台升级 handoff（runner 自己 `docker run` helper）、legacy 清理（runner 动作 `runner.stop_legacy_runtime`）三方都能动同一个 runner 容器。
 - **证据**：`execution.py` 的 bootstrap stop、`actions.py:1449` handoff、`actions.py:1548` stop_legacy。
 - **影响**：时序 bug 温床 —— US-04 就是这么产生的。
@@ -37,7 +37,7 @@
 - **状态**：🟢 **已收敛（2026-09-29）**。抽出 `resolve_runner_stop_decision()` 作为**唯一决策处**（返回可断言、可留痕的纯数据 `stop/reason/runner_project/target_project`，`reason` 带 `purpose` 便于事后取证）；`stop_legacy_runtime` 经它判断、拒绝时给结构化 `skip_reason`；web-api 侧 `_should_stop_previous_runner` 语义对齐，并有**收敛一致性测试**（逐输入比对两侧判定）。
 - **收敛测试抓到的真 bug**：web-api 侧 `if not bootstrap` 把空 dict（`{}`）当成"没有 bootstrap 对象"而跳过停止，但它紧邻的 `target_project` 空串分支本意是"未声明 → 保守停止"——两者语义相同、判定相反。改为 `is None` 精确判断。旧测试 `test_runner_bootstrap_stop.py` 曾用 `{}` 表示"非 bootstrap"，掩盖了这个不一致，一并更正。
 
-### US-04 🟠 老 web-api 的无条件 stop（v0.5.2 源端，改不到）
+### US-04 🟢 老 web-api 的无条件 stop（v0.5.2 源端，改不到）
 - **现象**：目标布局机器上**原地**做 runner 组件升级，新 runner 启动后 10 秒被 SIGKILL（`exit=137`），心跳过期 → 后续预检查报"未检测到 upgrade-runner 心跳"。
 - **根因**：`execution.py` 在 `_runner_bootstrap` 时无条件 `docker compose --project-name <当前project> stop upgrade-runner`；同 project 场景下停的就是刚启动的新 runner。
 - **证据**：`.12` 两轮复现（08:16、09:04 UTC，启动后 10s kill，docker events `start → kill(+10s) → stop/die`）；第四轮加守卫后 **runner 存活 90s**。
@@ -89,7 +89,7 @@
 - **证据**：`execution.py:42-60` 无任何 running/pending 互斥检查；删除任务时倒是有保护（`intake.py:81`「升级任务正在执行…不能删除」），说明设计者考虑过并发，唯独 start 漏了。
 - **影响**：客户连点两次、两个管理员并行操作、或"预检失败→再传一个包→两个都 start"都会触发；真实现场风险中高。
 - **方向**：`start` 前检查是否存在**其它**平台升级任务处于 `pending/running/runner_restarting/recovery_*` → `400 升级任务正在执行中`；同时 runner 执行前**重新校验 source_compatibility**（防止计划过期）。列入 #47③。
-- **状态**：🟠 **已实施（49-52，提交 8115c41/32f9a95）**：`execution.py::start()` 增加 `_ensure_no_active_upgrade`（ACTIVE={pending,running,runner_restarting,recovery_required,rollback_pending,rollback_running}；类级 `threading.Lock` 消除扫描-认领竞态；retry/recovery/rollback 同守卫，cancel/delete 不拦）；新增 `test_upgrade_single_flight.py` 9 用例 + API 测试断言；`.3` 全量 386 OK。**`.12` 已验证（2026-09-28）**：平台升级 `upgrade-b07795625cf0d681` 执行中，第二个已预检通过的包 `upgrade-88e7262584becb7c` 的 start → **400** `升级任务 … 正在执行或需要恢复，不能开始新的升级。`；另验证逃生门标记失败后守卫正常释放（新 start 恢复放行）。runner 执行前重验 source_compatibility 未做（需 bump runner，留 #47）。
+- **状态**：🟢 **已实施并经 `.12` 复验（49-52，提交 8115c41/32f9a95；2026-09-29）**：`execution.py::start()` 增加 `_ensure_no_active_upgrade`（ACTIVE={pending,running,runner_restarting,recovery_required,rollback_pending,rollback_running}；类级 `threading.Lock` 消除扫描-认领竞态；retry/recovery/rollback 同守卫，cancel/delete 不拦）；新增 `test_upgrade_single_flight.py` 9 用例 + API 测试断言；`.3` 全量 386 OK。**`.12` 已验证（2026-09-28）**：平台升级 `upgrade-b07795625cf0d681` 执行中，第二个已预检通过的包 `upgrade-88e7262584becb7c` 的 start → **400** `升级任务 … 正在执行或需要恢复，不能开始新的升级。`；另验证逃生门标记失败后守卫正常释放（新 start 恢复放行）。runner 执行前重验 source_compatibility 未做（需 bump runner，留 #47）。
 
 ### US-24 🟢 已修（并入 v0.3.2，待交付复验）：同版本重装（已在目标布局）时 runner 自伤：`_save` 双写同一 task.json → 崩溃循环、任务卡死
 
@@ -115,9 +115,9 @@
 - **影响范围（重要）**：**对本次发布无影响**——正常客户现场 runner 就是 v0.3.1，降级后仍是 v0.3.1，无感知。**会在「下一版交付 runner v0.3.2」之后咬人**：客户先装 v0.3.2（安装成功、日志显示 `跳过停止旧 runner`），之后再升平台就被静默降回 v0.3.1，US-24 等 runner 侧修复随之丢失，且无提示——属于 AGENTS §6「能力漂移」类风险。
 - **修法方向（待实施）**：①**编译计划时解析 runner 镜像**：现场 runner 版本 ≥ 包 `minimum_runner_version` 时，handoff 用**现场实际镜像**而不是包内 tag（计划里记录实际会跑的镜像，可审计）；②或动作层：目标 tag 与当前运行 tag 相同则不 `--force-recreate`，现场版本更高时保留现场版本；③补「现场 runner 高于包基线」的回归用例。组件升级侧同时应回写 project compose / runner-upgrade compose，消除 tag 多事实源。
 - **证据**：`.12` 2026-09-28 23:08→23:14 实测；`compose-runtime/docker-compose.runner-bootstrap.yml`=v0.3.2 而 `docker-compose.yml`/`docker-compose.runner-upgrade.yml`/`docker compose config`=v0.3.1。
-- **状态**：🟠 **已实施（2026-09-28，提交 7083d72/fe555be），待 `.12` 复验**。方案**实施中修正**（设计 §3.2）：初版「计划带 preserve_current + 动作层沿用现场镜像」会**打挂主路径**——已发布 runner v0.3.1 收到空 image 会 `raise ValueError` 导致 v0.5.2→v0.5.3 失败，且需改 runner（AGENTS §6）。最终改为**编译期由 web-api 解析现场 runner 镜像注入 manifest 副本**，编译器照常下发具体镜像，**旧 runner 零改动**、向后兼容。`.3` 门禁全绿（后端 468 OK、build 26 OK、identity 0、交付一致性 C1–C5 全 PASS 证明 `actions.py md5 matches repo` runner 未动、候选包 r8 `3672e920`）。**`.12` 复验全部通过（2026-09-28）**：①**主路径回归** v0.5.2+已发布 runner v0.3.1 → r8 直升 `upgrade-6f035c3e52b83428` succeeded（188s）+ 8 项验收全过，**runner 仍 v0.3.1**（未被无故改动）；②装 v0.3.2 组件包 `upgrade-39600ca4b67b75ad` succeeded，三方一致 v0.3.2、存活 90s+；③**判别格**：v0.5.3 同版本重装 `upgrade-7c0720d6207ea942` succeeded（<10s）、**runner 仍 v0.3.2**（容器 tag / 镜像内 `RUNNER_VERSION` / health 三方一致），**修复前同操作会回落 v0.3.1**；最大 attempt 1、runner 重启 0（US-24 无回归）、8 项验收全过、DB 556/89588 不变、7 条 legacy 路径全清；④US-23 抽查 400 正常。另修 US-26-4 回写正则（真实 compose 在 `upgrade-runner:` 后先有 `build:` 块，`image:` 位置不固定 → 改逐行状态机，提交 4c7ed07）。
+- **状态**：🟢 **已实施并经 `.12` 验证（2026-09-28，提交 7083d72/fe555be；复验证据：r12 同版本重装验收「runner v0.3.2 未被包基线降级」判别通过）**。方案**实施中修正**（设计 §3.2）：初版「计划带 preserve_current + 动作层沿用现场镜像」会**打挂主路径**——已发布 runner v0.3.1 收到空 image 会 `raise ValueError` 导致 v0.5.2→v0.5.3 失败，且需改 runner（AGENTS §6）。最终改为**编译期由 web-api 解析现场 runner 镜像注入 manifest 副本**，编译器照常下发具体镜像，**旧 runner 零改动**、向后兼容。`.3` 门禁全绿（后端 468 OK、build 26 OK、identity 0、交付一致性 C1–C5 全 PASS 证明 `actions.py md5 matches repo` runner 未动、候选包 r8 `3672e920`）。**`.12` 复验全部通过（2026-09-28）**：①**主路径回归** v0.5.2+已发布 runner v0.3.1 → r8 直升 `upgrade-6f035c3e52b83428` succeeded（188s）+ 8 项验收全过，**runner 仍 v0.3.1**（未被无故改动）；②装 v0.3.2 组件包 `upgrade-39600ca4b67b75ad` succeeded，三方一致 v0.3.2、存活 90s+；③**判别格**：v0.5.3 同版本重装 `upgrade-7c0720d6207ea942` succeeded（<10s）、**runner 仍 v0.3.2**（容器 tag / 镜像内 `RUNNER_VERSION` / health 三方一致），**修复前同操作会回落 v0.3.1**；最大 attempt 1、runner 重启 0（US-24 无回归）、8 项验收全过、DB 556/89588 不变、7 条 legacy 路径全清；④US-23 抽查 400 正常。另修 US-26-4 回写正则（真实 compose 在 `upgrade-runner:` 后先有 `build:` 块，`image:` 位置不固定 → 改逐行状态机，提交 4c7ed07）。
 
-### US-27 🟠 已实施待 .12 复验：US-25 逃生门只改状态，不清理也不回滚 → 旧路径残留
+### US-27 🟢 已实施并经 .12/.14 复验：US-25 逃生门只改状态，不清理也不回滚 → 旧路径残留
 
 - **现象**：任务被中断后走 `recovery/fail` 标记失败，**环境留下半迁移残留**：`/data/upgrades/upgrade-925f38527816ae1f/package`（被中断任务在旧路径的包目录）与 `/data/smartx-capacity-insight-data/{app,prometheus}`（空骨架，被中断升级的 `filesystem.prepare` 造出）重新出现 → 8 项验收第 7 项「legacy 路径全 missing」判**异常**。
 - **数据红线**：**未受损**——live 库 `/data/smartx-storage-forecast/app/smartx.db` `integrity ok`、556/89588 与升级前一致；旧数据目录仅 12K 空骨架，无数据分叉。
@@ -125,7 +125,7 @@
 - **方向**：逃生门在标记失败时提示"环境可能半迁移，需再跑一次升级让 post-cleanup 收尾"，或在 `recovery/fail` 响应里带 `cleanup_required=true` + 残留路径清单；理想是提供"标记失败并清理残留"的产品化收尾动作。
 - **状态**：🟢 **已实施并经 `.12`/`.14` 复验（2026-09-29）**（提交 9d60a68/4a5b2f1，`.3` 门禁全过）：`recovery/fail` 增加 `_residual_legacy_paths()` **只读**探测（7 条 legacy 路径）+ 任务视图暴露 `cleanup_required` / `residual_paths`；`error` **追加**（不覆盖原失败语义）收尾指引「环境可能半迁移 → 重跑一次完整升级由 post-cleanup 收尾 → 之前不要开始新升级」；前端新增「需要收尾」面板显示残留路径。测试 8 例（含只读性断言：探测不得含 rmtree/unlink/mkdir）。**`.12`/`.14` 复验通过**：`upgrade-acf7a29bb647e5a2` 视图由 `cleanup_required=True / 5 条误报 / actions=None` 变为 `cleanup_required=False / residual_paths=[] / actions=['fail']`（既不误报也不丢入口）。**其中残留探测的误报是 US-31 一并修掉的**（容器内 bind mount 挂载点必然存在，直接 `Path.exists()` 判定会永远误报）。
 
-### US-28 🟠 新发现（本轮 .12 验收）：runner 组件升级后有约 10 分钟 SQLite 写锁窗口，web-api 写操作直接 500
+### US-28 🟢 已修（本轮 .12 验收发现）：runner 组件升级后有约 10 分钟 SQLite 写锁窗口，web-api 写操作直接 500
 
 - **现象**：`.12` 跑 runner v0.3.1 组件升级后，紧接着的 **v0.5.2 平台步预检查连续 3 次 HTTP 500**（`sqlite3.OperationalError: database is locked`），心跳当时新鲜（age=2s）、health 全绿——**不是 US-08 心跳问题**。
 - **根因取证**：锁的持有者是 runner 容器主进程（`python -m app.upgrade_runner.main`，`hrtimer_nanosleep` 空闲态），它持有**大量未关闭的 DB 连接**：`/proc/<pid>/fd` 指向 `/data/smartx.db` 的 fd 数实测 **52 → 30 秒后降到 14**；DB 目录无 `-wal/-shm`，即 rollback journal 模式，未提交事务独占写锁。约 10 分钟后锁自行释放，预检随即正常（7 项全 true）。
@@ -148,7 +148,7 @@
 - **执行口径**：UI 隐藏回滚入口；API 保留但标记废弃（避免老客户端 404）；自动回滚路径与 `rolled_back` 状态**不动**。
 - **状态**：🟢 **已实施（2026-09-28，提交 9d60a68）**：前端恢复操作区**移除「执行回滚」按钮**（保留「继续执行」「标记失败」）；服务层 `rollback()` / `recovery_rollback()` **保留实现与路由**（老客户端/历史任务不 404），加注释标注已下线；**失败自动回滚路径（`rolled_back` 终态、`rollback_config` 恢复步骤）未动**——测试固化该边界。审计矩阵 US-17 转 N/A。
 
-### US-30 🔴 新发现（第 3 批实测）：升级成功但 post-cleanup 从不执行——**没有客户端轮询就永不收尾**
+### US-30 🟢 新发现（第 3 批实测）：升级成功但 post-cleanup 从不执行——**没有客户端轮询就永不收尾**
 
 - **现象**：`.12` 上 task `upgrade-0de5b6ad24d41c56` **14 个动作全部 succeeded**（含 `post_upgrade.schedule_cleanup`），任务状态 `success`，但 `/data/smartx-capacity-insight-data`、`/prometheus-data`、`/data/upgrades` 三条 legacy 路径**至今残留**。
 - **根因（代码定位）**：`_maybe_schedule_post_upgrade_cleanup()`（`execution.py:648`）只在 `_normalize_completed_runner_task()` 里被调用，而后者**仅在两处被触发**：`execution.py:151`（`status` 接口，即**客户端轮询**）与 `cleanup.py:104`。**worker 侧没有任何后台兜底**。
@@ -188,7 +188,7 @@
   - 测试 14 例（TTL、数量裁剪、保底豁免、配对保持、只读性、非法配置回退、main 接线）。
 `.12` 实测 `backups/` 累积 **13 份 / 79MB**（`backup.create` 先成功、后续 `image.load` 失败所致）。需定策略：成功任务保留 N 份或按 TTL，失败任务随取证期到期清理。此项会持续增长磁盘占用，属运维债而非正确性问题。
 
-### US-32 🔴→🟢 已修（第 5 批实测）：compose 的 runner tag 回写**自实现起从未生效**（只读挂载 + 静默吞错）
+### US-32 🟢 已修（第 5 批实测）：compose 的 runner tag 回写**自实现起从未生效**（只读挂载 + 静默吞错）
 
 - **现象**：`.12` 上反复出现「现场跑 `v0.3.2`、`project/docker-compose.yml` 却写 `v0.3.1`」的多事实源。宿主任何一次 `docker compose up -d` 都会据此把 runner 静默降级（与 US-26 同类后果）。
 - **根因（两层，都很典型）**：
