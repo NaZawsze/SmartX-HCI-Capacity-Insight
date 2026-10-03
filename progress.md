@@ -3698,3 +3698,61 @@ runner 组件升级 ✅ v0.3.1→v0.3.2、守卫实测 ✅ 错变体 exit=2 / �
 ### 最终门禁（HEAD 本轮）
 
 `.3` 全量 **758 tests / 1 failure（既有环境限制）/ skipped=7**（Python 3.12 容器内）。
+
+## 2026-10-03 r13 候选构建与 `.3` 门禁
+
+r13 = r12 + 6 个提交，**代码实质变更仅前端一项**（已分配色值）。
+
+### 前端色值改动
+
+用户两次反馈「已分配蓝太深」：`#6ba6ea` → `#a3c8f0` → `#c2dcf5`（定稿，用户确认「能分清」）。
+
+顺带修两处：
+- 图表已分配虚线原是**硬编码 `#0f9fbf`**，且与卡片用的 `--blue-mid` 不是同一个色 →
+  改走 `cssVar("--blue-mid")`，两处观感统一并去掉一处硬编码色值（AGENTS §11.1）
+- `frontend-style-guide.md` 原写「`--blue-soft` 表示已分配段」，实现早已改用 `--blue-mid`
+  ——文档与实现脱节，照文档改会引入第三种蓝。已修正并补调色来由与实机提醒。
+
+**一个值得记的发现**：frontend 容器 **`Mounts: 0`**——静态文件打进镜像而非挂载宿主目录。
+我第一次改法是覆盖宿主 `dist/assets/*.css`，**完全无效**；且产物文件名带 hash
+（`index-CV9wfTaU.css` → `index-Ry8V44Su.css`），即使挂载了覆盖旧文件名也没用——
+HTML 引用的是新名。正确做法是重建镜像。
+
+### 构建
+
+`.3:/data/r13-build`（git 检出构建树，commit `733801d`）：
+
+```
+bash ops/package.sh --branch dev2 --output-dir /data/r13-build/packages --no-fetch --yes
+```
+
+| 产物 | SHA256 |
+| --- | --- |
+| 平台包 | `f4ab3b2acab289a8f3ae518875ed73d08f860788cb0e1bb45d805930f3b0ca26` |
+| runner 组件包 | `c7be3cb23d560e9e2af82b41d83bd11d3cea39af938dc707b1dfa29f2c983a78` |
+
+### 门禁（`.3`）
+
+| 项 | 结果 |
+| --- | --- |
+| 平台包身份 | ✅ EXIT=0 |
+| runner 交付一致性 | ✅ EXIT=0，12 PASS / 0 FAIL |
+| 敏感文件扫描 | ✅ EXIT=0 |
+| 交付物一致性 | ✅ 与包内解包**字节级一致** |
+| **包内 frontend CSS** | ✅ **`c2dcf5`**（`docker load` 后从容器内 `/usr/share/nginx/html/assets/` 取值；旧色值 `6ba6ea`/`a3c8f0` 均不存在） |
+| 后端全量 | 758 tests / 1 failure / skipped=7 |
+| 前端 tsc | ✅ 0 |
+| 前端 vitest | ✅ 11 files / 108 tests |
+
+唯一失败 `test_v2_upgrade...runner_executes_it` 是**既有环境限制**——已在动手前的 `9da006d`
+上同环境跑同一测试，结果完全相同。非回归。
+
+**注**：`docker load` 会覆盖同名 tag（`frontend:v0.5.3`），但运行中的容器用的是
+已固化的 `colorpreview2` 镜像 id，**不受影响**（已核实容器 Image id 未变）。
+
+### 余项
+
+- `.12` 发布机同版本重装验收（8 项）
+- `.14` 干净机全流程复核（需用户重输 Tower 密码）
+
+发布动作仍等用户明确指令。
