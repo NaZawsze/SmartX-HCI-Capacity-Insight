@@ -3547,3 +3547,71 @@ allocated 172.28（本次采集的准确值）不变。
 这 51 台是 09-12 前真实存在的，Tower 侧它们可能早已连回收站都清了，保守=永不清理）；
 ②连续 N 次采集未返回的正常 VM 视为已删（需加缺失计数列）；
 ③直接按本次返回核对（部分失败时有误删风险，不推荐）。
+
+## 2026-10-03 #77 第二层落地 + 真机验证（`c3c4676`）：purge 统一为 VM 维度
+
+**用户口径**：「直接回收站找不到的，普通的采集不到的虚拟机就直接删了呗」；
+已分配口径同日确认「已使用和已分配都用全部数据，包含回收站」（见 `0950cb9`）。
+
+实现（`backend/app/v2/collection/service.py`）：
+- `_purge_missing_vms`：不再区分 `in_recycle_bin`，采集成功后 Tower 未返回的 VM 一律删
+  **VM 行 + 卷行**（合并原 `_purge_missing_recycle_vms` / `_purge_missing_normal_vms`）；
+- `_purge_orphan_vm_volumes`：兜底清「没有对应 VM 行」的卷行（历史遗留）；
+- 守卫不变：仅单塔/集群采集成功后调用，采集失败一律不动。
+
+**测试**：`.3` 容器（Python 3.12）内后端全量 **758 tests OK (skipped=7)**；
+定向 `test_v2_collection` + `test_v2_cloudtower_client` **23 OK**。
+新增 `test_collection_purges_missing_vms_and_their_volumes`（普通缺失／回收站缺失／孤儿卷
+三种残留一并覆盖）；删除与新口径冲突的旧用例（断言"回收站卷保留"）。
+另修一处测试写在 `if __name__ == "__main__"` 之后、直接执行时静默不跑的问题。
+
+**`.3` 真机验证（r11 实例内用新代码跑真实采集）**：
+
+```text
+BEFORE: vm_latest=248 vm_volumes=373 orphan_vol=1 recycle_vm=2 sigma_alloc=213.06 TiB
+collection status = success | 采集完成：1 个集群，197 台虚拟机。
+AFTER : vm_latest=197 vm_volumes=279 orphan_vol=0 recycle_vm=2 sigma_alloc=171.88 TiB
+```
+
+看板接口同源读数：`allocated_bytes = 188989298442240`（171.88 TiB）、
+`used_bytes = 38593065123840`（35.10 TiB）、`total_bytes = 240988182282400`（219.21 TiB）——
+三者关系恢复（已使用 < 已分配 < 总容量），回收站 VM 2 台仍保留入库。
+
+**连带**：r11 候选包（12:33 构建）早于 `0950cb9`/`c3c4676`，其采集代码仍是「回收站不计入 + 未清残留」
+的旧口径 → 已按 AGENTS §12 重建 r12（见 ledger）。
+
+## 2026-10-03 r12 重打包 + `.3` 重装 + `.12` 同版本重装验收
+
+**为什么重打**：r11（12:33 构建）早于 `0950cb9`（回收站计入已分配）与 `c3c4676`（统一 purge），
+其采集代码与终版口径不一致 → 按 AGENTS §12「动过交付物构成的代码后必须重新打包再验证」重建 r12。
+
+**构建（`.3`，`ops/package.sh --branch dev2 --no-fetch --yes`，EXIT=0）**：源码 = dev2 `c3c4676`
+（构建树为 `git clone` 自本地 bundle 的真检出，日志记载 commit）。
+
+```text
+platform  smartx-capacity-insight-upgrade-v0.5.3.tar.gz  a4cdd1543ca357bfbff46bf206fdf43345f43bfcdbb0b2e103a9bb53a42b1743
+runner    smartx-upgrade-runner-v0.3.2.tar.gz             a2a38dbd2a7d68c8eb807b1d4bd203d19c4f9f89abc231b136b829f90b817795
+门禁：平台身份 PASS ｜ runner 一致性 12 项 PASS（含包内 /app/RUNNER_VERSION、actions.py md5、26 动作同源）｜ 敏感 0 ｜ 离线交付目录已生成
+```
+
+**`.3` 重装为 r12**：快照 `/data/pre-r12-backup/`（VACUUM INTO + `.env` 副本 + SHA；integrity ok、
+vm_latest 197 / vm_volumes 279 / collection_runs 90）→ 用项目 compose recreate 三件套（未动 prometheus 与 runner）→
+`/api/system/health` = `v0.5.3/v0.3.1` 三 checks true、frontend 200；实例内端到端采集 **success / 197 台 VM**，
+`已分配 171.88 TiB`（used 35.10 / total 219.18）、行数稳定 197/279、回收站 VM 2 台保留 → **purge 幂等、无误删**。
+
+**`.12` 同版本重装验收（产品流程：上传 → 预检查 → start，无任何宿主手工变更）**：
+- 上传 r12 平台包，`uploaded_sha256 = a4cdd154…`（与构建一致）；task `upgrade-b86faa353520af27`。
+- 预检查 **8/8 OK**：manifest/paths/source_compatibility（含 `v0.5.3 -> v0.5.3` 修复路径）/runner_protocol/
+  runner_actions（14 动作由 v0.3.2 全支持）/checksums（147 项）/disk_space（4.59 GiB ≥ 2.60 GiB）/images/project_files。
+- 任务 **succeeded**（08:38:38Z → 08:47:24Z），11 动作全 succeeded：backup、load_images、prepare_filesystem、
+  project_files、task_state、write_override、project_migrate、restart、healthcheck、post_upgrade、runner_handoff；
+  post-cleanup `post-cleanup-upgrade-b86faa353520af27` **succeeded**。
+- 8 项验收全过：①health `v0.5.3`/`v0.3.2` + 三 checks true；②三件套运行镜像 ID 与新 tag **逐一 MATCH**、
+  runner 镜像 MATCH v0.3.2（**未被包基线 v0.3.1 降级**，US-26 现场判别）；③project 唯一且正确、仅一个
+  `smartx-hci-capacity-insight-net`；④SQLite integrity ok、数据逐位不变（towers 3/clusters 3/vm_latest 583/
+  vm_volumes 89624/metric_snapshots 1）；⑤`.env` sha `8b644112…` 未变、0600 root:root；⑥7 条 legacy 路径全 absent；
+  ⑦frontend 200 / prometheus 200；⑧镜像内实查含 `_purge_missing_vms`/`_purge_orphan_vm_volumes`。
+
+**环境侧小结**：`.12` `/tmp` 是 3.8G tmpfs（上传大包不能落 `/tmp`，改为直接管道进产品上传接口）；
+`.12` 根盘余量 5.5G，本次未做任何宿主清理。`.3` 构建前清理了 dangling 构建缓存 1.06G 与两个自建的
+`/data/offline-delivery-test*` 临时目录（均为我方测试产物）。
