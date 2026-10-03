@@ -54,7 +54,7 @@ class V2CloudTowerClientTest(unittest.TestCase):
             [
                 FakeResponse(200, {"data": {"token": "token-1"}}),
                 FakeResponse(200, {"data": {"used_data_space": 1024, "total_data_capacity": 4096}}),
-                FakeResponse(200, {"data": {"items": [{"id": "vm-1", "name": "VM One", "used_size": 512}]}}),
+                FakeResponse(200, {"data": {"items": [{"id": "vm-1", "name": "VM One", "used_size": 512}, {"id": "vm-r", "name": "in-recycle-bin-x", "used_size": 999, "in_recycle_bin": True}]}}),
                 FakeResponse(
                     200,
                     {
@@ -81,11 +81,13 @@ class V2CloudTowerClientTest(unittest.TestCase):
 
         payload = client.collect_cluster("cluster-a")
 
-        # #75 终版：allocated 在采集时就地计算 = Σ(卷供给 1TiB × Replica-2) = 2TiB
+        # #75 终版：allocated 在采集时就地计算 = Σ(卷供给 1TiB × Replica-2) = 2TiB；
+        # 回收站 VM（vm-r）不计入
         self.assertEqual(
             payload["cluster"],
             {"used_bytes": 1024, "total_bytes": 4096, "allocated_bytes": int(2 * 1024 ** 4)},
         )
+        self.assertEqual(payload["vms"][-1]["vm_id"], "vm-r")
         self.assertEqual(payload["vms"][0]["vm_id"], "vm-1")
         self.assertEqual(payload["vms"][0]["name"], "VM One")
         self.assertEqual(payload["vms"][0]["used_bytes"], 512)
