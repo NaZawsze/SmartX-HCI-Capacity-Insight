@@ -3756,3 +3756,85 @@ bash ops/package.sh --branch dev2 --output-dir /data/r13-build/packages --no-fet
 - `.14` 干净机全流程复核（需用户重输 Tower 密码）
 
 发布动作仍等用户明确指令。
+
+## 2026-10-03 r13 发布级验证：`.12` 同版本重装 + `.14` 干净机全流程
+
+r13 候选：平台包 `f4ab3b2a…` / runner 组件包 `c7be3cb2…` / 源码 `733801d`。
+
+### `.12` 发布机（同版本重装）
+
+**先处理了一个发布机隐患**：磁盘 94% 满、`/tmp`（tmpfs 3.7G）100% 满，scp 都传不进包。
+清理 09-27~29 的 v0.5.1 时代构建残留 + **19 个已成功的历史升级任务目录**（各约 833M）；
+**保留 `upgrade-acf7a29bb647e5a2`（failed，取证链不自动清）**。
+
+```
+/      48G -> 35G（剩 17G，68%）
+/tmp   3.7G -> 123M
+```
+
+清理后磁盘充足直接救活了预检查的 `disk_space` 项（15.32 GiB >= 2.60 GiB）。
+
+走**产品 API 三步**（upload -> precheck -> start），非手工：
+
+- 任务 `upgrade-c0e31870f7e41dc3`，预检查 **9/9 全过**
+- 主任务 **succeeded**，14 动作全 succeeded
+- **post-cleanup 自动创建**（`post-cleanup-upgrade-c0e31870f7e41dc3`）
+  -> US-30 守护线程在真实环境生效，**无需人工轮询**
+
+8 项验收全过：
+
+| # | 项 | 结果 |
+| --- | --- | --- |
+| ① | health + 三项 checks | ✅ ok=true v0.5.3 / runner v0.3.2，三项 true |
+| ② | 容器 5 Up | ✅ |
+| ③ | 镜像 ID 变化 | ✅ 三件套**全换**（新代码进场） |
+| ④ | project / network | ✅ 唯一且正确 |
+| ⑤ | 数据逐位不变 | ✅ **90098 = 90098**，integrity=ok |
+| ⑥ | `.env` sha | ✅ `8b644112e7433b50` 未变 |
+| ⑦ | 7 条 legacy | ✅ 全 absent |
+| ⑧ | 前端 / Prometheus | ✅ 均 200 |
+
+**r13 专项**：前端色值 `c2dcf5` 确认落地；**runner v0.3.2 未被降级**（US-26 判别）。
+
+**发现（非本次问题）**：`.12` 的 `.env` 无 `SMARTX_COMPOSE_FILE_ACTIVE`、`project/` 无守卫——
+因为它是**升级**不是重装，upgrade 不刷新 project 目录。守卫机制本身支持该场景
+（`compose_guard_resolve` 从容器标签取地面真相，会正确记成
+`docker-compose.upgrade-<task>.yml`），只是没跑过 `install.sh`。
+影响：误用变体时无人拦（US-37 事故场景），当前运行不受影响。
+
+### `.14` 干净机全流程（T5/T6 + 离线升级）
+
+清空 r12 残留 -> 传 r13 交付目录（1.4G，自包含性已验：install/ 6 必备件齐全含守卫）
+-> **T5 全新安装**：
+
+- health ok=true v0.5.3 / runner v0.3.1，三项 checks true，5 容器 Up
+- **标记值与容器标签完全一致**（都是 `docker-compose.offline.yml`）
+- 守卫已装进 project、`.env` 权限 600
+
+-> **T6 事故判别用例**（不可省的那项）：
+
+```
+错变体 exit=2（拒绝，给出三条路径）
+对变体 exit=0（放行）
+web-api 容器 ID 060b1bdd053eb6a7500 前后一致  ✅ 服务零扰动
+health 前后一致                            ✅
+restarts=0
+```
+
+-> **离线升级**（走交付脚本 `upgrade/upgrade.sh`）：
+
+- 重复升级防呆正确拦截（同版本）-> 加 `--allow-same-version` 放行
+- 平台升级 **succeeded**
+- **runner 组件升级 v0.3.1 -> v0.3.2** ✅
+- 顺带验证今天修的 `--with-runner` 相对路径解析：**从交付目录用
+  `packages/...` 相对路径成功找到包**（修复前这里会报「包不存在，跳过」）
+
+-> 最终 8 项全过 + **站点验收 9 项 exit=0**（今天新提交的工具首次真机实测）；
+post-cleanup 1 个、采集链路 `success`（干净机无塔配置故 0 集群，属正常）。
+
+### 结论
+
+**r13 达到发布门槛**：`.3` 门禁 + `.12` 生产等价 + `.14` 干净机三机验证全绿，
+US-26/30/37 与今天修的路径 bug 全部真机复验通过。
+
+**发布动作仍等用户明确指令。**
