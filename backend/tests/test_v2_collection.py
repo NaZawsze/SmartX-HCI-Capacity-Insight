@@ -572,7 +572,7 @@ class V2CollectionTest(unittest.TestCase):
             self.assertIsNone(live["deleted_at"])
 
     def test_collection_purges_recycle_vm_after_tower_deleted_it(self) -> None:
-        """49-47：采集成功但 Tower 已不再返回回收站 VM → 删本地行；正常行不因缺失被删。"""
+        """49-47/#77：采集成功但 Tower 已不再返回任何 VM → 本地行全删（Tower 是唯一事实源）。"""
         from app.v2.collection.service import CollectionService
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
@@ -597,14 +597,14 @@ class V2CollectionTest(unittest.TestCase):
             with db.connection() as conn:
                 self.assertEqual(conn.execute("SELECT COUNT(*) c FROM vm_latest").fetchone()["c"], 2)
 
-            # Tower 30 天后彻底删除：回收站 VM 不再返回；正常 VM 也从清单消失但不应被删
+            # Tower 30 天后彻底删除：回收站 VM 不再返回；普通 VM 也从清单消失
+            # （#77 用户口径：Tower 取不到就是已删除，两者同口径、一律删）
             second = ConfigurableVmsCloudTowerClient([])
             result = CollectionService(db, settings, cloudtower_client=second).run_manual_collection()
             self.assertEqual(result.status, "success")
             with db.connection() as conn:
                 rows = {row["vm_id"]: row["in_recycle_bin"] for row in conn.execute("SELECT vm_id, in_recycle_bin FROM vm_latest").fetchall()}
-            self.assertNotIn("vm-recycled", rows)
-            self.assertIn("vm-live", rows, "非回收站行不因缺失被删（只核对回收站 VM）")
+            self.assertEqual(rows, {})
 
     def test_collection_does_not_purge_when_target_fails(self) -> None:
         """49-47：采集失败时不核对删除（避免整集群被误删）。"""
@@ -635,14 +635,12 @@ class V2CollectionTest(unittest.TestCase):
             self.assertEqual([row["vm_id"] for row in rows], ["vm-recycled"], "采集失败时不得删除任何行")
 
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_collection_purges_missing_vms_and_their_volumes(self) -> None:
+        """#77 用户口径（2026-10-03）：采集成功后，Tower 未返回的 VM 一律删——
+        普通 VM 与回收站 VM 同口径，VM 行与卷行一并清理；历史孤儿卷行也被兜底清扫。
 
-    def test_purges_volumes_of_fully_deleted_vms_after_successful_collection(self) -> None:
-        """#77：彻底删除 VM 的卷行随 VM 行一并清理；回收站 VM 的卷保留。
-
-        .3 实测：49-47 只清 vm_latest 行，vm_volumes 的已删 VM 卷永久残留，
-        Σ(卷×副本) 的"已分配"被撑大 40.79 TiB。
+        `.3` 实测：旧实现只清 vm_latest、不清 vm_volumes，93 条已删 VM 卷行残留，
+        把 Σ(卷×副本) 的「已分配」撑大 40.79 TiB。
         """
         from app.v2.collection.service import CollectionService
         from app.v2.config import V2Settings
@@ -666,19 +664,30 @@ if __name__ == "__main__":
             service = CollectionService(db, settings, cloudtower_client=client)
             service.run_manual_collection()
             with db.connection() as conn:
-                # 种下"已彻底删除 VM"的卷（模拟 49-47 清理前遗留：vm_latest 无此 VM，卷还在）
-                conn.execute("INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, size_bytes, used_bytes, storage_policy, replica_num, thin_provision) VALUES (1, 'c-a', 'vm-deleted', 'v-old', 999, 0, 'Replica-2', 2, 1)")
-                # 种下"回收站 VM"的卷（保留期内的回收站 VM 卷必须保留）
-                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes, in_recycle_bin) VALUES (1, 'c-a', 'vm-recycled', 'Recycled', 5, 1)")
-                conn.execute("INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, size_bytes, used_bytes, storage_policy, replica_num, thin_provision) VALUES (1, 'c-a', 'vm-recycled', 'v-rec', 50, 5, 'Replica-2', 2, 1)")
+                # ① 普通 VM：本地有行，本次 Tower 不返回 → 应删行+卷
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes, in_recycle_bin) VALUES (1, 'c-a', 'vm-gone-normal', 'Gone Normal', 5, 0)")
+                conn.execute("INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, size_bytes, used_bytes, storage_policy, replica_num, thin_provision) VALUES (1, 'c-a', 'vm-gone-normal', 'v-gone', 999, 0, 'Replica-2', 2, 1)")
+                # ② 回收站 VM：保留期已过、Tower 彻底删除 → 同样应删行+卷
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes, in_recycle_bin) VALUES (1, 'c-a', 'vm-gone-recycled', 'Gone Recycled', 5, 1)")
+                conn.execute("INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, size_bytes, used_bytes, storage_policy, replica_num, thin_provision) VALUES (1, 'c-a', 'vm-gone-recycled', 'v-rec', 50, 5, 'Replica-2', 2, 1)")
+                # ③ 历史孤儿卷：VM 行早被旧版本删掉、卷行残留
+                conn.execute("INSERT INTO vm_volumes (tower_id, cluster_id, vm_id, volume_id, size_bytes, used_bytes, storage_policy, replica_num, thin_provision) VALUES (1, 'c-a', 'vm-orphan', 'v-orphan', 888, 0, 'Replica-2', 2, 1)")
 
             result = service.run_manual_collection()
 
             self.assertEqual(result.status, "success")
             with db.connection() as conn:
-                vm_ids = {r[0] for r in conn.execute("SELECT vm_id FROM vm_volumes")}
-                self.assertNotIn("vm-deleted", vm_ids, "已彻底删除 VM 的卷行必须被清理")
-                self.assertIn("vm-live", vm_ids)
-                self.assertIn("vm-recycled", vm_ids, "回收站 VM 的卷保留（随 VM 行口径）")
-                # vm-deleted 的 vm_latest 行也应已被 49-47 清理
-                self.assertIsNone(conn.execute("SELECT 1 FROM vm_latest WHERE vm_id='vm-deleted'").fetchone())
+                self.assertEqual(
+                    {r[0] for r in conn.execute("SELECT vm_id FROM vm_latest")},
+                    {"vm-live"},
+                    "普通与回收站 VM 缺失都删行，现役 VM 保留",
+                )
+                self.assertEqual(
+                    {r[0] for r in conn.execute("SELECT DISTINCT vm_id FROM vm_volumes")},
+                    {"vm-live"},
+                    "缺失 VM 的卷行与孤儿卷行都必须清理",
+                )
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -97,20 +97,17 @@ class CollectionService:
                             cluster_id=cluster.cluster_id,
                             vm_id=sample.vm_id,
                             volumes=list(vm.get("volumes") or []),
-                    )
-                    # 49-47：本次采集成功才核对；回收站 VM 在 Tower 取不到 = 已彻底删除 → 删本地行
-                    self._purge_missing_recycle_vms(
+                        )
+                    # 49-47/#77：本次采集成功才核对。用户口径（2026-10-03）：
+                    # Tower 取不到的 VM 就是已删除——普通 VM 与回收站 VM 同口径，
+                    # 一律删本地 VM 行与卷行；再兜底清掉历史孤儿卷行。
+                    kept_vm_ids = {str(vm.get("vm_id")) for vm in payload.get("vms", [])}
+                    self._purge_missing_vms(
                         tower_id=tower.id,
                         cluster_id=cluster.cluster_id,
-                        kept_vm_ids={str(vm.get("vm_id")) for vm in payload.get("vms", [])},
+                        kept_vm_ids=kept_vm_ids,
                     )
-                    # #77：已彻底删除 VM 的卷行随 VM 行一并清理——否则 vm_volumes 永久残留，
-                    # Σ(卷×副本) 的"已分配"被已删 VM 撑大（.3 实测残留 40.79 TiB）。
-                    self._purge_missing_vm_volumes(
-                        tower_id=tower.id,
-                        cluster_id=cluster.cluster_id,
-                        kept_vm_ids={str(vm.get("vm_id")) for vm in payload.get("vms", [])},
-                    )
+                    self._purge_orphan_vm_volumes(tower_id=tower.id, cluster_id=cluster.cluster_id)
                     success_targets.append(_target_payload(tower, cluster, attempt=attempt))
                 except Exception as exc:  # noqa: BLE001 - collector failures are summarized for UI.
                     failed_targets.append(_target_payload(tower, cluster, attempt=attempt, message=self._collection_error_message(exc)))
@@ -245,12 +242,36 @@ class CollectionService:
                 ),
             )
 
-    def _purge_missing_vm_volumes(self, *, tower_id: int, cluster_id: str, kept_vm_ids: set[str]) -> int:
-        """#77：已彻底删除 VM 的卷行核对（与 49-47 同守卫：仅采集成功后调用）。
+    def _purge_missing_vms(self, *, tower_id: int, cluster_id: str, kept_vm_ids: set[str]) -> int:
+        """VM 行核对（49-47 扩展 + #77 用户口径 2026-10-03）：采集成功后，Tower 未返回的
+        VM 即已删除 —— 删本地 VM 行与其卷行。普通 VM 与回收站 VM **同口径**。
 
-        删除「不在本次返回集合、且其 VM 行已因彻底删除被移除」的卷行——
-        即只清理 _purge_missing_recycle_vms 刚删掉的那些 VM 的卷，不动回收站
-        保留期内的任何行。返回删除的卷行数。
+        Tower 是这些行的唯一事实源：本次成功采集的返回集合就是全集。
+        必须在该塔/集群本次采集成功后调用；采集失败一律不动（避免整集群被误判删除）。
+        """
+        with self.database.connection() as conn:
+            rows = conn.execute(
+                "SELECT vm_id FROM vm_latest WHERE tower_id = ? AND cluster_id = ?",
+                (tower_id, cluster_id),
+            ).fetchall()
+            missing = [row["vm_id"] for row in rows if row["vm_id"] not in kept_vm_ids]
+            for vm_id in missing:
+                conn.execute(
+                    "DELETE FROM vm_latest WHERE tower_id = ? AND cluster_id = ? AND vm_id = ?",
+                    (tower_id, cluster_id, vm_id),
+                )
+                conn.execute(
+                    "DELETE FROM vm_volumes WHERE tower_id = ? AND cluster_id = ? AND vm_id = ?",
+                    (tower_id, cluster_id, vm_id),
+                )
+        return len(missing)
+
+    def _purge_orphan_vm_volumes(self, *, tower_id: int, cluster_id: str) -> int:
+        """卷行兜底核对（#77）：删除没有对应 VM 行的卷行。
+
+        覆盖本次 `_purge_missing_vms` 触及不到的历史孤儿卷——旧实现对 vm_latest 做了
+        核对删除、vm_volumes 却没有，Tower 删卷后卷行永久残留（`.3` 实测 93 条 / 40.79 TiB
+        虚高「已分配」）。同样只在采集成功后调用。返回删除的卷行数。
         """
         with self.database.connection() as conn:
             cursor = conn.execute(
@@ -263,25 +284,6 @@ class CollectionService:
                 (tower_id, cluster_id, tower_id, cluster_id),
             )
         return cursor.rowcount or 0
-
-    def _purge_missing_recycle_vms(self, *, tower_id: int, cluster_id: str, kept_vm_ids: set[str]) -> int:
-        """回收站 VM 彻底删除核对（49-47）：Tower 已不再返回该 VM = 已彻底删除 → 删本地行。
-
-        只删 `in_recycle_bin = 1` 的行（正在回收站里的 VM 才可能"哪天取不到"）；
-        必须在该塔/集群本次采集成功后调用，采集失败一律不动（避免整集群被误判删除）。
-        """
-        with self.database.connection() as conn:
-            rows = conn.execute(
-                "SELECT vm_id FROM vm_latest WHERE tower_id = ? AND cluster_id = ? AND in_recycle_bin = 1",
-                (tower_id, cluster_id),
-            ).fetchall()
-            missing = [row["vm_id"] for row in rows if row["vm_id"] not in kept_vm_ids]
-            for vm_id in missing:
-                conn.execute(
-                    "DELETE FROM vm_latest WHERE tower_id = ? AND cluster_id = ? AND vm_id = ?",
-                    (tower_id, cluster_id, vm_id),
-                )
-        return len(missing)
 
     def _save_metrics_text(self, metrics_text: str) -> None:
         with self.database.connection() as conn:
