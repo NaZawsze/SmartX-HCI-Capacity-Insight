@@ -248,13 +248,15 @@ export function ClusterCapacityChart({ clusters, title, height = 360, rangeDays,
   // 任一 series 改为显式色都会让后续系列整体错位——49-48 首版即因此把历史预测挤到调色板
   // 第 0 槽 #0f9fbf，与已分配容量同色，未来预测/告警阈值/存储卷有效容量也跟着错位。
   const actualColor = cssVar("--blue", "#1677ff");
-  const allocatedColor = "#0f9fbf";
+  // 已分配色统一走 :root 变量（AGENTS §11.1 禁硬编码色值）。原为硬编码 #0f9fbf，
+  // 与卡片进度条的 --blue-mid 不同色；2026-10-03 用户反馈卡片侧「太深」后统一取 --blue-mid，两处观感一致。
+  const allocatedColor = cssVar("--blue-mid", "#c2dcf5");
   const historyColor = "#8792a2";
   const futureColor = "#29354d";
   const warningColor = "#f59e0b";
   const totalColor = "#ef4444";
   const option = {
-    color: ["#0f9fbf", "#8792a2", "#29354d", "#f59e0b", "#ef4444"],
+  color: [allocatedColor, "#8792a2", "#29354d", "#f59e0b", "#ef4444"],
     animation: true,
     animationDuration: 700,
     animationEasing: "cubicOut",

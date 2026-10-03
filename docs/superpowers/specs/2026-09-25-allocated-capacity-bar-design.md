@@ -62,7 +62,7 @@
 
 - `types.ts`：`DashboardSummary.kpis` / `storage` 加 `allocated_bytes`、`allocated_ratio`；`MetricItem` 加 `allocated_bytes?`。
 - `components/StorageBar.tsx`：props 加 `allocated`；三段渲染（`.storage-fill`、新增 `.storage-fill-allocated`）；数值区三列，每列「标签在上（灰 12px）/ 数值在下（ink 15px 加粗）」，内容分别为「已使用 X · p%」「总容量 Y」「已分配 Z · q%」，p/q 分母均为 total（2026-09-26 用户反馈一行三段灰字难看，改为该层次化布局）。
-- `styles/global.css`：`.storage-track` 内浅蓝段（`--blue-soft`，新增 `:root` 设计变量并补入 frontend-style-guide §2，无其他硬编码色值）；`.storage-meta` 三列 + 列间 `var(--line)` 分隔线（`.storage-meta-item` / `.storage-meta-label` / `.storage-meta-value`），移动端单列去线。
+- `styles/global.css`：`.storage-track` 内浅蓝段（**原用 `--blue-soft`，2026-10-03 已改用 `--blue-mid`（`#c2dcf5`）——用户两次反馈太深；勿照此改回 `--blue-soft`**）；`.storage-meta` 三列 + 列间 `var(--line)` 分隔线（`.storage-meta-item` / `.storage-meta-label` / `.storage-meta-value`），移动端单列去线。
 - `DashboardPage.tsx`：`<StorageBar used={...} total={...} allocated={storage?.allocated_bytes ?? kpis?.allocated_bytes ?? 0} />`。
 
 ## 4. 测试计划
