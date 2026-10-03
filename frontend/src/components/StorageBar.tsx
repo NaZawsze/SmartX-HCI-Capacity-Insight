@@ -26,7 +26,7 @@ export function StorageBar({ used, total, allocated = 0 }: StorageBarProps) {
           <span className="storage-meta-value">{formatBytes(total)}</span>
         </div>
         <div className="storage-meta-item">
-          <span className="storage-meta-label" title="CloudTower 性能层（performance tier）已分配容量；与左侧“已使用”（全集群物理占用，含副本）口径不同">性能层已分配</span>
+          <span className="storage-meta-label" title="已分配 = Σ(每个虚拟卷的供给容量 × 副本数/EC 折算)。瘦供给下物理已写入（左侧“已使用”）通常远小于分配量">已分配</span>
           <span className="storage-meta-value">{`${formatBytes(allocated)} · ${(allocatedRatio * 100).toFixed(2)}%`}</span>
         </div>
       </div>

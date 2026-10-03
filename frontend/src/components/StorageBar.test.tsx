@@ -26,7 +26,7 @@ describe("StorageBar", () => {
 
     expect(segmentWidths()).toEqual(["70%", "30%"]);
     expect(metaValues()).toEqual({
-      labels: ["已使用", "总容量", "性能层已分配"],
+      labels: ["已使用", "总容量", "已分配"],
       values: ["70 B · 70.00%", "100 B", "270 B · 270.00%"]
     });
   });

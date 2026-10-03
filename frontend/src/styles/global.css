@@ -2,6 +2,7 @@
   --blue: #1677ff;
   --blue-600: #0f66dd;
   --blue-soft: #cfe3ff;
+  --blue-mid: #6ba6ea;
   --cyan: #16c7d3;
   --green: #21c875;
   --orange: #ff9f1c;
@@ -951,10 +952,11 @@ button {
   background: linear-gradient(90deg, var(--blue), var(--cyan));
 }
 
+/* 已分配段：中蓝（#75 落地后该段可占整条 97%，淡蓝会被误读为“空闲”） */
 .storage-fill-allocated {
   height: 100%;
   flex: 0 0 auto;
-  background: var(--blue-soft);
+  background: var(--blue-mid);
 }
 
 .storage-meta {
