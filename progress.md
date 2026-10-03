@@ -3478,3 +3478,22 @@ StorageBar 标签回归「已分配」并补 title 口径说明（Σ 卷供给×
 废弃：get_cluster_allocations（perf 层二次请求）、_volume_allocated_*（实时聚合）、
 版本指纹里的 vm_volumes rowid 项（卷数据不再被页面路径读取）。
 门禁：client/collection/dashboard/migration 58 例全过；.3 全量 757/1 既有/7 skipped。
+
+## 2026-10-03 r11 候选包（打包两轮：门禁抓到测试残留 → 修复 → 终版全绿）
+
+用户指令"打包打包"。第一轮 r11 打包门禁全过（EXIT=0），但**打包后全量测试抓到
+test_v2_cloudtower_client 3 个问题**——昨日删除 get_cluster_allocations 时边界没删干净
+（残留测试引用已删方法 + 孤儿断言），且 `.3` 上的测试文件曾被后续旧副本覆盖。
+修复（`0a41b0d`）后按纪律**重打**：r11 终版 EXIT=0，全量 **755 tests / 1 failure
+（既有环境限制，同断言确认）/ 7 skipped**。
+
+**r11 终版**：`.3:/data/us37-verify/packages/latest/`
+- 平台包 SHA `a5f93524…`（取代 r10 `41304c3a…`、r9）
+- 相对 r10 收编：#72 调度停摆自愈（含 signature 第二 bug）、#75 已分配口径
+  Σ(卷供给×副本/EC) 且计算挪进采集、#73 新鲜度横幅自解释、#74 迁移页三处、
+  US-38 压实竞态、#65 缓解、#66 提示
+- 构建门禁：身份 PASS / runner 一致性 PASS / 敏感 0 / README 7 章节校验 PASS
+- runner 组件包 v0.3.2 开发线（不随本次交付）
+
+台账已登记。发布前建议 `.12` 补一次同版本重装验收（r9 的验收结论对不变代码沿用，
+但 r11 含 worker/collection 行为变更，宜实测）。
