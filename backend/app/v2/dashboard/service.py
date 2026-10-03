@@ -32,15 +32,31 @@ NORMAL_RISK_MESSAGE = "当前所有集群暂无明显容量风险"
 SECONDS_PER_DAY = 86_400
 CAPACITY_WARNING_RATIO = 0.75
 CAPACITY_DANGER_RATIO = 0.80
-SUMMARY_CACHE_TTL_SECONDS = 60.0
+SUMMARY_CACHE_MAX_AGE_SECONDS = 1800.0  # 兜底：数据版本未变也最多保留 30 分钟
+
+
+def _summary_data_version(database: V2Database) -> tuple:
+    """summary 缓存的数据版本指纹（#75 性能轮）：全部 O(1)/小表查询。
+
+    任一构成变化 = 概览输入可能变了 = 缓存失效重算。覆盖：
+    采集轮次（新增/完成）、导入等任务（tasks rowid）、Tower/集群配置变更、
+    卷数据变更（vm_volumes rowid：采集同步与导入都会增删行）。
+    """
+    with database.connection() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                (SELECT COALESCE(MAX(id), 0) FROM collection_runs),
+                (SELECT COALESCE(MAX(finished_at), '') FROM collection_runs),
+                (SELECT COALESCE(MAX(rowid), 0) FROM tasks),
+                (SELECT COALESCE(MAX(updated_at), '') FROM towers),
+                (SELECT COALESCE(MAX(updated_at), '') FROM clusters),
+                (SELECT COALESCE(MAX(rowid), 0) FROM vm_volumes)
+            """
+        ).fetchone()
+    return tuple(row)
 _summary_cache: dict[tuple[int | None, str | None], tuple[float, int, dict[str, Any]]] = {}
 _summary_cache_lock = __import__("threading").Lock()
-
-
-def _latest_collection_run_id(database: V2Database) -> int:
-    with database.connection() as conn:
-        row = conn.execute("SELECT id FROM collection_runs ORDER BY id DESC LIMIT 1").fetchone()
-    return int(row["id"]) if row else 0
 
 
 def _utc_now_iso() -> str:
@@ -114,19 +130,22 @@ class DashboardService:
         self._cache_enabled = prometheus is None and now_ts is None
 
     def summary(self, tower_id: int | None = None, cluster_id: str | None = None) -> dict[str, Any]:
+        # #75 性能轮：缓存按「数据版本」失效——采集/导入/配置变更才重算，
+        # 数据未变期间（哪怕跨天）页面刷新全部命中缓存，不做任何重算。
+        # 30 分钟兜底覆盖未建模的输入。
         cache_key = (tower_id, cluster_id)
-        run_id = 0
+        version = None
         if self._cache_enabled:
-            run_id = _latest_collection_run_id(self.database)
+            version = _summary_data_version(self.database)
             now = __import__("time").time()
             with _summary_cache_lock:
                 cached = _summary_cache.get(cache_key)
-                if cached and cached[0] > now and cached[1] == run_id:
+                if cached and cached[0] == version and now - cached[1] < SUMMARY_CACHE_MAX_AGE_SECONDS:
                     return cached[2]
         payload = self._build_summary(tower_id=tower_id, cluster_id=cluster_id)
         if self._cache_enabled:
             with _summary_cache_lock:
-                _summary_cache[cache_key] = (__import__("time").time() + SUMMARY_CACHE_TTL_SECONDS, run_id, payload)
+                _summary_cache[cache_key] = (version, __import__("time").time(), payload)
         return payload
 
     def _build_summary(self, *, tower_id: int | None, cluster_id: str | None) -> dict[str, Any]:

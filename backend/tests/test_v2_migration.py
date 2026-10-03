@@ -1009,3 +1009,60 @@ class VolumeAllocatedAggregationTest(unittest.TestCase):
             self.assertEqual(by_cluster[(tower.id, "c-a")], int(3 * 1024**4), "c-a: 1TiB×2 + 0.5TiB×2")
             self.assertEqual(by_cluster[(tower.id, "c-b")], int(3.5 * 1024**4), "c-b: 1TiB×1.5(EC) + 0.5TiB×4(策略名兜底)")
             self.assertEqual(_volume_allocated_bytes(db, set()), 0)
+
+
+class SummaryDataVersionCacheTest(unittest.TestCase):
+    """#75 性能轮：summary 缓存按「数据版本」失效——采集后算一次，数据未变零重算。"""
+
+    def test_summary_cache_hit_until_data_version_changes(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.dashboard.service import DashboardService
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = V2Settings(data_root=Path(tmp), secret_key="s")
+            db = V2Database(settings)
+            db.initialize()
+            inventory = InventoryService(db, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://t.example.com"))
+            inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="c-a", name="CA", enabled=True)])
+
+            class CountingPrometheus:
+                def __init__(self):
+                    self.instant_calls = 0
+
+                def instant(self, query):
+                    self.instant_calls += 1
+                    return []
+
+                def range(self, query, start, end, step):
+                    return []
+
+                def close(self):
+                    pass
+
+            fake = CountingPrometheus()
+            service = DashboardService(db, settings, prometheus=fake)
+            service._cache_enabled = True  # 生产构造路径（真实依赖注入时才启用缓存）
+
+            service.summary()
+            first_calls = fake.instant_calls
+            self.assertGreater(first_calls, 0)
+            # 数据未变：反复调用全部命中缓存，零重算（这正是用户要的行为）
+            for _ in range(3):
+                service.summary()
+            self.assertEqual(fake.instant_calls, first_calls, "数据未变时不得重算")
+
+            # 采集完成（collection_runs 新增一行）→ 版本变化 → 下一次调用重算
+            with db.connection() as conn:
+                conn.execute("INSERT INTO collection_runs (status, message, finished_at) VALUES ('success', 'ok', '2026-06-07 03:00:00')")
+            service.summary()
+            self.assertGreater(fake.instant_calls, first_calls, "采集后应重算一次")
+
+            # 重算后再缓存：又多次调用不再重算
+            after = fake.instant_calls
+            for _ in range(3):
+                service.summary()
+            self.assertEqual(fake.instant_calls, after, "重算后再次进入缓存")
