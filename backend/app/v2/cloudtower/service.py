@@ -72,22 +72,3 @@ class CloudTowerService:
         finally:
             client.close()
 
-    def cluster_allocations(self, tower) -> dict[str, int]:
-        """每个 Tower 一次 get-clusters（id_in 过滤），取已分配容量（49-36）。"""
-        cluster_ids = [cluster.cluster_id for cluster in tower.clusters]
-        if not cluster_ids:
-            return {}
-        secrets = self.inventory.get_tower_secret_material(tower.id)
-        client = CloudTowerClient(
-            CloudTowerCredentials(
-                base_url=tower.base_url,
-                username=tower.username,
-                password=secrets.get("password"),
-                api_token=secrets.get("api_token"),
-                verify_tls=tower.verify_tls,
-            )
-        )
-        try:
-            return client.get_cluster_allocations(cluster_ids)
-        finally:
-            client.close()

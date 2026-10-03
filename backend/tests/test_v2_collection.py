@@ -108,11 +108,6 @@ class ConfigurableCloudTowerClient:
         self.allocations = allocations or {}
         self.allocations_error = allocations_error
 
-    def cluster_allocations(self, tower):
-        if self.allocations_error:
-            raise RuntimeError("get-clusters failed with No route to host")
-        return self.allocations
-
     def collect_cluster(self, tower, cluster):
         if cluster.cluster_id in self.failing:
             raise RuntimeError("No route to host (target unreachable)")

@@ -63,7 +63,7 @@ class V2CloudTowerClientTest(unittest.TestCase):
                                 "id": "vol-1",
                                 "name": "Root",
                                 "path": "/root",
-                                "size": 1000,
+                                "size": 1099511627776,
                                 "used_size": 600,
                                 "elf_storage_policy": "Replica-2",
                                 "elf_storage_policy_replica_num": 2,
@@ -81,7 +81,11 @@ class V2CloudTowerClientTest(unittest.TestCase):
 
         payload = client.collect_cluster("cluster-a")
 
-        self.assertEqual(payload["cluster"], {"used_bytes": 1024, "total_bytes": 4096})
+        # #75 终版：allocated 在采集时就地计算 = Σ(卷供给 1TiB × Replica-2) = 2TiB
+        self.assertEqual(
+            payload["cluster"],
+            {"used_bytes": 1024, "total_bytes": 4096, "allocated_bytes": int(2 * 1024 ** 4)},
+        )
         self.assertEqual(payload["vms"][0]["vm_id"], "vm-1")
         self.assertEqual(payload["vms"][0]["name"], "VM One")
         self.assertEqual(payload["vms"][0]["used_bytes"], 512)
@@ -113,33 +117,6 @@ class V2CloudTowerClientTest(unittest.TestCase):
         self.assertEqual(http.requests[0]["path"], "/v2/api/get-clusters")
         self.assertEqual(http.requests[0]["headers"]["Authorization"], "api-token")
 
-
-    def test_get_cluster_allocations_reads_perf_allocated_data_space_and_defaults_to_zero(self) -> None:
-        """49-36：已分配容量取 get-clusters 的 perf_allocated_data_space，缺失/null 记 0。"""
-        from app.v2.cloudtower.client import CloudTowerClient, CloudTowerCredentials
-
-        http = FakeHttpClient(
-            [
-                FakeResponse(200, {"data": {"token": "token-1"}}),
-                FakeResponse(
-                    200,
-                    {
-                        "data": [
-                            {"id": "cluster-a", "perf_allocated_data_space": 270},
-                            {"id": "cluster-b"},
-                            {"id": "cluster-c", "perf_allocated_data_space": None},
-                        ]
-                    },
-                ),
-            ]
-        )
-        client = CloudTowerClient(CloudTowerCredentials(base_url="https://tower.example.com", username="admin", password="secret"), http_client=http)
-
-        allocations = client.get_cluster_allocations(["cluster-a", "cluster-b", "cluster-c"])
-
-        self.assertEqual(allocations, {"cluster-a": 270, "cluster-b": 0, "cluster-c": 0})
-        self.assertEqual(http.requests[1]["path"], "/v2/api/get-clusters")
-        self.assertEqual(http.requests[1]["json"]["where"], {"id_in": ["cluster-a", "cluster-b", "cluster-c"]})
 
     def test_get_cluster_allocations_skips_request_without_cluster_ids(self) -> None:
         from app.v2.cloudtower.client import CloudTowerClient, CloudTowerCredentials

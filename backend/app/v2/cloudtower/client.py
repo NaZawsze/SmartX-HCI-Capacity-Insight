@@ -97,25 +97,6 @@ class CloudTowerClient:
     def get_clusters(self) -> list[ClusterInput]:
         return [cluster for cluster in (_normalize_cluster(item) for item in self.paged_post("/v2/api/get-clusters")) if cluster is not None]
 
-    def get_cluster_allocations(self, cluster_ids: list[str]) -> dict[str, int]:
-        """性能层已分配容量：get-clusters 的 perf_allocated_data_space（int64）。
-
-        #75 实测口径澄清：该字段是**性能层（performance tier）**的已分配水位
-        （实测 perf_allocated == perf_used，层内 8.48/18.5 TiB），不是全集群口径——
-        get-cluster-storage-info 只有 total/used/free，没有集群级 allocated 字段。
-        展示侧必须标注"性能层"，不得与全集群已使用同框直接对比。
-        缺失/null 按 0 处理（49-36 口径）。
-        """
-        if not cluster_ids:
-            return {}
-        allocations: dict[str, int] = {}
-        for item in self.paged_post("/v2/api/get-clusters", {"where": {"id_in": list(cluster_ids)}}):
-            cluster_id = str(item.get("id") or item.get("cluster_id") or "")
-            if not cluster_id:
-                continue
-            allocations[cluster_id] = int(_number(item.get("perf_allocated_data_space")) or 0)
-        return allocations
-
     def get_cluster_storage_info(self, cluster_id: str) -> dict[str, Any]:
         data = self.post("/v2/api/get-cluster-storage-info", {"where": {"id": cluster_id}, "effect": {}})
         if isinstance(data, list):
@@ -133,6 +114,22 @@ class CloudTowerClient:
 
     def collect_cluster(self, cluster_id: str) -> dict[str, Any]:
         storage = self.get_cluster_storage_info(cluster_id)
+        vms = self._collect_vms_with_volumes(cluster_id)
+        # #75 终版：已分配 = Σ(每卷供给容量 × 副本数)，EC 卷按 (k+m)/k 折算——
+        # 在采集时就地计算（卷数据此时都在手上），随集群样本落库，
+        # dashboard 直接读存好的值（页面零计算，且与已使用同时点）。
+        allocated = 0
+        for vm in vms:
+            for volume in vm.get("volumes", []):
+                size = _number(volume.get("size_bytes")) or 0
+                if size <= 0:
+                    continue
+                ec_k = _number(volume.get("ec_k")) or 0
+                ec_m = _number(volume.get("ec_m")) or 0
+                if ec_k > 0:
+                    allocated += size * (ec_k + ec_m) / ec_k
+                else:
+                    allocated += size * (_number(volume.get("replica_num")) or 0)
         return {
             "cluster": {
                 "used_bytes": int(
@@ -141,8 +138,9 @@ class CloudTowerClient:
                 "total_bytes": int(
                     _number(storage.get("total_data_capacity"), storage.get("total_capacity"), storage.get("total_size"), storage.get("capacity_total")) or 0
                 ),
+                "allocated_bytes": int(allocated),
             },
-            "vms": self._collect_vms_with_volumes(cluster_id),
+            "vms": vms,
         }
 
     def _collect_vms_with_volumes(self, cluster_id: str) -> list[dict[str, Any]]:
