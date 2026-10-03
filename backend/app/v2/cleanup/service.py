@@ -113,12 +113,27 @@ class CleanupService:
                 key=lambda child: child.stat().st_mtime if child.exists() else 0,
                 reverse=True,
             )
-            if item["key"] == "upgrades" and keep_recent > 0:
-                kept = children[:keep_recent]
-                children = children[keep_recent:]
+            if item["key"] == "upgrades":
+                # 「保留最近 N 个」只对**升级任务目录**生效，不能让散落包参与竞争。
+                # 缺陷（2026-10-04 实测）：`upgrades/` 根下常散落迁移包
+                # （`smartx-capacity-insight-migration-*.tar.gz`，`.12` 上有两个），
+                # 它们 mtime 可能比任务目录新，于是被当"最近 1 项"留下，
+                # 而**真正的最近一次升级任务目录反被清掉**——与"保留上次升级"的承诺相悖。
+                # 现在：只有含 task.json 的目录才是任务目录，才有资格参与保留；
+                # 散落包一律清理。
+                task_dirs = [c for c in children if (c / "task.json").is_file()]
+                strays = [c for c in children if not (c / "task.json").is_file()]
+                kept = task_dirs[:keep_recent]
+                children = strays + task_dirs[keep_recent:]
                 kept_count += len(kept)
                 if kept:
-                    logs.append(f"{item['label']}：按设置保留最近 {len(kept)} 项")
+                    logs.append(
+                        f"{item['label']}：保留最近 {len(kept)} 个升级任务（供回滚取用旧镜像）"
+                    )
+                if strays:
+                    logs.append(
+                        f"{item['label']}：清理 {len(strays)} 个散落包（迁移包/上传包等）"
+                    )
             purged = 0
             for child in children:
                 if item["key"] == "upgrades":

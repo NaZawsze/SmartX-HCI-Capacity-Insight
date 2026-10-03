@@ -39,11 +39,12 @@ class V2CleanupServiceTest(unittest.TestCase):
 
             result = cleanup.cleanup_artifacts()
 
-            # 语义更新（2026-10-04）：keep_recent 下限强制为 1，upgrades/ 下唯一那个
-            # `pkg.tar.gz` 被保留（回滚需旧镜像，用户口径），其余 3 个目录条目各删 1。
-            self.assertEqual(result["kept_count"], 1)
-            self.assertEqual(result["deleted_count"], 3)
-            self.assertTrue((settings.upgrades_dir / "pkg.tar.gz").exists())
+            # 语义更新（2026-10-04 ·问题1 修复后）：`pkg.tar.gz` 是**散落包**，
+            # 不再参与「保留最近 N 个升级任务」的竞争，一律清理。
+            # 本例无任何任务目录，故 kept_count=0、4 个条目全删。
+            self.assertEqual(result["kept_count"], 0)
+            self.assertEqual(result["deleted_count"], 4)
+            self.assertFalse((settings.upgrades_dir / "pkg.tar.gz").exists())
             self.assertEqual(result["space_reclaimed"], scan["total_size"])
             self.assertTrue((settings.backups_dir / "keep.tar.gz").is_file())
             self.assertFalse((settings.reports_dir / "report.xlsx").exists())
@@ -69,6 +70,9 @@ class V2CleanupServiceTest(unittest.TestCase):
                 task_dir = settings.upgrades_dir / f"upgrade-task-{index}"
                 task_dir.mkdir(parents=True)
                 (task_dir / "package.tar.gz").write_bytes(b"x" * 10)
+                # 任务目录须带 task.json 才会被识别为「升级任务」并参与保留竞争
+                # （语义更新 2026-10-04 · 问题1 修复）
+                (task_dir / "task.json").write_text('{"status":"success"}', encoding="utf-8")
                 stamp = (datetime.now().timestamp()) - age
                 os.utime(task_dir, (stamp, stamp))
                 dirs.append(task_dir)
@@ -77,8 +81,8 @@ class V2CleanupServiceTest(unittest.TestCase):
             cleanup = CleanupService(settings, TaskService(database))
             result = cleanup.cleanup_artifacts(keep_recent_upgrades=2)
 
-            # 语义更新（2026-10-04）：3 个任务目录 + 1 个报表，共 4 个条目；
-            # keep_recent=2 保留 upgrades 下最近 2 个目录，故删 1 个目录 + 1 个报表 = 2。
+            # 语义更新（2026-10-04）：3 个任务目录（含 task.json）+ 1 个报表；
+            # keep_recent=2 保留最近 2 个任务目录 → 删 1 个旧任务的包 + 1 个报表 = 2。
             self.assertEqual(result["deleted_count"], 2)
             self.assertEqual(result["kept_count"], 2)
             # 语义更新（2026-10-04）：被清理的任务目录**本身保留**（记录优先），
@@ -87,10 +91,12 @@ class V2CleanupServiceTest(unittest.TestCase):
             self.assertFalse(
                 (dirs[0] / "package.tar.gz").exists(), "最旧任务的包应被删"
             )
+            self.assertTrue((dirs[0] / "task.json").is_file(), "记录必须保留")
             self.assertTrue(dirs[1].exists())
-            self.assertTrue((dirs[1] / "package.tar.gz").exists(), "保留的目录其包不应删")
+            self.assertTrue((dirs[1] / "package.tar.gz").exists(), "保留的任务其包不应删")
             self.assertTrue(dirs[2].exists())
             self.assertTrue((dirs[2] / "package.tar.gz").exists())
+            self.assertTrue((dirs[2] / "task.json").is_file())
             self.assertFalse((settings.reports_dir / "report.xlsx").exists())
 
     def test_cleanup_artifacts_refuses_while_upgrade_task_active(self) -> None:
@@ -655,3 +661,59 @@ class CleanupKeepsRecordsDropsPackagesTest(unittest.TestCase):
 
             self.assertFalse(result["ok"], "状态新鲜的 running 任务必须继续阻塞清理")
             self.assertTrue(stray.exists())
+
+
+    def test_keep_recent_ignores_stray_migration_packages(self) -> None:
+        """散落的迁移包不得占用「保留最近 1 个」名额。
+
+        缺陷（2026-10-04 `.12` 实测）：`upgrades/` 根下散落
+        `smartx-capacity-insight-migration-*.tar.gz`，其 mtime 可能比任务目录新，
+        原实现按 mtime 混排 → 迁移包被当"最近 1 项"留下，
+        而**真正的最近一次升级任务目录反被清掉**，与"保留上次升级"相悖。
+        """
+        import os
+
+        from app.v2.cleanup.service import CleanupService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="s")
+            database = V2Database(settings)
+            database.initialize()
+
+            # 两个升级任务目录
+            for name, age in (("upgrade-old", 5000), ("upgrade-newest", 100)):
+                d = settings.upgrades_dir / name
+                (d / "package").mkdir(parents=True)
+                (d / "package" / "a.tar").write_bytes(b"z" * 2048)
+                (d / "task.json").write_text('{"status":"success"}', encoding="utf-8")
+                stamp = datetime.now().timestamp() - age
+                os.utime(d, (stamp, stamp))
+
+            # 散落迁移包：mtime 最新（比任务目录新）
+            stray = settings.upgrades_dir / "smartx-capacity-insight-migration-20260930022839-7c0dc730.tar.gz"
+            stray.write_bytes(b"m" * 2048)
+
+            cleanup = CleanupService(settings, TaskService(database))
+            result = cleanup.cleanup_artifacts()
+
+            self.assertTrue(result["ok"])
+            self.assertFalse(stray.exists(), "散落迁移包应被清理，不该占用保留名额")
+            self.assertTrue(
+                (settings.upgrades_dir / "upgrade-newest" / "package").is_dir(),
+                "真正的最近一次升级任务目录必须被保留（回滚需其镜像）",
+            )
+            self.assertTrue(
+                (settings.upgrades_dir / "upgrade-newest" / "task.json").is_file(),
+                "记录必须保留",
+            )
+            self.assertFalse(
+                (settings.upgrades_dir / "upgrade-old" / "package").exists(),
+                "较旧任务的包应被清理",
+            )
+            self.assertTrue(
+                (settings.upgrades_dir / "upgrade-old" / "task.json").is_file(),
+                "较旧任务的记录仍应保留",
+            )
