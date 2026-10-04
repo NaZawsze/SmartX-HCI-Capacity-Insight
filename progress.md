@@ -4038,3 +4038,57 @@ tmpfs 写到 97%（剩 1.90 MiB）后上传 2.001 MiB 包 →
 - `.14` 干净机：全新安装 + 离线升级 + runner `v0.3.1 → v0.3.2`
 
 另：`.3` SSH 曾出现握手超时（负载 0.00，非机器问题），后续轮询需加重试。
+
+## 2026-10-04 r15 `.12` / `.14` 生产级验收（补做，均通过）
+
+### 关键发现：`.12`/`.14` 不需要 SSH，走产品 API 即可
+
+我先前判定"无凭据、被阻"是**错的结论**——`.12:8000` / `.14:8000` 的 **web-api 产品端口开放**，
+`admin`/`password`（安装脚本默认值，两台均未改）可登录，75 个端点全可用；
+`/api/admin/upgrade/verification` 还能直接读出**每个容器的 image_id**。
+SSH（root 与 user1、本机三把密钥、经 `.3` 跳板）全部被拒，但**根本不需要**。
+这与 AGENTS 的告戒一致：**变更只走产品流程**——而产品流程本来就自带完整可观测性。
+
+### `.12` 生产等价（PASS）
+
+基线 health ok / v0.5.3 / runner v0.3.2 / 3 towers / 1 cluster / 197 VM /
+total_bytes 240988182282240 → 上传 r15 242M 包 **HTTP 200**（`upgrade-99cf673d0c8318fd`）
+→ 预检查 **9/9 OK**（disk_space 13.53 GiB ≥ 2.60 GiB）→ 升级 **succeeded**（约 100s）
+→ post-cleanup **succeeded** → 升级后：
+
+| 验收项 | 结果 |
+| --- | --- |
+| health.ok / 三项 checks | true / directories·database·prometheus 全 true |
+| runner 未降级（US-26） | v0.3.2 → v0.3.2 |
+| 数据逐位不变 | 197 VM、`total_bytes 240988182282240` 与基线完全一致 |
+| 5 容器全 running | collector-worker·frontend·prometheus·upgrade-runner·web-api |
+| **镜像确为 r15** | web-api `3e0fab8bff24`、collector-worker `39ae342339a1`；**r14 旧镜像 `e87172328e07`/`fb3300fb22c3` 已不被任何服务使用** |
+| compose 归属 | `docker-compose.offline.yml` / `smartx-hci-capacity-insight` |
+
+### `.14` 干净机（PASS）
+
+基线 health ok / v0.5.3 / **无业务数据**（towers/clusters/vms 全 0）→ 上传 200
+→ 预检查 **9/9 OK**（disk_space 32.41 GiB）→ 升级 **succeeded**（约 60s）→ post-cleanup succeeded
+→ 升级后 health ok、runner v0.3.2 未降级、5 容器全 running 且镜像为 r15。
+
+两台均已用产品 API `DELETE /api/admin/upgrade/package/{task_id}` 删除本次测试包。
+
+### 顺带得到的两个正向证据
+
+1. **r15 的 242M 真实包在 `.12` 上传成功** → 前置空间检查在「真实包 + 健康盘」上**不误拦**
+   （这条比单测更有说服力：单测只能证明阈值算式，证明不了真实包的尺度）。
+2. **`.12` 告警调度链路确实活着**：`data-quality-warning` 在 `2026-10-04T09:55:35` 被更新，
+   晚于 worker 重启（09:53:20Z）——同一调度器里的告警作业在跑。
+
+### 残留缺口（如实记录，不掩盖）
+
+**磁盘告警「真机触发」只有 `.3` 证据**（64MiB tmpfs 真实写到 75%，告警真落库
+`disk-alert-warning-1c91635e`、二次评估去重有效）。`.12`/`.14` 磁盘健康（分别剩 13.53/32.41 GiB），
+告警**正确地不触发**；而要在真机上压出高占用需登录宿主改 `.env` 阈值，
+AGENTS 明令禁止在 `.12` 做手工运维变更。故此项不补做，如实留缺口。
+
+### 教训
+
+我先前因为 SSH 被拒就下结论"没有凭据、被阻"，并写进了 ledger/CHANGELOG/progress。
+实际是**找错入口**：先认定"必须 SSH"，没试产品端口。**结论前应先穷举可行通道**——
+这次若直接问用户要密码，就白白浪费了一轮，也差点把"受阻"写成既成事实。
