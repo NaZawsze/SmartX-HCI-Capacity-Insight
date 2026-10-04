@@ -31,35 +31,47 @@ class IntakeMixin:
             raise HTTPException(status_code=400, detail="升级包为空。")
         task_id = f"upgrade-{token_hex(8)}"
         task_dir = self.settings.upgrades_dir / task_id
-        package_path = task_dir / "package"
-        package_path.mkdir(parents=True, exist_ok=True)
-        upload_path = task_dir / Path(filename).name
-        upload_path.write_bytes(content)
-        uploaded_sha256 = _sha256_file(upload_path)
+        # 从建目录到落 task.json 整段包进 try：任何一步失败都必须删掉 task_dir。
+        #
+        # 缺陷（2026-10-04 追查）：原先只有 tar 解析失败那一条分支会 rmtree，
+        # 而「建目录 → 写 200M 包 → 解包 → 读 manifest → 写 task.json」之间还有 4 个
+        # 未受保护的点（write_bytes / _read_manifest / _component_types / _save_task_file）。
+        # 磁盘满或 manifest 异常时任一失败，都会留下「有package/ 但无 task.json」的残缺目录——
+        # 它在升级中心历史里读不出内容（history 只扫 */task.json），空间清理又会把它
+        # 当散落包整删。三台机器当时都没出现，只因还没撞上磁盘满。
         try:
-            with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
-                _validate_members(archive)
-                _safe_extract(archive, package_path)
-        except (tarfile.TarError, OSError) as exc:
+            package_path = task_dir / "package"
+            package_path.mkdir(parents=True, exist_ok=True)
+            upload_path = task_dir / Path(filename).name
+            upload_path.write_bytes(content)
+            uploaded_sha256 = _sha256_file(upload_path)
+            try:
+                with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
+                    _validate_members(archive)
+                    _safe_extract(archive, package_path)
+            except (tarfile.TarError, OSError) as exc:
+                raise HTTPException(status_code=400, detail=f"无法读取升级包：{exc}") from exc
+            manifest = _read_manifest(package_path / MANIFEST_NAME)
+            components = _component_types(manifest)
+            task = {
+                "task_id": task_id,
+                "status": "uploaded",
+                "target_version": str(manifest.get("version") or ""),
+                "components": components,
+                "manifest": manifest,
+                "filename": Path(filename).name,
+                "package_path": str(package_path),
+                "uploaded_path": str(upload_path),
+                "uploaded_sha256": uploaded_sha256,
+                "package_sha256": uploaded_sha256,
+                "created_at": _now().isoformat(),
+                "checks": [],
+            }
+            _save_task_file(task_dir, task)
+        except Exception:
+            # 半成品目录一律不留：既不占磁盘，也不污染历史与清理判定
             shutil.rmtree(task_dir, ignore_errors=True)
-            raise HTTPException(status_code=400, detail=f"无法读取升级包：{exc}") from exc
-        manifest = _read_manifest(package_path / MANIFEST_NAME)
-        components = _component_types(manifest)
-        task = {
-            "task_id": task_id,
-            "status": "uploaded",
-            "target_version": str(manifest.get("version") or ""),
-            "components": components,
-            "manifest": manifest,
-            "filename": Path(filename).name,
-            "package_path": str(package_path),
-            "uploaded_path": str(upload_path),
-            "uploaded_sha256": uploaded_sha256,
-            "package_sha256": uploaded_sha256,
-            "created_at": _now().isoformat(),
-            "checks": [],
-        }
-        _save_task_file(task_dir, task)
+            raise
         self.tasks.create_task(task_id, TaskType.UPGRADE, "上传升级包", status=TaskStatus.SUCCESS, progress=100, message=f"升级包已上传：{task['target_version']}")
         return self._public_task(task)
 

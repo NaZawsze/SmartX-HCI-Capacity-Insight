@@ -2608,3 +2608,69 @@ class V2UpgradeApiTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UploadRollsBackPartialTaskDirTest(unittest.TestCase):
+    """上传失败必须删掉半成品任务目录（2026-10-04 修）。
+
+    缺陷：原先只有 tar 解析失败那一条分支会 rmtree，而「建目录 → 写 200M 包 →
+    解包 → 读 manifest → 写 task.json」之间还有 4 个未受保护的点
+    （write_bytes / _read_manifest / _component_types / _save_task_file）。
+    磁盘满或manifest 异常时任一失败，都会留下「有 package/ 但无 task.json」的
+    残缺目录——它在升级中心历史里读不出内容（history 只扫 */task.json），
+    空间清理又会把它当散落包整删。
+    """
+
+    def _service(self, tmpdir: str):
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        settings = V2Settings(data_root=Path(tmpdir), secret_key="upgrade-secret", app_version="v0.5.3")
+        database = V2Database(settings)
+        database.initialize()
+        return settings, UpgradeService(settings, TaskService(database))
+
+    def test_missing_manifest_leaves_no_task_dir(self) -> None:
+        """包内无 manifest → 报错，且不留任何任务目录。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, service = self._service(tmpdir)
+            # 合法 tar、但没有 manifest.json → 在 _read_manifest 之后、_save_task_file 之前失败
+            payload = build_package({"version": "v0.5.3"}, {"images/web-api.tar": b"img"})
+
+            with self.assertRaises(Exception):
+                service.upload_package_bytes(payload, filename="upgrade.tar.gz")
+
+            leftovers = list(settings.upgrades_dir.glob("upgrade-*"))
+            self.assertEqual(
+                leftovers, [],
+                f"上传失败后不得残留任务目录，实际留下：{[p.name for p in leftovers]}",
+            )
+
+    def test_write_failure_rolls_back_dir(self) -> None:
+        """写盘失败（磁盘满）→ 回滚目录，不留半截包。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, service = self._service(tmpdir)
+            payload = build_schema3_package(
+                {"schema_version": "3", "version": "v0.5.3", "product": "smartx-storage-forecast"},
+                {"images/web-api.tar": b"img"},
+            )
+
+            from app.v2.upgrade.service import intake as intake_mod
+
+            original = intake_mod._save_task_file
+
+            def boom(*args, **kwargs):
+                raise OSError(28, "No space left on device")
+
+            with patch.object(intake_mod, "_save_task_file", boom):
+                with self.assertRaises(OSError):
+                    service.upload_package_bytes(payload, filename="upgrade.tar.gz")
+
+            leftovers = list(settings.upgrades_dir.glob("upgrade-*"))
+            self.assertEqual(
+                leftovers, [],
+                f"写 task.json 失败后不得残留任务目录，实际留下：{[p.name for p in leftovers]}",
+            )
+            self.assertIsNotNone(original)
