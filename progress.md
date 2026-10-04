@@ -4370,3 +4370,89 @@ frontend）不含 runner。平台包 `ef3fab9f…` 照常可用。
 
 - **`.12` 的 runner 组件未升级**（仍是 r16 时代的 v0.3.2，不含 #82）
 - **`.12`/`.14` runner 均偏离客户基线 v0.3.1**（upgrade-chain.md §3.2），发布前须恢复
+
+## 2026-10-04 `.12` 全量重置 + 老客户链路演练（在步 2 停下）
+
+用户授权「直接清空环境，全部重来」。这是一次**破坏性操作**，先固化基线再动手。
+
+### 基线（清空前的唯一恢复来源）
+
+`/data/baselines/pre-wipe-20261004`，`capture_baseline.py verify` **EXIT=0**：
+`smartx.db` 33M（users=1 towers=3 clusters=3 **vm_latest=543** **vm_volumes=89547**
+collection_runs=146，integrity ok）+ `tower.env` + prometheus + SHA256SUMS。
+
+### 清空报告（按 AGENTS §5 要求说明删了什么、能否恢复）
+
+- 删除：`/data/smartx-storage-forecast`（**18G**：app/ 17G 含 SQLite + Prometheus 历史块、
+  upgrades/ 854M、backups/ 110M、exports/、compose-runtime/）与 `/opt/smartx-storage-forecast`
+- 停机：`docker compose -p smartx-hci-capacity-insight ... down --remove-orphans`（5 容器全删）
+- **可恢复**：业务数据在上述基线中，已 verify 通过
+- **不可恢复**：`.env` 里的 `SMARTX_SECRET_KEY` / `SMARTX_CREDENTIAL_KEY`
+  —— `capture_baseline.py` 按安全设计把它们**脱敏成占位符**
+  （`replace-with-a-long-random-secret`），而原 `.env` 随 18G 一起删了；
+  `.12` 上其余 5 个 `.env` 全是占位符
+- 后果：Tower 凭据（以 `CREDENTIAL_KEY` 加密存于 SQLite）**解不开 → 采集必然失败**；
+  但历史 VM/卷数据是明文，**显示正常**。**应用启动与 Web 不依赖密钥**
+- 磁盘：54G 盘从 37G 用量降到 20G
+
+**这是我的操作失误**：删 18G 之前没先查 `capture_baseline.py` 的脱敏行为，
+事后才发现密钥不可恢复。**教训：清空前必须确认基线里的凭据类文件是真值还是占位符。**
+
+### 装 v0.5.1 旧布局（Source 节点）
+
+- 镜像：`.12` 上已有 `v0.5.1` ×3 + `runner v0.3.0`（此前演练留下的，无需拉 DockerHub）
+- `pre_install.sh` 建目录：`/data/smartx-capacity-insight-data/{app,prometheus}`、
+  `/data/{upgrades,backups,exports,compose-runtime}`
+- 起环境：project `smartx-storage-forecast` + `docker-compose.offline.yml`
+- 结果：**v0.5.1 + runner v0.3.0，5 容器 running，health ok=True checks 3/3，
+  数据 543 VM / 89547 卷，8080 前端 HTTP 200**——用户确认可访问、数据看得到
+
+**途中我修了一个自己造成的问题**：导入 Prometheus 数据时用 root 复制，
+破坏了 `pre_install.sh` 设的 `65534:65534` 属主 → prometheus 无权写 `queries.active`
+→ **panic 重启 9 次（ExitCode=2）**。`chown -R 65534:65534` 后恢复（`/-/healthy` 200）。
+教训：**导入数据后必须核对目标目录属主**，尤其 Prometheus。
+
+### 步 1：v0.5.1 → v0.5.1u2（PASS）
+
+包 `2b5688b5…`（235M，`.3` 直传 `.12`，SHA 双方核对一致）。
+预检查 **6/6**（v0.5.1u2 是老格式，只有 6 项）→ 升级 **succeeded**（约 80s）。
+验收：health ok=True、**version=v0.5.1u2**、runner v0.3.0、checks 3/3、
+**数据未变 543 VM / 89547 卷**、project 仍 `smartx-storage-forecast`（符合预期）。
+
+### 步 2：runner → v0.3.1（FAIL，已定位根因，已停下）
+
+用**已发布资产** `d10e15cf7b516d17…`（78M，`.3:/home/user1/codex-build/
+packages-upg032-historyfix/02-runner-v0.3.1-historyfix/`，我核对了 12 个候选才找到这个），
+`.3`→`.12` 直传、SHA 双方一致。组件预检查 **5/5** → 启动 → **failed**。
+
+```
+[OK] backup  [OK] load_images  [OK] project_files  [OK] write_override
+[FAIL] restart     error: network smartx-hci-capacity-insight-net declared as
+[FAIL] healthcheck       external, but could not be found
+```
+
+**根因**：v0.5.1u2 生成的 `/data/compose-runtime/docker-compose.runner-upgrade.yml` 里
+写死 `networks.smartx-net = {external: true, name: smartx-hci-capacity-insight-net}`，
+而旧布局的实际网络是 `smartx-storage-forecast_smartx-net`。
+`external: true` 意味着该网络必须**已存在**，但它要到 v0.5.2 的 `environment_transitions`
+才创建 → **步 2 与 §2 链路表矛盾**（表里把 runner 组件升级放在 u2 节点）。
+
+**我没有手工建网络绕过**（AGENTS §5 禁止宿主手工运维变更，且会掩盖缺陷）。
+
+### 已把流程固定进权威文档
+
+用户要求「写进升级链路、标明哪个版本用什么 compose、测试流程也写上、固定好流程」。
+改的是 `docs/upgrade-chain.md`（AGENTS §7 指定的链路与配对权威文档，非新建）：
+
+- **§2.1 每步必须用哪个 compose 文件**：六行表（步 0–4）列出
+  compose project 名 / `-f` 文件 / 预期网络 / 网络来源；
+  三条硬规则（升级一律走产品 API、`docker compose` 只用于装环境与排障、
+  判断当前 project 看容器 compose 标签而非猜）
+- **§2.2 已实测的阻塞**：完整记录现象、四个步骤的成败、生成文件的内容、根因、
+  **禁止的绕法**（手工建网络 / 手工改 compose name）、以及待判定方向
+  （是设计上该先跑步 3，还是 v0.5.1u2 生成逻辑有缺陷，还是缺未记录的前置步骤）
+- **§2.3 完整测试流程（固定版）**：七步流程表 + 每步必留证据 +
+  **每步升级后的 5 项即时验收** + **中断规则**（失败即停、报告、记录根因，
+  不手工绕过不跳步）+ 包来源纪律（runner 必须用已发布资产 `d10e15cf…`）
+
+**当前状态**：`.12` 停在 v0.5.1u2 + runner v0.3.0 旧布局，步 2 未通过。

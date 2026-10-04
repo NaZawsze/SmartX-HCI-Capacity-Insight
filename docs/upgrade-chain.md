@@ -51,7 +51,98 @@ v0.5.1 + runner v0.3.0
 | Target | v0.5.2 | v0.3.1 | `smartx-hci-capacity-insight` | `smartx-hci-capacity-insight-net`（10.249.251.0/24） | 完成单根目录、网络、Prometheus 与旧环境清理 |
 | Latest | v0.5.3 | v0.3.1 | 同上 | 同上 | 保持目标布局 |
 
-> 为什么链路里的 runner 升级放在 **u2** 而不是更早：u2 的源端仍是**旧 project**（`smartx-storage-forecast`），组件包 bootstrap 要停的是旧 project 的 runner，新 runner 不会被误停；一旦迁到目标布局（v0.5.2）就不行了（见 §1 第 3 条）。
+> 为什么链路里的 runner 升级放在 **u2** 而不是更早：u2 的源端仍是**旧 project**（`smartx-storage-forecast`），组件包 bootstrap 要停的是旧 project 的 runner，新 runner 不会被误停
+
+### 2.1 ⚠️ 每步必须用哪个 compose 文件（2026-10-04 实测踩坑后固定）
+
+**这张表是强制的**：每一步的 compose project 名、compose 文件、预期网络三者必须同时对上。
+用错 project 名 = 同一数据被两套 compose 各自认为「我不是我的」→ 容器重建、服务中断、数据错乱。
+
+| 步 | 动作 | compose project 名 | compose 文件（`-f`） | 预期网络 | 网络来源 |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 全新安装旧布局 | `smartx-storage-forecast` | `docker-compose.offline.yml` | `smartx-storage-forecast_smartx-net` | compose 内 `ipam` 10.249.249.0/24 **自动创建** |
+| 1 | v0.5.1 → v0.5.1u2 | `smartx-storage-forecast` | `docker-compose.offline.yml` | 同上，不变 | 沿用 |
+| 2 | runner → v0.3.1 | `smartx-storage-forecast` | **组件升级走产品 API**（`/api/admin/component-upgrade/*`），**不要手工跑 compose** | 见 §2.2 警告 | 见 §2.2 |
+| 3 | v0.5.1u2 → v0.5.2 | `smartx-storage-forecast`（升级过程内部会切 project） | 走产品 API `/api/admin/upgrade/*` | 升级后为 `smartx-hci-capacity-insight-net`（10.249.251.0/24） | **由 v0.5.2 包的 `environment_transitions` 创建** |
+| 4 | v0.5.2 → v0.5.3 | `smartx-hci-capacity-insight` | 走产品 API `/api/admin/upgrade/*` | 沿用目标网络，不变 | 沿用 |
+
+**硬规则**：
+
+1. **每一步的升级动作都走产品 API**（`upload` → `precheck` → `start`），
+   **不要手工执行 `docker compose` 升级**。升级编排（切 project、换网络、备份、
+   健康检查、post-cleanup）全部在产品流程内完成；手工 compose 绕过这些保护。
+2. **`docker compose` 只用于「装环境」和「排障查看」**，不用于「升级」。
+3. 排障时判断当前处于哪个 project，看容器的 compose 标签，不要靠猜：
+   `docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' <容器>`
+
+### 2.2 🔴 已实测的阻塞：步 2 在旧布局上会失败（2026-10-04 `.12` 实测）
+
+**现象**：`v0.5.1u2` 上执行 runner 组件升级 → **failed**。
+
+```
+[OK] backup  [OK] load_images  [OK] project_files  [OK] write_override
+[FAIL] restart     → docker compose -f docker-compose.runner-upgrade.yml
+                      --project-name smartx-hci-capacity-insight up -d upgrade-runner
+[FAIL] healthcheck
+error: network smartx-hci-capacity-insight-net declared as external, but could not be found
+```
+
+**根因**：v0.5.1u2 生成的 `/data/compose-runtime/docker-compose.runner-upgrade.yml` 里写死了
+
+```yaml
+networks:
+  smartx-net:
+    external: true
+    name: smartx-hci-capacity-insight-net    # ← 目标布局的网络名
+```
+
+而旧布局下实际网络是 `smartx-storage-forecast_smartx-net`。
+该文件声明为 `external: true`（**外部网络，必须已存在**），但此时它还不存在
+——它要到 v0.5.2 的 `environment_transitions` 才创建。
+
+**结论**：**步 2 不能在「网络尚未切换」的旧布局上直接跑**，
+而 §2 链路表把 runner 组件升级放在 u2 节点上——两者矛盾。
+
+**⚠️ 禁止的绕法**：手工 `docker network create smartx-hci-capacity-insight-net`
+或手工改那份 compose 的 `name`。那是宿主手工变更（AGENTS §5 明令禁止），
+且会掩盖真实缺陷、让后续 v0.5.2 迁移时出现两个网络打架。
+
+**待定**：这条链路是（a）设计上就该先跑步 3 让 v0.5.2 建好网络、再回头做 runner 升级，
+（b）v0.5.1u2 的 runner-upgrade compose 生成逻辑有缺陷，还是（c）需要某个未记录的前置步骤。
+**查清前不要在这台机器上继续试**。判定方法与结论见 progress.md 同日记录。
+
+### 2.3 完整测试流程（固定版，照此执行，不得跳步）
+
+每一轮链路测试**必须**按此顺序，每步留证据：
+
+| # | 步骤 | 动作 | 必须留的证据 |
+| --- | --- | --- | --- |
+| 0 | 固化基线 | `capture_baseline.py capture` + `verify` | verify EXIT=0、counts、SHA256SUMS |
+| 1 | 清空环境 | 停容器 → 删旧布局目录 → **保留基线目录** | 删除清单 + 基线仍可 verify |
+| 2 | 装旧布局 | `pre_install.sh` → 造 `.env` → 按 §2.1 步 0 的 project/文件起容器 | 容器标签里的 project 名、web-api/VERSION、runner/RUNNER_VERSION |
+| 3 | 导入数据 | 从基线恢复 `smartx.db` + Prometheus | **Prometheus 目录必须 `chown 65534:65534`**（否则 prometheus panic 重启） |
+| 4 | 起点确认 | `/api/system/health` + 前端可访问 + 数据行数 | health ok、三项 checks、VM/卷行数与基线一致 |
+| 5 | 逐节点升级 | 步 1→4，**每步都走产品 API**，每步做完立刻验收再进下一步 | 每步的 task_id、precheck 结果、status、升级后 health/版本/行数 |
+| 6 | 终态验收 | 8 项验收（见 release-acceptance） | 逐项结论 |
+
+**每步升级后的即时验收项（缺一不可）**：
+
+```
+health.ok=true 且 checks 三项全 true
+version / runner_version 与该步预期一致
+数据行数与升级前一致（VM/卷）
+容器数与 project 名符合 §2.1
+post-cleanup = succeeded（v0.5.2 起才有该接口）
+```
+
+**中断规则**：任一步失败 → **停下、报告、记录根因**，不手工绕过、不跳步继续。
+（本次即在步 2 停下。）
+
+**包来源纪律**：每步用的包必须记录 SHA 与来源。
+runner v0.3.1 必须用**已发布资产** `d10e15cf…`
+（`.3:/home/user1/codex-build/packages-upg032-historyfix/02-runner-v0.3.1-historyfix/`），
+不得用本地重建镜像充当基线（2026-09-27 `.12` 实测教训：用开发镜像过的验收，
+换回 Release 资产立刻失败）。；一旦迁到目标布局（v0.5.2）就不行了（见 §1 第 3 条）。
 
 ---
 
