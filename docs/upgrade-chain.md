@@ -55,25 +55,20 @@ v0.5.1 + runner v0.3.0
 
 ### 2.1 ⚠️ 每步必须用哪个 compose 文件（2026-10-04 实测踩坑后固定）
 
-**这张表是强制的**：每一步的 compose project 名、compose 文件、预期网络三者必须同时对上。
-用错 project 名 = 同一数据被两套 compose 各自认为「我不是我的」→ 容器重建、服务中断、数据错乱。
-
+| 步 | 动作 | compose project 名 | compose 文件（`-f`） | 预期网络 | 网络来源 |
+| --- | --- | --- | --- | --- | --- |
 | 0 | 全新安装旧布局 | `smartx-storage-forecast` | `docker-compose.offline.yml` | `smartx-storage-forecast_smartx-net`（**由 project 名派生**，见 §2.1.1） | compose 内 `ipam` 10.249.249.0/24 **自动创建** |
 | 1 | v0.5.1 → v0.5.1u2 | `smartx-storage-forecast` | `docker-compose.offline.yml` | 同上，不变 | 沿用 |
-| 2 | v0.5.1u2 → v0.5.2 | `smartx-storage-forecast`（升级过程内部会切 project） | 走产品 API `/api/admin/upgrade/*` | 升级后为 `smartx-hci-capacity-insight-net`（10.249.249.0/24，见 §2.1.1） | **由 v0.5.2 包的 `environment_transitions` 创建** |
-| 3 | **runner → v0.3.1**（**必须在步 2 之后**） | `smartx-hci-capacity-insight` | **组件升级走产品 API**（`/api/admin/component-upgrade/*`），**不要手工跑 compose** | `smartx-hci-capacity-insight-net`（此时已存在） | 沿用 |
+| 2 | **runner → v0.3.1**（**在 u2 节点做**，见 §2.2） | 走产品 API `/api/admin/component-upgrade/*`，**不要手工跑 compose** | — | 切换为 `smartx-hci-capacity-insight-net` | **由 runner bootstrap 自己创建**（`.12` 2026-10-04 实测失败，见 §2.2） |
+| 3 | v0.5.1u2 → v0.5.2 | 升级过程内部切 project | 走产品 API `/api/admin/upgrade/*` | 沿用目标网络 | 沿用 |
 | 4 | v0.5.2 → v0.5.3 | `smartx-hci-capacity-insight` | 走产品 API `/api/admin/upgrade/*` | 沿用目标网络，不变 | 沿用 |
 
-> **为什么 runner 组件升级排在步 3 而不是 u2 节点**：原链路表把它放在 u2 节点
-> （旧 project `smartx-storage-forecast`），理由是「bootstrap 要停的是旧 project 的 runner，
-> 新 runner 不会被误停」。**该假设已被 `.12` 2026-10-04 实测推翻**——
-> v0.5.1u2 的 compose 顶层 `name:` 已经是 `smartx-hci-capacity-insight`（见 §2.1.1），
-> 其 runner-upgrade compose 去找 `smartx-hci-capacity-insight-net`，
-> 而该网络要到 v0.5.2 才被创建 → `external: true` 找不到 → 该步失败（见 §2.2）。
+> **步序依据**：v0.5.1u2 的 Release notes（本 Release 的两份包支持以下链路）明确写：
+> `v0.5.1 + runner v0.3.0 → v0.5.1u2 平台升级 → runner v0.3.1 组件升级 → v0.5.2 平台升级`。
+> **runner 组件升级就在 u2 节点**，这是已发布的客户契约，不可改动。
 >
-> 改为「**先平台（v0.5.2 建好目标网络）→ 再 runner 组件升级**」，
-> 这同时符合 AGENTS §7 §4 第 1 条「默认先平台、后 runner」——
-> **两个独立来源指向同一结论**，比原来单一来源的说法更可信。
+> ⚠️ 2026-10-04 我曾据 `.12` 一次失败把它改成「v0.5.2 之后」——**该改动是错的，已回滚**。
+> 那次失败的真因是**用错了 v0.5.1u2 平台包**（用了本地副本而非 Release 资产），详见 §2.2。
 
 **硬规则**：
 
@@ -81,7 +76,8 @@ v0.5.1 + runner v0.3.0
    **不要手工执行 `docker compose` 升级**。升级编排（切 project、换网络、备份、
    健康检查、post-cleanup）全部在产品流程内完成；手工 compose 绕过这些保护。
 2. **`docker compose` 只用于「装环境」和「排障查看」**，不用于「升级」。
-3. 排障时判断当前处于哪个 project，看容器的 compose 标签，不要靠猜：
+3. **链路包必须用 GitHub Release 资产**，并核对 SHA——本地副本不算数（见 §2.2 的踩坑记录）。
+4. 排障时判断当前处于哪个 project，看容器的 compose 标签，不要靠猜：
    `docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' <容器>`
 
 ### 2.1.1 🔴 每个版本实际使用的 project 名与网络名（2026-10-04 从包内 compose 实测提取）
@@ -158,24 +154,34 @@ networks:
 即：**v0.5.1u2 处在「名字已改、网络未建」的半迁移状态**。
 它的 runner-upgrade compose 按**目标布局**的名字去找网络，而那个网络此刻还不存在。
 
-**结论**：**步 2（runner 组件升级）不能在 v0.5.1u2 的半迁移布局上直接跑**。
-要跑通，必须先让 `smartx-hci-capacity-insight-net` 真实存在——而这只由 v0.5.2 的
-`environment_transitions` 完成。因此**实际可行的顺序是「先平台（到 v0.5.2）、
-再 runner 组件升级」**，这也正好与 AGENTS §7 的顺序铁律一致
-（§4 第 1 条：默认先平台、后 runner；平台包 runner 基线 = 已发布 v0.3.1，现场够用时不动 runner）。
+**⚠️ 结论修正（2026-10-04，用户以 Release notes 指出后）**：
 
-⚠️ **注意与 §2 链路表的矛盾**：§2 那张表把 runner 组件升级放在 u2 节点
-（历史如此，因为当时认为 u2 的旧 project 能让 bootstrap 停对对象）。
-**该假设在 `.12` 2026-10-04 实测中不成立**——u2 的 compose 顶层 name 已改，
-bootstrap 去找目标网络而找不到。**以本节实测为准**，§2 表的 u2→runner 一行需按此结论修订。
+我一度据此判定「步 2 不能在 u2 上做、应改到 v0.5.2 之后」——**这个结论是错的，已回滚**。
+两个硬证据推翻它：
 
-**⚠️ 禁止的绕法**：手工 `docker network create smartx-hci-capacity-insight-net`
-或手工改那份 compose 的 `name`。那是宿主手工变更（AGENTS §5 明令禁止），
-且会掩盖真实缺陷、让后续 v0.5.2 迁移时出现两个网络打架。
+1. **v0.5.1u2 的 Release notes**（已发布的客户契约）明确写：
+   `v0.5.1 + runner v0.3.0 → v0.5.1u2 平台升级 → runner v0.3.1 组件升级 → v0.5.2 平台升级`
+   ——**runner 组件升级就在 u2 节点**，产品本就该能在这里建好新网络。
+2. **ledger 有 `VALIDATED / CHAIN OK` 记录**：`runner-v0.3.1-upg032-historyfix`
+   （即 Release 资产 `d10e15cf…`）历史上跑通过整条链路。
 
-**待定**：这条链路是（a）设计上就该先跑步 3 让 v0.5.2 建好网络、再回头做 runner 升级，
-（b）v0.5.1u2 的 runner-upgrade compose 生成逻辑有缺陷，还是（c）需要某个未记录的前置步骤。
-**查清前不要在这台机器上继续试**。判定方法与结论见 progress.md 同日记录。
+**真因是我用错了包**：本次 `.12` 演练的 v0.5.1u2 平台包取自
+`.3:/data/upgrade-packages/`（SHA `2b5688b5…`），**那是本地副本，未核对是否为 Release 资产**。
+而 Release 权威 SHA 是：
+
+| 包 | Release 权威 SHA | 本次实际用的 | 对否 |
+| --- | --- | --- | --- |
+| v0.5.1u2 平台包 | `d5f277167445e7636ddfba16b4f780b40d59952467bb1c8e72d2469b43ee0a49` | `2b5688b5…` | ❌ **用错** |
+| runner v0.3.1 | `d10e15cf7b516d172ebe2f1bc37621f9cf32d8ab3abd548f808ae5c5de151d2c` | `d10e15cf…` | ✅ 正确 |
+
+即：runner 包用对了，**平台包用错了**。AGENTS 早就记着这条教训
+（§10 交付一致性门禁）：「用开发镜像过的验收，换回 Release 资产立刻在 cutover 后失败」。
+本次是同一个教训的另一个形态——**用本地副本过的验收，换回 Release 资产才暴露问题**。
+
+**因此本节结论作废，保留上文仅作为「用错包会导致什么」的记录。**
+正确做法：链路包一律从 GitHub Release 下载并核对 SHA（§2.1 硬规则第 3 条）。
+
+**待做**：用 Release 资产 `d5f27716…` 重做 `.12` 的步 1–2，验证官方链路确实跑通。
 
 ### 2.3 完整测试流程（固定版，照此执行，不得跳步）
 
