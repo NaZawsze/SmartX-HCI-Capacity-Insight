@@ -413,3 +413,25 @@
 - **测试**：mock「拷贝/打包时文件消失」——合并路径跳过且计 raced、备份路径跳过不中断、
   blockA 正常入包。
 - **状态**：🟢 修复并测试；`.12` 包2 重导已验证通过（见 progress.md 2026-10-01 恢复验证）。
+
+### US-39 🟠 已实测未修（2026-10-03 `.12` 验收发现）：US-37 守卫只对「全新安装」生效，**升级上来的存量站点完全没有防护**
+
+- **现象（`.12` 实测，验收脚本 `scripts/verify_site_acceptance.sh`）**：`.12` 的 `.env` **没有**
+  `SMARTX_COMPOSE_FILE_ACTIVE`（10 个键里无此键），project 目录里也**没有** `compose-guard.sh`
+  ——US-37 三层防护在这一台「一路升级上来的」机器上两层都不存在。
+- **根因（机制可证）**：①平台包的 `project/` 载荷只有 7 个固定文件 + `docs/` + `scripts/`
+  （`build_upgrade_package.py::PROJECT_FILES/PROJECT_DIRS`），**不含 `delivery/compose-guard.sh`**，
+  所以升级（project_files 同步）不会把守卫带进 project 目录；②标记只有 `install.sh` 写
+  （`compose_guard_resolve` 地面真相回填），`upgrade.sh` 与平台升级动作都不写——
+  而 web-api 的 project 目录是**只读挂载**（回写职责在 runner 侧，US-32 结论），
+  平台侧想补标记也写不进去。
+- **为什么当初没拦住**：US-37 设计（2026-09-30）§6 风险 1 只评估了「旧环境没有标记 → 守卫放行（T1 向后兼容）」，
+  没有评估「**升级路径本身不投递守卫**」——旧环境不但没有标记，连守卫脚本都不会有。
+- **影响**：客户从 v0.5.2 升 v0.5.3（现场主路径）后，compose 变体混用事故的防护**等于零**；
+  US-37 的价值只覆盖全新安装的机器。
+- **修复方向（下个版本，需设计）**：①把 `compose-guard.sh` 纳入平台包 project 载荷（或 `project_files`
+  同步时写入）；②标记回填需要**能写 project/.env 的执行方**——runner 侧在升级收尾写（需改 runner、
+  按 §8 版本治理走）、或交付 `upgrade.sh` 在升级前用 `compose_guard_resolve` 回填（脚本侧可做、
+  覆盖用交付脚本升级的客户，但覆盖不了走产品 UI 上传升级的场景）；③验收脚本把「升级后仍无标记」
+  列为显式检查项（现状：`verify_site_acceptance.sh` 会 FAIL，据此发现本问题）。
+- **状态**：🟠 **已登记待立项**；不阻塞 v0.5.3 发布（属存量缺口非回归，CHANGELOG 已知问题已注明）。
