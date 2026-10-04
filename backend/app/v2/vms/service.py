@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from app.v2.config import V2Settings
+from app.v2.cloudtower.client import RECYCLE_BIN_VM_PREFIX
 from app.v2.scope import in_enabled_scope
 from app.v2.database import V2Database
 from app.v2.metrics.prometheus import PrometheusService
@@ -28,10 +29,34 @@ class VmService:
         self.prometheus = prometheus or PrometheusService(settings.prometheus_url)
         self.now_ts = now_ts
 
+    # ── 回收站展示过滤（2026-10-04，pending #79）──────────────────────────
+    # 用户口径：**统计侧全量**（已使用/已分配/容量预测都含回收站，见 #75/#77），
+    # 但**页面不显示回收站里的 VM 及其卷**。故过滤只做在展示层，不动任何统计口径。
+    # 判据用 vm_latest.in_recycle_bin（采集侧 49-47 已写入），并叠加名字前缀
+    # `in-recycle-bin-<uuid>` 作兜底——Tower 侧约定，前缀判定见 cloudtower/client.py。
+    def _recycled_vm_keys(self) -> set[tuple[int, str, str]]:
+        """(tower_id, cluster_id, vm_id) 三元组集合，标记当前处于回收站的 VM。"""
+        try:
+            with self.database.connection() as conn:
+                rows = conn.execute(
+                    "SELECT tower_id, cluster_id, vm_id, name, in_recycle_bin FROM vm_latest"
+                ).fetchall()
+        except Exception:  # noqa: BLE001 - 展示过滤不应因探测失败而让列表报错
+            return set()
+        keys: set[tuple[int, str, str]] = set()
+        for row in rows:
+            recycled = bool(int(row["in_recycle_bin"] or 0))
+            if not recycled and str(row["name"] or "").startswith(RECYCLE_BIN_VM_PREFIX):
+                recycled = True
+            if recycled:
+                keys.add((int(row["tower_id"]), str(row["cluster_id"]), str(row["vm_id"])))
+        return keys
+
     def list_vms(self, tower_id: int | None = None, cluster_id: str | None = None) -> list[dict[str, Any]]:
         latest_names = self._latest_vm_names()
         cluster_names = self._cluster_names()
         enabled_scope = self._enabled_cluster_scope(tower_id=tower_id, cluster_id=cluster_id)
+        recycled = self._recycled_vm_keys()
         rows = self.prometheus.instant(scoped_query(VM_USED_METRIC, tower_id=tower_id, cluster_id=cluster_id))
         vms: list[dict[str, Any]] = []
         for row in rows:
@@ -41,6 +66,8 @@ class VmService:
             key = vm_key(metric)
             if not in_enabled_scope((key[0], key[1]), enabled_scope):
                 continue
+            if (key[0], key[1], str(metric.get("vm_id") or "")) in recycled:
+                continue  # 回收站 VM 不在页面列表展示（#79）
             name = latest_names.get(key) or str(metric.get("vm_name") or metric.get("vm_id") or "")
             used_bytes = metric_value(row)
             vms.append(
@@ -162,6 +189,12 @@ class VmService:
         if cluster_id:
             filters.append("v.cluster_id = ?")
             params.append(cluster_id)
+        filters.append(
+            "NOT EXISTS (SELECT 1 FROM vm_latest r WHERE r.tower_id = v.tower_id"
+            " AND r.cluster_id = v.cluster_id AND r.vm_id = v.vm_id"
+            " AND (r.in_recycle_bin = 1 OR r.name LIKE ?))"
+        )
+        recycle_params = [f"{RECYCLE_BIN_VM_PREFIX}%"]
         where = f"WHERE {' AND '.join(filters)}" if filters else ""
         with self.database.connection() as conn:
             rows = conn.execute(
@@ -173,7 +206,7 @@ class VmService:
                 {where}
                 ORDER BY v.tower_id, v.cluster_id, v.vm_id, v.name, v.volume_id
                 """,
-                params,
+                [*params, *recycle_params],
             ).fetchall()
 
         grouped: dict[tuple[int, str, str], dict[str, Any]] = {}
@@ -231,6 +264,15 @@ class VmService:
         if cluster_id:
             filters.append("v.cluster_id = ?")
             params.append(cluster_id)
+        # 回收站 VM 的卷不在页面展示（#79）。用 NOT EXISTS 而非 NOT IN——
+        # 后者在 vm_latest 出现 NULL 列值时会漏行。计数与数据两处查询共用此条件，
+        # 否则 total 会把回收站卷计入、分页数虚高。
+        filters.append(
+            "NOT EXISTS (SELECT 1 FROM vm_latest r WHERE r.tower_id = v.tower_id"
+            " AND r.cluster_id = v.cluster_id AND r.vm_id = v.vm_id"
+            " AND (r.in_recycle_bin = 1 OR r.name LIKE ?))"
+        )
+        recycle_params = [f"{RECYCLE_BIN_VM_PREFIX}%"]
         where = f"WHERE {' AND '.join(filters)}" if filters else ""
         if sort_field == "vm":
             order_sql = f"COALESCE(vm.name, v.vm_id) {direction}, v.name {direction}, v.volume_id {direction}"
@@ -241,7 +283,7 @@ class VmService:
         with self.database.connection() as conn:
             total = conn.execute(
                 f"SELECT COUNT(*) FROM vm_volumes v {where}",
-                params,
+                [*params, *recycle_params],
             ).fetchone()[0]
             rows = conn.execute(
                 f"""
@@ -257,7 +299,7 @@ class VmService:
                 ORDER BY {order_sql}
                 LIMIT ? OFFSET ?
                 """,
-                [*params, page_size, (page - 1) * page_size],
+                [*params, *recycle_params, page_size, (page - 1) * page_size],
             ).fetchall()
         volumes = [
             {
@@ -347,7 +389,8 @@ class VmService:
         where = f"WHERE {' AND '.join(filters)}" if filters else ""
         with self.database.connection() as conn:
             rows = conn.execute(
-                f"SELECT tower_id, cluster_id, vm_id, name, used_bytes FROM vm_latest {where}",
+                f"SELECT tower_id, cluster_id, vm_id, name, used_bytes, in_recycle_bin "
+                f"FROM vm_latest {where}",
                 params,
             ).fetchall()
         items = []
@@ -358,6 +401,8 @@ class VmService:
             cluster_id = str(row["cluster_id"])
             vm_id = str(row["vm_id"])
             vm_name = str(row["name"])
+            if int(row["in_recycle_bin"] or 0) or vm_name.startswith(RECYCLE_BIN_VM_PREFIX):
+                continue  # 回收站 VM 不展示（#79）
             cluster_name = cluster_names.get((tower_id, cluster_id), "")
             used_bytes = int(row["used_bytes"] or 0)
             items.append(
