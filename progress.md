@@ -4215,3 +4215,65 @@ total_bytes 240988182282240）、5 容器全 running 且镜像为 r16（web-api 
 
 **未修的治理原因**：runner 能力变更必须先 bump `RUNNER_VERSION`（根目录文件、镜像 tag、
 组件包、manifest）并经用户同意（AGENTS §6），禁止同版本号改能力。故只登记不实施。
+
+## 2026-10-04 夜：继续修 pending 三项（#80 / #79 / #78）
+
+用户指令「继续修啊」。三项均完成、均有设计/记录、均做了变异测试。
+
+### #80 损坏文件返回 400 而非 500（`955f2fa`）
+
+`_read_manifest` 只捕 `json.JSONDecodeError`；而 `read_text(encoding="utf-8")` 对
+非 UTF-8 字节抛 `UnicodeDecodeError`——两者都继承 `ValueError` 但**不是**子类关系，
+于是截断/二进制损坏的包穿透成 **500**，而「合法 UTF-8 但非法 JSON」返回干净 400。
+
+同类问题还有 `_read_task_file`（损坏 `task.json` 让历史/状态整页 500）。
+在**调用点**包一层而不改 `TaskStore`——后者在 `app/upgrade_runner/`，
+属 runner 镜像，改它要 bump `RUNNER_VERSION`（AGENTS §6）。
+
+### #79 页面不展示回收站 VM 及其卷（`1fc764b`）
+
+用户口径：**统计侧全量、页面不显示**。已使用/已分配/容量预测仍含回收站（#75/#77 不变），
+只过滤 VM 列表与卷列表——卷有 **grouped 与分页两条路径**，且分页的 **count 查询也必须加**，
+否则 total 把回收站卷计入、分页数虚高。用 `NOT EXISTS` 而非 `NOT IN`（后者遇 NULL 列值漏行）。
+
+详情与单 VM 卷列表**有意不过滤**：列表里已看不到，深链直接访问仍应可用，否则历史链接 404。
+
+### #78 报表/迁移/导入留档自动保留（`46b6943`）
+
+**先纠正我自己在 pending 里写错的描述**：原写「空间清理不覆盖报表/迁移包」——错，
+`_targets()` 本就含这些目录、手动清理会删。真实缺口是：①TTL 守护只管 `upgrades/`，
+这四类无后台清理（`.12` 约 450 MiB 由此堆积）；②`keep_recent` 只对 `upgrades/` 生效，
+其余三类一次清空——**迁移包可能是客户唯一的重导入凭据**。
+
+新增 `exports_retention.py`，TTL 与保留数复用既有环境变量不新增概念，
+并设 `MIN_KEEP = 3` 硬下限。接入 `main.py` lifespan，返回 `threading.Event`
+与 `start_backup_cleanup_daemon` 同一契约。
+
+### 我这一轮犯的 7 处错误
+
+1. #79 首次插 `NOT EXISTS` 落错函数（`_latest_vms_from_database`，那里无 `v.` 前缀）
+2. #79 测试构造 `VmService` 参数顺序错、读错分页字段（`items` → `volumes`）
+3. **验证环境代码陈旧**：#80 改完后 `cp` 同步到 `.3`，但 r16 构建重新解压覆盖了该目录，
+   测试在旧代码上跑 → 误判「修复无效」。**教训：改完必须核对 `.3` 上跑的是新版**
+4. #80 测试数据 `[:-2]` 并非切在字符中间（UTF-8 仍合法），改自验证式
+5. #78 守护间隔用 `or` 吞掉「0 = 关闭」语义（测试立刻抓到）
+6. #78 测试断言把保留/删除的 mtime 方向写反
+7. **#78 `nonlocal` 漏外层变量声明** → `create_app()` 抛
+   `SyntaxError: no binding for nonlocal 'export_retention_stop_event' found`
+   → 所有走 TestClient 的 API 用例 error（首轮全量 811 例中 4 个 error）。
+   定向跑那三个模块时它们未被包含，漏过。**教训：影响全局启动的代码定向测试覆盖不到，
+   必须跑全量。**
+
+### 验证
+
+- 三项均做**变异测试**：撤回修复后测试分别失败 2/5、3/5 例；`MIN_KEEP` 3→0 时失败
+- 相关模块回归 117 tests，仅既有失败
+- **`.3` 全量：811 tests / 1 既有失败 / skipped=7**（793 + 新增 18）
+- 变异测试 + 版本核对 + 全量回归这套动作已固化为后续修复的习惯
+
+### 仍未做
+
+- **#82 runner 心跳遇 SQLite 锁崩溃**：`.12` 实测 `RestartCount=1`，自愈无碍，
+  但属 runner 能力问题，须先 bump `RUNNER_VERSION`（v0.3.2 → v0.3.3）并经用户同意，
+  且会牵入 #53（runner 组件交付，用户已暂缓）。**待用户决策。**
+- **r17 未构建**：上述三项已提交但未出包、未在 `.12`/`.14` 走升级验收。
