@@ -240,6 +240,15 @@ def _read_manifest(path: Path) -> dict[str, Any]:
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=400, detail="manifest.json 格式不正确。") from exc
+    except UnicodeDecodeError as exc:
+        # 包被截断或损坏时，manifest 可能根本不是合法 UTF-8（此前只捕 JSONDecodeError，
+        # UnicodeDecodeError 会穿透成 500 Internal Server Error，而「合法 UTF-8 但非法 JSON」
+        # 返回干净 400，两者不一致，客户看到的是底层报错而非可读提示）。
+        # 走真实 HTTP 上传验证时发现：随机字节的 manifest → 500。
+        raise HTTPException(
+            status_code=400,
+            detail="升级包已损坏或传输不完整：manifest.json 不是合法的 UTF-8 文本，请重新获取升级包。",
+        ) from exc
     if manifest.get("schema_version") not in {"2", "3"}:
         raise HTTPException(status_code=400, detail="升级包 schema_version 必须为 2 或 3。")
     return manifest

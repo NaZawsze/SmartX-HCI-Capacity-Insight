@@ -251,7 +251,20 @@ def _read_task_file(task_dir: Path) -> dict[str, Any]:
     path = task_dir / "task.json"
     if not path.is_file():
         raise HTTPException(status_code=404, detail="升级任务不存在。")
-    return TaskStore(task_dir).load()
+    try:
+        return TaskStore(task_dir).load()
+    except UnicodeDecodeError as exc:
+        # 同 _read_manifest：损坏的 task.json 不该让 history()/status() 整页 500。
+        # 注意 TaskStore 在 app/upgrade_runner（runner 镜像）内，**不能在那里改**——
+        # 故在调用点包一层，避免触碰 runner 能力（AGENTS §6）。
+        raise HTTPException(
+            status_code=404,
+            detail=f"升级任务记录已损坏，无法读取：{path.name}",
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"升级任务记录已损坏，无法读取：{path.name}"
+        ) from exc
 
 
 
