@@ -2201,3 +2201,52 @@ worker 启动不同步调度 + 异常静默 + 零日志；②新鲜度阈值 2h�
 
 - 设计：`docs/superpowers/specs/2026-10-04-delete-package-record-and-env-recreate-design.md`
 - 计划：`docs/superpowers/plans/2026-10-04-delete-package-record-and-env-recreate-plan.md`
+### 67. #82 runner 心跳遇 SQLite 锁导致进程退出（49-67）[已立项 2026-10-04 · 已修复待验收]
+
+**现象**：r16 在 `.12` 升级后，`upgrade-runner` 的 `RestartCount=1`，
+`started` 比其余 4 个容器晚约 100 秒。日志为
+
+```
+File "/app/app/upgrade_runner/lease.py", line 124, in update_runner_state
+    connection.execute(
+sqlite3.OperationalError: database is locked
+```
+
+**根因（两层）**：
+
+1. **直接原因**：升级期间 web-api 与 runner 自身会写库持锁，
+   `lease.update_runner_state()` 的 upsert 撞上 `database is locked`。
+   该异常在 `run_pending_once()` 内**无任何捕获**，一路冒泡到 `main()` 的
+   `while` 循环之外。
+2. **放大原因**：`main()` 的主循环**没有兜底**——任何单轮异常都会终止进程。
+   进程以 exit 0 退出（`OOMKilled=false`、无 Error），靠容器的
+   `restart: unless-stopped` 被拉起，表现为「静默重启」。
+
+**为什么当时判为「暂时不修」（记录此项的原因）**：
+
+我最初套用 AGENTS §6「改 runner 必须 bump `RUNNER_VERSION`」，判断需要
+v0.3.2 → v0.3.3 才能动。**这个判断是错的**——那条规矩的目的是防止**已发布版本**
+出现「同版本号、不同能力」，而 **runner v0.3.2 截至本日仍在开发线、尚未发布**
+（客户现场为 v0.3.1；组件包交付随下一版一起发，见 pending #53）。
+对未发布版本，直接在 v0.3.2 内修复即可，无需 bump。
+**教训**：版本治理规则要先确认「该版本是否已交付」，不能看到「改 runner」就条件反射套用。
+
+**风险（不修的代价）**：
+① 升级正进行中时 runner 反复退出，可能拖慢甚至卡住任务；
+② 撞上容器重启上限会进入 crash-loop；
+③ 崩溃发生在接管任务**之前**会漏执行。
+本次实测未影响升级结果（自愈后心跳正常、post-cleanup 成功），属**间歇性**缺陷。
+
+**修法（两处）**：
+1. `_heartbeat_with_retry()`：SQLite 锁是**短暂**的（写事务结束即释放），
+   故短退避重试（0.2/0.5/1.0/2.0 秒，共 5 次尝试）即可覆盖；
+   重试耗尽也**返回 False 而非抛出**——心跳丢一次不该让 runner 退出。
+   非锁原因的 `OperationalError`（如表不存在）只试一次，不浪费时间。
+2. `main()` 主循环加最后一道防线：单轮任何异常 `logger.exception` 后继续下一轮，
+   runner 保持存活。
+
+**验证**：新增 `test_runner_heartbeat_resilience.py`（5 例）：首次成功 /
+短暂锁被重试覆盖 / **重试耗尽不抛异常** / 非锁错误只试一次 /
+**`main()` 首轮异常后仍进入下一轮**（用 `KeyboardInterrupt` 跳出循环，
+断言至少跑了 3 轮——若进程被异常带走则只有 1 轮）。
+**变异测试**：把 `main()` 还原成无兜底的 `while` 循环后，核心断言失败。

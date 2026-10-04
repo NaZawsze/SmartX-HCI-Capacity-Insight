@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import signal
 import sqlite3
@@ -16,6 +17,8 @@ from app.upgrade_runner.actions import ActionContext, CommandExecutor, default_h
 from app.upgrade_runner.engine import UpgradeEngine
 from app.upgrade_runner.lease import LeaseManager
 from app.upgrade_runner.store import TaskStore
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -406,6 +409,49 @@ def _heartbeat_until_done(lease: LeaseManager, task_id: str, store: TaskStore, s
             return
 
 
+#: 心跳写库遇 SQLite 锁时的重试参数。
+#:
+#: 根因（2026-10-04 `.12` 实测）：升级期间 web-api / runner 自身会写库持锁，
+#: `upgrade_runner_state` 的 upsert 撞上 `sqlite3.OperationalError: database is locked`。
+#: 该异常原先**一路冒泡到 `main()` 的 while 循环外**，进程直接退出（exit 0），
+#: 靠 `restart: unless-stopped` 被拉起——`.12` 实测 `RestartCount=1`。
+#: 风险：升级正进行中时 runner 反复退出可能拖慢甚至卡住任务；撞上重启上限会进入 crash-loop；
+#: 崩溃发生在接管任务前会漏执行。
+#:
+#: 修法：锁是**短暂**的（写事务结束即释放），故短退避重试即可覆盖；
+#: 重试仍失败则**不退出**——本轮跳过心跳，下一轮（3 秒后）自然重试。
+HEARTBEAT_RETRY_DELAYS = (0.2, 0.5, 1.0, 2.0)
+
+
+def _heartbeat_with_retry(lease: LeaseManager, runner_version: str) -> bool:
+    """更新 runner 心跳；遇 SQLite 锁则短退避重试。返回是否成功。
+
+    绝不向上抛异常：心跳写不进去只是一次心跳丢失，不该让 runner 进程退出。
+    """
+    for attempt, delay in enumerate((0.0, *HEARTBEAT_RETRY_DELAYS)):
+        if delay:
+            time.sleep(delay)
+        try:
+            lease.update_runner_state(runner_version)
+            return True
+        except sqlite3.OperationalError as exc:
+            # 只对「锁/忙」重试；其它 OperationalError（如表不存在）重试无意义
+            if "locked" not in str(exc) and "busy" not in str(exc):
+                logger.warning("runner 心跳失败（非锁原因，跳过本轮）: %s", exc)
+                return False
+            logger.warning(
+                "runner 心跳遇数据库锁，第 %d 次重试（%.1fs 后）: %s",
+                attempt + 1,
+                HEARTBEAT_RETRY_DELAYS[attempt] if attempt < len(HEARTBEAT_RETRY_DELAYS) else 0.0,
+                exc,
+            )
+        except Exception:  # noqa: BLE001 - 心跳失败不得让 runner 退出
+            logger.exception("runner 心跳失败，跳过本轮")
+            return False
+    logger.warning("runner 心跳重试耗尽，跳过本轮（进程继续运行）")
+    return False
+
+
 def run_pending_once(
     settings: RunnerSettings,
     *,
@@ -415,7 +461,7 @@ def run_pending_once(
 ) -> int:
     owner_id = owner or f"runner-{uuid.uuid4().hex}"
     lease = LeaseManager(settings.database_path, owner_id)
-    lease.update_runner_state(settings.runner_version)
+    _heartbeat_with_retry(lease, settings.runner_version)
     executed = 0
     settings.upgrades_path.mkdir(parents=True, exist_ok=True)
     for task_file in sorted(settings.upgrades_path.glob("*/task.json"), key=lambda path: path.stat().st_mtime):
@@ -600,7 +646,13 @@ def main() -> None:
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
     while not stop:
-        run_pending_once(settings, owner=owner)
+        try:
+            run_pending_once(settings, owner=owner)
+        except Exception:  # noqa: BLE001 - 单轮失败不得让 runner 退出
+            # 最后一道防线：此前任何未捕获异常（如心跳撞库锁）都会终止进程，
+            # 靠 restart 策略拉起，升级中途反复重启有拖慢/卡住风险。
+            # 这里改为记录后继续下一轮（3 秒后），runner 保持存活。
+            logger.exception("runner 本轮执行异常，继续下一轮")
         time.sleep(3)
 
 
