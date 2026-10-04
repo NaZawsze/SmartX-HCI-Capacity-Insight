@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 from app.v2.config import V2Settings
 from app.v2.tasks.models import TaskStatus, TaskType
 from app.v2.tasks.service import TaskService
+from app.v2.upgrade.service.fs import purge_upgrade_payload
 
 ACTIVE_UPGRADE_STATUSES = {"pending", "running"}
 PROTECTED_IMAGE_REPOSITORY_KEYWORD = "smartx-hci-capacity-insight-"
@@ -172,39 +173,15 @@ class CleanupService:
         }
 
     #: 升级任务目录里**必须保留**的记录文件（升级中心历史依赖它们，见 intake.py::history）
-    UPGRADE_RECORD_FILES = frozenset({"task.json"})
-
     def _purge_upgrade_payload(self, task_dir: Path) -> int:
-        """只删升级任务目录里的**体积产物**，保留记录。
+        """转发到共享实现，保留本方法名以免破坏既有调用点与测试。
 
-        用户口径 2026-10-04：「保留记录不留包」——
-        升级中心历史只读 `task.json`（intake.py::history 扫 `*/task.json`），
-        不读 `package/`；而单个任务的包占 200M~853M，是磁盘堆积的主因。
-
-        保留：`task.json`（历史记录）、`post-upgrade-*.json`（采集/清理标记）。
-        删除：`package/`（解包副本）、`*.tar.gz` / `*.sha256`（上传的包本体）。
-
-        返回删除的条目数。目录本身保留（`post-cleanup-*` 的任务.json 也在同层）。
+        2026-10-04：原先逻辑内联在此处，而 `intake.py::delete_package` 另写了一份
+        `rmtree(整个任务目录)`——同一问题（释放磁盘）两条路径做法相反，删记录的那条
+        藏在 UI 按钮后且无任何告知。现统一到
+        `upgrade.service.fs::purge_upgrade_payload`，记录文件清单也只定义一次。
         """
-        if not task_dir.is_dir():
-            # 不是升级任务目录（如散落在upgrades/ 下的单个 .tar.gz 包）→ 整删
-            if task_dir.exists():
-                task_dir.unlink()
-                return 1
-            return 0
-        removed = 0
-        for child in sorted(task_dir.iterdir(), key=lambda c: c.name):
-            if child.name in self.UPGRADE_RECORD_FILES:
-                continue
-            # post-upgrade-cleanup.json / post-upgrade-collection.json 是小标记，保留
-            if child.is_file() and child.stat().st_size < 64 * 1024 and child.suffix == ".json":
-                continue
-            if child.is_dir():
-                shutil.rmtree(child)
-            else:
-                child.unlink()
-            removed += 1
-        return removed
+        return purge_upgrade_payload(task_dir)
 
     #: 僵尸任务判定：状态卡在 pending/running 且**任务目录不存在**超过该秒数。
     #: 取 6 小时——远大于任何真实升级的执行时长（`.12` 观测：14 动作约 30~90 秒），

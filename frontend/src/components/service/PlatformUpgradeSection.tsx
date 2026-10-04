@@ -591,10 +591,14 @@ export function PlatformUpgradeSection({
               <X size={16} />
               取消选择
             </button>
-            <button className="secondary-button danger-button" type="button" onClick={deleteSelectedUpgradePackage} disabled={upgradeBusy || isRunning || needsRecovery}>
-              <X size={16} />
-              删除
-            </button>
+            {/* 2026-10-04：包已删除后不再显示按钮。删包只删体积产物、记录保留，
+                任务仍在历史里且 started_at 仍在；若无条件显示，点了会没有反应。 */}
+            {upgradeTask?.has_package !== false && (
+              <button className="secondary-button danger-button" type="button" onClick={deleteSelectedUpgradePackage} disabled={upgradeBusy || isRunning || needsRecovery}>
+                <X size={16} />
+                删除升级包
+              </button>
+            )}
             <button className="secondary-button danger-button" type="button" onClick={rollbackUpgrade} disabled={upgradeBusy || isRunning || needsRecovery || !upgradeTask.started_at}>
               <RotateCcw size={16} />
               手动回滚

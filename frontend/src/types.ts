@@ -359,6 +359,12 @@ export interface UpgradeTask {
   recovery_status?: string;
   recovery_reason?: string;
   recovery_command?: string | null;
+  /**
+   * 升级包是否还在（2026-10-04）。删包改为「只删包、保留记录」后，
+   * 任务仍留在历史里且 `started_at` 仍在——若界面仍显示「删除」按钮，
+   * 点了会没有反应。故据此隐藏按钮。
+   */
+  has_package?: boolean;
   /** US-29：人工回滚已下线，保留取值仅为历史任务/老客户端兼容，UI 不再暴露该操作。 */
   available_recovery_actions?: Array<"continue" | "rollback" | "fail">;
   /** US-27：任务被标记失败后环境是否需要收尾（重跑一次升级由 post-cleanup 清理残留）。 */

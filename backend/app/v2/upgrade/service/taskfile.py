@@ -21,6 +21,18 @@ class TaskFileMixin:
         public = dict(task)
         public["task_id"] = str(task.get("task_id") or "")
         public["status"] = _public_status(str(task.get("status") or ""))
+        # 包是否还在（2026-10-04）：`delete_package` 改为「只删包、保留记录」后，
+        # 任务记录仍留在历史里（`started_at` 也仍在）。若前端仍按原条件显示
+        # 「删除升级包」，就会变成「按钮还在、点了没反应」——比原来更糟。
+        # 故显式暴露 `has_package`，由界面据此隐藏按钮或改文案。
+        try:
+            from .fs import has_upgrade_payload
+
+            public["has_package"] = has_upgrade_payload(
+                self.settings.upgrades_dir / public["task_id"]
+            )
+        except Exception:  # noqa: BLE001 - 视图不应因探测失败而报错
+            public["has_package"] = True
         if task.get("status") == "recovery_required" and task.get("recovery_command") in {"continue", "rollback"}:
             public["status"] = "running"
         if str(task.get("status") or "") == "running":

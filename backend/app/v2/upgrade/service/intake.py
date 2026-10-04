@@ -14,7 +14,15 @@ from app.upgrade_protocol.constants import RUNNER_CAPABILITIES, RUNNER_PROTOCOL_
 
 from ._compat import HTTPException, UploadFile
 
-from .fs import _now, _safe_extract, _sha256_file, _validate_members
+from .fs import (
+    _now,
+    _safe_extract,
+    _sha256_file,
+    _validate_members,
+    has_upgrade_payload,
+    purge_upgrade_payload,
+    upgrade_payload_size,
+)
 from .taskfile import _completed_runner_task_view, _component_types, _component_types_from_task, _history_task_sort_key, _read_task_file, _save_task_file, _task_package_sha256
 
 from .constants import MANIFEST_NAME
@@ -139,12 +147,42 @@ class IntakeMixin:
 
 
     def delete_package(self, task_id: str) -> dict[str, Any]:
+        """删除升级任务的**体积产物**，保留历史记录（2026-10-04 修正）。
+
+        原实现是 `shutil.rmtree(task_dir)`——连 `task.json` 一起删。而 `task.json` 是
+        升级历史的唯一数据来源（`history()` 扫 `*/task.json`；`_read_task_file` 缺文件
+        即 404），所以点一次「删除升级包」就会让该条升级记录永久消失、无法追溯。
+        这与 r14 已定口径矛盾：`cleanup_artifacts` 早已按「宁留记录不留包」
+        只删 `package/` 与包本体、保留 `task.json`（172 KiB 记录 vs 853 MiB 包）。
+
+        现两条路径共用 `fs.py::purge_upgrade_payload`，记录文件清单只定义一处，
+        杜绝再次分叉。组件包删除（`api/admin/upgrade.py`）复用本方法，一并受益。
+
+        注意：**人工回滚的可用性不受本改动影响**——US-29 已下线人工回滚且 UI 隐藏入口，
+        失败自动回滚走 `execute_task` 异常分支（任务处于活跃态、被下面的守卫拒绝）。
+        """
         task_dir = self.settings.upgrades_dir / task_id
         task = _read_task_file(task_dir)
-        if task.get("status") in {"running", "pending", "runner_restarting", "recovery_required", "rollback_pending", "rollback_running"}:
-            raise HTTPException(status_code=400, detail="升级任务正在执行或需要恢复，不能删除。")
-        shutil.rmtree(task_dir, ignore_errors=True)
-        return {"ok": True, "task_id": task_id}
+        if task.get("status") in {
+            "running",
+            "pending",
+            "runner_restarting",
+            "recovery_required",
+            "rollback_pending",
+            "rollback_running",
+        }:
+            raise HTTPException(
+                status_code=400, detail="升级任务正在执行或需要恢复，不能删除。"
+            )
+        reclaimed = upgrade_payload_size(task_dir)
+        deleted_count = purge_upgrade_payload(task_dir)
+        return {
+            "ok": True,
+            "task_id": task_id,
+            "deleted_count": deleted_count,
+            "space_reclaimed": reclaimed,
+            "kept_record": True,
+        }
 
 
     def version(self) -> dict[str, str]:
