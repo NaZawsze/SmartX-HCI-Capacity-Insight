@@ -4570,3 +4570,89 @@ AGENTS §10 早就写着这条（2026-09-27 `.12` 实测教训）：「**已发�
 用 Release 资产 `d5f27716…` 重做 `.12` 的步 1–2，验证官方链路确实跑通。
 `.12` 当前状态：v0.5.1u2 + runner v0.3.0（旧布局），步 1 用错包完成、步 2 失败，
 需从步 1 重来。
+
+## 2026-10-05 `.12` 老客户链路完整走通（v0.5.1 → v0.5.3，全程用 Release 资产）
+
+用户以 v0.5.1u2 的 **Release notes** 纠正了我此前的错误归因，并要求「直接清理环境，
+搭建 v0.5.1」。本轮从头严格重做，**四步全部成功**。
+
+### 包来源纪律（本轮最大教训，已写入 upgrade-chain.md §2.1 硬规则第 3 条）
+
+| 包 | Release 权威 SHA | 第一次（错） | 第二次（对） |
+| --- | --- | --- | --- |
+| v0.5.1u2 平台包 | `d5f277167445e763…` | `2b5688b5…`（`.3` 本地副本）❌ | `d5f27716…` ✅ |
+| v0.5.2 平台包 | `692aca8b58ad8199…` | `9a4eef69…`（本地副本）❌ | `692aca8b…` ✅ |
+| runner v0.3.1 | `d10e15cf7b516d17…` | `d10e15cf…` ✅ | `d10e15cf…` ✅ |
+
+**旁证**：两份 u2 包的 precheck `checksums` 项数不同（错包 204 项 / 对包 49 项），
+说明确为两份不同内容——若当时注意到这一点，能更早发现用错包。
+
+### 起点：v0.5.1 + runner v0.3.0
+
+第二次清空（`/opt/smartx-storage-forecast`、`/data/smartx-capacity-insight-data`、
+`/data/{upgrades,backups,exports,compose-runtime}`），基线 `/data/baselines/pre-wipe-20261004`
+**复验仍 ok**。`pre_install.sh` 建目录 → 造 `.env` → 导入 `smartx.db`(33M) + Prometheus。
+**这次主动把 Prometheus 属主设回 `65534:65534`**（上一轮用 root 复制导致 prometheus
+panic 重启 9 次，见 progress 同日记录）。
+
+起点验收：**v0.5.1 + runner v0.3.0、5 容器 restarts 全 0、health ok=True checks 3/3、
+数据 543 VM / 89547 卷 integrity ok**。
+
+### 步 1：v0.5.1 → v0.5.1u2（PASS）
+
+Release 资产 `d5f27716…`。precheck **6/6** → **succeeded**（约 60s）。
+health ok、version=v0.5.1u2、runner v0.3.0、checks 3/3、数据 543/89547 未变。
+
+### 步 2：runner → v0.3.1（PASS）—— 官方链路位置，一次通过
+
+Release 资产 `d10e15cf…`。precheck **5/5** → **succeeded**。
+**这是此前失败的那一步，用 Release 资产重做即通过**，直接证明
+「runner 组件升级必须在 v0.5.2 之后」是我的错误结论。
+
+结果与 AGENTS §7 `Runner bootstrap` 设计完全一致：
+- 只有 `upgrade-runner` 进入新 project `smartx-hci-capacity-insight`、新网络 `smartx-hci-capacity-insight-net`
+- 平台三件套 + prometheus 仍在旧 project `smartx-storage-forecast`、旧网络 `smartx-storage-forecast_smartx-net`
+
+**即「只有 runner 进入新 project/new network、平台不迁移」这一设计得到实证。**
+
+### 步 3：v0.5.1u2 → v0.5.2（PASS）—— 目标布局迁移
+
+Release 资产 `692aca8b…`。precheck **7/7**（`source_compatibility` 认 v0.5.1u2）→ **succeeded**（约 120s）。
+Target 布局达成：
+- 5 容器全部 project=`smartx-hci-capacity-insight`，网络只剩 `smartx-hci-capacity-insight-net`
+- 单根目录 `/data/smartx-storage-forecast` 生效
+- **legacy cleanup 完成**：`/opt/smartx-storage-forecast`、`/data/{upgrades,backups,exports}`、
+  `/data/smartx-capacity-insight-data` 全部已清
+- 数据 543 VM / 89547 卷完好，integrity ok
+- health ok、version=v0.5.2、runner v0.3.1、checks 3/3
+
+### 步 4：v0.5.2 → v0.5.3 r17（PASS）—— 现场主路径
+
+r17 候选包 `ef3fab9f…`（`.3:/data/r17-build/`）。precheck **7/7** → **succeeded**（约 160s）。
+
+终态 8 项验收：
+
+| # | 项 | 结果 |
+| --- | --- | --- |
+| 1 | health.ok / 三项 checks | true / directories·database·prometheus 全 true |
+| 2 | version / runner | **v0.5.3 / v0.3.1**（runner 未降级） |
+| 3 | post-cleanup | **succeeded**（`post-cleanup-upgrade-c8859bbbd33e059b`） |
+| 4 | 5 容器 | 全 running，project=`smartx-hci-capacity-insight`，compose=offline |
+| 5 | 镜像 = r17 | web-api `6747dc1bf418`、collector-worker `8393442f2bd7`，**与 `.3` 构建侧 ID 完全一致** |
+| 6 | 数据不变性 | VM=543、卷=89547、integrity=ok，**与基线逐位一致** |
+| 7 | legacy cleanup | 旧目录全清（步 3 已完成，步 4 后复核仍清） |
+| 8 | 单根目录 / 网络 | `/data/smartx-storage-forecast` + `smartx-hci-capacity-insight-net` |
+
+### 结论
+
+**老客户链路 `v0.5.1 + runner v0.3.0 → v0.5.1u2 → runner v0.3.1 → v0.5.2 → v0.5.3`
+在 `.12` 全程走通**，且全程使用 GitHub Release 资产（除末步 r17 为待发布候选）。
+这也**证伪了我此前「链路步序矛盾、runner 升级须移到 v0.5.2 之后」的结论**——
+真因是用错平台包。
+
+### 遗留
+
+- **Tower 采集仍不可用**（`SMARTX_CREDENTIAL_KEY` 是占位符，原 `.env` 已随第一次清空删除），
+  故「升级后自动采集成功」这一项未验；历史数据展示与整条链路不受影响
+- r17 平台包已装到 `.12`，但 `.12` 的 runner 是 **v0.3.1（已发布）**，
+  非 r17 runner 组件包（v0.3.2，含 #82）。若要验 #82 需再走组件升级
