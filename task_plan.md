@@ -2166,3 +2166,38 @@ worker 启动不同步调度 + 异常静默 + 零日志；②新鲜度阈值 2h�
 
 **设计**：docs/superpowers/specs/2026-10-02-dashboard-migration-five-issues-design.md。
 **终版口径（#75/#77，2026-10-03）**：docs/superpowers/specs/2026-10-03-allocation-caliber-and-vm-purge-design.md —— 已分配 = Σ(每卷供给 × 副本数/EC 折算)、采集时计算、**回收站 VM 计入**；采集核对统一为 VM 维度（Tower 未返回的 VM 一律删 VM 行与卷行）+ 孤儿卷兜底清扫。`.3` 真机 213.06 → 171.88 TiB。
+### 66. 删除升级包误删历史记录 + `.env` 变更连带重建（49-66）[已立项 2026-10-04 · 实施中]
+
+**背景**：r15（`a10bad3` / 平台包 `fe534709…`）三机验收通过后，收尾调用
+`DELETE /api/admin/upgrade/package/{task_id}` 删测试包，发现主升级任务记录从历史消失、
+`status` 返回 404。追出两个独立问题。
+
+**问题一 `delete_package` 删除整条记录**：`intake.py:146` 是 `shutil.rmtree(task_dir)`，
+连 `task.json` 一起删。而 `task.json` 是升级历史唯一来源（`execution.py:71` 扫
+`*/task.json`；`_read_task_file` 缺文件即 404）。这与 r14 已定口径矛盾——
+`cleanup/service.py::_purge_upgrade_payload` 已按「宁留记录不留包」只删体积产物。
+同一问题两条路径做法相反，且删记录的那条藏在 UI 按钮后无任何告知；组件包删除
+（`api/admin/upgrade.py:213-218`）复用同一方法，同样受影响。
+**纠正先前夸大判断**：曾称「删包=永久失去回滚能力」，**该结论已撤回**——US-29 人工回滚
+已下线且 UI 隐藏入口，失败自动回滚走 `execute_task` 异常分支（任务活跃，不会被删）。
+真实影响仅为历史记录静默删除、无法追溯。
+
+**问题二 改 `.env` 连带重建依赖服务**：`.14` 上仅执行 `up -d collector-worker`，
+`prometheus` 容器 ID 亦变（`f260269773da7`→`45db5a1273dc`）。两因叠加：①`collector-worker`
+用 `env_file: [.env]`，Compose `config-hash` 计入 `.env` 内容；②其 `depends_on: [prometheus]`
+把 prometheus 纳入操作范围。`web-api`/`frontend`/`upgrade-runner` 因不在依赖链未被重建。
+实测无故障（TSDB 存活、`/-/healthy` 200、restart 全 0），但与 2026-09-30 `.3` 事故
+（意外 recreate 打死运行中容器）同属一类。
+
+**方案**：①抽 `fs.py::purge_upgrade_payload` 模块级函数，`delete_package` 与
+`cleanup_artifacts` 共用同一实现，记录文件清单只定义一次；②`_public_task` 补 `has_package`，
+前端按钮按其显示（否则记录仍在 → `started_at` 仍在 → 按钮仍显示 → 点了没反应，
+比原行为更糟）；③问题二**不改代码**（消除根本手段需把 5 个服务全改显式 `environment:`，
+风险远大于收益，判为过度工程），改为在 US-37 守卫上增加 `.env` sha 事前告警，
+解析 `depends_on` 列出受影响服务，**独立提交以便可单独回退**。
+
+**验收标准**：删包后 `history()` 仍可查到且 `has_package=false`；两条清理路径保留清单一致；
+守卫三态（未变放行/变更拦截/刷新后放行）`.14` 真机符合预期；`.12` 数据逐位不变、runner 未降级。
+
+- 设计：`docs/superpowers/specs/2026-10-04-delete-package-record-and-env-recreate-design.md`
+- 计划：`docs/superpowers/plans/2026-10-04-delete-package-record-and-env-recreate-plan.md`
