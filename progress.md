@@ -4167,3 +4167,51 @@ US-29 人工回滚已下线且 UI 隐藏入口，失败自动回滚走 `execute_
 - **r16 未构建**：功能与守卫改动已提交（`ec8fa40`/`f09c3f0`），但尚未出包、尚未在
   `.12`/`.14` 走升级验收。r15 仍是当前唯一候选（`fe534709…`），其验收结论
   **不覆盖**本 Phase 的两个修复。
+
+## 2026-10-04 r16 构建与三机验收（Phase 66 两个修复随包交付）
+
+平台包 `fbb0f9ce…` / runner 组件包 `669a60f9…` / 源码 `5dc4429`（取代 r15）。
+
+### 构建与门禁（`.3`）
+
+- 版本门禁 EXIT=0；包身份 EXIT=0；**runner 交付一致性 12 PASS 0 FAIL**；对外文档脱敏 EXIT=0
+- **包内代码核对**：web-api 与 collector-worker 两镜像内四个改动文件 md5 与源码逐位一致
+- 后端全量 **793 tests / 1 既有失败 / skipped=7**；前端 tsc=0、108 tests
+
+### `.12` 生产等价（PASS）
+
+预检查 9/9 → 升级 succeeded → post-cleanup succeeded → health ok（3/3）、
+runner v0.3.2 **未降级**、**数据逐位不变**（3 towers / 1 cluster / 197 VM /
+total_bytes 240988182282240）、5 容器全 running 且镜像为 r16（web-api `b7909a84…`）。
+
+**核心验证（r16 存在的理由）**：走产品 API `DELETE /api/admin/upgrade/package/{task_id}`
+→ `deleted_count=2 space_reclaimed=893226479 kept_record=True`；宿主侧目录
+**853M → 188K**、**`task.json` 完好**、历史仍可查到、`has_package=False`、`status` 仍 200。
+**同一操作在 r15 上会让这条记录永久消失**——这正是本次修复的对象。
+
+### `.14` 干净机（PASS）
+
+预检查 9/9 → 升级 succeeded → post-cleanup succeeded → health ok、runner 未降级、
+5 容器 running 且镜像为 r16；删包同样释放 893226479 字节且记录保留（历史 6 条仍可查）。
+
+### 本轮自身错误
+
+1. **用「tar.gz 文件存在」当构建完成信号**——它在打包过程中就出现并逐步增长
+   （32M → 211M → 242M），我据此误报"完成"并给出 32M 的异常包。正确判据是
+   **进程退出 + sidecar sha256 校验**。已改用后者，并补 `sha256sum -c` 确认 OK。
+2. **`&` 把整条命令链后台化**，导致 `git archive | ssh` 管道错乱
+   （`tar: This does not look like a tar archive`）。改为分步执行。
+3. 用户指出执行慢后已调整做法：只传改动文件、合并 SSH 查询、轮询改为等进程退出。
+
+### 新发现（已登记 pending #82，非本轮引入、不擅自修）
+
+`.12` 的 `upgrade-runner` `RestartCount=1`，日志为心跳更新
+`lease.update_runner_state` 抛 `sqlite3.OperationalError: database is locked`
+（升级期间写库持锁）→ 未捕获 → 进程退出 → `restart: unless-stopped` 自愈
+（exit=0、OOMKilled=false）。自愈后心跳正常，本次升级结果不受影响。
+
+与本次改动**无关**：runner 是独立镜像（`Dockerfile.upgrade` 只拷 `upgrade_protocol` 与
+`upgrade_runner`），不包含 web-api/cleanup 的任何改动。
+
+**未修的治理原因**：runner 能力变更必须先 bump `RUNNER_VERSION`（根目录文件、镜像 tag、
+组件包、manifest）并经用户同意（AGENTS §6），禁止同版本号改能力。故只登记不实施。
