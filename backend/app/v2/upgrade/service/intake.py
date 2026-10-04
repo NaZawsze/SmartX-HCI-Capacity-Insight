@@ -22,7 +22,6 @@ from .precheck import (
     COMPRESSED_ARCHIVE_EXPANSION,
     _version_from_service_status,
     human_bytes,
-    required_upgrade_bytes,
 )
 from .runner_presence import RUNNER_PRESENCE_SOURCES
 
@@ -32,25 +31,25 @@ class IntakeMixin:
 
 
     def _precheck_upload_space(self, content: bytes) -> None:
-        """上传前检查磁盘是否装得下，不够则抛 400 并给出可读提示。
+        """上传**前**只回答一件事：磁盘物理上装不装得下这个包。
 
-        口径与 precheck 的 `disk_space` 检查**完全一致**——直接复用它的
-        `package_payload_bytes`（压缩包按 `COMPRESSED_ARCHIVE_EXPANSION` 估膨胀）
-        与 `required_upgrade_bytes`（payload + headroom），只是把时机提前到写盘之前，
-        让 ENOSPC 变成一句「磁盘空间不足：X 可用 Y GiB，升级需要 Z GiB」。
+        与 precheck 的 `disk_space` 检查**刻意不重叠**（2026-10-04 修正）：
 
-        局部导入是为了避免 intake ↔ precheck 的模块级循环依赖。
+        | 时机 | 回答什么 | 阈值 |
+        | --- | --- | --- |
+        | 上传前（本方法） | 磁盘**物理上**装不装得下 | `包本体 × 膨胀系数`，**不含 headroom** |
+        | precheck | 够不够做**这次升级** | `包 + headroom`（可配置），9 项检查之一 |
+
+        为什么不含 headroom：headroom 是「升级过程要留的安全余量」，属**业务配置**，
+        运维调小它是为了放宽升级要求；不该反过来导致「包根本传不上去」。
+        早期版本误把它算进来，导致两处判定读同一配置、各自演进必然分叉，
+        且把 `test_upgrade_disk_space_precheck` 那两个「验证 precheck disk_space」的用例
+        截胡在上传阶段（它们 mock 的可用空间只有 1 字节）。
+
+        判定沿用 precheck 的同一套文件系统去重与「取最紧」逻辑，阈值口径一致。
+        局部导入是为避免 intake ↔ precheck 的模块级循环依赖。
         """
-        from .precheck import (  # noqa: PLC0415 - 避免模块级环
-            required_upgrade_bytes,
-        )
-
-        # 阈值与判定顺序对齐 precheck 的 disk_space 检查（同函数、同常量、同去重逻辑），
-        # 差别只在「算required 用的输入」：上传阶段只有压缩包字节，用膨胀系数估解包量。
-        required = required_upgrade_bytes(
-            int(len(content)) * COMPRESSED_ARCHIVE_EXPANSION,
-            int(self.settings.upgrade_disk_headroom_bytes),
-        )
+        required = int(len(content)) * COMPRESSED_ARCHIVE_EXPANSION
         worst: tuple[str, int] | None = None
         seen_devices: set[int] = set()
         for path in (self.settings.upgrades_dir, self.settings.backups_dir, Path("/")):
@@ -68,8 +67,7 @@ class IntakeMixin:
                 status_code=400,
                 detail=(
                     f"磁盘空间不足：{worst[0]} 可用 {human_bytes(worst[1])}，"
-                    f"上传该升级包需要 {human_bytes(required)}"
-                    f"（含解包空间与安全余量）。"
+                    f"上传该升级包需要 {human_bytes(required)}（含解包空间）。"
                     f"请先到「系统 → 空间清理」释放空间，或改用更大的磁盘。"
                 ),
             )
@@ -82,7 +80,7 @@ class IntakeMixin:
         # 上传前置空间检查（2026-10-04）：磁盘预检查在 precheck 阶段才跑，
         # 那时包已落盘（242M 包 + 611M 解包 = 853M）。磁盘真不够时用户会在
         # 「写盘」这一步撞上 ENOSPC，只看到一句底层 IO 报错。
-        # 这里提前用**同一个** required_upgrade_bytes 口径给出可读提示。
+        # 这里只用物理口径（包 + 解包空间）给出可读提示；升级是否够做仍由 precheck 判定。
         self._precheck_upload_space(content)
         # 从建目录到落 task.json 整段包进 try：任何一步失败都必须删掉 task_dir。
         #

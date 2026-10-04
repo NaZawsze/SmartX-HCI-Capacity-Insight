@@ -57,7 +57,7 @@
 | `metrics/` | 162 | 指标格式化、Prometheus 写入与查询（`formatter.py`/`prometheus.py`/`series.py`） |
 | `collection/` | 394 | 采集编排、调度同步、缺采与重试 |
 | `data_quality/` | 477 | 数据质量检查（缺采/异常标记） |
-| `capacity_alerts/` | 166 | 容量风险阈值与告警口径 |
+| `capacity_alerts/` | 339 | 容量风险阈值与告警口径；`service.py`(166)：集群容量告警；`disk.py`(173)：**磁盘占用告警**（80%/90% + 绝对下限 2 GiB，接入 worker 同一守护线程，复用 `upsert_alert` 去重） |
 | `reports/` | 602 + export 子包 | 报表服务（`service.py`、`templates/customer_report.xlsx` 模板、`wording.py` AI 措辞层接口+离线回退）；`export/`：`common.py`(904)、`word.py`(1022)、`excel.py`(807)、`legacy.py`(2) |
 | `migration/` | 950 | 数据迁移导出/导入（SQLite+Prometheus 成对迁移） |
 | `cleanup/` | 539 | 空间清理（报表/迁移/升级产物） |

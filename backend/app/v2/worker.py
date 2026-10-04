@@ -358,21 +358,28 @@ def _run_data_quality_check(database: V2Database, tasks: TaskService) -> None:
 
 
 def _run_capacity_alert_check(database: V2Database, tasks: TaskService) -> None:
+    """集群容量告警 + 磁盘占用告警。
+
+    两者**互相独立**：各自 try/except，任何一方失败都不影响另一方产出。
+    早前版本这里第二个 except 写的是 `return`，导致集群告警一抛异常，
+    磁盘告警整段被跳过——集群侧 Tower 不可达时磁盘告警就静默失效了，
+    正是 `.12` 事故（磁盘 94%、客户全程无通知）同一类根因：静默失败。
+    """
     try:
         from app.v2.capacity_alerts.service import CapacityAlertService
 
         CapacityAlertService(database, database.settings, tasks=tasks).evaluate_and_alert()
     except Exception:
-        return
-    # 磁盘占用告警（2026-10-04）：集群容量正常但磁盘写满同样会让升级失败，
-    # 且历史事故里客户全程收不到通知——`.12` 从 7 月起磁盘堆到 94% 才发现。
-    # 与集群容量告警同一守护线程、同一 severity 体系，不另起周期。
+        logger.exception("集群容量告警评估失败，本轮未产出")
+
+    # 磁盘占用告警（2026-10-04）：集群容量正常但磁盘写满同样会让升级失败。
+    # 监控 data_root 所在文件系统——客户升级实际会写满的那块盘。
     try:
         from app.v2.capacity_alerts.disk import DiskAlertService
 
         DiskAlertService(database.settings, tasks=tasks).evaluate_and_alert()
     except Exception:
-        return
+        logger.exception("磁盘占用告警评估失败，磁盘告警本轮未产出")
 
 
 def _desired_collection_schedule(database: V2Database) -> dict[int, dict]:

@@ -2684,13 +2684,15 @@ class UploadSpacePrecheckTest(unittest.TestCase):
     这里把同一套口径的检查提前到写盘之前。
     """
 
-    def _service(self, tmpdir: str):
+    def _service(self, tmpdir: str, **overrides):
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
         from app.v2.tasks.service import TaskService
         from app.v2.upgrade.service import UpgradeService
 
-        settings = V2Settings(data_root=Path(tmpdir), secret_key="s", app_version="v0.5.3")
+        settings = V2Settings(
+            data_root=Path(tmpdir), secret_key="s", app_version="v0.5.3", **overrides
+        )
         database = V2Database(settings)
         database.initialize()
         return settings, UpgradeService(settings, TaskService(database))
@@ -2708,9 +2710,12 @@ class UploadSpacePrecheckTest(unittest.TestCase):
             )
 
             class FakeUsage:
+                # 语义更新（2026-10-04）：上传前置检查只用「包 × 膨胀系数」这个物理口径，
+                # 不含 headroom。所以「空间不足」必须定义为**连包都放不下**，
+                # 原先的 1 KiB 对几百字节的小包是够写的，断言不成立。
                 total = 10 * 1024**3
-                used = 10 * 1024**3 - 1024      # 只剩 1 KiB
-                free = 1024
+                used = 10 * 1024**3 - 1
+                free = 1
 
             original = intake_mod.shutil.disk_usage
             intake_mod.shutil.disk_usage = lambda path: FakeUsage()
@@ -2725,6 +2730,24 @@ class UploadSpacePrecheckTest(unittest.TestCase):
             self.assertIn("磁盘空间不足", detail)
             self.assertIn("空间清理", detail, "提示应告诉客户怎么处置")
             self.assertEqual(list(settings.upgrades_dir.glob("upgrade-*")), [], "不应写任何文件")
+
+    def test_headroom_does_not_block_upload(self) -> None:
+        """回归守卫：headroom 是**业务配置**，只在 precheck 生效，不得拦上传。
+
+        背景（2026-10-04）：前置检查初版把 `upgrade_disk_headroom_bytes` 也算进阈值，
+        造成两个问题——①运维调小 headroom 想放宽升级要求，却连带「包传不上去」；
+        ②判定逻辑在两处（上传/precheck）各存一份，各自演进必然分叉。
+        本用例把这条职责边界钉死：headroom 再大，上传也必须放行。
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, service = self._service(tmpdir, upgrade_disk_headroom_bytes=10 ** 15)
+            payload = build_schema3_package(
+                {"schema_version": "3", "version": "v0.5.3", "product": "smartx-storage-forecast"},
+                {"images/web-api.tar": b"img"},
+            )
+            task = service.upload_package_bytes(payload, filename="upgrade.tar.gz")
+            self.assertTrue(task["task_id"].startswith("upgrade-"))
+            self.assertTrue((settings.upgrades_dir / task["task_id"] / "task.json").exists())
 
     def test_allows_when_disk_sufficient(self) -> None:
         """空间充足 → 正常上传，任务目录与 task.json 都在。"""

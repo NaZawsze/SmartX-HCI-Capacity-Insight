@@ -22,6 +22,8 @@ from app.v2.upgrade.service.precheck import (  # noqa: E402
 from tests.test_v2_upgrade import build_schema3_package, record_runner_state  # noqa: E402
 
 GIB = 1024 ** 3
+# 与本文件其它用例一致：构造的升级包约 1000 字节
+PACKAGE_SIZE = 1000
 
 
 class RequiredBytesTest(unittest.TestCase):
@@ -191,7 +193,16 @@ class PrecheckIntegrationTest(unittest.TestCase):
     def test_precheck_fails_when_free_space_is_short(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             service = self._service(tmpdir)
-            with mock.patch("shutil.disk_usage", lambda _path: SimpleNamespace(total=10, used=9, free=1)):
+            # 语义更新（2026-10-04）：上传前置检查只拦「物理上装不下」
+            # （阈值 = 包本体 × 膨胀系数，不含 headroom）。所以这里必须给一个
+            # **装得下包、但不够 headroom** 的空间，才能走到 precheck 触发
+            # disk_space 判定——原先 mock free=1 字节会被前置检查截胡，
+            # 本用例的意图（验证 precheck 的 9 项检查结构）就丢了。
+            free = PACKAGE_SIZE * COMPRESSED_ARCHIVE_EXPANSION + GIB // 2
+            with mock.patch(
+                "shutil.disk_usage",
+                lambda _path: SimpleNamespace(total=free * 10, used=free * 9, free=free),
+            ):
                 precheck = self._precheck(service, self._manifest())
         self.assertFalse(precheck["ok"])
         disk = next(item for item in precheck["checks"] if item["name"] == "disk_space")
@@ -221,6 +232,10 @@ class PrecheckIntegrationTest(unittest.TestCase):
             service = UpgradeService(
                 settings, TaskService(database), executor=FakeExecutor(), project_path=Path(tmpdir) / "project"
             )
+            # 语义更新（2026-10-04）：headroom 是**业务配置**，只影响 precheck 判定，
+            # 不该在上传阶段拦（上传前置检查只用「包 × 膨胀系数」这个物理口径）。
+            # 因此这里不 mock 磁盘——真实临时目录空间充足，上传必然通过，
+            # 由 precheck 因 headroom=1PB 而判FAIL，用例意图完整保留。
             precheck = self._precheck(service, self._manifest())
         disk = next(item for item in precheck["checks"] if item["name"] == "disk_space")
         self.assertFalse(disk["ok"])

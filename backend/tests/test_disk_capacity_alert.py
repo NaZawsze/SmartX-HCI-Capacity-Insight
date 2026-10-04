@@ -123,6 +123,56 @@ class DiskAlertServiceTest(unittest.TestCase):
             self.assertEqual(len(rows), 1, f"应产生 1 条磁盘告警，实际 {rows}")
             self.assertEqual(rows[0]["severity"], "critical")
 
+    def test_disk_alert_failure_is_logged(self) -> None:
+        """回归守卫：磁盘告警失败必须留痕，不能静默 return。
+
+        `.12` 事故的根因类别就是静默失败（磁盘 94% 全程无通知）。
+        一个写错的 `SMARTX_DISK_ALERT_*_RATIO`（如 "abc"）会让 float() 抛 ValueError；
+        若 worker 用裸 `except: return`，磁盘告警会**永久静默失效**且无任何痕迹。
+
+        注意两个服务都是**函数内 import**，所以要 patch 到模块属性上
+        （`mock.patch.object(worker_mod, ...)` 对函数内 import 无效，会静默不生效）。
+        """
+        import unittest.mock as mock
+
+        from app.v2 import worker as worker_mod
+
+        with mock.patch(
+            "app.v2.capacity_alerts.disk.DiskAlertService", side_effect=RuntimeError("boom")
+        ), mock.patch.object(worker_mod, "logger") as fake_logger:
+            worker_mod._run_capacity_alert_check(mock.MagicMock(), mock.MagicMock())
+
+        self.assertTrue(
+            fake_logger.exception.called,
+            "磁盘告警异常分支必须调 logger.exception 留痕，否则等于静默失效",
+        )
+
+    def test_cluster_alert_failure_does_not_suppress_disk_alert(self) -> None:
+        """回归守卫：集群告警失败**不得**连带跳过磁盘告警。
+
+        两类告警互不依赖。Tower 不可达导致集群告警抛异常时，磁盘告警仍必须评估——
+        否则「集群侧故障」会悄悄关掉磁盘告警，而磁盘写满恰恰是独立于 Tower 的故障
+        （`.12` 就是集群容量全正常、磁盘却堆到 94%）。
+        """
+        import unittest.mock as mock
+
+        from app.v2 import worker as worker_mod
+
+        disk_instance = mock.MagicMock()
+        with mock.patch(
+            "app.v2.capacity_alerts.service.CapacityAlertService",
+            side_effect=RuntimeError("Tower 不可达"),
+        ), mock.patch(
+            "app.v2.capacity_alerts.disk.DiskAlertService", return_value=disk_instance
+        ) as disk_cls:
+            worker_mod._run_capacity_alert_check(mock.MagicMock(), mock.MagicMock())
+
+        self.assertTrue(disk_cls.called, "集群告警失败后磁盘告警仍必须执行")
+        self.assertTrue(
+            disk_instance.evaluate_and_alert.called,
+            "集群告警失败时磁盘告警必须真的完成评估",
+        )
+
     def test_worker_wires_disk_alert(self) -> None:
         """守护线程必须真的调用它，否则是死代码。"""
         from pathlib import Path as P
