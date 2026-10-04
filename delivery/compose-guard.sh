@@ -18,12 +18,26 @@
 #
 # 独立执行（诊断用）：
 #   bash compose-guard.sh show  <env_file>
+#   bash compose-guard.sh env-check <env_file> <compose_file> <service> [project] [ack]
+#   bash compose-guard.sh env-ack  <env_file>
 #   bash compose-guard.sh check <env_file> <compose_file> [project]
 #   bash compose-guard.sh write <env_file> <compose_file>
 
 # 标记键。与 offline/release compose 往**容器**注入的 SMARTX_COMPOSE_FILE
 # 是两回事：那个是容器内可见的环境变量，本键只存在于宿主 .env。
 COMPOSE_GUARD_MARKER_KEY="SMARTX_COMPOSE_FILE_ACTIVE"
+
+# .env 内容指纹标记（US-42 / 2026-10-04）。与上面的变体标记是两回事：
+# 变体标记防「同一 project 混用不同 compose 文件」；本键防「.env 改了之后
+# 自己不知道重建会影响谁」。
+#
+# 为什么需要：Compose 的 config-hash 把 env_file 的**内容**算进去，.env 一改
+# 所有引用它的服务哈希都变。再叠加 depends_on，`docker compose up -d <单个服务>`
+# 会连带重建依赖链上的其他服务。`.14` 实测（2026-10-04）：只想重建
+# collector-worker，prometheus 的容器 ID 也变了（f260269773da7 → 45db5a1273dc）。
+# 当次无故障，但与 2026-09-30 `.3` 事故（意外 recreate 打死运行中容器）
+# 同属一类——事前无人知晓才是真正的成本。
+COMPOSE_GUARD_ENV_SHA_KEY="SMARTX_ENV_FILE_SHA256"
 
 # 哨兵服务：优先用 web-api，不存在时退化到 project 标签查询。
 COMPOSE_GUARD_SENTINEL_SERVICE="web-api"
@@ -117,6 +131,158 @@ compose_guard_resolve() {
   printf '%s\n' "$_detected"
 }
 
+# ── .env 内容指纹：读 / 写 ──────────────────────────────────────
+
+# 读 .env 里记录的 sha。绝不用 source/eval .env（同 compose_guard_marker 的理由）。
+compose_guard_env_sha() {
+  _env="${1:-}"
+  [ -n "$_env" ] && [ -f "$_env" ] || return 0
+  sed -n "s/^${COMPOSE_GUARD_ENV_SHA_KEY}=//p" "$_env" 2>/dev/null \
+    | tail -n 1 \
+    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/'
+}
+
+# 算 .env 当前 sha。**排除守卫自己的两个标记键**：否则每写一次标记就改一次 .env，
+# sha 随之变化，下一次检查会误报「.env 变了」——自激循环。
+compose_guard_env_current_sha() {
+  _env="${1:-}"
+  [ -n "$_env" ] && [ -f "$_env" ] || return 0
+  if command -v sha256sum >/dev/null 2>&1; then
+    grep -vE "^(${COMPOSE_GUARD_MARKER_KEY}|${COMPOSE_GUARD_ENV_SHA_KEY})=" "$_env" \
+      | sha256sum | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    grep -vE "^(${COMPOSE_GUARD_MARKER_KEY}|${COMPOSE_GUARD_ENV_SHA_KEY})=" "$_env" \
+      | shasum -a 256 | cut -d' ' -f1
+  else
+    printf ''
+  fi
+}
+
+# 把当前 sha 写回 .env（幂等；值未变则不写，避免无谓的 mtime 变动）。
+compose_guard_env_sha_write() {
+  _env="${1:-}"
+  [ -n "$_env" ] || return 1
+  [ -f "$_env" ] || return 1
+  _cur="$(compose_guard_env_sha "$_env")"
+  _now="$(compose_guard_env_current_sha "$_env")"
+  [ -z "$_now" ] && return 0
+  [ "$_cur" = "$_now" ] && return 0
+  _tmp="$(mktemp "${TMPDIR:-/tmp}/compose-guard-env.XXXXXX")" || return 1
+  if grep -q "^${COMPOSE_GUARD_ENV_SHA_KEY}=" "$_env" 2>/dev/null; then
+    sed "s|^${COMPOSE_GUARD_ENV_SHA_KEY}=.*|${COMPOSE_GUARD_ENV_SHA_KEY}=${_now}|" "$_env" > "$_tmp"
+  else
+    cat "$_env" > "$_tmp"
+    [ -s "$_tmp" ] && [ "$(tail -c 1 "$_tmp" | wc -l | tr -d ' ')" = "0" ] && printf '\n' >> "$_tmp"
+    printf '%s=%s\n' "$COMPOSE_GUARD_ENV_SHA_KEY" "$_now" >> "$_tmp"
+  fi
+  _perm="$(stat -c '%a' "$_env" 2>/dev/null || stat -f '%Lp' "$_env" 2>/dev/null || echo '')"
+  cat "$_tmp" > "$_env" || { rm -f "$_tmp"; return 1; }
+  [ -n "$_perm" ] && chmod "$_perm" "$_env" 2>/dev/null
+  rm -f "$_tmp"
+}
+
+# 从 compose 文件解析「谁 depends_on 谁」，输出 service:dep1,dep2 列表。
+# 用法：compose_guard_depends_on <compose_file> <service>
+compose_guard_depends_on() {
+  _file="${1:-}"
+  _svc="${2:-}"
+  [ -n "$_file" ] && [ -f "$_file" ] && [ -n "$_svc" ] || return 0
+  awk -v target="$_svc" '
+    /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
+      svc=$1; sub(/:$/, "", svc); inSvc = (svc == target); next
+    }
+    inSvc && /^[[:space:]]+depends_on:/ { inDep=1; next }
+    inDep && /^[[:space:]]+-[[:space:]]*/ {
+      d=$0; sub(/^[[:space:]]*-[[:space:]]*/, "", d); gsub(/["\047]/, "", d)
+      if (d != "") { if (out != "") out = out ","; out = out d }
+      next
+    }
+    inDep && /^[[:space:]]+[A-Za-z0-9_-]+:/ { inDep=0 }
+    END { print out }
+  ' "$_file"
+}
+
+# .env 变更事前告警（US-42）。
+# 0 = 放行（含「首次记录」），3 = 检出 .env 已变更且未确认。
+#
+# 为什么是「告警」而不是「拒绝」：.env 变更本身是合法运维动作（换 Tower 地址、
+# 改管理员密码、调告警阈值）。真正要拦的是「不知道会连带重建谁」。
+# 故默认打印受影响的依赖闭包 + 确认方式；确实要执行时用 --env-change-ack 放行。
+compose_guard_env_change_check() {
+  _env="${1:-}"
+  _compose_file="${2:-}"
+  _target_service="${3:-}"
+  _project="${4:-smartx-hci-capacity-insight}"
+  _ack="${5:-}"
+
+  [ -n "$_env" ] && [ -f "$_env" ] || return 0
+  _recorded="$(compose_guard_env_sha "$_env")"
+  _current="$(compose_guard_env_current_sha "$_env")"
+  [ -z "$_current" ] && return 0
+
+  # 首次运行（既有安装没有这个键）：记录并放行，不阻断任何存量环境。
+  if [ -z "$_recorded" ]; then
+    compose_guard_env_sha_write "$_env" || true
+    _cg_yellow "compose 守卫：已记录 .env 内容指纹（${COMPOSE_GUARD_ENV_SHA_KEY}），后续 .env 变更会在重建前提示。"
+    return 0
+  fi
+
+  [ "$_recorded" = "$_current" ] && return 0
+
+  # 变了但调用方没给目标服务（拿不到依赖闭包）：只提示存在变更。
+  _cg_yellow "════════════════════════════════════════════════════════════════"
+  _cg_yellow "compose 守卫：.env 已变更 —— 重建前请确认影响范围"
+  _cg_yellow "════════════════════════════════════════════════════════"
+  _cg_yellow "  project      : ${_project}"
+  _cg_yellow "  记录时的指纹 : ${_recorded}"
+  _cg_yellow "  当前指纹     : ${_current}"
+  _cg_yellow ""
+  _cg_yellow "  为什么必须提醒：Compose 的 config-hash 计入 env_file 的**内容**，"
+  _cg_yellow "  .env 一改，所有引用它的服务哈希都变；再叠加 depends_on，"
+  _cg_yellow "  'up -d <单个服务>' 会连带重建依赖链上的其他服务。"
+
+  if [ -n "$_target_service" ] && [ -f "$_compose_file" ]; then
+    _cg_yellow ""
+    _cg_yellow "  本次目标服务: ${_target_service}"
+    _cg_yellow "  依赖闭包（这些会被连带重建）:"
+    _front="$_target_service"
+    _seen=" $_front "
+    while [ -n "$_front" ]; do
+      _cur="$_front"; _front=""
+      for _d in $(compose_guard_depends_on "$_compose_file" "$_cur"); do
+        case " $_seen " in *" $_d "*) continue;; esac
+        _seen="$_seen $_d "
+        _front="$_front $_d"
+      done
+    done
+    for _s in $_seen; do
+      if [ "$_s" = "$_target_service" ]; then
+        _cg_yellow "    - ${_s}（你指定的）"
+      else
+        _cg_yellow "    - ${_s} ← 连带重建"
+      fi
+    done
+  else
+    _cg_yellow ""
+    _cg_yellow "  （未传入目标服务，无法列出依赖闭包；任何引用 .env 的服务都可能被重建）"
+  fi
+
+  _cg_yellow ""
+  _cg_yellow "  两条可选路径："
+  _cg_yellow "  1) 确认无误、就是要重建：加 --env-change-ack 显式确认后重跑。"
+  _cg_yellow "  2) 不想重建：把 .env 改回原内容，或只用 'docker compose up -d' 之外的"
+  _cg_yellow "     手段（如 docker restart <容器>，不触发 recreate）。"
+  _cg_yellow "  确认后可用 'bash compose-guard.sh env-ack <env>' 刷新指纹基线。"
+  _cg_yellow ""
+
+  if [ "$_ack" = "1" ] || [ "$_ack" = "true" ]; then
+    compose_guard_env_sha_write "$_env" || true
+    _cg_yellow "  已确认 --env-change-ack，指纹基线已刷新为当前内容。"
+    return 0
+  fi
+  return 3
+}
+
 # 守卫主判定。0 = 放行，2 = 拒绝。
 compose_guard_check() {
   _env="${1:-}"
@@ -188,6 +354,27 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
       ;;
     check) compose_guard_check "${1:-}" "${2:-}" "${3:-smartx-hci-capacity-insight}" ;;
     write) compose_guard_write "${1:-}" "${2:-}" ;;
-    *) printf '用法: %s {show <env>|check <env> <compose> [project]|write <env> <compose>}\n' "$0" >&2; exit 1 ;;
+    env-sha)
+      _v="$(compose_guard_env_sha "${1:-}")"
+      _c="$(compose_guard_env_current_sha "${1:-}")"
+      printf '记录=%s\n当前=%s\n' "${_v:-(未设置)}" "${_c:-(无法计算)}"
+      ;;
+    env-check)
+      # 显式确认用**具名 flag**而不是第 5 个位置参数——原先把 ack 放在 project 之后，
+      # 调用方照着告警文案传参会落到 project 位上，ack 永远为空（2026-10-04 自测发现）。
+      _ack=""
+      _rest=""
+      for _a in "$@"; do
+        case "$_a" in
+          --env-change-ack) _ack=1 ;;
+          *) _rest="${_rest} ${_a}" ;;
+        esac
+      done
+      # shellcheck disable=SC2086
+      set -- $_rest
+      compose_guard_env_change_check "${1:-}" "${2:-}" "${3:-}" "${4:-smartx-hci-capacity-insight}" "$_ack"
+      ;;
+    env-ack) compose_guard_env_sha_write "${1:-}" ;;
+    *) printf '用法: %s {show <env>|check <env> <compose> [project]|write <env> <compose>|env-sha <env>|env-check <env> <compose_file> <service> [project] [--env-change-ack]|env-ack <env>}\n' "$0" >&2; exit 1 ;;
   esac
 fi
