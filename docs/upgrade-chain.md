@@ -58,13 +58,22 @@ v0.5.1 + runner v0.3.0
 **这张表是强制的**：每一步的 compose project 名、compose 文件、预期网络三者必须同时对上。
 用错 project 名 = 同一数据被两套 compose 各自认为「我不是我的」→ 容器重建、服务中断、数据错乱。
 
-| 步 | 动作 | compose project 名 | compose 文件（`-f`） | 预期网络 | 网络来源 |
-| --- | --- | --- | --- | --- | --- |
-| 0 | 全新安装旧布局 | `smartx-storage-forecast` | `docker-compose.offline.yml` | `smartx-storage-forecast_smartx-net` | compose 内 `ipam` 10.249.249.0/24 **自动创建** |
+| 0 | 全新安装旧布局 | `smartx-storage-forecast` | `docker-compose.offline.yml` | `smartx-storage-forecast_smartx-net`（**由 project 名派生**，见 §2.1.1） | compose 内 `ipam` 10.249.249.0/24 **自动创建** |
 | 1 | v0.5.1 → v0.5.1u2 | `smartx-storage-forecast` | `docker-compose.offline.yml` | 同上，不变 | 沿用 |
-| 2 | runner → v0.3.1 | ⚠️ **不能在 u2 上做**（实测失败，见 §2.2）；正确位置是**步 3 之后**（此时目标网络已由 v0.5.2 建好） | **组件升级走产品 API**（`/api/admin/component-upgrade/*`），**不要手工跑 compose** | `smartx-hci-capacity-insight-net` | 由 v0.5.2 的 `environment_transitions` 创建 |
-| 3 | v0.5.1u2 → v0.5.2 | `smartx-storage-forecast`（升级过程内部会切 project） | 走产品 API `/api/admin/upgrade/*` | 升级后为 `smartx-hci-capacity-insight-net`（10.249.251.0/24） | **由 v0.5.2 包的 `environment_transitions` 创建** |
+| 2 | v0.5.1u2 → v0.5.2 | `smartx-storage-forecast`（升级过程内部会切 project） | 走产品 API `/api/admin/upgrade/*` | 升级后为 `smartx-hci-capacity-insight-net`（10.249.249.0/24，见 §2.1.1） | **由 v0.5.2 包的 `environment_transitions` 创建** |
+| 3 | **runner → v0.3.1**（**必须在步 2 之后**） | `smartx-hci-capacity-insight` | **组件升级走产品 API**（`/api/admin/component-upgrade/*`），**不要手工跑 compose** | `smartx-hci-capacity-insight-net`（此时已存在） | 沿用 |
 | 4 | v0.5.2 → v0.5.3 | `smartx-hci-capacity-insight` | 走产品 API `/api/admin/upgrade/*` | 沿用目标网络，不变 | 沿用 |
+
+> **为什么 runner 组件升级排在步 3 而不是 u2 节点**：原链路表把它放在 u2 节点
+> （旧 project `smartx-storage-forecast`），理由是「bootstrap 要停的是旧 project 的 runner，
+> 新 runner 不会被误停」。**该假设已被 `.12` 2026-10-04 实测推翻**——
+> v0.5.1u2 的 compose 顶层 `name:` 已经是 `smartx-hci-capacity-insight`（见 §2.1.1），
+> 其 runner-upgrade compose 去找 `smartx-hci-capacity-insight-net`，
+> 而该网络要到 v0.5.2 才被创建 → `external: true` 找不到 → 该步失败（见 §2.2）。
+>
+> 改为「**先平台（v0.5.2 建好目标网络）→ 再 runner 组件升级**」，
+> 这同时符合 AGENTS §7 §4 第 1 条「默认先平台、后 runner」——
+> **两个独立来源指向同一结论**，比原来单一来源的说法更可信。
 
 **硬规则**：
 
@@ -179,7 +188,7 @@ bootstrap 去找目标网络而找不到。**以本节实测为准**，§2 表�
 | 2 | 装旧布局 | `pre_install.sh` → 造 `.env` → 按 §2.1 步 0 的 project/文件起容器 | 容器标签里的 project 名、web-api/VERSION、runner/RUNNER_VERSION |
 | 3 | 导入数据 | 从基线恢复 `smartx.db` + Prometheus | **Prometheus 目录必须 `chown 65534:65534`**（否则 prometheus panic 重启） |
 | 4 | 起点确认 | `/api/system/health` + 前端可访问 + 数据行数 | health ok、三项 checks、VM/卷行数与基线一致 |
-| 5 | 逐节点升级 | 步 1→4，**每步都走产品 API**，每步做完立刻验收再进下一步 | 每步的 task_id、precheck 结果、status、升级后 health/版本/行数 |
+| 5 | 逐节点升级 | **按 §2.1 的步序（步 1→4）**，**每步都走产品 API**，每步做完立刻验收再进下一步。**注意步 3（runner 组件升级）必须在步 2 之后** | 每步的 task_id、precheck 结果、status、升级后 health/版本/行数 |
 | 6 | 终态验收 | 8 项验收（见 release-acceptance） | 逐项结论 |
 
 **每步升级后的即时验收项（缺一不可）**：
