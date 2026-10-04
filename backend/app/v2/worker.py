@@ -364,6 +364,15 @@ def _run_capacity_alert_check(database: V2Database, tasks: TaskService) -> None:
         CapacityAlertService(database, database.settings, tasks=tasks).evaluate_and_alert()
     except Exception:
         return
+    # 磁盘占用告警（2026-10-04）：集群容量正常但磁盘写满同样会让升级失败，
+    # 且历史事故里客户全程收不到通知——`.12` 从 7 月起磁盘堆到 94% 才发现。
+    # 与集群容量告警同一守护线程、同一 severity 体系，不另起周期。
+    try:
+        from app.v2.capacity_alerts.disk import DiskAlertService
+
+        DiskAlertService(database.settings, tasks=tasks).evaluate_and_alert()
+    except Exception:
+        return
 
 
 def _desired_collection_schedule(database: V2Database) -> dict[int, dict]:

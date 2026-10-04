@@ -2674,3 +2674,69 @@ class UploadRollsBackPartialTaskDirTest(unittest.TestCase):
                 f"写 task.json 失败后不得残留任务目录，实际留下：{[p.name for p in leftovers]}",
             )
             self.assertIsNotNone(original)
+
+
+class UploadSpacePrecheckTest(unittest.TestCase):
+    """上传前置空间检查（2026-10-04）。
+
+    磁盘预检查原本在 precheck 阶段才跑，那时包已落盘（242M 包 + 611M 解包 = 853M）；
+    磁盘真不够时用户会在写盘那一步撞上 ENOSPC，只看到一句底层 IO 报错。
+    这里把同一套口径的检查提前到写盘之前。
+    """
+
+    def _service(self, tmpdir: str):
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        settings = V2Settings(data_root=Path(tmpdir), secret_key="s", app_version="v0.5.3")
+        database = V2Database(settings)
+        database.initialize()
+        return settings, UpgradeService(settings, TaskService(database))
+
+    def test_rejects_when_disk_insufficient_and_leaves_nothing(self) -> None:
+        """空间不足 → 400 且可读提示；不写任何文件。"""
+        from app.v2.upgrade.service._compat import HTTPException
+        from app.v2.upgrade.service import intake as intake_mod
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, service = self._service(tmpdir)
+            payload = build_schema3_package(
+                {"schema_version": "3", "version": "v0.5.3", "product": "smartx-storage-forecast"},
+                {"images/web-api.tar": b"x" * 4096},
+            )
+
+            class FakeUsage:
+                total = 10 * 1024**3
+                used = 10 * 1024**3 - 1024      # 只剩 1 KiB
+                free = 1024
+
+            original = intake_mod.shutil.disk_usage
+            intake_mod.shutil.disk_usage = lambda path: FakeUsage()
+            try:
+                with self.assertRaises(HTTPException) as ctx:
+                    service.upload_package_bytes(payload, filename="upgrade.tar.gz")
+            finally:
+                intake_mod.shutil.disk_usage = original
+
+            detail = str(ctx.exception.detail)
+            self.assertEqual(ctx.exception.status_code, 400)
+            self.assertIn("磁盘空间不足", detail)
+            self.assertIn("空间清理", detail, "提示应告诉客户怎么处置")
+            self.assertEqual(list(settings.upgrades_dir.glob("upgrade-*")), [], "不应写任何文件")
+
+    def test_allows_when_disk_sufficient(self) -> None:
+        """空间充足 → 正常上传，任务目录与 task.json 都在。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, service = self._service(tmpdir)
+            payload = build_schema3_package(
+                {"schema_version": "3", "version": "v0.5.3", "product": "smartx-storage-forecast"},
+                {"images/web-api.tar": b"img"},
+            )
+
+            task = service.upload_package_bytes(payload, filename="upgrade.tar.gz")
+
+            task_dir = settings.upgrades_dir / task["task_id"]
+            self.assertTrue((task_dir / "task.json").is_file())
+            self.assertTrue((task_dir / "package").is_dir())
