@@ -4456,3 +4456,55 @@ packages-upg032-historyfix/02-runner-v0.3.1-historyfix/`，我核对了 12 个�
   不手工绕过不跳步）+ 包来源纪律（runner 必须用已发布资产 `d10e15cf…`）
 
 **当前状态**：`.12` 停在 v0.5.1u2 + runner v0.3.0 旧布局，步 2 未通过。
+
+## 2026-10-04 补充：查包内 compose 取到各版本真实 project/网络名，坐实根因
+
+用户指出「整个 compose 里的名称确实改过了，包括网络的，把该版本需要的网络名称写进 md」。
+**这个方向是对的，而且查出来的结果比预想更关键**——我不只是记了网络名，
+还发现**v0.5.1u2 的 compose 顶层 `name:` 已经写成 `smartx-hci-capacity-insight`**。
+
+### 从包内 compose 实测提取（不是推断）
+
+| 版本 | 顶层 `name:` | 实际网络 `name:` | subnet |
+| --- | --- | --- | --- |
+| v0.5.1 | **（无）** | 未显式命名 → **由 project 名派生** = `smartx-storage-forecast_smartx-net` | 10.249.249.0/24 |
+| v0.5.1u2 | **`smartx-hci-capacity-insight`** | 未显式命名 → 派生 | **无 subnet** |
+| v0.5.2 | `smartx-hci-capacity-insight` | **显式** `smartx-hci-capacity-insight-net` | 10.249.249.0/24 |
+| v0.5.3 | `smartx-hci-capacity-insight` | 显式 `smartx-hci-capacity-insight-net` | 沿用 |
+
+### 三条由此得出的结论
+
+1. **v0.5.1 的网络名是「派生」的**——compose 里既无顶层 `name:` 也无网络 `name:`，
+   实际网络名 = `<project 名>_smartx-net`。所以 §2.1 步 0 用 `-p smartx-storage-forecast`
+   起容器时网络自动叫 `smartx-storage-forecast_smartx-net`，**这不是配置、是副产物**，
+   换 `-p` 就换网络名。这点此前文档从未写清。
+2. **v0.5.1u2 处于「半迁移」状态**：顶层 project 名已改成目标名，但网络仍未显式命名、
+   subnet 也丢了。此时按顶层 name 起容器，网络会变成 `smartx-hci-capacity-insight_smartx-net`
+   ——与旧布局的 `smartx-storage-forecast_smartx-net` **不是同一个网络**。
+3. **根因坐实**：u2 的 runner-upgrade compose 按目标名 `smartx-hci-capacity-insight-net`
+   且 `external: true` 去找网络，而该网络要到 v0.5.2 才被显式定义/创建 → 步 2 必然失败。
+
+### 连带修订：步序改了
+
+原 §2 链路表把 runner 组件升级放在 u2 节点，理由是「bootstrap 要停旧 project 的 runner」。
+**该假设被实测推翻**（u2 顶层 name 已是目标名）。现改为：
+
+```
+步 1  v0.5.1 → v0.5.1u2
+步 3  v0.5.1u2 → v0.5.2        ← 这里才建好 smartx-hci-capacity-insight-net
+步 4  runner → v0.3.1           ← 必须在这之后
+步 5  v0.5.2 → v0.5.3
+```
+
+这同时符合 AGENTS §7 §4 第 1 条「默认先平台、后 runner」——**两个独立来源指向同一结论**，
+比原来单一来源的说法更可信。已在 §2 链路表给 `Runner bootstrap` 行加 ⚠️ 标记，
+并写明「以实测为准」。
+
+### 文档落点
+
+`docs/upgrade-chain.md` 新增/修订：
+- **§2.1.1**（新）：各版本真实 project 名与网络名对照表 + 三条关键结论 + 排障三查命令
+- **§2.1**（修订）：步序改为 5 步，runner 组件升级移到步 4，并写明步序变更的理由
+- **§2.2**（修订）：根因与 §2.1.1 逐条对应，不再只说「external 找不到」
+- **§2.3**（修订）：流程表的步序同步
+- **§2** 链路表：`Runner bootstrap` 行加 ⚠️，指向实测结论

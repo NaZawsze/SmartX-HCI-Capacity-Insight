@@ -47,7 +47,7 @@ v0.5.1 + runner v0.3.0
 | --- | --- | --- | --- | --- | --- |
 | Source | v0.5.1 | v0.3.0 | `smartx-storage-forecast` | `smartx-storage-forecast_smartx-net`（10.249.249.0/24） | 旧 project、旧运行目录 |
 | Bridge | v0.5.1u2 | v0.3.0 | 保持旧 | 保持旧 | 只提供桥接能力（可被 v0.3.0 runner 执行），不提前迁移平台 |
-| **Runner bootstrap** | **v0.5.1u2** | **v0.3.1** | 只有 runner 进入新 project | 新 runner network | **唯一的 runner 组件升级步骤**；不迁移平台三件套/Prometheus/旧目录 |
+| **Runner bootstrap** ⚠️ | **v0.5.1u2** | **v0.3.1** | 只有 runner 进入新 project | 新 runner network | **唯一的 runner 组件升级步骤**；不迁移平台三件套/Prometheus/旧目录 |
 | Target | v0.5.2 | v0.3.1 | `smartx-hci-capacity-insight` | `smartx-hci-capacity-insight-net`（10.249.251.0/24） | 完成单根目录、网络、Prometheus 与旧环境清理 |
 | Latest | v0.5.3 | v0.3.1 | 同上 | 同上 | 保持目标布局 |
 
@@ -62,7 +62,7 @@ v0.5.1 + runner v0.3.0
 | --- | --- | --- | --- | --- | --- |
 | 0 | 全新安装旧布局 | `smartx-storage-forecast` | `docker-compose.offline.yml` | `smartx-storage-forecast_smartx-net` | compose 内 `ipam` 10.249.249.0/24 **自动创建** |
 | 1 | v0.5.1 → v0.5.1u2 | `smartx-storage-forecast` | `docker-compose.offline.yml` | 同上，不变 | 沿用 |
-| 2 | runner → v0.3.1 | `smartx-storage-forecast` | **组件升级走产品 API**（`/api/admin/component-upgrade/*`），**不要手工跑 compose** | 见 §2.2 警告 | 见 §2.2 |
+| 2 | runner → v0.3.1 | ⚠️ **不能在 u2 上做**（实测失败，见 §2.2）；正确位置是**步 3 之后**（此时目标网络已由 v0.5.2 建好） | **组件升级走产品 API**（`/api/admin/component-upgrade/*`），**不要手工跑 compose** | `smartx-hci-capacity-insight-net` | 由 v0.5.2 的 `environment_transitions` 创建 |
 | 3 | v0.5.1u2 → v0.5.2 | `smartx-storage-forecast`（升级过程内部会切 project） | 走产品 API `/api/admin/upgrade/*` | 升级后为 `smartx-hci-capacity-insight-net`（10.249.251.0/24） | **由 v0.5.2 包的 `environment_transitions` 创建** |
 | 4 | v0.5.2 → v0.5.3 | `smartx-hci-capacity-insight` | 走产品 API `/api/admin/upgrade/*` | 沿用目标网络，不变 | 沿用 |
 
@@ -74,6 +74,43 @@ v0.5.1 + runner v0.3.0
 2. **`docker compose` 只用于「装环境」和「排障查看」**，不用于「升级」。
 3. 排障时判断当前处于哪个 project，看容器的 compose 标签，不要靠猜：
    `docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' <容器>`
+
+### 2.1.1 🔴 每个版本实际使用的 project 名与网络名（2026-10-04 从包内 compose 实测提取）
+
+**这张表是查包内 `docker-compose.offline.yml` 得到的，不是推断。**
+**它揭示了一个反直觉的事实**：compose 里的名称**在 v0.5.1u2 就已经改成目标布局的名字了**，
+比网络真正切换到目标布局（v0.5.2）早了一个版本——这正是步 2 失败的根源。
+
+| 版本 | compose 顶层 `name:` | 实际网络 `name:` | 网络 subnet | 说明 |
+| --- | --- | --- | --- | --- |
+| **v0.5.1** | **（无顶层 name）** | **未显式命名** → 由 project 名派生 = **`smartx-storage-forecast_smartx-net`** | `10.249.249.0/24` | 旧布局。project 名由 `-p` 传入，故网络名随 project 变 |
+| **v0.5.1u2** | **`smartx-hci-capacity-insight`** | 未显式命名 → 派生 = **`smartx-hci-capacity-insight_smartx-net`** | **无 subnet** | ⚠️ **顶层已改成目标名，但网络还没显式命名、也没 subnet**。此时若用顶层 name 起容器，网络名会变成 `smartx-hci-capacity-insight_smartx-net`，与旧布局的 `smartx-storage-forecast_smartx-net` **不是同一个网络** |
+| **v0.5.2** | `smartx-hci-capacity-insight` | **显式 `smartx-hci-capacity-insight-net`** | `10.249.249.0/24` | 目标布局。网络名**显式固定**，不再随 project 派生 |
+| v0.5.3 | `smartx-hci-capacity-insight` | 显式 `smartx-hci-capacity-insight-net` | 沿用 | 保持目标布局 |
+
+**关键结论（务必记住）**：
+
+1. **v0.5.1 的网络名是「派生」的**，因为 compose 里既没有顶层 `name:` 也没有网络 `name:`。
+   实际网络名 = `<compose project 名>_smartx-net`。所以 §2.1 步 0 用
+   `-p smartx-storage-forecast` 起容器时，网络自动叫 `smartx-storage-forecast_smartx-net`——
+   **这不是配置，是派生的副产物**。换 `-p` 就换网络名。
+2. **v0.5.1u2 起顶层 name 变成 `smartx-hci-capacity-insight`**，但**网络仍未显式命名**。
+   这是一个「半迁移」状态：project 名已改、网络名靠派生、subnet 丢失。
+3. **v0.5.2 才把网络名显式固定**为 `smartx-hci-capacity-insight-net` 并补回 subnet。
+4. 因此**「旧布局」与「半迁移布局」的网络名不同**：
+   - 旧布局（v0.5.1）：`smartx-storage-forecast_smartx-net`
+   - v0.5.1u2 若按顶层 name 起：`smartx-hci-capacity-insight_smartx-net`
+
+**排障时先确认这三样**（不要靠猜）：
+
+```bash
+# 1) 当前 compose project 名（看容器标签，比看文件可靠）
+docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' <容器>
+# 2) 当前实际网络名
+docker network ls --format '{{.Name}}' | grep -i smartx
+# 3) 某个 compose 声明的 project / 网络名
+grep -nE '^name:|name:.*-net' <compose 文件>
+```
 
 ### 2.2 🔴 已实测的阻塞：步 2 在旧布局上会失败（2026-10-04 `.12` 实测）
 
@@ -100,8 +137,28 @@ networks:
 该文件声明为 `external: true`（**外部网络，必须已存在**），但此时它还不存在
 ——它要到 v0.5.2 的 `environment_transitions` 才创建。
 
-**结论**：**步 2 不能在「网络尚未切换」的旧布局上直接跑**，
-而 §2 链路表把 runner 组件升级放在 u2 节点上——两者矛盾。
+**根因与 §2.1.1 的对应关系（这是关键）**：
+
+| 事实 | 出处 |
+| --- | --- |
+| 旧布局实际网络是 `smartx-storage-forecast_smartx-net`（v0.5.1 网络名**由 project 名派生**） | §2.1.1 第 1 行 |
+| v0.5.1u2 生成的 runner-upgrade compose 声明 `name: smartx-hci-capacity-insight-net` + `external: true` | §2.2 现象 |
+| `smartx-hci-capacity-insight-net` 这个名字要到 **v0.5.2** 才被显式定义 | §2.1.1 第 3 行 |
+| v0.5.1u2 的 compose **顶层 name 已经是** `smartx-hci-capacity-insight` | §2.1.1 第 2 行 |
+
+即：**v0.5.1u2 处在「名字已改、网络未建」的半迁移状态**。
+它的 runner-upgrade compose 按**目标布局**的名字去找网络，而那个网络此刻还不存在。
+
+**结论**：**步 2（runner 组件升级）不能在 v0.5.1u2 的半迁移布局上直接跑**。
+要跑通，必须先让 `smartx-hci-capacity-insight-net` 真实存在——而这只由 v0.5.2 的
+`environment_transitions` 完成。因此**实际可行的顺序是「先平台（到 v0.5.2）、
+再 runner 组件升级」**，这也正好与 AGENTS §7 的顺序铁律一致
+（§4 第 1 条：默认先平台、后 runner；平台包 runner 基线 = 已发布 v0.3.1，现场够用时不动 runner）。
+
+⚠️ **注意与 §2 链路表的矛盾**：§2 那张表把 runner 组件升级放在 u2 节点
+（历史如此，因为当时认为 u2 的旧 project 能让 bootstrap 停对对象）。
+**该假设在 `.12` 2026-10-04 实测中不成立**——u2 的 compose 顶层 name 已改，
+bootstrap 去找目标网络而找不到。**以本节实测为准**，§2 表的 u2→runner 一行需按此结论修订。
 
 **⚠️ 禁止的绕法**：手工 `docker network create smartx-hci-capacity-insight-net`
 或手工改那份 compose 的 `name`。那是宿主手工变更（AGENTS §5 明令禁止），
