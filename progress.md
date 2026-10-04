@@ -3981,3 +3981,60 @@ web-api 容器 ID `725458d724c18b71c8d` 前后一致、health 未变、restarts=
 - 新增待办：#78 `exports/`/`imports/` 无 TTL 与保留上限（`.12` 的 450MB 由此堆积，
   需用户定策略；迁移包可能是客户唯一回滚凭据，不能默认按天删）；
   #79 回收站 VM/卷的页面展示口径未落地（统计侧已定全量，但展示层过滤未实现）。
+
+## 2026-10-04 r15 候选构建 + `.3` 门禁与真容器验证
+
+r15 = r14 + `1b0c3dd`（上传失败回滚）+ `0f8b19f`/`efce7da`（磁盘告警 + 上传前置检查）。
+平台包 `fe534709…` / runner 组件包 `b6b3b981…` / 源码 `a10bad3`。
+
+### 构建与门禁（`.3`）
+
+- 版本门禁 EXIT=0（v0.5.3）；包身份 EXIT=0（web-api 归档 load 后校验）
+- **runner 交付一致性 12 PASS 0 FAIL**：仓库 `RUNNER_VERSION` / 三个源码 compose 字面量 /
+  manifest / 包内 `RUNNER_VERSION` / 源码树指纹 / `actions.py` md5 / 26 动作集全一致
+- 对外文档脱敏 EXIT=0；包内敏感文件严格命中 0（列 tar 不解包）
+- **包内代码核对**：web-api 与 collector-worker 两个镜像内 `disk.py`/`worker.py`/`intake.py`
+  的 md5 与源码逐位一致——`worker.py` 实际运行在 collector-worker，只验 web-api 不够
+- 后端全量 **779 tests / 1 既有失败 / skipped=7**；前端 tsc=0、vitest 11 files 108 tests
+
+### 真容器功能验证（这是本轮的重点，单测全绿不等于客户看得到）
+
+**① 磁盘告警端到端**：64MiB tmpfs 真实写到 75% 占用 → 容器 env `SMARTX_DISK_ALERT_*`
+覆盖生效（`warning=0.5`，证明 `env_file` + `os.environ` 直读链路成立）→ 产出 warning 告警
+→ **落库到任务中心**（`disk-alert-warning-1c91635e`）→ 二次评估不重复（去重有效）。
+另核实 `status=failed` 是共享 `upsert_alert` 的硬编码约定，集群告警同样如此，非缺陷。
+
+**② 上传前置检查端到端**：真 web-api 容器 + 真登录鉴权 + 真 multipart 上传。
+tmpfs 写到 97%（剩 1.90 MiB）后上传 2.001 MiB 包 →
+400「磁盘空间不足：/data/upgrades 可用 1.90 MiB，上传该升级包需要 6.00 MiB（含解包空间）。
+请先到「系统 → 空间清理」释放空间」，且 `/data/upgrades` **零写入**（证明是前置拦截，不是事后回滚）。
+**反向验证**磁盘充足时不误拦（否则会阻断所有正常上传，比漏拦更严重）。
+
+### 过程中我犯的三个错误（均已纠正并记录）
+
+1. **验证脚本在宿主机上跑**，把 `.3` 宿主 `/data` 写了 500 个 `fill*`（250M）。
+   已全部删除并核实（0 残留，`smartx-storage-forecast`/`smartx.db`/`upgrades` 完好）。
+   教训：容器内外同名路径不代表同一对象，写盘类验证必须 `docker exec` 进容器。
+2. **测试包用 `b"p"*1MiB`**，被 gzip 压到约 1KiB，阈值变成 0.003 MiB，在剩 1.9 MiB 时
+   本就不该拦——**代码行为是对的，是我的测试数据没有压缩性**。改 `os.urandom` 后才真正测到拦截。
+   这也顺带证明前置检查确实按包实际大小判定，不是固定阈值。
+3. `.3` 一度 SSH 握手超时，一度误判为"机器被 tar 压满"，实测负载为 0.00，是网络抖动。
+
+### 顺带发现的既有缺陷（已登记 #80，非本轮引入）
+
+`_read_manifest` 只捕 `json.JSONDecodeError`，不捕 `UnicodeDecodeError`：
+包被损坏/截断时抛 500 而非可读 400（而"合法 UTF-8 但非法 JSON"返回干净 400，两者不一致）。
+真实升级包 manifest 必为合法 UTF-8 JSON，且截断通常先被 gzip/tar 完整性校验拦下，
+**不阻塞发布**；已登记待办，未擅自扩大本轮范围。
+
+### ⚠️ 未完成：`.12` / `.14` 验收（真实阻塞）
+
+本轮**没有** `.12` 与 `.14` 的可用登录凭据：root 与 user1 均被拒（`Permission denied
+(publickey,gssapi-keyex,gssapi-with-mic,password)`），而按 AGENTS 规定这两台的密码
+不得记录在任何文件中，故本轮无法自行取得。
+
+**结论：r15 目前只有 `.3` 单机验证，不具备发布级验证结论。** 发布前必须补做：
+- `.12` 生产等价：同版本重装 + 8 项验收 + 磁盘告警/清理真机确认
+- `.14` 干净机：全新安装 + 离线升级 + runner `v0.3.1 → v0.3.2`
+
+另：`.3` SSH 曾出现握手超时（负载 0.00，非机器问题），后续轮询需加重试。
