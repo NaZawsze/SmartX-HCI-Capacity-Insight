@@ -4327,3 +4327,46 @@ runner 心跳遇 SQLite 锁不再让进程退出。根因、修法、测试见 t
 - **r17 平台包构建于 `3bf795a` 之前完成（`ef3fab9f…`），不含 #82 的 runner 改动**，
   且 runner 组件包需重建、交付一致性门禁需重跑
 - `.12`/`.14` 需恢复 runner v0.3.1 基线（待用户决定时机）
+
+## 2026-10-04 夜补：r17 runner 组件包 + #82 真机库锁压测（PASS）
+
+用户问「runner 新需要的功能加上了？」——**当时没有**。r17 平台包构建于 `ebcbeae`，
+在 #82 修复（`3bf795a`）之前，且 runner 代码只进 runner 镜像、平台包根本不含 runner。
+已补齐。
+
+### 一个我之前讲错的地方
+
+我先说「r17 需重建」——**不准确**。要重建的是 **runner 组件包**，不是平台包：
+runner 代码只进 `Dockerfile.upgrade` 构建的 runner 镜像，平台包（web-api/collector-worker/
+frontend）不含 runner。平台包 `ef3fab9f…` 照常可用。
+
+### 补齐动作与证据
+
+| 项 | 结果 |
+| --- | --- |
+| 平台包（`ebcbeae`，含 #78/#79/#80） | `ef3fab9f…`（**不含 runner，无需重建**） |
+| runner 组件包（`525c6b2`，**含 #82**） | `d1bb48874d7561c3257a61001e86707c9098daf49800e25f39100b8e20820436` |
+| runner 交付一致性门禁 | **12 PASS 0 FAIL**；源码树指纹 `abe071e9…`、`actions.py` md5 `944378c3…`、26 动作集全一致 |
+| 包内镜像 md5 | runner 镜像 `main.py` = `0647b729…` 与源码逐位一致；`_heartbeat_with_retry` 2 处、循环兜底 1 处 |
+| `.3` 全量 | **816 tests / 1 既有失败 / skipped=7** |
+
+### `.14` 真机库锁压测（这才是 #82 的真证据）
+
+走产品 API 装 runner 组件包（`upgrade-b164c61ec0e7ad53` succeeded），
+然后 `docker exec` 内起独立进程 `BEGIN EXCLUSIVE` 持写事务：
+
+| 场景 | 结果 |
+| --- | --- |
+| 持锁 12 秒 | runner **pid 未变、`RestartCount` 保持 0**；锁释放后心跳继续推进（13:50:56 → 13:51:28） |
+| **加压持锁 25 秒**（远超重试总时长 3.7s） | pid 全程 `134931` 未变、restarts 仍 0；日志出现「心跳遇数据库锁，第 1 次重试（0.2s 后）」；锁释放后心跳推进到 13:52:44 |
+
+**修复前这两种场景都会 `RestartCount` +1**（靠 `restart: unless-stopped` 静默重启）。
+第二个场景尤其关键：25 秒远超 5 次重试共 3.7 秒的总时长，验证的是
+**「重试耗尽也不退出」**这条——即心跳丢一次不该让 runner 进程死掉。
+
+`.14` 收尾：临时文件清零、5 容器、runner restarts=0、health 3/3。
+
+### 遗留
+
+- **`.12` 的 runner 组件未升级**（仍是 r16 时代的 v0.3.2，不含 #82）
+- **`.12`/`.14` runner 均偏离客户基线 v0.3.1**（upgrade-chain.md §3.2），发布前须恢复
