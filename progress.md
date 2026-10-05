@@ -4858,3 +4858,40 @@ W1 单测 42 例、build_tests 48 例（26+22）全绿。探针目录与镜像�
 `test_heartbeat_survives_db_failure` 最初只替换建表路径（漏掉执行期每 5 秒那条续租镜像）、
 `_make_db` 没建镜像表导致 4 例 `no such table`；测试里还写了 `with sqlite3.connect(...)`
 （只提交不关连接，正是 US-28 的坑），已统一改为显式关闭。
+
+### W2 单写者（提交 7c7678e + 8dfc011 + d83aa90）
+
+事实源 = task.json；`tasks` 表改为 web-api 独占投影（`backend/app/v2/upgrade/projection.py`）；
+runner 侧 `_project_task` 降级为 best-effort 兼容镜像（v0.5.3 web-api 依赖它显示进度）。
+
+**判据设计的四个修正**（全部由既有用例暴露，不是自己想到的）：
+
+1. `updated_at` 判据过严 → **终态永远投影不进去**。`test_v2_upgrade` 里 task.json 的
+   `updated_at` 是个 2026-07 的固定值（早于 web-api 写库时刻），只比时间则 running
+   永远盖住 success。改为终态可穿透时间差。
+2. 「真终态」不能只看 status：预检查通过时 web-api 也写 `status=success`（"检查通过"
+   不是"执行完成"，`finished_at` 为空）。只看 status 会把刚过预检查的任务判成已收尾，
+   从而拒绝后续所有进度投影 → 改为 status + finished_at 双条件。
+3. `finished_at` 用"投影这一刻"导致幂等性失效（每轮轮询都变）→ 改取 task.json 的确定值。
+4. `updated_at` 同理：task.json 没写时不覆盖库内那一列。
+
+**镜像去重的判据也被既有用例否掉一次**：我最初用 10 秒时间限流，
+`test_runner_projects_action_progress_while_task_is_running` 立刻失败——
+它断言"加载镜像这一步已进入 running"，被时间限流一起吞了。
+正确键是**内容指纹**（顶层状态 + 每步骤 (key,status) 序列）：
+该去掉的（步骤内反复 checkpoint）与要保留的（步骤状态转换，无论隔多久）
+都撞在时间判据上，所以时间不是正确的键。
+
+**真机（.3，隔离沙箱，按 Dockerfile.upgrade 构建镜像跑真实主循环）**：
+- **W2 核心判据**：任务含 `health.http` 30 次重试、覆盖 50 秒执行窗口，
+  每 5s 采 `/proc/1/fd`，指向 `smartx.db` 的 fd **全程 0**，`restarts=0`，
+  任务正常 running → 终态。对照 US-28 事故判据（空闲态 52 fd），现在空闲态也是 0。
+- 修复前同一判别是 3~4 个 fd，空闲 30s 后才回落（连接被 GC，但锁窗口已造成）。
+
+**又抓一处 US-28 根因模式**：`_write_task_projection` 沿用了
+`with sqlite3.connect(...)`——**只提交事务、不关连接**。US-28 的修复只改了
+`lease.py::_connect` 一处，这条新增路径没继承到。长驻进程反复调用 → 稳定复现同一事故。
+改为 `try/finally: connection.close()`。
+**教训**：「已知根因的修复」必须在新写同类代码时显式复用，否则同一个坑会换条路径再踩一次。
+
+**全量回归（.3）**：899 tests，失败清单与基线逐行 diff → NO_NEW_FAILURES。
