@@ -4711,3 +4711,25 @@ grep "删除升级包只删体积产物" docs/releases/CHANGELOG.md   → 0 命�
 `.12` 的 8 项验收中「**升级后自动采集成功**」未跑成：`SMARTX_CREDENTIAL_KEY` 是占位符
 （原 `.env` 随第一次清空删除，`capture_baseline.py` 存基线时已脱敏）。
 其余 7 项全过，数据 543 VM / 89547 卷全程逐位未变。代码侧六项修复均完成、有记录、已验证。
+
+## 2026-10-05 Release Day：v0.5.3 正式发布（用户指令「推送 v0.5.3、不推送 runner」）
+
+**发版前置核对（全过）**：
+- 发布包 = r17 平台包 `.3:/data/r17-build/packages/latest/smartx-capacity-insight-upgrade-v0.5.3.tar.gz`，
+  `.3` 实测 SHA256 = `ef3fab9f4f1f15937d0b109c263517712bdabbe15907f87cba70b69af762fd4c`（与台账一致），`.sha256` 侧车在位；
+- `git diff --stat ebcbeae..HEAD`：r17 构建源之后仅 docs 与 runner 侧（`upgrade_runner/main.py` #82 + 新测试）改动，
+  **平台（web-api/collector/frontend）代码零变化** → 发布包与当前 HEAD 的平台代码一致；
+- 镜像实查（`.3`）：web-api `6747dc1bf418`、collector-worker `8393442f2bd7`（与 `.12` 链路验收实测 ID 逐位一致）、frontend `d4d70803b432`；
+- **前端门禁补跑**（r17 树，node v22.14.0）：`tsc -b --force` 零错误、`vitest run` **108/108（11 files）** —— 发版硬门禁最后一项补齐。
+
+**发布内容口径**：runner 基线 = 已发布 `v0.3.1`（不随发，`v0.3.2` 含 US-24/#82 修复随下一版）；平台包对 runner 只声明基线不做改动
+（`upgrade-runner-image.yml` 只认 `runner-v*` tag，本次不打该 tag 即不会构建 runner 镜像）。
+
+**文档翻转**：CHANGELOG v0.5.3 节「候选，未发布」→「已发布 2026-10-05」；version-governance 已发布版本翻转（下一口径 v0.5.4 启动时再 bump VERSION）；
+ledger r17 行 → RELEASED；pending-tasks #55 关闭。
+
+**发布动作链执行**：dev2 推送 → main fast-forward（`dab2e0f` → 本提交）→ tag `v0.5.3`（tag 名=VERSION，Action 校验 tag 必须指向 main）→
+GitHub Release 附平台包 tar.gz + `.sha256` → 平台三件套 DockerHub 镜像由 `docker-images.yml` 自动构建推送（凭据在 GitHub 侧，无需本地 docker login）。
+
+**遗留/后续**：①DockerHub 平台 tag 以 Actions 运行结果为准（发布后核对）；②生产升级窗口由用户安排（升级前基线留档 + 8 项验收）；
+③`.14` 的 runner 恢复 v0.3.1 基线（当前为 v0.3.2 验证态）；④runner `v0.3.2` 交付随下一版（#53）；⑤US-39 守卫覆盖升级路径等下版本整改项见 pending-tasks。
