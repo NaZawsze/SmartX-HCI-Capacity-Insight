@@ -5236,3 +5236,39 @@ docker run --rm --network=none \
 ### 未验证项（已随矩阵落表）
 
 `.14` 直升（T3 容器 ID 不变）、组件升级 v0.3.1→v0.3.2 格、r18 真包形态、⛔ 行 precheck 文案（B3）。
+
+## B6 收尾踩坑：改「门禁夹具」文档后没重跑全量（用户独立复核抓出）
+
+用户独立重跑 `.3` 全量得到 **1 失败**，我此前的「1030 与基线逐条对齐」不准确：
+
+```text
+FAIL: test_every_row_state_is_allowed (tests/test_us01_version_skew_matrix.py:60)
+AssertionError: 组合「v0.5.0 / v0.5.1 / v0.5.1u1 / v0.5.1u2」的支持状态 '⛔'
+不在允许集合 {'✅', '⚠'} 内
+```
+
+**根因**：`docs/version-skew-matrix.md` 是 **US-01 门禁的测试夹具**——
+`backend/tests/test_us01_version_skew_matrix.py` 直接解析该文档并断言：状态允许集合、
+✅ 必须有实测证据、⚠ 必须带「未实测」、⛔（新增）必须带到达路径、三条硬规则在位、
+必须在 doc-map 登记。我改了文档（矩阵状态符号）却按纯文档处理，没有重跑全量。
+
+**修法**（`c762120`，沿用文件内既有风格）：
+1. `ALLOWED_STATES += "⛔"`，注释写清 ⛔ 与 ⚠️ 的语义差别（⚠=声明支持但未实测；⛔=不支持并给出到达路径）；
+2. 新增 `test_unsupported_rows_state_the_path_to_reach`（与 ⚠ 同构）：⛔ 行必须含
+   `v0.5.3` 或「先升」——「不静默降级」的文档版：拒绝必须带出路。
+   **变异测试确认**：删掉 ⛔ 行的路径文字后该断言 FAIL（不是空断言）。
+
+**规则落地**：AGENTS.md §12 增加一条——「文档改动同样要重跑全量，当文档是门禁夹具时」，
+判定口径是「改文档前先问有没有测试或门禁脚本读这份文件」；已知夹具清单：
+`docs/version-skew-matrix.md`、`AGENTS.md`、`docs/api.md`（`scripts/verify_api_docs.py`）。
+注意 AGENTS.md 被 `.gitignore` 第 28 行排除（AGENTS 自述含本机登录方式、不得入库），
+故该条规则本地生效、不进仓库。
+
+### 重跑证据（`.3`，文档改后必跑）
+
+| 项 | 结果 |
+| --- | --- |
+| 门禁夹具模块 | `Ran 10 tests … OK` |
+| 全量 | `Ran 1031 tests`，`FULL_SUITE_EXIT=1`（6 个既有 harness 失败） |
+| 失败清单 | `test_ops_toolkit` 5 例（需 `shellcheck`/`bash -n`）+ `test_v2_upgrade` 1 例（镜像有 docker CLI 无 socket），与 B5b 基线**逐条一致** |
+| diff | `NO_NEW_FAILURES`（对比 `/tmp/b5b-fails.txt`） |
