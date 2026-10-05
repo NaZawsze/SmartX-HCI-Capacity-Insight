@@ -5311,3 +5311,32 @@ AssertionError: 组合「v0.5.0 / v0.5.1 / v0.5.1u1 / v0.5.1u2」的支持状态
 
 同一打包陷阱也让前端 vitest 一度报 `11 failed | 11 passed (22)`（`._*.test.tsx` 变成 11 个 0 测试文件），
 排除旁车文件后 `Test Files 11 passed (11)`。
+
+## B7 / B8
+
+### B7：批次 B 收口门禁（`.3`，本地树 `b7`）
+
+| 项 | 结果 |
+| --- | --- |
+| 后端全量 | `Ran 1040 tests`，`fail_count=1`（仅 `test_v2_upgrade` 那格 docker 无 socket），`PY_FULL_EXIT=1` |
+| 前端 `tsc -b` | `TSC_EXIT=0` |
+| 前端 `vitest run` | `VITEST_EXIT=0`，`Test Files 11 passed (11)`，`Tests 110 passed (110)` |
+
+### B8：场景 B 手动「回滚到上一版本」
+
+提交：`f706855`。
+
+| 项 | 结果 |
+| --- | --- |
+| 后端单测（`test_manual_rollback_scenario_b.py`，14 例） | 与 precheck/v054 三个模块合计 **38 tests OK** |
+| 前端 `tsc` / `vitest` | `TSC_EXIT=0` / `VITEST_EXIT=0`，**112 tests passed**（新增 2 例） |
+| api.md 门禁 | `scripts/verify_api_docs.py` → `OK: api.md 80 条（含 1 条白名单豁免）与后端 79 条路由一致` |
+
+实现期两个发现（都写进了提交说明与规格）：
+1. 镜像可得性检查最初把 `upgrade-runner` 算进去，会让回滚被"runner 镜像不在本地"这种**无关原因**
+   挡住——平台回滚永远不重建 runner（A4 第 1 层）。判定与计划统一用 `ROLLBACK_EXCLUDED_SERVICES` 跳过。
+2. 锚点**不新建第三份文件**：规格原写 web-api 写 `app/rollback-anchor.json`，但 A5 已有
+   task.json + 状态文件持久段两处；三份不同步的回滚比没有锚点更危险。规格已改写并记明作废原因。
+
+**未验证**：场景 B 的真机手动回滚（升级成功后点按钮 → 任务执行 → 回到上一版本且数据保留）
+归批次 C3；判定 API 与前端入口本轮只有单测覆盖，未在真机点过。
