@@ -8,6 +8,7 @@
 2. 标 `✅`（实测支持）的组合，**必须在实测记录里有对应证据**（升级任务 ID 或
    "干净 VM 实测"记录），否则构建失败；
 3. 标 `⚠️ 未实测` 的组合**必须显式带"未实测"字样**，不得被写成 ✅；
+3.1 标 `⛔ 不支持` 的组合**必须写明到达路径**（含 `v0.5.3` 或「先升」）——拒绝必须带出路；
 4. 三条硬规则必须在位（先平台后 runner / 不降级 / 单飞）。
 """
 
@@ -21,7 +22,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 MATRIX = REPO_ROOT / "docs" / "version-skew-matrix.md"
 
 # ⚠️ 里的变体选择符（U+FE0F）在不同工具链下可能被切掉，比较前先归一
-ALLOWED_STATES = {"✅", "⚠"}
+# ⛔ = 明确不支持（2026-10-06 起：v0.5.4 只支持目标布局 v0.5.2+，
+# ≤v0.5.1u2 必须先升 v0.5.3）。它与 ⚠️ 的区别是**语义不同**：
+# ⚠️ = 声明支持但未实测；⛔ = 不支持并给出到达路径。两者都不得含糊，但要求也不同。
+ALLOWED_STATES = {"✅", "⚠", "⛔"}
 
 
 class VersionSkewMatrixTest(unittest.TestCase):
@@ -71,6 +75,20 @@ class VersionSkewMatrixTest(unittest.TestCase):
                 f"组合「{source}」标了 ⚠️ 却没写明'未实测'——不得让客户误以为已验证",
             )
         self.assertTrue(warned, "矩阵应至少保留一个'声明支持但未实测'的行（诚实标注的体现）")
+
+    def test_unsupported_rows_state_the_path_to_reach(self) -> None:
+        """标 ⛔ 的组合必须写明**到达路径**（含 v0.5.3 或「先升」字样）。
+
+        这是「不静默降级」的文档版：拒绝必须带出路。只写"不支持"的行等于把
+        客户挡在门外却不告诉他怎么走——下一个人只会当成 bug。
+        """
+        blocked = [r for r in self._rows() if r[1].lstrip().startswith("⛔")]
+        self.assertTrue(blocked, "矩阵应保留至少一个明确不支持的行（收窄支持矩阵的体现）")
+        for source, target in blocked:
+            self.assertTrue(
+                "v0.5.3" in target or "先升" in target,
+                f"组合「{source}」标了 ⛔ 却没写明到达路径（需含 v0.5.3 或「先升」）：{target}",
+            )
 
     def test_verified_rows_have_evidence(self) -> None:
         """标 ✅ 的组合必须给出证据（任务 ID 或干净 VM 实测记录）。"""
