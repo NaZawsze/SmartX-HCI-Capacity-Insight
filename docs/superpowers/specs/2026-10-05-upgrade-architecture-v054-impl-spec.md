@@ -144,6 +144,30 @@ runner `_project_task`（main.py:359）把任务状态**直接写业务库 tasks
 `.14`：v0.3.2→v0.3.3-rc 自换——服务中断 ≤30s、新 runner presence ≤60s、web-api 全程零 compose 编排调用、
 restarts 计数符合预期（旧容器被 replace，新容器 restarts=0）。
 
+### W3b 路径出处审计（2026-10-05 补充，宿主/容器路径混用的系统性修复）
+
+**发现（.3 交付实例实测取证）**：runner 写运行时 compose 用宿主风格路径
+`/data/smartx-storage-forecast/compose-runtime`，在容器内穿过 app bind 落进 UPG-050 载体
+`app/smartx-storage-forecast/compose-runtime/`（10-03 的 v0.3.2 文件）；辅助容器挂载**真实**目录
+（8-12 的 v0.3.1 旧文件）→ **8-12 起 handoff 新配置全部被忽略**，平台升级 handoff「实测通过」
+是旧文件恰好描述了当时正确的目标。真实 compose-runtime 其实已正确挂载在 runner 的
+`/data/compose-runtime`——纯路径选择错误。
+
+**决策（用户 2026-10-05 批准）：方案 A**——runner 内部一律用容器路径，仅在 `docker run -v` /
+`docker compose -v` 边界用 `ActionContext.docker_host_path` 翻译为宿主路径。否决方案 B
+（给 runner 补挂真实路径 = 改 compose = 动 config-hash = 正面撞 US-26/US-37 热点 + 四交付面同步）。
+
+**实施要求**：
+1. 盘点 `actions.py`/`main.py` 全部**文件写点**与全部 **-v 挂载点**，产出清单（允许写进测试注释）：
+   容器内写一律容器路径；宿主路径只允许出现在 -v 字符串与传给下一版 runner 的
+   `SMARTX_HOST_*` env 里；
+2. 修复 `_runner_runtime_paths`、`_write_runner_runtime_compose`、`_target_upgrade_state_path`、
+   辅助容器挂载构造、`compose.override` 等其它写路径动作；
+3. 回归测试：构造「双视图」环境（app 载体 vs 真实目录并存）断言写入落在真实目录；
+4. A 落地并验证后清理载体中的陈旧 `docker-compose.runner-upgrade.yml`
+   （**只删文件、不动载体目录本身**——UPG-050 红线）；
+5. M1/M2（平台升级 handoff）与 T11（自换）真机重跑——路径修复触碰平台升级路径，旧结论作废。
+
 ## W4 compose diff 收敛（US-26 根治）
 
 ### 现状
