@@ -418,34 +418,41 @@ def _write_task_projection(database_path: Path, task: dict[str, Any]) -> None:
     progress = _action_progress(task, status)
     message = _task_message(task)
     steps = _action_steps(task)
-    with sqlite3.connect(database_path) as connection:
-        connection.execute(
-            """
-            INSERT INTO tasks (id, type, status, title, progress, message, logs_json, steps_json, severity, created_at, updated_at, finished_at)
-            VALUES (?, 'upgrade', ?, '执行系统升级', ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                status = excluded.status,
-                progress = excluded.progress,
-                message = excluded.message,
-                logs_json = excluded.logs_json,
-                steps_json = excluded.steps_json,
-                severity = excluded.severity,
-                updated_at = excluded.updated_at,
-                finished_at = excluded.finished_at
-            """,
-            (
-                task["task_id"],
-                status,
-                progress,
-                message,
-                json.dumps(task.get("logs") or [], ensure_ascii=False),
-                json.dumps(steps, ensure_ascii=False),
-                "critical" if status == "failed" else "info" if status == "success" else None,
-                task.get("created_at") or _now(),
-                _now(),
-                _now() if status in {"success", "failed"} else None,
-            ),
-        )
+    # 必须**显式关闭**：`with sqlite3.connect(...)` 只提交事务、不关连接——
+    # 这正是 US-28 的根因（`.12` 实测 52 个 fd、约 10 分钟写锁窗口）。
+    # 本函数是长驻进程里被反复调用的写路径，泄漏会稳定复现同样的事故。
+    connection = sqlite3.connect(database_path)
+    try:
+        with connection:
+            connection.execute(
+                """
+                INSERT INTO tasks (id, type, status, title, progress, message, logs_json, steps_json, severity, created_at, updated_at, finished_at)
+                VALUES (?, 'upgrade', ?, '执行系统升级', ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    status = excluded.status,
+                    progress = excluded.progress,
+                    message = excluded.message,
+                    logs_json = excluded.logs_json,
+                    steps_json = excluded.steps_json,
+                    severity = excluded.severity,
+                    updated_at = excluded.updated_at,
+                    finished_at = excluded.finished_at
+                """,
+                (
+                    task["task_id"],
+                    status,
+                    progress,
+                    message,
+                    json.dumps(task.get("logs") or [], ensure_ascii=False),
+                    json.dumps(steps, ensure_ascii=False),
+                    "critical" if status == "failed" else "info" if status == "success" else None,
+                    task.get("created_at") or _now(),
+                    _now(),
+                    _now() if status in {"success", "failed"} else None,
+                ),
+            )
+    finally:
+        connection.close()
 
 
 def _heartbeat_until_done(lease: LeaseManager, task_id: str, store: TaskStore, stop: threading.Event) -> None:
