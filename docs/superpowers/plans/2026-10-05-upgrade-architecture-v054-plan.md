@@ -6,7 +6,7 @@
 ## 批次 A：runner v0.3.2（先做，能力领先）
 
 > 进度（2026-10-06）：**批次 A 全部完成**（A1/A2/A3/A4/A4b/A5/A5b/A6/A7，均有 `.3` 真机证据）。
-> 批次 B 进度（2026-10-06）：**B5b/B6/B3 已完成**，批次 B 只剩 **B7（全量 + 前端门禁收口）**，随后进批次 C 出 r18。
+> 批次 B **全部完成**（2026-10-06，B1–B10 + B3/B5b/B7/B8/B9/B10）。下一步：批次 C（C1 `.14` 直升 → C2 组件升级格 → C3 回滚六点演练 → C4 `.12` 老链路 → C5 r18 打包全门禁）。
 > 后端全量真实基线是 **1 个失败**（镜像有 docker CLI 无 socket）；此前报「6 个 harness 限制」里有 5 个是我打包时混进的 AppleDouble 旁车文件，已纠正（progress.md 有记录）。
 > r18 打包在批次 C 开头打一次（用户定序：现在打的包会立刻过期）。
 > **A4 完成并勾选**（`40f3b0a`/`ac97b06`）：三层防护（剔除 runner / 差异清单 / apply
@@ -37,10 +37,10 @@
 - [x] B5 动作词汇冻结门禁（计划动作集 ⊆ 已发布 runner，接入 `ops/package.sh`，T7）
 - [x] B5b **常量计划模板**（v2 §2.1，T12）——`f82572d`：用户定案收窄到 v0.5.2+（`_effective_min_version`/`_directory_transition`/`_legacy_cleanup` 置空/`_post_upgrade` 采集与 cleanup 解耦），断言锁**动作集合**（平台包 6 类、bundle +health.prometheus、迁移 +script.run_sandboxed）+ FORBIDDEN 清单不泄漏；`.3` 1030 tests 与基线对齐、三源格 ⊆ 已发布 25 动作、退役登记见 impl-spec §W6.3
 - [x] B6 偏斜矩阵写入 upgrade-chain.md——`65e17ad`：§7 为权威（两行源格 × v0.3.1/v0.3.2 + 同版本重装；≤v0.5.1u2 标 ⛔ 不支持 + 引导）；**已用已发布 v0.5.2/v0.5.3 镜像内编译器实测**，两者对 v0.5.4 manifest 的动作集与候选编译器一致（各 8 动作）
-- [ ] B7 `.3` 全量 + 前端门禁
-- [ ] B8 场景 B：升级中心「回滚到上一版本」——可回滚性判定 API + 前端入口 + 任务化执行（单飞守卫）
-- [ ] B9 场景 C：整备回滚产品化（备份恢复五步进产品流程，显式数据丢失确认）
-- [ ] B10 回滚锚点/备份保留期联动 backup_retention
+- [x] B7 `.3` 全量 + 前端门禁——后端 1040 tests / fail_count=1（docker 无 socket，唯一环境限制）、`TSC_EXIT=0`、`VITEST_EXIT=0` / 110 tests
+- [x] B8 场景 B：升级中心「回滚到上一版本」——`f706855`：判定 API（blockers 结构化）+ 前端入口（逐条显示阻塞原因）+ 任务化执行（`compose.override`→`compose.apply`→`health.http`，既有词汇，单飞/审计/投影适用）；锚点读状态文件，**不新建第三份锚点**；`TSC_EXIT=0`/`VITEST_EXIT=0`/114 tests
+- [x] B9 场景 C：整备回滚产品化——`dc23171`：复用 `rollback.restore`（已实现恢复五步，不新写第二份）+ 备份 SHA 校验 + `confirm_data_loss` 必须显式为真；丢多少数据写在 400 错误里
+- [x] B10 回滚锚点/备份保留期联动——`8593463`：`plan_cleanup/purge_backups(protect=…)` 强制豁免锚点引用的备份；读锚点失败时跳过保护（宁可少删不可误删）
 
 ## 批次 C：验收与发版火车
 
