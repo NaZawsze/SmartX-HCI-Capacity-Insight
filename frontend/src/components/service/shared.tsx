@@ -261,7 +261,9 @@ export function formatCheckMessages(checks: UpgradeCheck[]): string | undefined 
   if (!checks.length) return undefined;
   return checks.map((check) => {
     const detail = formatCheckDetail(check.detail);
-    return detail ? `${check.message} ${detail}` : check.message;
+    const remediation = !check.ok && check.remediation ? ` ${check.remediation}` : "";
+    const base = detail ? `${check.message} ${detail}` : check.message;
+    return `${base}${remediation}`;
   }).join(" ");
 }
 
@@ -642,6 +644,9 @@ export function UpgradeTaskDetail({
                   </span>
                   <strong>{check.name}</strong>
                   <span>{check.message}</span>
+                  {/* B3：拒绝必须带出路。只渲染、不引导——这是"该机器怎么升"的告知，
+                      不是升级向导；自换时代它只服务 ≤v0.5.1u2 一种情况。 */}
+                  {!check.ok && check.remediation && <em className="upgrade-check-remediation">{check.remediation}</em>}
                 </div>
               ))}
             </div>

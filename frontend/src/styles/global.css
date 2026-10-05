@@ -3665,6 +3665,25 @@ button.risk-cluster-row:hover {
   text-align: left;
 }
 
+/* B3：预检查失败项的「下一步指引」。只用 :root 变量，不引入新色值；
+   6px 圆角与现有 .upgrade-check 一致，不引入新的分区形态。 */
+.upgrade-check-remediation {
+  grid-column: 2 / -1;
+  margin: 0;
+  padding: 5px 9px;
+  border-left: 3px solid var(--orange);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-style: normal;
+  line-height: 1.5;
+}
+
+.upgrade-check-remediation::before {
+  content: "下一步：";
+  color: var(--muted);
+}
+
 .upgrade-history-item {
   display: grid;
   grid-template-columns: minmax(110px, 0.5fr) minmax(0, 1.5fr);

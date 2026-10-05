@@ -728,6 +728,81 @@ describe("ServicePage upgrade center", () => {
     expect(screen.queryByText("检查观测组件数据权限")).not.toBeInTheDocument();
   });
 
+  it("renders precheck remediation for a blocked source version", async () => {
+    // B3：v0.5.4 只支持目标布局；≤v0.5.1u2 被拒时必须显示"怎么走"，而不是只说不支持。
+    mockServicePageBootstrap();
+    apiMock.upgradeHistory.mockResolvedValue([
+      {
+        ...uploadedPlatformTask(),
+        target_version: "v0.5.4",
+        package_filename: "smartx-capacity-insight-upgrade-v0.5.4.tar.gz",
+        manifest: {
+          source_compatibility: {
+            supported_versions: ["v0.5.2", "v0.5.3", "v0.5.4"],
+            min_version: "v0.5.2",
+            max_version_inclusive: "v0.5.4",
+            allow_same_version: true,
+            remediation: "v0.5.4 不支持 ≤v0.5.1u2 源；请先升级 v0.5.3（链路已验证）再升 v0.5.4"
+          }
+        }
+      }
+    ]);
+    apiMock.precheckUpgrade.mockResolvedValue({
+      ...uploadedPlatformTask(),
+      target_version: "v0.5.4",
+      status: "precheck_failed",
+      precheck_ok: false,
+      checks: [
+        {
+          name: "source_compatibility",
+          ok: false,
+          message:
+            "当前版本 v0.5.1u2 不在升级包兼容范围 v0.5.2 至 v0.5.4 内；v0.5.4 不支持 ≤v0.5.1u2 源；请先升级 v0.5.3（链路已验证）再升 v0.5.4",
+          remediation: "v0.5.4 不支持 ≤v0.5.1u2 源；请先升级 v0.5.3（链路已验证）再升 v0.5.4"
+        }
+      ]
+    });
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText("v0.5.4"));
+    fireEvent.click(screen.getByRole("button", { name: "预检查" }));
+
+    const remediation = await screen.findByText("v0.5.4 不支持 ≤v0.5.1u2 源；请先升级 v0.5.3（链路已验证）再升 v0.5.4", {
+      selector: "em.upgrade-check-remediation"
+    });
+    expect(remediation).toBeInTheDocument();
+    // 兼容范围说明出现在两处（步骤摘要 + 检查项明细），两处都要能看到事实本身。
+    expect(screen.getAllByText(/不在升级包兼容范围 v0\.5\.2 至 v0\.5\.4 内/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("预检查未通过")).toBeInTheDocument();
+  });
+
+  it("does not render remediation for a passed compatibility check", async () => {
+    // 引导只挂在失败项上：挂在通过的检查上会变成噪音，也让"提醒"与"错误"分不清。
+    mockServicePageBootstrap();
+    apiMock.upgradeHistory.mockResolvedValue([uploadedPlatformTask()]);
+    apiMock.precheckUpgrade.mockResolvedValue({
+      ...uploadedPlatformTask(),
+      status: "prechecked",
+      precheck_ok: true,
+      checks: [
+        {
+          name: "source_compatibility",
+          ok: true,
+          message: "支持 v0.5.2 -> v0.5.4, v0.5.3 -> v0.5.4, v0.5.4 -> v0.5.4",
+          remediation: "v0.5.4 不支持 ≤v0.5.1u2 源；请先升级 v0.5.3（链路已验证）再升 v0.5.4"
+        }
+      ]
+    });
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText("v0.5.2"));
+    fireEvent.click(screen.getByRole("button", { name: "预检查" }));
+
+    await waitFor(() => expect(apiMock.precheckUpgrade).toHaveBeenCalledWith("upgrade-1"));
+    expect(await screen.findByText("预检查通过")).toBeInTheDocument();
+    expect(document.querySelector("em.upgrade-check-remediation")).toBeNull();
+  });
+
   it("shows missing runner capability for selected platform package before execution", async () => {
     mockServicePageBootstrap();
     apiMock.upgradeHistory.mockResolvedValue([uploadedPlatformTask()]);

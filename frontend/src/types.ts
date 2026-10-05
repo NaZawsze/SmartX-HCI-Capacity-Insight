@@ -370,7 +370,12 @@ export interface UpgradeTask {
   /** US-27：任务被标记失败后环境是否需要收尾（重跑一次升级由 post-cleanup 清理残留）。 */
   cleanup_required?: boolean;
   residual_paths?: string[];
-  checks: Array<{ name: string; ok: boolean; message: string; detail?: unknown }>;
+  /**
+   * B3：预检查失败时的**下一步指引**（结构化字段）。
+   * 只在 `ok=false` 时出现；由包携带（manifest.source_compatibility.remediation），
+   * 前端只做展示，不自己拼版本号。
+   */
+  checks: Array<{ name: string; ok: boolean; message: string; detail?: unknown; remediation?: string }>;
   steps: Array<{ key: string; title: string; status: string; started_at?: string; finished_at?: string; message?: string }>;
   logs: string[];
 }

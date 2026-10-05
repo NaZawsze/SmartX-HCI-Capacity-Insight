@@ -221,11 +221,25 @@ def _check_source_compatibility(manifest: dict[str, Any], current_version: str) 
         "supported_versions": supported_versions if isinstance(supported_versions, list) else [],
         "allow_same_version": bool(source_compatibility.get("allow_same_version", True)),
     }
+    # B3：拒绝必须带出路。remediation **由包携带**（manifest.source_compatibility.remediation，
+    # 打包侧按实际支持矩阵生成），precheck 只负责透传——不在这里写死版本号，否则文案会
+    # 与包的真实支持范围脱节（这正是「不静默降级」要防的事）。
+    remediation = str(source_compatibility.get("remediation") or "").strip()
     if ok:
         message = str(source_compatibility.get("message") or f"当前版本 {current_version} 可升级到 {target_version}")
     else:
         message = f"当前版本 {current_version or '-'} 不在升级包兼容范围 {min_version or '-'} 至 {max_version or '-'} 内"
-    return {"name": "source_compatibility", "ok": ok, "message": message, "detail": detail}
+        if not remediation:
+            # 包没带引导（老包，如 v0.5.3 及更早）：仍然必须给下一步，不能只说"不支持"。
+            remediation = f"请先升级到 {min_version or '支持范围最低版本'} 及以上，再重试本升级" if min_version else ""
+        if remediation:
+            message = f"{message}；{remediation}"
+    check = {"name": "source_compatibility", "ok": ok, "message": message, "detail": detail}
+    if remediation and not ok:
+        # 只在**失败**时给引导。挂在通过的检查上会让"支持矩阵说明"变成噪音，
+        # 而且会让前端分不清哪句是提醒、哪句是错误。
+        check["remediation"] = remediation
+    return check
 
 
 

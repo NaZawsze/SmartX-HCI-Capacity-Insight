@@ -31,6 +31,11 @@ DEFAULT_MIN_VERSION = "v0.5.0"
 #: v0.5.5 起可退役目录迁移与任务状态迁移动作。
 TARGET_LAYOUT_FLOOR_VERSION = "v0.5.4"
 MINIMUM_SOURCE_VERSION = "v0.5.2"
+#: **最后一个仍支持旧布局源**的目标版本。收窄之后，旧布局现场的唯一出路就是先升到它，
+#: 所以 precheck 的引导文案必须指向这个版本（而不是包内 `min_version`——那是"最低可直升
+#: 版本"，不是"可到达的第一步"）。写死而不是算出来的理由：它是**发布事实**，
+#: 一旦发布就不再变；算出来的东西会随参数漂移，把"引导客户去哪"变成隐式行为。
+LAST_TARGET_SUPPORTING_LEGACY_SOURCES = "v0.5.3"
 RELEASE_NAMESPACE = "nazawsze"
 TARGET_COMPOSE_PROJECT = "smartx-hci-capacity-insight"
 TARGET_COMPOSE_NETWORK = "smartx-hci-capacity-insight-net"
@@ -494,7 +499,7 @@ def _source_compatibility(*, min_version: str, target_version: str) -> dict[str,
     min_version = _effective_min_version(min_version, target_version)
     supported_versions = _supported_source_versions(min_version, target_version)
     supported_paths = [f"{version} -> {target_version}" for version in supported_versions]
-    return {
+    payload: dict[str, Any] = {
         "min_version": min_version,
         "max_version_inclusive": target_version,
         "target_version": target_version,
@@ -502,6 +507,40 @@ def _source_compatibility(*, min_version: str, target_version: str) -> dict[str,
         "supported_versions": supported_versions,
         "message": f"支持 {', '.join(supported_paths)}" if supported_paths else f"支持 {min_version} 至 {target_version} 升级到 {target_version}",
     }
+    # B3：precheck 拒绝时必须带出路。**由包携带引导文案**（而不是在 precheck 里写死版本号），
+    # 这样"这台机器该怎么升"跟着包走：换一个目标版本只需改打包常量，文案不会与实际支持矩阵脱节。
+    remediation = _source_remediation(min_version=min_version, target_version=target_version)
+    if remediation:
+        payload["remediation"] = remediation
+    return payload
+
+
+def _source_remediation(*, min_version: str, target_version: str) -> str:
+    """源版本不在支持范围时给客户指路；无需引导时返回空串。
+
+    口径（2026-10-06 用户定稿）：
+    「v0.5.4 不支持 ≤v0.5.1u2 源；请先升级 v0.5.3（链路已验证）再升 v0.5.4」
+
+    两段信息都必须有：**被拒的源范围**（≤ 哪一版）与**可到达的第一步**（先升哪一版）。
+    只写"不支持"等于把客户挡在门外却不告诉他怎么走；只写"先升 X"而不说被拒范围，
+    客户会怀疑自己那一版其实支持。
+    """
+    if _version_tuple(target_version) < _version_tuple(TARGET_LAYOUT_FLOOR_VERSION):
+        return ""
+    # 被拒范围 = 目标布局下限之前最高的那个源版本（旧布局里的最后一格）。
+    legacy_sources = [
+        version
+        for version in _supported_source_versions(DEFAULT_MIN_VERSION, MINIMUM_SOURCE_VERSION)
+        if _version_tuple(version) < _version_tuple(MINIMUM_SOURCE_VERSION)
+    ]
+    if not legacy_sources:
+        return ""
+    rejected_bound = legacy_sources[-1]
+    bridge = LAST_TARGET_SUPPORTING_LEGACY_SOURCES
+    return (
+        f"{target_version} 不支持 ≤{rejected_bound} 源；"
+        f"请先升级 {bridge}（链路已验证）再升 {target_version}"
+    )
 
 
 def _environment_transitions(*, min_version: str, target_version: str) -> list[dict[str, Any]]:
