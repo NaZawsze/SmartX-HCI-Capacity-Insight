@@ -5198,3 +5198,41 @@ runner 镜像由本轮代码构建（`RUNNER_VERSION=v0.3.6-rc`，镜像内 grep
 | `--force-recreate` 禁令 | PASS |
 
 **未验证**：真实 r18 包形态（须经 `ops/package.sh` 全门禁）与 `.14` 直升回归 —— 归批次 C。
+
+## B6：v0.5.4 偏斜矩阵落表
+
+提交：`65e17ad`。权威位置：`docs/upgrade-chain.md` §7（本文档开头声明过它是链路唯一权威出处）。
+
+矩阵收成两行源格（v0.5.2 / v0.5.3 × runner v0.3.1 / v0.3.2）+ 同版本重装格；
+`v0.5.0 / v0.5.1 / v0.5.1u1 / v0.5.1u2` 四行标 ⛔ 不支持并写明引导（先升 v0.5.3）。
+`docs/version-skew-matrix.md` 的 v0.5.4 行同步更新并指向 §7。
+
+### 矩阵里最关键的一条：谁编译计划
+
+计划由**源端 web-api 的编译器**生成，runner 只执行。所以每格动作集取决于**源端版本**的编译器，
+W7.1 门禁只证明候选包编译器（并会为此打 WARN）。为把「静态预测」升级成「实测」，用
+**已发布镜像内的编译器**直接编译 v0.5.4 manifest：
+
+| 源端镜像（已发布） | 动作集 | 动作数 |
+| --- | --- | --- |
+| `…-web-api:v0.5.2` | `{backup.create, compose.apply, compose.override, files.sync, health.http, image.load}` | 8 |
+| `…-web-api:v0.5.3` | 同上 | 8 |
+| 候选（本地代码） | 同上 | 8 |
+
+三者一致 → **老编译器不会把迁移/交接/legacy 动作带进 v0.5.4 的计划**。这是 B5b 收窄的关键前置：
+如果 v0.5.2 的老编译器无视「transition/cleanup 为空」而硬发动作，收窄就无效。实测确认不会。
+
+复现（`.3`，容器内跑已发布镜像的编译器）：
+
+~~~sh
+docker run --rm --network=none \
+  -v /tmp/b6_manifest.json:/tmp/b6_manifest.json:ro -v /tmp/b6_compile.py:/tmp/b6_compile.py:ro \
+  --entrypoint sh nazawsze/smartx-hci-capacity-insight-web-api:v0.5.2 \
+  -lc 'cd /app; PYTHONPATH=$(pwd) python /tmp/b6_compile.py'
+# → SMARTX_COMPILE: ["backup.create","compose.apply","compose.override","files.sync","health.http","image.load"]
+#   SMARTX_COMPILE_COUNT: 8
+~~~
+
+### 未验证项（已随矩阵落表）
+
+`.14` 直升（T3 容器 ID 不变）、组件升级 v0.3.1→v0.3.2 格、r18 真包形态、⛔ 行 precheck 文案（B3）。
