@@ -187,6 +187,13 @@ class LeaseManager:
         """把执行检查点记进租约（回滚锚点等依赖它，规格 §W5）。"""
         self.state_store.save_checkpoint(task_id, checkpoint)
 
+    def save_rollback_anchor(self, task_id: str, anchor: dict[str, Any]) -> None:
+        """回滚锚点写进状态文件的**持久段**（任务结束后仍可读，A5）。"""
+        self.state_store.save_rollback_anchor(task_id, anchor)
+
+    def rollback_anchor(self, task_id: str) -> dict[str, Any] | None:
+        return self.state_store.rollback_anchor(task_id)
+
     def update_runner_state(self, runner_version: str, *, now: datetime | None = None) -> None:
         """更新实例身份与心跳。事实源 = 状态文件；DB 镜像失败只记 warning。"""
         self.state_store.update_runner_state(runner_version, now=now)

@@ -49,6 +49,10 @@ logger = logging.getLogger(__name__)
 #: 因此破坏性变更必须 bump 此值并在 reader 侧显式处理。
 STATE_SCHEMA_VERSION = 1
 
+#: 状态文件里保留多少条回滚锚点（A5）。任务量级是"每次升级一条"，留 10 条足够覆盖
+#: 一个回滚窗口，又不让状态文件无限增长。
+ROLLBACK_ANCHOR_HISTORY = 10
+
 STATE_FILENAME = "upgrade-runner-state.json"
 
 
@@ -134,6 +138,8 @@ class RunnerStateStore:
         payload.setdefault("updated_at", _now().isoformat())
         leases = payload.get("leases")
         payload["leases"] = leases if isinstance(leases, dict) else {}
+        anchors = payload.get("rollback_anchors")
+        payload["rollback_anchors"] = anchors if isinstance(anchors, dict) else {}
         return payload
 
     def _empty(self) -> dict[str, Any]:
@@ -148,6 +154,7 @@ class RunnerStateStore:
             "heartbeat_at": now,
             "updated_at": now,
             "leases": {},
+            "rollback_anchors": {},
         }
 
     def _quarantine(self, reason: str) -> None:
@@ -329,6 +336,41 @@ class RunnerStateStore:
             self._mutate(apply)
         except Exception:  # noqa: BLE001
             logger.exception("runner 租约 checkpoint 写入失败（忽略）")
+
+    def save_rollback_anchor(self, task_id: str, anchor: dict[str, Any]) -> None:
+        """把回滚锚点写进**持久段**（A5）。
+
+        为什么不能只靠租约里的 checkpoint：任务结束 `release_lease` 会把整个租约条目
+        pop 掉，checkpoint 随之消失——`.3` 沙箱 `w5sb` 实测正是这样（写进去了、
+        任务一结束就没了）。锚点要在任务结束后仍然可读：它是"上一版是什么"的唯一记录，
+        手动回滚入口（B8）与事后排障都要用它。
+
+        只保留最近 `ROLLBACK_ANCHOR_HISTORY` 条，避免状态文件随升级次数无限增长。
+        """
+
+        def apply(payload: dict[str, Any]) -> None:
+            anchors = payload.get("rollback_anchors")
+            if not isinstance(anchors, dict):
+                anchors = {}
+            anchors[str(task_id)] = dict(anchor)
+            if len(anchors) > ROLLBACK_ANCHOR_HISTORY:
+                ordered = sorted(
+                    anchors.items(),
+                    key=lambda item: str((item[1] or {}).get("captured_at") or ""),
+                    reverse=True,
+                )
+                anchors = dict(ordered[:ROLLBACK_ANCHOR_HISTORY])
+            payload["rollback_anchors"] = anchors
+
+        try:
+            self._mutate(apply)
+        except Exception:  # noqa: BLE001
+            logger.exception("回滚锚点写入状态文件失败（忽略）")
+
+    def rollback_anchor(self, task_id: str) -> dict[str, Any] | None:
+        anchors = self.read().get("rollback_anchors") or {}
+        value = anchors.get(str(task_id))
+        return dict(value) if isinstance(value, dict) else None
 
     # ── 自换窗口的状态快照（规格 §14.1.3） ────────────────────────────────
     def snapshot_identity(self) -> dict[str, Any]:

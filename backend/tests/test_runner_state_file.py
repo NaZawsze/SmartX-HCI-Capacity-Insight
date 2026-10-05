@@ -25,6 +25,7 @@ if str(ROOT) not in sys.path:
 
 from app.upgrade_runner.lease import LeaseManager  # noqa: E402
 from app.upgrade_runner.statefile import (  # noqa: E402
+    ROLLBACK_ANCHOR_HISTORY,
     STATE_SCHEMA_VERSION,
     RunnerStateStore,
     parse_timestamp,
@@ -365,6 +366,36 @@ class StateFileLeaseTests(unittest.TestCase):
             store = RunnerStateStore(Path(tmp) / "smartx.db", "runner-a", "v0.3.2", 1, [])
             store.save_checkpoint("t-new", {"note": "x"})
             self.assertEqual(store.lease("t-new")["checkpoint"], {"note": "x"})
+
+    def test_rollback_anchor_survives_lease_release(self) -> None:
+        """A5：租约条目在 release 时被 pop，锚点必须活在持久段里。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            store = RunnerStateStore(Path(tmp) / "smartx.db", "runner-a", "v0.3.2", 1, [])
+            store.upsert_lease("t1", "runner-a", revision=1)
+            store.save_rollback_anchor("t1", {"previous_version": "v0.5.3", "captured_at": "2026-01-01T00:00:00+00:00"})
+            store.release_lease("t1")
+            self.assertIsNone(store.lease("t1"), "租约本身应被释放")
+            self.assertEqual(store.rollback_anchor("t1")["previous_version"], "v0.5.3")
+
+    def test_rollback_anchor_history_is_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = RunnerStateStore(Path(tmp) / "smartx.db", "runner-a", "v0.3.2", 1, [])
+            for index in range(ROLLBACK_ANCHOR_HISTORY + 5):
+                store.save_rollback_anchor(
+                    f"t{index}", {"captured_at": f"2026-01-01T00:00:{index:02d}+00:00"}
+                )
+            anchors = store.read()["rollback_anchors"]
+            self.assertEqual(len(anchors), ROLLBACK_ANCHOR_HISTORY)
+            newest = max(anchors.items(), key=lambda item: item[1]["captured_at"])
+            self.assertEqual(newest[0], f"t{ROLLBACK_ANCHOR_HISTORY + 4}")
+
+    def test_lease_manager_exposes_anchor_roundtrip(self) -> None:
+        from app.upgrade_runner.lease import LeaseManager
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = LeaseManager(Path(tmp) / "smartx.db", "runner-a", ttl_seconds=30)
+            manager.save_rollback_anchor("t1", {"previous_version": "v0.5.2"})
+            self.assertEqual(manager.rollback_anchor("t1")["previous_version"], "v0.5.2")
 
 
 class LeaseManagerStateFileTests(unittest.TestCase):

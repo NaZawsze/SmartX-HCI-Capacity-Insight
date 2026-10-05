@@ -808,6 +808,18 @@ def run_pending_once(
             daemon=True,
         )
         heartbeat.start()
+
+        def persist_checkpoint(task_id: str, payload: dict[str, Any]) -> None:
+            """执行期检查点两处落：租约 checkpoint（执行期可见）+ 回滚锚点持久段（任务结束后仍在）。
+
+            租约条目在 `lease.release` 时被 pop，只写租约的话任务一结束锚点就没了——
+            `.3` 沙箱 `w5sb` 实测确认过这个形态。
+            """
+            lease.save_checkpoint(task_id, payload)
+            anchor = payload.get("platform_rollback_anchor")
+            if isinstance(anchor, dict) and anchor:
+                lease.save_rollback_anchor(task_id, anchor)
+
         try:
             def project_update(updated: dict[str, Any]) -> None:
                 # 按内容指纹去重（见 _project_signature）：步骤每次状态转换写一次，
@@ -821,7 +833,7 @@ def run_pending_once(
                 context={**action_context.as_dict(), "database_path": str(settings.database_path)},
                 on_update=project_update,
                 # A5：平台回滚锚点要同时落状态文件（崩溃后新 runner 仍能读到"上一版是什么"）。
-                checkpoint_sink=lambda task_id, payload: lease.save_checkpoint(task_id, payload),
+                checkpoint_sink=persist_checkpoint,
             ).run()
             _project_task(settings.database_path, result, force=True)
             executed += 1
