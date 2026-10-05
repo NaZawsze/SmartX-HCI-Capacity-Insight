@@ -59,6 +59,17 @@ SAFE_RESUME_ACTIONS = {
 }
 
 
+#: 平台健康门参数（与编译器生成的 health.http 动作同一口径）。
+#: 回滚后自造健康动作时用它——compose.apply 的 params 里没有 url，不能拿来当健康检查参数。
+PLATFORM_HEALTH_PARAMS = {
+    "url": "http://web-api:8000/api/system/health",
+    "expected_status": 200,
+    "attempts": 30,
+    "delay_seconds": 2,
+    "timeout_seconds": 15,
+}
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -443,15 +454,24 @@ class UpgradeEngine:
             record["steps"].append({"step": "compose.apply", "error": str(exc)})
             return fail(f"回滚重建旧版本失败：{exc}")
 
-        # ③ 健康门：沿用失败那一步的健康检查（失败在 apply 之后就查 HTTP）
-        health_type = str(failed_action.get("type") or "")
-        health_handler = self.handlers.get(health_type) if health_type.startswith("health.") else None
-        if health_handler is None:
-            health_handler = self.handlers.get("health.http")
+        # ③ 健康门：失败在 health.* 就沿用那一步；失败在 apply 就用**自己造的**平台健康动作。
+        # 沙箱 c3-case-a3 实测踩过：早先直接 copy 失败动作再改 type，于是 compose.apply 的
+        # params（没有 url）被当成健康检查参数传下去 → `url=None` → 健康门必然失败 →
+        # 每次 apply 触发的回滚都以 rollback_failed 收场。参数必须来自健康动作自己。
+        failed_type = str(failed_action.get("type") or "")
+        if failed_type.startswith("health."):
+            health_action = dict(failed_action)
+            health_type = failed_type
+        else:
+            health_action = {
+                "id": f"{failed_action.get('id') or 'apply'}-post-rollback-health",
+                "type": "health.http",
+                "params": dict(PLATFORM_HEALTH_PARAMS),
+            }
+            health_type = "health.http"
+        health_handler = self.handlers.get(health_type)
         if health_handler is None:
             return fail("回滚后缺少健康检查处理器")
-        health_action = dict(failed_action)
-        health_action["type"] = health_type if health_type.startswith("health.") else "health.http"
         try:
             record["steps"].append(
                 {

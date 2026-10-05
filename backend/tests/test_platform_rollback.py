@@ -592,6 +592,35 @@ class EngineRollbackFlowTests(_EngineCase):
         self.assertEqual(len(restored), 1)
         self.assertNotIn("mode", result["automatic_rollback"])
 
+    def test_apply_triggered_rollback_uses_its_own_health_params(self) -> None:
+        """回归：apply 失败触发的回滚必须**自造**健康动作。
+
+        沙箱 `w3c` case-a3 实测的缺陷：早先 copy 失败动作再改 type，把 compose.apply 的
+        params（没有 url）当健康检查参数传下去 → `url=None` → 健康门必然失败 →
+        每次 apply 触发的回滚都以 rollback_failed 收场。
+        """
+        seen: list[dict[str, Any]] = []
+
+        def health(action, _context):
+            seen.append(dict(action.get("params") or {}))
+            return {"status": 200, "checkpoint": {"healthy": True}}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_compose(root, {"web-api": "repo/web-api:v0.5.3"})
+            _write_db(root)
+            executor = _executor_with_containers({"web-api": "repo/web-api:v0.5.3"})
+            handlers = self._handlers({"compose.apply": 1})
+            handlers["health.http"] = health
+            engine, _store, _sinks, _ = self._engine(
+                root, handlers, _platform_task(rollback_on_failure=True), executor=executor
+            )
+            result = engine.run()
+        self.assertEqual(result["status"], "rolled_back", result.get("error"))
+        self.assertEqual(len(seen), 1)
+        self.assertTrue(seen[0].get("url"), f"健康动作必须自带 url：{seen[0]}")
+        self.assertEqual(seen[0]["url"], "http://web-api:8000/api/system/health")
+
     def test_count_guard_regression_marks_rollback_failed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
