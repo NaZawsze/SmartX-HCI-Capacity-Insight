@@ -4745,3 +4745,11 @@ GitHub Release 附平台包 tar.gz + `.sha256` → 平台三件套 DockerHub 镜
   需用户在 DockerHub 重新生成 access token 并更新 GitHub 仓库 Secret（Settings→Secrets and variables→Actions），
   之后 `gh run rerun 37261630401 37261622303` 或重推 tag 即可补上镜像。
   **不影响发布有效性**：GitHub Release 资产是升级包权威来源（自包含镜像），DockerHub 仅镜像分发/追溯渠道。
+
+### DockerHub 补发完成（同日，用户轮换令牌后）
+
+- 用户更新仓库 Secret `DOCKERHUB_TOKEN` → `gh run rerun` 重跑两个失败运行：
+  run `37261630401`（main push）与 `37261622303`（v0.5.3 tag push）均 **success**（68s / 57s）。
+- DockerHub 三件套 tag 实查：`smartx-hci-capacity-insight-{web-api,collector-worker,frontend}:v0.5.3` 全部在位。
+  runner 镜像未动（`runner-v*` tag 未打，v0.3.1/v0.3.0 保持原状）。
+- **v0.5.3 发布动作链至此全部完成**（governance 步骤 1~6 全闭环；步骤 7 生产升级窗口由用户安排）。
