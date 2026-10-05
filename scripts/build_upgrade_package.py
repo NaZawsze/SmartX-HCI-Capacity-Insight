@@ -71,6 +71,11 @@ PROJECT_FILES = [
     "README.zh-CN.md",
 ]
 PROJECT_DIRS = ["docs", "scripts"]
+#: A6/US-39：compose 守卫随平台包投放到现场 project 目录（`files.sync` 阶段）。
+#: 来源是 `delivery/compose-guard.sh`——交付脚本与升级包**同一份内容**，
+#: 避免"安装时守、升级后不守"的口径分叉。
+COMPOSE_GUARD_SOURCE = "delivery/compose-guard.sh"
+COMPOSE_GUARD_TARGET = "compose-guard.sh"
 MIGRATION_REGISTRY = ROOT / "backend/app/v2/upgrade/migrations/registry.json"
 SENSITIVE_PATTERNS = (
     re.compile(r"(^|/)\.env($|[./])", re.I),
@@ -841,6 +846,11 @@ def assert_safe_members(members: Iterable[str]) -> None:
 
 def collect_project_files(version: str, *, check_version_metadata: bool = True) -> list[str]:
     files: set[str] = set(PROJECT_FILES)
+    # A6/US-39：compose 守卫进包清单 → 进 manifest.project_file_list → files.sync 投放到现场。
+    guard_source = ROOT / COMPOSE_GUARD_SOURCE
+    if not guard_source.is_file():
+        raise SystemExit(f"compose 守卫脚本缺失：{COMPOSE_GUARD_SOURCE}")
+    files.add(COMPOSE_GUARD_TARGET)
     for directory in PROJECT_DIRS:
         root = ROOT / directory
         if not root.exists():
@@ -857,7 +867,7 @@ def collect_project_files(version: str, *, check_version_metadata: bool = True) 
     result = sorted(files)
     assert_safe_members([f"project/{item}" for item in result])
     for rel in result:
-        source = ROOT / rel
+        source = ROOT / rel if rel != COMPOSE_GUARD_TARGET else ROOT / COMPOSE_GUARD_SOURCE
         if not source.is_file():
             raise SystemExit(f"Project file missing: {rel}")
         if rel.endswith((".pyc", ".pyo")) or "__pycache__" in Path(rel).parts:
@@ -1029,6 +1039,11 @@ def build_package(
     for rel in project_files:
         target = work / "project" / rel
         target.parent.mkdir(parents=True, exist_ok=True)
+        if rel == COMPOSE_GUARD_TARGET:
+            # A6/US-39：守卫逐字节取自 delivery/compose-guard.sh（安装/升级/包三处同一份内容）
+            shutil.copy2(ROOT / COMPOSE_GUARD_SOURCE, target)
+            target.chmod(0o755)
+            continue
         override = _project_file_override(rel, version=version)
         if override is None:
             shutil.copy2(ROOT / rel, target)

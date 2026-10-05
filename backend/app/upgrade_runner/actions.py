@@ -582,7 +582,117 @@ def files_sync(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[
             }
         )
         _persist_checkpoint(context_payload, {"files": journal})
-    return {"backup_path": str(backup_root), "checkpoint": {"files": journal, "completed": True}}
+    marker = _backfill_compose_file_marker(context)
+    result: dict[str, Any] = {"backup_path": str(backup_root)}
+    if marker:
+        result["compose_file_marker"] = marker
+    return {**result, "checkpoint": {"files": journal, "completed": True, **({"compose_file_marker": marker} if marker else {})}}
+
+
+#: 宿主 `.env` 里的 compose 变体标记键。与 compose 注入**容器**的同名环境变量不是一回事：
+#: 那个是容器内可见的环境变量，本键只存在于宿主 `.env`，供 compose-guard.sh 判定
+#: "当前实例到底用的哪份 compose"（US-37：同一 project 混用变体会触发 recreate 打死容器）。
+COMPOSE_MARKER_ENV_KEY = "SMARTX_COMPOSE_FILE_ACTIVE"
+#: 哨兵服务：优先 web-api，不存在时再退化到 project 标签查询（与 compose-guard.sh 同口径）。
+COMPOSE_MARKER_SENTINEL_SERVICES = ("web-api", "collector-worker", "upgrade-runner", "prometheus")
+
+
+def _env_marker_value(env_file: Path) -> str:
+    """读 `.env` 里的标记值。**绝不 source/eval**（那是任意内容执行面）。"""
+    try:
+        lines = env_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    value = ""
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith(f"{COMPOSE_MARKER_ENV_KEY}="):
+            value = stripped.split("=", 1)[1].strip().strip("\"'")
+    return value
+
+
+def _running_compose_file_basename(executor: Any, compose_project: str) -> str:
+    """运行中容器实际使用的 compose 文件 basename（地面真相）。
+
+    Docker 把它写在 `com.docker.compose.project.config_files` 标签里（逗号分隔的绝对路径）。
+    口径与 `delivery/compose-guard.sh` 的 `compose_guard_detect_running` 一致，
+    但**逻辑自包含**：runner 不 source 外部脚本（交付目录在不同机器上未必存在，
+    且 source 交付脚本等于把 bash 行为面引进 Python 进程）。
+    """
+    if not compose_project:
+        return ""
+    for service in COMPOSE_MARKER_SENTINEL_SERVICES:
+        try:
+            output = executor.output(
+                [
+                    "docker",
+                    "ps",
+                    "--quiet",
+                    "--filter",
+                    f"label=com.docker.compose.project={compose_project}",
+                    "--filter",
+                    f"label=com.docker.compose.service={service}",
+                ]
+            )
+        except Exception:  # noqa: BLE001 - 探测失败只让回填跳过
+            continue
+        container_id = next((line.strip() for line in output.splitlines() if line.strip()), "")
+        if not container_id:
+            continue
+        try:
+            labels = executor.output(
+                [
+                    "docker",
+                    "inspect",
+                    "--format",
+                    '{{ index .Config.Labels "com.docker.compose.project.config_files" }}',
+                    container_id,
+                ]
+            )
+        except Exception:  # noqa: BLE001
+            continue
+        for item in labels.split(","):
+            candidate = item.strip()
+            if candidate:
+                return Path(candidate).name
+    return ""
+
+
+def _backfill_compose_file_marker(context: ActionContext) -> dict[str, Any]:
+    """`.env` 缺 compose 变体标记时按地面真相回填（幂等，A6/US-39）。
+
+    幂等口径：**已有标记一律不动**。回填只在"没有标记"时发生，因此重复升级、
+    崩溃重入都不会把现场正在用的变体改掉。
+    """
+    env_file = context.project_path / ".env"
+    existing = _env_marker_value(env_file)
+    if existing:
+        return {"written": False, "value": existing, "reason": "已有标记，不覆盖"}
+    detected = _running_compose_file_basename(context.executor, context.compose_project)
+    if not detected:
+        return {"written": False, "reason": "运行中容器未带 compose config_files 标签，保持不写"}
+    try:
+        original = env_file.read_text(encoding="utf-8") if env_file.is_file() else ""
+        mode = env_file.stat().st_mode & 0o777 if env_file.is_file() else 0o600
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=context.project_path, prefix=".env.", suffix=".tmp", delete=False
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(original)
+            if original and not original.endswith("\n"):
+                handle.write("\n")
+            handle.write(f"{COMPOSE_MARKER_ENV_KEY}={detected}\n")
+        os.replace(temporary, env_file)
+        os.chmod(env_file, mode)
+    except OSError as exc:
+        logging.getLogger(__name__).warning("compose 变体标记回填失败（忽略）：%s", exc)
+        return {"written": False, "reason": f"写入失败：{exc}"}
+    logging.getLogger(__name__).warning(
+        "已按地面真相回填 %s=%s（运行中容器的 compose config_files 标签）",
+        COMPOSE_MARKER_ENV_KEY,
+        detected,
+    )
+    return {"written": True, "value": detected, "reason": "由运行中容器标签回填"}
 
 
 APP_RUNTIME_ENTRIES = {"backups", "exports", "upgrades", "compose-runtime", "prometheus", "lost+found"}
