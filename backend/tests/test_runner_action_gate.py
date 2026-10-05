@@ -39,6 +39,22 @@ MINIMAL_PLATFORM_MANIFEST = {
 
 
 class RunnerActionSetsTest(unittest.TestCase):
+    #: runner v0.3.2 相对已发布 v0.3.1 新增的动作。
+    #:
+    #: - `post_upgrade.schedule_collection`：49-49 平台侧调度改造时加的（计划里不再下发，
+    #:   但动作本身保留）；
+    #: - `component.*` 四个：Phase 68 W3 自换（`verify` / `image_load` /
+    #:   `compose_writeback` / `schedule_self_handoff`）。按动作词汇冻结纪律，
+    #:   这四个**只允许出现在由 v0.3.2+ runner 执行的任务里**，平台升级计划不得使用
+    #:   （由 `test_runner_self_handoff.VocabularyFreezeTests` 断言）。
+    ADDED_SINCE_RELEASED = {
+        "post_upgrade.schedule_collection",
+        "component.verify",
+        "component.image_load",
+        "component.compose_writeback",
+        "component.schedule_self_handoff",
+    }
+
     def test_released_and_current_action_sets_match_reality(self) -> None:
         from app.upgrade_protocol.constants import RELEASED_RUNNER_ACTIONS, current_runner_actions
         from app.upgrade_runner.actions import default_handlers
@@ -47,10 +63,11 @@ class RunnerActionSetsTest(unittest.TestCase):
         self.assertEqual(len(RELEASED_RUNNER_ACTIONS), 25)
         self.assertNotIn("post_upgrade.schedule_collection", RELEASED_RUNNER_ACTIONS)
 
-        # 当前仓库 runner = 发行版 + schedule_collection，且必须与 runner 代码一致（改 runner 忘更新表会挂）
+        # 当前仓库 runner = 发行版 + ADDED_SINCE_RELEASED，且必须与 runner 代码一致
+        #（改 runner 忘更新这张表就会挂——这正是本用例的用途）
         current = current_runner_actions()
         self.assertEqual(current, frozenset(default_handlers()))
-        self.assertEqual(current - RELEASED_RUNNER_ACTIONS, {"post_upgrade.schedule_collection"})
+        self.assertEqual(current - RELEASED_RUNNER_ACTIONS, self.ADDED_SINCE_RELEASED)
         self.assertEqual(RELEASED_RUNNER_ACTIONS - current, set())
 
     def test_runner_supported_actions_lookup(self) -> None:

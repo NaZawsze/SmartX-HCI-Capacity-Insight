@@ -16,6 +16,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+#: project 目录下主 compose 文件名（US-32 对账与 W3 自换 writeback 共用同一份）。
+COMPOSE_FILENAME = "docker-compose.yml"
+
 
 class CommandExecutor:
     def run(
@@ -265,6 +268,122 @@ def reconcile_project_runner_tag(context: ActionContext, task: dict[str, Any]) -
             )
             return current
     return ""
+
+
+def component_verify(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:
+    """组件包校验（自换第 1 步）：复核镜像 tar 的 SHA256 与 manifest 声明一致。
+
+    为什么 load 之前要单独一步：web-api 收包时验过一次，但那是在**上传路径**上验的，
+    中间隔着落盘、任务目录搬运与 runner 拾取。自换会把 runner 自己换掉，
+    带着一个坏镜像完成自换 = 新 runner 起不来且旧 runner 已经退出，
+    现场只剩一个没有执行器的平台——必须执行前再核一次。
+    """
+    context = _context(context_payload)
+    params = action.get("params", {})
+    archive = context.package_path / _safe_relative(str(params.get("archive") or ""))
+    if not archive.is_file():
+        raise FileNotFoundError(f"组件镜像归档不存在：{archive}")
+    actual = _sha256(archive)
+    expected = str(params.get("sha256") or "")
+    if not expected:
+        raise ValueError("组件包未声明镜像归档 SHA256，拒绝执行自换。")
+    if actual != expected:
+        raise ValueError(f"组件镜像归档校验失败：{archive.name}")
+    return {
+        "archive": str(archive),
+        "sha256": actual,
+        "size_bytes": archive.stat().st_size,
+        "checkpoint": {"verified": True, "sha256": actual},
+    }
+
+
+def component_image_load(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:
+    """加载组件新镜像（自换第 2 步）——`image.load` 的同义动作。
+
+    与 `image.load` 逻辑一致，单独命名是为了让**任务步骤**读起来是"加载组件新镜像"
+    而不是"加载升级镜像"（组件升级任务里没有"升级"这回事）。
+    新动作类型只出现在由 v0.3.2+ runner 执行的任务中，符合动作词汇冻结纪律
+    （impl-spec §0.3：平台升级计划仍只用 v0.3.1 的 26 个动作）。
+    """
+    return image_load(action, context_payload)
+
+
+def component_compose_writeback(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:
+    """写入组件自身部署配置（自换第 3 步）：把 compose 里的 runner tag 对齐到新镜像。
+
+    **回滚锚点必须在调用本动作之前捕获**（`selfhandoff.capture_component_rollback_anchor`）。
+    writeback 会覆盖 `docker-compose.yml` 里的 image 行，anchor 的
+    `previous_image_tag` / `previous_image_id` 只在被覆盖之前读得到——顺序反了，
+    锚点里记到的就是新版本，组件回滚会退化成"把新版本换回新版本"。
+
+    幂等：tag 已经等于目标值时直接返回，不重复写。
+    """
+    context = _context(context_payload)
+    target_image = str(action.get("params", {}).get("image") or "").strip()
+    if not target_image:
+        raise ValueError("自换 writeback 缺少目标镜像。")
+    compose_path = context.project_path / COMPOSE_FILENAME
+    if not compose_path.is_file():
+        raise FileNotFoundError(f"project compose 不存在：{compose_path}")
+    lines = compose_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    in_runner = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not in_runner:
+            if stripped.startswith("upgrade-runner:"):
+                in_runner = True
+            continue
+        if line[:1].strip() == "" and stripped.endswith(":") and not stripped.startswith("#"):
+            break
+        if stripped.startswith("image:"):
+            current = stripped.split("image:", 1)[1].strip()
+            if current == target_image:
+                return {
+                    "image": target_image,
+                    "changed": False,
+                    "previous_image_tag": current,
+                    "checkpoint": {"aligned": True, "changed": False},
+                }
+            prefix = line[: line.index("image:") + len("image:")]
+            newline = "\n" if line.endswith("\n") else ""
+            lines[index] = f"{prefix} {target_image}{newline}"
+            temporary = compose_path.with_suffix(".tmp")
+            try:
+                temporary.write_text("".join(lines), encoding="utf-8")
+                os.replace(temporary, compose_path)
+            except OSError as exc:
+                raise OSError(f"写入 runner compose tag 失败：{compose_path}：{exc}") from exc
+            logging.getLogger(__name__).warning(
+                "runner 自换 compose tag 已对齐：%s -> %s", current, target_image
+            )
+            return {
+                "image": target_image,
+                "changed": True,
+                "previous_image_tag": current,
+                "compose_file": str(compose_path),
+                "checkpoint": {"aligned": True, "changed": True, "previous_image_tag": current},
+            }
+    raise ValueError(f"compose 中未找到 upgrade-runner 的 image 声明：{compose_path}")
+
+
+def component_schedule_self_handoff(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:
+    """调度执行器自换（自换第 4 步，也是本任务的最后一步）。
+
+    委托给 v0.3.1 已有的 `runner.schedule_target_runtime_handoff`——动作词汇冻结：
+    不新造 handoff 机制，只在它前面加一道「锚点已就绪」的断言。
+    委托后原样透传 `handoff_final` 哨兵，`UpgradeEngine` 见哨兵即停。
+    """
+    params = action.get("params", {})
+    anchor = params.get("rollback_anchor") or {}
+    if not anchor:
+        # 锚点缺失不该静默通过：组件回滚能力会在自换成功后静默消失，
+        # 而现场已经没有任何进程能重新读出旧 tag。
+        raise ValueError("自换缺少回滚锚点，拒绝调度 handoff（writeback 之后旧 tag 已不可读）。")
+    delegated = dict(action)
+    delegated["type"] = "runner.schedule_target_runtime_handoff"
+    delegated["params"] = {**params, "rollback_anchor": anchor}
+    result = runner_schedule_target_runtime_handoff(delegated, context_payload)
+    return {**result, "rollback_anchor": anchor}
 
 
 def backup_create(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:
@@ -1598,6 +1717,20 @@ def _helper_container_name(task_id: str) -> str:
 
 
 def runner_schedule_target_runtime_handoff(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:
+    """调度 runner 自换：写目标运行目录的 compose → 起辅助容器 → **本进程到此为止**。
+
+    W3（Phase 68）：自换时代，这个动作之后旧 runner 的代码**不会执行**
+    （docker 随即替换容器）。因此返回带 `handoff_final` 哨兵的结果，
+    `UpgradeEngine` 在该返回点立刻停止，不再写任何状态——收尾全部由新 runner
+    启动路径的 `_finish_runner_component_steps` 完成（机制 v0.3.1 已具备）。
+
+    为什么必须用哨兵而不是"约定它是最后一个动作"：engine 在动作返回后必然会
+    把动作标记 succeeded、跑 compose tag 对账、把任务置 success。这三步在自换
+    窗口内随时会被 SIGKILL 打断，留下 revision 与实际状态不一致的 task.json
+    ——US-24 的崩溃循环正是这么来的。
+    """
+    from app.upgrade_runner.selfhandoff import handoff_final_result
+
     context = _context(context_payload)
     params = action.get("params", {})
     runtime = _write_runner_runtime_compose(context, params)
@@ -1647,17 +1780,23 @@ def runner_schedule_target_runtime_handoff(action: dict[str, Any], context_paylo
             RUNNER_CUTOVER_HELPER_SCRIPT,
         ]
     )
-    return {
-        "helper_container": helper_name,
-        "compose_file": str(compose_path),
-        "parent_task_file": str(task_file),
-        "checkpoint": {
+    # 注意：这个 return 就是本函数的**最后一句可执行代码**。
+    # 它的后续（返回给 engine → engine 标记动作 succeeded → compose tag 对账 →
+    # 任务置 success）在自换窗口内都可能被 SIGKILL 打断。
+    # engine 见到 handoff_final 哨兵会原地停止，收尾交给新 runner。
+    return handoff_final_result(
+        helper_container=helper_name,
+        compose_file=str(compose_path),
+        parent_task_file=str(task_file),
+        anchor=params.get("rollback_anchor") or {},
+        checkpoint={
             "completed": True,
             "helper_container": helper_name,
             "compose_file": str(compose_path),
             "parent_task_file": str(task_file),
+            "rollback_anchor": params.get("rollback_anchor") or {},
         },
-    }
+    )
 
 
 def _same_container(left: str, right: str) -> bool:
@@ -2719,4 +2858,10 @@ def default_handlers() -> dict[str, Any]:
         "legacy.cleanup": legacy_cleanup,
         "checkpoint.write": checkpoint_write,
         "rollback.restore": rollback_restore,
+        # ── W3 自换时代的新动作（只允许出现在由 v0.3.2+ runner 执行的任务中） ──
+        # 平台升级计划仍只用上面 26 个 v0.3.1 动作（动作词汇冻结，impl-spec §0.3）。
+        "component.verify": component_verify,
+        "component.image_load": component_image_load,
+        "component.compose_writeback": component_compose_writeback,
+        "component.schedule_self_handoff": component_schedule_self_handoff,
     }

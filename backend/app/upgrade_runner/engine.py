@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from app.upgrade_runner.actions import _runner_image_from_task, reconcile_project_runner_tag
+from app.upgrade_runner.selfhandoff import is_handoff_final
 from app.upgrade_runner.store import TaskStore
 
+logger = logging.getLogger(__name__)
 
 ActionHandler = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
 
@@ -118,6 +121,20 @@ class UpgradeEngine:
             action["finished_at"] = None
             action.setdefault("checkpoint", {})
             action.setdefault("result", {})
+            # W3：自换类动作在**执行前**把「即将调度 handoff」写进 task.json。
+            # 必须先落盘再执行——该动作返回后本进程随时会被 docker 替换掉，
+            # 新 runner 启动时读到的必须是这个标记，否则它认不出"该收尾了"。
+            if str(action.get("type") or "") == "component.schedule_self_handoff":
+                handoff = task.get("self_handoff")
+                handoff = dict(handoff) if isinstance(handoff, dict) else {}
+                handoff["scheduled"] = True
+                handoff["scheduled_at"] = _now()
+                task["self_handoff"] = handoff
+                task["status"] = "running"
+                logger.warning(
+                    "自换即将调度 handoff：已把 self_handoff.scheduled 落盘，"
+                    "本进程在此动作返回后立即停止"
+                )
             task = self._save(task)
             action = task["execution_plan"]["actions"][index]
             handler = self.handlers.get(str(action.get("type")))
@@ -157,6 +174,19 @@ class UpgradeEngine:
                 task["error"] = str(exc)
                 task["logs"] = [*task.get("logs", []), str(exc)]
                 return self._save(task)
+            # W3：动作返回「到此为止」哨兵（`runner.schedule_target_runtime_handoff`）。
+            # 必须在**把动作标记 succeeded 之前**停下。往下走会依次做：标记 succeeded →
+            # compose tag 对账 → 任务置 success。这三步在自换窗口内随时会被 docker 替换
+            # 容器打断（SIGKILL），留下 revision 与实际状态不一致的 task.json——
+            # US-24 的崩溃循环与 attempt=17 正是这么来的。
+            # 收尾由新 runner 启动路径的 `_finish_runner_component_steps` 完成。
+            if is_handoff_final(result):
+                logger.warning(
+                    "动作 %s（%s）已调度 handoff，本进程立即停止且不写状态；收尾由新 runner 完成",
+                    action.get("id"),
+                    action.get("type"),
+                )
+                return task
             action = task["execution_plan"]["actions"][index]
             action["status"] = "succeeded"
             action["result"] = result

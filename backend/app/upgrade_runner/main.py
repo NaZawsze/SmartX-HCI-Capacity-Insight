@@ -105,6 +105,105 @@ def _is_runner_component_task(task: dict[str, Any]) -> bool:
 
 PACKAGELESS_TASK_TYPES = {"post_upgrade_cleanup"}
 
+#: W3：走自换路径的组件任务用的动作类型（只出现在 v0.3.2+ runner 执行的任务里）。
+SELF_HANDOFF_ACTIONS = frozenset(
+    {
+        "component.verify",
+        "component.image_load",
+        "component.compose_writeback",
+        "component.schedule_self_handoff",
+    }
+)
+
+
+def _is_self_handoff_task(task: dict[str, Any]) -> bool:
+    """该任务是否是走自换路径的组件升级任务（计划里含 `component.*` 动作）。"""
+    if not _is_runner_component_task(task):
+        return False
+    actions = task.get("execution_plan", {}).get("actions") or []
+    return any(str(action.get("type") or "") in SELF_HANDOFF_ACTIONS for action in actions)
+
+
+def _is_self_handoff_scheduled(task: dict[str, Any]) -> bool:
+    """该任务是否已调度自换、且还在等新 runner 收尾。
+
+    只认 `self_handoff.scheduled` 这个**由旧 runner 在 handoff 之前写下**的标记；
+    不从动作类型反推（动作类型只能说明"计划里有什么"，说明不了"走到了哪一步"）。
+    """
+    handoff = task.get("self_handoff")
+    if not isinstance(handoff, dict) or not handoff.get("scheduled"):
+        return False
+    if str(task.get("status") or "") not in {"running", "runner_restarting"}:
+        return False
+    actions = task.get("execution_plan", {}).get("actions") or []
+    return any(str(action.get("type") or "") in SELF_HANDOFF_ACTIONS for action in actions)
+
+
+def _inject_self_handoff_anchor(
+    settings: Any,
+    task: dict[str, Any],
+    *,
+    executor: CommandExecutor,
+) -> dict[str, Any]:
+    """自换任务在**执行前**捕获回滚锚点并注入计划（W3 用户硬要求 b）。
+
+    ## 为什么锚点必须在 writeback 之前拿
+
+    `component.compose_writeback` 会把 `docker-compose.yml` 里的 runner image 行
+    覆盖成新镜像。覆盖之后"上一版的 tag / 镜像 ID"在磁盘上就**再也读不到**了，
+    而组件回滚（反向自换）恰恰只能靠这两个值。顺序反了，锚点里记到的就是新版本，
+    回滚退化成"把新版本换回新版本"——看起来成功了，现场其实没回退。
+
+    ## 为什么在整条任务的开头捕获，而不是紧贴 writeback
+
+    锚点读的是「compose 里的 tag」与「运行中容器的镜像」，两者只被
+    `component.compose_writeback` 改动；`component.verify` 与 `component.image_load`
+    都不碰 project 目录。所以开头捕获与紧贴 writeback 捕获读到的值**完全相同**，
+    而开头捕获少一处需要在 engine 里开的回调口子。
+
+    ## 幂等
+
+    已在 `self_handoff.rollback_anchor` 里有锚点时不重复捕获——任务被恢复重跑时
+    沿用第一次捕获的值，避免"恢复到一半再捕一次"读到的是 writeback 后的新 tag。
+    """
+    handoff = task.get("self_handoff")
+    if not isinstance(handoff, dict):
+        handoff = {}
+    if handoff.get("rollback_anchor"):
+        return task
+    from app.upgrade_runner.actions import ActionContext
+    from app.upgrade_runner.selfhandoff import capture_component_rollback_anchor
+
+    context = ActionContext(
+        package_path=Path(str(task.get("package_path") or "")),
+        project_path=Path(settings.project_path),
+        data_path=Path(settings.data_path),
+        upgrades_path=Path(settings.upgrades_path),
+        backups_path=Path(settings.backups_path),
+        exports_path=Path(settings.exports_path),
+        compose_runtime_path=Path(settings.compose_runtime_path),
+        prometheus_path=Path(settings.prometheus_path),
+        compose_file=settings.compose_file,
+        compose_project=settings.compose_project,
+        executor=executor,
+    )
+    target_version = str((handoff.get("target_version") or task.get("target_version") or ""))
+    anchor = capture_component_rollback_anchor(
+        context, task, executor=executor, target_version=target_version
+    )
+    handoff["rollback_anchor"] = anchor
+    handoff["target_version"] = target_version
+    task["self_handoff"] = handoff
+    # 注入到 writeback 与 handoff 两个动作的 params：writeback 侧留痕，handoff 侧是硬要求
+    for action in task.get("execution_plan", {}).get("actions") or []:
+        if str(action.get("type") or "") in {
+            "component.compose_writeback",
+            "component.schedule_self_handoff",
+        }:
+            action.setdefault("params", {})
+            action["params"]["rollback_anchor"] = anchor
+    return task
+
 
 def _package_path_for_task(task: dict[str, Any], task_dir: Path) -> Path:
     package_path = task.get("package_path")
@@ -243,6 +342,13 @@ ACTION_STEP_DEFINITIONS = [
     ("healthcheck", "执行服务健康检查", {"health.http", "health.prometheus"}),
     ("post_upgrade_collection", "调度升级后自动采集", {"post_upgrade.schedule_collection"}),
     ("post_upgrade", "调度升级后清理", {"post_upgrade.schedule_cleanup"}),
+    # W3 自换时代的组件升级步骤：锚点 → load 自身新镜像 → 写自身 compose → 调度 handoff。
+    # 五个 key 与 impl-spec §W3 步骤 1 的 `steps=[verify, load, writeback, handoff, presence_wait]`
+    # 一一对应；`presence_wait` 不在此列——它由 web-api 观察，不是 runner 的动作。
+    ("self_handoff_verify", "校验组件包完整性", {"component.verify"}),
+    ("self_handoff_load", "加载组件新镜像", {"component.image_load"}),
+    ("self_handoff_writeback", "写入组件自身部署配置", {"component.compose_writeback"}),
+    ("self_handoff_handoff", "调度执行器自换", {"component.schedule_self_handoff"}),
     (
         "runner_handoff",
         "切换 runner 运行目录",
@@ -528,6 +634,26 @@ def run_pending_once(
             _project_task(settings.database_path, result)
             executed += 1
             continue
+        # W3 自换收尾：**旧** runner 在 handoff 处被 SIGKILL，task.json 停在
+        # `status=running`、`self_handoff.scheduled=true`。此刻有两个 runner 可能轮询到它：
+        #
+        # - **新** runner（版本 == target）→ 收尾。这是自换唯一的收尾点。
+        # - **旧** runner（docker 还没替换掉它）→ 必须**跳过**。
+        #
+        # 旧 runner 若继续执行会重跑整条计划：再 load 一次镜像、再 writeback 一次、
+        # **再调度一次 handoff**（多起一个 cutover 辅助容器）。所以这里不是"版本不匹配
+        # 就继续执行"，而是"版本不匹配就一律不碰这条任务"。
+        if _is_self_handoff_scheduled(task):
+            if settings.runner_version == str((task.get("self_handoff") or {}).get("target_version") or ""):
+                task = _finish_runner_component_steps(
+                    task,
+                    f"upgrade-runner {settings.runner_version} 自换完成。",
+                    settings,
+                )
+                result = store.save(task, expected_revision=int(task.get("revision") or 0))
+                _project_task(settings.database_path, result)
+                executed += 1
+            continue
         # US-32 兜底：组件升级任务可能**已经**被 web-api 收尾成 success（步骤全 succeeded、
         # 无 execution_plan），上面两条"未收尾"路径都不触发，于是 compose tag 永远对不齐
         # （`.14` 实测：runner=v0.3.2 但 compose 写 v0.3.1）。这里用"是否已对齐"做幂等判据：
@@ -556,6 +682,19 @@ def run_pending_once(
             continue
         if not lease.acquire(task["task_id"], revision=int(task.get("revision") or 0)):
             continue
+        # W3：自换任务在执行前捕获回滚锚点并注入计划（必须早于 compose writeback）。
+        if _is_self_handoff_task(task):
+            task = _inject_self_handoff_anchor(
+                settings, task, executor=executor or CommandExecutor()
+            )
+            try:
+                task = store.save(
+                    task, expected_revision=int(task.get("revision") or 0)
+                )
+            except Exception as exc:  # noqa: BLE001 - 锚点落盘失败不得静默开始自换
+                logger.exception("自换锚点落盘失败，跳过本任务：%s", exc)
+                lease.release(task["task_id"])
+                continue
         if status == "recovery_required" and recovery_command == "rollback":
             selected_handlers = handlers or default_handlers()
             rollback_handler = selected_handlers.get("rollback.restore")
