@@ -9,11 +9,16 @@
 
 from __future__ import annotations
 
+import json
 import os
+import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.v2.config import V2Settings  # noqa: E402
 
 
 def _write_data_backup(backups: Path, stamp: str, size: int = 4096) -> Path:
@@ -271,3 +276,78 @@ class BackupRetentionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RollbackAnchorProtectionTests(unittest.TestCase):
+    """B10：回滚锚点引用的备份不被 TTL/数量策略删掉。
+
+    为什么必须保护：删掉它不是"省空间"，而是**回退能力静默归零**——
+    UI 仍显示可回滚，用户点下去才失败。
+    """
+
+    def _backups(self, root: Path, count: int) -> Path:
+        backups = root / "backups"
+        backups.mkdir(parents=True, exist_ok=True)
+        for index in range(count):
+            path = backups / f"upgrade-v0.5.4-before-2026010{index}000000.tar.gz"
+            path.write_bytes(b"x" * 32)
+        return backups
+
+    def test_plan_cleanup_keeps_protected_backup(self) -> None:
+        from app.v2.upgrade.backup_retention import plan_cleanup
+
+        with tempfile.TemporaryDirectory() as tmp:
+            backups = self._backups(Path(tmp), 6)
+            newest = backups / "upgrade-v0.5.4-before-20260105 000000.tar.gz".replace(" ", "")
+            plan = plan_cleanup(backups, ttl_days=0, keep_recent=1, protect={newest})
+        deleted = {path.name for path in plan["expired"] + plan["redundant"]}
+        self.assertNotIn(newest.name, deleted, "受保护的备份不能进删除计划")
+
+    def test_purge_backups_keeps_protected_backup(self) -> None:
+        from app.v2.upgrade.backup_retention import purge_backups
+
+        with tempfile.TemporaryDirectory() as tmp:
+            backups = self._backups(Path(tmp), 6)
+            protected = backups / "upgrade-v0.5.4-before-20260105 000000.tar.gz".replace(" ", "")
+            result = purge_backups(backups, ttl_days=0, keep_recent=1, protect={protected})
+            self.assertTrue(protected.is_file(), "受保护的备份必须仍在磁盘上")
+        self.assertFalse(any(protected.name in item for item in result["removed"]))
+
+    def test_protection_source_is_the_rollback_anchor(self) -> None:
+        from app.v2.upgrade.backup_retention import rollback_protected_backups
+
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = V2Settings(data_root=Path(tmp), secret_key="retention")
+            self.assertEqual(rollback_protected_backups(settings), set())
+
+            anchor = {
+                "kind": "platform",
+                "previous_version": "v0.5.3",
+                "captured_at": "2026-10-06T02:00:00+00:00",
+                "backup": {"path": str(Path(tmp) / "backups" / "upgrade-v0.5.4-before-x.tar.gz"), "sha256": "z"},
+            }
+            from app.v2.upgrade.service.runner_presence import state_file_path
+
+            state = state_file_path(settings)
+            state.parent.mkdir(parents=True, exist_ok=True)
+            state.write_text(
+                json.dumps(
+                    {
+                        "schema": 1,
+                        "instance_id": "runner-a",
+                        "runner_version": "v0.3.2",
+                        "protocol_version": 1,
+                        "capabilities": [],
+                        "started_at": "2026-10-06T01:00:00+00:00",
+                        "heartbeat_at": "2026-10-06T01:00:00+00:00",
+                        "updated_at": "2026-10-06T01:00:00+00:00",
+                        "leases": {},
+                        "rollback_anchors": {"upgrade-1": anchor},
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            protected = rollback_protected_backups(settings)
+        self.assertEqual(len(protected), 1)
+        self.assertTrue(str(protected.pop()).endswith("upgrade-v0.5.4-before-x.tar.gz"))

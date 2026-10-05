@@ -103,6 +103,7 @@ def plan_cleanup(
     *,
     ttl_days: int = DEFAULT_TTL_DAYS,
     keep_recent: int = DEFAULT_KEEP_RECENT,
+    protect: set[Path] | None = None,
 ) -> dict[str, list[Path]]:
     """只读计算：该删哪些。返回 {"expired": [...], "redundant": [...]}。
 
@@ -114,6 +115,9 @@ def plan_cleanup(
     每类内部：
     - `expired`：超过 TTL 的旧备份（最新 keep_recent 份豁免）。
     - `redundant`：未过期但超出保留数量的最旧备份。
+    - `protect`：**回滚锚点引用的备份绝对不删**（B10）。TTL/数量策略是"平时省空间"，
+      而锚点那份是"现在就能回退"的唯一保险——按策略删掉它，等于把回退能力静默清零。
+      删掉之后 UI 上仍然显示"可回滚"，用户点下去才失败——比一开始就说不可回滚更糟。
     """
     entries = collect_backups(backups_dir)
     if not entries:
@@ -134,6 +138,8 @@ def plan_cleanup(
             reverse=True,
         )
         protected = {entry["path"] for entry in newest_first[: max(0, keep_recent)]}
+        if protect:
+            protected |= {path for path in protect if path.exists()}
 
         for entry in newest_first:
             if entry["path"] in protected:
@@ -159,9 +165,10 @@ def purge_backups(
     *,
     ttl_days: int = DEFAULT_TTL_DAYS,
     keep_recent: int = DEFAULT_KEEP_RECENT,
+    protect: set[Path] | None = None,
 ) -> dict[str, Any]:
     """按策略删除超期/超量的备份，返回删除明细（供日志与测试断言）。"""
-    plan = plan_cleanup(backups_dir, ttl_days=ttl_days, keep_recent=keep_recent)
+    plan = plan_cleanup(backups_dir, ttl_days=ttl_days, keep_recent=keep_recent, protect=protect)
     removed: list[str] = []
     freed_bytes = 0
     for kind, paths in plan.items():
@@ -223,7 +230,33 @@ def cleanup_backups_once(
     keep = keep_recent if keep_recent is not None else _int_env(KEEP_ENV, DEFAULT_KEEP_RECENT)
     if ttl <= 0 and keep <= 0:
         return {"removed": [], "freed_bytes": 0, "skipped": True}
-    return purge_backups(Path(settings.backups_dir), ttl_days=ttl, keep_recent=keep)
+    return purge_backups(
+        Path(settings.backups_dir),
+        ttl_days=ttl,
+        keep_recent=keep,
+        protect=rollback_protected_backups(settings),
+    )
+
+
+def rollback_protected_backups(settings: Any) -> set[Path]:
+    """当前回滚锚点引用的备份（B10）。
+
+    TTL/数量策略管的是"平时省空间"，锚点那份管的是"现在还能不能回退"。
+    删掉它的后果不是丢空间，而是**回退能力静默归零**——UI 仍显示可回滚，
+    用户点下去才失败。所以这里把锚点引用的路径交给 `plan_cleanup(protect=...)` 强制豁免。
+    """
+    try:
+        from app.v2.upgrade.service.manual_rollback import latest_rollback_anchor
+
+        anchor = latest_rollback_anchor(settings)
+    except Exception as exc:  # noqa: BLE001 - 保护逻辑出错时宁可少删不可误删
+        logger.warning("读取回滚锚点失败，本次备份清理跳过保护：%s", exc)
+        return set()
+    if not anchor:
+        return set()
+    protected: set[Path] = set()
+    path = (anchor.get("backup") or {}).get("path")
+    return {Path(str(path))} if path else set()
 
 
 def _loop(
