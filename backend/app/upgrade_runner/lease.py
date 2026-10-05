@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -8,6 +9,9 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from app.upgrade_protocol.constants import RUNNER_CAPABILITIES, RUNNER_PROTOCOL_VERSION
+from app.upgrade_runner.statefile import RunnerStateStore
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
@@ -15,11 +19,46 @@ def _now() -> datetime:
 
 
 class LeaseManager:
-    def __init__(self, database_path: Path, owner: str, *, ttl_seconds: int = 30) -> None:
+    """任务租约 + runner 实例心跳。
+
+    **W1（Phase 68）**：事实源已迁到状态文件 `upgrade-runner-state.json`
+    （`RunnerStateStore`），本类保留两张表的写入作为 **DB 兼容镜像**，供仍在支持矩阵内的
+    v0.5.3 web-api 读取。镜像语义：**每处 try/except 只记 warning，绝不 raise、绝不重试阻塞**
+    （#82 的兜底语义从"重试后再放弃"升级为"镜像失败无害"）。
+
+    之所以留这层镜像：M4 兼容矩阵格（v0.5.3 web-api + v0.3.2 runner）要求 presence 判定正常，
+    而 v0.5.3 web-api 只读 DB。收缩（停止 DB 镜像）等 v0.5.3 退出支持矩阵后再做。
+    """
+
+    def __init__(
+        self,
+        database_path: Path,
+        owner: str,
+        *,
+        ttl_seconds: int = 30,
+        state_store: RunnerStateStore | None = None,
+    ) -> None:
         self.database_path = Path(database_path)
         self.owner = owner
         self.ttl_seconds = ttl_seconds
+        self.state_store = state_store or RunnerStateStore(
+            self.database_path,
+            owner,
+            "unknown",
+            RUNNER_PROTOCOL_VERSION,
+            RUNNER_CAPABILITIES,
+            ttl_seconds=ttl_seconds,
+        )
         self._initialize()
+
+    # ── DB 兼容镜像（expand 期） ─────────────────────────────────────────
+    def _mirror(self, label: str, action) -> Any:
+        """执行一次 DB 镜像写。失败只记 warning——镜像失败无害，绝不影响主流程。"""
+        try:
+            return action()
+        except Exception:  # noqa: BLE001 - 镜像写失败不得让 runner 退出或阻塞升级
+            logger.warning("runner DB 心跳镜像失败（%s），已忽略；状态文件为事实源", label)
+            return None
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -39,8 +78,19 @@ class LeaseManager:
                 yield connection
         finally:
             connection.close()
-
     def _initialize(self) -> None:
+        """建两张**镜像**表 + 首次落状态文件。
+
+        建表失败不再阻断 runner 启动：W1 之后状态文件才是事实源，两张表只为 v0.5.3 web-api
+        兜底读。为一张兼容镜像表启动失败会让整个升级执行器起不来，代价与收益完全不成比例。
+        """
+        self._mirror("建镜像表", self._create_mirror_tables)
+        try:
+            self.state_store.heartbeat()
+        except Exception:  # noqa: BLE001 - 状态文件首次落盘失败不阻断（read 时会自愈）
+            logger.exception("runner 状态文件首次写入失败（后续心跳会重试）")
+
+    def _create_mirror_tables(self) -> None:
         with self._connect() as connection:
             connection.executescript(
                 """
@@ -64,19 +114,17 @@ class LeaseManager:
             )
 
     def acquire(self, task_id: str, *, revision: int, now: datetime | None = None) -> bool:
+        """取得任务租约。事实源 = 状态文件；DB 镜像写失败不影响返回值。"""
+        acquired = self.state_store.upsert_lease(
+            task_id, self.owner, revision=revision, now=now
+        )
+        self._mirror("acquire", lambda: self._mirror_acquire(task_id, revision, now))
+        return acquired
+
+    def _mirror_acquire(self, task_id: str, revision: int, now: datetime | None) -> None:
         current_time = now or _now()
         expires_at = current_time + timedelta(seconds=self.ttl_seconds)
         with self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                "SELECT lease_owner, lease_expires_at FROM upgrade_task_leases WHERE task_id = ?",
-                (task_id,),
-            ).fetchone()
-            if row and row["lease_owner"] != self.owner:
-                existing_expiry = datetime.fromisoformat(row["lease_expires_at"])
-                if existing_expiry > current_time:
-                    connection.rollback()
-                    return False
             connection.execute(
                 """
                 INSERT INTO upgrade_task_leases (task_id, lease_owner, lease_expires_at, heartbeat_at, revision)
@@ -89,14 +137,18 @@ class LeaseManager:
                 """,
                 (task_id, self.owner, expires_at.isoformat(), current_time.isoformat(), revision),
             )
-            connection.commit()
-            return True
 
     def heartbeat(self, task_id: str, *, revision: int, now: datetime | None = None) -> bool:
+        """续租。事实源 = 状态文件；返回值只看状态文件结果，不受镜像失败影响。"""
+        renewed = self.state_store.renew_lease(task_id, revision=revision)
+        self._mirror("heartbeat", lambda: self._mirror_renew(task_id, revision, now))
+        return renewed
+
+    def _mirror_renew(self, task_id: str, revision: int, now: datetime | None) -> None:
         current_time = now or _now()
         expires_at = current_time + timedelta(seconds=self.ttl_seconds)
         with self._connect() as connection:
-            result = connection.execute(
+            connection.execute(
                 """
                 UPDATE upgrade_task_leases
                 SET lease_expires_at = ?, heartbeat_at = ?, revision = ?
@@ -104,9 +156,12 @@ class LeaseManager:
                 """,
                 (expires_at.isoformat(), current_time.isoformat(), revision, task_id, self.owner),
             )
-            return result.rowcount == 1
 
     def release(self, task_id: str) -> None:
+        self.state_store.release_lease(task_id)
+        self._mirror("release", self._mirror_release(task_id))
+
+    def _mirror_release(self, task_id: str) -> None:
         with self._connect() as connection:
             connection.execute(
                 "DELETE FROM upgrade_task_leases WHERE task_id = ? AND lease_owner = ?",
@@ -114,18 +169,38 @@ class LeaseManager:
             )
 
     def get(self, task_id: str) -> dict[str, Any] | None:
-        with self._connect() as connection:
-            row = connection.execute("SELECT * FROM upgrade_task_leases WHERE task_id = ?", (task_id,)).fetchone()
+        """读租约。优先状态文件（事实源），回落 DB 镜像（兼容读）。"""
+        lease = self.state_store.lease(task_id)
+        if lease is not None:
+            lease.setdefault("task_id", task_id)
+            return lease
+        row = self._mirror("get", lambda: self._mirror_get(task_id))
         return dict(row) if row else None
 
+    def _mirror_get(self, task_id: str) -> Any:
+        with self._connect() as connection:
+            return connection.execute(
+                "SELECT * FROM upgrade_task_leases WHERE task_id = ?", (task_id,)
+            ).fetchone()
+
+    def save_checkpoint(self, task_id: str, checkpoint: dict[str, Any]) -> None:
+        """把执行检查点记进租约（回滚锚点等依赖它，规格 §W5）。"""
+        self.state_store.save_checkpoint(task_id, checkpoint)
+
     def update_runner_state(self, runner_version: str, *, now: datetime | None = None) -> None:
+        """更新实例身份与心跳。事实源 = 状态文件；DB 镜像失败只记 warning。"""
+        self.state_store.update_runner_state(runner_version, now=now)
+        self._mirror("update_runner_state", lambda: self._mirror_runner_state(runner_version, now))
+
+    def _mirror_runner_state(self, runner_version: str, now: datetime | None) -> None:
         heartbeat_at = (now or _now()).isoformat()
         with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO upgrade_runner_state (
                     id, instance_id, runner_version, protocol_version, capabilities_json, heartbeat_at, updated_at
-                ) VALUES (1, ?, ?, ?, ?, ?, ?)
+                )
+                VALUES (1, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     instance_id = excluded.instance_id,
                     runner_version = excluded.runner_version,
@@ -145,10 +220,17 @@ class LeaseManager:
             )
 
     def runner_state(self) -> dict[str, Any] | None:
-        with self._connect() as connection:
-            row = connection.execute("SELECT * FROM upgrade_runner_state WHERE id = 1").fetchone()
+        """读实例状态。优先状态文件（事实源），回落 DB 镜像（兼容读）。"""
+        payload = self.state_store.read()
+        if payload.get("heartbeat_at"):
+            return payload
+        row = self._mirror("runner_state", self._mirror_runner_state)
         if not row:
             return None
-        payload = dict(row)
-        payload["capabilities"] = json.loads(payload.pop("capabilities_json"))
-        return payload
+        state = dict(row)
+        state["capabilities"] = json.loads(state.pop("capabilities_json"))
+        return state
+
+    def _mirror_runner_state(self) -> Any:
+        with self._connect() as connection:
+            return connection.execute("SELECT * FROM upgrade_runner_state WHERE id = 1").fetchone()

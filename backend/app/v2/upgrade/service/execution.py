@@ -21,7 +21,16 @@ from .precheck import _runner_bootstrap, _runner_compose_project_name, _runner_o
 from .taskfile import _completed_runner_task_view, _parse_datetime, _read_task_file, _replace_step, _save_task_file, _step
 
 from .constants import RUNNER_NOT_DETECTED
-from .runner_presence import RUNNER_PRESENCE_SOURCES, instance_heartbeat_is_fresh, presence_source, task_lease_is_alive
+from .runner_presence import (
+    RUNNER_PRESENCE_SOURCES,
+    active_task_lease_is_fresh,
+    file_task_lease_is_fresh,
+    instance_heartbeat_is_fresh,
+    presence_source,
+    read_state_file,
+    state_file_instance_state,
+    task_lease_is_alive,
+)
 
 
 def _should_stop_previous_runner(bootstrap: Any, current_project: str) -> bool:
@@ -314,8 +323,35 @@ class ExecutionMixin:
 
 
     def _active_runner_state(self) -> dict[str, Any] | None:
-        runner_state = self._runner_state()
-        source = presence_source(self.tasks.database, runner_state)
+        """在场判定的事实源顺序：**状态文件 → DB 镜像 → docker 活体探测**。
+
+        W1：runner v0.3.2 的心跳与租约写状态文件，DB 只剩兼容镜像；v0.3.1 只写 DB。
+        文件优先、DB 兜底，于是 v0.5.4 + v0.3.1（M5）与 v0.5.4 + v0.3.2（M6）都能判定。
+        两条通道都不成立才退回 docker 探测——runner 重启窗口内心跳与租约可能同时为空，
+        而容器确实在跑，这是既有行为，保留。
+
+        **实例字段取自真正给出在场证据的那条通道**（不是"文件存在就用文件"）：
+        文件存在但已陈旧、而 DB 心跳新鲜时，用文件字段会把 runner_version 显示成陈旧值。
+        `presence_source` 不返回通道名，故此处自行判定并保留该语义。
+        """
+        state_file = read_state_file(self.settings)
+        file_state = state_file_instance_state(state_file)
+        db_state = self._runner_state()
+        file_heartbeat_fresh = bool(
+            file_state and instance_heartbeat_is_fresh(file_state)
+        ) or file_task_lease_is_fresh(state_file)
+        db_heartbeat_fresh = bool(
+            db_state and instance_heartbeat_is_fresh(db_state)
+        ) or active_task_lease_is_fresh(self.tasks.database, state_file=state_file)
+
+        if file_heartbeat_fresh:
+            runner_state, db_state = file_state, None
+        elif db_heartbeat_fresh:
+            runner_state, file_state = db_state, None
+        else:
+            runner_state, db_state, file_state = None, None, None
+
+        source = presence_source(self.tasks.database, db_state, state_file=file_state)
         if runner_state and source:
             runner_state["source"] = source
             return runner_state

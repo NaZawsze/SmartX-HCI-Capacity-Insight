@@ -38,9 +38,15 @@ class TaskFileMixin:
         if str(task.get("status") or "") == "running":
             # US-25：把"执行中但没有任何 runner 持有"暴露出来，并给出可用的产品化操作
             try:
-                from .runner_presence import task_lease_is_alive
+                from .runner_presence import read_state_file, task_lease_is_alive
 
-                if not task_lease_is_alive(self.tasks.database, str(task.get("task_id") or "")):
+                # W1：租约判定同样文件优先、DB 兜底（v0.3.1 只写 DB 时不能因文件缺失
+                # 就判 runner 丢失——那会让升级中的任务凭空多出「标记失败」入口）。
+                if not task_lease_is_alive(
+                    self.tasks.database,
+                    str(task.get("task_id") or ""),
+                    state_file=read_state_file(self.settings),
+                ):
                     public["runner_lost"] = True
                     public["available_recovery_actions"] = sorted(
                         set(public.get("available_recovery_actions") or []) | {"fail"}
