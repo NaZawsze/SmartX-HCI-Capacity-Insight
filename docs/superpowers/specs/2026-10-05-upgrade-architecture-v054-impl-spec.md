@@ -1,0 +1,279 @@
+# 实施级详设：升级架构重构（runner v0.3.2 + 平台 v0.5.4）
+
+- 日期：2026-10-05
+- 上位设计：[2026-10-05-upgrade-architecture-v054-design-v2.md](2026-10-05-upgrade-architecture-v054-design-v2.md)（架构决策与理由）
+- 本文档定位：**工程实施规格**——交给实施 AI/工程师填充代码用。每项工作给出：现状（文件:行）、目标行为、
+  数据结构、错误处理、测试与验收判据。
+- 实施者须先读：AGENTS.md（全文）、docs/project-guide-for-ai.md、本文档。
+
+---
+
+## 0. 给实施 AI 的须知（红线，违反即返工）
+
+1. **验证纪律**：任何"已完成/已通过"结论必须有真实测试输出或 `.3`/`.14` 真机证据；单测全绿 ≠ 脚本能跑
+   （AGENTS §12）。测试用例**必须写在类内、`if __name__` 之前**（历史上发生过写在 main 块后静默不跑）。
+2. **不删旧路径**：旧编译器/旧组件升级编排保留为兜底，直到新路径在 `.14` 全绿（批次 C）。
+3. **动作词汇冻结**：平台升级计划只准使用 runner v0.3.1 已有的 26 个动作（清单见 §1.3）。
+   新增动作仅允许出现在"由 v0.3.2+ runner 执行"的任务中，且必须过 §W7 门禁评审。
+4. **版本治理**：runner 版本号 v0.3.2 沿用（从未交付，governance 允许并入）；**任何 runner 代码变更必须
+   在同一次提交内完成**（历史事故 `dab2e0f`）。RUNNER_VERSION 不得私自再 bump。
+5. **凭据/机器纪律**：不在任何日志/文档/提交里记录密码；`.12` 只走产品流程；`.3` 随便造但不影响交付物。
+6. **兼容是硬约束**：§10 兼容矩阵的每一格都必须工作。拿不准时，先问设计文档，再问用户。
+
+## 1. 现状代码地图（2026-10-05，dev2 `8deb053`）
+
+### 1.1 runner（backend/app/upgrade_runner/）
+
+| 文件 | 行数 | 职责 | 关键点 |
+| --- | --- | --- | --- |
+| actions.py | 2722 | 26 个动作实现 | `compose.apply`:1280、`rollback.restore`:2595、`default_handlers`:2692 |
+| main.py | 660 | 主循环（3s 轮询）+ 心跳线程（5s） | `_project_task`:359（**直接写业务库 tasks 表**）、`_writeback_runner_compose_tag`:120、`_apply_tag_writeback_if_needed`:197、`_finish_runner_component_steps`:211（组件任务重启后收尾，**:471-493 调用**）、`_is_runner_component_task`:98、`_heartbeat_until_done`:404、`_heartbeat_with_retry`:426（#82 修复） |
+| engine.py | 282 | 任务修订/检查点/task.json 读写 | US-24 修复（inode 判等）在此 |
+| lease.py | 154 | `LeaseManager`（租约+实例心跳） | 表：`upgrade_runner_state`、`upgrade_task_leases`；`_connect` 已改显式关闭（US-28 缓解） |
+| store.py | 52 | task.json 读写 | |
+| sandbox.py | 69 | `script.run_sandboxed` | |
+
+### 1.2 web-api 升级侧（backend/app/v2/upgrade/）
+
+| 文件 | 行数 | 职责 |
+| --- | --- | --- |
+| service/execution.py | 769 | start/cancel/recovery/rollback/status；`_should_stop_previous_runner`:27（US-04 守卫） |
+| service/precheck.py | 665 | v0.5.2 有 7 检查；v0.5.3 +`runner_actions`+`disk_space`（9 项） |
+| compiler.py | 415 | manifest → 动作计划（逐 `actions.append`） |
+| service/taskfile.py | 300 | task.json 读写 |
+| service/intake.py | 266 | 上传/解包/建任务 |
+| service/runner_presence.py | 105 | 双通道在场判定（实例心跳/任务租约，30s 阈值） |
+| settlement.py | 160 | 升级收尾守护线程 |
+| service/{paths,fs,cleanup,verification}.py | — | 路径/文件/清理/验证 |
+| housekeeping.py / backup_retention.py | 278/271 | 产物清理/备份保留 |
+
+### 1.3 runner v0.3.1 动作词汇表（26 个，冻结基准）
+
+`backup.create, image.load, filesystem.prepare, files.sync, compose.override, compose.project_migrate,
+script.run_sandboxed, compose.apply, runner.handoff_target_runtime, runner.schedule_target_runtime_handoff,
+runner.stop_legacy_runtime, post_upgrade.schedule_cleanup, post_upgrade.schedule_collection,
+post_cleanup.precheck_target_health, compose.stop_legacy_project, network.remove_legacy,
+filesystem.cleanup_legacy_paths, filesystem.cleanup_target_app_residuals, post_cleanup.verify,
+health.http, health.prometheus, task.migrate_runtime_state, task.sync_runtime_state, legacy.cleanup,
+checkpoint.write, rollback.restore`
+
+---
+
+## W1 Runner 状态文件（US-28/#82 根治）
+
+### 现状
+`LeaseManager`（lease.py）直接读写业务 SQLite 两张表：实例心跳 `upgrade_runner_state`（3s 轮询刷一次，
+执行期冻结）+ 任务租约 `upgrade_task_leases`（执行期 5s 续租）。web-api 侧 `runner_presence.py` 读同两张表。
+
+### 目标
+- 新模块 `backend/app/upgrade_runner/statefile.py`：`RunnerStateStore(path, instance_id, runner_version, protocol_version, capabilities)`。
+- **路径**：`Path(database_path).parent / "upgrade-runner-state.json"`（容器内 `/data/upgrade-runner-state.json`，
+  宿主机 `app/upgrade-runner-state.json`）——runner 与 web-api 共享同一 `/data` 挂载，从 DB 路径推导、**不硬编码**。
+- **Schema**（版本字段兜底演进）：
+
+```json
+{
+  "schema": 1,
+  "instance_id": "…", "runner_version": "v0.3.2", "protocol_version": 3,
+  "capabilities": ["backup.v1", "…"],
+  "started_at": "…UTC ISO…", "heartbeat_at": "…", "updated_at": "…",
+  "leases": {
+    "<task_id>": {"lease_owner": "…", "lease_expires_at": "…", "heartbeat_at": "…",
+                   "revision": 42, "checkpoint": {…}}
+  }
+}
+```
+
+- **写协议**：同目录临时文件 → 写入 → `flush`+`fsync` → `os.replace` 原子替换。单写者 = runner 进程。
+  触发点：主循环每轮（3s）、心跳线程每 5s、租约变更时。文件 < 64KB，开销可忽略。
+- **自愈**：启动读取时 JSON 损坏 → 把坏文件改名 `.corrupt-<ts>` 留证 → 视为无状态重建。
+- **公共 API**（保持 LeaseManager 现有调用面不变，只换存储）：
+  `heartbeat()/upsert_lease(task_id, owner, ttl)/renew_lease(task_id)/release_lease(task_id)/save_checkpoint(task_id, cp)/read()`。
+- **DB 兼容镜像（expand 期）**：`LeaseManager` 保留对两张表的写入，但每处包 `try/except: log warning`——
+  **失败绝不 raise、绝不重试阻塞**（#82 兜底语义升级为"镜像失败无害"）。v0.5.4 web-api 读文件优先（见下）；
+  收缩（停止 DB 镜像）在 v0.5.3 web-api 退出支持矩阵后执行（登记 contraction 清单）。
+- **web-api 读取**：`runner_presence.py` 新增 `read_state_file(settings) -> dict | None`（容错：缺失/损坏 → None）；
+  `presence_source` 判定顺序改为：**文件实例心跳 → 文件租约 → DB 实例心跳 → DB 租约**（来源名沿用
+  `heartbeat`/`task_lease`，语义不变）；`task_lease_is_alive` 同样先查文件。
+  v0.5.4 + v0.3.1 组合：文件缺失 → 全部落 DB（v0.3.1 只写 DB）→ 行为与今天一致。
+
+### 验收
+- 单元：原子写并发（模拟中断无半文件）、损坏自愈、schema 演进容错。
+- 真机：`.14` 升级窗口内 `app/upgrade-runner-state.json` 持续刷新；web-api 升级页 runner 在场判定正常。
+
+## W2 单写者规则（US-24 根治）
+
+### 现状
+runner `_project_task`（main.py:359）把任务状态**直接写业务库 tasks 表**；web-api 也写同一行 → 双写者。
+
+### 目标
+- **事实源 = task.json**（文件）：执行期 runner 独占写；web-api 只读。
+- **tasks 表 = web-api 独占投影**：web-api 在 `UpgradeService.status()` 与 settlement 扫描时，发现 task.json
+  比库内新 → 投影更新（status/message/progress/steps/updated_at）。runner 的 `_project_task` 改为
+  **best-effort 兼容镜像**（try/except log，低频——每步骤转换一次，非热路径），v0.5.3 web-api 依赖它显示
+  进度；v0.5.4 web-api 起以投影为准，镜像在收缩期移除。
+- 热路径（5s 心跳/租约）已由 W1 全部出库——**US-28 的根因面清零**。
+
+### 验收
+- 单元：投影幂等（重复投影不产生副作用）、file newer 判定。
+- 真机：升级执行期间 `sqlite3` 侧无 runner 连接（`lsof` 按容器 PID 查）；任务中心进度正常。
+
+## W3 runner 自换组件升级（kubeadm/Omaha）
+
+### 现状
+组件升级 = web-api 编排（写 runner compose → recreate），runner 侧已有：组件任务识别（`_is_runner_component_task`）、
+重启后收尾（`_finish_runner_component_steps`，main.py:471-493）、compose tag writeback（`_apply_tag_writeback_if_needed`）、
+`runner.schedule_target_runtime_handoff` 动作。
+
+### 目标流程（v0.3.2 起生效；v0.3.1→v0.3.2 这一跳仍走旧编排=最后一次）
+1. **web-api**：intake 校验组件包（tar + `manifest.json{version, image_tar}`，SHA256 侧车核验）→ 落
+   `upgrades/component-<id>/` → 建任务（components=["runner"]，steps=`[verify, load, writeback, handoff, presence_wait]`，
+   manifest 带 `target_version`、`image_tar`、`previous_version`）→ 提交（现有轮询机制送达）。
+2. **runner** 拾取组件任务后执行：
+   a. verify：tar SHA256 复核；
+   b. `image.load`（复用现有动作逻辑）；
+   c. compose writeback（复用 `_apply_tag_writeback_if_needed`）——**writeback 前先捕获回滚锚点**
+      `{previous_version, previous_image_tag, previous_image_id}` 存入 task.json + 状态文件；
+   d. `runner.schedule_target_runtime_handoff`（现有动作）：调度替换 → runner 退出 → Docker 重建；
+3. **新 runner** 启动 → 首个轮询周期 `_finish_runner_component_steps` 判定 runner_version==target → 步骤收尾 → 任务 success；
+4. **web-api** 轮询 task.json + 状态文件：`runner_version == target_version` 即完成；**presence 超时 120s** →
+   任务 `failed` + 恢复动作 = 兜底重建（`docker compose up -d upgrade-runner`，web-api 现有能力）+ 回滚锚点可用。
+5. **组件回滚**：锚点保留 → 反向自换（同流程，target=previous_version）。旧组件包在保留期内不删（backup_retention 联动）。
+
+### 验收（T11）
+`.14`：v0.3.2→v0.3.3-rc 自换——服务中断 ≤30s、新 runner presence ≤60s、web-api 全程零 compose 编排调用、
+restarts 计数符合预期（旧容器被 replace，新容器 restarts=0）。
+
+## W4 compose diff 收敛（US-26 根治）
+
+### 现状
+`compose.apply`（actions.py:1280）按 plan 给定服务列表 `up -d --no-deps <services>`——**compose 原生行为**
+对配置未变的服务本来就是 no-op；US-26 的降级来自 handoff 路径的 `--force-recreate`。
+
+### 目标（三层防护）
+1. **前置断言**：服务列表含 `upgrade-runner` → 拒绝该服务并记 warning（编译器本就排除，防回归）；
+2. **观测**：apply 前对列表内每个服务做 best-effort 判定（运行容器 image ID/`com.docker.compose.config-hash` label
+   vs 期望配置），日志输出 `将重建: […]；未变更: […]`——**不做自研哈希**（脆弱），以 compose 原生收敛为准绳；
+3. **apply 后断言**：`upgrade-runner` 容器 ID 与 apply 前一致（若变化 = 步骤失败，宁可失败不可静默降级）。
+- 禁令重申：任何代码路径不得引入 `--force-recreate`（加 grep 门禁到 W7）。
+
+### 验收（T3）
+`.14` 平台升级：prometheus、upgrade-runner 容器 ID 不变；任务日志含差异清单。
+
+## W5 回滚三场景（US-17 关闭）
+
+### 场景 A：失败自动回滚（runner 侧策略，零新动作）
+- runner 执行平台升级任务时，在**首次 compose.apply 之前**捕获回滚锚点（三件套当前 image tag + 镜像 ID），
+  存 checkpoint（现有 `checkpoint.write`）+ 状态文件。
+- 触发：任务步骤失败且 `step.key ∈ {compose.apply, health.http, health.prometheus, post_upgrade.*}`；
+  开关 = `task.manifest.rollback_on_failure`（**缺省 false**——老 manifest 不受影响；v0.5.4 起平台包 manifest 显式 true）；
+  仅对平台组件任务生效（组件任务有自己的锚点回滚，见 W3）。
+- 动作序列（runner 内部子流程，复用现有动作实现函数，不进计划词汇）：`compose.override`（旧 tag）→
+  `compose.apply` → `health.*` → 终态 `rolled_back`（失败证据完整保留）；回滚失败 = `rollback_failed` → 现有 recovery。
+- **修复 v1 的首升局限**：v0.5.3 编译的任务 payload 内含完整 manifest → v0.3.2 runner 照样能读到
+  `rollback_on_failure` → **v0.5.3→v0.5.4 首升即有自动回滚**。
+
+### 场景 B：手动应用回滚（保数据）
+- 锚点：web-api 在平台升级任务创建时写 `app/rollback-anchor.json`（web-api 独占）：
+  `{previous_version, image_tags, backup_path, backup_sha256, pre_upgrade_migrations: [...]}`。
+- API：`GET /api/admin/upgrade/rollback-availability` → `{available, blockers[], target_version}`；
+  判定 = ①旧镜像在本地（docker image inspect）②未执行 contract 迁移（migration registry 快照对比）
+  ③无进行中任务（单飞守卫）。
+- 执行：`POST /api/admin/upgrade/rollback` → 建 rollback 任务（v0.5.4 web-api 自己的编译路径生成：
+  override 旧 tag → apply → health）→ 单飞/审计/任务中心全适用。前端：升级中心「回滚到上一版本」入口。
+
+### 场景 C：整备回滚（应用+数据）
+- 走 **`script.run_sandboxed`**（v0.3.1 已有动作，零词汇变更）：包内附带沙箱恢复脚本
+  （停平台写方 → 恢复 SQLite/Prometheus/.env（`docs/backup-recovery.md` 五步）→ 指回旧 tag → 起服务）。
+- 前端强确认：提示数据丢失窗口（升级时刻 → 现在）。
+- 前提检查同场景 B，另加 `backup 文件存在且 SHA 通过`。
+
+### 迁移纪律（三场景的地基）
+`backend/app/v2/upgrade/migrations/registry.json` 新增条目**只允许加列/加表**；破坏性操作延后到 contract。
+门禁见 W7。
+
+## W6 七步常量流程 + 编译器瘦身
+
+- 现状：compiler.py 按 manifest 条件分支 append 动作。对不含
+  `environment_transitions/legacy_cleanup/runner 组件` 的 v0.5.4 manifest，v0.5.3 编译器输出的计划
+  ≈ `backup → image.load×3 → filesystem.prepare → files.sync → task_state → compose.override → compose.apply →
+  health×2 → post_upgrade.schedule_collection`（≈10 步，已接近七步；`project_migrate/legacy/handoff` 不会出现）。
+- 本版工作：①**断言测试**锁死"v0.5.4 包 × 各源版本 → 计划不含迁移/交接/legacy 动作"（防编译器回归）；
+  ②`filesystem.prepare`/`task_state` 等对目标布局机器的实际必要性逐个核查，能在 v0.5.5 退役的登记清单；
+  ③**不强行改编译器结构**（它已退化为常量模板；重构收益低、回归风险高——诚实评估后留给后续版本）。
+- v1 设计 6（计划随包）**作废**：常量模板下编译器无偏斜知识，无需随包。
+
+## W7 两道构建门禁
+
+### 7.1 动作词汇冻结门禁 `scripts/verify_upgrade_plan_vocabulary.py`
+- 输入：候选平台包 + 已发布 runner 组件包（Release 资产）。
+- 步骤：①manifest `schema_version` 与已发布线一致（变更即 fail——老编译器必须能读）；
+  ②用**候选包内编译器**对每个 `source_compatibility` 源版本生成计划 → 动作集 ⊆ 已发布 runner 包 manifest
+  动作集；③`git diff <published-tag>..HEAD -- backend/app/v2/upgrade/compiler.py` 非空时输出
+  「编译器有变更，需人工核对偏斜矩阵」警告（不 fail，但必须出现在发版检查单）。
+- 接入 `ops/package.sh`（身份门禁之后）；输出 PASS/FAIL 供 ledger 引用。
+
+### 7.2 expand-only 迁移门禁
+- 扫描 `backend/app/v2/upgrade/migrations/registry.json` 新增条目对应 SQL/代码：
+  含 `DROP TABLE|DROP COLUMN|ALTER ... RENAME|MODIFY|DELETE FROM|UPDATE .* SET`（破坏性模式）→ fail，
+  除非条目显式标记 `"contract": true` 且关联 contract 计划（默认禁止新增 contract 条目）。
+
+## W8 US-39 守卫投递
+
+- 打包：`build_upgrade_package.py` 把 `delivery/compose-guard.sh` 复制进平台包 project 载荷（根级 `compose-guard.sh`）；
+  `files.sync` 自然带进现场 project 目录。
+- 标记回填：`files.sync` 动作末尾（runner 侧，有 project 写权）：若 project/.env 无
+  `SMARTX_COMPOSE_FILE_ACTIVE` → 从**运行中容器的 `com.docker.compose.project.config_files` label** 取 basename
+  写入（逻辑自包含移植自 delivery/compose-guard.sh 的 resolve，不 source 外部脚本）。幂等：已有标记不覆盖。
+
+## 10. 兼容矩阵（每格都要有测试或演练覆盖）
+
+| # | web-api | runner | 场景 | 关键判据 |
+| --- | --- | --- | --- | --- |
+| M1 | v0.5.2 | v0.3.1 | 升 v0.5.3 | 已发布路径（回归即可） |
+| M2 | v0.5.3 | v0.3.1 | 升 v0.5.4（七步+场景 A） | 主路径；runner 容器 ID 不变；healthcheck 失败自动回滚实测 |
+| M3 | v0.5.3 | v0.3.1 | 组件升 v0.3.2 | 旧编排最后一次；guard 下安全 |
+| M4 | v0.5.3 | v0.3.2 | presence/预检查 | DB 兼容镜像保证 v0.5.3 判定正常 |
+| M5 | v0.5.4 | v0.3.1 | presence 文件缺失回落 DB | 行为与今天一致 |
+| M6 | v0.5.4 | v0.3.2 | 终态：自换/文件优先/投影 | 全部新特性生效 |
+| M7 | v0.5.4 | v0.3.2 | 场景 B/C 手动回滚 | 判定 API + 任务化执行 |
+
+## 11. 测试规格汇总
+
+| # | 层级 | 内容 | 判据 |
+| --- | --- | --- | --- |
+| T1 | 单元 | 状态文件原子写/损坏自愈/schema 容错/并发 | 永远可解析或触发重建 |
+| T2 | 单元 | 投影幂等、file-newer 判定、镜像失败无害 | 无异常冒泡 |
+| T3 | `.14` | diff 收敛 | 未变更服务容器 ID 不变 + 差异日志 |
+| T4 | 单元 | runner 触碰守卫 | upgrade-runner 进列表 → 拒绝 |
+| T5 | `.14` | 回滚五项（A×3 失败点 + B + C） | 各场景判据（v2 设计 §5） |
+| T6 | 构建 | expand-only 门禁 | 破坏性迁移即 fail |
+| T7 | 构建 | 词汇冻结门禁 | 缺动作即 fail；r17 包回归 PASS |
+| T8 | `.12`/`.14` | 兼容矩阵 M1–M7 | 逐格通过 |
+| T9 | 预览 | 场景 B 前端入口 + 场景 A 失败展示 | 预检查/任务中心文案正确 |
+| T10 | `.3` | 全量回归 | 后端 unittest + tsc + vitest 回基线 |
+| T11 | `.14` | 组件自换 | 中断 ≤30s、presence ≤60s、零编排 |
+| T12 | `.14` | 七步流程断言 | 计划无迁移/交接/legacy 动作 |
+
+## 12. 实施顺序与依赖
+
+```text
+W1 状态文件 ──→ W2 单写者 ──→ W3 自换（依赖 W1 的 presence）──→ 批次 C 验收
+     │                        ├──→ W4 diff 收敛（独立，可并行）
+     │                        └──→ W5 场景 A（依赖锚点=W3 引入的锚点机制）
+W7 门禁（独立，先做——保护后续每一步）
+W8 US-39（独立，随 files.sync 顺带）
+W6 七步断言（批次 B，依赖 W4/W5 落地后验证）
+W5 场景 B/C（批次 B 平台侧）
+```
+
+提交纪律：单工作项单提交；每个工作项提交信息注明对应 W 编号与测试结果。
+
+## 13. 文档同步清单（实施完成时）
+
+- AGENTS §6：已按自换修订（2026-10-05 完成，见 git 历史）——实施后核对表述与实现一致；
+- `docs/upgrade-strategy-issues.md`：US-26/28/17/39 置 🟢（附证据链接）；
+- `docs/upgrade-chain.md`：偏斜矩阵落表；
+- `docs/version-governance.md`：v0.3.2 交付条目更新（含自换协议冻结声明）；
+- `docs/releases/CHANGELOG.md`：v0.5.4 节立项（候选）；
+- pending-tasks：#62/#53/#83 关闭或状态推进。

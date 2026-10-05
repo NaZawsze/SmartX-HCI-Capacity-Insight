@@ -2267,7 +2267,7 @@ v0.3.2 → v0.3.3 才能动。**这个判断是错的**——那条规矩的目�
 ⑤US-39 守卫投递 + 两步引导。
 
 **设计**：docs/superpowers/specs/2026-10-05-upgrade-architecture-v054-design.md。
-**计划**：docs/superpowers/plans/2026-10-05-upgrade-architecture-v054-plan.md（批次 A runner / B 平台 / C 验收发版）。
+**计划**：docs/superpowers/plans/2026-10-05-upgrade-architecture-v054-plan.md（批次 A runner / B 平台 / C 验收发版）。**实施规格**：docs/superpowers/specs/2026-10-05-upgrade-architecture-v054-impl-spec.md（W1–W8 逐项工程规格，交实施 AI 填代码）。AGENTS §6 自升级规则已按自换修订（2026-10-05 用户认可）。
 
 **验收标准**：批次 C 全绿——C1 直升后未变更服务容器 ID 不变、C2 组件升级兼容格通过、C3 三失败点回滚成功、
 C4 `.12` 老链路回归、C5 打包门禁全过。设计回滚：runner/platform 改动 `git revert` + 重打包；

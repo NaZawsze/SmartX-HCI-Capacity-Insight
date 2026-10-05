@@ -4,7 +4,7 @@
 - **取代** [2026-10-05-upgrade-architecture-v054-design.md](2026-10-05-upgrade-architecture-v054-design.md)（v1，方案 A+C 局部落地——
   2026-10-05 用户决策：**不做局部优化，直接按业界三层形态重构**）
 - 关联：§C2、`upgrade-architecture-options.md`、task_plan Phase 68、pending #62/#53/#83
-- 状态：设计定稿，待实施
+- 状态：设计定稿，待实施。**工程实施规格（交给实施 AI 填代码的逐项规格）**：[2026-10-05-upgrade-architecture-v054-impl-spec.md](2026-10-05-upgrade-architecture-v054-impl-spec.md)——含现状代码地图、W1–W8 工作项（现状 file:line / 数据结构 / 错误处理 / 验收）、兼容矩阵 M1–M7、测试 T1–T12。
 
 ## 1. 问题清单
 
