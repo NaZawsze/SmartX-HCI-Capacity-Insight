@@ -19,6 +19,18 @@ ENV_FILE = ROOT / ".env"
 PACKAGE_DIR = Path("/data/upgrade-packages")
 PRODUCT = "smartx-storage-forecast"
 DEFAULT_MIN_VERSION = "v0.5.0"
+
+#: B5b（impl-spec §W6）：从 v0.5.4 起，本包**只支持目标布局**（v0.5.2+）的源版本。
+#: 仍在旧布局（v0.5.0 / v0.5.1 / v0.5.1u1 / v0.5.1u2）的现场必须先升到 v0.5.3
+#: （该链路已验证，见 docs/upgrade-chain.md），再升 v0.5.4。
+#:
+#: 为什么收窄：`directory_transition` / `legacy_cleanup` 非空时，编译出的计划必然带
+#: `compose.project_migrate` / `filesystem.prepare` / `task.*_runtime_state` /
+#: `post_upgrade.schedule_cleanup` / `runner.*` / `legacy.cleanup`——实测 10 步，
+#: 且这些动作正是 US-26 一类事故的高发区。收窄后计划是**常量动作集**，
+#: v0.5.5 起可退役目录迁移与任务状态迁移动作。
+TARGET_LAYOUT_FLOOR_VERSION = "v0.5.4"
+MINIMUM_SOURCE_VERSION = "v0.5.2"
 RELEASE_NAMESPACE = "nazawsze"
 TARGET_COMPOSE_PROJECT = "smartx-hci-capacity-insight"
 TARGET_COMPOSE_NETWORK = "smartx-hci-capacity-insight-net"
@@ -471,7 +483,15 @@ def _selected_migration_steps(registry: list[dict[str, Any]], *, min_version: st
     ]
 
 
+def _effective_min_version(min_version: str, target_version: str) -> str:
+    """目标版本进入目标布局门槛后，来源版本下限抬到 `MINIMUM_SOURCE_VERSION`。"""
+    if _version_tuple(target_version) >= _version_tuple(TARGET_LAYOUT_FLOOR_VERSION):
+        return MINIMUM_SOURCE_VERSION
+    return min_version
+
+
 def _source_compatibility(*, min_version: str, target_version: str) -> dict[str, Any]:
+    min_version = _effective_min_version(min_version, target_version)
     supported_versions = _supported_source_versions(min_version, target_version)
     supported_paths = [f"{version} -> {target_version}" for version in supported_versions]
     return {
@@ -485,6 +505,7 @@ def _source_compatibility(*, min_version: str, target_version: str) -> dict[str,
 
 
 def _environment_transitions(*, min_version: str, target_version: str) -> list[dict[str, Any]]:
+    min_version = _effective_min_version(min_version, target_version)
     supported = _supported_source_versions(min_version, target_version)
     legacy_versions = [version for version in supported if _version_tuple(version) < _version_tuple("v0.5.2")]
     if _version_tuple(target_version) < _version_tuple("v0.5.2") or not legacy_versions:
@@ -502,6 +523,9 @@ def _environment_transitions(*, min_version: str, target_version: str) -> list[d
 
 def _directory_transition(*, target_version: str) -> dict[str, Any]:
     if _version_tuple(target_version) < _version_tuple("v0.5.2"):
+        return {}
+    if _version_tuple(target_version) >= _version_tuple(TARGET_LAYOUT_FLOOR_VERSION):
+        # 目标布局已是唯一合法布局：不再声明目录迁移（`filesystem.prepare` 不再出现在计划里）。
         return {}
     return {
         "target_root": TARGET_INSTALL_ROOT,
@@ -528,6 +552,10 @@ def _directory_transition(*, target_version: str) -> dict[str, Any]:
 
 def _legacy_cleanup(*, target_version: str) -> dict[str, Any]:
     if _version_tuple(target_version) < _version_tuple("v0.5.2"):
+        return {}
+    if _version_tuple(target_version) >= _version_tuple(TARGET_LAYOUT_FLOOR_VERSION):
+        # 旧布局升级由 v0.5.3 负责；v0.5.4 不再声明 legacy 清理
+        # （否则计划会重新长出 handoff / legacy.cleanup / schedule_cleanup 六个动作）。
         return {}
     return {
         "helper_image": release_image("smartx-hci-capacity-insight-web-api", target_version),
@@ -570,18 +598,27 @@ def _legacy_cleanup(*, target_version: str) -> dict[str, Any]:
 
 
 def _post_upgrade(*, target_version: str, legacy_cleanup: dict[str, Any]) -> dict[str, Any]:
-    if _version_tuple(target_version) < _version_tuple("v0.5.2") or not legacy_cleanup:
+    if _version_tuple(target_version) < _version_tuple("v0.5.2"):
         return {}
-    return {
+    payload: dict[str, Any] = {
         # 49-49：auto_collection 必须为 False——源端 v0.5.2 的老编译器只认这个键，
         # 为 True 会下发 post_upgrade.schedule_collection，而已发布 runner（d10e15cf）不实现该动作，
         # 会在平台切换之后失败。真正调度改由 platform_collection（新键，老编译器忽略）驱动平台 worker。
         "auto_collection": False,
         "platform_collection": True,
-        "create_cleanup_task": True,
-        "cleanup_task_policy": "after_platform_health_success",
-        "cleanup_failure_severity": "warning",
     }
+    # 升级后自动采集是**已发布特性**（49-49），与 legacy 清理无关：v0.5.4 起 legacy_cleanup
+    # 为空，但 platform_collection 必须仍在，worker.py 的 `_should_schedule_post_upgrade_collection`
+    # 依赖它。cleanup 任务只服务于旧布局清理，没有 legacy 就没有 cleanup。
+    if legacy_cleanup:
+        payload.update(
+            {
+                "create_cleanup_task": True,
+                "cleanup_task_policy": "after_platform_health_success",
+                "cleanup_failure_severity": "warning",
+            }
+        )
+    return payload
 
 
 def _platform_services_for_version(version: str) -> list[str]:
@@ -593,6 +630,8 @@ def _platform_services_for_version(version: str) -> list[str]:
 
 
 def _supported_source_versions(min_version: str, target_version: str) -> list[str]:
+    # B5b：门槛版本起来源下限统一抬到目标布局下限，避免任何调用点拿到宽矩阵。
+    min_version = _effective_min_version(min_version, target_version)
     try:
         min_tuple = _version_tuple(min_version)
         target_tuple = _version_tuple(target_version)
@@ -995,6 +1034,9 @@ def build_package(
     elif not allow_existing_images:
         raise SystemExit("--no-build requires --allow-existing-images so polluted local tags cannot be reused silently.")
     validate_release_images(version)
+    # B5b：目标布局门槛之后的版本，来源下限统一抬到 MINIMUM_SOURCE_VERSION，
+    # 并让 manifest / 兼容声明 / release notes 用同一个值（不留 v0.5.0 的字样）。
+    min_version = _effective_min_version(min_version, version)
 
     work = output_dir / f"smartx-capacity-insight-upgrade-{version}"
     package = output_dir / f"smartx-capacity-insight-upgrade-{version}.tar.gz"

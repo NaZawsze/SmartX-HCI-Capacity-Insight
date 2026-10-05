@@ -231,6 +231,60 @@ restarts 计数符合预期（旧容器被 replace，新容器 restarts=0）。
   ③**不强行改编译器结构**（它已退化为常量模板；重构收益低、回归风险高——诚实评估后留给后续版本）。
 - v1 设计 6（计划随包）**作废**：常量模板下编译器无偏斜知识，无需随包。
 
+### W6.1 支持矩阵收窄（2026-10-06 用户定案）
+
+实测发现：按原打包参数（`DEFAULT_MIN_VERSION=v0.5.0`）v0.5.4 计划是 **10 步**，含
+`compose.project_migrate` / `filesystem.prepare` / `task.migrate_runtime_state` /
+`task.sync_runtime_state` / `post_upgrade.schedule_cleanup` / `runner.schedule_target_runtime_handoff`；
+只把 min_version 改成 v0.5.2、但 `directory_transition`/`legacy_cleanup` 仍非空时是 9 步。
+**"常量计划"成立的前提是 v0.5.4 不再声明目录迁移与 legacy 清理。**
+
+定案（`scripts/build_upgrade_package.py`）：
+
+| 项 | 取值 |
+| --- | --- |
+| `TARGET_LAYOUT_FLOOR_VERSION` | `v0.5.4` |
+| `MINIMUM_SOURCE_VERSION` | `v0.5.2` |
+| `_effective_min_version()` | 目标 ≥ v0.5.4 时，来源下限一律抬到 v0.5.2 |
+| `_directory_transition()` / `_legacy_cleanup()` | 目标 ≥ v0.5.4 返回 `{}` |
+| `source_compatibility.supported_versions` | `[v0.5.2, v0.5.3, v0.5.4]` |
+| 旧布局（v0.5.0 / v0.5.1 / v0.5.1u1 / v0.5.1u2） | ⛔ 不支持直升，precheck 拒绝 + 引导「先升 v0.5.3」（remediation 文案见 B3） |
+| v0.5.3 及更早的包 | **不受影响**，仍支持 v0.5.0–v0.5.1u2 直升 |
+
+### W6.2 v0.5.4 计划动作集（断言锁的是**集合**，不是步数）
+
+平台包（platform-only 组件）：
+`{backup.create, image.load(×3), files.sync, compose.override, compose.apply, health.http}`
+bundle 包（带 observability 组件）额外 `health.prometheus`。
+带 schema 迁移时额外 `script.run_sandboxed`（SQLite 迁移走沙箱，与 legacy 布局迁移无关）。
+
+两处与本文早先措辞的偏差（以代码为准，已核实）：
+
+1. `health.prometheus` **只在声明 observability 组件时**出现（编译器按组件分支），
+   平台-only 包不含它。
+2. `post_upgrade.schedule_collection` **不由编译器下发**——49-49 已把升级后自动采集改为
+   平台侧调度（`post_upgrade.platform_collection` → `worker.py`），该动作只写标记文件。
+   runner 仍实现它，仅为老桥接计划（v0.5.3 及更早的包）兜底。
+
+「七步」是设计里的流程分组（backup → load → sync → swap → health → verify → checkpoint），
+一个分组可对应多个动作；测试不锁步数。
+
+### W6.3 退役登记（v0.5.5 候选）
+
+| 动作 | v0.5.4 计划 | 目标布局机器上的必要性核查 | 结论 |
+| --- | --- | --- | --- |
+| `filesystem.prepare` | 不发射 | 7 个目标目录在 v0.5.2 安装/升级时已建，且载体目录是禁删红线（UPG-050）；其余职责（legacy 路径搬迁、env 迁移）参数已空 | **可退役**，残留风险由 health `checks.directories` 兜底 |
+| `task.migrate_runtime_state` | 不发射 | 迁移的是 legacy `upgrades` 目录里的旧任务状态；目标布局机器的任务本就在目标 `upgrades` 下 | **可退役** |
+| `task.sync_runtime_state` | 不发射 | 与 legacy cleanup 配对（收尾前同步运行态）；无 cleanup 即无意义 | **可退役** |
+| `compose.project_migrate` | 不发射 | 旧 project/network 重命名；目标布局已是 `smartx-hci-capacity-insight` | **可退役**（保留实现供老桥场景） |
+| `runner.handoff_target_runtime` / `runner.schedule_target_runtime_handoff` / `runner.stop_legacy_runtime` | 不发射 | 旧布局引导期把 runner 迁进新 project；v0.5.2+ 的 runner 已在目标 project。W3 自换（`component.*`）与之无关，保留 | **可退役**（保留实现） |
+| `legacy.cleanup` / `compose.stop_legacy_project` / `network.remove_legacy` / `filesystem.cleanup_*` / `post_cleanup.*` | 不发射 | 只服务旧布局清理 | **可退役**（保留实现） |
+| `post_upgrade.schedule_cleanup` | 不发射 | 只在 `create_cleanup_task` + legacy_cleanup 同时成立时下发 | **可退役**（保留实现） |
+| `post_upgrade.schedule_collection` | 不发射 | 49-49 起平台侧调度；老包计划仍会下发 | 保留（兼容），不列退役 |
+
+「可退役」= v0.5.5 起可从**默认计划模板**里去掉；**动作实现一律保留**，
+因为 v0.5.3 及更早的包编译出的计划仍会下发它们（老桥接场景兜底）。
+
 ## W7 两道构建门禁
 
 ### 7.1 动作词汇冻结门禁 `scripts/verify_upgrade_plan_vocabulary.py`
