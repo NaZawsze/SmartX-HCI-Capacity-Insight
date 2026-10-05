@@ -10,6 +10,7 @@ from app.v2.upgrade.service import UpgradeService
 from app.v2.api.deps import get_upgrade_service, require_user
 from app.v2.api.models import (
     AdminTaskResponse,
+    UpgradeRollbackAvailabilityResponse,
     ComponentCatalogResponse,
     ComponentVersionResponse,
     UpgradeVerificationResponse,
@@ -53,6 +54,30 @@ def rollback_upgrade_package(
     upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
 ) -> dict:
     return upgrade.rollback(task_id)
+
+
+# ── 场景 B：手动「回滚到上一版本」（应用回滚，保数据）────────────────────────
+# 注意与下面 `/api/admin/upgrade/rollback/{task_id}` 的区别：那个是 US-29 下线的旧编排路径，
+# 只为老客户端/历史任务保留，不作为产品入口；这里是 N-1 应用回滚的产品化入口。
+
+
+@router.get(
+    "/api/admin/upgrade/rollback-availability",
+    response_model=UpgradeRollbackAvailabilityResponse,
+)
+def upgrade_rollback_availability(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.rollback_availability()
+
+
+@router.post("/api/admin/upgrade/rollback")
+def start_upgrade_rollback_to_previous(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.start_manual_rollback()
 
 
 @router.post("/api/admin/upgrade/recovery/{task_id}/continue")

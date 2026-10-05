@@ -3665,6 +3665,23 @@ button.risk-cluster-row:hover {
   text-align: left;
 }
 
+/* 场景 B：回滚可行性的阻塞原因列表。只用 :root 变量，6px 圆角，不新增分区形态。 */
+.upgrade-rollback-blockers {
+  display: grid;
+  gap: 4px;
+  grid-column: 1 / -1;
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--orange);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.upgrade-rollback-blockers small {
+  color: var(--text);
+  line-height: 1.5;
+}
+
 /* B3：预检查失败项的「下一步指引」。只用 :root 变量，不引入新色值；
    6px 圆角与现有 .upgrade-check 一致，不引入新的分区形态。 */
 .upgrade-check-remediation {

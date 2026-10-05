@@ -19,6 +19,8 @@ const apiMock = vi.hoisted(() => ({
   startComponentUpgrade: vi.fn(),
   continueUpgradeRecovery: vi.fn(),
   rollbackUpgradeRecovery: vi.fn(),
+  upgradeRollbackAvailability: vi.fn(),
+  rollbackToPreviousVersion: vi.fn(),
   failUpgradeRecovery: vi.fn(),
   importMigration: vi.fn(),
   startMigrationImport: vi.fn(),
@@ -64,6 +66,11 @@ async function flushReactUpdates() {
 
 function mockServicePageBootstrap() {
   apiMock.upgradeVersion.mockResolvedValue({ version: "v0.5.0" });
+  apiMock.upgradeRollbackAvailability.mockResolvedValue({
+    available: false,
+    blockers: ["没有平台回滚锚点（需先完成一次 v0.5.4+ 平台升级）"],
+    scope: "application_only"
+  });
   apiMock.componentUpgradeVersion.mockResolvedValue({ component: "upgrade-runner", version: "v0.3.0" });
   apiMock.componentUpgradeComponents.mockResolvedValue({
     components: [
@@ -801,6 +808,54 @@ describe("ServicePage upgrade center", () => {
     await waitFor(() => expect(apiMock.precheckUpgrade).toHaveBeenCalledWith("upgrade-1"));
     expect(await screen.findByText("预检查通过")).toBeInTheDocument();
     expect(document.querySelector("em.upgrade-check-remediation")).toBeNull();
+  });
+
+  it("shows scenario B blockers when rollback to previous version is unavailable", async () => {
+    // 场景 B：拒绝必须带出路——阻塞原因逐条显示，不是一个"不可用"的哑按钮。
+    mockServicePageBootstrap();
+    apiMock.upgradeHistory.mockResolvedValue([uploadedPlatformTask()]);
+    apiMock.upgradeRollbackAvailability.mockResolvedValue({
+      available: false,
+      blockers: ["旧镜像已不在本地：web-api（nazawsze/smartx-hci-capacity-insight-web-api:v0.5.2）"],
+      target_version: "v0.5.2",
+      current_version: "v0.5.3",
+      scope: "application_only"
+    });
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText("v0.5.2"));
+    const button = await screen.findByRole("button", { name: "回滚到上一版本" });
+    expect(button).toBeDisabled();
+    expect(
+      await screen.findByText("旧镜像已不在本地：web-api（nazawsze/smartx-hci-capacity-insight-web-api:v0.5.2）")
+    ).toBeInTheDocument();
+  });
+
+  it("submits scenario B rollback to previous version when available", async () => {
+    mockServicePageBootstrap();
+    apiMock.upgradeHistory.mockResolvedValue([uploadedPlatformTask()]);
+    apiMock.upgradeRollbackAvailability.mockResolvedValue({
+      available: true,
+      blockers: [],
+      target_version: "v0.5.2",
+      current_version: "v0.5.3",
+      scope: "application_only"
+    });
+    apiMock.rollbackToPreviousVersion.mockResolvedValue({
+      ...uploadedPlatformTask(),
+      task_id: "manual-rollback-20261006",
+      target_version: "v0.5.2",
+      status: "pending"
+    });
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText("v0.5.2"));
+    const button = await screen.findByRole("button", { name: "回滚到上一版本" });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+
+    await waitFor(() => expect(apiMock.rollbackToPreviousVersion).toHaveBeenCalled());
+    expect(await screen.findByText(/已提交回滚到 v0\.5\.2/)).toBeInTheDocument();
   });
 
   it("shows missing runner capability for selected platform package before execution", async () => {

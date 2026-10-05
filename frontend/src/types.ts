@@ -380,6 +380,20 @@ export interface UpgradeTask {
   logs: string[];
 }
 
+/** 场景 B：可回滚性判定。blockers 是结构化数组——拒绝必须带出路（B3 同构）。 */
+export interface UpgradeRollbackAvailability {
+  available: boolean;
+  blockers: string[];
+  target_version?: string;
+  current_version?: string;
+  images?: string[];
+  anchor_source?: string;
+  anchor_task_id?: string;
+  captured_at?: string;
+  scope?: string;
+  note?: string;
+}
+
 export interface UpgradeVerification {
   app_version: string;
   runner_version: string;

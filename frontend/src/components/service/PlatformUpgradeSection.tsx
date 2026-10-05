@@ -1,7 +1,14 @@
 import { FileArchive, ListChecks, RefreshCw, RotateCcw, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { api } from "../../services/api";
-import type { AppTask, ComponentInfo, UpgradePostCleanupStatus, UpgradeTask, UpgradeVerification } from "../../types";
+import type {
+  AppTask,
+  ComponentInfo,
+  UpgradePostCleanupStatus,
+  UpgradeRollbackAvailability,
+  UpgradeTask,
+  UpgradeVerification
+} from "../../types";
 import {
   CleanupDialog,
   EmptyUpgrade,
@@ -68,6 +75,8 @@ export function PlatformUpgradeSection({
   const [postCleanupBusy, setPostCleanupBusy] = useState(false);
   const [verificationBusy, setVerificationBusy] = useState(false);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
+  // 场景 B：可回滚性判定（blockers 结构化——拒绝必须带出路）
+  const [rollbackAvailability, setRollbackAvailability] = useState<UpgradeRollbackAvailability | null>(null);
   const [upgradeMessage, setUpgradeMessage] = useState("");
   const [cleanupBusy, setCleanupBusy] = useState(false);
   const [cleanupScanBusy, setCleanupScanBusy] = useState(false);
@@ -158,6 +167,8 @@ export function PlatformUpgradeSection({
     api.upgradeVersion().then((result) => setAppVersion(result.version)).catch(() => undefined);
     reloadUpgradeHistory().catch(() => undefined);
     reloadUpgradeVerification().catch(() => undefined);
+    // 场景 B：进入升级中心即读一次可回滚性（按钮的可用状态与阻塞原因都需要它）
+    void loadRollbackAvailability();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -359,6 +370,40 @@ export function PlatformUpgradeSection({
       setUpgradeMessage("升级任务已提交，日志会自动刷新。");
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "开始升级失败";
+      updateTask(id, { status: "failed", progress: 100, detail: message });
+      setUpgradeMessage(message);
+    } finally {
+      setUpgradeBusy(false);
+    }
+  }
+
+  async function loadRollbackAvailability() {
+    try {
+      setRollbackAvailability(await api.upgradeRollbackAvailability());
+    } catch (exc) {
+      setRollbackAvailability({
+        available: false,
+        blockers: [exc instanceof Error ? exc.message : "无法读取可回滚性"],
+      });
+    }
+  }
+
+  async function rollbackToPreviousVersion() {
+    setUpgradeMessage("");
+    setUpgradeBusy(true);
+    const id = taskId("rollback-previous");
+    addTask({ id, kind: "upgrade", title: "回滚到上一版本", detail: rollbackAvailability?.target_version || "-", status: "running", progress: 10 });
+    try {
+      const task = await api.rollbackToPreviousVersion();
+      setUpgradeTask(task);
+      setStepsExpanded(true);
+      setLogsExpanded(true);
+      upgradeRunTaskRef.current[task.task_id] = id;
+      updateTask(id, { progress: upgradeProgress(task), detail: upgradeStatusText(task.status) });
+      setUpgradeMessage(`已提交回滚到 ${task.target_version}（只回滚应用，数据保留）。`);
+      void loadRollbackAvailability();
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "提交回滚失败";
       updateTask(id, { status: "failed", progress: 100, detail: message });
       setUpgradeMessage(message);
     } finally {
@@ -598,6 +643,34 @@ export function PlatformUpgradeSection({
                 <X size={16} />
                 删除升级包
               </button>
+            )}
+            {/* 场景 B：回滚到上一版本（应用回滚，保数据）。不可用时把原因逐条显示出来——
+                「拒绝必须带出路」，与 B3 的 precheck remediation 同一口径。 */}
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void rollbackToPreviousVersion()}
+              disabled={upgradeBusy || isRunning || needsRecovery || !rollbackAvailability?.available}
+            >
+              <RotateCcw size={16} />
+              回滚到上一版本
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void loadRollbackAvailability()}
+              disabled={upgradeBusy || isRunning}
+              aria-label="检查能否回滚到上一版本"
+            >
+              <ListChecks size={16} />
+              检查回滚可行性
+            </button>
+            {rollbackAvailability && !rollbackAvailability.available && (
+              <div className="upgrade-rollback-blockers" role="status">
+                {rollbackAvailability.blockers.map((blocker) => (
+                  <small key={blocker}>{blocker}</small>
+                ))}
+              </div>
             )}
             <button className="secondary-button danger-button" type="button" onClick={rollbackUpgrade} disabled={upgradeBusy || isRunning || needsRecovery || !upgradeTask.started_at}>
               <RotateCcw size={16} />

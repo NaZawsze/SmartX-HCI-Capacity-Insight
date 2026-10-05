@@ -530,6 +530,22 @@ class UpgradeVersionResponse(BaseModel):
     version: Optional[str] = None
 
 
+class UpgradeRollbackAvailabilityResponse(BaseModel):
+    """场景 B：可回滚性判定（B3 同构——拒绝必须带出路，故 blockers 是结构化数组）。"""
+
+    model_config = ConfigDict(extra="allow")
+    available: bool
+    blockers: List[str] = []
+    target_version: Optional[str] = None
+    current_version: Optional[str] = None
+    images: List[str] = []
+    anchor_source: Optional[str] = None
+    anchor_task_id: Optional[str] = None
+    captured_at: Optional[str] = None
+    scope: Optional[str] = None
+    note: Optional[str] = None
+
+
 class ComponentVersionResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
     component: Optional[str] = None

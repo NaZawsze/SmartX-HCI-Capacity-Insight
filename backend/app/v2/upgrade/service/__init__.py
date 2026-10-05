@@ -17,6 +17,7 @@ from ._compat import HTTPException, UploadFile
 from .cleanup import CleanupMixin
 from .execution import ExecutionMixin
 from .intake import IntakeMixin
+from .manual_rollback import ManualRollbackMixin
 from .paths import PathsMixin
 from .precheck import PrecheckMixin
 from .taskfile import TaskFileMixin, _save_task_file
@@ -36,7 +37,7 @@ class UpgradeCommandExecutor:
         return completed.stdout
 
 
-class UpgradeService(IntakeMixin, PrecheckMixin, ExecutionMixin, CleanupMixin, VerificationMixin, TaskFileMixin, PathsMixin):
+class UpgradeService(IntakeMixin, PrecheckMixin, ExecutionMixin, CleanupMixin, VerificationMixin, TaskFileMixin, PathsMixin, ManualRollbackMixin):
     def __init__(
         self,
         settings: V2Settings,
@@ -53,4 +54,4 @@ class UpgradeService(IntakeMixin, PrecheckMixin, ExecutionMixin, CleanupMixin, V
         self.hostname_path = hostname_path or Path("/etc/hostname")
 
 
-__all__ = ["UpgradeService", "UpgradeCommandExecutor", "HTTPException", "_save_task_file"]
+__all__ = ["UpgradeService", "UpgradeCommandExecutor", "HTTPException", "ManualRollbackMixin", "_save_task_file"]

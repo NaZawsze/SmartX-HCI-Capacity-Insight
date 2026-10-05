@@ -489,7 +489,9 @@ Admin endpoints require an admin token. Platform upgrade follows upload → prec
 | POST | `/api/admin/upgrade/start/{task_id}` | Start the upgrade |
 | GET | `/api/admin/upgrade/status/{task_id}` | Task status, steps, and logs |
 | POST | `/api/admin/upgrade/cancel/{task_id}` | Cancel a task |
-| POST | `/api/admin/upgrade/rollback/{task_id}` | Trigger rollback |
+| GET | `/api/admin/upgrade/rollback-availability` | Scenario B: whether an app-only rollback to the previous version is possible (`available` + `blockers[]`) |
+| POST | `/api/admin/upgrade/rollback` | Scenario B: start a taskized app-only rollback to the previous version (data preserved; `scope=application_only`) |
+| POST | `/api/admin/upgrade/rollback/{task_id}` | Legacy rollback path (US-29 retired; kept for old clients only) |
 | POST | `/api/admin/upgrade/recovery/{task_id}/continue` | Continue a `recovery_required` task |
 | POST | `/api/admin/upgrade/recovery/{task_id}/rollback` | Roll back a `recovery_required` task |
 | POST | `/api/admin/upgrade/recovery/{task_id}/fail` | Fail a `recovery_required` task |

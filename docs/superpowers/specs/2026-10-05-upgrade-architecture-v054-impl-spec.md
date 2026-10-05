@@ -202,8 +202,10 @@ restarts 计数符合预期（旧容器被 replace，新容器 restarts=0）。
   `rollback_on_failure` → **v0.5.3→v0.5.4 首升即有自动回滚**。
 
 ### 场景 B：手动应用回滚（保数据）
-- 锚点：web-api 在平台升级任务创建时写 `app/rollback-anchor.json`（web-api 独占）：
-  `{previous_version, image_tags, backup_path, backup_sha256, pre_upgrade_migrations: [...]}`。
+- 锚点：**不新建第三份文件**（2026-10-06 落地修订）。A5 已把锚点写在 ①`task.json`
+  ②状态文件持久段 `rollback_anchors`（`e594432` 修掉"任务结束锚点随租约消失"）；
+  B8 读状态文件为事实源、回退扫 `task.json`。三份锚点一旦不同步，回滚会按过期值执行——
+  比没有锚点更危险。原写的 `app/rollback-anchor.json` 作废。
 - API：`GET /api/admin/upgrade/rollback-availability` → `{available, blockers[], target_version}`；
   判定 = ①旧镜像在本地（docker image inspect）②未执行 contract 迁移（migration registry 快照对比）
   ③无进行中任务（单飞守卫）。

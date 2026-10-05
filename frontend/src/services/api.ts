@@ -19,6 +19,7 @@ import type {
   SpaceCleanupScanResult,
   Tower,
   UpgradePostCleanupStatus,
+  UpgradeRollbackAvailability,
   UpgradeTask,
   UpgradeVerification,
   VmDetail,
@@ -497,6 +498,14 @@ export const api = {
   },
   async rollbackUpgrade(taskId: string): Promise<UpgradeTask> {
     return request<UpgradeTask>(`/api/admin/upgrade/rollback/${taskId}`, { method: "POST" });
+  },
+  /** 场景 B：能否回滚到上一版本（应用回滚，保数据）。 */
+  async upgradeRollbackAvailability(): Promise<UpgradeRollbackAvailability> {
+    return request<UpgradeRollbackAvailability>("/api/admin/upgrade/rollback-availability", { method: "GET" });
+  },
+  /** 场景 B：发起回滚到上一版本的任务（单飞守卫在后端）。 */
+  async rollbackToPreviousVersion(): Promise<UpgradeTask> {
+    return request<UpgradeTask>("/api/admin/upgrade/rollback", { method: "POST" });
   },
   async continueUpgradeRecovery(taskId: string): Promise<UpgradeTask> {
     return request<UpgradeTask>(`/api/admin/upgrade/recovery/${taskId}/continue`, { method: "POST" });
