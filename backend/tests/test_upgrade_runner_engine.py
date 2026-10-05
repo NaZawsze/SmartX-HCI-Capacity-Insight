@@ -594,6 +594,17 @@ class UpgradeEngineTest(unittest.TestCase):
             (target_task_dir / "task.json").write_text('{"task_id":"upgrade-1","status":"running"}', encoding="utf-8")
             context = ActionContext.minimal(root, executor=Executor())
             context.task_id = "upgrade-1"
+            # handoff 的存在性检查在 **runner 容器内**执行，只能看见容器自己的挂载。
+            # 真实布局：宿主 `.../upgrades` 挂到容器 `/data/upgrades`。旧实现拿宿主路径
+            # 去 `is_file()`，命中的是 app bind 里的 UPG-050 载体目录（陈旧快照），
+            # 全新安装没有载体残留时必然失败——`.3` 实测载体里有 5 个 9 月旧任务、
+            # 真实目录只有 3 个当前任务。故这里把容器可见路径也造出来。
+            context.host_upgrades_path = target_root / "upgrades"
+            container_task_dir = context.upgrades_path / "upgrade-1"
+            container_task_dir.mkdir(parents=True)
+            (container_task_dir / "task.json").write_text(
+                '{"task_id":"upgrade-1","status":"running"}', encoding="utf-8"
+            )
 
             result = runner_schedule_target_runtime_handoff(
                 {
@@ -628,6 +639,62 @@ class UpgradeEngineTest(unittest.TestCase):
             self.assertIn("repo/upgrade-runner:v0.3.1", docker_run)
             self.assertEqual(result["helper_container"], "smartx-runner-cutover-upgrade-1")
             self.assertEqual(result["compose_file"], str(compose_path))
+            # 存在性检查用容器可见路径，挂载用宿主路径——两类消费者需求不同
+            self.assertEqual(result["parent_task_file"], str(target_task_dir / "task.json"))
+
+    def test_handoff_existence_check_uses_container_path_not_upg050_carrier(self) -> None:
+        """回归锁：宿主路径在容器内不可见，检查必须走容器路径。
+
+        旧实现拿宿主路径 `is_file()`，实际命中 app bind 里的 UPG-050 载体目录
+        （陈旧快照）。全新安装没有载体残留 → 检查必然失败 → 自换被完全阻断。
+        """
+        from app.upgrade_runner.actions import (
+            ActionContext,
+            _container_task_dir,
+            runner_schedule_target_runtime_handoff,
+        )
+
+        class Executor:
+            def __init__(self) -> None:
+                self.commands: list[list[str]] = []
+
+            def run(self, command, *, cwd=None, timeout=None) -> None:
+                self.commands.append(command)
+
+            def output(self, command, *, cwd=None) -> str:
+                self.commands.append(command)
+                return ""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            target_root = root / "data" / "smartx-storage-forecast"
+            host_task_dir = target_root / "upgrades" / "upgrade-9"
+            host_task_dir.mkdir(parents=True)
+            (host_task_dir / "task.json").write_text("{}", encoding="utf-8")
+            # 只造 UPG-050 载体（同 id 的陈旧目录），不造容器可见路径
+            carrier = root / "data" / "smartx-storage-forecast" / "app" / "smartx-storage-forecast" / "upgrades" / "upgrade-9"
+            carrier.mkdir(parents=True)
+            (carrier / "task.json").write_text("{}", encoding="utf-8")
+            context = ActionContext.minimal(root, executor=Executor())
+            context.task_id = "upgrade-9"
+            context.host_upgrades_path = target_root / "upgrades"
+            context.host_data_path = target_root / "app"
+
+            translated = _container_task_dir(context, host_task_dir, "upgrade-9")
+            # 容器可见路径下没有该任务 → 必须拒绝，而不是被载体里的旧文件骗过
+            self.assertFalse((translated / "task.json").is_file())
+            with self.assertRaises(FileNotFoundError) as caught:
+                runner_schedule_target_runtime_handoff(
+                    {
+                        "params": {
+                            "image": "repo/upgrade-runner:v0.3.1",
+                            "compose_project": "smartx-hci-capacity-insight",
+                            "network_name": "smartx-hci-capacity-insight-net",
+                        }
+                    },
+                    context.as_dict(),
+                )
+            self.assertIn(str(translated), str(caught.exception))
 
     def test_runner_stop_legacy_runtime_removes_only_old_runner_after_handoff(self) -> None:
         from app.upgrade_runner.actions import ActionContext, runner_stop_legacy_runtime

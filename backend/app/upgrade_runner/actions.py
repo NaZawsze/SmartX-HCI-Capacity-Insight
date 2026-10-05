@@ -1738,10 +1738,26 @@ def runner_schedule_target_runtime_handoff(action: dict[str, Any], context_paylo
     paths = runtime["paths"]
     target_task_dir_value = str(context_payload.get("task_mirror_dir") or params.get("task_mirror_dir") or "")
     target_task_dir = Path(target_task_dir_value) if target_task_dir_value else paths["upgrades_path"] / context.task_id
-    target_task_dir = _target_upgrade_state_path(context, target_task_dir)
-    task_file = target_task_dir / "task.json"
-    if not task_file.is_file():
-        raise FileNotFoundError(f"目标任务状态不存在，无法调度 runner cutover：{task_file}")
+    # `docker run -v <src>` 的 <src> 由**宿主** dockerd 解析，所以给辅助容器挂载必须用宿主路径。
+    host_task_dir = _target_upgrade_state_path(context, target_task_dir)
+    # 但 `is_file()` 是在**runner 容器内**执行的，只能看见容器自己的挂载命名空间。
+    # 宿主路径（如 `/data/smartx-storage-forecast/upgrades/<id>`）在 runner 容器里并没有挂载：
+    # 容器里 `/data` = 宿主 app 目录，`/data/smartx-storage-forecast/upgrades` 命中的是
+    # **UPG-050 载体目录**（`app/smartx-storage-forecast/upgrades`），那是一份**陈旧快照**。
+    # `.3` 实测：载体里有 5 个旧任务目录（9 月的），真实 upgrades 目录只有 3 个当前任务，
+    # inode 不同、目录名集合不同。
+    #
+    # 于是拿宿主路径做存在性检查有两个后果，都是错的：
+    # - 全新安装没有载体残留 → 检查必然失败 → **自换被完全阻断**（`.14` 干净机即如此）；
+    # - 载体里恰好有同 id 的旧目录 → 检查通过，但辅助容器读的是宿主真实文件，
+    #   检查与实际检查对象不是同一个东西，判断没有意义。
+    #
+    # 正确做法：存在性检查用**容器可见路径**，挂载用**宿主路径**。两个消费者需要两种路径。
+    container_task_dir = _container_task_dir(context, host_task_dir, context.task_id)
+    if not (container_task_dir / "task.json").is_file():
+        raise FileNotFoundError(
+            f"目标任务状态不存在，无法调度 runner cutover：{container_task_dir / 'task.json'}"
+        )
 
     helper_name = _helper_container_name(context.task_id)
     try:
@@ -1762,7 +1778,7 @@ def runner_schedule_target_runtime_handoff(action: dict[str, Any], context_paylo
             "-v",
             "/var/run/docker.sock:/var/run/docker.sock",
             "-v",
-            f"{target_task_dir}:/runner-cutover/task:ro",
+            f"{host_task_dir}:/runner-cutover/task:ro",
             "-v",
             f"{paths['compose_runtime_path']}:/runner-cutover/runtime:ro",
             "-e",
@@ -1787,13 +1803,13 @@ def runner_schedule_target_runtime_handoff(action: dict[str, Any], context_paylo
     return handoff_final_result(
         helper_container=helper_name,
         compose_file=str(compose_path),
-        parent_task_file=str(task_file),
+        parent_task_file=str(host_task_dir / "task.json"),
         anchor=params.get("rollback_anchor") or {},
         checkpoint={
             "completed": True,
             "helper_container": helper_name,
             "compose_file": str(compose_path),
-            "parent_task_file": str(task_file),
+            "parent_task_file": str(host_task_dir / "task.json"),
             "rollback_anchor": params.get("rollback_anchor") or {},
         },
     )
@@ -1809,6 +1825,45 @@ def _path_is_same_or_child(path: Path, root: Path) -> bool:
     resolved = path.resolve()
     resolved_root = root.resolve()
     return resolved == resolved_root or resolved_root in resolved.parents
+
+
+def _container_task_dir(context: ActionContext, host_task_dir: Path, task_id: str) -> Path:
+    """把宿主任务目录翻译成 **runner 容器内可见** 的路径。
+
+    为什么需要：handoff 动作里的两类消费者需要**两种不同的路径**——
+
+    | 消费者 | 由谁解析 | 必须用哪种路径 |
+    | --- | --- | --- |
+    | `docker run -v <src>:<dst>` 挂载 | **宿主** dockerd | 宿主路径 |
+    | `Path(...).is_file()` 存在性检查 | runner 容器内的进程 | **容器可见**路径 |
+
+    runner 容器的挂载布局（目标布局，`.3` 实测 `docker inspect`）：
+        宿主 `/data/smartx-storage-forecast/app`     → 容器 `/data`
+        宿主 `/data/smartx-storage-forecast/upgrades` → 容器 `/data/upgrades`
+    于是容器内的 `/data/smartx-storage-forecast/upgrades` **不是** upgrades 目录，
+    它落在 `app` 那个 bind 里，实际命中的是 **UPG-050 载体目录**
+    `app/smartx-storage-forecast/upgrades`——一份陈旧快照（`.3` 实测载体里 5 个
+    9 月的旧任务目录，真实 upgrades 只有 3 个当前任务，inode 与目录名集合都不同）。
+
+    所以宿主路径与容器路径必须显式区分，不能混用。旧实现两处都用宿主路径：
+    全新安装没有载体残留时存在性检查必然失败（自换被完全阻断），
+    载体里恰好有同 id 旧目录时检查通过但检查对象根本不是同一个文件。
+
+    翻译规则：宿主 `<host_upgrades>/<task_id>` → 容器 `<upgrades_path>/<task_id>`；
+    宿主路径不在 host_upgrades 之下时按同构替换（保持既有 handoff 行为不变）。
+    """
+    host_upgrades = getattr(context, "host_upgrades_path", None)
+    container_upgrades = Path(context.upgrades_path)
+    if host_upgrades is not None:
+        host_root = Path(host_upgrades)
+        try:
+            if _path_is_same_or_child(host_task_dir, host_root):
+                relative = host_task_dir.resolve().relative_to(host_root.resolve())
+                return container_upgrades / relative
+        except (OSError, ValueError):
+            pass
+    # 不在 host_upgrades 之下：无法按结构映射，退回「同名任务目录」这一唯一可靠线索
+    return container_upgrades / host_task_dir.name
 
 
 def _target_upgrade_state_path(context: ActionContext, target: Path) -> Path:
