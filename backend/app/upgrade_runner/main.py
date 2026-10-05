@@ -356,26 +356,30 @@ def _task_message(task: dict[str, Any]) -> str:
     return "正在执行升级任务"
 
 
-#: 兼容镜像的最小间隔（秒）。0 = 不限。
-#:
-#: 为什么限流：W2 之后 tasks 表是 web-api 独占投影，runner 侧这条路径只是给
-#: **仍在支持矩阵内的 v0.5.3 web-api** 显示进度用的兼容镜像（它不会自己投影）。
-#: 限流的理由是 runner 侧镜像没有任何产品价值——真正给用户看的是 web-api 的投影——
-#: 而它要开一次业务库写事务，正是 US-28 锁窗口的来源之一。把它压到「步骤转换一次」
-#: 这个量级，锁窗口从「整个执行期每 5 秒」缩到「十几步各一次」。
-PROJECT_MIRROR_MIN_INTERVAL_SECONDS = float(os.environ.get("SMARTX_RUNNER_PROJECT_MIRROR_INTERVAL", "10") or 10)
-
-#: 上次成功镜像的时刻（task_id → epoch）。进程内状态，runner 重启即重置——
+#: 上次成功镜像的**内容指纹**（task_id → 指纹）。进程内状态，runner 重启即重置——
 #: 这正是想要的语义：重启后多投一次，好过升级结束时漏掉最后一次状态。
-_project_mirror_at: dict[str, float] = {}
+_project_mirror_signature: dict[str, tuple] = {}
 
 
-def _project_task(
-    database_path: Path,
-    task: dict[str, Any],
-    *,
-    min_interval_seconds: float = PROJECT_MIRROR_MIN_INTERVAL_SECONDS,
-) -> None:
+def _project_signature(task: dict[str, Any]) -> tuple:
+    """任务状态的**内容指纹**：顶层状态 + 每个步骤的状态序列。
+
+    为什么用内容指纹而不是时间限流：engine 的 `on_update` 在每次 checkpoint 保存时
+    都触发（热路径），而一次动作内部可能保存很多次——这些保存**不改变**任何步骤状态，
+    对用户可见的进度也毫无变化。按内容去重恰好实现规格要求的「每步骤转换一次」：
+    步骤 pending→running→succeeded 各写一次，步骤内部反复保存不写。
+
+    试过时间限流（10s）并被既有用例否掉：那会把「加载镜像这一步已经开始」这种
+    真实进展也一起吞掉（`test_runner_projects_action_progress_while_task_is_running`）。
+    """
+    steps = _action_steps(task)
+    return (
+        str(task.get("status") or ""),
+        tuple((str(step.get("key")), str(step.get("status"))) for step in steps),
+    )
+
+
+def _project_task(database_path: Path, task: dict[str, Any], *, force: bool = False) -> None:
     """把任务状态**尽力**镜像进业务库 tasks 表（W2：兼容镜像，非事实源）。
 
     执行期的事实源是 task.json（runner 独占写），`tasks` 表由 web-api 独占投影
@@ -386,11 +390,9 @@ def _project_task(
     执行器绝不能因为一条只影响"旧版本界面显示"的兼容写而崩掉（#82 的教训）。
     """
     task_id = str(task.get("task_id") or "")
-    now = time.monotonic()
-    if min_interval_seconds > 0:
-        last = _project_mirror_at.get(task_id)
-        if last is not None and (now - last) < min_interval_seconds:
-            return
+    signature = _project_signature(task)
+    if not force and _project_mirror_signature.get(task_id) == signature:
+        return
     try:
         _write_task_projection(database_path, task)
     except Exception:  # noqa: BLE001 - 兼容镜像失败无害
@@ -398,7 +400,7 @@ def _project_task(
             "tasks 表兼容镜像失败（task=%s），已忽略；事实源 task.json 不受影响", task_id or "?"
         )
         return
-    _project_mirror_at[task_id] = now
+    _project_mirror_signature[task_id] = signature
 
 
 def _write_task_projection(database_path: Path, task: dict[str, Any]) -> None:
@@ -662,13 +664,10 @@ def run_pending_once(
         heartbeat.start()
         try:
             def project_update(updated: dict[str, Any]) -> None:
-                # 限流到「步骤转换一次」的量级：engine 的 on_update 在每次 checkpoint 保存
-                # 时都会调（热路径），不限流就等于把 US-28 的锁窗口原样搬回来。
-                _project_task(
-                    settings.database_path,
-                    updated,
-                    min_interval_seconds=PROJECT_MIRROR_MIN_INTERVAL_SECONDS,
-                )
+                # 按内容指纹去重（见 _project_signature）：步骤每次状态转换写一次，
+                # 步骤内部的 checkpoint 保存不写。engine 的 on_update 是热路径，
+                # 不去重就等于把 US-28 的写锁窗口原样搬回来。
+                _project_task(settings.database_path, updated)
 
             result = UpgradeEngine(
                 store,
@@ -676,7 +675,7 @@ def run_pending_once(
                 context={**action_context.as_dict(), "database_path": str(settings.database_path)},
                 on_update=project_update,
             ).run()
-            _project_task(settings.database_path, result)
+            _project_task(settings.database_path, result, force=True)
             executed += 1
         finally:
             stop_heartbeat.set()

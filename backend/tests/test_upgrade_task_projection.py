@@ -16,7 +16,6 @@ import json
 import sqlite3
 import sys
 import tempfile
-import time
 import unittest
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -382,10 +381,10 @@ class ProjectIfNewerTests(unittest.TestCase):
 
 
 class RunnerMirrorHarmlessTests(unittest.TestCase):
-    """runner 侧兼容镜像：失败不冒泡（#82 同款兜底），且限流生效。"""
+    """runner 侧兼容镜像：失败不冒泡（#82 同款兜底），且按内容指纹去重。"""
 
     def setUp(self) -> None:
-        runner_main._project_mirror_at.clear()
+        runner_main._project_mirror_signature.clear()
 
     def test_mirror_writes_tasks_row(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -423,45 +422,105 @@ class RunnerMirrorHarmlessTests(unittest.TestCase):
             runner_main._project_task(blocker / "smartx.db", task)
         self.assertEqual(json.dumps(task, sort_keys=True), snapshot)
 
-    def test_rate_limit_skips_intermediate_updates(self) -> None:
+    def test_unchanged_step_state_is_not_reprojected(self) -> None:
+        """步骤内部反复 checkpoint 保存（状态未变）不得重复写库。
+
+        engine 的 on_update 在每次 checkpoint 保存时都触发；不去重就等于把
+        US-28 的写锁窗口原样搬回来。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "smartx.db"
             with _conn(db) as connection:
                 connection.executescript(TASKS_SCHEMA)
-            runner_main._project_task(db, _task(logs=["一"]), min_interval_seconds=60)
-            runner_main._project_task(db, _task(logs=["二"]), min_interval_seconds=60)
+            task = _task()
+            runner_main._project_task(db, task)
+            runner_main._project_task(db, {**task, "revision": 99, "updated_at": _iso(0)})
             with _conn(db) as connection:
-                row = connection.execute("SELECT logs_json FROM tasks WHERE id = 'upgrade-test'").fetchone()
-        self.assertEqual(json.loads(row["logs_json"]), ["一"], "限流期内应跳过第二次镜像")
+                row = connection.execute(
+                    "SELECT logs_json, updated_at FROM tasks WHERE id = 'upgrade-test'"
+                ).fetchone()
+        # 第二次的 revision/updated_at 没进库 → 说明确实被指纹去重挡掉了
+        self.assertNotEqual(row["updated_at"], _iso(0))
 
-    def test_rate_limit_allows_after_interval(self) -> None:
+    def test_step_transition_is_always_projected(self) -> None:
+        """步骤 pending→running→succeeded 每次转换都必须镜像（用户可见的进展）。"""
+        def plan(step_statuses):
+            return _task(
+                execution_plan={
+                    "actions": [
+                        {"id": "backup", "type": "backup.create", "status": step_statuses[0], "result": {}},
+                        {"id": "apply", "type": "compose.apply", "status": step_statuses[1], "result": {}},
+                    ]
+                }
+            )
+
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "smartx.db"
             with _conn(db) as connection:
                 connection.executescript(TASKS_SCHEMA)
-            runner_main._project_task(db, _task(logs=["一"]), min_interval_seconds=0.01)
-            time.sleep(0.05)
-            runner_main._project_task(db, _task(logs=["二"]), min_interval_seconds=0.01)
+            runner_main._project_task(db, plan(["pending", "pending"]))
+            runner_main._project_task(db, plan(["succeeded", "running"]))
             with _conn(db) as connection:
-                row = connection.execute("SELECT logs_json FROM tasks WHERE id = 'upgrade-test'").fetchone()
-        self.assertEqual(json.loads(row["logs_json"]), ["二"])
+                row = connection.execute(
+                    "SELECT steps_json FROM tasks WHERE id = 'upgrade-test'"
+                ).fetchone()
+        steps = json.loads(row["steps_json"])
+        self.assertEqual(steps[0]["status"], "succeeded")
+        self.assertEqual(steps[1]["status"], "running")
 
-    def test_default_interval_is_configurable_and_positive(self) -> None:
-        """默认必须有限流：不限流就等于把 US-28 的锁窗口原样搬回来。"""
-        self.assertGreater(runner_main.PROJECT_MIRROR_MIN_INTERVAL_SECONDS, 0)
+    def test_top_level_status_transition_is_always_projected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "smartx.db"
+            with _conn(db) as connection:
+                connection.executescript(TASKS_SCHEMA)
+            runner_main._project_task(db, _task(status="running"))
+            runner_main._project_task(db, _task(status="success", updated_at=_iso(0)))
+            with _conn(db) as connection:
+                row = connection.execute(
+                    "SELECT status, progress FROM tasks WHERE id = 'upgrade-test'"
+                ).fetchone()
+        self.assertEqual(row["status"], "success")
+        self.assertEqual(row["progress"], 100)
+
+    def test_force_bypasses_deduplication(self) -> None:
+        """收尾处的最终投影必须落库（即便指纹与上一次相同）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "smartx.db"
+            with _conn(db) as connection:
+                connection.executescript(TASKS_SCHEMA)
+            task = _task(status="success")
+            runner_main._project_task(db, task)
+            with _conn(db) as connection:
+                connection.execute(
+                    "UPDATE tasks SET message = '被外部改坏' WHERE id = 'upgrade-test'"
+                )
+            runner_main._project_task(db, task, force=True)
+            with _conn(db) as connection:
+                row = connection.execute(
+                    "SELECT message FROM tasks WHERE id = 'upgrade-test'"
+                ).fetchone()
+        self.assertEqual(row["message"], projection.project_state(task)["message"])
 
 
 class SingleWriterInvariantTests(unittest.TestCase):
     """W2 的核心不变量：执行器**不再持有**业务库连接。"""
 
-    def test_engine_on_update_path_is_throttled(self) -> None:
-        """`project_update` 回调必须走限流路径（它是热路径）。"""
+    def test_engine_on_update_path_is_deduplicated(self) -> None:
+        """`project_update` 回调必须走去重路径（它是热路径）。"""
         source = Path(runner_main.__file__).read_text(encoding="utf-8")
         self.assertIn(
-            "min_interval_seconds=PROJECT_MIRROR_MIN_INTERVAL_SECONDS",
+            "_project_task(settings.database_path, updated)",
             source,
-            "on_update 回调未接限流：engine 每次 checkpoint 保存都会触发镜像",
+            "on_update 回调未走去重镜像：engine 每次 checkpoint 保存都会触发镜像",
         )
+
+    def test_dedup_key_is_content_not_time(self) -> None:
+        """去重键必须是内容指纹。用时间限流会吞掉真实进展（既有用例已证）。"""
+        first = runner_main._project_signature(_task(status="running"))
+        same = runner_main._project_signature({**_task(status="running"), "revision": 99, "updated_at": _iso(0)})
+        self.assertEqual(first, same, "步骤状态未变时指纹必须相同（与时间/revision 无关）")
+        moved = runner_main._project_signature(_task(status="success"))
+        self.assertNotEqual(first, moved, "顶层状态变了指纹必须变")
 
     def test_mirror_is_not_the_fact_source(self) -> None:
         """镜像函数不得被命名成事实源语义（避免后来者误以为它是权威路径）。"""
