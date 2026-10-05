@@ -839,6 +839,57 @@ class ProjectScopingTests(unittest.TestCase):
         self.assertEqual(first["container_id"], second["container_id"])
 
 
+class TargetVersionPropagationTests(unittest.TestCase):
+    """新 runner 必须知道自己是哪个版本，否则收尾判据永不成立。
+
+    `.3` 真机实测：容器已换成 v0.3.3-rc，状态文件里却仍写着 `runner_version=v0.3.2`
+    （`RunnerSettings.from_environment()` 在缺 `SMARTX_RUNNER_VERSION` 时回退到代码默认值），
+    于是 `_is_self_handoff_scheduled` 的版本比对恒不成立，任务永远停在 `running`。
+    三份源码 compose 变体都没有这个键，所以生产上同样中招。
+    """
+
+    def _write(self, params: dict[str, Any]) -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "project").mkdir(parents=True)
+            context = _context(root)
+            context.host_compose_runtime_path = root / "host" / "compose-runtime"
+            default_handlers()  # 确保 handler 表已加载
+            from app.upgrade_runner.actions import _write_runner_runtime_compose
+
+            _write_runner_runtime_compose(context, params)
+            written = Path(context.compose_runtime_path) / "docker-compose.runner-upgrade.yml"
+            if not written.is_file():
+                # context.compose_runtime_path 可能不在 tmp 内，退回按宿主等价路径找
+                written = Path(context.host_compose_runtime_path) / "docker-compose.runner-upgrade.yml"
+            return written.read_text(encoding="utf-8")
+
+    def test_explicit_target_version_is_written(self) -> None:
+        content = self._write({"image": "repo/runner:v0.3.3", "target_version": "v0.3.3"})
+        self.assertIn("SMARTX_RUNNER_VERSION: v0.3.3", content)
+
+    def test_version_falls_back_to_image_tag(self) -> None:
+        content = self._write({"image": "repo/runner:v0.4.0-rc"})
+        self.assertIn("SMARTX_RUNNER_VERSION: v0.4.0-rc", content)
+
+    def test_omitted_when_undeterminable_and_volumes_intact(self) -> None:
+        """无从推断时不写该键，且不能把 volumes 行拼坏。"""
+        content = self._write({"image": "repo/runner"})
+        self.assertNotIn("SMARTX_RUNNER_VERSION", content)
+        self.assertIn("    volumes:", content)
+        self.assertIn("      SMARTX_HOST_PROJECT_PATH:", content)
+
+    def test_self_handoff_passes_target_version_from_anchor(self) -> None:
+        """自换委托时把锚点里的 target_version 传下去（锚点是权威来源）。"""
+        source = Path(__file__).resolve().parents[1] / "app" / "upgrade_runner" / "actions.py"
+        text = source.read_text(encoding="utf-8")
+        self.assertIn(
+            '"target_version": anchor.get("target_version")',
+            text,
+            "自换必须把锚点的 target_version 传给 handoff，由它写进运行时 compose",
+        )
+
+
 class CutoverTimingTests(unittest.TestCase):
     """切换时机：平台 handoff 等父任务完成，自换必须立刻换（否则死锁）。"""
 

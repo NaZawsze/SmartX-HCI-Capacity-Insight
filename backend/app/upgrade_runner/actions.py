@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -381,7 +382,12 @@ def component_schedule_self_handoff(action: dict[str, Any], context_payload: dic
         raise ValueError("自换缺少回滚锚点，拒绝调度 handoff（writeback 之后旧 tag 已不可读）。")
     delegated = dict(action)
     delegated["type"] = "runner.schedule_target_runtime_handoff"
-    delegated["params"] = {**params, "cutover_mode": "immediate", "rollback_anchor": anchor}
+    delegated["params"] = {
+        **params,
+        "cutover_mode": "immediate",
+        "rollback_anchor": anchor,
+        "target_version": anchor.get("target_version") or str(params.get("target_version") or ""),
+    }
     result = runner_schedule_target_runtime_handoff(delegated, context_payload)
     return {**result, "rollback_anchor": anchor}
 
@@ -1594,6 +1600,33 @@ def _container_runtime_paths(context: ActionContext, host_paths: dict[str, Path]
     return translated
 
 
+def _target_runner_version(params: dict[str, Any], image: str) -> str:
+    """本次 handoff 要切到的 runner 版本（写进运行时 compose 的 `SMARTX_RUNNER_VERSION`）。
+
+    ## 为什么必须有这个键（W3 真机实测发现）
+
+    `RunnerSettings.from_environment()` 在没有 `SMARTX_RUNNER_VERSION` 时回退到**代码里的
+    默认值**。于是自换后的新 runner 读到的还是旧版本号，表现为：
+
+    - 状态文件被新 runner 写成旧版本（`.3` 实测容器已是 `v0.3.3-rc`，
+      状态文件里却仍是 `runner_version=v0.3.2`）；
+    - 收尾判据 `runner_version == target_version` **永不成立** → 任务永远停在 `running`。
+
+    即"换掉了容器，却没换掉它对自己的认知"，自换无法完成。
+    `.3` 沙箱 compose 里我硬编码了 `SMARTX_RUNNER_VERSION: v0.3.2` 正好把它显式化；
+    而三份源码 compose 变体**都没有这个键**，所以生产上同样是回退到默认值——缺陷成立。
+
+    取值优先用 `params["target_version"]`（自换时由 `component_schedule_self_handoff`
+    从锚点传入），否则从镜像 tag 推断；两者都拿不到时返回空串，此时**不写该键**
+    （保持旧行为，让平台升级 handoff 不受影响）。
+    """
+    explicit = str(params.get("target_version") or "").strip()
+    if explicit:
+        return explicit
+    match = re.search(r":(v[0-9][0-9A-Za-z._-]*)$", image or "")
+    return match.group(1) if match else ""
+
+
 def _write_runner_runtime_compose(context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
     image = str(params.get("image") or "").strip()
     if not image:
@@ -1610,6 +1643,13 @@ def _write_runner_runtime_compose(context: ActionContext, params: dict[str, Any]
     # 两者不可混用：内容用容器路径 → 辅助容器挂载不到；写用宿主路径 → 落进 UPG-050 载体。
     compose_path = container_paths["compose_runtime_path"] / "docker-compose.runner-upgrade.yml"
     compose_path.parent.mkdir(parents=True, exist_ok=True)
+    target_runner_version = _target_runner_version(params, image)
+    # 版本键必须紧贴 volumes 之前；为空时整块省略（保持平台升级 handoff 的旧内容不变）
+    version_env = (
+        f"      SMARTX_RUNNER_VERSION: {target_runner_version}\n"
+        if target_runner_version
+        else ""
+    )
     content = f"""services:
   upgrade-runner:
     image: {image}
@@ -1632,7 +1672,7 @@ def _write_runner_runtime_compose(context: ActionContext, params: dict[str, Any]
       SMARTX_HOST_COMPOSE_RUNTIME_PATH: {host_paths["compose_runtime_path"]}
       SMARTX_HOST_PROMETHEUS_DATA_PATH: {host_paths["prometheus_path"]}
       SMARTX_HOST_PROJECT_PATH: {host_paths["project_path"]}
-    volumes:
+{version_env}    volumes:
       - {host_paths["project_path"]}:{host_paths["project_path"]}
       - {host_paths["data_path"]}:/data
       - {host_paths["upgrades_path"]}:/data/upgrades
@@ -1667,6 +1707,7 @@ networks:
         "host_paths": {key: str(value) for key, value in host_paths.items()},
         "compose_project": project_name,
         "network": network_name,
+        "target_runner_version": target_runner_version,
         # `paths` 保持**宿主**语义：它被写进运行时 compose 的 volumes/env，
         # 那些字符串由宿主 dockerd 解析。容器侧路径另见 `container_paths`。
         "paths": host_paths,
