@@ -26,12 +26,24 @@ from app.v2.upgrade.service.runner_presence import (  # noqa: E402
     presence_source,
 )
 
-STALE = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
-FRESH = datetime.now(timezone.utc).isoformat()
+# 这些时间戳**必须在每个用例里现算**，不能钉在模块导入时刻。
+# `RUNNER_HEARTBEAT_STALE_SECONDS = 30`：导入到执行之间一旦超过 30 秒（本项目全量约 6 分钟），
+# "新鲜心跳"就变成过期心跳 → 两例必然失败。钉在模块级时它们单跑绿、全量红，
+# 会把"环境/顺序问题"混进回归基线，掩盖真正的回归（2026-10-06 全量首次撞上）。
+
+
+def _stale() -> str:
+    return (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+
+
+def _fresh() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 class RunnerPresenceTest(unittest.TestCase):
     def setUp(self):
+        self.stale = _stale()
+        self.fresh = _fresh()
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.settings = V2Settings(data_root=Path(self.tmp.name), secret_key="upgrade-secret", app_version="v0.5.3")
@@ -72,32 +84,32 @@ class RunnerPresenceTest(unittest.TestCase):
 
     # ---- 纯判定 ----------------------------------------------------------
     def test_fresh_instance_heartbeat_is_heartbeat_source(self):
-        self._set_instance_heartbeat(FRESH)
-        self.assertEqual(presence_source(self.database, {"heartbeat_at": FRESH}), HEARTBEAT_SOURCE)
-        self.assertTrue(instance_heartbeat_is_fresh({"heartbeat_at": FRESH}))
+        self._set_instance_heartbeat(self.fresh)
+        self.assertEqual(presence_source(self.database, {"heartbeat_at": self.fresh}), HEARTBEAT_SOURCE)
+        self.assertTrue(instance_heartbeat_is_fresh({"heartbeat_at": self.fresh}))
 
     def test_stale_instance_heartbeat_alone_is_not_present(self):
-        self._set_instance_heartbeat(STALE)
-        self.assertIsNone(presence_source(self.database, {"heartbeat_at": STALE}))
+        self._set_instance_heartbeat(self.stale)
+        self.assertIsNone(presence_source(self.database, {"heartbeat_at": self.stale}))
         self.assertFalse(active_task_lease_is_fresh(self.database))
 
     def test_live_lease_makes_runner_present_despite_stale_instance_heartbeat(self):
-        self._set_instance_heartbeat(STALE)
-        self._add_lease(expires_delta_seconds=25, heartbeat=FRESH)
+        self._set_instance_heartbeat(self.stale)
+        self._add_lease(expires_delta_seconds=25, heartbeat=self.fresh)
         self.assertTrue(active_task_lease_is_fresh(self.database))
-        self.assertEqual(presence_source(self.database, {"heartbeat_at": STALE}), TASK_LEASE_SOURCE)
+        self.assertEqual(presence_source(self.database, {"heartbeat_at": self.stale}), TASK_LEASE_SOURCE)
 
     def test_recent_lease_heartbeat_is_enough_even_if_expires_field_is_old(self):
-        self._set_instance_heartbeat(STALE)
-        self._add_lease(expires_delta_seconds=-5, heartbeat=FRESH)
+        self._set_instance_heartbeat(self.stale)
+        self._add_lease(expires_delta_seconds=-5, heartbeat=self.fresh)
         self.assertTrue(active_task_lease_is_fresh(self.database))
 
     def test_expired_lease_with_old_heartbeat_is_not_present(self):
-        self._set_instance_heartbeat(STALE)
+        self._set_instance_heartbeat(self.stale)
         old = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
         self._add_lease(expires_delta_seconds=-60, heartbeat=old)
         self.assertFalse(active_task_lease_is_fresh(self.database))
-        self.assertIsNone(presence_source(self.database, {"heartbeat_at": STALE}))
+        self.assertIsNone(presence_source(self.database, {"heartbeat_at": self.stale}))
 
     def test_missing_state_is_not_present(self):
         self.assertIsNone(presence_source(self.database, None))
@@ -109,22 +121,22 @@ class RunnerPresenceTest(unittest.TestCase):
 
     # ---- web-api 消费点 ---------------------------------------------------
     def test_active_runner_version_resolves_during_execution(self):
-        self._set_instance_heartbeat(STALE)
-        self._add_lease(expires_delta_seconds=25, heartbeat=FRESH)
+        self._set_instance_heartbeat(self.stale)
+        self._add_lease(expires_delta_seconds=25, heartbeat=self.fresh)
         service = self._service()
         with mock.patch.object(UpgradeService, "_active_runner_state_from_docker", return_value=None):
             self.assertEqual(service._active_runner_version(), "v0.3.1")
             self.assertEqual(service._active_runner_state().get("source"), TASK_LEASE_SOURCE)
 
     def test_active_runner_version_reports_not_detected_without_both_channels(self):
-        self._set_instance_heartbeat(STALE)
+        self._set_instance_heartbeat(self.stale)
         service = self._service()
         with mock.patch.object(UpgradeService, "_active_runner_state_from_docker", return_value=None):
             self.assertEqual(service._active_runner_version(), RUNNER_NOT_DETECTED)
 
     def test_runner_protocol_check_accepts_task_lease_source(self):
-        self._set_instance_heartbeat(STALE)
-        self._add_lease(expires_delta_seconds=25, heartbeat=FRESH)
+        self._set_instance_heartbeat(self.stale)
+        self._add_lease(expires_delta_seconds=25, heartbeat=self.fresh)
         service = self._service()
         manifest = {
             "schema_version": "3",
@@ -138,8 +150,8 @@ class RunnerPresenceTest(unittest.TestCase):
         self.assertTrue(check["ok"], check)
 
     def test_component_catalog_is_compatible_with_task_lease_source(self):
-        self._set_instance_heartbeat(STALE)
-        self._add_lease(expires_delta_seconds=25, heartbeat=FRESH)
+        self._set_instance_heartbeat(self.stale)
+        self._add_lease(expires_delta_seconds=25, heartbeat=self.fresh)
         service = self._service()
         with mock.patch.object(UpgradeService, "_active_runner_state_from_docker", return_value=None), \
              mock.patch.object(UpgradeService, "_inspect_service_by_name", return_value={}):
@@ -149,12 +161,12 @@ class RunnerPresenceTest(unittest.TestCase):
         self.assertTrue(runner["compatible"], runner)
 
     def test_health_runner_version_uses_task_lease(self):
-        self._set_instance_heartbeat(STALE)
-        self._add_lease(expires_delta_seconds=25, heartbeat=FRESH)
+        self._set_instance_heartbeat(self.stale)
+        self._add_lease(expires_delta_seconds=25, heartbeat=self.fresh)
         self.assertEqual(_active_runner_version(self.settings, self.database, runner_probe=lambda: ""), "v0.3.1")
 
     def test_health_runner_version_falls_back_to_probe_without_lease(self):
-        self._set_instance_heartbeat(STALE)
+        self._set_instance_heartbeat(self.stale)
         self.assertEqual(_active_runner_version(self.settings, self.database, runner_probe=lambda: ""), RUNNER_NOT_DETECTED)
         self.assertEqual(_active_runner_version(self.settings, self.database, runner_probe=lambda: "v0.3.1"), "v0.3.1")
 
