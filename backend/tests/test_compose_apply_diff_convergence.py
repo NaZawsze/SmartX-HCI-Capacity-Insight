@@ -464,6 +464,38 @@ class ForceRecreateBanTests(unittest.TestCase):
         verdict = _vocabulary.check_force_recreate_ban()
         self.assertEqual(verdict["status"], "PASS", verdict["detail"])
 
+    def test_gate_is_wired_into_verify(self) -> None:
+        """禁令必须真的进 W7 主流程，否则只是一段没人调用的代码。"""
+        source = (REPO_ROOT / "scripts" / "verify_upgrade_plan_vocabulary.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('check_force_recreate_ban()', source)
+        self.assertIn('record("force_recreate_ban"', source)
+
+    def test_gate_catches_force_recreate_injected_into_compose_apply(self) -> None:
+        """变异测试：把 `--force-recreate` 塞回 compose.apply，门禁必须 FAIL 并点名。"""
+        source = (ROOT / "app" / "upgrade_runner" / "actions.py").read_text(encoding="utf-8")
+        mutated = source.replace(
+            "    context.executor.run(command, cwd=context.project_path)",
+            '    command.insert(-1, "--force-recreate")\n'
+            "    context.executor.run(command, cwd=context.project_path)",
+            1,
+        )
+        self.assertNotEqual(mutated, source, "注入失败：compose_apply 的 apply 调用没找到")
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_root = Path(tmp)
+            target = fake_root / "backend" / "app" / "upgrade_runner"
+            target.mkdir(parents=True)
+            (target / "actions.py").write_text(mutated, encoding="utf-8")
+            original_root = _vocabulary.ROOT
+            _vocabulary.ROOT = fake_root
+            try:
+                verdict = _vocabulary.check_force_recreate_ban()
+            finally:
+                _vocabulary.ROOT = original_root
+        self.assertEqual(verdict["status"], "FAIL", verdict["detail"])
+        self.assertIn("compose_apply", verdict["detail"])
+
     def test_compose_apply_has_no_force_recreate(self) -> None:
         source = (ROOT / "app" / "upgrade_runner" / "actions.py").read_text(encoding="utf-8")
         body = source.split("def compose_apply", 1)[1].split("\ndef ", 1)[0]
