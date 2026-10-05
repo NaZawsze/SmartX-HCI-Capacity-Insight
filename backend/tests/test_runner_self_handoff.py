@@ -839,5 +839,96 @@ class ProjectScopingTests(unittest.TestCase):
         self.assertEqual(first["container_id"], second["container_id"])
 
 
+class CutoverTimingTests(unittest.TestCase):
+    """切换时机：平台 handoff 等父任务完成，自换必须立刻换（否则死锁）。"""
+
+    def test_default_mode_keeps_wait_parent_success(self) -> None:
+        from app.upgrade_runner.actions import _cutover_mode
+
+        self.assertEqual(_cutover_mode({}), "wait_parent_success")
+        self.assertEqual(_cutover_mode({"cutover_mode": "wait_parent_success"}), "wait_parent_success")
+        self.assertEqual(_cutover_mode({"cutover_mode": "immediate"}), "immediate")
+
+    def test_helper_script_has_immediate_branch(self) -> None:
+        from app.upgrade_runner.actions import RUNNER_CUTOVER_HELPER_SCRIPT
+
+        self.assertIn("SMARTX_CUTOVER_MODE", RUNNER_CUTOVER_HELPER_SCRIPT)
+        self.assertIn("immediate cutover", RUNNER_CUTOVER_HELPER_SCRIPT)
+        # 旧语义必须仍在（平台升级 handoff 依赖它）
+        self.assertIn("timed out waiting for parent task success", RUNNER_CUTOVER_HELPER_SCRIPT)
+
+    def test_self_handoff_passes_immediate_mode_to_helper(self) -> None:
+        """自换必须给辅助容器 immediate ——等父任务 success 就是等新 runner 出现，死锁。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "project").mkdir(parents=True)
+            (root / "project" / "docker-compose.yml").write_text(
+                COMPOSE.format(runner_image="repo/runner:v0.3.2"), encoding="utf-8"
+            )
+            task = _self_handoff_task(root)
+            TaskStore(root / "upgrades" / "upgrade-selfhandoff").save(task)
+            context = _context(root)
+            context.host_upgrades_path = root / "upgrades"
+            (root / "upgrades" / "upgrade-selfhandoff").mkdir(parents=True, exist_ok=True)
+            (root / "upgrades" / "upgrade-selfhandoff" / "task.json").write_text(
+                json.dumps({"task_id": "upgrade-selfhandoff", "status": "running"}), encoding="utf-8"
+            )
+            handler = default_handlers()["component.schedule_self_handoff"]
+            handler(
+                {
+                    "params": {
+                        "image": "repo/runner:v0.3.3",
+                        "compose_project": "smartx-hci-capacity-insight",
+                        "network_name": "smartx-hci-capacity-insight-net",
+                        "rollback_anchor": {"previous_image_tag": "repo/runner:v0.3.2"},
+                    }
+                },
+                {**context.as_dict(), "task": task, "task_mirror_dir": None},
+            )
+        docker_run = next(
+            call for call in context.executor.calls if call[:3] == ["docker", "run", "-d"]
+        )
+        self.assertIn("SMARTX_CUTOVER_MODE=immediate", docker_run)
+
+    def test_platform_handoff_keeps_wait_mode_in_env(self) -> None:
+        """平台升级 handoff 不得被改成 immediate（会打断它自己后续要跑的动作）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target_root = root / "target"
+            task_dir = target_root / "upgrades" / "upgrade-1"
+            task_dir.mkdir(parents=True)
+            (task_dir / "task.json").write_text('{"status":"running"}', encoding="utf-8")
+            context = _context(root)
+            context.task_id = "upgrade-1"
+            context.host_upgrades_path = target_root / "upgrades"
+            container_dir = context.upgrades_path / "upgrade-1"
+            container_dir.mkdir(parents=True, exist_ok=True)
+            (container_dir / "task.json").write_text('{"status":"running"}', encoding="utf-8")
+            from app.upgrade_runner.actions import runner_schedule_target_runtime_handoff
+
+            result = runner_schedule_target_runtime_handoff(
+                {
+                    "params": {
+                        "image": "repo/runner:v0.3.3",
+                        "compose_project": "smartx-hci-capacity-insight",
+                        "network_name": "net",
+                        "project_path": str(target_root / "project"),
+                        "app_data_path": str(target_root / "app"),
+                        "upgrades_path": str(target_root / "upgrades"),
+                        "backups_path": str(target_root / "backups"),
+                        "exports_path": str(target_root / "exports"),
+                        "compose_runtime_path": str(target_root / "compose-runtime"),
+                        "prometheus_data_path": str(target_root / "prometheus"),
+                    }
+                },
+                context.as_dict(),
+            )
+        self.assertTrue(is_handoff_final(result))
+        docker_run = next(
+            call for call in context.executor.calls if call[:3] == ["docker", "run", "-d"]
+        )
+        self.assertIn("SMARTX_CUTOVER_MODE=wait_parent_success", docker_run)
+
+
 if __name__ == "__main__":
     unittest.main()

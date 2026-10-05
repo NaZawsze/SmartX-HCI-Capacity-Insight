@@ -381,7 +381,7 @@ def component_schedule_self_handoff(action: dict[str, Any], context_payload: dic
         raise ValueError("自换缺少回滚锚点，拒绝调度 handoff（writeback 之后旧 tag 已不可读）。")
     delegated = dict(action)
     delegated["type"] = "runner.schedule_target_runtime_handoff"
-    delegated["params"] = {**params, "rollback_anchor": anchor}
+    delegated["params"] = {**params, "cutover_mode": "immediate", "rollback_anchor": anchor}
     result = runner_schedule_target_runtime_handoff(delegated, context_payload)
     return {**result, "rollback_anchor": anchor}
 
@@ -1622,25 +1622,36 @@ task_file = Path(os.environ["SMARTX_PARENT_TASK_FILE"])
 compose_file = os.environ["SMARTX_RUNNER_COMPOSE_FILE"]
 compose_project = os.environ["SMARTX_TARGET_COMPOSE_PROJECT"]
 timeout = int(os.environ.get("SMARTX_CUTOVER_TIMEOUT_SECONDS", "120"))
+# 两种切换时机（见 runner_schedule_target_runtime_handoff 的说明）：
+#   wait_parent_success —— 等父任务跑完再换（平台升级 handoff：跑完这次任务才换执行器）
+#   immediate           —— 立刻换（runner 自换：旧进程本来就要退出）
+cutover_mode = os.environ.get("SMARTX_CUTOVER_MODE", "wait_parent_success")
 deadline = time.time() + timeout
 terminal_without_cutover = {"failed", "rollback_failed", "rolled_back", "recovery_required", "cancelled"}
 
-while time.time() < deadline:
-    try:
-        task = json.loads(task_file.read_text(encoding="utf-8"))
-    except Exception:
-        time.sleep(1)
-        continue
-    status = str(task.get("status") or "")
-    if status == "success":
-        break
-    if status in terminal_without_cutover:
-        print(f"parent task ended with {status}; skip runner cutover")
-        sys.exit(0)
-    time.sleep(1)
+if cutover_mode == "immediate":
+    # 自换：父任务要等**新** runner 起来才收尾，若在这里等父任务 success 就是死锁
+    # （旧实现只有 wait 语义，自换实测表现为任务永远停在 running、容器从不替换）。
+    # 这里不做任何等待：旧 runner 在 docker run 返回后本来就已无事可做，
+    # 状态也已在此之前落盘（self_handoff.scheduled）。
+    print("immediate cutover: replacing upgrade-runner now")
 else:
-    print("timed out waiting for parent task success", file=sys.stderr)
-    sys.exit(1)
+    while time.time() < deadline:
+        try:
+            task = json.loads(task_file.read_text(encoding="utf-8"))
+        except Exception:
+            time.sleep(1)
+            continue
+        status = str(task.get("status") or "")
+        if status == "success":
+            break
+        if status in terminal_without_cutover:
+            print(f"parent task ended with {status}; skip runner cutover")
+            sys.exit(0)
+        time.sleep(1)
+    else:
+        print("timed out waiting for parent task success", file=sys.stderr)
+        sys.exit(1)
 
 subprocess.run(
     [
@@ -1716,6 +1727,24 @@ def _helper_container_name(task_id: str) -> str:
     return f"smartx-runner-cutover-{safe or 'task'}"
 
 
+def _cutover_mode(params: dict[str, Any]) -> str:
+    """辅助容器的切换时机：`wait_parent_success`（默认）或 `immediate`。
+
+    两种时机服务于两种场景，**不是二选一的新旧之争**：
+
+    - `wait_parent_success`（默认，保持 v0.3.1 原行为）：平台升级 handoff 用。
+      语义是"把执行器换掉这件事排到这次任务跑完之后"——任务还需要旧 runner 跑完
+      post_cleanup 之类后续动作，提前换掉会打断它。
+
+    - `immediate`：runner 自换用。语义是"现在就换掉我"（impl-spec §W3 步骤 2d
+      「调度替换 → runner 退出 → Docker 重建」）。
+      **自换绝不能等父任务 success**：父任务的收尾由**新** runner 启动后完成，
+      等于"新 runner 等自己出现"。旧实现只有 wait 语义，自换实测表现为：
+      任务永远停在 `running`、辅助容器 120s 后超时退出、容器从不替换。
+    """
+    return "immediate" if params.get("cutover_mode") == "immediate" else "wait_parent_success"
+
+
 def runner_schedule_target_runtime_handoff(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:
     """调度 runner 自换：写目标运行目录的 compose → 起辅助容器 → **本进程到此为止**。
 
@@ -1789,6 +1818,8 @@ def runner_schedule_target_runtime_handoff(action: dict[str, Any], context_paylo
             f"SMARTX_TARGET_COMPOSE_PROJECT={runtime['compose_project']}",
             "-e",
             f"SMARTX_CUTOVER_TIMEOUT_SECONDS={int(params.get('timeout_seconds') or 120)}",
+            "-e",
+            f"SMARTX_CUTOVER_MODE={_cutover_mode(params)}",
             "--entrypoint",
             "python",
             str(runtime["image"]),
