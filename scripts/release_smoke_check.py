@@ -202,7 +202,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prometheus-url", default="http://127.0.0.1:9090")
     parser.add_argument("--username")
     parser.add_argument("--password")
-    parser.add_argument("--expected-version", default="v0.5.3")
+    parser.add_argument("--expected-version", default="v0.5.4")
     parser.add_argument("--expected-runner-version", default="v0.3.2")
     parser.add_argument("--expected-prometheus-version", default="v2.55.1")
     parser.add_argument("--expected-compose-project", default="smartx-hci-capacity-insight")

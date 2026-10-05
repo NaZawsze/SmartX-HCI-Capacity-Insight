@@ -105,12 +105,19 @@ class TestDeploymentConfig(unittest.TestCase):
 
     def test_compose_splits_platform_and_runner_versions(self) -> None:
         runner_version = (ROOT / "RUNNER_VERSION").read_text(encoding="utf-8").strip()
+        # 平台版本跟随 VERSION 文件，不写死字面量：写死过一次版本就必须在每次 bump 时改测试，
+        # 而漏改的那次会以"与实现无关的失败"混进回归基线里（2026-10-06 bump v0.5.4 时踩到）。
+        app_version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
             text = (ROOT / name).read_text(encoding="utf-8")
             # 源码 compose 与升级包同一不变量（49-3）：镜像引用（registry+tag）全字面量，
             # 现场 .env 无法覆盖版本。曾经的双形态断言在字面量化后收紧。
             # runner tag 跟随 RUNNER_VERSION（AGENTS §8：能力变更必须 bump），断言不写死版本。
-            self.assertIn("smartx-hci-capacity-insight-web-api:v0.5.3", text, f"{name} missing platform v0.5.3 tag")
+            self.assertIn(
+                f"smartx-hci-capacity-insight-web-api:{app_version}",
+                text,
+                f"{name} missing platform {app_version} tag",
+            )
             self.assertIn(
                 f"smartx-hci-capacity-insight-upgrade-runner:{runner_version}",
                 text,
@@ -242,10 +249,11 @@ class TestDeploymentConfig(unittest.TestCase):
         self.assertIn("*.tsbuildinfo", ignored)
 
     def test_upgrade_override_uses_platform_release_images(self) -> None:
+        app_version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         text = (ROOT / "docker-compose.upgrade.yml").read_text(encoding="utf-8")
-        self.assertIn("nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3", text)
-        self.assertIn("nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.3", text)
-        self.assertIn("nazawsze/smartx-hci-capacity-insight-frontend:v0.5.3", text)
+        self.assertIn(f"nazawsze/smartx-hci-capacity-insight-web-api:{app_version}", text)
+        self.assertIn(f"nazawsze/smartx-hci-capacity-insight-collector-worker:{app_version}", text)
+        self.assertIn(f"nazawsze/smartx-hci-capacity-insight-frontend:{app_version}", text)
         self.assertNotIn("smartx-storage-forecast-web-api:v0.4.0", text)
 
     def test_runner_workflow_is_separate_from_platform_workflow(self) -> None:

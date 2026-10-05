@@ -28,7 +28,7 @@
 ## 2. 目录结构
 
 ```
-smartx-capacity-insight-v0.5.3-offline/
+smartx-capacity-insight-v0.5.4-offline/
 ├── README.md                     本文件
 ├── install/                      首次部署
 │   ├── install.sh                一键安装入口
@@ -64,8 +64,8 @@ smartx-capacity-insight-v0.5.3-offline/
 ### 3.1 最简用法
 
 ```bash
-tar -xzf smartx-capacity-insight-v0.5.3-offline.tar.gz
-cd smartx-capacity-insight-v0.5.3-offline
+tar -xzf smartx-capacity-insight-v0.5.4-offline.tar.gz
+cd smartx-capacity-insight-v0.5.4-offline
 sudo bash install/install.sh
 ```
 
@@ -126,7 +126,7 @@ sudo bash install/install.sh \
 ## 4. 离线升级
 
 ```bash
-cd smartx-capacity-insight-v0.5.3-offline
+cd smartx-capacity-insight-v0.5.4-offline
 sudo bash upgrade/upgrade.sh
 ```
 
