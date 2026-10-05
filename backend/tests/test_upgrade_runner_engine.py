@@ -564,13 +564,23 @@ class UpgradeEngineTest(unittest.TestCase):
                 context.as_dict(),
             )
 
+            # W3b：写点用**容器路径**、返回值用**宿主路径**。
+            # 单元测试没有真实 bind，故两者是不同目录——这恰好把"写点选错"暴露成可断言的事实。
+            written = context.compose_runtime_path / "docker-compose.runner-upgrade.yml"
             compose_path = context.host_compose_runtime_path / "docker-compose.runner-upgrade.yml"
-            content = compose_path.read_text(encoding="utf-8")
+            self.assertTrue(written.is_file(), f"运行时 compose 必须写到容器路径 {written}")
+            self.assertFalse(
+                compose_path.is_file(),
+                "不得用宿主路径在容器内写（会落进 app bind 下的 UPG-050 载体目录）",
+            )
+            content = written.read_text(encoding="utf-8")
+            # 内容仍必须是宿主路径（这段 compose 由宿主 dockerd 消费）
             self.assertIn("repo/upgrade-runner:v0.3.1", content)
             self.assertIn(f"- {context.host_upgrades_path}:/data/upgrades", content)
             self.assertIn(f"SMARTX_HOST_UPGRADES_PATH: {context.host_upgrades_path}", content)
             self.assertTrue(any("--project-name" in command and "smartx-hci-capacity-insight" in command for command in context.executor.commands))
             self.assertEqual(result["compose_file"], str(compose_path))
+            self.assertEqual(str(result["compose_file_container"]), str(written))
 
     def test_runner_schedule_target_runtime_handoff_launches_helper_after_parent_success(self) -> None:
         from app.upgrade_runner.actions import ActionContext, runner_schedule_target_runtime_handoff
@@ -600,6 +610,14 @@ class UpgradeEngineTest(unittest.TestCase):
             # 全新安装没有载体残留时必然失败——`.3` 实测载体里有 5 个 9 月旧任务、
             # 真实目录只有 3 个当前任务。故这里把容器可见路径也造出来。
             context.host_upgrades_path = target_root / "upgrades"
+            # 其余 host_* 也补齐：真实 runner 一定有全套 SMARTX_HOST_*，
+            # docker_host_path 的翻译依赖它们（缺失时无法把容器路径还原成宿主路径）
+            context.host_compose_runtime_path = target_root / "compose-runtime"
+            context.host_backups_path = target_root / "backups"
+            context.host_exports_path = target_root / "exports"
+            context.host_prometheus_path = target_root / "prometheus"
+            context.host_project_path = target_root / "project"
+            context.host_data_path = target_root / "app"
             container_task_dir = context.upgrades_path / "upgrade-1"
             container_task_dir.mkdir(parents=True)
             (container_task_dir / "task.json").write_text(
@@ -625,7 +643,10 @@ class UpgradeEngineTest(unittest.TestCase):
             )
 
             compose_path = target_root / "compose-runtime" / "docker-compose.runner-upgrade.yml"
-            compose_text = compose_path.read_text(encoding="utf-8")
+            # W3b：写点用容器路径，内容断言读容器路径那份（宿主路径那份在单元测试里不该存在）
+            compose_text = (context.compose_runtime_path / "docker-compose.runner-upgrade.yml").read_text(
+                encoding="utf-8"
+            )
             self.assertIn("repo/upgrade-runner:v0.3.1", compose_text)
             self.assertIn(f"SMARTX_PROJECT_PATH: {target_root / 'project'}", compose_text)
             self.assertIn(f"SMARTX_HOST_UPGRADES_PATH: {target_root / 'upgrades'}", compose_text)

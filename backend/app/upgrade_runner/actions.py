@@ -1517,6 +1517,83 @@ def _runner_runtime_paths(context: ActionContext, params: dict[str, Any]) -> dic
     }
 
 
+#: runner 容器内的路径 ⇄ 宿主路径 对照表（目标布局）。
+#:
+#: 依据 `.3` 交付实例 `docker inspect` 的真实挂载清单：
+#:     宿主 /data/smartx-storage-forecast/app          → 容器 /data
+#:     宿主 /data/smartx-storage-forecast/upgrades      → 容器 /data/upgrades
+#:     宿主 /data/smartx-storage-forecast/backups       → 容器 /data/backups
+#:     宿主 /data/smartx-storage-forecast/exports       → 容器 /data/exports
+#:     宿主 /data/smartx-storage-forecast/compose-runtime→ 容器 /data/compose-runtime
+#:     宿主 /data/smartx-storage-forecast/prometheus     → 容器 /prometheus-data
+#:     宿主 /data/smartx-storage-forecast/project        → 容器 /data/smartx-storage-forecast/project
+#:
+#: 关键纪律（W3b 方案 A）：**容器内的一切文件读写用容器路径**，宿主路径只允许出现在
+#: ①`-v` 挂载字符串 ②传给下一版 runner 的 `SMARTX_HOST_*` env。
+#:
+#: 踩过的坑：runner 在容器内用宿主路径 `/data/smartx-storage-forecast/compose-runtime`
+#: 写文件时，该路径会穿过 `app` 那个 bind，落到 **UPG-050 载体目录**
+#: `app/smartx-storage-forecast/compose-runtime/`（`.3` 实测 10-03 的 v0.3.2 文件就在那儿），
+#: 而辅助容器挂载的是**真实目录**（`.3` 实测那份是 8-12 的 v0.3.1 旧文件）。
+#: 于是自 8-12 起 handoff 新写的配置**从未生效**，平台升级 handoff"实测通过"只是因为
+#: 旧文件恰好描述了当时正确的目标。
+_RUNTIME_PATH_KEYS = (
+    "project_path",
+    "data_path",
+    "upgrades_path",
+    "backups_path",
+    "exports_path",
+    "compose_runtime_path",
+    "prometheus_path",
+)
+
+#: 宿主 → 容器 的字段对照（与 `ActionContext` 的 host_* / 容器侧字段一一对应）
+_HOST_TO_CONTAINER_FIELD = {
+    "project_path": ("host_project_path", "project_path"),
+    "data_path": ("host_data_path", "data_path"),
+    "upgrades_path": ("host_upgrades_path", "upgrades_path"),
+    "backups_path": ("host_backups_path", "backups_path"),
+    "exports_path": ("host_exports_path", "exports_path"),
+    "compose_runtime_path": ("host_compose_runtime_path", "compose_runtime_path"),
+    "prometheus_path": ("host_prometheus_path", "prometheus_path"),
+}
+
+
+def _container_runtime_paths(context: ActionContext, host_paths: dict[str, Path]) -> dict[str, Path]:
+    """把目标布局的**宿主**路径翻译成 runner 容器内**可见**的等价路径。
+
+    宿主路径在容器内多数不可见（未挂载）；少数"可见"是假象——`/data/smartx-storage-forecast/*`
+    会穿过 app bind 命中 UPG-050 载体目录。逐字段按对照表翻译，不做字符串替换。
+
+    翻译不出来的字段**保留宿主原值**并由调用方记 warning：那是"目标布局与当前容器挂载
+    不一致"的情形（如 v0.5.1u2 → v0.5.2 目录迁移时，旧 runner 根本没挂目标根），
+    此时无路可走，只能由调用方决定是否拒绝。
+    """
+    translated: dict[str, Path] = {}
+    for key, (host_field, container_field) in _HOST_TO_CONTAINER_FIELD.items():
+        host_value = getattr(context, host_field, None)
+        container_value = getattr(context, container_field, None)
+        if container_value is None:
+            translated[key] = host_paths.get(key, Path(""))
+            continue
+        if host_value is None:
+            translated[key] = Path(container_value)
+            continue
+        host_root = Path(host_value).resolve()
+        candidate = Path(host_paths.get(key, host_value))
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            translated[key] = Path(container_value)
+            continue
+        if resolved == host_root or host_root in resolved.parents:
+            relative = resolved.relative_to(host_root)
+            translated[key] = Path(container_value) / relative
+        else:
+            translated[key] = Path(container_value)
+    return translated
+
+
 def _write_runner_runtime_compose(context: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
     image = str(params.get("image") or "").strip()
     if not image:
@@ -1524,8 +1601,14 @@ def _write_runner_runtime_compose(context: ActionContext, params: dict[str, Any]
     project_name = _safe_docker_name(params.get("compose_project") or context.compose_project)
     network_name = _safe_docker_name(params.get("network_name") or f"{project_name}_smartx-net")
     subnet = str(params.get("subnet") or "").strip()
-    paths = _runner_runtime_paths(context, params)
-    compose_path = paths["compose_runtime_path"] / "docker-compose.runner-upgrade.yml"
+    host_paths = _runner_runtime_paths(context, params)
+    container_paths = _container_runtime_paths(context, host_paths)
+
+    # ── 写点（W3b 要求 1：容器内写一律用容器路径） ──────────────────────────
+    # 运行时 compose 由**宿主 dockerd** 消费（辅助容器 `docker compose -f`），所以它的
+    # **内容**必须写宿主路径；但**写这个文件的动作**发生在 runner 容器内，必须用容器路径。
+    # 两者不可混用：内容用容器路径 → 辅助容器挂载不到；写用宿主路径 → 落进 UPG-050 载体。
+    compose_path = container_paths["compose_runtime_path"] / "docker-compose.runner-upgrade.yml"
     compose_path.parent.mkdir(parents=True, exist_ok=True)
     content = f"""services:
   upgrade-runner:
@@ -1533,7 +1616,7 @@ def _write_runner_runtime_compose(context: ActionContext, params: dict[str, Any]
     command: ["python", "-m", "app.upgrade_runner.main"]
     environment:
       TZ: Asia/Shanghai
-      SMARTX_PROJECT_PATH: {paths["project_path"]}
+      SMARTX_PROJECT_PATH: {host_paths["project_path"]}
       SMARTX_COMPOSE_FILE: {context.compose_file}
       SMARTX_COMPOSE_PROJECT_NAME: {project_name}
       SMARTX_DB_PATH: /data/smartx.db
@@ -1542,21 +1625,21 @@ def _write_runner_runtime_compose(context: ActionContext, params: dict[str, Any]
       SMARTX_EXPORTS_PATH: /data/exports
       SMARTX_COMPOSE_RUNTIME_PATH: /data/compose-runtime
       SMARTX_PROMETHEUS_DATA_PATH: /prometheus-data
-      SMARTX_HOST_DATA_PATH: {paths["data_path"]}
-      SMARTX_HOST_UPGRADES_PATH: {paths["upgrades_path"]}
-      SMARTX_HOST_BACKUPS_PATH: {paths["backups_path"]}
-      SMARTX_HOST_EXPORTS_PATH: {paths["exports_path"]}
-      SMARTX_HOST_COMPOSE_RUNTIME_PATH: {paths["compose_runtime_path"]}
-      SMARTX_HOST_PROMETHEUS_DATA_PATH: {paths["prometheus_path"]}
-      SMARTX_HOST_PROJECT_PATH: {paths["project_path"]}
+      SMARTX_HOST_DATA_PATH: {host_paths["data_path"]}
+      SMARTX_HOST_UPGRADES_PATH: {host_paths["upgrades_path"]}
+      SMARTX_HOST_BACKUPS_PATH: {host_paths["backups_path"]}
+      SMARTX_HOST_EXPORTS_PATH: {host_paths["exports_path"]}
+      SMARTX_HOST_COMPOSE_RUNTIME_PATH: {host_paths["compose_runtime_path"]}
+      SMARTX_HOST_PROMETHEUS_DATA_PATH: {host_paths["prometheus_path"]}
+      SMARTX_HOST_PROJECT_PATH: {host_paths["project_path"]}
     volumes:
-      - {paths["project_path"]}:{paths["project_path"]}
-      - {paths["data_path"]}:/data
-      - {paths["upgrades_path"]}:/data/upgrades
-      - {paths["backups_path"]}:/data/backups
-      - {paths["exports_path"]}:/data/exports
-      - {paths["compose_runtime_path"]}:/data/compose-runtime
-      - {paths["prometheus_path"]}:/prometheus-data
+      - {host_paths["project_path"]}:{host_paths["project_path"]}
+      - {host_paths["data_path"]}:/data
+      - {host_paths["upgrades_path"]}:/data/upgrades
+      - {host_paths["backups_path"]}:/data/backups
+      - {host_paths["exports_path"]}:/data/exports
+      - {host_paths["compose_runtime_path"]}:/data/compose-runtime
+      - {host_paths["prometheus_path"]}:/prometheus-data
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - smartx-net
@@ -1568,12 +1651,25 @@ networks:
     temporary = compose_path.with_suffix(".tmp")
     temporary.write_text(content, encoding="utf-8")
     os.replace(temporary, compose_path)
+    # 辅助容器挂载必须指向**刚写下的那个文件所在的宿主目录**——这是本函数唯一的不变量。
+    host_compose_path = context.docker_host_path(compose_path)
+    if host_compose_path != compose_path:
+        logging.getLogger(__name__).warning(
+            "runner handoff 运行时 compose 已写入容器路径 %s（宿主等价 %s）",
+            compose_path,
+            host_compose_path,
+        )
     return {
         "image": image,
-        "compose_file": compose_path,
+        "compose_file": host_compose_path,
+        "compose_file_container": compose_path,
+        "container_paths": {key: str(value) for key, value in container_paths.items()},
+        "host_paths": {key: str(value) for key, value in host_paths.items()},
         "compose_project": project_name,
         "network": network_name,
-        "paths": paths,
+        # `paths` 保持**宿主**语义：它被写进运行时 compose 的 volumes/env，
+        # 那些字符串由宿主 dockerd 解析。容器侧路径另见 `container_paths`。
+        "paths": host_paths,
     }
 
 
@@ -1603,7 +1699,9 @@ def runner_handoff_target_runtime(action: dict[str, Any], context_payload: dict[
         cwd=compose_path.parent,
     )
     return {
+        # compose_file 是宿主路径：`docker compose -f` 由 runner 自己经宿主 dockerd 执行
         "compose_file": str(compose_path),
+        "compose_file_container": runtime["compose_file_container"],
         "compose_project": project_name,
         "network": str(runtime["network"]),
         "checkpoint": {"completed": True, "compose_file": str(compose_path), "compose_project": project_name},
@@ -1763,6 +1861,7 @@ def runner_schedule_target_runtime_handoff(action: dict[str, Any], context_paylo
     context = _context(context_payload)
     params = action.get("params", {})
     runtime = _write_runner_runtime_compose(context, params)
+    # compose_file 是**宿主路径**（辅助容器在宿主消费它）；container 变体仅供排障对照。
     compose_path = Path(runtime["compose_file"])
     paths = runtime["paths"]
     target_task_dir_value = str(context_payload.get("task_mirror_dir") or params.get("task_mirror_dir") or "")
@@ -1793,6 +1892,8 @@ def runner_schedule_target_runtime_handoff(action: dict[str, Any], context_paylo
         context.executor.run(["docker", "rm", "-f", helper_name])
     except Exception:
         pass
+    # 挂载源必须是**宿主路径**（dockerd 在宿主解析 `-v` 的左半边），
+    # 且必须指向 runner 刚写下的那个文件所在目录——否则辅助容器读到的是别处的旧文件。
     helper_compose_file = Path("/runner-cutover/runtime") / compose_path.name
     helper_task_file = Path("/runner-cutover/task") / "task.json"
     context.executor.run(
@@ -1809,7 +1910,7 @@ def runner_schedule_target_runtime_handoff(action: dict[str, Any], context_paylo
             "-v",
             f"{host_task_dir}:/runner-cutover/task:ro",
             "-v",
-            f"{paths['compose_runtime_path']}:/runner-cutover/runtime:ro",
+            f"{runtime['compose_file'].parent}:/runner-cutover/runtime:ro",
             "-e",
             f"SMARTX_PARENT_TASK_FILE={helper_task_file}",
             "-e",
