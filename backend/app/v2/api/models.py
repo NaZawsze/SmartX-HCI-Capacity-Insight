@@ -546,6 +546,26 @@ class UpgradeRollbackAvailabilityResponse(BaseModel):
     note: Optional[str] = None
 
 
+class UpgradeFullRollbackAvailabilityResponse(BaseModel):
+    """场景 C：整备回滚可用性（含数据丢失窗口与确认要求）。"""
+
+    model_config = ConfigDict(extra="allow")
+    available: bool
+    blockers: List[str] = []
+    target_version: Optional[str] = None
+    current_version: Optional[str] = None
+    backup: dict = {}
+    scope: Optional[str] = None
+    data_loss_window: Optional[str] = None
+    requires_confirmation: Optional[bool] = None
+    note: Optional[str] = None
+
+
+class FullRollbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm_data_loss: bool = False
+
+
 class ComponentVersionResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
     component: Optional[str] = None

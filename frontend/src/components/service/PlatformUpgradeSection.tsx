@@ -5,6 +5,7 @@ import type {
   AppTask,
   ComponentInfo,
   UpgradePostCleanupStatus,
+  UpgradeFullRollbackAvailability,
   UpgradeRollbackAvailability,
   UpgradeTask,
   UpgradeVerification
@@ -77,6 +78,8 @@ export function PlatformUpgradeSection({
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   // 场景 B：可回滚性判定（blockers 结构化——拒绝必须带出路）
   const [rollbackAvailability, setRollbackAvailability] = useState<UpgradeRollbackAvailability | null>(null);
+  // 场景 C：整备回滚（数据回到升级前）——必须显式确认数据丢失
+  const [fullRollbackAvailability, setFullRollbackAvailability] = useState<UpgradeFullRollbackAvailability | null>(null);
   const [upgradeMessage, setUpgradeMessage] = useState("");
   const [cleanupBusy, setCleanupBusy] = useState(false);
   const [cleanupScanBusy, setCleanupScanBusy] = useState(false);
@@ -167,8 +170,9 @@ export function PlatformUpgradeSection({
     api.upgradeVersion().then((result) => setAppVersion(result.version)).catch(() => undefined);
     reloadUpgradeHistory().catch(() => undefined);
     reloadUpgradeVerification().catch(() => undefined);
-    // 场景 B：进入升级中心即读一次可回滚性（按钮的可用状态与阻塞原因都需要它）
+    // 场景 B/C：进入升级中心即读一次可用性（按钮状态与阻塞原因都需要它）
     void loadRollbackAvailability();
+    void loadFullRollbackAvailability();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -370,6 +374,46 @@ export function PlatformUpgradeSection({
       setUpgradeMessage("升级任务已提交，日志会自动刷新。");
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "开始升级失败";
+      updateTask(id, { status: "failed", progress: 100, detail: message });
+      setUpgradeMessage(message);
+    } finally {
+      setUpgradeBusy(false);
+    }
+  }
+
+  async function loadFullRollbackAvailability() {
+    try {
+      setFullRollbackAvailability(await api.fullRollbackAvailability());
+    } catch (exc) {
+      setFullRollbackAvailability({
+        available: false,
+        blockers: [exc instanceof Error ? exc.message : "无法读取整备回滚可用性"],
+        scope: "application_and_data"
+      });
+    }
+  }
+
+  async function confirmFullRollback() {
+    const window_text = fullRollbackAvailability?.data_loss_window || "窗口未知";
+    const confirmed = window.confirm(
+      `整备回滚会用升级前备份覆盖 SQLite 与 Prometheus，丢失升级时刻至今的采集数据（${window_text}）。\n确认继续？`
+    );
+    if (!confirmed) return;
+    setUpgradeMessage("");
+    setUpgradeBusy(true);
+    const id = taskId("full-rollback");
+    addTask({ id, kind: "upgrade", title: "整备回滚（数据回到升级前）", detail: fullRollbackAvailability?.target_version || "-", status: "running", progress: 10 });
+    try {
+      const task = await api.fullRollback(true);
+      setUpgradeTask(task);
+      setStepsExpanded(true);
+      setLogsExpanded(true);
+      upgradeRunTaskRef.current[task.task_id] = id;
+      updateTask(id, { progress: upgradeProgress(task), detail: upgradeStatusText(task.status) });
+      setUpgradeMessage(`已提交整备回滚到 ${task.target_version}（数据回到升级前，丢失窗口 ${window_text}）。`);
+      void loadFullRollbackAvailability();
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "提交整备回滚失败";
       updateTask(id, { status: "failed", progress: 100, detail: message });
       setUpgradeMessage(message);
     } finally {
@@ -668,6 +712,23 @@ export function PlatformUpgradeSection({
             {rollbackAvailability && !rollbackAvailability.available && (
               <div className="upgrade-rollback-blockers" role="status">
                 {rollbackAvailability.blockers.map((blocker) => (
+                  <small key={blocker}>{blocker}</small>
+                ))}
+              </div>
+            )}
+            {/* 场景 C：整备回滚要显式确认数据丢失，按钮本身不隐藏（点了会说明为什么不行） */}
+            <button
+              className="secondary-button danger-button"
+              type="button"
+              onClick={() => void confirmFullRollback()}
+              disabled={upgradeBusy || isRunning || needsRecovery || !fullRollbackAvailability?.available}
+            >
+              <RotateCcw size={16} />
+              整备回滚（数据回到升级前）
+            </button>
+            {fullRollbackAvailability && !fullRollbackAvailability.available && (
+              <div className="upgrade-rollback-blockers" role="status">
+                {fullRollbackAvailability.blockers.map((blocker) => (
                   <small key={blocker}>{blocker}</small>
                 ))}
               </div>

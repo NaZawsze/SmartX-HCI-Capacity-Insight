@@ -21,6 +21,8 @@ const apiMock = vi.hoisted(() => ({
   rollbackUpgradeRecovery: vi.fn(),
   upgradeRollbackAvailability: vi.fn(),
   rollbackToPreviousVersion: vi.fn(),
+  fullRollbackAvailability: vi.fn(),
+  fullRollback: vi.fn(),
   failUpgradeRecovery: vi.fn(),
   importMigration: vi.fn(),
   startMigrationImport: vi.fn(),
@@ -70,6 +72,11 @@ function mockServicePageBootstrap() {
     available: false,
     blockers: ["没有平台回滚锚点（需先完成一次 v0.5.4+ 平台升级）"],
     scope: "application_only"
+  });
+  apiMock.fullRollbackAvailability.mockResolvedValue({
+    available: false,
+    blockers: ["没有平台回滚锚点（需先完成一次 v0.5.4+ 平台升级）"],
+    scope: "application_and_data"
   });
   apiMock.componentUpgradeVersion.mockResolvedValue({ component: "upgrade-runner", version: "v0.3.0" });
   apiMock.componentUpgradeComponents.mockResolvedValue({
@@ -856,6 +863,59 @@ describe("ServicePage upgrade center", () => {
 
     await waitFor(() => expect(apiMock.rollbackToPreviousVersion).toHaveBeenCalled());
     expect(await screen.findByText(/已提交回滚到 v0\.5\.2/)).toBeInTheDocument();
+  });
+
+  it("blocks scenario C full rollback when the pre-upgrade backup is missing", async () => {
+    mockServicePageBootstrap();
+    apiMock.upgradeHistory.mockResolvedValue([uploadedPlatformTask()]);
+    apiMock.fullRollbackAvailability.mockResolvedValue({
+      available: false,
+      blockers: ["升级前备份不存在：upgrade-v0.5.3-before-20260101000000.tar.gz"],
+      scope: "application_and_data",
+      requires_confirmation: true
+    });
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText("v0.5.2"));
+    const button = await screen.findByRole("button", { name: "整备回滚（数据回到升级前）" });
+    expect(button).toBeDisabled();
+    expect(await screen.findByText("升级前备份不存在：upgrade-v0.5.3-before-20260101000000.tar.gz")).toBeInTheDocument();
+  });
+
+  it("requires explicit confirmation for scenario C data loss", async () => {
+    mockServicePageBootstrap();
+    apiMock.upgradeHistory.mockResolvedValue([uploadedPlatformTask()]);
+    apiMock.fullRollbackAvailability.mockResolvedValue({
+      available: true,
+      blockers: [],
+      target_version: "v0.5.2",
+      current_version: "v0.5.3",
+      scope: "application_and_data",
+      data_loss_window: "36.0 小时（自 2026-01-01 00:00 起）",
+      requires_confirmation: true
+    });
+    apiMock.fullRollback.mockResolvedValue({
+      ...uploadedPlatformTask(),
+      task_id: "manual-full-rollback-20260101",
+      target_version: "v0.5.2",
+      status: "pending"
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText("v0.5.2"));
+    const button = await screen.findByRole("button", { name: "整备回滚（数据回到升级前）" });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(String(confirmSpy.mock.calls[0][0])).toContain("丢失升级时刻至今的采集数据");
+    expect(apiMock.fullRollback).not.toHaveBeenCalled();
+
+    confirmSpy.mockReturnValue(true);
+    fireEvent.click(button);
+    await waitFor(() => expect(apiMock.fullRollback).toHaveBeenCalledWith(true));
+    confirmSpy.mockRestore();
   });
 
   it("shows missing runner capability for selected platform package before execution", async () => {

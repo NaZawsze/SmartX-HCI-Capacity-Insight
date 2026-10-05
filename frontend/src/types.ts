@@ -394,6 +394,19 @@ export interface UpgradeRollbackAvailability {
   note?: string;
 }
 
+/** 场景 C：整备回滚可用性（含数据丢失窗口与确认要求）。 */
+export interface UpgradeFullRollbackAvailability {
+  available: boolean;
+  blockers: string[];
+  target_version?: string;
+  current_version?: string;
+  backup?: { present?: boolean; path?: string; sha256_ok?: boolean; data_loss_window?: string; reason?: string };
+  scope?: string;
+  data_loss_window?: string;
+  requires_confirmation?: boolean;
+  note?: string;
+}
+
 export interface UpgradeVerification {
   app_version: string;
   runner_version: string;

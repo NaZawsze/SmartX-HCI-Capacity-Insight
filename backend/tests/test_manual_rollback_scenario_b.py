@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import sys
@@ -263,6 +264,100 @@ class StartManualRollbackTests(unittest.TestCase):
                 ).fetchone()
         self.assertIsNotNone(row, "tasks 表应有该任务（web-api 独占写入）")
         self.assertEqual(row[1], "upgrade")
+
+
+class FullRollbackScenarioCTests(unittest.TestCase):
+    """场景 C：整备回滚（应用 + 数据回到升级前）。
+
+    判据与 B3 同构：**显式确认**——没有默认的"是"；不可用时也要带出路。
+    """
+
+    def _anchor_with_backup(self, root: Path, *, sha: str | None = "match", create: bool = True) -> dict[str, Any]:
+        backups = root / "backups"
+        backups.mkdir(parents=True, exist_ok=True)
+        path = backups / "upgrade-v0.5.4-before-20260101000000.tar.gz"
+        if create:
+            path.write_bytes(b"backup-bytes")
+        digest = hashlib.sha256(b"backup-bytes").hexdigest() if sha == "match" else (sha or "")
+        return {
+            **ANCHOR,
+            "backup": {"path": str(path), "sha256": digest, "scope": "platform"},
+            "captured_at": "2026-01-01T00:00:00+00:00",
+        }
+
+    def _service_with(self, root: Path, anchor: dict[str, Any]) -> UpgradeService:
+        service = _service(root, _Executor())
+        _write_state_file(service.settings, {"upgrade-1": anchor})
+        return service
+
+    def test_available_when_backup_exists_and_sha_matches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service = self._service_with(Path(tmp), self._anchor_with_backup(Path(tmp)))
+            payload = service.full_rollback_availability()
+        self.assertTrue(payload["available"], payload["blockers"])
+        self.assertEqual(payload["scope"], "application_and_data")
+        self.assertTrue(payload["requires_confirmation"])
+        self.assertTrue(payload["data_loss_window"])
+
+    def test_missing_backup_blocks_with_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            anchor = self._anchor_with_backup(Path(tmp), create=False)
+            payload = self._service_with(Path(tmp), anchor).full_rollback_availability()
+        self.assertFalse(payload["available"])
+        self.assertTrue(any("备份不存在" in item for item in payload["blockers"]), payload["blockers"])
+
+    def test_sha_mismatch_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            anchor = self._anchor_with_backup(Path(tmp), sha="0" * 64)
+            payload = self._service_with(Path(tmp), anchor).full_rollback_availability()
+        self.assertFalse(payload["available"])
+        self.assertTrue(any("SHA256" in item for item in payload["blockers"]))
+
+    def test_execution_requires_explicit_confirmation(self) -> None:
+        from fastapi import HTTPException
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service = self._service_with(Path(tmp), self._anchor_with_backup(Path(tmp)))
+            with self.assertRaises(HTTPException) as caught:
+                service.start_full_rollback()
+        self.assertEqual(caught.exception.status_code, 400)
+        detail = str(caught.exception.detail)
+        self.assertIn("confirm_data_loss", detail)
+        self.assertIn("丢失", detail)
+
+    def test_confirmed_execution_creates_restore_task(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = self._service_with(root, self._anchor_with_backup(root))
+            task = service.start_full_rollback(confirm_data_loss=True)
+            stored = json.loads((root / "upgrades" / task["task_id"] / "task.json").read_text(encoding="utf-8"))
+        self.assertEqual(task["kind"], "manual_full_rollback")
+        types = [item["type"] for item in stored["execution_plan"]["actions"]]
+        self.assertEqual(types, ["rollback.restore", "health.http"])
+        self.assertNotIn("upgrade-runner", stored["execution_plan"]["actions"][0]["params"]["services"])
+        self.assertTrue(stored["data_loss_window"])
+
+    def test_restore_uses_only_published_runner_actions(self) -> None:
+        from app.upgrade_runner.actions import default_handlers
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = self._service_with(root, self._anchor_with_backup(root))
+            task = service.start_full_rollback(confirm_data_loss=True)
+            stored = json.loads((root / "upgrades" / task["task_id"] / "task.json").read_text(encoding="utf-8"))
+        handlers = default_handlers()
+        for action in stored["execution_plan"]["actions"]:
+            self.assertIn(action["type"], handlers, action["type"])
+
+    def test_full_restore_action_keeps_force_recreate(self) -> None:
+        """整备回滚内部必须 force-recreate（目标 config-hash 可能不同）；W7 禁令只针对 compose.apply。"""
+        from app.upgrade_runner.actions import default_handlers
+
+        source = ROOT / "app" / "upgrade_runner" / "actions.py"
+        self.assertTrue(source.is_file())
+        self.assertIn("rollback.restore", default_handlers())
+        body = source.read_text(encoding="utf-8").split("def rollback_restore", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn("--force-recreate", body)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,8 @@ from app.v2.upgrade.service import UpgradeService
 from app.v2.api.deps import get_upgrade_service, require_user
 from app.v2.api.models import (
     AdminTaskResponse,
+    FullRollbackRequest,
+    UpgradeFullRollbackAvailabilityResponse,
     UpgradeRollbackAvailabilityResponse,
     ComponentCatalogResponse,
     ComponentVersionResponse,
@@ -78,6 +80,27 @@ def start_upgrade_rollback_to_previous(
     upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
 ) -> dict:
     return upgrade.start_manual_rollback()
+
+
+@router.get(
+    "/api/admin/upgrade/full-rollback-availability",
+    response_model=UpgradeFullRollbackAvailabilityResponse,
+)
+def upgrade_full_rollback_availability(
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    return upgrade.full_rollback_availability()
+
+
+@router.post("/api/admin/upgrade/full-rollback")
+def start_upgrade_full_rollback(
+    payload: FullRollbackRequest,
+    _: Annotated[CurrentUser, Depends(require_user)],
+    upgrade: Annotated[UpgradeService, Depends(get_upgrade_service)],
+) -> dict:
+    """场景 C：整备回滚。必须显式 `confirm_data_loss: true`——没有默认的"是"。"""
+    return upgrade.start_full_rollback(confirm_data_loss=payload.confirm_data_loss)
 
 
 @router.post("/api/admin/upgrade/recovery/{task_id}/continue")

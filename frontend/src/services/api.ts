@@ -19,6 +19,7 @@ import type {
   SpaceCleanupScanResult,
   Tower,
   UpgradePostCleanupStatus,
+  UpgradeFullRollbackAvailability,
   UpgradeRollbackAvailability,
   UpgradeTask,
   UpgradeVerification,
@@ -506,6 +507,17 @@ export const api = {
   /** 场景 B：发起回滚到上一版本的任务（单飞守卫在后端）。 */
   async rollbackToPreviousVersion(): Promise<UpgradeTask> {
     return request<UpgradeTask>("/api/admin/upgrade/rollback", { method: "POST" });
+  },
+  /** 场景 C：整备回滚可用性（含数据丢失窗口）。 */
+  async fullRollbackAvailability(): Promise<UpgradeFullRollbackAvailability> {
+    return request<UpgradeFullRollbackAvailability>("/api/admin/upgrade/full-rollback-availability", { method: "GET" });
+  },
+  /** 场景 C：整备回滚。必须显式确认数据丢失。 */
+  async fullRollback(confirmDataLoss: boolean): Promise<UpgradeTask> {
+    return request<UpgradeTask>("/api/admin/upgrade/full-rollback", {
+      method: "POST",
+      body: JSON.stringify({ confirm_data_loss: confirmDataLoss })
+    });
   },
   async continueUpgradeRecovery(taskId: string): Promise<UpgradeTask> {
     return request<UpgradeTask>(`/api/admin/upgrade/recovery/${taskId}/continue`, { method: "POST" });
