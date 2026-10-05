@@ -4753,3 +4753,26 @@ GitHub Release 附平台包 tar.gz + `.sha256` → 平台三件套 DockerHub 镜
 - DockerHub 三件套 tag 实查：`smartx-hci-capacity-insight-{web-api,collector-worker,frontend}:v0.5.3` 全部在位。
   runner 镜像未动（`runner-v*` tag 未打，v0.3.1/v0.3.0 保持原状）。
 - **v0.5.3 发布动作链至此全部完成**（governance 步骤 1~6 全闭环；步骤 7 生产升级窗口由用户安排）。
+
+## 2026-10-05 已发布 Release 资产端到端验证（v0.5.1 → v0.5.3 + runner v0.3.1，`.12`/`.14` 双机）
+
+**触发**：用户告知 v0.5.3 已在 GitHub 发布，要求不复用本地副本——从 Docker Hub + GitHub Release 取材，在 `.12`/`.14` 从真实 v0.5.1 基线一路升到 v0.5.3 + runner v0.3.1。
+
+**发布事实确认**：`gh release list` → `v0.5.3` 为 `Latest`，`2026-10-05T04:03:59Z`；`git ls-remote --tags` → 远端已有 `v0.5.3`（此前我只看本地 tag，误判「未发布」，已纠正）。**发布资产 = 本地 r17 构建产物**（`ef3fab9f…` 逐位一致）。
+
+**执行**：四份Release 资产下载后 SHA 与权威 `.sha256` 全部一致 → 经 `.3` 分发到两台 → 清空两台 → v0.5.1 起点（compose 取自远端 tag `v0.5.1`，镜像取自 Docker Hub）→ 四步升级（`.12`：`ae86f2c6`→`ddedc45b`→`883a7a55`→`5723a9f6`；`.14`：`2a58ae7d`→`3888a920`→`0ab80eab`→`edff1a9c`）。
+
+**结果**：两台四步全部 **succeeded**，post-cleanup **succeeded**，终态均`ok=true platform=v0.5.3 runner=v0.3.1`、checks 3/3、5 容器 restarts 全 0、**runner 未被降级**、7 目标目录齐全、SQLite `integrity=ok`、5 条 legacy 全清、project/net 正确。
+
+**过程中我犯的错（如实记录）**：
+1. 拼错 Docker Hub 仓库名（多插斜杠）导致 pull 全失败，改用正确名 `smartx-hci-capacity-insight-*` 成功。
+2. 先用 **v0.5.1u2 包里的 project 目录**当 v0.5.1 起点——它写的是 `v0.5.1u2` 的镜像名与 tag。改为从**远端 tag `v0.5.1`** 取真正的 `docker-compose.offline.yml`。
+3. `scp` 传 compose **静默失败**（远端文件仍是旧内容），改用 `ssh 'cat >' < file` 才写入成功。今后传关键配置一律用 stdin 并**回读校验**。
+4. 误把 grep 输出串行当成「同名不同包」（`b5018a3c` 实为 `v0.5.1u2` 的 ID 被换行截断）。**结论：DockerHub `v0.5.1` 唯一，无重推。**
+5. 命令行手误 `-o ConnectTimeout>0`，参数无效直接失败，未造成副作用。
+
+**环境发现**：①`.14` 的 `registry-1.docker.io` 被 DNS sinkhole 到 `0.0.0.0`（GitHub 正常），改走 `.3` 中转 `docker save/load`；②v0.5.1 无 `pre_install.sh`，Prometheus 数据目录需手工 `chown 65534` 否则 11 次重启循环；③`.12`/`.14` SSH 间歇性 `Permission denied`，重试即恢复。
+
+**未覆盖**：本轮起点为空库，「数据逐位不变」沿用 2026-10-01 r9 在 `.12` 的实测证据，未复验；两台 Tower 凭据为占位密钥，自动采集未验证。
+
+**远端清理**：两台已删测试包与镜像 tar；`.3:/data/v051imgs` 保留（可复用）；本地 `/tmp` 临时目录已清。

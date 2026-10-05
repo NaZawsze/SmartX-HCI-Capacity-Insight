@@ -547,3 +547,32 @@ Current execution rule: Python, dependencies, tests, builds and full-chain valid
 | SUPERSEDED（被 r12 取代；采集代码与终版口径不一致） | `v0.5.3-r11-20261003` | .3:/data/us37-verify/packages/latest/smartx-capacity-insight-upgrade-v0.5.3.tar.gz | `a5f935249fe1c8352be52791c28c55f156b8f619814ab8e698b6eaa57c4bdeba` | 相对 r10 收编 2026-10-02~03 全部修复：**#72 定时采集调度停摆自愈**（worker 启动即同步+重试+异常落日志+logging 配置；APScheduler Job 禁止 setattr 的签名缓存修复——.3 实证停摆 20 天根因）、**#75 已分配口径=Σ(每卷供给×副本/EC)** 且计算挪进采集流程（页面零计算；旧 perf 层路径废弃）、**#73 新鲜度横幅自解释**（已约 X 小时未成功采集+阈值）、**#74 迁移页三处说明合并为对比表+相邻卡片间距+密钥弹窗写明本系统密码**、**US-38 导入与 prometheus 压实竞态容错**、**#65 整库替换缓解**（-wal/-shm 清理+先拷后清）、**#66 数据包 404 友好提示**。runner 组件包 v0.3.2 开发线（不随本次交付，源 `be0c0fde…`）。构建：ops/package.sh EXIT=0（完整构建）、身份/一致性门禁 PASS、敏感 0。 | .3 全量 **755 tests / 1 failure（既有环境限制，同断言确认）/ 7 skipped**；前端 tsc 0 / vitest 108；打包门禁（README 7 章节/身份/一致性/敏感）全过。r10 验收结论对不变代码部分沿用；发布前建议 .12 补一次同版本重装验收。 |
 | SUPERSEDED（被 r11 取代） | `v0.5.3-r10-20261002` | .3:/data/us37-verify/packages/latest/smartx-capacity-insight-upgrade-v0.5.3.tar.gz | `41304c3a353ab3568b063a6b444449efa447540e0790faa0b623131dfb3022b7` | 相对 r9 仅增量：CLI 客户文档修复（#71）——README 版本无关化（不再写死/宣传未交付组件包）、补「数据迁移与恢复密钥」章节与新选项表、打包脚本强制校验 README 7 章节（缺即构建失败）、交付手册补第 4 件必带事项。代码与 r9 相同（r9 的 .12/.14 验收结论对代码部分全部有效）。构建：ops/package.sh EXIT=0、门禁全过、README 校验在构建链内生效。 | .3 builder/us37/ops 136 tests OK；交付目录 README 实查：含「数据迁移与恢复密钥」、--allow-same-version 4 处、硬编码组件包文件名 0 处。 |
 | SUPERSEDED（交付目录 README 过时，#71；代码与 r10 相同，其 .12/.14 验收结论由 r10 沿用） | `v0.5.3-r9-20261001` | `.3:/data/us37-verify/packages/latest/smartx-capacity-insight-upgrade-v0.5.3.tar.gz` | `cf2172a4b012e8dc63623d40283e2d8f11f5072a85298c5524c82f71632072ee` | 相对 r6（`6253810b…`，09-28）收编：**US-37 compose 变体守卫**（标记+守卫+纪律，`.14` 真机验证）、**迁移数据包「仅导出存储监测数据」**（#61）、**#63 合并导入 Tower 身份重映射**（跨系统导入不再照搬源自增 ID）、**#68 导出迁移包名实相符**（SQLite 全量业务拷贝，「迁移包+恢复密钥=完整恢复」成立）、**#65 整库替换最小缓解**（-wal/-shm 清理 + Prometheus 先拷后清）、**upgrade.sh 重复升级防呆 + force-env 拒绝恢复 .env**。runner 组件包仍为 v0.3.2 开发线（不随本次交付，源 `b3f630f4…`）。构建：`ops/package.sh` 端到端 EXIT=0（完整构建非 --no-build）、平台身份门禁 PASS、runner 一致性门禁 PASS、敏感 0。 | `.3` 全量 **737 tests / 1 failure（既有环境限制，同断言确认）/ 7 skipped**；前端 tsc 0 / vitest 108。**`.12` 验收已过（2026-10-01，用户授权）**：发布机同版本重装 v0.5.3→r9（task `upgrade-922fab7a0ecca1a8` **succeeded**，预检查 9 项 OK、14 动作含 post_upgrade/runner_handoff 全 succeeded、post-cleanup succeeded）；**8 项验收全过**：health `v0.5.3`/`v0.3.2` 三 checks true、5 容器正常且 **runner 保持 v0.3.2 未降级（US-26 现场判别：包基线 v0.3.1 < 现场 v0.3.2，未被动）**、project 正确、SQLite integrity ok 且数据 **556/89588/1 逐位不变**、Prometheus ready 200、`.env` sha `8b644112…` 全程未变、7 条 legacy 全清、UI 200。另 `.14` 干净机全流程闭环（全清→安装→CLI 升级→8 项验收全绿，交付 tar `36077eba…`）。 |
+
+## 2026-10-05已发布 Release 资产端到端验证（v0.5.3 + runner v0.3.1；`.12`/`.14` 两台独立复现）
+
+**背景**：v0.5.3 已于 2026-10-05T04:03:59Z 正式发布为 GitHub Release（`Latest`），tag `v0.5.3` 已推远端。发布资产经比对 = 本地 r17 构建产物（SHA 逐位一致），即「发布用的就是这份」。本轮按用户要求**只从网络取材**（GitHub Release 资产 + Docker Hub 镜像），不复用任何本地副本，在 `.12` 与 `.14` 上从零复现老客户全链路。
+
+**权威资产（全部取自 GitHub Release `.sha256`，下载后逐位复核一致）**：
+
+| 步骤 | Release | 资产 | SHA256（权威=实测） |
+| --- | --- | --- | --- |
+| 1 平台 | `v0.5.1u2` | `smartx-capacity-insight-upgrade-v0.5.1u2.tar.gz` | `d5f277167445e7636ddfba16b4f780b40d59952467bb1c8e72d2469b43ee0a49` |
+| 2 runner | `v0.5.1u2` | `smartx-upgrade-runner-v0.3.1.tar.gz` | `d10e15cf7b516d172ebe2f1bc37621f9cf32d8ab3abd548f808ae5c5de151d2c` |
+| 3 平台 | `v0.5.2` | `smartx-capacity-insight-upgrade-v0.5.2.tar.gz` | `692aca8b58ad8199c43c02a3771fa4fd7a62f1d7bbf4f198af4bd2e4b2c67733` |
+| 4 平台 | `v0.5.3` | `smartx-capacity-insight-upgrade-v0.5.3.tar.gz` | `ef3fab9f4f1f15937d0b109c263517712bdabbe15907f87cba70b69af762fd4c` |
+
+**起点取材**：v0.5.1 无 GitHub Release，故 compose 取自 **远端 tag `v0.5.1` 的 `docker-compose.offline.yml`**（`raw.githubusercontent.com`），镜像取自 Docker Hub `nazawsze/smartx-hci-capacity-insight-{web-api,collector-worker,frontend}:v0.5.1` + `-upgrade-runner:v0.3.0`。已核实 v0.5.1 时期镜像前缀是 `smartx-hci-capacity-insight-*`（`v0.5.1u2` 才改为 `smartx-storage-forecast-*`），与 tag 内容一致。
+
+**`.12` 全链路（PASS）**：清空 → v0.5.1+runner v0.3.0 起点（health ok、5 容器 restarts 全 0、checks 3/3）→ 步1 `upgrade-ae86f2c65d4145a0` 预检查 6/6 → **succeeded** → 步2 组件升级 `upgrade-ddedc45b2dd040e7` 预检查 5/5 → **succeeded**（runner v0.3.1）→ 步3 `upgrade-883a7a557fa660e8` 预检查 7/7 → **succeeded**（落点 v0.5.2，project 已切`smartx-hci-capacity-insight`）→ 步4 `upgrade-5723a9f6855c6b82` 预检查 7/7 → **succeeded** → post-cleanup **succeeded**。终态验收：`ok=true platform=v0.5.3 runner=v0.3.1`、`checks directories/database/prometheus` 全 true、5 容器 running 且 **restarts 全 0**、**runner `/app/RUNNER_VERSION=v0.3.1` 未被平台包基线降级（US-26 判别通过）**、7 个目标目录齐全、SQLite `integrity=ok`、5 条legacy 路径（`/opt/smartx-storage-forecast`、`/data/upgrades|backups|exports|compose-runtime`）**全清**、project=`smartx-hci-capacity-insight`、net=`smartx-hci-capacity-insight-net`。
+
+**`.14` 全链路（PASS，独立复现）**：清空 → 起点 v0.5.1+runner v0.3.0（health ok、checks 3/3）→ 步1 `upgrade-2a58ae7d694a7a14` **succeeded** → 步2 `upgrade-3888a920b32cb492` **succeeded** → 步3 `upgrade-0ab80eab9a2f13b1` 预检查 7/7 **succeeded** → 步4 `upgrade-edff1a9c5b31d9f0` 预检查 7/7 **succeeded** → post-cleanup **succeeded**。终态与 `.12` 一致：`ok=true v0.5.3 / v0.3.1`、checks 3/3、5 容器 restarts 全 0、runner v0.3.1、7 目录齐全、SQLite `integrity=ok`、旧目录全清、project/net 正确。
+
+**结论**：已发布的 `v0.5.3` + `runner v0.3.1` 组合在两台独立机器上从真实 v0.5.1 基线走完四步全部成功，**交付一致性成立**（用的就是客户手里的 Release 资产与 Docker Hub 镜像，非本地副本）。
+
+**本轮新发现（环境类，非产品缺陷）**：
+
+1. **`.14` 的 Docker Hub 出口被 DNS sinkhole**：`registry-1.docker.io` 解析为 `0.0.0.0` → `dial tcp 0.0.0.0:443 connection refused`；同时 `github.com` 返回 200，故仅 Docker Hub 受影响。**规避**：由 `.3` 拉取后 `docker save | gzip` 传至 `.14` 再 `docker load`（四镜像 ID 与 Docker Hub 一致：`3cd2d5de…` / `d91d73b1…` / `46e95620…` / `f7153cc0…`）。**待办**：确认该 sinkhole 是临时网络策略还是长期限制，影响「`.14` 能否作为纯网络取材验证机」。
+2. **v0.5.1 时期 Prometheus 数据目录属主需手工设**：`/data/smartx-capacity-insight-data/prometheus` 默认 `root:root`，容器内以 uid/gid 65534 运行 → `panic: Unable to create mmap-ed active query log` → 11 次重启循环、health `prometheus=false`。设 `chown -R 65534:65534` 后 `restarts=0`、health 转绿。**待办**：v0.5.1 无 `pre_install.sh`，属主需人工设；后续版本安装脚本是否已覆盖此项需单独确认（v0.5.2+ 本轮未复现此问题）。
+3. **`.12`/`.14` SSH 间歇性 `Permission denied`**：同一凭据前一条命令成功、下一条被拒（非密码错误、非 `MaxStartups` 明确报错），需重试 1~4 次即恢复。**待办**：属环境层抖动，未影响任何升级结论，但记录在案。
+
+**未覆盖（如实记录）**：本轮起点为**全新空库**，未导入业务基线，故「升级前后数据逐位不变」这一项**沿用 2026-10-01 r9 在 `.12` 的实测证据**（556/89588/1 逐位不变、`.env` sha 未变），本轮不复验。两台的 Tower 凭据为占位密钥，**自动采集未验证**。
