@@ -5272,3 +5272,42 @@ AssertionError: 组合「v0.5.0 / v0.5.1 / v0.5.1u1 / v0.5.1u2」的支持状态
 | 全量 | `Ran 1031 tests`，`FULL_SUITE_EXIT=1`（6 个既有 harness 失败） |
 | 失败清单 | `test_ops_toolkit` 5 例（需 `shellcheck`/`bash -n`）+ `test_v2_upgrade` 1 例（镜像有 docker CLI 无 socket），与 B5b 基线**逐条一致** |
 | diff | `NO_NEW_FAILURES`（对比 `/tmp/b5b-fails.txt`） |
+
+## B3：precheck remediation（拒绝必须带出路）
+
+提交：`e6f0407`。
+
+### 落地
+
+| 层 | 做法 |
+| --- | --- |
+| 打包 | `_source_compatibility()` 生成 `remediation`；`LAST_TARGET_SUPPORTING_LEGACY_SOURCES="v0.5.3"` 是**发布事实，写死不参与计算**（算出来的东西会随参数漂移，把"引导客户去哪"变成隐式行为） |
+| 文案 | 逐字为定稿那句：`v0.5.4 不支持 ≤v0.5.1u2 源；请先升级 v0.5.3（链路已验证）再升 v0.5.4`（单测逐字断言） |
+| precheck | 结构化字段 `remediation` **只在 ok=false 时出现** + 该检查 `message` 文案本身带上（纯文本/老前端也看得到）+ 老包无字段时兜底「请先升级到 X 及以上，再重试本升级」 |
+| 前端 | 只在**预检查结果区**渲染（`em.upgrade-check-remediation`，`:root` 变量、6px 圆角、`::before` 显示"下一步："），`formatCheckMessages` 步骤摘要同步带上；不做引导页/向导 |
+
+**不在后端写死版本号**：文案跟包走，换目标版本只改打包常量。否则文案会与包的真实支持矩阵脱节——
+这正是"不静默降级"要防的事（矩阵写 ⛔ 但检查只说"不支持"= 无出路）。
+
+### 验证（`.3`）
+
+| 项 | 结果 |
+| --- | --- |
+| 后端单测（新增 `test_precheck_remediation.py`） | 9 例 OK（四个被拒源逐个断言字段+文案、三个通过源断言无字段、老包兜底、message 前缀顺序、结构键不变） |
+| 前端 `tsc -b` | `TSC_EXIT=0` |
+| 前端 `vitest run` | `VITEST_EXIT=0`，`Test Files 11 passed (11)`，`Tests 110 passed (110)`（含新增 2 例：失败项渲染 remediation、通过项不渲染） |
+| 后端全量 | `Ran 1040 tests`，`PY_FULL_EXIT=1`，**fail_count=1** |
+
+### 顺带纠正一条我此前的错误结论
+
+我一直把那 6 个失败都报成「harness 限制（需 shellcheck / docker CLI 无 socket）」——**其中 5 个
+`test_ops_toolkit` 失败其实是我自己造的**：用 macOS `tar` 打包时没排除 AppleDouble 旁车文件，
+`._*.sh` 混进 Linux 树，`test_all_scripts_pass_syntax_check` 对它们跑语法检查就炸了。
+修法：`COPYFILE_DISABLE=1` + `--exclude='._*'`（并排除 `.codex/.zcode` 等本地工作区目录）。
+
+因此**当前真实基线是 1 个失败**（`test_start_can_submit_task_for_runner_and_runner_executes_it`：
+镜像内有 `docker` CLI 但没挂 socket → `docker ps` 非零退出），这一条才是环境限制。
+我此前把 6 条一起归给环境，等于把自己的产物算进了环境账——**结论方向没错（无回归），但归因错了**。
+
+同一打包陷阱也让前端 vitest 一度报 `11 failed | 11 passed (22)`（`._*.test.tsx` 变成 11 个 0 测试文件），
+排除旁车文件后 `Test Files 11 passed (11)`。
