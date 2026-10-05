@@ -3,6 +3,7 @@ from __future__ import annotations
 """Upgrade execution: start/status/cancel/rollback/recovery and runner sync."""
 
 import json
+import logging
 import shutil
 import threading
 from datetime import timedelta
@@ -21,6 +22,7 @@ from .precheck import _runner_bootstrap, _runner_compose_project_name, _runner_o
 from .taskfile import _completed_runner_task_view, _parse_datetime, _read_task_file, _replace_step, _save_task_file, _step
 
 from .constants import RUNNER_NOT_DETECTED
+from ..projection import project_if_newer
 from .runner_presence import (
     RUNNER_PRESENCE_SOURCES,
     active_task_lease_is_fresh,
@@ -31,6 +33,8 @@ from .runner_presence import (
     state_file_instance_state,
     task_lease_is_alive,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _should_stop_previous_runner(bootstrap: Any, current_project: str) -> bool:
@@ -161,6 +165,11 @@ class ExecutionMixin:
     def status(self, task_id: str) -> dict[str, Any]:
         task_dir = self.settings.upgrades_dir / task_id
         task = self._normalize_completed_runner_task(task_dir, _read_task_file(task_dir))
+        # W2：状态查询是 web-api 独占写 tasks 表的时机——执行期事实源是 task.json，
+        # 客户端轮询 status 就是「把最新事实投影到任务中心」的触发点。
+        # 放在 `_public_task` **之前**：视图要读库里刚写入的行，否则本次响应仍是旧进度
+        # （用户会看到进度条停在上一格，下一次轮询才动——观感上就是"卡住"）。
+        self._project_runner_task(task)
         return self._public_task(task)
 
 
@@ -774,31 +783,19 @@ class ExecutionMixin:
 
 
     def _project_runner_task(self, task: dict[str, Any]) -> None:
-        steps = _runner_action_steps(task)
-        task_id = str(task["task_id"])
-        logs = list(task.get("logs") or [])
-        existing = self.tasks.get_task(task_id)
-        if (
-            existing
-            and existing.get("type") == TaskType.UPGRADE.value
-            and existing.get("status") == TaskStatus.SUCCESS.value
-            and existing.get("title") == "执行系统升级"
-            and existing.get("progress") == 100
-            and existing.get("message") == "升级执行完成"
-            and existing.get("logs") == logs
-            and existing.get("steps") == steps
-        ):
-            return
-        self.tasks.create_task(
-            task_id,
-            TaskType.UPGRADE,
-            "执行系统升级",
-            status=TaskStatus.SUCCESS,
-            progress=100,
-            message="升级执行完成",
-            logs=logs,
-            steps=steps,
-        )
+        """把 runner 的 task.json 投影进 tasks 表（W2 单写者：web-api 独占写）。
+
+        事实源是 task.json；本方法只在「文件比库内新」时投影，重复调用无副作用。
+        progress/steps 的算法复用 runner 侧实现（见 `projection.project_state`），
+        不重写一份——否则页面进度与 runner 记录会在某些任务形状上分叉。
+        """
+        if project_if_newer(self.tasks.database, task):
+            logger.debug(
+                "已投影升级任务 %s（revision=%s status=%s）",
+                task.get("task_id"),
+                task.get("revision"),
+                task.get("status"),
+            )
 
 def _runner_state_is_fresh(state: dict[str, Any]) -> bool:
     """实例心跳是否新鲜（保留为薄封装；runner 在场判定统一走 runner_presence.presence_source）。"""

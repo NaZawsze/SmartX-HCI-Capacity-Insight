@@ -91,7 +91,8 @@ class V2Database:
                     steps_json TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    finished_at TEXT
+                    finished_at TEXT,
+                    task_revision INTEGER NOT NULL DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS towers (
@@ -210,6 +211,9 @@ class V2Database:
             _ensure_column(conn, "tasks", "severity", "TEXT")
             _ensure_column(conn, "tasks", "seen_at", "TEXT")
             _ensure_column(conn, "tasks", "acknowledged_at", "TEXT")
+            # W2 单写者：tasks 表成为 task.json 的投影后，需要记住投影到哪个 revision，
+            # 否则同一秒内的两次保存无法用 updated_at 区分（时间粒度不够，用单调 revision）。
+            _ensure_column(conn, "tasks", "task_revision", "INTEGER NOT NULL DEFAULT 0")
             _ensure_column(conn, "towers", "collection_hour", "INTEGER")
             _ensure_column(conn, "towers", "collection_interval_minutes", "INTEGER")
             _ensure_column(conn, "towers", "collection_mode", "TEXT")

@@ -356,7 +356,52 @@ def _task_message(task: dict[str, Any]) -> str:
     return "正在执行升级任务"
 
 
-def _project_task(database_path: Path, task: dict[str, Any]) -> None:
+#: 兼容镜像的最小间隔（秒）。0 = 不限。
+#:
+#: 为什么限流：W2 之后 tasks 表是 web-api 独占投影，runner 侧这条路径只是给
+#: **仍在支持矩阵内的 v0.5.3 web-api** 显示进度用的兼容镜像（它不会自己投影）。
+#: 限流的理由是 runner 侧镜像没有任何产品价值——真正给用户看的是 web-api 的投影——
+#: 而它要开一次业务库写事务，正是 US-28 锁窗口的来源之一。把它压到「步骤转换一次」
+#: 这个量级，锁窗口从「整个执行期每 5 秒」缩到「十几步各一次」。
+PROJECT_MIRROR_MIN_INTERVAL_SECONDS = float(os.environ.get("SMARTX_RUNNER_PROJECT_MIRROR_INTERVAL", "10") or 10)
+
+#: 上次成功镜像的时刻（task_id → epoch）。进程内状态，runner 重启即重置——
+#: 这正是想要的语义：重启后多投一次，好过升级结束时漏掉最后一次状态。
+_project_mirror_at: dict[str, float] = {}
+
+
+def _project_task(
+    database_path: Path,
+    task: dict[str, Any],
+    *,
+    min_interval_seconds: float = PROJECT_MIRROR_MIN_INTERVAL_SECONDS,
+) -> None:
+    """把任务状态**尽力**镜像进业务库 tasks 表（W2：兼容镜像，非事实源）。
+
+    执行期的事实源是 task.json（runner 独占写），`tasks` 表由 web-api 独占投影
+    （`app.v2.upgrade.projection`）。本函数只为 v0.5.3 web-api 保留——它不会自己投影，
+    少了这条镜像，v0.5.3 + v0.3.2 组合（M4 格）的任务中心会看不到进度。
+
+    **任何失败都不得冒泡**：镜像失败只记 warning。这与 W1 的 DB 心跳镜像同一处置——
+    执行器绝不能因为一条只影响"旧版本界面显示"的兼容写而崩掉（#82 的教训）。
+    """
+    task_id = str(task.get("task_id") or "")
+    now = time.monotonic()
+    if min_interval_seconds > 0:
+        last = _project_mirror_at.get(task_id)
+        if last is not None and (now - last) < min_interval_seconds:
+            return
+    try:
+        _write_task_projection(database_path, task)
+    except Exception:  # noqa: BLE001 - 兼容镜像失败无害
+        logger.warning(
+            "tasks 表兼容镜像失败（task=%s），已忽略；事实源 task.json 不受影响", task_id or "?"
+        )
+        return
+    _project_mirror_at[task_id] = now
+
+
+def _write_task_projection(database_path: Path, task: dict[str, Any]) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     status_map = {
         "success": "success",
@@ -617,7 +662,13 @@ def run_pending_once(
         heartbeat.start()
         try:
             def project_update(updated: dict[str, Any]) -> None:
-                _project_task(settings.database_path, updated)
+                # 限流到「步骤转换一次」的量级：engine 的 on_update 在每次 checkpoint 保存
+                # 时都会调（热路径），不限流就等于把 US-28 的锁窗口原样搬回来。
+                _project_task(
+                    settings.database_path,
+                    updated,
+                    min_interval_seconds=PROJECT_MIRROR_MIN_INTERVAL_SECONDS,
+                )
 
             result = UpgradeEngine(
                 store,
