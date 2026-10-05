@@ -4776,3 +4776,85 @@ GitHub Release 附平台包 tar.gz + `.sha256` → 平台三件套 DockerHub 镜
 **未覆盖**：本轮起点为空库，「数据逐位不变」沿用 2026-10-01 r9 在 `.12` 的实测证据，未复验；两台 Tower 凭据为占位密钥，自动采集未验证。
 
 **远端清理**：两台已删测试包与镜像 tar；`.3:/data/v051imgs` 保留（可复用）；本地 `/tmp` 临时目录已清。
+
+## 2026-10-05 Phase 68 实施开始：W7 两道构建门禁 + W1 状态文件
+
+按 impl-spec §12 顺序推进（W7 门禁先行保护后续每一步 → 批次 A）。本段两工作项，均有真机证据。
+
+### 基线核实（开工前）
+
+工作树 HEAD `1277da4`。用 HTTPS 只读通道把远端 `dev2` 拉到临时引用对比：
+`HEAD` = 远端 `dev2` = `1277da4`，`--left-right --count` = `0 0`——**远端无我遗漏的提交**。
+临时引用已删。`git status` 显示的 "ahead 525" 是拿 9 月 13 日的陈旧 `origin/dev2` 引用
+比出来的，不代表实际偏离。SSH 到 GitHub 不通（`198.18.0.4 port 22`），HTTPS 可读；
+不影响本轮（AGENTS §4：dev2 默认只本地提交）。
+
+### W7 两道构建门禁（提交 8a4ad5b + 55189b4）
+
+- `scripts/verify_upgrade_plan_vocabulary.py`（W7.1）：候选平台包 + **已发布** runner 组件包
+  为输入；schema_version 与已发布线比对；用**候选包内 web-api 镜像里的编译器**对
+  `source_compatibility` 每个源版本生成计划，断言动作集 ⊆ 已发布 runner 动作集
+  （动作集从组件包镜像归档内的 `actions.py` AST 解析，复用 `verify_runner_delivery_consistency`
+  已验证实现，不复制第二份判定）；编译器相对已发布 tag 有 diff 时发 WARN 并进发版检查单。
+- `scripts/verify_migrations_expand_only.py`（W7.2）：新增迁移条目含
+  `DROP TABLE|DROP COLUMN|ALTER RENAME/MODIFY|DELETE FROM|UPDATE SET` 即 fail；
+  按 §14.1.5 配 allowlist + 人工出口（`--allow STEP:PATTERN`、`contract` + `--allow-new-contract`
+  且默认禁止新增 contract 条目）；SQL 注释先剥离（注释里的 DROP 不算命中）。
+- 接入 `ops/package.sh`（身份门禁之后）：新增**必填** `OPS_PUBLISHED_RUNNER_PACKAGE`——
+  用本次构建的 runner 包当基线等于自己判自己（AGENTS §10 同一纪律）。
+
+**真机（.3）**：22 例单测 OK；W7.1 对 r17 候选包 + GitHub Release 已发布 v0.3.1 组件包
+（SHA256 `d10e15cf7b516d172ebe2f1bc37621f9cf32d8ab3abd548f808ae5c5de151d2c`，与权威侧车逐位一致）
+**exit 0 / PASS**：schema_version=3 一致；6 个源版本各编译 14 个动作、并集 12 个类型全部落在
+已发布 runner 的 25 个动作内；偏斜矩阵逐格打印。两条 WARN 均必要：5 个源版本 < v0.5.3
+（那几格计划由源端老编译器生成，本门禁不覆盖，由 M1/M4 与 .12 老链路回归兜）、
+`.3` 非 git 检出无法比较 diff（脚本如实报告，不假装通过）。W7.2 exit 0 / PASS。
+
+**门禁首跑即失败两次**（AGENTS §12：单测全绿 ≠ 能跑），均已修并复跑通过：
+①`_run` 没把 manifest 写进 stdin → 容器内 `json.loads('')` 抛 JSONDecodeError；
+②修①后撞 `ValueError: stdin and input arguments may not both be used.`（Python 3.13 起）。
+
+### W1 runner 状态文件（提交 db2b4fa + b6ab27a）
+
+新模块 `backend/app/upgrade_runner/statefile.py`；`lease.py` 事实源切到状态文件、
+DB 两张表降级为 best-effort 兼容镜像（失败只 warning，#82 语义从"重试后放弃"升级为
+"镜像失败无害"）；`runner_presence.py` 判定顺序改为文件优先、DB 兜底，
+租约判定两通道共用同一函数；`execution.py` 实例字段取自真正给出在场证据的那条通道。
+
+**真机（.3，隔离沙箱 `/data/w1-live`，独立目录 + `--network=none`，未碰 r17 交付实例）**：
+
+1. 用 W1 代码构建 runner 镜像跑真实主循环 10s：状态文件与 DB 镜像**双通道都在刷新**，
+   `instance_id`/`runner_version=v0.3.2`/`protocol_version=1`/11 个 capabilities 一致，
+   `restarts=0`。
+2. **核心判别**——`chattr +i` 锁死业务库（root 也写不进）20s：
+   - 状态文件心跳 `09:21:05 → 09:21:23`（**继续刷新**）
+   - DB 心跳冻结在 `09:21:05`（**镜像失败，符合预期**）
+   - `restarts=0 status=running`，日志只有 `runner DB 心跳镜像失败（update_runner_state），已忽略`
+   - 解锁后两条通道自动重新收敛（同为 `09:21:35`）
+
+   即：**业务库完全不可写时 runner 依然在场且不重启**——这正是改前 #82 的触发条件。
+
+3. 我第一轮用 `chmod 500` 模拟写失败，**该判别无效**（root 绕过 DAC 权限位，什么都没拦住），
+   已换 `chattr +i` 重做，上面数据来自修正后的实验。
+
+**全量回归（.3，Python 3.13）**：858 tests，失败清单与 HEAD~1 基线逐行 `diff` →
+**NO_NEW_FAILURES**（`test_us28_database_busy` 的 2 个 ERROR 基线已有，属既有环境限制）。
+W1 单测 42 例、build_tests 48 例（26+22）全绿。探针目录与镜像已清理。
+
+**W1 首版被抓出三个独立缺陷**（`.3` 全量回归暴露 1 个新增 ERROR，追下来三个，其中一个致命）：
+1. **方法名覆盖**（最严重）：读路径与写路径的镜像方法都叫 `_mirror_runner_state`，
+   后者覆盖前者 → 写路径变成"传两参给零参函数" → `TypeError` 被宽 `except` 吞成 warning →
+   `upgrade_runner_state` 表**从此不再更新**。而 v0.5.3 web-api 只读这张表，
+   M4 格 presence 判定会失效，且**无任何报错**。已拆为 `_mirror_read_state` /
+   `_mirror_write_state` 并在注释写明为何不能同名。
+2. **未延迟调用**：`self._mirror("release", self._mirror_release(task_id))` 传的是调用结果而非
+   可调用对象 → DB 释放写在 try 之外，异常直接冒泡，恰好在最常用的 release 路径破坏
+   "镜像失败无害"。改为 `lambda:`，并加 `test_release_survives_db_failure` 固化。
+3. **同步改名丢版本号**：`_write_locked` 每次重写 `runner_version`，store 实例属性仍是构造时的
+   `unknown` → 新版本号被覆盖回去。修：`update_runner_state` 同步更新实例属性。
+
+这三个的共同形态值得记住：**宽 `except` 把真实缺陷变成静默降级**——与 US-26
+「compose 回写自实现起从未生效过」同类。测试也暴露我自己的两个错：
+`test_heartbeat_survives_db_failure` 最初只替换建表路径（漏掉执行期每 5 秒那条续租镜像）、
+`_make_db` 没建镜像表导致 4 例 `no such table`；测试里还写了 `with sqlite3.connect(...)`
+（只提交不关连接，正是 US-28 的坑），已统一改为显式关闭。
