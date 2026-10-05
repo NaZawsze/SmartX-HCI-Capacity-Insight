@@ -4958,3 +4958,59 @@ c）120s 上限与 15s 预期分开定义，实测 7.4s 落在预期内、未触
 同版本 handoff、旧文件巧合仍在），本轮修复代码根本不在执行方里，所以它们**不验证路径修复**——
 路径修复的验证就是 T11 本身（带真实版本变化，严格强于同版本 handoff）。M1/M2 归入**批次 C
 回归格**（验证七步流程在 v0.3.1 之上照常工作），不为它们阻塞 W4。
+
+## W4：compose diff 收敛（US-26 根治）——代码 + 门禁完成，待 T3 真机
+
+提交：`40f3b0a`（实现 + 门禁）、`ac97b06`（门禁变异测试）。
+
+### 三层防护（`backend/app/upgrade_runner/actions.py`）
+
+| 层 | 机制 | 失败姿态 |
+| --- | --- | --- |
+| ① 前置断言 | `APPLY_FORBIDDEN_SERVICES = {upgrade-runner}`；命中即剔除 + warning | 整张计划只有 runner 时 `services=[]`，宁可不动作也不自杀 |
+| ② 观测 | apply 前比对「运行镜像引用」vs「计划期望镜像」→ `将重建/未变更/未判定`；apply 后再记 `实际结果：重建=[…]` | `docker ps` 失败/容器没跑 → 归「未判定」，**不猜**；观测全程 best-effort 不阻塞 apply |
+| ③ apply 后断言 | `upgrade-runner` 容器 ID 前后必须一致 | 变了 → `RuntimeError` 判该步骤失败（宁可失败不静默降级）；apply 前就不存在则不判 |
+
+**期望镜像的来源修正（第一版实现的实质缺陷，本轮改掉）**：编译器给 `compose.apply` 的
+params **只有 `services`**（`backend/app/v2/upgrade/compiler.py:183`），照动作自身取 images
+会让真实计划里每个服务都落进「未判定」，观测层等于白写。权威来源是同一张计划里的
+`compose.override` 动作（`compiler.py:142` 写 override 文件用的就是这份 images），实现改为
+回查计划，动作自带 images 时以动作为准（显式 > 推导）。已用「编译器真实形状」的用例覆盖。
+
+**镜像比对只做引用层**（完全相等 / registry 前缀差异 / 仓库名+tag 都相同），不做内容层——
+内容层的权威是 compose 自己写在容器上的 `com.docker.compose.config-hash`，我们只读不重算
+（重算等于自己实现一遍 compose 的配置归一化，必然漂移）。「同 tag 不同仓库」判为变更，
+防「同 tag 掩盖换镜像」。
+
+### W7 追加第 4 道门禁：`--force-recreate` 禁令
+
+`scripts/verify_upgrade_plan_vocabulary.py:check_force_recreate_ban()`：静态扫描
+`backend/app/upgrade_runner/actions.py`，`--force-recreate` 只允许出现在
+`FORCE_RECREATE_ALLOWED`（handoff 两条 + `RUNNER_CUTOVER_HELPER_SCRIPT` + `rollback_restore`）。
+单测直接 import 门禁实现来判定，避免门禁与单测两套规则分叉（与既有
+`_runner_consistency_module()` 复用同一条纪律）。
+
+### 验证证据（`.3`，Python 3.13.5 + web-api 镜像 v0.5.3 依赖环境）
+
+| 项 | 结果 |
+| --- | --- |
+| W4 模块单测（本地 3.9 + `.3` 容器） | **24 tests OK**（`.3` 定向 7 模块合计 **235 tests OK / 1 skipped**） |
+| `.3` 全量回归（同一容器 harness） | 基线 `ffae486`：**953 tests, 6 failures**；W4 `40f3b0a`：**975 tests, 6 failures**；`diff` → **NO_NEW_FAILURES** |
+| 6 个失败的性质 | 与本轮无关的 harness 限制：镜像里有 `docker` CLI 但无 socket（`test_v2_upgrade` 那格）、`test_ops_toolkit` 5 例需 `shellcheck`/`bash -n`。基线同样失败，逐条对齐 |
+| W7 门禁端到端（r17 平台包 + 已发布 v0.3.1 runner 包 `d10e15cf…`） | `GATE_EXIT=0`；新增 `[PASS] force_recreate_ban: --force-recreate 共 3 处，全部落在允许路径` |
+| 门禁负向（变异） | 把 `--force-recreate` 注入 `compose.apply` → 门禁 `FAIL` 并点名 `line 1572 in compose_apply`（已固化为单测 `test_gate_catches_force_recreate_injected_into_compose_apply`） |
+
+`.3` 容器 harness 复现命令（`--network=none`、不挂 docker socket，避免测试动真容器）：
+
+~~~sh
+IMG=$(docker inspect -f '{{.Config.Image}}' smartx-hci-capacity-insight-web-api-1)
+docker run --rm --network=none -v /data/w4:/w -w /w/backend -e PYTHONPATH=/w/backend \
+  --entrypoint python "$IMG" -m unittest discover -s tests
+~~~
+
+### 未完成（不得当作已验证）
+
+- **T3 真机判据未取**：`.14` 平台升级时 `prometheus` 与 `upgrade-runner` 容器 ID 不变、
+  任务日志出现差异清单与实际结果——这是 A4 勾选与 C1 的前提，本轮只完成代码与门禁。
+- 平台包/runner 组件包尚未用 W4 代码重新构建（交付类验证必须在重新打包后进行，
+  见 AGENTS.md §12）。
