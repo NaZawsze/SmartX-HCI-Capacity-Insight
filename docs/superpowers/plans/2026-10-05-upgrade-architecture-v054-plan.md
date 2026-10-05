@@ -5,7 +5,13 @@
 
 ## 批次 A：runner v0.3.2（先做，能力领先）
 
-> 进度（2026-10-05）：A1/A2/A3/A4b/A7 完成并有 `.3` 真机证据；A4/A5/A5b/A6 剩余。
+> 进度（2026-10-05）：A1/A2/A3/A4b/A7 完成并有 `.3` 真机证据；A5/A5b/A6 剩余。
+> **A4 代码与门禁已完成（`40f3b0a`/`ac97b06`）**：三层防护（剔除 runner / 差异清单 / apply
+> 后断言执行者未被换掉）+ W7 第 4 道 `--force-recreate` 禁令门禁；`.3` 全量 975 tests 与基线
+> 953 tests 逐条对齐（NO_NEW_FAILURES），门禁端到端 `GATE_EXIT=0`。
+> **A4 仍不勾选**——T3 真机判据（`.14` 平台升级时 prometheus/runner 容器 ID 不变 + 日志出现
+> 差异清单）尚未取，见批次 C1。W4 期望镜像取自计划里的 `compose.override` 动作
+> （编译器只给 `compose.apply` 传 `services`）。
 > **W3b（2026-10-05 用户决策，方案 A）已完成**——宿主/容器路径混用的系统性修复，
 > 含双视图回归测试与静态纪律断言。**M1/M2 归入批次 C 回归格**（执行者是现场 v0.3.1 runner，
 > 不验证本轮修复；路径修复的验证是 T11）。
@@ -13,7 +19,7 @@
 - [x] A1 状态文件 `upgrade-runner-state.json`：原子写/自愈/内容结构（设计 §3.1，T1）
 - [x] A2 lease/heartbeat 迁移到状态文件；DB 心跳降级为 best-effort 兼容镜像（失败不 crash 不阻塞，#82 兜底语义保留）
 - [x] A3 runner 停止写 `tasks` 表（删 `_project_task` 路径）；task.json 执行期单写者
-- [ ] A4 `compose.apply` diff 收敛 + 差异清单日志 + upgrade-runner 触碰守卫（v2 §2.1，T3/T4）
+- [ ] A4 `compose.apply` diff 收敛 + 差异清单日志 + upgrade-runner 触碰守卫（v2 §2.1，T3/T4）——代码与门禁已落（`40f3b0a`/`ac97b06`），**待 T3 真机**
 - [x] A4b **runner 自换组件升级**（v2 §2.2）：收包触发 → 自 load 镜像 → 写自身 compose → schedule_handoff → presence 回报；web-api 退出编排（T11）
 - [ ] A5 回滚机制固化（设计 §5.0）：回滚锚点记录 + 旧镜像 override + 健康门 + 业务计数守卫
 - [ ] A5b 场景 A 自动回滚：healthcheck 失败进入回滚子计划（`rollback_on_failure`，失败证据完整保留）
