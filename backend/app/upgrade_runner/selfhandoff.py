@@ -114,13 +114,15 @@ def _runner_image_in_compose(compose_path: Path) -> str:
     return ""
 
 
-def _running_runner_container_id(executor: Any, compose_project: str = "") -> str:
-    """当前运行中的 upgrade-runner 容器 ID（**限定 compose project**）。
+def running_service_container_id(
+    executor: Any, compose_project: str = "", service: str = "upgrade-runner"
+) -> str:
+    """当前运行中某服务的容器 ID（**限定 compose project**）。
 
     ## 为什么必须限定 project
 
     只按 service 名 `com.docker.compose.service=upgrade-runner` 过滤会命中**同机所有 project**
-    的 runner 容器。`.3` 实测：自换锚点抓到的 `previous_version` 是 `v0.3.1`——
+    的 runner 容器。`.3` 实测：自换锚点抓到的 `previous_version` 是 `v0.5.1`——
     那是 `.3` 上另一个 project（`smartx-hci-capacity-insight`）的 runner，不是本 project 的
     `v0.3.2`。后果不是显示问题，而是**组件回滚锚点记成别人的版本与镜像 ID**，
     反向自换会换到一个完全不相干的版本。
@@ -131,7 +133,7 @@ def _running_runner_container_id(executor: Any, compose_project: str = "") -> st
     口径与 web-api 侧 `_active_runner_state_from_docker` 对齐（那里按 project 优先排序），
     但本函数更严格：**project 不匹配直接不认**，而不是排在后面。
     """
-    filters = ["--filter", "label=com.docker.compose.service=upgrade-runner"]
+    filters = ["--filter", f"label=com.docker.compose.service={service}"]
     expected = str(compose_project or "").strip()
     if expected:
         filters.extend(["--filter", f"label=com.docker.compose.project={expected}"])
@@ -140,20 +142,20 @@ def _running_runner_container_id(executor: Any, compose_project: str = "") -> st
             ["docker", "ps", *filters, "--format", "{{.ID}} {{.Label \"com.docker.compose.project\"}}"]
         )
     except Exception as exc:  # noqa: BLE001 - 探测失败不得让组件升级判失败
-        logger.warning("自换锚点：探测运行中 runner 容器失败（%s），该项留空", exc)
+        logger.warning("自换锚点：探测运行中 %s 容器失败（%s），该项留空", service, exc)
         return ""
     candidates = [line.split() for line in output.splitlines() if line.strip()]
     if not candidates:
         if expected:
             # 过滤条件已含 project，查不到就是真的没有；记一条便于排障（不当作错误）
-            logger.warning("自换锚点：未找到 project=%s 下运行中的 upgrade-runner 容器", expected)
+            logger.warning("自换锚点：未找到 project=%s 下运行中的 %s 容器", expected, service)
         return ""
     # 同 project 内可能有多个（如 --force-recreate 期间的短暂并存），取 ID 最小者保证稳定
     candidates.sort()
     return candidates[0][0]
 
 
-def _image_id_of_container(executor: Any, container_id: str) -> str:
+def image_id_of_container(executor: Any, container_id: str) -> str:
     if not container_id:
         return ""
     try:
@@ -166,7 +168,7 @@ def _image_id_of_container(executor: Any, container_id: str) -> str:
     return output.strip()
 
 
-def _image_id_of_tag(executor: Any, image: str) -> str:
+def image_id_of_tag(executor: Any, image: str) -> str:
     if not image:
         return ""
     try:
@@ -175,6 +177,31 @@ def _image_id_of_tag(executor: Any, image: str) -> str:
         logger.warning("自换锚点：读取镜像 %s 的 ID 失败（%s），该项留空", image, exc)
         return ""
     return output.strip()
+
+
+def container_file_value(executor: Any, container_id: str, path: str) -> str:
+    """读容器内某个文件的内容（版本号等）。读不到就返回空串，绝不抛。"""
+    if not container_id:
+        return ""
+    try:
+        return executor.output(
+            ["docker", "exec", container_id, "sh", "-lc", f"cat {path} 2>/dev/null || true"]
+        ).strip()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("读取容器 %s 内 %s 失败（%s），该项留空", container_id, path, exc)
+        return ""
+
+
+def _running_runner_container_id(executor: Any, compose_project: str = "") -> str:
+    return running_service_container_id(executor, compose_project, "upgrade-runner")
+
+
+def _image_id_of_container(executor: Any, container_id: str) -> str:
+    return image_id_of_container(executor, container_id)
+
+
+def _image_id_of_tag(executor: Any, image: str) -> str:
+    return image_id_of_tag(executor, image)
 
 
 def capture_component_rollback_anchor(
@@ -200,14 +227,7 @@ def capture_component_rollback_anchor(
     container_id = _running_runner_container_id(executor, getattr(context, "compose_project", ""))
     image_id = _image_id_of_container(executor, container_id)
     previous_tag = _runner_image_in_compose(Path(context.project_path) / COMPOSE_FILENAME)
-    previous_version = ""
-    if container_id:
-        try:
-            previous_version = executor.output(
-                ["docker", "exec", container_id, "sh", "-lc", "cat /app/RUNNER_VERSION 2>/dev/null || true"]
-            ).strip()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("自换锚点：读取运行中 runner 版本失败（%s），该项留空", exc)
+    previous_version = container_file_value(executor, container_id, "/app/RUNNER_VERSION")
     if not previous_version:
         # 容器不可 exec（正在重启/已退出）时退回从镜像 tag 推断，保底不留空
         match = re.search(r":(v[0-9][0-9A-Za-z._-]*)$", previous_tag or "")

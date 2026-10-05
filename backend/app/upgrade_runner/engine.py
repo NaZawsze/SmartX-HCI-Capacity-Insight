@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from app.upgrade_runner.actions import _runner_image_from_task, reconcile_project_runner_tag
+from app.upgrade_runner.rollback import (
+    anchor_rollback_override_images,
+    business_count_guard,
+    capture_platform_rollback_anchor,
+    is_rollback_trigger,
+    rollback_on_failure_enabled,
+)
 from app.upgrade_runner.selfhandoff import is_handoff_final
 from app.upgrade_runner.store import TaskStore
 
@@ -63,11 +71,13 @@ class UpgradeEngine:
         handlers: dict[str, ActionHandler],
         context: dict[str, Any] | None = None,
         on_update: TaskUpdateCallback | None = None,
+        checkpoint_sink: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         self.store = store
         self.handlers = handlers
         self.context = context or {}
         self.on_update = on_update
+        self.checkpoint_sink = checkpoint_sink
         self._mirror_store: TaskStore | None = None
 
     def _save(self, task: dict[str, Any]) -> dict[str, Any]:
@@ -135,6 +145,23 @@ class UpgradeEngine:
                     "自换即将调度 handoff：已把 self_handoff.scheduled 落盘，"
                     "本进程在此动作返回后立即停止"
                 )
+            # A5（设计 v1 §5.0）：首次 `compose.apply` **之前**捕获平台回滚锚点。
+            # 顺序是硬要求——apply 之后运行容器就是新镜像，files.sync 还可能已把 project
+            # compose 换掉，那时再读"上一版是什么"只会读到新版本，回滚会变成"换回新版本"。
+            if str(action.get("type") or "") == "compose.apply" and not task.get("platform_rollback_anchor"):
+                anchor = capture_platform_rollback_anchor(
+                    self.context.get("action_context"),
+                    task,
+                    executor=self.context["action_context"].executor,
+                    target_version=str(task.get("target_version") or ""),
+                    checkpoint_sink=self.checkpoint_sink,
+                )
+                task["platform_rollback_anchor"] = anchor
+                task["logs"] = [
+                    *task.get("logs", []),
+                    f"已捕获平台回滚锚点：上一版={anchor.get('previous_version') or '未知'}，"
+                    f"旧镜像={json.dumps(anchor_rollback_override_images(anchor), ensure_ascii=False)}",
+                ]
             task = self._save(task)
             action = task["execution_plan"]["actions"][index]
             handler = self.handlers.get(str(action.get("type")))
@@ -168,7 +195,7 @@ class UpgradeEngine:
                 action["status"] = "failed"
                 action["error"] = str(exc)
                 action["finished_at"] = _now()
-                if str(action.get("type", "")).startswith("health.") and int(task.get("rollback_attempts") or 0) < 1:
+                if self._should_auto_rollback(task, action) and int(task.get("rollback_attempts") or 0) < 1:
                     return self._automatic_rollback(task, exc, action)
                 task["status"] = "failed"
                 task["error"] = str(exc)
@@ -219,12 +246,38 @@ class UpgradeEngine:
         task["finished_at"] = _now()
         return self._save(task)
 
+    def _should_auto_rollback(self, task: dict[str, Any], failed_action: dict[str, Any]) -> bool:
+        """这个失败要不要自动回滚。
+
+        两条口径，**刻意不对称**：
+
+        - `health.*` 失败：**无条件**回滚。这是 v0.5.3 起就有的行为，不受新开关影响——
+          如果给它加上缺省 false 的开关，等于让所有老 manifest（没有该字段）**丢掉**
+          已有的回滚能力，那是行为回退，不是"不受影响"。
+        - `compose.apply` / `post_upgrade.*` 失败：需要 manifest 显式
+          `rollback_on_failure: true` **且**锚点已捕获。新触发面是 opt-in 的，
+          老 manifest 不受影响（设计 v1 §5.1 的触发条件严格化）。
+        """
+        kind = str(failed_action.get("type") or "")
+        if kind.startswith("health."):
+            return True
+        if not is_rollback_trigger(kind):
+            return False
+        return rollback_on_failure_enabled(task) and bool(task.get("platform_rollback_anchor"))
+
     def _automatic_rollback(self, task: dict[str, Any], cause: Exception, failed_health_action: dict[str, Any]) -> dict[str, Any]:
         task["rollback_attempts"] = int(task.get("rollback_attempts") or 0) + 1
         task["status"] = "rollback_running"
         task["recovery_status"] = "rolling_back"
-        task["logs"] = [*task.get("logs", []), f"健康检查失败，开始自动回滚：{cause}"]
+        task["logs"] = [*task.get("logs", []), f"升级步骤失败，开始自动回滚：{cause}"]
         task = self._save(task)
+        anchor = task.get("platform_rollback_anchor") or {}
+        if str(anchor.get("kind") or "") == "platform" and anchor.get("images"):
+            # A5 主路径：场景 A「应用回滚」——只把三件套指回旧 tag，数据不动。
+            # 老实现（rollback.restore）会把 SQLite 从备份整份拷回，那是场景 C
+            # 「整备回滚」的语义，会吞掉升级窗口内的采集数据；expand-only 迁移纪律
+            # 让"保数据回滚应用"成立，所以这里换成锚点驱动。
+            return self._anchor_based_rollback(task, anchor, failed_health_action)
         project_backup_path = None
         project_files: list[dict[str, Any]] = []
         override_path = None
@@ -310,3 +363,122 @@ class UpgradeEngine:
             return False
         marker = action.get("params", {}).get("completion_marker")
         return bool(marker and Path(str(marker)).is_file())
+
+    def _anchor_based_rollback(
+        self,
+        task: dict[str, Any],
+        anchor: dict[str, Any],
+        failed_action: dict[str, Any],
+    ) -> dict[str, Any]:
+        """锚点驱动的应用回滚：override 旧 tag → compose.apply → 健康门 → 计数守卫。
+
+        全部**复用现有动作实现**，不新增计划词汇（设计 v1 §5.0 / impl-spec §W5 场景 A）。
+        每一步的失败都如实落进 `automatic_rollback.steps`，失败证据不删（US-09 教训：
+        宁留记录，不擦痕迹）。
+        """
+        action_context = self.context.get("action_context")
+        database = Path(str(getattr(action_context, "data_path", "") or "")) / "smartx.db"
+        rollback_images = anchor_rollback_override_images(anchor)
+        services = [str(item.get("service")) for item in rollback_images]
+        record: dict[str, Any] = {
+            "mode": "anchor_apply",
+            "attempt": int(task.get("rollback_attempts") or 0),
+            "trigger_action": str(failed_action.get("type") or ""),
+            "previous_version": str(anchor.get("previous_version") or ""),
+            "images": rollback_images,
+            "backup": anchor.get("backup") or {},
+            "steps": [],
+        }
+        task["automatic_rollback"] = record
+
+        def fail(message: str) -> dict[str, Any]:
+            record["error"] = message
+            task["automatic_rollback"] = record
+            task["status"] = "rollback_failed"
+            task["recovery_status"] = "recovery_required"
+            task["error"] = message
+            task["available_recovery_actions"] = ["rollback", "fail"]
+            return self._save(task)
+
+        if not rollback_images:
+            return fail("回滚锚点里没有旧镜像 tag，无法指回上一版（请走场景 C 整备回滚）")
+
+        # ① 指回旧 tag
+        override_handler = self.handlers.get("compose.override")
+        if override_handler is None:
+            return fail("Runner 不支持 compose.override，无法执行锚点回滚")
+        override_action = {
+            "id": "rollback-override",
+            "type": "compose.override",
+            "params": {"images": rollback_images, "services": services},
+        }
+        try:
+            record["steps"].append(
+                {
+                    "step": "compose.override",
+                    "result": override_handler(override_action, {**self.context, "task": task}) or {},
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            record["steps"].append({"step": "compose.override", "error": str(exc)})
+            return fail(f"回滚写回旧镜像失败：{exc}")
+
+        # ② 重建到旧版本（compose.apply 自带差异清单与 runner 不变断言）
+        apply_handler = self.handlers.get("compose.apply")
+        if apply_handler is None:
+            return fail("Runner 不支持 compose.apply，无法执行锚点回滚")
+        apply_action = {
+            "id": "rollback-apply",
+            "type": "compose.apply",
+            "params": {"services": services, "images": rollback_images},
+        }
+        try:
+            record["steps"].append(
+                {
+                    "step": "compose.apply",
+                    "result": apply_handler(apply_action, {**self.context, "task": task}) or {},
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            record["steps"].append({"step": "compose.apply", "error": str(exc)})
+            return fail(f"回滚重建旧版本失败：{exc}")
+
+        # ③ 健康门：沿用失败那一步的健康检查（失败在 apply 之后就查 HTTP）
+        health_type = str(failed_action.get("type") or "")
+        health_handler = self.handlers.get(health_type) if health_type.startswith("health.") else None
+        if health_handler is None:
+            health_handler = self.handlers.get("health.http")
+        if health_handler is None:
+            return fail("回滚后缺少健康检查处理器")
+        health_action = dict(failed_action)
+        health_action["type"] = health_type if health_type.startswith("health.") else "health.http"
+        try:
+            record["steps"].append(
+                {
+                    "step": health_action["type"],
+                    "result": health_handler(health_action, {**self.context, "task": task}) or {},
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            record["steps"].append({"step": health_action["type"], "error": str(exc)})
+            return fail(f"回滚后健康检查失败：{exc}")
+
+        # ④ 业务计数守卫：数据不得比升级前更少
+        guard = business_count_guard(anchor, database)
+        record["steps"].append({"step": "business_count_guard", "result": guard})
+        if not guard["ok"]:
+            return fail(
+                "回滚后业务计数守卫未通过（数据变少）："
+                + json.dumps(guard["regressions"], ensure_ascii=False)
+            )
+
+        task["automatic_rollback"] = record
+        task["status"] = "rolled_back"
+        task["recovery_status"] = "rolled_back"
+        task["error"] = str(failed_action.get("error") or "")
+        task["logs"] = [
+            *task.get("logs", []),
+            f"已回滚到 {anchor.get('previous_version') or '升级前版本'}"
+            f"（{'、'.join(services) or '无服务'}），业务计数守卫通过",
+        ]
+        return self._save(task)

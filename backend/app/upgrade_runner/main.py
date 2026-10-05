@@ -820,6 +820,8 @@ def run_pending_once(
                 handlers=handlers or default_handlers(),
                 context={**action_context.as_dict(), "database_path": str(settings.database_path)},
                 on_update=project_update,
+                # A5：平台回滚锚点要同时落状态文件（崩溃后新 runner 仍能读到"上一版是什么"）。
+                checkpoint_sink=lambda task_id, payload: lease.save_checkpoint(task_id, payload),
             ).run()
             _project_task(settings.database_path, result, force=True)
             executed += 1
