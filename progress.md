@@ -4895,3 +4895,66 @@ runner 侧 `_project_task` 降级为 best-effort 兼容镜像（v0.5.3 web-api �
 **教训**：「已知根因的修复」必须在新写同类代码时显式复用，否则同一个坑会换条路径再踩一次。
 
 **全量回归（.3）**：899 tests，失败清单与基线逐行 diff → NO_NEW_FAILURES。
+
+### W3b 收尾：清载体陈旧文件（W3b 要求 4）+ T11 通过后的守卫行为实证
+
+**载体陈旧文件已删（只删文件、不动目录——UPG-050 红线）**：
+
+| 项 | 值 |
+| --- | --- |
+| 路径 | `app/smartx-storage-forecast/compose-runtime/docker-compose.runner-upgrade.yml`（UPG-050 载体目录内） |
+| 删除前 SHA256 | `a4cfb7b335c4d84db932d85ecd5fcc65a592d6cd8818daf98c2b9e65904bb70f` |
+| 删除前时间/大小 | 2026-10-03 13:00:27 / 1828 bytes |
+| 内容 | `image: …upgrade-runner:v0.3.2` + `SMARTX_COMPOSE_FILE: docker-compose.offline.yml` |
+| 删除后红线核验 | 载体目录 **inode `65024:1084633` 与删除前一致**、目录仍在、条目数 0 |
+
+真实 compose-runtime 未被触碰（其 8-12 的 v0.3.1 旧文件按用户口径留给 M1/M2 批次 C 处理，
+`.3` 当前 runner 是 v0.3.1，不受影响）。交付实例 5 容器全 Up、health `ok=true v0.5.3/v0.3.1`
+三项 checks 全 true。
+
+**我自己的核验命令被嵌套引号毁掉，产出过一次假警报**（如实记录）：内联 `$(stat -c …)` 在
+`su -c` + 双层引号下被吃掉，输出 `stat: illegal option -- c` 且 `ls` 列出了错误目录，
+一度显示"载体目录发生变化"。改用**脚本文件**重做才拿到可信结论。
+**教训**：跨 `sshpass → ssh → su -c` 三层引号的复杂命令必须落成脚本文件再执行；
+今天已经因此栽了两次（另一次是沙箱 project 名被 sed 改一半）。
+
+#### 守卫行为实证：过滤器「宁返空、不抓外来容器」（两次沙箱污染的副产品）
+
+W3 修好 project 过滤后，沙箱里出现过两次"锚点抓错对象"的机会，两次的表现都不是静默降级：
+
+1. **跨 project 遗留容器**：我早先的沙箱（project `w3selfhandoff`）与新沙箱共用同一数据目录，
+   遗留的 `v0.3.3-rc` 容器替我"收尾"了任务（写 `upgrade-runner v0.3.3-rc 自换完成。`）。
+   → 判别：`docker inspect` 显示该容器 project 标签是 `w3selfhandoff` 而非当前 project。
+   我识别出污染、显式删掉遗留容器后重跑，才拿到干净的 T11 数字。
+2. **沙箱 compose 的 project 名与建容器时用的名不一致**（我 sed 只改了一半）：
+   `SMARTX_COMPOSE_PROJECT_NAME=w3selfhandoff` 而容器标签是 `w3e-sh`。
+   → 判别：锚点如实**留空**（`container_id=""`、`previous_image_id=""`、`previous_version`
+   仅从 compose tag 推断），并记 `未找到 project=… 下运行中的 upgrade-runner 容器` warning。
+   **它没有回退去抓 `.3` 生产实例那个 v0.3.1 runner**——这正是 W3b 要求的"查不到就是查不到，
+   绝不退回抓别人的"。这两次是守卫行为在真实环境下的正面实证。
+
+### T11 自换实测（W3 终态，判据逐条成立）
+
+`.3` 隔离沙箱（project `w3sb`，独立目录 + `--network=none` 之外的最小 compose project），
+镜像按 `backend/Dockerfile.upgrade` 用本轮代码构建，`RUNNER_VERSION` 分别烤成 `v0.3.2` 与 `v0.3.3-rc`：
+
+| 判据 | 实测 |
+| --- | --- |
+| 服务中断 | **RUNNER_DOWN_MS=750**（0.75s，远低于 ≤30s 判据） |
+| presence 回报 | **SELF_HANDOFF_TOTAL_MS=7395**（7.4s 含任务收尾，低于 ≤60s 判据） |
+| 容器确实被替换 | `a97dbd1c8442…` → `9861df329e2e…`，**CONTAINER_REPLACED=yes** |
+| 新容器 restarts | **0**（旧容器被 replace 而非 restart） |
+| 任务终态 | `success`，steps `restart/healthcheck` 均 succeeded，日志 `upgrade-runner v0.3.3-rc 自换完成。` |
+| 回滚锚点（writeback 前旧值） | `previous_version=v0.3.2`、`previous_image_tag=w3-runner:v0.3.2`、`previous_image_id=sha256:8e744a5f…`、`container_id=a97dbd1c8442`（本 project） |
+| 状态文件由新 runner 写 | `runner_version=v0.3.3-rc`、新 `instance_id=runner-ed84e602b` |
+| web-api 零编排 | 自换链未出现任何 web-api 容器参与（同机那个属 `.3` 交付实例，project 不同） |
+
+硬要求落实：a）`handoff_final` 哨兵使引擎在标记 succeeded 之前停止（实测日志
+`自换即将调度 handoff：已把 self_handoff.scheduled 落盘，本进程在此动作返回后立即停止`）；
+b）锚点在 writeback 之前捕获（真机抓到的是 `v0.3.2` 旧 tag 与旧镜像 ID）；
+c）120s 上限与 15s 预期分开定义，实测 7.4s 落在预期内、未触发任何降级。
+
+**M1/M2 定位澄清（用户 2026-10-05）**：这两格的执行者是**现场 v0.3.1 runner**（旧代码、
+同版本 handoff、旧文件巧合仍在），本轮修复代码根本不在执行方里，所以它们**不验证路径修复**——
+路径修复的验证就是 T11 本身（带真实版本变化，严格强于同版本 handoff）。M1/M2 归入**批次 C
+回归格**（验证七步流程在 v0.3.1 之上照常工作），不为它们阻塞 W4。
