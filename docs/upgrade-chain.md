@@ -227,6 +227,7 @@ runner v0.3.1 必须用**已发布资产** `d10e15cf…`
 | **v0.5.2** | **v0.3.1** | **已发布**；客户现状；不需要也不能动 runner |
 | v0.5.3 | v0.3.1（基线）→（可选、之后）runner 组件（开发线 v0.3.2） | 候选；平台包声明基线是已发布 v0.3.1 |
 | （v0.5.3 之后） | runner 组件（开发线 **v0.3.2**，含 US-24 修复） | **可选组件升级**；未交付（无 tag、DockerHub 无镜像、无组件包资产）——**随下一版一起发** |
+| v0.5.4 | v0.3.1（基线）或现场更高的 v0.3.2 | 开发线；**只支持目标布局源（v0.5.2+）**，偏斜矩阵见 §7 |
 
 交付物出处（易踩）：`smartx-upgrade-runner-v0.3.1.tar.gz`（SHA `d10e15cf…`）是挂在 **v0.5.1u2 那个 Release** 上的资产，不在 v0.5.2 Release 里（v0.5.2 Release 只有平台包）；DockerHub 的 `v0.3.1` 镜像是 2026-09-27 手工补推的。
 
@@ -305,3 +306,67 @@ runner v0.3.1 必须用**已发布资产** `d10e15cf…`
 | ~~runner v0.3.2 是否交付~~ | **已决（2026-09-28 用户）**：**不随本次发布交付，与下一个版本一起发**。本次发布只发平台包（runner 基线 = 已发布 v0.3.1）；M3-08 因此不做；US-24 的 runner 修复也随之归到下一版的 runner 交付里（届时 bump v0.3.3）。发布材料不得把 v0.3.2 写成本次交付物。 |
 | **`.12` 验收授权**（AGENTS §5：只有用户明确授权才可连/可升级） | 决定"v0.5.2 → v0.5.3 直升 + 8 项验收"能否执行；若 `.12` 现状不是 v0.5.2，还需单独批准是否重走 §2 链路恢复基线（破坏性） |
 | runner 侧"执行期也刷新实例心跳" | 需改 runner 代码 → 必须事先经用户同意 + bump 版本（v0.3.3）+ 重交付组件包；登记在 pending-tasks #47 |
+
+---
+
+## 7. v0.5.4 偏斜矩阵（2026-10-06 定案，权威）
+
+### 7.1 支持矩阵
+
+| 源端平台 | 源端 runner | → v0.5.4 | 计划动作集 | 验证状态 |
+| --- | --- | --- | --- | --- |
+| v0.5.2 | v0.3.1 | ✅ | 常量 6 类（见 7.2） | **静态已验证**（已发布 v0.5.2 镜像内编译器实测 8 个动作）；真机待 C1 |
+| v0.5.2 | v0.3.2 | ✅ | 同上 | 静态同（计划与 runner 版本无关）；真机待 C1（**US-26 判别格**：runner 不得被降级） |
+| v0.5.3 | v0.3.1 | ✅ | 同上 | **静态已验证**（v0.5.3 镜像内编译器实测 8 个动作）；真机待 C1 |
+| v0.5.3 | v0.3.2 | ✅ | 同上 | 静态同；真机待 C2（自换时代最后一次旧编排） |
+| v0.5.4 | v0.3.1 / v0.3.2 | ✅ 同版本重装 | 同上 | 待 C1 |
+| v0.5.1u2 / v0.5.1u1 / v0.5.1 / v0.5.0 | 任意 | ⛔ **不支持** | — | precheck 拒绝 + 引导「先升 v0.5.3」 |
+
+⛔ 行的口径（用户 2026-10-06 定案）：**v0.5.4 只支持目标布局**。仍在旧布局的现场必须先升
+`v0.5.3`（该链路已验证：v0.5.1u2 → v0.5.3 直升、`v0.5.2 → v0.5.3` 直升都有真机记录），
+再升 `v0.5.4`。理由与实现见 impl-spec §W6.1：`directory_transition` / `legacy_cleanup`
+非空时计划必然长出迁移·交接·legacy 动作（实测 10 步），而这些正是 US-26 一类事故的高发区。
+v0.5.3 及更早的平台包**不受此收窄影响**，仍支持 v0.5.0–v0.5.1u2 直升。
+
+### 7.2 每一格的动作集（常量，断言锁在 impl-spec §W6.2）
+
+```text
+backup.create → image.load ×3 → files.sync → compose.override → compose.apply → health.http
+```
+
+- bundle 包（声明 observability 组件）额外 `health.prometheus`；
+- 有 SQLite schema 迁移时额外 `script.run_sandboxed`；
+- **不发射**：`compose.project_migrate` / `filesystem.prepare` / `task.migrate_runtime_state` /
+  `task.sync_runtime_state` / `runner.handoff_target_runtime` /
+  `runner.schedule_target_runtime_handoff` / `runner.stop_legacy_runtime` / `legacy.cleanup` /
+  `compose.stop_legacy_project` / `network.remove_legacy` / `filesystem.cleanup_*` /
+  `post_cleanup.*` / `post_upgrade.schedule_cleanup` / `post_upgrade.schedule_collection`。
+  这些动作的**实现仍保留**（v0.5.3 及更早的包编译出的计划还会下发它们），退役的是
+  「v0.5.4 默认计划模板里的位置」，登记见 impl-spec §W6.3。
+
+### 7.3 谁编译计划（偏斜的真正含义）
+
+计划由**源端 web-api 的编译器**生成，runner 只执行。因此每格的动作集取决于**源端版本**的编译器：
+
+- v0.5.2 / v0.5.3 的编译器对 v0.5.4 manifest 的输出，已在**已发布镜像内**实测：
+  两者的动作集与候选编译器完全一致（各 8 个动作 / 6 个类型）。
+- 构建门禁 `scripts/verify_upgrade_plan_vocabulary.py` 只证明**候选包编译器**的输出
+  （它会对此打 WARN，见该脚本 `plan_source_compiled_downstream`），老编译器的行为由本节
+  的静态实测 + 批次 C 的真机矩阵共同覆盖。
+
+### 7.4 顺序铁律在 v0.5.4 上的应用
+
+- **默认先平台、后 runner**：v0.5.4 平台包对 runner 只有基线声明（`deploy:false`），
+  现场 runner ≥ 基线时不动它（US-26）。
+- runner v0.3.2 的自换是**平台升级之后**的可选组件升级（自换时代）；顺序颠倒会让
+  目标布局源端（v0.5.2/v0.5.3）的 web-api 无条件 stop 掉刚启动的新 runner（US-04 根因）。
+- 同一时刻只允许一个升级任务（US-23 单飞守卫）。
+
+### 7.5 本节未验证项（不得当作已验证）
+
+| 项 | 归属 |
+| --- | --- |
+| `.14` 全新安装 + v0.5.3 → v0.5.4 直升（T3：prometheus/runner 容器 ID 不变 + 差异清单） | 批次 C1 |
+| 组件升级 v0.3.1 → v0.3.2（兼容矩阵「v0.5.4 + v0.3.2」格，旧编排最后一次） | 批次 C2 |
+| r18 真包形态（含 W7 全门禁、守卫脚本落现场 project 目录） | 批次 C5 |
+| ⛔ 行的 precheck 拒绝与引导文案 | 批次 B3 |
