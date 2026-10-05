@@ -5372,3 +5372,59 @@ AssertionError: 组合「v0.5.0 / v0.5.1 / v0.5.1u1 / v0.5.1u2」的支持状态
 
 B1/B2/B3/B4/B4b/B5/B5b/B6/B7/B8/B9/B10 全部完成。剩余未验证项全部归批次 C：
 场景 B/C 真机手动回滚、场景 A 另两个失败点、r18 真包形态、`.14`/`.12` 矩阵。
+
+## C5：r18 打包（v0.5.4 + runner v0.3.2）——门禁全过，登记 ledger
+
+见 `docs/upgrade-package-ledger.md` 的 r18 条目。要点：
+平台包 `ff4c0f6f…`（242M）、runner 组件包 `6b0c1700…`（81M）；
+身份门禁 / runner 交付一致性（13 PASS、30 动作）/ 迁移 expand-only / 动作词汇冻结（3 源格并集 6 动作 ⊆ v0.3.1 的 25 动作）/
+`--force-recreate` 禁令 / 敏感文件 0 命中 —— 全部 PASS。两条 WARN 已在 ledger 里处置说明
+（`plan_source_compiled_downstream` 由"已发布 v0.5.2 镜像内编译器"实测覆盖；
+`compiler_changed` 是构建树缺 tag 的假 WARN，`compiler.py` 相对 v0.5.3 **0 行变更**）。
+
+## C3（部分）：沙箱 `w3c` 实测两个触发面，并抓到一个真实缺陷
+
+用户 2026-10-06 修订后的 C3 六点里，`.3` 沙箱能验的两点已验：
+
+| 点 | 判据 | 实测 |
+| --- | --- | --- |
+| ④ `image.load` 失败 | **干净失败、不回滚**（防乱滚的正向断言） | `TASK_STATUS=failed`、`load-image-1 failed 镜像归档校验失败`、**无 `automatic_rollback`、无锚点**、web-api 容器 ID 与基线**逐位一致**（`c3a0a185…`），镜像仍是旧版 |
+| ② `compose.apply` 失败 → 回滚（opt-in） | `rolled_back` + 四步 + 健康门 + 计数守卫 | 首轮 **`rollback_failed`**（缺陷），修后 `TASK_STATUS=rolled_back`、health 200（attempt 1）、`business_count_guard ok=true`、四容器 ID 全程未变 |
+
+**抓到并已修的真实缺陷（`542906e`）**：apply 触发的回滚在健康门必失败——
+`_anchor_based_rollback` 直接 copy 失败动作再改 `type`，把 **compose.apply 的 params**
+（没有 `url`）当健康检查参数传下去 → `unknown url type: 'None'` → 每次 apply 触发的回滚
+都以 `rollback_failed` 收场。**即 US-17 场景 A 在最常见的失败点上根本没生效**，
+而单测当时全绿（没覆盖"apply 触发"这条路径的真实参数）。修法：非 health 失败时用
+`PLATFORM_HEALTH_PARAMS` 自造健康动作；回归用例 `test_apply_triggered_rollback_uses_its_own_health_params`
+（修前必失败）。这就是"单测全绿 ≠ 真机能跑"的又一次实例。
+
+沙箱清理：4 容器 + `w3c_default` 网络 + `/data/w3c` 按显式名字删除，`.3` 交付实例未受影响。
+
+## 顺手修掉一个污染回归基线的定时炸弹（`acb8771`）
+
+全量跑完多出 2 个失败：`test_fresh_instance_heartbeat_is_heartbeat_source`、
+`test_recent_lease_heartbeat_is_enough_even_if_expires_field_is_old`。
+根因：两个用例用的 `FRESH`/`STALE` 时间戳**钉在模块导入时刻**，而
+`RUNNER_HEARTBEAT_STALE_SECONDS = 30`；全量约 6 分钟 → 导入到执行超过 30 秒后
+"新鲜心跳"变过期 → 必然失败（单跑绿）。危害在于它会**混进"与上一档逐条对齐"的基线**，
+真实回归会被当成既有失败放过。改为每例现算。
+
+## 收口全量（`.3`）
+
+| 项 | 结果 |
+| --- | --- |
+| 后端全量 | `Ran 1067 tests`，`fail_count=1`（唯一失败仍是 `test_start_can_submit_task_for_runner_and_runner_executes_it`：镜像有 `docker` CLI 无 socket，唯一环境限制） |
+| 前端 `tsc` / `vitest` | `TSC_EXIT=0` / `VITEST_EXIT=0`，`Test Files 11 passed`、`Tests 114 passed` |
+
+## 硬阻塞：`.14` 不可达、`.12` 凭据被拒（真机矩阵做不了）
+
+| 目标 | 状态 |
+| --- | --- |
+| `.14` `10.20.0.14` | `ping` 100% 丢包、SSH `Network is unreachable`；试 `10.20.11.14` 能 ping 通但**凭据被拒**（不是本项目记录的 `.3` 那套账号） |
+| `.12` `10.20.11.12` | ping 通、SSH 端口可达，但**凭据被拒** |
+
+因此 **C1（`.14` 全新安装 + v0.5.3→v0.5.4 直升）、C2（组件升级 v0.3.1→v0.3.2 格）、
+C3 的场景 B/C 真机手动回滚、C4（`.12` 老链路回归）都无法执行**——不是工作没做完，
+是机器不可用。已做的替代：③ post_upgrade 失败触发面、场景 B/C 的判定与执行路径目前只有
+单测覆盖（沙箱能验 ①④②，③ 与 B/C 需要真实产品流程）。
