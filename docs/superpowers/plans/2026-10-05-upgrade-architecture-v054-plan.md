@@ -6,7 +6,8 @@
 ## 批次 A：runner v0.3.2（先做，能力领先）
 
 > 进度（2026-10-06）：**批次 A 全部完成**（A1/A2/A3/A4/A4b/A5/A5b/A6/A7，均有 `.3` 真机证据）。
-> 批次 B 进度（2026-10-06）：**B5b/B6 已完成**。B3 进行中（remediation 字段 + 简单前端提示；两步引导只服务 v0.3.1→v0.3.2 这一次旧路径过渡，不要过度建设）。
+> 批次 B 进度（2026-10-06）：**B5b/B6/B3 已完成**，批次 B 只剩 **B7（全量 + 前端门禁收口）**，随后进批次 C 出 r18。
+> 后端全量真实基线是 **1 个失败**（镜像有 docker CLI 无 socket）；此前报「6 个 harness 限制」里有 5 个是我打包时混进的 AppleDouble 旁车文件，已纠正（progress.md 有记录）。
 > r18 打包在批次 C 开头打一次（用户定序：现在打的包会立刻过期）。
 > **A4 完成并勾选**（`40f3b0a`/`ac97b06`）：三层防护（剔除 runner / 差异清单 / apply
 > 后断言执行者未被换掉）+ W7 第 4 道 `--force-recreate` 禁令门禁；`.3` 全量 975 tests 与基线
@@ -31,7 +32,7 @@
 
 - [x] B1 presence 读文件优先、DB 兜底（覆盖 v0.5.4+v0.3.1 组合）
 - [x] B2 web-api 从 task.json 投影 tasks 表（监督/状态轮询路径）
-- [ ] B3 预检查 `runner_actions` 失败带 `remediation`；前端升级中心两步引导（T9）
+- [x] B3 预检查失败带 `remediation` + 前端预检查区渲染（T9）——`e6f0407`：文案由包携带（`_source_compatibility().remediation`，逐字=定稿那句），precheck 只在 ok=false 时给结构化字段 + message 文案（老包兜底「请先升级到 X 及以上」），前端只在预检查结果区渲染（不做向导）；`.3` `TSC_EXIT=0` / `VITEST_EXIT=0`（110 tests）/ 后端 9 例单测
 - [x] B4 迁移 expand-only 门禁（registry 断言，T6）
 - [x] B5 动作词汇冻结门禁（计划动作集 ⊆ 已发布 runner，接入 `ops/package.sh`，T7）
 - [x] B5b **常量计划模板**（v2 §2.1，T12）——`f82572d`：用户定案收窄到 v0.5.2+（`_effective_min_version`/`_directory_transition`/`_legacy_cleanup` 置空/`_post_upgrade` 采集与 cleanup 解耦），断言锁**动作集合**（平台包 6 类、bundle +health.prometheus、迁移 +script.run_sandboxed）+ FORBIDDEN 清单不泄漏；`.3` 1030 tests 与基线对齐、三源格 ⊆ 已发布 25 动作、退役登记见 impl-spec §W6.3
