@@ -5041,3 +5041,75 @@ docker run --rm --network=none -v /data/w4:/w -w /w/backend -e PYTHONPATH=/w/bac
 
 **仍未覆盖**：真实发布包形态（manifest 走 `ops/package.sh` 全门禁构建的 r18）的
 `.14` 直升回归，属批次 C1/C5；本条只证明 runner 侧 compose 收敛行为在真 docker 上成立。
+
+## A5：平台升级回滚机制固化（US-17 地基）——完成并有 `.3` 沙箱实测
+
+提交：`c8c3bf3`（机制）、`e594432`（锚点持久段，修了首次实测暴露的缺陷）。
+
+### 落地内容
+
+| 项 | 实现 | 位置 |
+| --- | --- | --- |
+| 锚点四要素 | `previous_version`（运行中 web-api 的 `/app/VERSION`）、旧镜像 tag + 不可变镜像 ID、`backup` 路径+SHA、升级前业务计数与已执行迁移快照 | `backend/app/upgrade_runner/rollback.py:capture_platform_rollback_anchor` |
+| 捕获时机 | 首次 `compose.apply` **之前**，落 `task.json` + 状态文件；已有锚点不覆盖（崩溃重入） | `engine.py` run 循环 |
+| 触发面 | `health.*` **无条件**（v0.5.3 起既有行为，加缺省 false 开关会让老 manifest 丢掉回滚能力）；`compose.apply`/`post_upgrade.*` 需 manifest 显式 `rollback_on_failure: true` 且锚点已捕获 | `engine.py:_should_auto_rollback` |
+| 回滚子流程 | `compose.override`（旧 tag）→ `compose.apply` → `health.*` → 业务计数守卫，**全部复用现有动作实现，不新增计划词汇** | `engine.py:_anchor_based_rollback` |
+| 计数守卫 | 逐表比对锚点快照，「不得减少」（增长正常、减少即损坏）；回归 → `rollback_failed` + `recovery_required` | `rollback.py:business_count_guard` |
+| 兼容 | 无平台锚点的老任务/组件任务仍走既有 `rollback.restore`（整备回滚语义），行为不回退 | `engine.py:_automatic_rollback` |
+
+**语义变更（需要知道）**：v0.5.3 起的 health 失败自动回滚走的是 `rollback.restore`
+——它把 SQLite 从备份**整份拷回**，那是场景 C「整备回滚」的语义，会吞掉升级窗口内的采集数据。
+A5 把有锚点的平台升级改成场景 A「应用回滚」（只指回旧 tag，数据不动），
+expand-only 迁移纪律（W7.2 门禁）是这条路径成立的前提。
+
+**与 W3 组件锚点的关系**：复用同一套 docker 事实探测（`selfhandoff` 里的三个原语已提升为公开
+函数 `running_service_container_id` / `image_id_of_container` / `image_id_of_tag` / `container_file_value`），
+没有第二套口径；容器查询**按 compose project 限定**，`.3` 上多 project 并存时不会抓错对象。
+
+### 首次实测暴露的缺陷（已修）
+
+沙箱首轮 `state_file_anchor_present=False`：锚点写进了**租约 checkpoint**，而任务结束
+`lease.release` 会 pop 整个租约条目，锚点随之消失。修法：状态文件新增持久段
+`rollback_anchors`（按 `captured_at` 排序只留最近 10 条），`main.py` 的 checkpoint sink 两处落。
+补测：租约释放后锚点仍可读、历史条数有界、`LeaseManager` 透传。
+
+### 沙箱 `w5sb` 实测：healthcheck 失败 → 自动回滚 → rolled_back
+
+runner 镜像由本轮代码构建（`RUNNER_VERSION=v0.3.6-rc`，镜像内 grep 确认含 A5 代码）。
+沙箱 4 服务：`web-api`（`w5-fake:webapi-old`，内置返回 200 的微型 HTTP 服务）、
+`collector-worker`、`prometheus`、`upgrade-runner`。计划里把 `web-api` 换成
+`w5-fake:webapi-broken`（同 base 多一层、无 HTTP 服务），`health.http` 打 `http://web-api:8000/api/health`。
+
+| 判据 | 实测 |
+| --- | --- |
+| 任务终态 | **`rolled_back`**（27s），`recovery_status=rolled_back` |
+| 触发 | `health.http` 失败 2 次（`Connection refused`）→ 自动回滚 |
+| 回滚模式 | `mode=anchor_apply`、`trigger_action=health.http` |
+| 回滚四步 | `compose.override`（写回旧 tag，sha `e3a328be…`）→ `compose.apply`（差异清单 `将重建=[web-api]`、`实际重建=[web-api]`）→ `health.http` **200**（老版本恢复健康）→ `business_count_guard ok=true` |
+| 锚点内容 | `previous_version=v0.5.3`、旧 tag + 镜像 ID、`backup` 路径+SHA `7b5717f9…`、计数 `{towers:3, clusters:2, vms:40, volumes:120}` |
+| 数据未丢 | 回滚后计数 `{towers:3, clusters:2, vms:40, volumes:120}`，与基线**逐表一致**（应用回滚保数据，与旧整备回滚的关键差别） |
+| 失败证据保留 | `task.error` 仍是原始健康检查失败原文，logs 三条（锚点/触发/回滚结论）齐全 |
+| 其他容器未动 | `collector-worker` `ff290f5d61c7…`、`prometheus` `b170367a46f2…`、`upgrade-runner` `e9a1f7ef2cdf…` 容器 ID 前后一致，restarts 全 0 |
+| 锚点持久段 | 任务结束后 `rollback_anchors=['upgrade-w5t3']`，`leases=[]`——锚点活过租约释放 |
+
+沙箱清理：4 容器 + `w5sb_default` 网络 + `/data/w5sb` 按**显式名字**删除，`.3` 交付实例 5 容器未受影响。
+
+### 回归证据（`.3`，同 harness 逐条对齐）
+
+| 提交 | 全量 | 与前一档 diff |
+| --- | --- | --- |
+| `40f3b0a`（W4） | 975 tests / 6 failures | 基线（`ffae486` 953 tests / 6 failures）→ NO_NEW_FAILURES |
+| `c8c3bf3`（A5） | 997 tests / 6 failures | NO_NEW_FAILURES |
+| `e594432`（锚点持久段） | 1000 tests / 6 failures | NO_NEW_FAILURES |
+
+6 个失败均为 harness 限制（镜像内有 `docker` CLI 但无 socket；`test_ops_toolkit` 5 例需
+`shellcheck`/`bash -n`），基线同样失败。A5 新增单测 20 例 + 状态文件 4 例。
+
+### 未完成 / 边界
+
+- **场景 A 的三个失败点演练**（镜像加载后失败 / compose up 后不健康 / post-verify 失败）
+  属批次 C3（`.14` 真机），本轮只实测了「up 后不健康」这一个点。
+- **场景 B（手动应用回滚，B8）/ 场景 C（整备回滚产品化，B9）** 未做：B8 依赖本轮的锚点与
+  持久段（数据已就位），C3 演练与 B8/B9 一起做。
+- 迁移 registry 目前是空数组，`applied_migrations` 快照恒为 `[]`；字段与读取路径已就位，
+  等真有 registry 条目时自动生效。
