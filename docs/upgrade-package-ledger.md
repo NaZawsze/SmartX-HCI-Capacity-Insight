@@ -576,3 +576,37 @@ Current execution rule: Python, dependencies, tests, builds and full-chain valid
 3. **`.12`/`.14` SSH 间歇性 `Permission denied`**：同一凭据前一条命令成功、下一条被拒（非密码错误、非 `MaxStartups` 明确报错），需重试 1~4 次即恢复。**待办**：属环境层抖动，未影响任何升级结论，但记录在案。
 
 **未覆盖（如实记录）**：本轮起点为**全新空库**，未导入业务基线，故「升级前后数据逐位不变」这一项**沿用 2026-10-01 r9 在 `.12` 的实测证据**（556/89588/1 逐位不变、`.env` sha 未变），本轮不复验。两台的 Tower 凭据为占位密钥，**自动采集未验证**。
+
+## 2026-10-06 v0.5.4 平台包 r18（Phase 68 批次 C5；候选，未发布）
+
+| 项 | 值 |
+| --- | --- |
+| Status | **CANDIDATE**（发布等用户指令；`.14`/`.12` 矩阵未完成前不得发布） |
+| 构建 | `.3:/data/r18`（`git init -b dev2` + 单提交 `101f70f`），`bash ops/package.sh --branch dev2 --no-fetch --skip-offline --yes --output-dir /data/r18-out` |
+| 平台包 | `.3:/data/r18-out/latest/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`（242M）<br>SHA256 `ff4c0f6fcc5389277b42fce5d4c4ddf247129ecf7d8d035b99bdd3687458b7db` |
+| runner 组件包 | `.3:/data/r18-out/latest/smartx-upgrade-runner-v0.3.2.tar.gz`（81M）<br>SHA256 `6b0c170019979fcedc0df76bfefd96a1f6ee102ee11f75925496f6edeaae8129` |
+| 源码 | dev2 `25a9c89` + 版本 bump 提交（`VERSION=v0.5.4`、`RUNNER_VERSION=v0.3.2` 不变） |
+| runner 基线 | 平台包对 runner 的基线仍是**已发布 v0.3.1**（`_expected_web_api_runner_baseline`）；v0.5.4 常量计划动作集 ⊆ v0.3.1 的 25 个动作，现场无需先升 runner |
+
+### 门禁（全部 PASS）
+
+| 门禁 | 结果 |
+| --- | --- |
+| 版本一致性 | OK（compose runner tag = v0.3.2） |
+| 平台包身份门禁 | PASS（镜像内 `VERSION=v0.5.4`、`RUNNER_VERSION=v0.3.1` 基线一致） |
+| runner 交付一致性 | **13 PASS 0 FAIL**（仓库 v0.3.2 / 三 compose 字面量 / manifest / 包内 `RUNNER_VERSION` / 源码树指纹 `bd411180…` / `actions.py` md5 `cd15b38a…` / **30 动作**） |
+| 迁移 expand-only（W7.2） | PASS（registry 0 条目） |
+| 动作词汇冻结（W7.1） | PASS：`3 个源版本（v0.5.2/v0.5.3/v0.5.4）计划动作集并集 6 个 ⊆ 已发布 25 个动作`；矩阵每格 8 个动作；`--force-recreate` 禁令 PASS（3 处全在允许路径） |
+| 敏感文件扫描 | 0 命中 |
+
+### 两条 WARN 的处置
+
+| WARN | 处置 |
+| --- | --- |
+| `plan_source_compiled_downstream`（源版本 v0.5.2 低于 v0.5.3） | 该格计划由**源端已发布 web-api 的老编译器**生成。已用**已发布 v0.5.2 镜像内编译器**编译 v0.5.4 manifest 静态实测：动作集与候选编译器完全一致（8 动作）。真机覆盖归 C1/C4 |
+| `compiler_changed`（无法比较编译器与 v0.5.3） | **构建树缺 tag 导致的假 WARN**：本仓库 `git diff v0.5.3..HEAD -- backend/app/v2/upgrade/compiler.py` 为 **0 行变更**（B5b 改的是打包脚本，不是编译器）。正式发布构建树应带完整 git 历史 |
+
+### 未完成（不得当作已验证）
+
+`.14` 全新安装 + v0.5.3→v0.5.4 直升（T3）、组件升级 v0.3.1→v0.3.2 格、场景 A 另两个失败点、
+场景 B/C 真机手动回滚、`.12` 老链路回归、离线交付目录（本次 `--skip-offline`）。
