@@ -5014,3 +5014,30 @@ docker run --rm --network=none -v /data/w4:/w -w /w/backend -e PYTHONPATH=/w/bac
   任务日志出现差异清单与实际结果——这是 A4 勾选与 C1 的前提，本轮只完成代码与门禁。
 - 平台包/runner 组件包尚未用 W4 代码重新构建（交付类验证必须在重新打包后进行，
   见 AGENTS.md §12）。
+
+### T3 收敛判据实测（`.3` 隔离沙箱 project `w4sb`，runner 镜像烤 `v0.3.4-rc`）
+
+沙箱 4 服务：`web-api`（`w4-fake:webapi-old`）、`collector-worker`（`w4-fake:collector-cur`，
+与 webapi-old **同镜像 ID 不同引用**）、`prometheus`（真实 `prom/prometheus:v2.55.1`）、
+`upgrade-runner`（W4 代码构建，`/app/RUNNER_VERSION=v0.3.4-rc`，镜像内 `grep` 确认含
+`compose.apply 差异清单` 代码）。计划：`backup.create` → `image.load`(web-api 新镜像) →
+`compose.override`(两份期望镜像) → `compose.apply(services=[web-api, collector-worker])`。
+
+| 判据 | 实测 |
+| --- | --- |
+| 任务终态 | `success`（9s），4 个动作全 succeeded，无 rollback |
+| 差异清单 | `将重建=[web-api]；未变更=[collector-worker]；未判定=[无]（upgrade-runner 不在作用域：是）` |
+| 实际结果 | `重建=[web-api]；未重建=[collector-worker]`（apply 后再观测容器 ID） |
+| **runner 容器 ID 不变** | before=`9d45e3f65253` after=`9d45e3f65253`；事后 inspect 仍是 `9d45e3f65253…`，镜像仍 `w4-runner:v0.3.4-rc`，restarts=0 |
+| **prometheus 容器 ID 不变** | `f38be03f5705…` 前后一致，restarts=0 |
+| 收敛真的发生 | `collector-worker`（**同镜像 ID、期望引用与运行引用一致**）容器 ID `f63bae76f36f…` 前后一致——compose 自己也跳过了它；只有 `web-api` 换成 `w4-fake:webapi-new`（新 ID `d5cd8e643ddb…`） |
+
+**这条实测同时证伪了第一版实现的缺陷**：若照 `compose.apply` 动作自身 params 取期望镜像
+（编译器只传 `services`），`未判定` 会是 `[web-api, collector-worker]` 而非 `[无]`，
+观测层等于失效。改从计划里的 `compose.override` 取后判别才成立。
+
+沙箱清理：4 个容器 + `w4sb_default` 网络 + `/data/w4sb` 均**按显式名字**删除（无 filter 扫描），
+`.3` 交付实例 5 容器与 health 未受影响（frontend/runner Up 4 hours，web-api/collector/prometheus Up 2 days）。
+
+**仍未覆盖**：真实发布包形态（manifest 走 `ops/package.sh` 全门禁构建的 r18）的
+`.14` 直升回归，属批次 C1/C5；本条只证明 runner 侧 compose 收敛行为在真 docker 上成立。
