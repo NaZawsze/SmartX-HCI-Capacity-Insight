@@ -6,7 +6,7 @@
 ## 批次 A：runner v0.3.2（先做，能力领先）
 
 > 进度（2026-10-06）：**批次 A 全部完成**（A1/A2/A3/A4/A4b/A5/A5b/A6/A7，均有 `.3` 真机证据）。
-> 下一步进批次 B：B3（预检查 remediation + 前端两步引导）、B5b（W6 七步断言与退役清单）、B6（偏斜矩阵入文档）、B7（`.3` 全量 + 前端门禁）。
+> 批次 B 进度（2026-10-06）：**B5b/B6 已完成**。B3 进行中（remediation 字段 + 简单前端提示；两步引导只服务 v0.3.1→v0.3.2 这一次旧路径过渡，不要过度建设）。
 > r18 打包在批次 C 开头打一次（用户定序：现在打的包会立刻过期）。
 > **A4 完成并勾选**（`40f3b0a`/`ac97b06`）：三层防护（剔除 runner / 差异清单 / apply
 > 后断言执行者未被换掉）+ W7 第 4 道 `--force-recreate` 禁令门禁；`.3` 全量 975 tests 与基线
@@ -34,8 +34,8 @@
 - [ ] B3 预检查 `runner_actions` 失败带 `remediation`；前端升级中心两步引导（T9）
 - [x] B4 迁移 expand-only 门禁（registry 断言，T6）
 - [x] B5 动作词汇冻结门禁（计划动作集 ⊆ 已发布 runner，接入 `ops/package.sh`，T7）
-- [ ] B5b **七步常量模板**（v2 §2.1）：manifest 不带迁移/交接声明 → 计划自然缩为 backup/load/sync/apply/health/collection/checkpoint；编译器瘦身退役逐版本逻辑（T12）
-- [ ] B6 偏斜矩阵写入 upgrade-chain.md
+- [x] B5b **常量计划模板**（v2 §2.1，T12）——`f82572d`：用户定案收窄到 v0.5.2+（`_effective_min_version`/`_directory_transition`/`_legacy_cleanup` 置空/`_post_upgrade` 采集与 cleanup 解耦），断言锁**动作集合**（平台包 6 类、bundle +health.prometheus、迁移 +script.run_sandboxed）+ FORBIDDEN 清单不泄漏；`.3` 1030 tests 与基线对齐、三源格 ⊆ 已发布 25 动作、退役登记见 impl-spec §W6.3
+- [x] B6 偏斜矩阵写入 upgrade-chain.md——`65e17ad`：§7 为权威（两行源格 × v0.3.1/v0.3.2 + 同版本重装；≤v0.5.1u2 标 ⛔ 不支持 + 引导）；**已用已发布 v0.5.2/v0.5.3 镜像内编译器实测**，两者对 v0.5.4 manifest 的动作集与候选编译器一致（各 8 动作）
 - [ ] B7 `.3` 全量 + 前端门禁
 - [ ] B8 场景 B：升级中心「回滚到上一版本」——可回滚性判定 API + 前端入口 + 任务化执行（单飞守卫）
 - [ ] B9 场景 C：整备回滚产品化（备份恢复五步进产品流程，显式数据丢失确认）
