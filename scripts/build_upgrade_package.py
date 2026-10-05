@@ -1171,6 +1171,11 @@ def build_package(
     }
     if is_modern_platform_package:
         manifest["minimum_runner_version"] = _expected_web_api_runner_baseline(version)
+    if _version_tuple(version) >= _version_tuple(TARGET_LAYOUT_FLOOR_VERSION):
+        # A5b 触发面开关：compose.apply / post_upgrade.* 失败时自动回滚（opt-in）。
+        # health.* 失败本来就无条件回滚（v0.5.3 起既有行为），不受这个键影响。
+        # 只对 v0.5.4+ 写：已发布版本的 manifest 是发布事实，不能回头改。
+        manifest["rollback_on_failure"] = True
     if environment_transitions:
         if directory_transition:
             environment_transitions = [

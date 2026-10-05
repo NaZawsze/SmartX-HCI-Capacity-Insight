@@ -5340,3 +5340,12 @@ AssertionError: 组合「v0.5.0 / v0.5.1 / v0.5.1u1 / v0.5.1u2」的支持状态
 
 **未验证**：场景 B 的真机手动回滚（升级成功后点按钮 → 任务执行 → 回到上一版本且数据保留）
 归批次 C3；判定 API 与前端入口本轮只有单测覆盖，未在真机点过。
+
+### 补：A5b 触发面开关落进打包侧（用户 2026-10-06 修订 C3 时点出）
+
+`manifest.rollback_on_failure` 此前只在 runner 侧被读取，**打包侧从没写过这个键**——
+意味着 v0.5.4 包在 `compose.apply` / `post_upgrade.*` 失败时不会自动回滚（新触发面是 opt-in）。
+已补：`build_upgrade_package.py` 对目标 ≥ `TARGET_LAYOUT_FLOOR_VERSION` 的包显式写
+`rollback_on_failure: true`；**只对 v0.5.4+ 写**，已发布版本的 manifest 是发布事实不能回头改。
+`health.*` 的无条件回滚不受影响（A5b 规格修订的口径）。
+断言补在 `test_v054_constant_plan.py::RollbackTriggerOptInTests`（含"缺键则新触发面不生效"的正向断言）。

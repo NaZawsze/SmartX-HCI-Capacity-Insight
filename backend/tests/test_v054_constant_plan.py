@@ -32,6 +32,7 @@ if str(ROOT) not in sys.path:
 sys.path.insert(0, str(ROOT))
 
 from app.upgrade_runner.actions import default_handlers  # noqa: E402
+from app.upgrade_runner.rollback import is_rollback_trigger, rollback_on_failure_enabled  # noqa: E402
 from app.v2.upgrade.compiler import compile_execution_plan  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("build_upgrade_package", REPO_ROOT / "scripts" / "build_upgrade_package.py")
@@ -231,6 +232,31 @@ class ConstantPlanActionSetTests(unittest.TestCase):
         # runner 仍实现这两个动作：老桥接场景（v0.5.3 及更早的计划）仍会下发
         self.assertIn("post_upgrade.schedule_collection", default_handlers())
         self.assertIn("post_upgrade.schedule_cleanup", default_handlers())
+
+
+class RollbackTriggerOptInTests(unittest.TestCase):
+    """A5b 触发面开关：v0.5.4+ 包必须显式声明，否则 compose.apply/post_upgrade 失败不会回滚。"""
+
+    def test_v054_manifest_opts_in(self) -> None:
+        # 与 build_package 里的写入条件保持一致（目标 ≥ TARGET_LAYOUT_FLOOR_VERSION）
+        self.assertTrue(_builder._version_tuple(TARGET) >= _builder._version_tuple(_builder.TARGET_LAYOUT_FLOOR_VERSION))
+        self.assertTrue(rollback_on_failure_enabled({"manifest": {"rollback_on_failure": True}}))
+        self.assertFalse(rollback_on_failure_enabled({"manifest": {"version": TARGET}}))
+
+    def test_precheck_would_not_opt_in_without_the_flag(self) -> None:
+        """缺这个键时新触发面不生效——所以它必须在打包侧显式写出来，不能靠默认。"""
+        self.assertFalse(rollback_on_failure_enabled({"manifest": _source_compatibility_without_flag()}))
+        self.assertTrue(is_rollback_trigger("compose.apply"))
+        self.assertTrue(is_rollback_trigger("post_upgrade.schedule_collection"))
+
+
+def _source_compatibility_without_flag() -> dict:
+    return {
+        "min_version": "v0.5.2",
+        "max_version_inclusive": TARGET,
+        "target_version": TARGET,
+        "supported_versions": ["v0.5.2", "v0.5.3", TARGET],
+    }
 
 
 class VocabularyTests(unittest.TestCase):
