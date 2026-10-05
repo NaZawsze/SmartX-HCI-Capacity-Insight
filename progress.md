@@ -5113,3 +5113,32 @@ runner 镜像由本轮代码构建（`RUNNER_VERSION=v0.3.6-rc`，镜像内 grep
   持久段（数据已就位），C3 演练与 B8/B9 一起做。
 - 迁移 registry 目前是空数组，`applied_migrations` 快照恒为 `[]`；字段与读取路径已就位，
   等真有 registry 条目时自动生效。
+
+## A6：compose 守卫投递 + `.env` 标记回填（US-39）——完成
+
+提交：`87c6858`。
+
+### 两部分（impl-spec §W8）
+
+| 部分 | 实现 | 关键口径 |
+| --- | --- | --- |
+| 打包投递 | `collect_project_files()` 纳入 `compose-guard.sh` → 进 `manifest.project_file_list` → `files.sync` 阶段带进现场 project 目录 | 包内内容**逐字节**取自 `delivery/compose-guard.sh`（安装/升级/包三处同一份），带可执行位 |
+| 标记回填 | `files.sync` 末尾：`.env` 无 `SMARTX_COMPOSE_FILE_ACTIVE` → 从运行中容器的 `com.docker.compose.project.config_files` 标签取 basename 写入 | ①已有标记**一律不覆盖**（幂等）；②判不出地面真相就**不写**（宁可不标记，不写猜的变体）；③保留 `.env` 原权限；④逻辑自包含，**不 source** compose-guard.sh |
+
+哨兵服务顺序 `web-api → collector-worker → upgrade-runner → prometheus`：与 compose-guard.sh 的
+`COMPOSE_GUARD_SENTINEL_SERVICE`（web-api）在正常安装下一致，额外几个只是容器缺失时的退化路径。
+
+### 验证
+
+| 项 | 结果 |
+| --- | --- |
+| A6 单测（本地） | 15 例 OK（含真跑 `bash compose-guard.sh show/write/check`：同变体放行 0、异变体拒绝 2、`.env` 权限 0600 保持） |
+| `.3` 打包侧 | `project_file_list` 含守卫（清单 154 项）、拷贝逐字节一致、`executable=True`、`guard_sha256_16=a8e01dee5cbcfb37` |
+| `.3` runner 侧 | 相关 5 模块 **166 tests OK / 1 skipped** |
+| `.3` 全量 | `87c6858`：**1015 tests / 6 failures**，与 `e594432`（1000 tests / 6 failures）逐条对齐 → **NO_NEW_FAILURES** |
+
+6 个失败仍是 harness 限制（镜像内有 `docker` CLI 无 socket、`test_ops_toolkit` 5 例需
+`shellcheck`/`bash -n`），非本轮引入。
+
+**未验证（如实记录）**：守卫脚本**真正随包落到客户现场**这一步要等 r18 真包 + `.14` 回归
+（批次 C1/C5）才能实证；本轮只验证了「清单含它 + 内容一致 + files.sync 会按清单投递」这条链路。
