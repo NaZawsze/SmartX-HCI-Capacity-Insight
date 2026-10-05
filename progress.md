@@ -4733,3 +4733,15 @@ GitHub Release 附平台包 tar.gz + `.sha256` → 平台三件套 DockerHub 镜
 
 **遗留/后续**：①DockerHub 平台 tag 以 Actions 运行结果为准（发布后核对）；②生产升级窗口由用户安排（升级前基线留档 + 8 项验收）；
 ③`.14` 的 runner 恢复 v0.3.1 基线（当前为 v0.3.2 验证态）；④runner `v0.3.2` 交付随下一版（#53）；⑤US-39 守卫覆盖升级路径等下版本整改项见 pending-tasks。
+
+### Release Day 收尾补记（同日）
+
+- ✅ 已完成：dev2 推送（origin/dev2 `6cab976→f07e581`）、main fast-forward（`dab2e0f→f07e581`）、tag `v0.5.3` 推送
+  （Action 校验「tag 指向 main」通过）、GitHub Release 创建并上传平台包（252,936,997 B）+ `.sha256` 侧车，
+  资产本地/远端 SHA 一致（`ef3fab9f…`）。发布地址：https://github.com/NaZawsze/SmartX-HCI-Capacity-Insight/releases/tag/v0.5.3
+- ⚠️ **DockerHub 平台三件套推送失败（待用户处理）**：`docker-images.yml` 两个运行（main push / v0.5.3 tag push，
+  run 37261630401 / 37261622303）在 `docker/login-action` 即失败：
+  `unauthorized: personal access token is expired` —— **仓库 Secret `DOCKERHUB_TOKEN` 已过期**。
+  需用户在 DockerHub 重新生成 access token 并更新 GitHub 仓库 Secret（Settings→Secrets and variables→Actions），
+  之后 `gh run rerun 37261630401 37261622303` 或重推 tag 即可补上镜像。
+  **不影响发布有效性**：GitHub Release 资产是升级包权威来源（自包含镜像），DockerHub 仅镜像分发/追溯渠道。
