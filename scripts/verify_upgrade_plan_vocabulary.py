@@ -141,7 +141,15 @@ except Exception as exc:  # pragma: no cover - 候选镜像内编译器不可导
     print(marker + json.dumps({"import_error": str(exc)}))
     raise SystemExit(0)
 
-manifest = json.loads(sys.stdin.read())
+_raw = sys.stdin.read()
+if not _raw.strip():
+    print(marker + json.dumps({"import_error": "manifest stdin 为空：候选包 manifest 未传入容器"}))
+    raise SystemExit(0)
+try:
+    manifest = json.loads(_raw)
+except Exception as exc:
+    print(marker + json.dumps({"import_error": f"manifest 解析失败: {exc}"}))
+    raise SystemExit(0)
 sources = list((manifest.get("source_compatibility") or {}).get("supported_versions") or [])
 for source in sources:
     # 每个源版本编译一次：源版本决定老 web-api 的编译器与 source_compatibility 校验口径，
@@ -163,7 +171,12 @@ print(marker + json.dumps(payload))
 '''
 
 
-def _run(command: list[str], cwd: Path | None = None) -> str:
+def _run(command: list[str], cwd: Path | None = None, *, stdin: str | None = None) -> str:
+    # input 与 stdin 不能同时给（Python 3.13 起直接抛 ValueError），
+    # 因此按是否需要喂 stdin 分别构造参数。
+    extra: dict[str, Any] = (
+        {"input": stdin} if stdin is not None else {"stdin": subprocess.DEVNULL}
+    )
     completed = subprocess.run(
         command,
         cwd=str(cwd) if cwd else None,
@@ -171,6 +184,7 @@ def _run(command: list[str], cwd: Path | None = None) -> str:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         check=False,
+        **extra,
     )
     if completed.returncode != 0:
         raise GateError(f"命令失败（{completed.returncode}）：{' '.join(command)}\n{completed.stdout[-4000:]}")
@@ -192,7 +206,10 @@ def compile_plans_from_package(package: Path, manifest: dict[str, Any]) -> dict[
         root = Path(tmpdir)
         with tarfile.open(package, mode="r:gz") as archive:
             _safe_members(archive)
-            archive.extractall(root)
+            try:
+                archive.extractall(root, filter="data")
+            except TypeError:  # Python < 3.12 无 extraction filter
+                archive.extractall(root)
         archive_rel = web_api_archive(manifest)
         image_tar = root / archive_rel
         if not image_tar.is_file():
@@ -203,6 +220,7 @@ def compile_plans_from_package(package: Path, manifest: dict[str, Any]) -> dict[
         try:
             output = _run(
                 ["docker", "run", "--rm", "--network=none", "-i", "--entrypoint", "python", temporary_tag, "-c", _COMPILE_SCRIPT],
+                stdin=json.dumps(manifest, ensure_ascii=False),
             )
         finally:
             try:
