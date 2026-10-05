@@ -23,7 +23,7 @@
 - **发布事实**：tag `v0.5.3`；平台包 `ef3fab9f…`（r17，源码 dev2 `ebcbeae`）+ `.sha256`，GitHub Release 资产；
   runner 基线 = 已发布 **v0.3.1**（不随发，`v0.3.2` 随 v0.5.4 火车）；镜像 web-api `6747dc1bf418` / collector `8393442f2bd7` / frontend `d4d70803b432`。
 - **验收**：`.12` 老客户整链路（v0.5.1+v0.3.0 → u2 → runner v0.3.1 → v0.5.2 → v0.5.3，全程 Release 资产）8 项全过；
-  `.14` 干净机全流程；`.3` 门禁 816 tests + 前端 tsc 0 / vitest 108。构建轮次 r1–r17 全记录见 [upgrade-package-ledger.md](upgrade-package-ledger.md)。
+  `.14` 干净机全流程；`.3` 门禁 816 tests + 前端 tsc 0 / vitest 108。构建轮次 r1–r17 全记录见 [upgrade-package-ledger.md](../upgrade-package-ledger.md)。
 
 ### 设计文档（按主题分组，59 个 specs 中属本火车的 48 个）
 
@@ -94,7 +94,7 @@
 
 ### 关联问题（本火车关闭/处置）
 US-05/07/08/09/23/24(修入 v0.3.2)/25/26/28(缓解)/32/37/38/39(登记待下版)；UPG-049/050；
-pending #56–#66、#71–#82 大部分关闭（逐条状态见 [pending-tasks.md](pending-tasks.md)）。
+pending #56–#66、#71–#82 大部分关闭（逐条状态见 [pending-tasks.md](../pending-tasks.md)）。
 
 ### 记录锚点
 [progress.md](../../progress.md)「2026-09-12」起各节；[task_plan.md](../../task_plan.md) Phase 49–67；
@@ -107,20 +107,20 @@ pending #56–#66、#71–#82 大部分关闭（逐条状态见 [pending-tasks.m
 - 包 `6accea95…`（dev2 `ff1bd52`）；runner 配对 v0.3.1（首次交付，Release 资产 `d10e15cf…`）。
 - 主题：Compose project/network 固定化（`smartx-hci-capacity-insight`）、单根目录 `/data/smartx-storage-forecast`、
   legacy 清理、升级任务跨重启恢复（Phase 22）、平台自检与升级后验收（Phase 25）、P1 数据正确性（Phase 26）。
-- 关键文档：[upgrade-chain.md](upgrade-chain.md)（链路权威口径）、
-  [v0.5.1-to-v0.5.2-upgrade-chain-worklog.md](v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)（执行流水）、
-  [upgrade-issues.md](upgrade-issues.md)（UPG-031~050 问题台账）、[task_plan.md](../../task_plan.md) Phase 21–49 前段。
+- 关键文档：[upgrade-chain.md](../upgrade-chain.md)（链路权威口径）、
+  [v0.5.1-to-v0.5.2-upgrade-chain-worklog.md](../v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)（执行流水）、
+  [upgrade-issues.md](../upgrade-issues.md)（UPG-031~050 问题台账）、[task_plan.md](../../task_plan.md) Phase 21–49 前段。
 
 ## v0.5.1u2（桥接包，2026-08）
 
 - 用途：桥接 v0.5.1 → runner v0.3.1 → v0.5.2 的中间版本（只提供桥接能力，不迁移平台）。
 - 包 `d5f27716…`；Release 说明含 runner v0.3.1 组件包 `d10e15cf…`。
 - 关联：[2026-07-10-post-upgrade-auto-collection](../superpowers/specs/2026-07-10-post-upgrade-auto-collection-design.md)、
-  [v0.5.1u2-to-v0.5.2-upgrade-issues.md](v0.5.1u2-to-v0.5.2-upgrade-issues.md)。
+  [v0.5.1u2-to-v0.5.2-upgrade-issues.md](../v0.5.1u2-to-v0.5.2-upgrade-issues.md)。
 
 ## v0.5.1 / v0.5.0（历史）
 
-- 见 [CHANGELOG.md](CHANGELOG.md) 对应节与 [architecture-v2.md](architecture-v2.md)（v2 重构背景：
+- 见 [CHANGELOG.md](CHANGELOG.md) 对应节与 [architecture-v2.md](../architecture-v2.md)（v2 重构背景：
   项目曾因"升级升不上去"做过一次大重构）。
 
 ---
