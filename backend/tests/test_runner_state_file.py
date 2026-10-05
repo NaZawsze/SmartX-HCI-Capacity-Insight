@@ -439,22 +439,28 @@ class DbMirrorFailureHarmlessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = _make_db(Path(tmp))
             lease = LeaseManager(db, "runner-a")
+            lease.acquire("t1", revision=1)  # 先取得租约，否则续租本就应当返回 False
 
             def boom():
                 raise sqlite3.OperationalError("database is locked")
 
-            lease.acquire("t1", revision=1)  # 先取得租约，否则续租本就应当返回 False
-            lease._create_mirror_tables = boom  # type: ignore[method-assign]
+            # 逐条替换**每一条**镜像写路径：只替换建表路径会漏掉「续租镜像失败」这一情形，
+            # 而那正是升级执行期每 5 秒发生的写。
+            lease._mirror_write_state = boom  # type: ignore[method-assign]
+            lease._mirror_renew = boom  # type: ignore[method-assign]
             with self.assertLogs("app.upgrade_runner.lease", level="WARNING") as captured:
                 lease.update_runner_state("v0.3.2")
                 self.assertTrue(lease.heartbeat("t1", revision=1))
-            payload = json.loads(state_file_path(db).read_text(encoding="utf-8"))
+                mid_run = json.loads(state_file_path(db).read_text(encoding="utf-8"))
+                lease.release("t1")
+            after_release = json.loads(state_file_path(db).read_text(encoding="utf-8"))
         self.assertTrue(
             any("镜像" in message for message in captured.output),
             f"镜像失败应记 warning，实际日志：{captured.output}",
         )
-        self.assertEqual(payload["runner_version"], "v0.3.2")
-        self.assertIn("t1", payload["leases"])
+        self.assertEqual(mid_run["runner_version"], "v0.3.2")
+        self.assertIn("t1", mid_run["leases"])
+        self.assertNotIn("t1", after_release["leases"])
 
     def test_mirror_table_creation_failure_does_not_block_startup(self) -> None:
         """为一张兼容镜像表建表失败就让 runner 起不来，代价与收益不成比例。"""
@@ -489,6 +495,22 @@ class DbMirrorFailureHarmlessTests(unittest.TestCase):
                 self.assertTrue(lease.acquire("t1", revision=1))
             payload = json.loads(state_file_path(db).read_text(encoding="utf-8"))
         self.assertIn("t1", payload["leases"])
+
+    def test_release_survives_db_failure(self) -> None:
+        """释放租约的镜像写失败同样不得冒泡——状态文件已清即达目的。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            db = _make_db(Path(tmp))
+            lease = LeaseManager(db, "runner-a")
+            lease.acquire("t1", revision=1)
+
+            def boom():
+                raise sqlite3.OperationalError("database is locked")
+
+            lease._mirror_release = boom  # type: ignore[method-assign]
+            with self.assertLogs("app.upgrade_runner.lease", level="WARNING"):
+                lease.release("t1")  # 冒泡即为缺陷
+            payload = json.loads(state_file_path(db).read_text(encoding="utf-8"))
+        self.assertNotIn("t1", payload["leases"])
 
 
 class PresenceFileFirstTests(unittest.TestCase):

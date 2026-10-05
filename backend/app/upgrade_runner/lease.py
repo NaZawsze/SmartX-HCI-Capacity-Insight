@@ -159,7 +159,7 @@ class LeaseManager:
 
     def release(self, task_id: str) -> None:
         self.state_store.release_lease(task_id)
-        self._mirror("release", self._mirror_release(task_id))
+        self._mirror("release", lambda: self._mirror_release(task_id))
 
     def _mirror_release(self, task_id: str) -> None:
         with self._connect() as connection:
@@ -190,9 +190,13 @@ class LeaseManager:
     def update_runner_state(self, runner_version: str, *, now: datetime | None = None) -> None:
         """更新实例身份与心跳。事实源 = 状态文件；DB 镜像失败只记 warning。"""
         self.state_store.update_runner_state(runner_version, now=now)
-        self._mirror("update_runner_state", lambda: self._mirror_runner_state(runner_version, now))
+        self._mirror("update_runner_state", lambda: self._mirror_write_state(runner_version, now))
 
-    def _mirror_runner_state(self, runner_version: str, now: datetime | None) -> None:
+    def _mirror_write_state(self, runner_version: str, now: datetime | None) -> None:
+        # 方法名带 write_ 前缀：读路径另有 `_mirror_read_state`。
+        # 两者曾共用 `_mirror_runner_state` 一个名字，后者被覆盖，写路径调用时
+        # 变成「传两个参数给零参函数」→ TypeError → 镜像静默失效（US-26 同类：
+        # 修好了但从未真正生效）。
         heartbeat_at = (now or _now()).isoformat()
         with self._connect() as connection:
             connection.execute(
@@ -224,13 +228,13 @@ class LeaseManager:
         payload = self.state_store.read()
         if payload.get("heartbeat_at"):
             return payload
-        row = self._mirror("runner_state", self._mirror_runner_state)
+        row = self._mirror("runner_state", self._mirror_read_state)
         if not row:
             return None
         state = dict(row)
         state["capabilities"] = json.loads(state.pop("capabilities_json"))
         return state
 
-    def _mirror_runner_state(self) -> Any:
+    def _mirror_read_state(self) -> Any:
         with self._connect() as connection:
             return connection.execute("SELECT * FROM upgrade_runner_state WHERE id = 1").fetchone()
