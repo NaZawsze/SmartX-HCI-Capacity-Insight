@@ -5,7 +5,7 @@
 
 ## 批次 A：runner v0.3.2（先做，能力领先）
 
-> 进度（2026-10-05）：A1/A2/A3/A4b/A7 完成并有 `.3` 真机证据；A5/A5b/A6 剩余。
+> 进度（2026-10-05）：A1/A2/A3/A4/A4b/A5/A5b/A7 完成并有 `.3` 真机证据；**A6 剩余**（用户定序：A5 之后紧接 A6，W6 与 r18 打包分别归批次 B/C 开头）。
 > **A4 完成并勾选**（`40f3b0a`/`ac97b06`）：三层防护（剔除 runner / 差异清单 / apply
 > 后断言执行者未被换掉）+ W7 第 4 道 `--force-recreate` 禁令门禁；`.3` 全量 975 tests 与基线
 > 953 tests 逐条对齐（NO_NEW_FAILURES），门禁端到端 `GATE_EXIT=0`，沙箱 `w4sb` T3 判据成立。
@@ -20,8 +20,8 @@
 - [x] A3 runner 停止写 `tasks` 表（删 `_project_task` 路径）；task.json 执行期单写者
 - [x] A4 `compose.apply` diff 收敛 + 差异清单日志 + upgrade-runner 触碰守卫（v2 §2.1）——`40f3b0a`/`ac97b06`；`.3` 全量 975 tests 与基线逐条对齐、W7 第 4 道 `--force-recreate` 禁令门禁 `GATE_EXIT=0`、沙箱 `w4sb` T3 收敛判据实测（runner/prometheus 容器 ID 不变）
 - [x] A4b **runner 自换组件升级**（v2 §2.2）：收包触发 → 自 load 镜像 → 写自身 compose → schedule_handoff → presence 回报；web-api 退出编排（T11）
-- [ ] A5 回滚机制固化（设计 §5.0）：回滚锚点记录 + 旧镜像 override + 健康门 + 业务计数守卫
-- [ ] A5b 场景 A 自动回滚：healthcheck 失败进入回滚子计划（`rollback_on_failure`，失败证据完整保留）
+- [x] A5 回滚机制固化（设计 §5.0）——`c8c3bf3`/`e594432`：apply 前捕获锚点四要素 + 落 task.json 与状态文件持久段、锚点驱动应用回滚（override 旧 tag → apply → health）、业务计数守卫「不得减少」；`.3` 沙箱 `w5sb` 实测 healthcheck 失败 → `rolled_back`（27s、老版本恢复 200、计数逐表一致、runner/prometheus 容器 ID 未变）
+- [x] A5b 场景 A 自动回滚：触发面 `compose.apply`/`health.*`/`post_upgrade.*`，新增面需 manifest `rollback_on_failure: true`（health 保持无条件，老 manifest 行为不回退）；失败证据完整保留、回滚失败进 recovery ——「up 后不健康」失败点已实测，另两个失败点归批次 C3
 - [ ] A6 project_files 阶段投递 compose-guard.sh + 回填 `.env` 标记（US-39，runner 侧）
 - [x] A7 runner 单元测试补齐（T1/T2/T4）+ `.3` 全量回基线
 
