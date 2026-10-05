@@ -114,27 +114,42 @@ def _runner_image_in_compose(compose_path: Path) -> str:
     return ""
 
 
-def _running_runner_container_id(executor: Any) -> str:
-    """当前运行中的 upgrade-runner 容器 ID（取目标 project 下的那个）。"""
+def _running_runner_container_id(executor: Any, compose_project: str = "") -> str:
+    """当前运行中的 upgrade-runner 容器 ID（**限定 compose project**）。
+
+    ## 为什么必须限定 project
+
+    只按 service 名 `com.docker.compose.service=upgrade-runner` 过滤会命中**同机所有 project**
+    的 runner 容器。`.3` 实测：自换锚点抓到的 `previous_version` 是 `v0.3.1`——
+    那是 `.3` 上另一个 project（`smartx-hci-capacity-insight`）的 runner，不是本 project 的
+    `v0.3.2`。后果不是显示问题，而是**组件回滚锚点记成别人的版本与镜像 ID**，
+    反向自换会换到一个完全不相干的版本。
+
+    这在客户机上不是边角情况：`v0.5.1u2 → v0.5.2` 桥接链的**常态**就是同机同时存在
+    旧 project 的 runner 与新 project 的 runner（AGENTS §7 的引导步骤明确如此）。
+
+    口径与 web-api 侧 `_active_runner_state_from_docker` 对齐（那里按 project 优先排序），
+    但本函数更严格：**project 不匹配直接不认**，而不是排在后面。
+    """
+    filters = ["--filter", "label=com.docker.compose.service=upgrade-runner"]
+    expected = str(compose_project or "").strip()
+    if expected:
+        filters.extend(["--filter", f"label=com.docker.compose.project={expected}"])
     try:
         output = executor.output(
-            [
-                "docker",
-                "ps",
-                "--filter",
-                "label=com.docker.compose.service=upgrade-runner",
-                "--format",
-                "{{.ID}} {{.Label \"com.docker.compose.project\"}}",
-            ]
+            ["docker", "ps", *filters, "--format", "{{.ID}} {{.Label \"com.docker.compose.project\"}}"]
         )
     except Exception as exc:  # noqa: BLE001 - 探测失败不得让组件升级判失败
         logger.warning("自换锚点：探测运行中 runner 容器失败（%s），该项留空", exc)
         return ""
     candidates = [line.split() for line in output.splitlines() if line.strip()]
     if not candidates:
+        if expected:
+            # 过滤条件已含 project，查不到就是真的没有；记一条便于排障（不当作错误）
+            logger.warning("自换锚点：未找到 project=%s 下运行中的 upgrade-runner 容器", expected)
         return ""
-    # 目标布局 project 优先（与 execution._active_runner_state_from_docker 同一口径）
-    candidates.sort(key=lambda parts: ("smartx-hci-capacity-insight" not in parts[-1], parts[0]))
+    # 同 project 内可能有多个（如 --force-recreate 期间的短暂并存），取 ID 最小者保证稳定
+    candidates.sort()
     return candidates[0][0]
 
 
@@ -182,7 +197,7 @@ def capture_component_rollback_anchor(
     - `previous_image_tag`：compose 里当前声明的 image（writeback 要覆盖的那个值）；
     - `previous_image_id`：当前运行镜像的不可变 ID（tag 被移动后仍能定位镜像本体）。
     """
-    container_id = _running_runner_container_id(executor)
+    container_id = _running_runner_container_id(executor, getattr(context, "compose_project", ""))
     image_id = _image_id_of_container(executor, container_id)
     previous_tag = _runner_image_in_compose(Path(context.project_path) / COMPOSE_FILENAME)
     previous_version = ""

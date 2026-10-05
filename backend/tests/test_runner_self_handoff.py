@@ -59,13 +59,25 @@ COMPOSE = """services:
 
 
 class _Executor:
-    """按命令前缀返回固定输出的假执行器（记录调用序列）。"""
+    """按命令前缀返回固定输出的假执行器（记录调用序列）。
 
-    def __init__(self, *, running_container: str = "", image_id: str = "", runner_version: str = "v0.3.1") -> None:
+    `containers` 形如 `[(容器 ID, compose project, RUNNER_VERSION 内容)]`，
+    用来复现「同一 service 名、多个 project 并存」的真实场景。
+    """
+
+    def __init__(
+        self,
+        *,
+        running_container: str = "",
+        image_id: str = "",
+        runner_version: str = "v0.3.1",
+        containers: list[tuple[str, str, str]] | None = None,
+    ) -> None:
         self.calls: list[list[str]] = []
         self._running_container = running_container
         self._image_id = image_id
         self._runner_version = runner_version
+        self._containers = containers or []
 
     def run(self, command: list[str], **_: Any) -> str:
         self.calls.append(list(command))
@@ -75,8 +87,26 @@ class _Executor:
         self.calls.append(list(command))
         joined = " ".join(command)
         if "label=com.docker.compose.service=upgrade-runner" in joined:
-            return f"{self._running_container} smartx-hci-capacity-insight\n" if self._running_container else ""
+            # 无 containers 列表时按旧式单容器参数返回（保持既有用例可读）
+            if not self._containers:
+                return (
+                    f"{self._running_container} p\n" if self._running_container else ""
+                )
+            # 按传入的 filter 条件过滤（复现 docker ps 的真实语义）。
+            # 注意 label 形如 `label=<key>=<value>`：要按**第二个** `=` 切，
+            # 切第一个会得到 "com.docker.compose.project=<value>" 而匹配不上。
+            wanted = ""
+            for part in command:
+                if part.startswith("label=com.docker.compose.project="):
+                    wanted = part.split("=", 2)[2]
+            rows = [item for item in self._containers if not wanted or item[1] == wanted]
+            return "".join(f"{cid} {project}\n" for cid, project, _ in rows)
         if "/app/RUNNER_VERSION" in joined:
+            if self._containers and "exec" in command:
+                target = command[command.index("exec") + 1]
+                for cid, _project, version in self._containers:
+                    if cid.startswith(target[:12]):
+                        return f"{version}\n"
             return f"{self._runner_version}\n"
         if "docker image inspect" in joined:
             return f"sha256:{self._image_id}\n"
@@ -723,6 +753,90 @@ class ComposeTagWritebackCompatTests(unittest.TestCase):
             after = compose_path.read_text(encoding="utf-8")
         self.assertEqual(before, "")
         self.assertIn("repo/runner:v0.3.3", after)
+
+
+class ProjectScopingTests(unittest.TestCase):
+    """回归锁：同一 service 名、两个 project 并存时必须选中本 project 的容器。
+
+    这条是 `.3` 实测事故的直接产物——锚点抓到了另一 project 的 runner，
+    会让组件回滚换到不相干的版本。
+    """
+
+    def _compose(self, root: Path, tag: str = "repo/runner:v0.3.2") -> None:
+        (root / "project").mkdir(parents=True, exist_ok=True)
+        (root / "project" / "docker-compose.yml").write_text(
+            COMPOSE.format(runner_image=tag), encoding="utf-8"
+        )
+
+    def test_two_projects_same_service_name_picks_current_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._compose(root)
+            executor = _Executor(
+                containers=[
+                    ("aaaa111", "smartx-hci-capacity-insight", "v0.3.1"),
+                    ("bbbb222", "w3selfhandoff", "v0.3.2"),
+                ]
+            )
+            context = _context(root)
+            context.compose_project = "w3selfhandoff"
+            context.executor = executor
+            anchor = capture_component_rollback_anchor(
+                context, {}, executor=executor, target_version="v0.3.3"
+            )
+        self.assertEqual(anchor["container_id"], "bbbb222")
+        self.assertEqual(anchor["previous_version"], "v0.3.2")
+
+    def test_filter_includes_project_label(self) -> None:
+        """探测命令必须带 project 过滤（这是修复本身，不只是结果断言）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._compose(root)
+            executor = _Executor(containers=[("bbbb222", "w3selfhandoff", "v0.3.2")])
+            context = _context(root)
+            context.compose_project = "w3selfhandoff"
+            context.executor = executor
+            capture_component_rollback_anchor(context, {}, executor=executor, target_version="v0.3.3")
+        ps_calls = [call for call in executor.calls if "docker" in call and "ps" in call]
+        self.assertTrue(ps_calls, "应当调用过 docker ps")
+        self.assertIn(
+            "label=com.docker.compose.project=w3selfhandoff",
+            ps_calls[0],
+            "docker ps 必须带 project 过滤，否则会命中同机其它 project 的 runner",
+        )
+
+    def test_no_container_in_current_project_yields_empty_id(self) -> None:
+        """本 project 下没有 runner 时留空并记 warning——绝不退回"抓别人的"。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._compose(root)
+            executor = _Executor(containers=[("aaaa111", "smartx-hci-capacity-insight", "v0.3.1")])
+            context = _context(root)
+            context.compose_project = "w3selfhandoff"
+            context.executor = executor
+            with self.assertLogs("app.upgrade_runner.selfhandoff", level="WARNING") as captured:
+                anchor = capture_component_rollback_anchor(context, {}, executor=executor, target_version="v0.3.3")
+        self.assertEqual(anchor["container_id"], "")
+        self.assertTrue(any("未找到 project" in message for message in captured.output))
+
+    def test_same_project_multiple_containers_picks_stable_one(self) -> None:
+        """--force-recreate 窗口内同 project 会有两个容器，取 ID 最小者保证稳定。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._compose(root)
+            executor = _Executor(
+                containers=[
+                    ("cccc333", "w3selfhandoff", "v0.3.2"),
+                    ("aaaa111", "w3selfhandoff", "v0.3.2"),
+                ]
+            )
+            context = _context(root)
+            context.compose_project = "w3selfhandoff"
+            context.executor = executor
+            first = capture_component_rollback_anchor(context, {}, executor=executor, target_version="v0.3.3")
+            second = capture_component_rollback_anchor(context, {}, executor=executor, target_version="v0.3.3")
+        self.assertEqual(first["container_id"], "aaaa111")
+        self.assertEqual(first["container_id"], second["container_id"])
 
 
 if __name__ == "__main__":
