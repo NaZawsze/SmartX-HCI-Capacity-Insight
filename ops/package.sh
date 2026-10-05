@@ -40,10 +40,16 @@ usage() {
   --yes               非交互模式，跳过破坏性操作确认
   -h, --help          显示本帮助
 
+环境变量:
+  OPS_PUBLISHED_RUNNER_PACKAGE  **必填** 已发布 runner 组件包（Release 资产 .tar.gz）路径。
+                                动作词汇冻结门禁（Phase 68 W7.1）拿它当能力基线——
+                                用本次构建的 runner 包当基线等于自己判自己。
+  OPS_PUBLISHED_TAG             编译器变更对比基准 tag（默认 v0.5.3）
+  OPS_RUNNER_BASELINE_TAG       离线交付目录的基线 runner tag（默认 v0.3.1）
+
 示例:
-  bash ops/package.sh                          # 打包 main（发布线）
-  bash ops/package.sh --branch dev2            # 打包开发线
-  bash ops/package.sh --skip-offline           # 本机无基线 runner 镜像时
+  OPS_PUBLISHED_RUNNER_PACKAGE=~/dl/smartx-upgrade-runner-v0.3.1.tar.gz bash ops/package.sh
+  bash ops/package.sh --branch dev2 --skip-offline   # 本机无基线 runner 镜像时
 
 产物:
   <output-dir>/latest/       最新可用（平台包 + runner 组件包 + 离线交付目录）
@@ -225,6 +231,32 @@ if ! python3 scripts/verify_runner_delivery_consistency.py --package "$RUNNER_PK
 fi
 ok "runner 交付一致性门禁通过"
 
+# W7.2 迁移 expand-only 门禁（Phase 68）：破坏性 schema 变更会让回滚保数据当场失效。
+if ! python3 scripts/verify_migrations_expand_only.py; then
+  err "迁移 expand-only 门禁未通过（新增条目含破坏性模式）。"
+  exit 2
+fi
+ok "迁移 expand-only 门禁通过"
+
+# W7.1 动作词汇冻结门禁（Phase 68）：平台包编译出的计划动作集必须落在已发布 runner 能力内。
+# 已发布 runner 包 = **客户手里那份**（Release 资产），不是本次构建产物——
+# 用本次构建的 runner 包当基线等于自己判自己（AGENTS §10 交付一致性门禁的同一纪律）。
+PUBLISHED_RUNNER_PKG="${OPS_PUBLISHED_RUNNER_PACKAGE:-}"
+PUBLISHED_TAG="${OPS_PUBLISHED_TAG:-v0.5.3}"
+if [ -z "$PUBLISHED_RUNNER_PKG" ] || [ ! -f "$PUBLISHED_RUNNER_PKG" ]; then
+  err "动作词汇冻结门禁需要**已发布** runner 组件包（Release 资产）作为能力基线。"
+  err "  未找到：${PUBLISHED_RUNNER_PKG:-（未设置 OPS_PUBLISHED_RUNNER_PACKAGE）}"
+  err "  从 Release 下载 smartx-upgrade-runner-v0.3.1.tar.gz 后："
+  err "    OPS_PUBLISHED_RUNNER_PACKAGE=<路径> bash ops/package.sh ..."
+  exit 2
+fi
+if ! python3 scripts/verify_upgrade_plan_vocabulary.py "$PLATFORM_PKG" \
+      --runner-package "$PUBLISHED_RUNNER_PKG" --published-tag "$PUBLISHED_TAG"; then
+  err "动作词汇冻结门禁未通过（计划用了已发布 runner 不支持的动作 / schema_version 偏离已发布线）。"
+  exit 2
+fi
+ok "动作词汇冻结门禁通过（基线 runner 包：$(basename "$PUBLISHED_RUNNER_PKG")）"
+
 # 敏感文件扫描
 info "扫描包内敏感文件 …"
 SENSITIVE_RE='(^|/)(\.env|.*\.sqlite3?|.*\.db|smartx-storage-forecast\.db|id_rsa|.*\.pem|.*\.key|credentials.*)$'
@@ -328,4 +360,10 @@ else
   info "  · 本次未出离线交付目录（缺基线 runner 镜像或已 --skip-offline）"
 fi
 info "  · 注意：交付物 compose 的 runner 基线必须是**已发布**版本，不是源码的 $RVER 。"
+echo
+warn "发版检查单（W7.1 警告项必须人工核对）："
+warn "  · 动作词汇冻结门禁若有 WARN（编译器相对 $PUBLISHED_TAG 有变更），"
+warn "    必须人工核对偏斜矩阵：各源版本的计划形状与老编译器行为。"
+warn "  · 源版本低于 v0.5.3 的格，其计划由源端已发布 web-api 的老编译器生成，"
+warn "    门禁只证明候选包编译器编译同一 manifest 的动作集合规，需靠兼容矩阵与老链路回归覆盖。"
 exit 0
