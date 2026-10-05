@@ -5142,3 +5142,59 @@ runner 镜像由本轮代码构建（`RUNNER_VERSION=v0.3.6-rc`，镜像内 grep
 
 **未验证（如实记录）**：守卫脚本**真正随包落到客户现场**这一步要等 r18 真包 + `.14` 回归
 （批次 C1/C5）才能实证；本轮只验证了「清单含它 + 内容一致 + files.sync 会按清单投递」这条链路。
+
+## B5b：v0.5.4 收窄到目标布局 + 常量计划断言（+ 退役登记）
+
+提交：`f82572d`（打包收窄 + 断言 + 退役登记）。用户定案：收窄到 v0.5.2+。
+
+### 实测暴露的事实（原规格前提不成立）
+
+| 打包参数 | 编译出的计划 |
+| --- | --- |
+| `min_version=v0.5.0`（原默认） | **10 步**：backup / filesystem.prepare / task.migrate_runtime_state / compose.override / **compose.project_migrate** / compose.apply / health.http / task.sync_runtime_state / **post_upgrade.schedule_cleanup** / **runner.schedule_target_runtime_handoff** |
+| `min_version=v0.5.2`，但 transition/cleanup 仍非空 | **9 步**（只少一个 project_migrate） |
+| 收窄后（transition/cleanup 置空 + min v0.5.2） | **6 步**：backup / image.load×3 / files.sync / compose.override / compose.apply / health.http |
+
+「常量计划」的前提不是抬 min_version，而是 **v0.5.4 不再声明目录迁移与 legacy 清理**。
+
+### 落地
+
+- 打包侧：`TARGET_LAYOUT_FLOOR_VERSION=v0.5.4`、`MINIMUM_SOURCE_VERSION=v0.5.2`；
+  `_effective_min_version()` + `_supported_source_versions()` 内部都抬下限（不留拿到宽矩阵的调用点）；
+  `_directory_transition()`/`_legacy_cleanup()` 对 v0.5.4 返回 `{}`；
+  `supported_versions=[v0.5.2, v0.5.3, v0.5.4]`；**v0.5.3 及更早的包完全不受影响**
+  （实测 v0.5.3 仍是 6 个源版本、legacy_cleanup 8 键）。
+- `_post_upgrade()` 把「升级后自动采集」与 cleanup 任务解耦：legacy 为空时
+  `platform_collection` 仍在（否则会关掉 49-49 已发布特性），只是不再有 `create_cleanup_task`。
+- 断言（`backend/tests/test_v054_constant_plan.py`，15 例）锁**动作集合**不锁步数：
+  平台包 6 动作 / bundle 包 +`health.prometheus` / 有 schema 迁移 +`script.run_sandboxed`；
+  `FORBIDDEN_ACTIONS`（迁移·交接·清理·平台侧采集）一个都不许泄漏；退役动作仍留在 handler 表
+  供 v0.5.3 及更早包的计划兜底。
+
+### 两处规格与代码不符（已在 impl-spec §W6.2 更正，以代码为准）
+
+1. `health.prometheus` **仅在声明 observability 组件时**出现，平台-only 包不含它；
+2. `post_upgrade.schedule_collection` **不由编译器下发**（49-49 起平台侧 `platform_collection`
+   调度，编译计划只保留给老包的动作定义），runner 仍实现它仅为老桥接计划兜底。
+
+### 退役登记（v0.5.5 候选，impl-spec §W6.3）
+
+`filesystem.prepare` / `task.migrate_runtime_state` / `task.sync_runtime_state` /
+`compose.project_migrate` / `runner.handoff_target_runtime` / `runner.schedule_target_runtime_handoff` /
+`runner.stop_legacy_runtime` / `legacy.cleanup` / `compose.stop_legacy_project` /
+`network.remove_legacy` / `filesystem.cleanup_*` / `post_cleanup.*` / `post_upgrade.schedule_cleanup`
+——**可从 v0.5.5 的默认计划模板退役，动作实现一律保留**（老桥接计划仍下发它们）。
+`filesystem.prepare` 的残留风险（目标目录缺失）由 health `checks.directories` 兜底。
+
+### 验证（`.3`）
+
+| 项 | 结果 |
+| --- | --- |
+| B5b 断言 + 相关 5 模块 | **177 tests OK / 5 skipped** |
+| `.3` 全量 | **1030 tests / 6 failures**，与 `87c6858`（1015/6）逐条对齐 → **NO_NEW_FAILURES** |
+| 打包侧 manifest 形状 | `min_version=v0.5.2`、supported `[v0.5.2,v0.5.3,v0.5.4]`、transition/cleanup 空、`post_upgrade={auto_collection:false, platform_collection:true}` |
+| v0.5.3 不受影响 | supported 仍 6 个源版本、legacy_cleanup 8 键 |
+| W7.1 按新动作集验证 | 三个源格动作集均为 `{backup.create, compose.apply, compose.override, files.sync, health.http, image.load}`，**⊆ 已发布 v0.3.1 的 25 个动作** |
+| `--force-recreate` 禁令 | PASS |
+
+**未验证**：真实 r18 包形态（须经 `ops/package.sh` 全门禁）与 `.14` 直升回归 —— 归批次 C。
