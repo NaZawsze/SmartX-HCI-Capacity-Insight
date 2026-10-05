@@ -1402,10 +1402,159 @@ def compose_override(action: dict[str, Any], context_payload: dict[str, Any]) ->
     return {"path": str(target), "sha256": _sha256(target), "checkpoint": {"path": str(target), "sha256": _sha256(target)}}
 
 
+#: `compose.apply` 绝对不允许触碰的服务（US-26 根治，impl-spec §W4 第 1 层）。
+#:
+#: 平台升级的 compose 里 runner 与平台三件套**同属一个 project**，一旦 apply 带上
+#: `upgrade-runner`，runner 就会被当作"要升级的服务"重建——而执行这次 apply 的正是
+#: runner 自己（自杀）。历史形态：`.12` 实测升级后 runner 从 v0.3.2 静默回落 v0.3.1
+#: （US-26），代价是 runner 侧修复随之丢失且无任何提示。
+APPLY_FORBIDDEN_SERVICES = frozenset({"upgrade-runner"})
+
+
+def _service_container_facts(
+    executor: Any, compose_project: str, service: str
+) -> dict[str, str]:
+    """取某服务当前运行容器的事实（best-effort，取不到就留空）。
+
+    只观测 docker/compose 自己写在容器上的事实，**不自研哈希**：
+    - `com.docker.compose.config-hash`：compose 判定"配置是否变化"的唯一权威，
+      我们读它但**不重算**（重算就等于自己实现一遍 compose 的配置归一化，必然漂移）；
+    - `Image`：容器实际使用的镜像引用（`repo:tag`，即创建它时 compose 解析出的引用）。
+
+    取不到（容器没跑 / docker 不可用）返回空 dict——调用方据此把该服务归入"未判定"，
+    不猜。
+    """
+    try:
+        output = executor.output(
+            [
+                "docker",
+                "ps",
+                "--filter",
+                f"label=com.docker.compose.project={compose_project}",
+                "--filter",
+                f"label=com.docker.compose.service={service}",
+                "--format",
+                '{{.ID}} {{.Image}} {{.Label "com.docker.compose.config-hash"}}',
+            ]
+        )
+    except Exception:  # noqa: BLE001 - 观测失败不得让 apply 失败
+        return {}
+    for line in output.splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        return {
+            "container_id": parts[0],
+            "image_ref": parts[1] if len(parts) > 1 else "",
+            "config_hash": parts[2] if len(parts) > 2 else "",
+        }
+    return {}
+
+
+def _image_matches(running_ref: str, expected: str) -> bool:
+    """运行镜像引用与计划期望镜像是否指向同一个东西。
+
+    只做**引用层**比对，不做内容层（内容层的权威是 compose 自己的 config-hash）：
+    完全相等、registry 前缀差异（compose 可能回报 `docker.io/xxx` 而计划写短名）、
+    以及「仓库名 + tag 都相同」这三种情况都算未变更。
+    """
+    if not running_ref or not expected:
+        return False
+    if running_ref == expected or running_ref.endswith("/" + expected):
+        return True
+    if "sha256:" in expected and expected in running_ref:
+        return True
+    running_name, _, running_tag = running_ref.rpartition(":")
+    expected_name, _, expected_tag = expected.rpartition(":")
+    if not running_name or not expected_name:
+        return False
+    return running_name.rsplit("/", 1)[-1] == expected_name.rsplit("/", 1)[-1] and running_tag == expected_tag
+
+
+def _expected_image_map(
+    action: dict[str, Any], context_payload: dict[str, Any] | None = None
+) -> dict[str, str]:
+    """取「服务 → 计划期望镜像」。
+
+    计划里这份事实的**权威来源是 `compose.override` 动作**（它就是照这份 images 写 override
+    文件的，编译器 `compiler.py:142`）。`compose.apply` 自身的 params 只有 `services`，
+    所以真实计划走到这里必须回查计划里的 override 动作，否则差异清单全是"未判定"，
+    观测层等于白写。
+    """
+    sources: list[dict[str, Any]] = []
+    task = (context_payload or {}).get("task")
+    if isinstance(task, dict):
+        for item in (task.get("execution_plan") or {}).get("actions") or []:
+            if isinstance(item, dict) and str(item.get("type") or "") == "compose.override":
+                sources.append(item)
+    # 动作自己的 params 最后覆盖计划里的 override：显式 > 推导。
+    sources.append(action)
+    mapping: dict[str, str] = {}
+    for source in sources:
+        for item in (source.get("params") or {}).get("images") or []:
+            if isinstance(item, dict):
+                service = str(item.get("service") or "")
+                image = str(item.get("image") or "")
+                if service and image:
+                    mapping[service] = image
+    return mapping
+
+
 def compose_apply(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:
+    """按计划重建服务（US-26 根治的三层防护，impl-spec §W4）。
+
+    1. **前置断言**：服务列表含 `upgrade-runner` → 剔除并记 warning。编译器本就排除
+       （`apply_services = [s for s in services if s != "upgrade-runner"]`），这里是防回归：
+       计划可以被手改、被旧 manifest 带上、或者被将来的代码路径绕过。
+    2. **观测**：apply 前逐服务比对「运行容器镜像引用」与「计划期望镜像」，输出
+       `将重建 / 未变更 / 未判定` 三段差异清单；apply 后再观测一次容器 ID，把**实际**
+       重建结果也记下来（收敛证据）。
+    3. **apply 后断言**：`upgrade-runner` 容器 ID 必须与 apply 前一致——它不该在这次
+       apply 的作用域内，出现变化就是"执行者被自己动了"，宁可判失败也不静默降级。
+    """
     context = _context(context_payload)
     override = context.compose_runtime_path / f"docker-compose.{context.task_id}.yml"
-    services = [str(item) for item in action.get("params", {}).get("services") or []]
+    requested = [str(item) for item in action.get("params", {}).get("services") or []]
+
+    # ── 第 1 层：前置断言 ────────────────────────────────────────────────
+    forbidden = sorted({item for item in requested if item in APPLY_FORBIDDEN_SERVICES})
+    services = [item for item in requested if item not in APPLY_FORBIDDEN_SERVICES]
+    if forbidden:
+        logging.getLogger(__name__).warning(
+            "compose.apply 剔除禁止触碰的服务 %s：执行这次 apply 的就是 upgrade-runner 本身，"
+            "把它放进作用域等于让执行者重建自己（US-26：升级后 runner 被静默降级）",
+            "、".join(forbidden),
+        )
+
+    # ── 第 2 层：观测 ────────────────────────────────────────────────────
+    expected_images = _expected_image_map(action, context_payload)
+    before_facts = {
+        service: _service_container_facts(context.executor, context.compose_project, service)
+        for service in services
+    }
+    runner_before = _service_container_facts(context.executor, context.compose_project, "upgrade-runner")
+    will_rebuild: list[str] = []
+    unchanged: list[str] = []
+    unknown: list[str] = []
+    for service in services:
+        facts = before_facts.get(service) or {}
+        expected = expected_images.get(service)
+        if not facts or not expected:
+            unknown.append(service)
+            continue
+        if _image_matches(str(facts.get("image_ref") or ""), expected):
+            unchanged.append(service)
+        else:
+            will_rebuild.append(service)
+    diff_summary = (
+        f"compose.apply 差异清单："
+        f"将重建=[{'、'.join(will_rebuild) or '无'}]；"
+        f"未变更=[{'、'.join(unchanged) or '无'}]；"
+        f"未判定=[{'、'.join(unknown) or '无'}]"
+        f"（upgrade-runner 不在作用域：{'是' if 'upgrade-runner' not in requested else '否'}）"
+    )
+    logging.getLogger(__name__).warning(diff_summary)
+
     command = [
         "docker",
         "compose",
@@ -1422,7 +1571,62 @@ def compose_apply(action: dict[str, Any], context_payload: dict[str, Any]) -> di
     ]
     context.executor.run(command, cwd=context.project_path)
     connected_networks = _connect_current_runner_to_project_networks(context, services)
-    return {"services": services, "connected_networks": connected_networks, "checkpoint": {"submitted": True, "connected_networks": connected_networks}}
+
+    # 实际结果：容器 ID 变没变。这是"收敛"的落地证据——compose 自己按 config-hash
+    # 决定要不要重建，我们只观测并在事后留痕，不参与判定（best-effort，失败不阻塞）。
+    after_facts = {
+        service: _service_container_facts(context.executor, context.compose_project, service)
+        for service in services
+    }
+    actually_rebuilt = [
+        service
+        for service in services
+        if (before_facts.get(service) or {}).get("container_id")
+        and (after_facts.get(service) or {}).get("container_id")
+        != (before_facts.get(service) or {}).get("container_id")
+    ]
+    actual_summary = (
+        f"compose.apply 实际结果：重建=[{'、'.join(actually_rebuilt) or '无'}]；"
+        f"未重建=[{'、'.join([s for s in services if s not in actually_rebuilt]) or '无'}]"
+    )
+    logging.getLogger(__name__).warning(actual_summary)
+
+    # ── 第 3 层：apply 后断言 ────────────────────────────────────────────
+    runner_after = _service_container_facts(context.executor, context.compose_project, "upgrade-runner")
+    runner_id_before = (runner_before or {}).get("container_id", "")
+    runner_id_after = (runner_after or {}).get("container_id", "")
+    runner_preserved = bool(runner_id_before) and runner_id_before == runner_id_after
+    result = {
+        "services": services,
+        "rejected_services": forbidden,
+        "connected_networks": connected_networks,
+        "diff": {
+            "will_rebuild": will_rebuild,
+            "unchanged": unchanged,
+            "unknown": unknown,
+            "actually_rebuilt": actually_rebuilt,
+            "summary": diff_summary,
+            "actual_summary": actual_summary,
+        },
+        "upgrade_runner_container_id_before": runner_id_before,
+        "upgrade_runner_container_id_after": runner_id_after,
+        "checkpoint": {
+            "submitted": True,
+            "connected_networks": connected_networks,
+            "diff_summary": diff_summary,
+            "actual_summary": actual_summary,
+            "upgrade_runner_preserved": runner_preserved,
+        },
+    }
+    if runner_id_before and not runner_preserved:
+        # 宁可失败也不静默降级：runner 容器在这次 apply 里被换掉了，
+        # 说明有代码路径把执行者纳入作用域（US-26 的形态）。
+        raise RuntimeError(
+            f"compose.apply 之后 upgrade-runner 容器发生变化（{runner_id_before[:12]} -> "
+            f"{runner_id_after[:12] or '不存在'}）：执行者在自己的升级作用域内被重建。"
+            f"已提交的差异清单：{diff_summary}"
+        )
+    return result
 
 
 def _current_runner_mounts(context: ActionContext) -> list[dict[str, Any]]:

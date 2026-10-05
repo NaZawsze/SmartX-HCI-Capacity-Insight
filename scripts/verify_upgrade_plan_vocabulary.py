@@ -249,6 +249,71 @@ def compiler_diff(published_tag: str) -> dict[str, Any]:
     return {"available": True, "changed": bool(diff.strip()), "lines": len(diff.splitlines())}
 
 
+# ── 第 4 步：--force-recreate 禁令（W4 追加） ────────────────────────────────
+#: 允许出现 `--force-recreate` 的宿主函数/常量。其余任何位置出现即 FAIL。
+#:
+#: 白名单只收三条语义上**必须**强制重建的路径：
+#: ① runner 自换 handoff：换的是"执行者自己"，diff 收敛对它没有意义；
+#: ② cutover 辅助容器脚本：project/network 切换期的临时容器；
+#: ③ rollback：回到备份配置必须无条件重建，否则回滚"看起来成功但没生效"。
+FORCE_RECREATE_ALLOWED = frozenset(
+    {
+        "runner_handoff_target_runtime",
+        "component_schedule_self_handoff",  # 委托给 handoff
+        "runner_schedule_target_runtime_handoff",
+        "RUNNER_CUTOVER_HELPER_SCRIPT",  # 模块级字符串常量
+        "rollback_restore",
+    }
+)
+
+RUNNER_ACTIONS_SOURCE = "backend/app/upgrade_runner/actions.py"
+
+
+def check_force_recreate_ban() -> dict[str, Any]:
+    """静态扫描 runner 源码：`--force-recreate` 只能出现在 FORCE_RECREATE_ALLOWED 里。
+
+    为什么是硬门禁而不是约定：US-26 的形态就是「无差别 `--force-recreate` 把未变更的
+    upgrade-runner 重建掉」，而 W4 的修法正是让 `compose.apply` 收敛到 diff。禁令一解除，
+    收敛层会被静默绕过且没有任何报错。
+    """
+    source_path = ROOT / RUNNER_ACTIONS_SOURCE
+    try:
+        source = source_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return {"status": "FAIL", "detail": f"无法读取 {RUNNER_ACTIONS_SOURCE}：{exc}"}
+
+    offenders: list[str] = []
+    hits = 0
+    current = "<module>"
+    for number, line in enumerate(source.splitlines(), start=1):
+        stripped = line.strip()
+        match = re.match(r"def ([A-Za-z_][A-Za-z0-9_]*)\(", stripped)
+        if match:
+            current = match.group(1)
+        elif stripped.startswith("RUNNER_CUTOVER_HELPER_SCRIPT"):
+            current = "RUNNER_CUTOVER_HELPER_SCRIPT"
+        if "--force-recreate" not in stripped:
+            continue
+        hits += 1
+        if current not in FORCE_RECREATE_ALLOWED:
+            offenders.append(f"line {number} in {current}")
+    if offenders:
+        return {
+            "status": "FAIL",
+            "detail": (
+                f"--force-recreate 出现在未授权路径：{'；'.join(offenders)}"
+                f"（全仓共 {hits} 处，允许集合：{'、'.join(sorted(FORCE_RECREATE_ALLOWED))}）"
+            ),
+        }
+    return {
+        "status": "PASS",
+        "detail": (
+            f"--force-recreate 共 {hits} 处，全部落在允许路径："
+            f"{'、'.join(sorted(FORCE_RECREATE_ALLOWED))}"
+        ),
+    }
+
+
 # ── 门禁主体 ──────────────────────────────────────────────────────────────
 def verify(
     *,
@@ -348,6 +413,10 @@ def verify(
     else:
         record("compiler_changed", "PASS", f"编译器相对 {published_tag} 无变更")
 
+    # ④ --force-recreate 禁令（W4 追加到 W7 的 grep 门禁，impl-spec §W4）
+    force = check_force_recreate_ban()
+    record("force_recreate_ban", force["status"], force["detail"])
+
     failures = [item["id"] for item in checks if item["status"] == "FAIL"]
     warnings = [item["id"] for item in checks if item["status"] == "WARN"]
     return {
@@ -377,7 +446,13 @@ def _format(result: dict[str, Any]) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Verify the candidate platform package's upgrade plan vocabulary.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Verify the candidate platform package's upgrade plan vocabulary: "
+            "计划动作必须落在已发布 runner 能力内、manifest.schema_version 与已发布线一致、"
+            "编译器相对已发布 tag 的变更提示，以及 runner 源码的 --force-recreate 禁令（W4）。"
+        )
+    )
     parser.add_argument("platform_package", type=Path, help="候选平台包（.tar.gz）")
     parser.add_argument("--runner-package", type=Path, required=True, help="已发布 runner 组件包（Release 资产）")
     parser.add_argument("--released-platform-package", type=Path, help="已发布平台包（用于取 schema_version 基准）")
