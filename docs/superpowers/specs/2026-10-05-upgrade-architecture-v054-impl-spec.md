@@ -189,9 +189,13 @@ restarts 计数符合预期（旧容器被 replace，新容器 restarts=0）。
 ### 场景 A：失败自动回滚（runner 侧策略，零新动作）
 - runner 执行平台升级任务时，在**首次 compose.apply 之前**捕获回滚锚点（三件套当前 image tag + 镜像 ID），
   存 checkpoint（现有 `checkpoint.write`）+ 状态文件。
-- 触发：任务步骤失败且 `step.key ∈ {compose.apply, health.http, health.prometheus, post_upgrade.*}`；
-  开关 = `task.manifest.rollback_on_failure`（**缺省 false**——老 manifest 不受影响；v0.5.4 起平台包 manifest 显式 true）；
-  仅对平台组件任务生效（组件任务有自己的锚点回滚，见 W3）。
+- 触发（2026-10-06 修订，实施发现的规格修正——已核实 v0.5.3 引擎 f07e581:154 起 health.* 失败本就
+  自动回滚，故「缺省 false」一刀切会让老 manifest 丢掉既有回滚能力，属行为回退）：
+  **刻意不对称**——①`health.*` 失败**无条件回滚**（保留 v0.5.3 既有行为，不受开关影响）；
+  ②`compose.apply` / `post_upgrade.*` 失败需 manifest 显式 `rollback_on_failure: true` **且**锚点已捕获
+  （新触发面 opt-in，老 manifest 行为不变）；仅对平台组件任务生效（组件任务有自己的锚点回滚，见 W3）。
+  另：自动回滚的机制从旧 `rollback.restore`（整库恢复 = 场景 C 语义，会吞采集数据）改为**锚点驱动的
+  应用回滚**（只指回三件套旧 tag，数据不动）——旧动作保留为无锚点时的兜底路径。
 - 动作序列（runner 内部子流程，复用现有动作实现函数，不进计划词汇）：`compose.override`（旧 tag）→
   `compose.apply` → `health.*` → 终态 `rolled_back`（失败证据完整保留）；回滚失败 = `rollback_failed` → 现有 recovery。
 - **修复 v1 的首升局限**：v0.5.3 编译的任务 payload 内含完整 manifest → v0.3.2 runner 照样能读到
