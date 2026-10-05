@@ -3,7 +3,7 @@
 - 日期：2026-10-05
 - 关联：`docs/upgrade-strategy-issues.md` §C2（三类结构性根因）、`docs/upgrade-architecture-options.md`（五方案调研）、
   pending-tasks #62（结构性改造立项）、#83（US-39）、#53（runner 交付）
-- 状态：设计定稿，待实施
+- 状态：**已被 v2 取代（2026-10-05 用户决策：不做局部优化，直接按业界三层形态重构）**——见 [2026-10-05-upgrade-architecture-v054-design-v2.md](2026-10-05-upgrade-architecture-v054-design-v2.md)。本文的 §1 问题清单与 §5 回滚三场景、§3.1 状态文件、§3.3 兼容性被 v2 继承，其余作历史记录。
 - 交付物：**runner v0.3.2（一次性收编全部 runner 侧整改）+ 平台 v0.5.4**，同批发版火车（平台先升、组件随后，铁律不变）
 
 ---
