@@ -2255,3 +2255,20 @@ v0.3.2 → v0.3.3 才能动。**这个判断是错的**——那条规矩的目�
 **`main()` 首轮异常后仍进入下一轮**（用 `KeyboardInterrupt` 跳出循环，
 断言至少跑了 3 轮——若进程被异常带走则只有 1 轮）。
 **变异测试**：把 `main()` 还原成无兜底的 `while` 循环后，核心断言失败。
+
+
+## Phase 68 - 升级架构结构性整改（runner v0.3.2 + v0.5.4）
+
+来源：2026-10-05 用户拍板「开始写新的升级架构设计，runner v0.3.2 + v0.5.4」，承接 §C2 三类结构性根因与
+`upgrade-architecture-options.md` 方案 A+C 的落地。v0.5.3 已发布（2026-10-05，runner 基线 v0.3.1 不随发）。
+
+**目标**：①runner 执行期零业务 SQLite 写（US-28/#82 根治）；②平台升级 diff 收敛、未变更服务容器 ID 不变
+（US-26 根治，固定回归用例）；③回滚三失败点实测（US-17 关闭）；④打包门禁「计划 ⊆ 已发布 runner 能力」；
+⑤US-39 守卫投递 + 两步引导。
+
+**设计**：docs/superpowers/specs/2026-10-05-upgrade-architecture-v054-design.md。
+**计划**：docs/superpowers/plans/2026-10-05-upgrade-architecture-v054-plan.md（批次 A runner / B 平台 / C 验收发版）。
+
+**验收标准**：批次 C 全绿——C1 直升后未变更服务容器 ID 不变、C2 组件升级兼容格通过、C3 三失败点回滚成功、
+C4 `.12` 老链路回归、C5 打包门禁全过。设计回滚：runner/platform 改动 `git revert` + 重打包；
+状态文件损坏自愈（设计 §11）。

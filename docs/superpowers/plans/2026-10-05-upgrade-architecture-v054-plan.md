@@ -1,0 +1,32 @@
+# 实施计划：升级架构结构性整改（runner v0.3.2 + v0.5.4）
+
+- 设计：[2026-10-05-upgrade-architecture-v054-design.md](../specs/2026-10-05-upgrade-architecture-v054-design.md)
+- 状态：待实施（按批次推进，每批完成即勾选并补证据）
+
+## 批次 A：runner v0.3.2（先做，能力领先）
+
+- [ ] A1 状态文件 `upgrade-runner-state.json`：原子写/自愈/内容结构（设计 §3.1，T1）
+- [ ] A2 lease/heartbeat 迁移到状态文件；DB 心跳降级为 best-effort 兼容镜像（失败不 crash 不阻塞，#82 兜底语义保留）
+- [ ] A3 runner 停止写 `tasks` 表（删 `_project_task` 路径）；task.json 执行期单写者
+- [ ] A4 `compose.apply` diff 收敛 + 差异清单日志 + upgrade-runner 触碰守卫（设计 §4，T3/T4）
+- [ ] A5 `rollback.restore` 固化：旧镜像 override + 健康门 + 业务计数守卫（设计 §5）
+- [ ] A6 project_files 阶段投递 compose-guard.sh + 回填 `.env` 标记（US-39，runner 侧）
+- [ ] A7 runner 单元测试补齐（T1/T2/T4）+ `.3` 全量回基线
+
+## 批次 B：平台 v0.5.4
+
+- [ ] B1 presence 读文件优先、DB 兜底（覆盖 v0.5.4+v0.3.1 组合）
+- [ ] B2 web-api 从 task.json 投影 tasks 表（监督/状态轮询路径）
+- [ ] B3 预检查 `runner_actions` 失败带 `remediation`；前端升级中心两步引导（T9）
+- [ ] B4 迁移 expand-only 门禁（registry 断言，T6）
+- [ ] B5 `scripts/verify_upgrade_plan_runner_compatibility.py` + 接入 `ops/package.sh`（T7）
+- [ ] B6 偏斜矩阵写入 upgrade-chain.md
+- [ ] B7 `.3` 全量 + 前端门禁
+
+## 批次 C：验收与发版火车
+
+- [ ] C1 `.14` 全新安装 + v0.5.3→v0.5.4 直升（T3 回归判据：runner/prometheus 容器 ID 不变）
+- [ ] C2 组件升级：v0.3.1→v0.3.2（兼容矩阵「v0.5.3+v0.3.2」格）
+- [ ] C3 回滚三失败点演练（T5，US-17 关闭）
+- [ ] C4 `.12` 老链路回归（v0.5.2 源 × v0.3.1）
+- [ ] C5 r18 打包 + 全门禁（含新门禁脚本）→ ledger 登记 → 发布等用户指令
