@@ -50,14 +50,30 @@ ROLLBACK_STEP_DEFS = (
 )
 
 
+def _is_rollback_chain_anchor(payload: dict[str, Any]) -> bool:
+    """该锚点是否可作为「回滚到上一版本」的事实源。
+
+    两类锚点**留档但不进回滚链**（取证/备份事实都还在 task.json 与 backups 里）：
+    1. `captured_for == "manual_rollback"`——场景 B 回滚任务出发时捕获的「当时还是新版本」，
+       只服务该任务自身的失败自动回滚；
+    2. **自指锚点**（`previous_version == target_version`）——同版本重装/升级（如 r22 升 r23）
+       没有发生版本迁移，「上一版」就是当前版。2026-10-07 `.12` 实测：若不跳过，
+       同版本升级会把真正有意义的 N-1 锚点（v0.5.3→v0.5.4）遮蔽掉，
+       可回滚性判定从此永远 false——回滚能力被一次无关的同版本升级静默清零。
+    """
+    if str(payload.get("captured_for") or "") == "manual_rollback":
+        return False
+    previous = str(payload.get("previous_version") or "")
+    target = str(payload.get("target_version") or "")
+    if previous and target and previous == target:
+        return False
+    return True
+
+
 def latest_rollback_anchor(settings: Any) -> dict[str, Any] | None:
     """最近一次平台回滚锚点（状态文件持久段优先，task.json 兜底）。
 
-    跳过 `captured_for == "manual_rollback"` 的锚点：那是场景 B 回滚任务出发时
-    捕获的「当时还是新版本」的状态，只服务该任务自身的失败自动回滚。若让它
-    进入判定，回滚完成后 available 会重新变 true、target 指向**新版本**——
-    把「指回新版本」包装成「回滚到上一版本」（impl-spec §W5-场景B 决议）。
-    跳过不是丢弃：真正的回滚事实源始终是**上一次真实平台升级**捕获的锚点。
+    只取**可进回滚链**的锚点（`_is_rollback_chain_anchor`），取 `captured_at` 最新者。
     """
     state = read_state_file(settings)
     anchors = state.get("rollback_anchors") if isinstance(state, dict) else None
@@ -67,7 +83,7 @@ def latest_rollback_anchor(settings: Any) -> dict[str, Any] | None:
             for task_id, payload in anchors.items()
             if isinstance(payload, dict)
             and payload.get("kind") == "platform"
-            and payload.get("captured_for") != "manual_rollback"
+            and _is_rollback_chain_anchor(payload)
         ]
         if candidates:
             task_id, payload = max(
@@ -87,7 +103,7 @@ def latest_rollback_anchor(settings: Any) -> dict[str, Any] | None:
         if (
             not isinstance(anchor, dict)
             or anchor.get("kind") != "platform"
-            or anchor.get("captured_for") == "manual_rollback"
+            or not _is_rollback_chain_anchor(anchor)
         ):
             continue
         if best is None or str(anchor.get("captured_at") or "") > str(best.get("captured_at") or ""):

@@ -191,6 +191,34 @@ class AnchorSourceTests(unittest.TestCase):
             )
             self.assertIsNone(latest_rollback_anchor(settings))
 
+    def test_same_version_anchor_does_not_shadow_n_minus_one(self) -> None:
+        """`.12` 2026-10-07 实测发现：同版本升级（r22→r23）捕获 v0.5.4→v0.5.4 自指锚点，
+        会把真正有意义的 v0.5.3→v0.5.4 锚点遮蔽掉——可回滚性被一次无关的同版本升级
+        静默清零。自指锚点留档但不进回滚链。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = V2Settings(data_root=root, secret_key="anchor")
+            same_version_anchor = {
+                **ANCHOR,
+                "previous_version": "v0.5.4",
+                "target_version": "v0.5.4",
+                "captured_at": "2026-10-07T04:30:00+00:00",
+            }
+            # 状态文件里自指锚点最新，真实 N-1 锚点更旧
+            _write_state_file(settings, {"upgrade-same-version": same_version_anchor, "upgrade-1": ANCHOR})
+            anchor = latest_rollback_anchor(settings)
+        self.assertEqual(anchor["anchor_task_id"], "upgrade-1")
+        self.assertEqual(anchor["previous_version"], "v0.5.3")
+
+    def test_only_same_version_anchor_returns_none(self) -> None:
+        """只有自指锚点（从未发生过跨版本升级）→ 无可回滚目标。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = V2Settings(data_root=root, secret_key="anchor")
+            same_version_anchor = {**ANCHOR, "previous_version": "v0.5.4", "target_version": "v0.5.4"}
+            _write_state_file(settings, {"upgrade-same-version": same_version_anchor})
+            self.assertIsNone(latest_rollback_anchor(settings))
+
     def test_third_copy_is_not_created(self) -> None:
         """架构纪律：不写 app/rollback-anchor.json——锚点只有 task.json 与状态文件两处。"""
         source = (ROOT / "app" / "v2" / "upgrade" / "service" / "manual_rollback.py").read_text(encoding="utf-8")
