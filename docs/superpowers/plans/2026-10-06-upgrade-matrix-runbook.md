@@ -23,8 +23,8 @@
 
 | 项 | 值 |
 | --- | --- |
-| **r20 平台包** | `.3:/data/r20-out/latest/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `b3548dfa9abfbaa32163600a4f122a24a924f3a151fae3301a2f7d7b6fd37167` |
-| **r20 runner 组件包** | `.3:/data/r20-out/latest/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `05d8e015368928d93d41d8ba6881de5153e048578791c6653395e2df95fbaf47` |
+| **r21 平台包** | `.3:/data/r21-out/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `074a49374605ecbd41aebc6b1140e62b37f115af4de0a7ba4bec46a86a976012` |
+| **r21 runner 组件包** | `.3:/data/r21-out/smartx-upgrade-runner-v0.3.2.tar.gz`（**逐字节继承 r20**）<br>SHA256 `05d8e015368928d93d41d8ba6881de5153e048578791c6653395e2df95fbaf47` |
 | 取包方式 | 两者都**含镜像归档**，目标机只需 `docker load`（`.14` 的 Docker Hub 被 DNS sinkhole，不能靠拉取） |
 | 取 token | `POST /api/admin/upgrade/login` 不存在；用 `POST /api/auth/login`，body `{"username":"admin","password":"<安装时的管理员密码>"}`，返回 `access_token` |
 
@@ -49,8 +49,8 @@
 
 ```bash
 # 0) 取包（.3 → .14）
-scp .3:/data/r20-out/latest/smartx-capacity-insight-upgrade-v0.5.4.tar.gz root@10.20.11.14:/root/
-sha256sum /root/smartx-capacity-insight-upgrade-v0.5.4.tar.gz    # 必须 = b3548dfa…
+scp .3:/data/r21-out/smartx-capacity-insight-upgrade-v0.5.4.tar.gz root@10.20.11.14:/root/
+sha256sum /root/smartx-capacity-insight-upgrade-v0.5.4.tar.gz    # 必须 = 074a4937…
 
 # 1) 上传 → 2) 预检查 → 3) 启动（token 取自 /api/auth/login）
 curl -s -X POST http://127.0.0.1:8000/api/admin/upgrade/upload -H "Authorization: Bearer $TOKEN" \
@@ -100,7 +100,7 @@ curl -s http://127.0.0.1:8000/api/system/health
 ### 操作
 
 ```bash
-scp .3:/data/r20-out/latest/smartx-upgrade-runner-v0.3.2.tar.gz root@10.20.11.12:/root/   # sha 05d8e015…
+scp .3:/data/r21-out/smartx-upgrade-runner-v0.3.2.tar.gz root@10.20.11.12:/root/   # sha 05d8e015…
 curl -s -X POST http://127.0.0.1:8000/api/admin/component-upgrade/upload -H "Authorization: Bearer $TOKEN" \
      -F "file=@/root/smartx-upgrade-runner-v0.3.2.tar.gz"
 curl -s -X POST http://127.0.0.1:8000/api/admin/component-upgrade/precheck/$TASK -H "Authorization: Bearer $TOKEN"

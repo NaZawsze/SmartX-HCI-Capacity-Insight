@@ -515,6 +515,54 @@ compose_command docker compose -p smartx-capacity-insight -f /data/smartx-storag
 
 规则/工具：容器运行期禁止 rm/mv 这些目录；衰减后用全服务 `docker compose up -d --force-recreate` 恢复（不带服务参数），并以容器内 `/proc/mounts`（而非 docker inspect）验证。体检/恢复工具：`scripts/bind-mount-recover.sh`（check/recover）。详细证据见 `findings.md` UPG-050 定案节。
 
+## UPG-051 平台升级重建 prometheus 容器：compose config-hash 是**版本相关**的算法
+
+状态：已修复（2026-10-06，r21 平台包 `074a4937…`；`.14` C1''真机验证 T3 通过；runner 组件包未变）
+
+现象：`.14` 从 v0.5.3 升 v0.5.4 后，`prometheus` 容器被重建（`4e169cc6ea5b → f9e5bcc83762`），
+`compose.apply` 的 runner 日志有 `prometheus-1 Recreate/Recreated/Starting/Started`；T3 判据不过。
+`upgrade-runner` 未被动，三件套正常更换，版本到位、数据无损。
+
+根因：`docker compose up` 依容器上的 `com.docker.compose.config-hash` 与"用当前 compose 文件现算的值"
+比对决定是否重建，而 **config-hash 的算法随 compose 版本而变**——容器**永久携带创建它的那个版本**算出的值，
+升级时执行 `compose.apply` 的却是 **runner 镜像内置的那份 compose**。实测 `.12`/`.14` 宿主
+compose **v5.1.4**、runner 容器内 **v2.26.1-4**：同一份 compose，宿主算出 prometheus=`8f7c1228…`、
+runner 内算出 `23ec2d01…`。`.12`（从未升 v0.5.4）容器存量正是 `23ec2d01…`（`created_by_compose=2.26.1`），
+与 runner 内一致，故它不受影响；`.14` 这批容器由宿主 v5.1.4 创建，存量 `8f7c1228…` ≠ runner 内的
+`23ec2d01…` → 必然重建。**与 v0.5.4 本身无关**：prometheus 服务段升级前后 0 行差异、包内不含prometheus 镜像、
+`compose.override` 也不为它写段；且两轮 `compose.apply.services` 完全相同
+（`['collector-worker','frontend','prometheus','web-api']`，task.json 逐字比对）。
+
+修复：**不追求"让 hash 匹配"**（跨 compose 版本永不可依赖，客户现场版本不可控），改为
+**让 apply 集合只含本次真正变化的服务**——包装侧 `components[].services` 剔除 prometheus
+（`scripts/build_upgrade_package.py`的 `APPLY_EXCLUDED_SERVICES`）。健康门不受影响：平台包从来没有
+`health.prometheus` 动作（需 `observability` 组件才生成），健康门是 `health.http` →
+`/api/system/health`，其 `checks.prometheus` 会真探活。词汇冻结门禁新增硬断言
+`apply_services_scope`（3 个源格 `compose.apply.services` 必须 == `['collector-worker','frontend','web-api']`
+且动作数仍为 8），谁把 prometheus 放回去门禁就红。
+
+验证：`.14` 干净基线（全新装 v0.5.3，5 容器均由宿主 v5.1.4 创建）→ 升 r21 →
+任务 `upgrade-390655228052b596` succeeded；**三条独立证据**确认 prometheus 未被重建：
+容器 ID 未变、`created` 仍是安装时刻、存量 hash 与 `by_compose=5.1.4` 均未被重写。
+判定表 17 ✅ / 4 ℹ️（不适用，有据）/ 0 ❌ / 0 ⚠️。**该结论不依赖 runner ≥ v0.3.2**。
+已发布 v0.5.2 / v0.5.3 镜像内编译器 × 候选编译器 × 三源格共 9 组输出全对齐。
+
+## UPG-052 compose 标签里的路径是**执行者命名空间**路径，勿按宿主视角解读
+
+状态：已澄清（2026-10-06，非缺陷；记录以防未来误读）
+
+现象：升级后容器的 `com.docker.compose.project.config_files` 标签形如
+`/data/smartx-storage-forecast/project/docker-compose.offline.yml,/data/compose-runtime/docker-compose.upgrade-<id>.yml`，
+而宿主上 `/data/compose-runtime/` **不存在**（真实目录是 `/data/smartx-storage-forecast/compose-runtime/`）。
+
+澄清：`compose.apply` 由 runner 容器执行，其 compose 里 `/data/compose-runtime` 是**真实目录的 bind 挂载**
+（v0.5.3 compose 挂载清单：`compose-runtime → /data/compose-runtime`），所以 `-f` 指向的文件在
+**执行者命名空间内**存在、读取成功；docker 只是把 `-f` 字符串原样记进标签。宿主视角看不到该路径属正常，
+**不是路径错误、与 UPG-051 不同源**。
+
+排查提示：读这类标签判断"用了哪份 compose"时，必须先分清是谁写的；若要核对文件真实落点，
+以 `findings.md` / ledger 里登记的目标布局路径（`/data/smartx-storage-forecast/compose-runtime`）为准。
+
 ## v2 升级中心规避策略
 
 v2 不继续兼容旧升级路径，而是在 `dev2` 上重新设计升级中心。历史问题在 v2 中按下面方式规避。

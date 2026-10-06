@@ -658,11 +658,18 @@ Current execution rule: Python, dependencies, tests, builds and full-chain valid
 `.14` 全新安装 + v0.5.3→v0.5.4 直升（T3）、`.12` 组件升级 v0.3.1→v0.3.2、场景 B/C 真机手动回滚、
 `.12` 老链路回归、离线交付目录（本次 `--skip-offline`，用户口径：不作为阻断项）。
 
-## 2026-10-06 v0.5.4 平台包 r20（**当前唯一有效候选**；修掉回滚端点 500，未发布）
+## 2026-10-06 v0.5.4 平台包 r20（修掉回滚端点 500）—— **⚠️ 平台包 SUPERSEDED by r21，勿用**
+
+> **作废原因**：`.14` C1' 真机实测发现 **prometheus 在升级中被重建**（T3 判据不过）。根因是
+> `compose.config-hash` 的算法随 **compose 版本**而变、容器永久携带创建者版本的值，而 apply
+> 用的是 **runner 镜像内置的 compose**（实测宿主 v5.1.4 vs runner 内 v2.26.1-4）。
+> r20 平台包的 `compose.apply.services` 含 prometheus → 跨版本 hash 必然不匹配 → 被重建。
+> 取代者：**r21**（裁掉 prometheus）。详见 [upgrade-issues](upgrade-issues.md) UPG-051。
+> **注意**：r20 的 **runner 组件包 `05d8e015…` 仍然有效**，并被 r21 **逐字节继承**。
 
 | 项 | 值 |
 | --- | --- |
-| Status | **CANDIDATE**（当前唯一有效候选；矩阵未完成、用户未下令前不得发布） |
+| Status | **SUPERSEDED（平台包）**；runner 包 `05d8e015…` 仍有效并被 r21 继承 |
 | 构建 | `.3:/data/r20-src`（`git clone` 自 `git bundle`，**含全部 18 个 tag 与完整历史**，HEAD `dcbbb22`），`TMPDIR=/data/build-tmp bash ops/package.sh --branch dev2 --no-fetch --skip-offline --yes --output-dir /data/r20-out` |
 | 平台包 | `.3:/data/r20-out/latest/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `b3548dfa9abfbaa32163600a4f122a24a924f3a151fae3301a2f7d7b6fd37167` |
 | runner 组件包 | `.3:/data/r20-out/latest/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `05d8e015368928d93d41d8ba6881de5153e048578791c6653395e2df95fbaf47` |
@@ -703,3 +710,67 @@ Current execution rule: Python, dependencies, tests, builds and full-chain valid
 C1'（`.14` 重装 v0.5.3 后用 r20 重跑直升）、C2/C4（`.12`，r20 的 runner 包）、
 C3 场景 B/C、`.14` 组件升级与同版本重装产锚点、C0（v0.5.2 源格 + 数据完整性）、
 离线交付目录（本次 `--skip-offline`；`.3:/data/delivery-v052`、`v053` 已就绪，`v054` 待用 r20 重打）。
+
+## 2026-10-06 v0.5.4 平台包 **r21**（**当前唯一有效候选**；修掉 prometheus 被重建，未发布）
+
+| 项 | 值 |
+| --- | --- |
+| Status | **CANDIDATE**（当前唯一有效候选；矩阵未完成、用户未下令前不得发布） |
+| 平台包 | `.3:/data/r21-out/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `074a49374605ecbd41aebc6b1140e62b37f115af4de0a7ba4bec46a86a976012` |
+| runner 组件包 | `.3:/data/r21-out/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `05d8e015368928d93d41d8ba6881de5153e048578791c6653395e2df95fbaf47`<br>**逐字节继承 r20**（已校验一致；本次变更只动平台包，不进 runner 镜像，避免无谓指纹变化） |
+| 源码溯源 | 平台包内容 = dev2 HEAD，含 `542906e`（A5 apply 触发回滚健康门修复）、`acb8771`（presence 时间戳修复）、`dcbbb22`（**models.py 补 `List`** —— 修掉两个回滚可用性端点 500）、`09ee578`（**r21 裁剪**）、`2adc00a`（§14.2.10 硬规则） |
+| 构建树 | `.3:/data/r20-src`（`git clone` 自 `git bundle`，**含全部 18 个 tag 与完整历史**，HEAD `3ec024e`）；`TMPDIR=/data/build-tmp` |
+| 相对 r20 | **仅平台包重切**：包装侧 `components[].services` 剔除 prometheus（`APPLY_EXCLUDED_SERVICES`）。`restart_services` 保持全量；`upgrade-runner` 留在清单里（`compose.override` 靠它钉 tag，US-26 防线） |
+| runner 基线 | 平台包对 runner 的基线仍是**已发布 v0.3.1** |
+
+### manifest（真机核对过的形状）
+
+```
+components[0].services = ['web-api', 'collector-worker', 'frontend', 'upgrade-runner']
+restart_services        = ['web-api','collector-worker','frontend','prometheus','upgrade-runner']   ← 展示口径，保持全量
+images[].service        = ['web-api','collector-worker','frontend','upgrade-runner']
+source_compatibility    = ['v0.5.2','v0.5.3','v0.5.4']
+```
+
+### 门禁（全部 PASS，输出已贴）
+
+| 门禁 | 结果 |
+| --- | --- |
+| 平台包身份门禁 | PASS（基线 v0.3.1） |
+| runner 交付一致性 | **13 PASS 0 FAIL**（指纹 `9404e4ff…`、`actions.py` md5 `cd15b38a…`、**30 动作**——与 r20 完全一致） |
+| 迁移 expand-only | PASS |
+| 动作词汇冻结 | PASS：`plan_actions_subset`（并集 6 ⊆ 已发布 25）、`plan_actions_matrix`（每格 8 动作）、**`apply_services_scope` PASS**（3 源格 `compose.apply.services == ['collector-worker','frontend','web-api']`且动作数仍 8）、`compiler_changed` **PASS**（构建树带完整 tag）、`--force-recreate` 禁令 PASS |
+| 敏感文件扫描 | 0 命中 |
+| 独立复核 | 用户独立重跑四道门禁全PASS；两包 SHA 实测与本表一致；`models.py` line 5 `List` 导入在位；全量 **1091 tests / 0 失败** |
+
+### 三版编译器 × 三源格（9 组全对齐）
+
+已发布 **v0.5.2** 镜像内 / 已发布 **v0.5.3** 镜像内 / 候选 **v0.5.4** 编译器，对裁剪后 manifest 的每一源格输出均为：
+动作数 **8**、`compose.apply.services = ['collector-worker','frontend','web-api']`、`health=['health.http']`。
+（`health.prometheus` 平台包从来没有——需 `observability` 组件才生成；健康门是 `health.http` →
+`/api/system/health`，其 `checks.prometheus` 真探活。）
+
+### ★ T3 于 v0.3.1 执行者下通过（`.14` C1''，2026-10-06 22:07）
+
+任务 `upgrade-390655228052b596` `status=success`，8 动作全succeeded，预检查 9 项全 OK、无 remediation。
+起点为**全新安装的 v0.5.3**，5 个容器**全部由宿主 compose v5.1.4 创建**（含 prometheus，
+存量 hash `8f7c1228…`、`by_compose=5.1.4`）——与 C1' 触发条件完全相同，唯一变量是 r21 的裁剪。
+
+| T3 断言 | 实测 |
+| --- | --- |
+| prometheus 容器 ID | `90a0708e8917cbba…` = 安装时基准，**未变** |
+| prometheus `created` | `2026-10-06T14:02:03.959Z` = 安装时刻，**未被刷新** |
+| prometheus 存量 config-hash / `by_compose` | `8f7c12289fc6…` / `5.1.4`，**未被重写** |
+| upgrade-runner 容器 ID | `c439d65fc3ea…`，未变（runner 仍 v0.3.1，未被降级） |
+| task.json真机核对 | `compose.apply.services=['collector-worker','frontend','web-api']`；`compose.override.services` 含 `upgrade-runner`；动作序列 8 个不变 |
+| 两个回滚可用性端点 | HTTP **200** ✅（`available:false` + blocker「没有平台回滚锚点」= 正确行为，锚点需 v0.3.2 runner 执行过一次平台升级） |
+| 判定表 | **17 ✅ / 4 ℹ️（不适用，有据）/ 0 ❌ / 0 ⚠️** |
+
+**结论：T3 不再依赖 runner ≥ v0.3.2**——prometheus 压根不在 apply 集合里，与 compose 版本无关。
+
+### 未完成（不得当作已验证）
+
+`.12` C2（组件升级 v0.3.1→v0.3.2）→ C4（平台直升，**v0.3.2 runner 执行**，W4 diff 收敛 + A5 锚点真机证据）→
+C3 场景 B/C（**US-17 关闭前提，真机尚未跑过**）；C0（v0.5.2 源格 + 数据完整性）。
+`.14` 的「升级后真实数据采集」**未验证**（Tower 间歇不可达，未配置凭据；只验到调度器执行并回报
+`success`，`towers=0`）。离线交付目录未用 r21 重打（`--skip-offline`）。

@@ -4,14 +4,16 @@
 
 ## v0.5.4（候选，未发布）
 
-状态：**候选，未发布**。打包产物为 **r20**（平台包 `b3548dfa…`、runner 组件包 `05d8e015…`，见
+状态：**候选，未发布**。打包产物为 **r21**（平台包 `074a4937…`、runner 组件包 `05d8e015…`，见
 [upgrade-package-ledger.md](upgrade-package-ledger.md)）。**发布门槛：批次 C 矩阵未完成
 （C1–C4 + 兼容矩阵 M1–M7），且需用户明确指令**；未满足前不发布、不推 tag、不推 origin。
 
-> **发布包（尚未生成 Release 资产）**：**r20** 平台包 SHA256 `b3548dfa9abfbaa32163600a4f122a24a924f3a151fae3301a2f7d7b6fd37167`；
-> runner 组件包 `smartx-upgrade-runner-v0.3.2.tar.gz` SHA256 `05d8e015368928d93d41d8ba6881de5153e048578791c6653395e2df95fbaf47`。
-> （前两轮已作废：**r18** `ff4c0f6f…`/`6b0c1700…` 打在「apply 触发回滚健康门缺陷」修复之前；
-> **r19** `52df80b7…`/`f0c87265…` 含「回滚可用性端点 500」缺陷——`.14` C1 真机实测发现。）
+> **发布包（尚未生成 Release 资产）**：**r21** 平台包 SHA256 `074a49374605ecbd41aebc6b1140e62b37f115af4de0a7ba4bec46a86a976012`；
+> runner 组件包 `smartx-upgrade-runner-v0.3.2.tar.gz` SHA256 `05d8e015368928d93d41d8ba6881de5153e048578791c6653395e2df95fbaf47`
+> （**逐字节继承 r20**——本次变更只动平台包，不进 runner 镜像，避免无谓的指纹变化）。
+> （已作废：**r18** `ff4c0f6f…`/`6b0c1700…` 打在「apply 触发回滚健康门缺陷」修复之前；
+> **r19** `52df80b7…`/`f0c87265…` 含「回滚可用性端点 500」缺陷；
+> **r20 平台包** `b3548dfa…` 的 `compose.apply` 服务集合含 prometheus，会导致其被重建。）
 > 平台包对 runner 的基线仍是**已发布 v0.3.1**——v0.5.4 的计划动作集已实测 ⊆ v0.3.1 的 25 个动作，
 > 现场无需先升 runner 即可直升。**runner v0.3.2 本火车首次随平台交付**（此前只存在于开发线）。
 
@@ -79,9 +81,10 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
 | 项 | 状态 |
 | --- | --- |
 | `.3` 后端全量 / 前端门禁 | 1075 tests / 唯一失败为环境限制（镜像有 docker CLI 无 socket）；前端 `tsc` EXIT=0、`vitest` 114 tests |
-| r20 打包门禁 | 已过：身份 / runner 交付一致性（13 PASS，30 动作）/ 迁移 expand-only / 动作词汇冻结 / `--force-recreate` 禁令 / 敏感文件 0 |
+| r21 打包门禁 | 已过：身份 / runner 交付一致性（13 PASS，30 动作）/ 迁移 expand-only / 动作词汇冻结 / `--force-recreate` 禁令 / 敏感文件 0 |
 | 打包侧静态证据 | 已过：3 个源版本计划动作集并集 6 个 ⊆ 已发布 v0.3.1 的 25 个动作；**已发布 v0.5.2 / v0.5.3 镜像内编译器**对 v0.5.4 manifest 的输出与候选编译器一致 |
 | 沙箱回滚演练（`.3`） | 已过：health 失败 → `rolled_back`；apply 失败 → `rolled_back`；`image.load` 失败 → 干净失败且不回滚 |
+| **`.14` C1''** v0.5.3 → v0.5.4（r21，runner 执行者为**已发布 v0.3.1**） | ⏳ 待回填：任务 `upgrade-390655228052b596` succeeded，判定表 **17 ✅ / 4 ℹ️ / 0 ❌ / 0 ⚠️**；**T3 于 v0.3.1 执行者下通过**（prometheus 容器 ID/`created`/存量 config-hash 三条独立证据均未被重建）；两个回滚可用性端点 200。**本表其余格待矩阵完成后统一回填** |
 | **C1** `.14` 全新安装 + v0.5.3→v0.5.4 直升（T3） | ⏳ 待填（用户执行，`ops/evidence.sh c1 before/after`） |
 | **C2** `.12` 组件升级 v0.3.1→v0.3.2 | ⏳ 待填（用户执行，`ops/evidence.sh c2`） |
 | **C3** 场景 B / 场景 C 真机手动回滚 | ⏳ 待填（用户执行，`ops/evidence.sh c3`） |
@@ -91,6 +94,15 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
 
 ### 已知问题与未解决事项
 
+- **宿主 compose 与 runner 内置 compose 版本不同时，首次平台升级可能重建 `compose.apply`
+  集合内的服务**（含 prometheus）。根因是 `config-hash` 的算法随 compose 版本而变、容器永久携带
+  创建者版本的值，而 apply 用的是 runner 镜像内置的那份 compose（实测宿主 v5.1.4 vs runner 内 v2.26.1-4）。
+  **v0.5.4 已收敛**：平台包的 `compose.apply` 服务集合只含本次真正变化的**三件套**
+  （`['collector-worker','frontend','web-api']`），**prometheus 不在其中**——因此该行为与 compose 版本无关。
+  健康门不受影响（`health.http` → `checks.prometheus` 真探活；平台包从来没有 `health.prometheus` 动作）。
+  已由门禁 `apply_services_scope` 锁死。详见 [upgrade-issues](upgrade-issues.md) UPG-051。
+  *连带口径*：裁剪后预检查不再要求"本机已存在 prometheus 镜像"——语义自洽（apply 不再启动它），
+  但"先停掉 prometheus 再升级"这种非常规场景不再被预检查拦住。
 - **US-17 关闭待 C3**：回滚三场景的代码与沙箱演练已完成，**真机手动回滚（场景 B/C）未执行**，
   关闭前不得对外宣称"支持回滚"。
 - **支持矩阵收窄**：v0.5.4 只支持目标布局源（v0.5.2+）。`v0.5.0 / v0.5.1 / v0.5.1u1 / v0.5.1u2`
