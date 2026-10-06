@@ -453,6 +453,20 @@ class EvidenceScriptDisciplineTest(unittest.TestCase):
         self.assertNotIn("""grep -c '^present'""", text)
         self.assertIn("""awk '/^present/{n++} END{print n+0}'""", text)
 
+    def test_env_judgement_ignores_marker_keys(self) -> None:
+        """`.env` 判据必须比**非标记键指纹**，不能比整文件 sha。
+
+        2026-10-06 `.12` 阶段 8 定稿判据时暴露的内部冲突：US-37 标记回填**就是写 .env**
+        （A6 的设计），所以「.env sha256 不变」与「标记应被回填」在同一格里互斥，
+        照原口径跑必然误报 ❌。正确口径：排除两个标记键后取指纹判「逐字节不变」，
+        标记键新增单独如实说明。
+        """
+        text = self._text()
+        self.assertIn("non_marker_keys_sha256=", text)
+        self.assertIn("SMARTX_COMPOSE_FILE_ACTIVE|SMARTX_ENV_FILE_SHA256", text)
+        self.assertIn(".env 非标记键（应逐字节不变）", text)
+        self.assertIn("标记键 ${mb:-（无）} → ${ma}", text)
+
     def test_component_upgrade_cell_marks_apply_side_items_not_applicable(self) -> None:
         """组件升级格（C2）不跑 compose.apply，差异清单/锚点/标记回填不得判成缺陷。
 

@@ -189,6 +189,11 @@ collect_env() {
       "$(sed -n 's/^SMARTX_COMPOSE_FILE_ACTIVE=//p' "$env_file" 2>/dev/null | tail -n 1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' || true)" >> "$OUT/05-env.txt"
     printf 'env_sha_marker=%s\n' \
       "$(sed -n 's/^SMARTX_ENV_FILE_SHA256=//p' "$env_file" 2>/dev/null | tail -n 1 || true)" >> "$OUT/05-env.txt"
+    # ★「非标记键指纹」：US-37 标记回填会**写 .env**（这是设计如此），所以
+    # 「.env sha256 不变」不能作为通用判据——同一格里回填发生时它必然变化。
+    # 这里把两个标记键排除后取指纹，判据改为「非标记键必须逐字节不变」。
+    printf 'non_marker_keys_sha256=%s\n' \
+      "$(grep -vE '^(SMARTX_COMPOSE_FILE_ACTIVE|SMARTX_ENV_FILE_SHA256)=' "$env_file" 2>/dev/null | sha256sum | cut -d' ' -f1)" >> "$OUT/05-env.txt"
   else
     printf 'absent（%s 不存在）\n' "$env_file" >> "$OUT/05-env.txt"
   fi
@@ -478,9 +483,21 @@ judge() {
 
     # 5) .env 指纹 / US-37 标记 / legacy 路径 / 完整性
     local env_b env_a
-    env_b="$(field "$before/05-env.txt" sha256)"; env_a="$(field "$after/05-env.txt" sha256)"
-    if [ "$env_b" = "$env_a" ] && [ -n "$env_a" ]; then add ".env sha256（应不变）" "✅ 符合" "${env_a:0:16}…"
-    else add ".env sha256（应不变）" "❌ 不符合" "${env_b:-无} → ${env_a:-无}"; fi
+    local nb na mb ma
+    nb="$(field "$before/05-env.txt" non_marker_keys_sha256)"; na="$(field "$after/05-env.txt" non_marker_keys_sha256)"
+    mb="$(field "$before/05-env.txt" compose_file_marker)"; ma="$(field "$after/05-env.txt" compose_file_marker)"
+    if [ -z "$nb" ] || [ -z "$na" ]; then
+      # 旧证据包没有该字段（脚本升级前采集的）→ 退回整文件比对，并说明限制
+      env_b="$(field "$before/05-env.txt" sha256)"; env_a="$(field "$after/05-env.txt" sha256)"
+      if [ "$env_b" = "$env_a" ] && [ -n "$env_a" ]; then add ".env（应不变；无非标记键指纹，退回整文件比对）" "✅ 符合" "${env_a:0:16}…"
+      else add ".env（应不变；无非标记键指纹，退回整文件比对）" "⚠️ 需人工核对" "${env_b:-无} → ${env_a:-无}"; fi
+    elif [ "$nb" != "$na" ]; then
+      add ".env 非标记键（应逐字节不变）" "❌ 不符合" "${nb:0:16}… → ${na:0:16}…"
+    elif [ "$mb" != "$ma" ]; then
+      add ".env 非标记键（应逐字节不变）" "✅ 符合" "非标记键未变；标记键 ${mb:-（无）} → ${ma}（US-37 回填写入，属预期）"
+    else
+      add ".env 非标记键（应逐字节不变）" "✅ 符合" "整文件 sha 未变（${na:0:16}…）"
+    fi
 
     local marker; marker="$(field "$after/05-env.txt" compose_file_marker)"
     if [ -n "$marker" ]; then add "US-37 变体标记（应存在）" "✅ 符合" "$marker"
