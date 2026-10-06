@@ -442,6 +442,35 @@ class EvidenceScriptDisciplineTest(unittest.TestCase):
         completed = subprocess.run(["bash", "-n", str(self.SCRIPT)], capture_output=True, text=True, check=False)
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
+    def test_legacy_count_has_no_double_zero_bug(self) -> None:
+        """legacy 残留计数不得渲染成「存在 0\\n0 处」。
+
+        2026-10-06 `.14` C1 实测：`grep -c '^present' f || echo 0` 在无命中时
+        既打印 0 又返回 1，`|| echo 0` 再补一个 0 → 变量变成 "0\\n0"，
+        判定文案出现「legacy 路径 ⚠️ 存在 0\\n0 处」这种自相矛盾的行。
+        """
+        text = self._text()
+        self.assertNotIn("""grep -c '^present'""", text)
+        self.assertIn("""awk '/^present/{n++} END{print n+0}'""", text)
+
+    def test_runner_side_capabilities_marked_not_applicable(self) -> None:
+        """平台直升格（c1/c4）的执行者是已发布 runner v0.3.1，v0.3.2 能力不得判成缺陷。
+
+        2026-10-06 `.14` C1 实测：`_backfill_compose_file_marker`、compose diff 清单、
+        `statefile.py` 在 v0.3.1 容器内均 0 命中/不存在——它们是 v0.3.2 的能力。
+        原判定表把「结构上不可能出现」写成 ❌ 缺失 / ⚠️，等于把不适用误报成缺陷。
+        """
+        text = self._text()
+        self.assertIn('runner_side="na"', text)
+        self.assertIn('runner_side="check"', text)
+        self.assertIn('elif [ "$runner_side" = "na" ]; then add "compose.apply 差异清单（属 runner v0.3.2）" "ℹ️ 不适用"',
+                      text)
+        self.assertIn(
+            'elif [ "$runner_side" = "na" ]; then',
+            text,
+        )
+        self.assertIn('add "US-37 变体标记回填（属 runner v0.3.2）" "ℹ️ 不适用"', text)
+
     def test_platform_version_read_from_image_not_host_file(self) -> None:
         """平台版本判定必须绑**镜像内 /app/VERSION**，不能绑宿主 project/VERSION。
 

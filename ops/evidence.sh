@@ -349,6 +349,17 @@ cell_expect() {
   expect_runner="same"
   expect_changed="web-api collector-worker frontend"
   expect_unchanged="prometheus upgrade-runner"
+  # runner 侧能力（compose 变体标记回填 / compose.apply 差异清单 / 回滚锚点 / runner 状态文件）
+  # 住在 **runner 镜像**里，属开发线 v0.3.2。平台升级的执行者是**已发布 v0.3.1**
+  # （AGENTS「先平台后 runner」：包基线 = 已发布 runner），因此在 c1/c4 这类
+  # 「平台直升且 runner 不动」的格子里，这些能力**结构上不可能出现**——
+  # 判成 ❌/⚠️ 会把「不适用」误报成「缺陷」（2026-10-06 `.14` C1 实测）。
+  runner_side="na"
+  case "$CELL" in
+    c2|c3)
+      runner_side="check"
+      ;;
+  esac
   case "$CELL" in
     c2)
       # 组件升级：平台版本不变、runner 换到 v0.3.2、其余容器都不该动
@@ -470,9 +481,13 @@ judge() {
 
     local marker; marker="$(field "$after/05-env.txt" compose_file_marker)"
     if [ -n "$marker" ]; then add "US-37 变体标记（应存在）" "✅ 符合" "$marker"
-    else add "US-37 变体标记（应存在）" "⚠️ 缺失" "$(grep -c 'absent' "$after/05-env.txt" >/dev/null 2>&1 && echo '见 05-env.txt')"; fi
+    elif [ "$runner_side" = "na" ]; then
+      add "US-37 变体标记回填（属 runner v0.3.2）" "ℹ️ 不适用" "执行者为已发布 runner v0.3.1（容器内 _backfill_compose_file_marker=0 命中）；该能力在 C2 验。compose-guard.sh 本体已随包投递：$(field "$after/05-env.txt" present || echo '见 05-env.txt')"
+    else add "US-37 变体标记（应存在）" "⚠️ 缺失" "见 05-env.txt"; fi
 
-    local leftovers; leftovers="$(grep -c '^present' "$after/06-legacy-paths.txt" 2>/dev/null || echo 0)"
+    # 注意：不能用 `grep -c … || echo 0`——grep 无命中时既打印 0 又返回 1，
+    # `|| echo 0` 会再补一个 0，变量变成 "0\n0"，判定文案渲染成「存在 0\n0 处」。
+    local leftovers; leftovers="$(awk '/^present/{n++} END{print n+0}' "$after/06-legacy-paths.txt" 2>/dev/null)"
     if [ "$leftovers" = "0" ]; then add "legacy 路径（应全清）" "✅ 符合" "0 处存在"
     else add "legacy 路径（应全清）" "⚠️ 存在 $leftovers 处" "见 06-legacy-paths.txt"; fi
 
@@ -483,11 +498,18 @@ judge() {
     # 6) 任务侧证据（差异清单 / 锚点）
     if [ -f "$after/07-task.txt" ] && ! grep -q '未指定 --task-id' "$after/07-task.txt"; then
       if grep -q 'diff.summary' "$after/07-task.txt"; then add "compose.apply 差异清单（应有）" "✅ 符合" "$(grep -m1 'diff.summary' "$after/07-task.txt" | sed 's/^ *//')"
+      elif [ "$runner_side" = "na" ]; then add "compose.apply 差异清单（属 runner v0.3.2）" "ℹ️ 不适用" "执行者为已发布 runner v0.3.1（容器内 compose diff 标识=0 命中）；C2 验"
       else add "compose.apply 差异清单（应有）" "❌ 缺失" "见 07-task.txt"; fi
       if grep -q 'diff.actual_summary' "$after/07-task.txt"; then add "compose.apply 实际结果（应有）" "✅ 符合" "$(grep -m1 'diff.actual_summary' "$after/07-task.txt" | sed 's/^ *//')"
+      elif [ "$runner_side" = "na" ]; then add "compose.apply 实际结果（属 runner v0.3.2）" "ℹ️ 不适用" "同差异清单"
       else add "compose.apply 实际结果（应有）" "ℹ️ 缺省" "回滚类 cell 不会出现（回滚后即恢复旧镜像）"; fi
       if grep -q '平台回滚锚点' "$after/07-task.txt"; then add "平台回滚锚点（A5）" "✅ 符合" "$(grep -m1 'previous_version=' "$after/07-task.txt" | sed 's/^ *//')"
+      elif [ "$runner_side" = "na" ]; then add "平台回滚锚点（A5，属 runner v0.3.2）" "ℹ️ 不适用" "执行者为已发布 runner v0.3.1（容器内无 statefile.py）；C2/C3 验"
       else add "平台回滚锚点（A5）" "ℹ️ 未见" "c2（组件升级）不使用平台锚点"; fi
+      if grep -q '^absent' "$after/08-runner-state.txt" 2>/dev/null; then
+        if [ "$runner_side" = "na" ]; then add "runner 状态文件（属 v0.3.2）" "ℹ️ 不适用" "已发布 v0.3.1 无此文件"
+        else add "runner 状态文件（应有）" "⚠️ 缺失" "见 08-runner-state.txt"; fi
+      fi
     else
       add "任务证据" "ℹ️ 未采集" "未指定 --task-id"
     fi
