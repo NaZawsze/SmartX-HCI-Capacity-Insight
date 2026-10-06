@@ -136,7 +136,18 @@ collect_health() {
   section "运行态 health（GET，不改任何东西）" > "$OUT/03-health.txt"
   curl -s -m 15 "$HEALTH_URL" >> "$OUT/03-health.txt" 2>&1 || printf '(curl 失败)\n' >> "$OUT/03-health.txt"
   printf '\n' >> "$OUT/03-health.txt"
-  printf 'VERSION 文件=%s\n' "$(cat "$PROJECT_DIR/VERSION" 2>/dev/null || echo '（读不到）')" >> "$OUT/03-health.txt"
+  # 平台版本取自**镜像内** /app/VERSION（AGENTS §8：镜像内 VERSION 是主要身份来源）。
+  # 现场 project/ 目录下并没有 VERSION 文件——早期把判定绑到宿主文件上，
+  # 会让「应变更」格拿"（读不到）"去比对：same 格误判通过、changed 格误判失败。
+  printf 'health JSON version=%s\n' \
+    "$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' "$OUT/03-health.txt" 2>/dev/null | head -n1)" >> "$OUT/03-health.txt"
+  if [ -n "$(docker ps -q --filter "name=^$(container_name web-api)$" 2>/dev/null)" ]; then
+    printf 'image 内 VERSION=%s\n' \
+      "$(docker exec "$(container_name web-api)" cat /app/VERSION 2>/dev/null || echo '（读不到）')" >> "$OUT/03-health.txt"
+  else
+    printf 'image 内 VERSION=（web-api 容器不存在）\n' >> "$OUT/03-health.txt"
+  fi
+  printf '宿主 VERSION 文件=%s\n' "$(cat "$PROJECT_DIR/VERSION" 2>/dev/null || echo '（不存在，属正常）')" >> "$OUT/03-health.txt"
   if [ -n "$(docker ps -q --filter "name=^$(container_name upgrade-runner)$" 2>/dev/null)" ]; then
     printf 'runner 容器内 RUNNER_VERSION=%s\n' \
       "$(docker exec "$(container_name upgrade-runner)" cat /app/RUNNER_VERSION 2>/dev/null || echo '（读不到）')" >> "$OUT/03-health.txt"
@@ -412,10 +423,12 @@ judge() {
       add "$svc 容器（$( [ "$should_change" = yes ] && echo 应更换 || echo 应不变 )）" "$verdict" "$value"
     done
 
-    # 3) 版本到位
+    # 3) 版本到位（平台版本以镜像内 /app/VERSION 为准，health JSON 次之，宿主文件仅作留证）
     local app_before app_after runner_before runner_after
-    app_before="$(field "$before/03-health.txt" "VERSION 文件")"
-    app_after="$(field "$after/03-health.txt" "VERSION 文件")"
+    app_before="$(field "$before/03-health.txt" "image 内 VERSION")"
+    [ -n "$app_before" ] || app_before="$(field "$before/03-health.txt" "health JSON version")"
+    app_after="$(field "$after/03-health.txt" "image 内 VERSION")"
+    [ -n "$app_after" ] || app_after="$(field "$after/03-health.txt" "health JSON version")"
     runner_before="$(sed -n 's/^runner 容器内 RUNNER_VERSION=//p' "$before/03-health.txt" | head -n1)"
     runner_after="$(sed -n 's/^runner 容器内 RUNNER_VERSION=//p' "$after/03-health.txt" | head -n1)"
     case "$expect_app" in

@@ -442,6 +442,22 @@ class EvidenceScriptDisciplineTest(unittest.TestCase):
         completed = subprocess.run(["bash", "-n", str(self.SCRIPT)], capture_output=True, text=True, check=False)
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
+    def test_platform_version_read_from_image_not_host_file(self) -> None:
+        """平台版本判定必须绑**镜像内 /app/VERSION**，不能绑宿主 project/VERSION。
+
+        2026-10-06 在 `.14` 实测：现场 `project/` 目录下**没有** VERSION 文件（版本在镜像里），
+        原实现读宿主文件得到"（读不到）"，于是 `same` 格会拿两个"读不到"比出 ✅ 误判通过、
+        `changed` 格会误判 ❌——判定表在这种机器上整个不可信。
+        """
+        text = self._text()
+        self.assertIn('printf \'image 内 VERSION=%s\\n\'', text)
+        self.assertIn('cat /app/VERSION', text)
+        # 判定处不得再读宿主 VERSION 文件作为版本来源
+        self.assertNotIn('field "$before/03-health.txt" "VERSION 文件"', text)
+        self.assertNotIn('field "$after/03-health.txt" "VERSION 文件"', text)
+        # 宿主文件仍留证，但只作留证（标注为不存在属正常）
+        self.assertIn("（不存在，属正常）", text)
+
     def test_has_no_mutating_docker_verbs(self) -> None:
         code = "\n".join(line for line in self._text().splitlines() if not line.lstrip().startswith("#"))
         for forbidden in (
