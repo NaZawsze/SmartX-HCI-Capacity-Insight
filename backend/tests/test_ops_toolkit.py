@@ -453,6 +453,34 @@ class EvidenceScriptDisciplineTest(unittest.TestCase):
         self.assertNotIn("""grep -c '^present'""", text)
         self.assertIn("""awk '/^present/{n++} END{print n+0}'""", text)
 
+    def test_component_upgrade_cell_marks_apply_side_items_not_applicable(self) -> None:
+        """组件升级格（C2）不跑 compose.apply，差异清单/锚点/标记回填不得判成缺陷。
+
+        2026-10-06 `.12` C2 实测踩到：判据口径按「cell → runner_side」二分，C2 被归为
+        `check`，于是表格把「US-37 标记 ⚠️ 缺失」「compose.apply 差异清单 ❌ 缺失」
+        两条**结构上不可能出现**的东西报成问题——而组件升级流程里根本没有 files.sync，
+        回填与差异清单都无从产生。这与 C1' 那次「用 v0.3.1 执行者却要求 v0.3.2 能力」
+        是同一类错误：把「能力属于谁」和「本格有没有做这件事」混为一谈。
+        """
+        text = self._text()
+        self.assertIn('runs_platform_upgrade="yes"', text)
+        self.assertIn('runs_platform_upgrade="no"', text)
+        for item in (
+            "US-37 变体标记回填",
+            "compose.apply 差异清单",
+            "compose.apply 实际结果",
+            "平台回滚锚点（A5）",
+        ):
+            # 分支写法有两种：`elif …; then add "…"`（同行）或
+            # `elif …; then` + 换行 + `add "…"`（多行可读性），故按窗口检查而非整行正则。
+            marker = 'runs_platform_upgrade" = "no"'
+            positions = [
+                m.start() for m in re.finditer(re.escape(marker), text)
+            ]
+            self.assertTrue(positions, "脚本里找不到 runs_platform_upgrade 分支")
+            hit = any(f'add "{item}"' in text[pos : pos + 400] for pos in positions)
+            self.assertTrue(hit, f"{item} 缺「本格不跑平台升级 → 不适用」分支")
+
     def test_runner_side_capabilities_marked_not_applicable(self) -> None:
         """平台直升格（c1/c4）的执行者是已发布 runner v0.3.1，v0.3.2 能力不得判成缺陷。
 
