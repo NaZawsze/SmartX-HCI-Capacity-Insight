@@ -774,3 +774,30 @@ source_compatibility    = ['v0.5.2','v0.5.3','v0.5.4']
 C3 场景 B/C（**US-17 关闭前提，真机尚未跑过**）；C0（v0.5.2 源格 + 数据完整性）。
 `.14` 的「升级后真实数据采集」**未验证**（Tower 间歇不可达，未配置凭据；只验到调度器执行并回报
 `success`，`towers=0`）。离线交付目录未用 r21 重打（`--skip-offline`）。
+
+## 2026-10-07 v0.5.4 平台包 **r22**（**当前唯一有效候选**；场景 B 人工回滚产品化，未发布）
+
+| 项 | 值 |
+| --- | --- |
+| Status | **CANDIDATE**（场景 B 真机复测未完成、用户未下令前不得发布） |
+| 平台包 | `.3:/data/r22-out/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `1602ead6c140be1571b8e45f7f9b05c2177983bdee3affb4c68ee2dd955f5dea` |
+| runner 组件包 | `.3:/data/r22-out/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `0d3cdb10dc0e0bbbc63c05ea735f41d2e72333935b6230c711cb635ef77e1fd2`<br>**取代 r20/r21 的 `05d8e015…`**（v0.3.2 从未发布/未上 DockerHub/未交付任何客户机，候选代际内重切与 r18→r19→r20 同例；指纹 `a36488fb…` 含场景 B runner 侧代码） |
+| 源码溯源 | 平台包内容 = dev2 `47bc25ad`：`183f297`（**W5-场景B 决议落地**：rollback 分发器 + runner 收尾计数守卫 + `captured_for` 锚点纪律 + 门禁测试改锁新契约）、`47bc25ad`（**DEFAULT_APP_VERSION 补 bump v0.5.4**）、`a61dc0c9`（**根 README 版本行补 bump v0.5.4**——r22 构建门禁连环抓出的两处版本身份遗漏） |
+| 构建树 | `.3:/data/r20-src`（bundle 同步至 `47bc25ad`，18 tags）；`TMPDIR=/data/build-tmp`；Docker Hub 出口实测可达（registry-1.docker.io HTTP 401 正常），四镜像全新重建（web-api/collector/frontend 04:08、runner 04:12） |
+| 相对 r21 | 平台包：web-api 代码更新（场景 B 三文件 + `intake.py` 门修正 + 版本常量）；runner 包：engine `_finalize_manual_rollback`/`captured_for`（`actions.py` md5 `cd15b38a…` 与 r20/r21 一致——30 动作未变，动作表无新增） |
+
+### 门禁（全部 PASS）
+
+| 门禁 | 结果 |
+| --- | --- |
+| `sha256sum -c` | 两包 OK |
+| 平台包身份门禁 | PASS（v0.5.4；runner 基线仍为已发布 v0.3.1） |
+| runner 交付一致性 | PASS：源码树指纹 `a36488fb…`（10 模块，与仓库一致）、`actions.py` md5 `cd15b38a…`、30 动作；DockerHub SKIP（v0.3.2 未发布，与 r21 同例） |
+| 迁移 expand-only | PASS（0 条目，基线 v0.5.3） |
+| 动作词汇冻结 | PASS：`plan_actions_subset`（并集 6 ⊆ 已发布 25）、`plan_actions_matrix`（3 源格各 8 动作）、`apply_services_scope`（3 格 services 均无 prometheus/runner）、`compiler_changed` PASS（18 tags 在树）、`--force-recreate` 禁令 PASS；`plan_source_compiled_downstream` WARN（常设项） |
+| 敏感成员 | 0 命中（`.env`/`.sqlite`/`.db` 双包人工扫描 + 打包 fail-fast 正则） |
+| 镜像内容抽验 | web-api 镜像含 `start_manual_rollback` 与 `DEFAULT_APP_VERSION="v0.5.4"`；runner 镜像含 `_finalize_manual_rollback`（2 处）与 `captured_for`（4 处）、`/app/RUNNER_VERSION=v0.3.2` |
+
+### 后续（真机复测用）
+
+`.12`：产品流程升 r22 平台包 → 场景 B（available=true → POST rollback → v0.5.3 → 计数守卫 → 终态 rolled_back）→ 再直升回 v0.5.4 → 场景 C 演练。完成后本条 Status 才可转发布候选。
