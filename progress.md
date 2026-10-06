@@ -5554,3 +5554,27 @@ v0.5.3 出发 —— **覆盖不到**这一格，偏偏它是现场存量最大�
 
 **待用户执行**：C1 → C2 → C4 → C3 → C0（两台机器各自串行）。`.12` 的 C0 破坏性最高
 （删目标目录重装），已在 runbook 标注「需你确认后才动」。
+
+### 回归：全量必须在容器内跑（2026-10-06 踩坑记录）
+
+同一棵树 `/data/full2`，两种跑法结果差一个数量级：
+
+| 跑法 | 结果 |
+| --- | --- |
+| **宿主直跑** `cd /data/full2/backend && python3 -m unittest discover -s tests` | `Ran 1079`，**failures=4 + errors=48** |
+| **容器内**（基线口径：`--network=none` + 交付 web-api 镜像 + `-v 树:/w`） | `Ran 1079`，**failures=1, errors=0** |
+
+差出来的 4 个 failure 与 48 个 error 全部是**环境产物**，不是回归：
+- `/tmp` 在宿主是小 tmpfs（可用 459 MiB），`test_upgrade_disk_space_precheck` 直接失败，
+  并连带把 `test_v2_upgrade` 的两处 `precheck["ok"]` 截胡（预检查含磁盘项）；
+- 宿主无 docker socket，相关用例 error。
+- 另有 `test_exports_retention` 的 TTL=0 裁剪用例在宿主直跑下失败（时间戳粒度）。
+
+**纪律**：全量回归一律用容器口径（`ev_run.sh` / `full_container.sh`），
+不要图省事在宿主直跑——否则会把环境噪声当成回归去查，浪费一整轮；
+反过来也别只看 `Ran N tests` 就下结论，**必须同时看 `failures=` 与 `errors=` 两个数**
+（`unittest` 的 ERROR 行与 FAIL 行分开统计，只 grep `FAIL:` 会漏掉整片 error）。
+
+**当前回归基线（容器口径）**：`Ran 1079 tests`（= 1067 + 交付构建器 4 + 取证脚本纪律 8），
+`failures=1`（唯一失败 `test_start_can_submit_task_for_runner_and_runner_executes_it`：
+镜像有 docker CLI 无 socket，唯一环境限制），`errors=0`。
