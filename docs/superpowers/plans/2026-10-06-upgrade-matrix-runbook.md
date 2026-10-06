@@ -188,7 +188,114 @@ curl -s -X POST http://127.0.0.1:8000/api/admin/upgrade/full-rollback \
 
 ---
 
-## 6. 每格执行完请回传这些（AI 侧据此更新 ledger 与勾选）
+## 6. C0（新增，2026-10-06 用户指令）：v0.5.2 源格 + 数据完整性
+
+### 为什么加这一格
+
+`version-skew-matrix.md` 的「v0.5.2 → v0.5.4」格原先只有**静态**证据（已发布 v0.5.2 镜像内
+编译器编译同一 manifest，动作集与候选一致）。而 C1/C4 **都从 v0.5.3 出发**，覆盖不到它——
+v0.5.2 恰恰是现场存量最大的源版本，这一格不能只靠静态证据就宣称支持。
+用户 2026-10-06 指令：**先在 `.14` 测，后在 `.12` 测；数据先备份，恢复到 v0.5.2 时导入，
+再走升级流程看数据会不会丢。**
+
+### 6.1 前置物料（`.3` 已就绪，AI 已构建）
+
+| 物料 | 路径 | 说明 |
+| --- | --- | --- |
+| **v0.5.2 基线交付目录** | `.3:/data/delivery-v052` | 用**已发布** v0.5.2 平台包 + **已发布** v0.3.1 runner 包构建；install compose 落 v0.5.2 + runner v0.3.1，US-33 自洽门禁通过 |
+| v0.5.4 交付目录 | `.3:/data/delivery-v054` | 交付用（runner 基线 v0.3.2，`a345362` 决策） |
+| r19 平台包 | 见 §1 | 升级用 |
+| 备份/导出工具 | `scripts/capture_baseline.py`（VACUUM INTO 快照 + `.env` 配对 + SHA） | `.3` 上对 `.12` 执行 |
+
+> 构建 v0.5.2 交付目录时发现并修掉一个真实缺口：`build_offline_delivery.py` 原本只把 runner tag
+> 落基线，平台三件套 tag 沿用仓库当前 `VERSION`（v0.5.4），US-33 自洽门禁当场拦下
+> 「compose 要 v0.5.4 / 归档实际含 v0.5.2」。已修为支持任意 `platform_version`（`9fd1be2`，4 例门禁）。
+
+### 6.2 执行顺序（两台机器各自串行，机器之间可并行）
+
+| 机器 | 顺序 | 理由 |
+| --- | --- | --- |
+| `.14` | **C1 → C3 → C0** | C1 要用当前这台「干净、无业务数据」的 v0.5.3 做 T3 纯净对照；C3 在 v0.5.4 上做回滚；最后重装 v0.5.2 跑 C0 |
+| `.12` | **C2 → C4 → C0** | C2/C4 依赖当前 v0.5.3 + 真实数据现场；C0 需要降级重装，破坏性最大，放最后 |
+
+### 6.3 C0-Part 1：`.14`（先做，无真实数据风险）
+
+```bash
+# 0) 记录 C0 前的现状（`.14` 上跑取证脚本）
+bash ops/evidence.sh c0 before
+
+# 1) 备份：`.14` 无业务数据，但仍按流程留档
+#    迁移包导出（产品流程，v0.5.2 就有导出能力）
+curl -sS -X POST http://127.0.0.1:8000/api/admin/migration/export \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{}' -o /root/c0-pre-export.tar.gz -w 'HTTP=%{http_code}\n'
+
+# 2) 停止并清理当前 v0.5.3 现场（.14 是干净验证机，允许破坏性演练）
+cd /data/delivery-v052/install
+bash install.sh --check          # 先自检
+# 停旧现场：按 AGENTS §9 红线，只停容器、**不删目标根目录里的数据目录**
+#    （install.sh 自带旧现场检测；若需重装，先确认 /data/smartx-storage-forecast 已另行留档）
+
+# 3) 安装 v0.5.2 基线
+bash install.sh                   # 走产品安装脚本，不手工 docker compose
+# 判据：health ok、platform=v0.5.2、runner=v0.3.1、5 容器、目录结构符合 §9
+
+# 4) 造数据：优先用**导入**（用户指定路径）
+#    ⚠️ v0.5.2 的导入**没有** Tower 身份重映射（#63 是 v0.5.3 才加的）。
+#    本机身份与包内身份一致时用 full/replace 模式即可；若从 `.12` 导包到 `.14`，
+#    身份会随包一起来（full 模式整库替换），因此**可以**导入，但采集时 base_url 也会跟着换，
+#    需确认 `.env` 里的凭据与包内 Tower 身份匹配。
+curl -sS -X POST http://127.0.0.1:8000/api/admin/migration/import \
+  -H "Authorization: Bearer $TOKEN" -F 'file=@/root/<迁移包>.tar.gz' \
+  -F 'mode=replace' -F 'confirmed=true' -w 'HTTP=%{http_code}\n'
+# 备选：若导入不适用，改为让 `.14` 用 `.env` 里的 Tower 凭据直接采集（`10.20.11.7:4433`）
+
+# 5) 固化基线（VACUUM INTO + .env + SHA）
+python3 scripts/capture_baseline.py --help   # 按脚本实际参数执行
+
+# 6) 升级 v0.5.2 → v0.5.4（产品流程）
+bash ops/evidence.sh c0 before-upgrade      # 升级前取证
+# 上传 r19 平台包 → 预检查 → 启动升级（API/UI）
+bash ops/evidence.sh c0 after --task-id <upgrade-xxxx> --token $TOKEN
+```
+
+### 6.4 C0-Part 2：`.12`（后做，**破坏性最高，需你确认后才动**）
+
+`.12` 有真实业务数据（上一轮记录 556 台 / 89588 卷），C0 会**删掉目标目录重装**，所以：
+
+```bash
+# 1) 两重备份，缺一不可
+python3 scripts/capture_baseline.py    # VACUUM INTO 快照 + .env 配对 + SHA（可字节级还原）
+curl -sS -X POST .../api/admin/migration/export -o /root/c012-pre-export.tar.gz   # 产品流程导出包
+sha256sum /root/c012-pre-export.tar.gz
+# 2) 停现场 → 用 /data/delivery-v052 装 v0.5.2 → 导入上面的包（full 模式）
+# 3) 核对导入后逐表计数 == 备份时计数（不一致就停，不要继续升级）
+# 4) 升级 v0.5.2 → v0.5.4（r19 平台包），再逐表比对
+```
+
+### 6.5 判据（数据不丢 = 本格的核心）
+
+| # | 判据 | 期望 |
+| --- | --- | --- |
+| 1 | 升级前 `PRAGMA integrity_check` | `ok` |
+| 2 | **逐表计数逐位不变**（`towers` / `clusters` / `vm_latest` / `vm_volumes` / `collection_runs` 等，用 `evidence.sh` 的 `04-db-counts.txt` 前后对比） | 全部相等；`.12` 上应与 556 / 89588 这一量级一致 |
+| 3 | 业务库 SHA | **不要求相同**（升级会写迁移快照/心跳等），但必须能 `VACUUM INTO` 出可还原快照 |
+| 4 | `.env` | SHA256 不变、权限 0600 |
+| 5 | **prometheus 容器 ID** | 不变（历史目录不被清空、不重建） |
+| 6 | prometheus 历史 | 升级后**继续累积**样本（口径说明：迁移包**不含** Prometheus 历史，所以"不丢"指不被清空，不是被迁移过来） |
+| 7 | 升级后自动采集 | 成功，且新增样本可查 |
+| 8 | Tower 凭据 | 解密正常、采集不报 401/证书错 |
+
+> 口径提醒：SQLite 存业务元数据与最新状态，Prometheus 存历史时序。**"数据不丢"必须分两层说**：
+> SQLite 层=逐表计数逐位不变；Prometheus 层=历史目录不被清空且继续累积。不要混成一个"数据全在包里"的误解。
+
+### 6.6 与既有格的边界
+
+- C0 **不替代** C1/C2/C4：它覆盖的是 v0.5.2 源格 + 数据完整性，不覆盖 US-26 的 v0.3.2 源判别。
+- C0 不产生新的回滚证据（回滚仍由 C3 覆盖）。
+- C0 期间 `.14`/`.12` 的当前平台版本会被改动，**C1/C2/C4 的基线 ID 以各自执行前重新取证为准**。
+
+## 7. 每格执行完请回传这些（AI 侧据此更新 ledger 与勾选）
 
 1. `task_id` 与终态；
 2. 上面表格里**逐条**的实测值（失败项照实写，不要只写"通过"）；

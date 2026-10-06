@@ -5512,3 +5512,45 @@ C1（`.14` 直升，14 条判据 + 基线对照表）、C2（`.12` 组件升级�
 - CHANGELOG v0.5.4 候选草稿（`1b3e8af`）：状态「候选，未发布」；验证说明只列已过静态/沙箱证据 +
   C1–C4/M1–M7 的 ⏳ 待填格，**无任何预写验收结论**；已知问题预填 US-17 待 C3、runner v0.3.2 本火车首次交付、
   支持矩阵收窄 + remediation、迁移 registry 为空、`.14` Docker Hub sinkhole。
+
+## 2026-10-06 C0 立项（用户指令：v0.5.2 源格 + 数据完整性，`.14` 先 `.12` 后）
+
+**背景自查**：`version-skew-matrix.md` 的「v0.5.2 → v0.5.4」格只有静态证据，而 C1/C4 都从
+v0.5.3 出发 —— **覆盖不到**这一格，偏偏它是现场存量最大的源版本。原矩阵与 runbook 都写着
+「真机待 C1」，属**标注错误**（C1 不可能覆盖它）。已修正为 `⚠️ 声明支持但未实测` + 真机待 C0。
+
+**本轮产出**：
+
+1. **`.3` 的 Docker Hub 被 DNS sinkhole**（新发现的环境事实）：
+   `auth.docker.io` 解析到 `2a03:2880:f12a:83:face:b00c:0:25de`（Facebook 段），
+   IPv4/IPv6 均不可达，而 `github.com` IPv4 正常（HTTP 200）→ 只针对 Docker Hub 的劫持，
+   与 `.14` 的已知 sinkhole 同类。后果：**`.3` 现在无法 `docker build`**（拉不到 `python:3.12-slim`）。
+   - 触发经过：我为腾磁盘删掉了 r19 构建出的 v0.5.4 镜像，而重建需要拉基础镜像 → 才发现出口被劫持。
+   - 影响与恢复路径：v0.5.4 镜像仍完整保存在 r19 平台包内（`docker load` 可复原，已实测载入
+     `upgrade-runner:v0.3.2` 成功）；**发布前若需重建镜像，得先解决 `.3` 的 Docker Hub 出口**。
+   - 已连带发现磁盘纪律问题：`check-deps` 有 ≥20 GB 硬门槛，19 GB 直接拒绝打包；
+     本轮清掉 10 GB（作废的 r18 产物 644M、r13/r15/r16/r17 旧构建树 7.3G、
+     无引用的构建缓存、我建的 v0.5.4 镜像）→ 28 GB。清理全部按显式名字，未用 filter 驱动删除。
+
+2. **`compiler_changed` 从假 WARN 变真 PASS**：用 `git bundle`（含全部 tag，5.9 MB）把完整历史
+   传到 `.3` 建 `/data/r20-src`，在其中对 **r19 包**重跑动作词汇门禁：
+   `compiler_changed: [PASS] 编译器相对 v0.5.3 无变更`；仅剩 `plan_source_compiled_downstream`
+   （本来就该有的矩阵提醒：v0.5.2 格由源端老编译器出计划）。r19 内容无需重打。
+
+3. **两个离线交付目录**（都过 US-33 自洽门禁）：
+   - `/data/delivery-v054`：v0.5.4 + runner 基线 **v0.3.2**（`a345362` 决策），1.4 GB。
+   - `/data/delivery-v052`：**C0 的 v0.5.2 基线安装物**，用**已发布** v0.5.2 平台包 +
+     **已发布** v0.3.1 runner 包构建，install compose 落 v0.5.2 + v0.3.1，1.4 GB。
+
+4. **修掉一个真实产品缺口**（`9fd1be2`）：`build_offline_delivery.py` 只能构建「与仓库当前
+   VERSION 相同或更新」的交付目录 —— 平台三件套 tag 直接沿用仓库 compose，构建 v0.5.2 基线时
+   compose 要 v0.5.4 而归档里是 v0.5.2，被 US-33 门禁当场拦下。已加可选 `platform_version`
+   参数（保留镜像仓库前缀；runner tag / prometheus / 其它键不动；不传则行为不变），4 例门禁。
+
+5. **C0 清单与判据成文**（runbook §6）：执行顺序 `.14` = C1→C3→C0、`.12` = C2→C4→C0；
+   两重备份（`capture_baseline.py` 的 VACUUM INTO + 产品流程迁移包导出）；
+   判据含**分两层的数据不丢口径**（SQLite 逐表计数逐位不变 / Prometheus 历史目录不被清空且继续累积
+   —— 迁移包**不含** Prometheus 历史，别把两件事混说）。
+
+**待用户执行**：C1 → C2 → C4 → C3 → C0（两台机器各自串行）。`.12` 的 C0 破坏性最高
+（删目标目录重装），已在 runbook 标注「需你确认后才动」。
