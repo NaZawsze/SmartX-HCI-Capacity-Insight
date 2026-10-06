@@ -182,11 +182,21 @@ def extract_member(archive: Path, member_suffix: str, destination: Path) -> Path
     raise SystemExit(f"[offline-delivery] 在 {archive} 里找不到 {member_suffix}")
 
 
-def render_offline_compose(source: Path, destination: Path, runner_baseline: str) -> None:
-    """把源码 compose 渲染成交付版：runner tag 落已发布基线。
+_PLATFORM_IMAGE_SERVICES = ("web-api", "collector-worker", "frontend")
 
-    只改 upgrade-runner 的 image 一行，**不动其它任何内容**——交付物里的 compose
+
+def render_offline_compose(
+    source: Path, destination: Path, runner_baseline: str, platform_version: str | None = None
+) -> None:
+    """把源码 compose 渲染成交付版：runner tag 落已发布基线，平台三件套落目标版本。
+
+    只改 upgrade-runner 与三件套的 image 行，**不动其它任何内容**——交付物里的 compose
     必须与源码可对照（AGENTS §8「发布包中的 Compose 应写入明确、可审计的镜像身份」）。
+
+    `platform_version` 用于**构建比仓库当前 VERSION 更旧的交付目录**（例如拿已发布
+    v0.5.2 平台包装出 v0.5.2 基线安装物，用来验证 v0.5.2 → v0.5.4 的源端升级格）。
+    不传时保持源码 compose 里的 tag 不变（当前版本自洽）。若不改，交付目录会带着
+    仓库当前版本 tag，而 `images/` 里是旧版本镜像——US-33 自洽门禁会当场拦下。
     """
     lines = source.read_text(encoding="utf-8").splitlines(keepends=True)
     in_runner = False
@@ -208,11 +218,25 @@ def render_offline_compose(source: Path, destination: Path, runner_baseline: str
             break
     if not replaced:
         raise SystemExit(f"[offline-delivery] 未能在 {source} 里定位 upgrade-runner 的 image 行")
+    if platform_version:
+        for index, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped.startswith("image:"):
+                continue
+            for service in _PLATFORM_IMAGE_SERVICES:
+                marker = f"smartx-hci-capacity-insight-{service}:"
+                if marker in stripped:
+                    prefix = line[: line.index("image:") + len("image:")]
+                    repository = stripped.split(marker, 1)[0].split()[-1]
+                    newline = "\n" if line.endswith("\n") else ""
+                    lines[index] = f"{prefix} {repository}{marker}{platform_version}{newline}"
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text("".join(lines), encoding="utf-8")
 
 
-def render_all_delivery_composes(project_dir: Path, runner_baseline: str) -> list[str]:
+def render_all_delivery_composes(
+    project_dir: Path, runner_baseline: str, platform_version: str | None = None
+) -> list[str]:
     """把交付 project 目录下**所有** compose 的 runner tag 落已发布基线。
 
     为什么不止 offline 那一份（2026-09-30 `ops/package.sh` T2 实测发现）：
@@ -225,7 +249,7 @@ def render_all_delivery_composes(project_dir: Path, runner_baseline: str) -> lis
     """
     rendered: list[str] = []
     for compose in sorted(project_dir.glob("docker-compose*.yml")):
-        render_offline_compose(compose, compose, runner_baseline)
+        render_offline_compose(compose, compose, runner_baseline, platform_version)
         rendered.append(compose.name)
     if not rendered:
         raise SystemExit(f"[offline-delivery] {project_dir} 下没有任何 docker-compose*.yml")
@@ -387,11 +411,12 @@ def main() -> int:
 
     # ---------- install/project ----------
     copied = copy_project_files(project_dir)
-    # 交付目录内**所有** compose 的 runner tag 都落已发布基线（不只是 offline 那份）
-    rendered = render_all_delivery_composes(project_dir, args.runner_baseline)
+    # 交付目录内**所有** compose 的 runner tag 都落已发布基线（不只是 offline 那份），
+    # 平台三件套 tag 落目标版本（构建比仓库当前 VERSION 更旧的交付目录时必需）
+    rendered = render_all_delivery_composes(project_dir, args.runner_baseline, version)
     log(
         f"install/project：{', '.join(copied)}"
-        f"（runner tag 落 {args.runner_baseline}：{', '.join(rendered)}）"
+        f"（runner tag 落 {args.runner_baseline}，平台 tag 落 {version}：{', '.join(rendered)}）"
     )
     shutil.copy2(ROOT / "pre_install.sh", project_dir / "pre_install.sh")
     (project_dir / "pre_install.sh").chmod(0o755)

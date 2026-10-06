@@ -110,6 +110,74 @@ class RenderOfflineComposeTest(unittest.TestCase):
                 render_offline_compose(source, Path(tmpdir) / "out.yml", "v0.3.1")
 
 
+class RenderPlatformVersionTest(unittest.TestCase):
+    """平台三件套 tag 必须能落**任意**目标版本，而不只是仓库当前 VERSION。
+
+    2026-10-06 实测缺陷：用已发布 v0.5.2 平台包构建 v0.5.2 基线交付目录时，
+    compose 仍带仓库当前的 v0.5.4 tag，US-33 自洽门禁直接拦下
+    （compose 需要 v0.5.4 / 归档实际含 v0.5.2）——而这条基线正是验证
+    `v0.5.2 → v0.5.4` 源端升级格的前置。
+    """
+
+    COMPOSE = (
+        "services:\n"
+        "  web-api:\n"
+        "    image: nazawsze/smartx-hci-capacity-insight-web-api:v0.5.4\n"
+        "    pull_policy: never\n"
+        "  collector-worker:\n"
+        "    image: nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.4\n"
+        "  frontend:\n"
+        "    image: nazawsze/smartx-hci-capacity-insight-frontend:v0.5.4\n"
+        "  upgrade-runner:\n"
+        "    image: nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2\n"
+        "  prometheus:\n"
+        "    image: prom/prometheus:v2.55.1\n"
+    )
+
+    def _render(self, tmpdir: str, platform_version: str | None) -> str:
+        source = Path(tmpdir) / "docker-compose.offline.yml"
+        source.write_text(self.COMPOSE, encoding="utf-8")
+        target = Path(tmpdir) / "out.yml"
+        render_offline_compose(source, target, "v0.3.1", platform_version)
+        return target.read_text(encoding="utf-8")
+
+    def test_rewrites_three_platform_services_to_older_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            text = self._render(tmpdir, "v0.5.2")
+            for service in ("web-api", "collector-worker", "frontend"):
+                self.assertIn(f"smartx-hci-capacity-insight-{service}:v0.5.2", text)
+                self.assertNotIn(f"smartx-hci-capacity-insight-{service}:v0.5.4", text)
+
+    def test_keeps_runner_baseline_and_prometheus_and_other_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            text = self._render(tmpdir, "v0.5.2")
+            self.assertIn("smartx-hci-capacity-insight-upgrade-runner:v0.3.1", text)
+            self.assertIn("image: prom/prometheus:v2.55.1", text)
+            self.assertIn("    pull_policy: never\n", text)
+
+    def test_omitting_version_keeps_source_tags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            text = self._render(tmpdir, None)
+            self.assertIn("smartx-hci-capacity-insight-web-api:v0.5.4", text)
+            self.assertIn("smartx-hci-capacity-insight-upgrade-runner:v0.3.1", text)
+
+    def test_preserves_image_repository_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "compose.yml"
+            source.write_text(
+                "services:\n"
+                "  web-api:\n"
+                "    image: registry.example.com/team/smartx-hci-capacity-insight-web-api:v0.5.4\n"
+                "  upgrade-runner:\n"
+                "    image: nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2\n",
+                encoding="utf-8",
+            )
+            target = Path(tmpdir) / "out.yml"
+            render_offline_compose(source, target, "v0.3.1", "v0.5.2")
+            text = target.read_text(encoding="utf-8")
+            self.assertIn("registry.example.com/team/smartx-hci-capacity-insight-web-api:v0.5.2", text)
+
+
 class RenderAllDeliveryComposesTest(unittest.TestCase):
     """交付 project 下**所有** compose 的 runner tag 都必须落已发布基线。
 
