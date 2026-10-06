@@ -801,3 +801,21 @@ C3 场景 B/C（**US-17 关闭前提，真机尚未跑过**）；C0（v0.5.2 源
 ### 后续（真机复测用）
 
 `.12`：产品流程升 r22 平台包 → 场景 B（available=true → POST rollback → v0.5.3 → 计数守卫 → 终态 rolled_back）→ 再直升回 v0.5.4 → 场景 C 演练。完成后本条 Status 才可转发布候选。
+
+## 2026-10-07 v0.5.4 平台包 **r23**（**当前唯一有效候选**；自指锚点修复，未发布）
+
+| 项 | 值 |
+| --- | --- |
+| Status | **CANDIDATE**（场景 B 真机复测进行中、用户未下令前不得发布） |
+| 平台包 | `.3:/data/r23-out/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `8e9111d14914d7e7bfc4161c5fcd671e7bd979dbc9df38144bd9b54f99074d0d` |
+| runner 组件包 | `.3:/data/r23-out/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `0d3cdb10dc0e0bbbc63c05ea735f41d2e72333935b6230c711cb635ef77e1fd2`<br>**与 r22 逐字节一致**（cmp 校验；本修复只动 web-api 查询侧） |
+| 源码溯源 | dev2 `b547815`：**fix(W5-场景B) 自指锚点不进回滚链**——`.12` 实测同版本升级（r22 平台包 v0.5.4→v0.5.4）捕获 `previous_version==target_version` 的自指锚点并按 captured_at 最新者遮蔽了 v0.5.3→v0.5.4 的 N-1 锚点，可回滚性被一次无关的同版本升级静默清零。修复：`latest_rollback_anchor()` 查询侧跳过自指锚点与 `captured_for=manual_rollback` 锚点（**留档不删**，取证/备份事实完整），两条判定路径共用 `_is_rollback_chain_anchor` |
+| 构建树 | `.3:/data/r20-src` @ `b547815`（18 tags）；四镜像重建（web-api 含修复） |
+
+### 门禁（全部 PASS）
+
+`sha256sum -c` 两包 OK；平台包身份 PASS（v0.5.4 / runner 基线 v0.3.1）；词汇门禁 7 PASS（subset/matrix/apply_services_scope/compiler_changed/force-recreate 禁令等）；迁移 expand-only PASS。单测：`test_manual_rollback_scenario_b` **31 OK**（新增自指锚点 2 例：遮蔽场景 + 仅自指锚点判 None）。
+
+### 对 .12 现场的意义
+
+`.12` 状态文件现存两个锚点：`upgrade-93c6b4fb`（v0.5.3→v0.5.4，有效 N-1）与 `upgrade-d712c645`（v0.5.4→v0.5.4，r22 同版本升级产生的自指锚点）。升入 r23 后查询侧跳过自指锚点 → 回滚事实源回到 v0.5.3 锚点 → 场景 B 可继续。
