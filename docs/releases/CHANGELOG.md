@@ -2,6 +2,102 @@
 
 本文档记录 SmartX HCI Capacity Insight 各版本的主要变化。项目介绍、部署方式和基础使用说明仍以根目录 README 和 docs 文档为准。
 
+## v0.5.4（候选，未发布）
+
+状态：**候选，未发布**。打包产物为 r18（平台包 `ff4c0f6f…`、runner 组件包 `6b0c1700…`，见
+[upgrade-package-ledger.md](upgrade-package-ledger.md)）。**发布门槛：批次 C 矩阵未完成
+（C1–C4 + 兼容矩阵 M1–M7），且需用户明确指令**；未满足前不发布、不推 tag、不推 origin。
+
+> **发布包（尚未生成 Release 资产）**：r18 平台包 SHA256 `ff4c0f6fcc5389277b42fce5d4c4ddf247129ecf7d8d035b99bdd3687458b7db`；
+> runner 组件包 `smartx-upgrade-runner-v0.3.2.tar.gz` SHA256 `6b0c170019979fcedc0df76bfefd96a1f6ee102ee11f75925496f6edeaae8129`。
+> 平台包对 runner 的基线仍是**已发布 v0.3.1**——v0.5.4 的计划动作集已实测 ⊆ v0.3.1 的 25 个动作，
+> 现场无需先升 runner 即可直升。**runner v0.3.2 本火车首次随平台交付**（此前只存在于开发线）。
+
+### 更新摘要
+
+v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + runner 盲目重建 + 状态双写」
+换成业界三层形态——**runner 单写者状态出库、compose diff 收敛、runner 自换、应用回滚可产品化**。
+对客户最直接的三条：**升级不再重建不该动的容器**（prometheus / upgrade-runner 容器 ID 不变）、
+**失败能自动回滚到上一版且数据不丢**、**收窄了支持矩阵**（只支持目标布局 v0.5.2+，旧布局需先升 v0.5.3）。
+
+### 新增
+
+- **runner 状态文件** `upgrade-runner-state.json`：原子写 + 损坏自愈（坏文件改名留证），
+  lease/heartbeat 从业务 SQLite 出库，DB 心跳降级为 best-effort 兼容镜像——
+  消除「执行者与被升级对象共用一份可变资源」这一类根因（实测原会在 WAL 下阻塞 web-api 全部写操作）。
+- **单写者**：执行期 `task.json` 由 runner 独占，`tasks` 表改为 web-api 侧只读投影
+  （按内容指纹去重），runner 侧不再写业务库。
+- **compose diff 收敛（US-26 根治）**：`compose.apply` 三层防护——剔除 `upgrade-runner`
+  并记 warning、apply 前后输出差异清单与实际重建结果、apply 后断言执行者容器 ID 未变；
+  同时把 `--force-recreate` 禁令做成构建门禁（只允许 handoff / cutover helper / rollback 三条路径）。
+- **runner 自换组件升级**：runner 收包后自换镜像、自写 compose、handoff 后旧进程立即停止，
+  新实例负责收尾；web-api 完全退出编排（停机实测 0.75s、presence 回报 7.4s）。
+- **回滚机制（三场景）**：失败自动回滚（锚点驱动、只换应用不丢数据）、手动「回滚到上一版本」
+  （可回滚性判定 API + 任务化执行 + 前端入口）、整备回滚（数据回到升级前，显式确认并提示丢失窗口）。
+- **回滚锚点**：首次 `compose.apply` 前捕获上一版的版本、旧镜像 tag 与不可变镜像 ID、
+  备份路径与 SHA、升级前业务计数与迁移快照；落 `task.json` 与状态文件**持久段**
+  （活过租约释放），并被备份保留期策略强制豁免。
+- **compose 守卫随包投递 + `.env` 标记回填（US-39）**：守卫脚本进平台包 project 载荷，
+  `files.sync` 按运行中容器的 compose 标签回填变体标记（幂等，判不出就不写）。
+- **构建门禁两道**：计划动作词汇冻结（候选包编译器对各源版本编译的动作集必须 ⊆ 已发布 runner 动作集）
+  与迁移 expand-only 断言；矩阵一键取证脚本 `ops/evidence.sh`（升级前后各跑一次出判定表）。
+
+### 修复
+
+- **US-26（平台升级静默降级 runner）**：平台升级不再按包内基线 tag 重建现场更高的 runner。
+- **US-28 / #82（升级期数据库锁）**：runner 心跳与执行状态不再与 web-api 抢业务库写锁。
+- **回滚触发面缺陷（本轮沙箱实测发现）**：由 `compose.apply` 失败触发的自动回滚曾因健康门
+  拿到错误的动作参数而必然失败（每次都以 `rollback_failed` 收场），已修复并补回归用例。
+- **升级链路判定误报**：支持矩阵文档作为 US-01 门禁夹具时，新增「明确不支持」状态需要
+  强制写明到达路径（拒绝必须带出路），并修正两处被文档改动带出的回归。
+- **presence 用例的定时炸弹**：两处心跳新鲜度用例的时间戳原钉在模块导入时刻，
+  全量跑（>30s）必然假失败、污染回归基线，改为每例现算。
+
+### 工程与运维
+
+- 版本身份 bump 到 v0.5.4（`VERSION`、四个 compose 变体、后端默认版本、交付 README 同步），
+  `RUNNER_VERSION` 保持 v0.3.2 语义独立。
+- 打包收窄支持矩阵：`source_compatibility = [v0.5.2, v0.5.3, v0.5.4]`，
+  v0.5.4 起不再声明目录迁移与 legacy 清理 → 计划为**常量动作集**
+  （`backup.create → image.load×3 → files.sync → compose.override → compose.apply → health.http`）。
+- 退役登记（v0.5.5 候选）：`filesystem.prepare`、`task.migrate_runtime_state`、
+  `task.sync_runtime_state`、`compose.project_migrate`、`runner.*`、`legacy.cleanup`、
+  `post_cleanup.*` 等不再出现在 v0.5.4 默认计划模板中；**动作实现一律保留**，
+  供 v0.5.3 及更早包编译出的计划继续使用。
+- 新增矩阵执行清单 `docs/superpowers/plans/2026-10-06-upgrade-matrix-runbook.md`
+  与一键取证脚本 `ops/evidence.sh`（只读、容器只按显式名字枚举、离线可用）。
+
+### 验证说明（**待回填** — 批次 C 尚未执行）
+
+> 本节在矩阵完成前**只列待填格子，不预写任何结论**（AGENTS §11：禁止把计划中的验收写成已完成）。
+
+| 项 | 状态 |
+| --- | --- |
+| `.3` 后端全量 / 前端门禁 | 1075 tests / 唯一失败为环境限制（镜像有 docker CLI 无 socket）；前端 `tsc` EXIT=0、`vitest` 114 tests |
+| r18 打包门禁 | 已过：身份 / runner 交付一致性（13 PASS，30 动作）/ 迁移 expand-only / 动作词汇冻结 / `--force-recreate` 禁令 / 敏感文件 0 |
+| 打包侧静态证据 | 已过：3 个源版本计划动作集并集 6 个 ⊆ 已发布 v0.3.1 的 25 个动作；**已发布 v0.5.2 / v0.5.3 镜像内编译器**对 v0.5.4 manifest 的输出与候选编译器一致 |
+| 沙箱回滚演练（`.3`） | 已过：health 失败 → `rolled_back`；apply 失败 → `rolled_back`；`image.load` 失败 → 干净失败且不回滚 |
+| **C1** `.14` 全新安装 + v0.5.3→v0.5.4 直升（T3） | ⏳ 待填（用户执行，`ops/evidence.sh c1 before/after`） |
+| **C2** `.12` 组件升级 v0.3.1→v0.3.2 | ⏳ 待填（用户执行，`ops/evidence.sh c2`） |
+| **C3** 场景 B / 场景 C 真机手动回滚 | ⏳ 待填（用户执行，`ops/evidence.sh c3`） |
+| **C4** `.12` 平台直升回归 | ⏳ 待填（用户执行，`ops/evidence.sh c4`） |
+| 兼容矩阵 M1–M7 | ⏳ 待填（M1/M2 归本批次回归格） |
+| `post_upgrade` 触发面 | 单测覆盖（2026-10-06 决议：与已实测的 apply 触发回滚走同一代码路径，不强制沙箱复现） |
+
+### 已知问题与未解决事项
+
+- **US-17 关闭待 C3**：回滚三场景的代码与沙箱演练已完成，**真机手动回滚（场景 B/C）未执行**，
+  关闭前不得对外宣称"支持回滚"。
+- **支持矩阵收窄**：v0.5.4 只支持目标布局源（v0.5.2+）。`v0.5.0 / v0.5.1 / v0.5.1u1 / v0.5.1u2`
+  不支持直升 v0.5.4，需**先升 v0.5.3**（该链路已验证），再升 v0.5.4。
+  precheck 会拒绝并给出引导文案（`remediation`：结构化字段 + 检查项 message，双处落地）。
+- **runner v0.3.2 首次随平台交付**：此前只在开发线；本版起随 Release 一起发
+  （组件升级走旧编排是最后一次，后续平台升级的 runner 变更走自换）。现场 runner ≥ 包基线 v0.3.1 时不动它。
+- **迁移 registry 目前为空**：`applied_migrations` 快照与 contract 阻塞判定的字段与读取路径已就位，
+  等真有 registry 条目时自动生效；expand-only 门禁当前无条目可检。
+- **`.14` 的 Docker Hub 出口被 DNS sinkhole**：该机无法 `docker pull`，取证与升级一律走
+  离线包内镜像归档；是否为长期网络策略待确认。
+
 ## v0.5.3（已发布 2026-10-05）
 
 状态：**已发布（2026-10-05）**。tag `v0.5.3`（tag 名与源码 VERSION 一致）；GitHub Release 资产 = 平台包 `smartx-capacity-insight-upgrade-v0.5.3.tar.gz`（SHA256 `ef3fab9f…`）与 `.sha256` 侧车。**runner 不随发**：现场基线保持已发布 `v0.3.1`（Release 资产 `d10e15cf…`、DockerHub tag 在位），`v0.3.2`（含 US-24/#82 修复）随下一版交付（2026-09-28 用户决定，发布时维持）。平台三件套镜像 tag `v0.5.3`：web-api `6747dc1bf418`、collector-worker `8393442f2bd7`、frontend `d4d70803b432`（与 `.12` 链路验收实测镜像一致）。发布验收证据：`.12` 老客户整链路（v0.5.1+v0.3.0 → u2 → runner v0.3.1 → v0.5.2 → v0.5.3，全程 Release 资产，8 项验收全过，2026-10-04）；门禁与前端测试详见下方验证说明与 progress.md 同日记录。
