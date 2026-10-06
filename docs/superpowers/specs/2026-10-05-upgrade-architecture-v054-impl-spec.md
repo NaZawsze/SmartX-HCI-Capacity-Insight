@@ -339,6 +339,16 @@ bundle 包（带 observability 组件）额外 `health.prometheus`。
 | T11 | `.14` | 组件自换 | 中断 ≤30s、presence ≤60s、零编排 |
 | T12 | `.14` | 七步流程断言 | 计划无迁移/交接/legacy 动作 |
 
+## 11.1 r18 交付目录口径（2026-10-06 澄清）
+
+r18 以 `--skip-offline` 构建（仅平台包 + runner 组件包）——**不阻塞批次 C**：
+- C1 的「全新安装」步骤用的是 **v0.5.3 的离线交付目录**（`.3:/data/us37-verify/packages/latest/offline-delivery/`，
+  先装 v0.5.3 再直升 v0.5.4），不需要 v0.5.4 交付目录；
+- GitHub Release 资产按 v0.5.3 先例 = 平台包 + runner 组件包 + `.sha256`，不含交付目录；
+- 若将来需要 v0.5.4 交付目录（全新装 v0.5.4 的客户）：用**已门禁的 r18 包**跑
+  `build_offline_delivery.py`（OPS_RUNNER_BASELINE_TAG=**v0.3.2**——本火车首次随平台交付 runner，
+  交付物 compose 基线 = 本次发布的 runner），不得重跑 package.sh（docker build 不可复现，会换包 SHA）。
+
 ## 12. 实施顺序与依赖
 
 ```text
@@ -367,6 +377,11 @@ W5 场景 B/C（批次 B 平台侧）
 ### 14.1 实施陷阱（代码层）
 1. **场景 C 前先核实沙箱能力**：`script.run_sandboxed`（sandbox.py）能否执行 docker stop/cp/恢复——先写探针测试
    再定实现；若沙箱不允许，备选方案需重新评审（专用动作 = 词汇变更，或降级为手册产品化）。
+   **【2026-10-06 决议】post_upgrade 触发面的覆盖等级**：单测覆盖即为充分，不强制沙箱复现。理由：
+   ①`post_upgrade.*` 失败触发的回滚与已沙箱实测的 compose.apply 触发回滚**走同一条回滚代码路径**
+   （锚点驱动应用回滚），差异只在触发判定函数（已被单测覆盖）；②post_upgrade 动作是薄调度器，
+   自然失败无法在不注入故障的前提下复现，注入=单测已在做的事。批次 C 若在真机遇到自然发生的
+   post_upgrade 失败，顺带取证即可，不主动构造。
 2. **自换的"最后一步"语义**：`schedule_target_runtime_handoff` 之后的代码不会执行——一切收尾必须放新 runner
    启动路径（`_finish_runner_component_steps` 已具备），handoff 调用后不得再写任何状态。
 3. **自换窗口的状态文件竞争**：新旧 runner 短暂并存，os.replace 原子、last-writer-wins——presence 判定必须
