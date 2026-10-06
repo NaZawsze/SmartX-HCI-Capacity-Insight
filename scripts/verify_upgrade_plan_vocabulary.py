@@ -55,6 +55,11 @@ COMPILER_SOURCE = "backend/app/v2/upgrade/compiler.py"
 # 计划里出现这些动作类型就必然需要更高版本 runner（人类可读的失败原因补充）
 _NOTE_SOURCE_COMPILED_BELOW = "v0.5.3"
 
+#: v0.5.4 平台包每个源版本格的动作数（常量计划：backup.create + image.load×3 +
+#: files.sync + compose.override + compose.apply + health.http）。裁剪 apply 服务集合
+#: **不得**改动动作序列本身——只改 compose.apply 的 params.services。
+PLAN_ACTION_COUNT = 8
+
 
 class GateError(Exception):
     """门禁判定失败（区别于脚本自身崩溃）。"""
@@ -165,7 +170,13 @@ for source in sources:
         continue
     actions = []
     for action in plan.actions:
-        actions.append({"id": str(action.id), "type": str(action.type)})
+        params = getattr(action, "params", None) or {}
+        services = params.get("services") if isinstance(params, dict) else None
+        actions.append({
+            "id": str(action.id),
+            "type": str(action.type),
+            "services": sorted(str(item) for item in (services or [])),
+        })
     payload["by_source"][source] = actions
 print(marker + json.dumps(payload))
 '''
@@ -388,6 +399,41 @@ def verify(
                 "PASS",
                 "偏斜矩阵：" + "；".join(f"{source}={len(by_source[source])} 动作" for source in sorted(by_source)),
             )
+            # r21（2026-10-06 `.14` C1'' 实测）：apply 集合只允许含**本次真正变化**的服务。
+            # prometheus 曾在集合里 → `docker compose up` 按 config-hash 比对把它重建（T3 不过）；
+            # 而 config-hash 是 compose **版本相关**的算法，容器永久携带创建者的版本算出的值，
+            # apply 用的却是 runner 镜像内置的 compose —— 版本不一致必然不匹配。
+            # 因此这里把「apply 集合 = 三件套」升为硬断言：谁把 prometheus 放回去，门禁就红。
+            expected_apply = ["collector-worker", "frontend", "web-api"]
+            scope_bad: list[str] = []
+            count_bad: list[str] = []
+            for source in sorted(by_source):
+                items = by_source[source]
+                apply_services = None
+                for item in items:
+                    if item["type"] == "compose.apply":
+                        apply_services = item.get("services") or []
+                        break
+                if apply_services != expected_apply:
+                    scope_bad.append(f"{source}: {apply_services}")
+                if len(items) != PLAN_ACTION_COUNT:
+                    count_bad.append(f"{source}: {len(items)} 个（期望 {PLAN_ACTION_COUNT}）")
+            if scope_bad:
+                record(
+                    "apply_services_scope",
+                    "FAIL",
+                    "compose.apply 的服务集合必须只含本次真正变化的三件套"
+                    f"{expected_apply}，但这些源版本格不是：" + "；".join(scope_bad),
+                )
+            elif count_bad:
+                record("apply_services_scope", "FAIL", "动作序列长度变了：" + "；".join(count_bad))
+            else:
+                record(
+                    "apply_services_scope",
+                    "PASS",
+                    f"{len(by_source)} 个源版本格的 compose.apply.services 均为 {expected_apply}"
+                    f"（prometheus/upgrade-runner 均不在集合内），动作序列仍为 {PLAN_ACTION_COUNT} 个不变",
+                )
             legacy_sources = sorted(source for source in by_source if source < _NOTE_SOURCE_COMPILED_BELOW)
             if legacy_sources:
                 record(

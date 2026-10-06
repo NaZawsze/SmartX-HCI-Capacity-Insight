@@ -174,6 +174,73 @@ class SupportMatrixNarrowingTests(unittest.TestCase):
         self.assertNotIn("create_cleanup_task", post_upgrade, "没有 legacy 就没有 post-cleanup 任务")
 
 
+class ApplyServiceScopeTests(unittest.TestCase):
+    """r21：`components[].services` 必须把 prometheus 排除在 apply 集合之外。
+
+    2026-10-06 `.14` C1'' 实测：平台包升级**不改变** prometheus（镜像清单里没有它、
+    `compose.override` 也不为它写段），但它出现在服务清单里就会被编译器派生成
+    `compose.apply` 的服务集合，于是 `docker compose up` 按 config-hash 比对
+    **重建了 prometheus**（T3 判据不过）。而 config-hash 是 compose **版本相关**的
+    算法（实测 v2.26.1-4 与 v5.1.4 对同一份 compose 算出不同值），容器永久携带
+    创建者版本的 hash，apply 用的却是 runner 镜像内置的 compose → 版本不一致必然重建。
+
+    健康门不受影响：平台包的健康门是 `health.http` → `/api/system/health`，
+    其 `checks.prometheus` 真探活；平台包从来没有 `health.prometheus` 动作。
+    """
+
+    APPLY_SERVICES = ["collector-worker", "frontend", "web-api"]
+
+    def _apply_services(self, manifest: dict[str, Any]) -> list[str]:
+        for action in compile_execution_plan(manifest).actions:
+            if action.type == "compose.apply":
+                return sorted(action.params.get("services") or [])
+        raise AssertionError("计划里没有 compose.apply 动作")
+
+    def _platform_manifest(self) -> dict[str, Any]:
+        return _manifest()
+
+    def test_builder_excludes_prometheus_from_component_services(self) -> None:
+        """裁剪的是 prometheus；`upgrade-runner` 必须**留在**清单里。
+
+        它留在 `components[].services` 是必需的：`compose.override` 靠它把 runner 的
+        tag 钉在已发布基线上（US-26 的防线之一）；编译器在派生 `compose.apply` 时才
+        剔除它（`compiler.py:53`）。
+        """
+        services = _builder._apply_services_for_version(TARGET)
+        self.assertNotIn("prometheus", services)
+        self.assertIn("upgrade-runner", services)
+        self.assertEqual(sorted(s for s in services if s != "upgrade-runner"), self.APPLY_SERVICES)
+
+    def test_restart_services_still_lists_everything(self) -> None:
+        """`restart_services` 是"影响服务"的展示口径，不该被裁剪。"""
+        full = _builder._platform_services_for_version(TARGET)
+        self.assertIn("prometheus", full)
+        self.assertIn("upgrade-runner", full)
+
+    def test_apply_services_from_full_manifest_exclude_prometheus(self) -> None:
+        manifest = self._platform_manifest()
+        manifest["components"][0]["services"] = _builder._apply_services_for_version(TARGET)
+        self.assertEqual(self._apply_services(manifest), self.APPLY_SERVICES)
+
+    def test_putting_prometheus_back_would_reintroduce_the_recreate(self) -> None:
+        """反向证明：prometheus 回到服务清单 ⇒ 它就回到 apply 集合（T3 失效的机制）。"""
+        manifest = self._platform_manifest()
+        manifest["components"][0]["services"] = _builder._platform_services_for_version(TARGET)
+        self.assertIn("prometheus", self._apply_services(manifest))
+
+    def test_platform_package_has_no_prometheus_health_action(self) -> None:
+        """裁剪不得顺手删掉健康门——平台包的健康门本来只有 health.http。"""
+        types = [action.type for action in compile_execution_plan(self._platform_manifest()).actions]
+        self.assertIn("health.http", types)
+        self.assertNotIn("health.prometheus", types)
+
+    def test_action_sequence_length_unchanged(self) -> None:
+        """动作**类型集合**不变，且序列长度仍是 8（image.load 按镜像数出现 3 次）。"""
+        plan = compile_execution_plan(self._platform_manifest())
+        self.assertEqual({action.type for action in plan.actions}, REQUIRED_ACTIONS)
+        self.assertEqual(len(plan.actions), 8, [action.type for action in plan.actions])
+
+
 class ConstantPlanActionSetTests(unittest.TestCase):
     """锁动作集合（不是步数）。"""
 

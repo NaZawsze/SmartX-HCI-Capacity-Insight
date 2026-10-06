@@ -61,6 +61,23 @@ PLATFORM_IMAGES = [
 BASE_PLATFORM_SERVICES = ["web-api", "collector-worker", "frontend"]
 PROMETHEUS_SERVICE = "prometheus"
 UPGRADE_RUNNER_SERVICE = "upgrade-runner"
+#: 平台包 `components[].services` 里必须排除的服务（r21，2026-10-06 `.14` C1'' 实测）。
+#:
+#: 平台包升级**不改变 prometheus**：manifest 的镜像清单里没有它、`compose.override`
+#: 也不会为它写段（实测生成的 override 只有 web-api/collector-worker/frontend/runner 四段）。
+#: 它出现在服务清单里的唯一后果，是被编译器派生出 `compose.apply` 的服务集合
+#: （`backend/app/v2/upgrade/compiler.py:53`），于是 `docker compose up` 会按
+#: **config-hash 比对**把它重建一次。而 config-hash 是 **compose 版本相关**的算法：
+#: 容器永久携带"创建它的那个版本"算出的 hash，而 apply 用的是 **runner 镜像内置的
+#: compose**（实测 v2.26.1-4）。宿主 compose 与 runner 内置版本不一致时必然不匹配
+#: （`.14` 宿主 v5.1.4 vs runner 内 v2.26.1-4 → prometheus 被重建，T3 判据不过）。
+#:
+#: 因此 apply 集合只保留**本次真正变化**的三件套：prometheus 不在其中，
+#: hash 是否匹配都无关紧要。健康门不受影响——平台包的健康门本来就是
+#: `health.http` → `/api/system/health`，其 `checks.prometheus` 会真探活
+#: （`app/v2/system/health.py` 调 `PrometheusService.health().ok`），
+#: 平台包**从来就没有** `health.prometheus` 动作（需 `observability` 组件才生成）。
+APPLY_EXCLUDED_SERVICES = (PROMETHEUS_SERVICE,)
 LEGACY_PLATFORM_CAPABILITIES = [
     "backup.create",
     "image.load",
@@ -668,6 +685,20 @@ def _platform_services_for_version(version: str) -> list[str]:
     return services
 
 
+def _apply_services_for_version(version: str) -> list[str]:
+    """平台包 manifest 声明的服务集合 = 全量服务去掉 `APPLY_EXCLUDED_SERVICES`。
+
+    供 `components[].services` 使用（编译器据此派生 `compose.override` / `compose.apply`
+    的服务集合）。`restart_services` 仍用全量——那是"影响服务"的对外展示口径，
+    与"升级要不要动它"无关，不该被裁剪。
+    """
+    return [
+        service
+        for service in _platform_services_for_version(version)
+        if service not in APPLY_EXCLUDED_SERVICES
+    ]
+
+
 def _supported_source_versions(min_version: str, target_version: str) -> list[str]:
     # B5b：门槛版本起来源下限统一抬到目标布局下限，避免任何调用点拿到宽矩阵。
     min_version = _effective_min_version(min_version, target_version)
@@ -1157,7 +1188,7 @@ def build_package(
         "components": [
             {
                 "type": "platform",
-                "services": _platform_services_for_version(version),
+                "services": _apply_services_for_version(version),
                 "images": manifest_images,
             }
         ],
