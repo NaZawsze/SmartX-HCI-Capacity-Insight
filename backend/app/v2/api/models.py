@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from secrets import token_hex
-from typing import Annotated, Optional, Union
+from typing import Annotated, List, Optional, Union
 from urllib.parse import quote
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Response, UploadFile
