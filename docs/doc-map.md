@@ -112,6 +112,7 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | 文档 | 说明 | 关联任务 |
 | --- | --- | --- |
 | [upgrade-chain.md](upgrade-chain.md) | **升级链路权威版（2026-09-27 定稿）**：现场主路径 `v0.5.2 → v0.5.3`（无 runner 步骤）/ 从 v0.5.1 起的完整链路（唯一一次 runner 组件升级在 u2，升到已发布 v0.3.1）/ 平台↔runner 配对表 / 顺序铁律 / 与验收矩阵的对应（M3-08 依赖 v0.3.2 交付、M3-10 N/A）。**链路与顺序有冲突时以本文为准。** | pending-tasks #2、AGENTS §7 |
+| [2026-10-06-upgrade-matrix-runbook.md](superpowers/plans/2026-10-06-upgrade-matrix-runbook.md) | **v0.5.4 矩阵执行清单（用户亲自在 `.12`/`.14` 执行）**：机器地址与登录模式修正、C1–C4 每格的前置/操作/逐条判据/取证命令、场景 B/C 手动回滚清单。矩阵操作前必读。 | Phase 68 批次 C |
 | [v0.5.0-to-v0.5.2-upgrade-plan.md](v0.5.0-to-v0.5.2-upgrade-plan.md) | 总体升级计划（source of truth）。 | — |
 | [v0.5.1u2-to-v0.5.2-upgrade-plan-issue.md](v0.5.1u2-to-v0.5.2-upgrade-plan-issue.md) | u2 -> v0.5.2 段修复规划：修复方案、实施顺序、包版本策略、验收标准。 | 根 Phase 32~48 |
 | [v0.5.1u2-to-v0.5.2-upgrade-issues.md](v0.5.1u2-to-v0.5.2-upgrade-issues.md) | u2 -> v0.5.2 段问题现象与现场证据。 | 根 Phase 32~48 |
