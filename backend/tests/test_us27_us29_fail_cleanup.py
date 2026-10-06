@@ -119,40 +119,60 @@ class FailCleanupHintTest(unittest.TestCase):
 
 
 class ManualRollbackRetiredTest(unittest.TestCase):
-    """US-29：人工回滚下线，但**失败自动回滚路径必须完好**。"""
+    """人工回滚与失败自动回滚的存活检查。
+
+    历史：US-29（2026-09-28）曾下线人工回滚；**2026-10-07 用户批准推翻该决定**
+    （impl-spec §W5-场景B 决议）：人工回滚恢复为产品能力（v0.5.4 起支持，锚点驱动，
+    与场景 B 产品入口同一套任务化机制），旧的内联编排退役。
+    不变的是：**失败自动回滚路径必须完好**。
+    """
 
     def test_manual_rollback_routes_still_exist(self) -> None:
-        """保留路由仅为老客户端不 404（不删实现，避免破坏历史任务与在途客户端）。"""
+        """回滚路由存在：按任务回滚 + 产品入口 + 恢复回滚。"""
         from app.v2.api.admin.upgrade import router
 
         paths = {route.path for route in router.routes}
         self.assertIn("/api/admin/upgrade/rollback/{task_id}", paths)
+        self.assertIn("/api/admin/upgrade/rollback", paths)
         self.assertIn("/api/admin/upgrade/recovery/{task_id}/rollback", paths)
 
-    def test_automatic_rollback_path_untouched(self) -> None:
-        """失败自动回滚能力必须仍然存在（`rolled_back` 终态 + 恢复步骤 + 恢复项目文件动作）。"""
+    def test_manual_rollback_is_anchor_driven_taskized_flow(self) -> None:
+        """按任务回滚 = 放行到锚点驱动的任务化回滚；旧内联编排不得复活。"""
         import inspect
 
         from app.v2.upgrade.service.execution import ExecutionMixin
 
         rollback_source = inspect.getsource(ExecutionMixin.rollback)
-        self.assertIn("rollback_config", rollback_source, "回滚恢复步骤不得被 US-29 移除")
-        self.assertIn("rolled_back", rollback_source, "rolled_back 终态不得被 US-29 移除")
-        # 自动回滚的三个步骤定义仍在（执行失败时由服务层触发的路径所依赖）
+        self.assertIn("start_manual_rollback", rollback_source, "succeeded 任务必须放行到场景 B 任务化回滚")
+        self.assertIn("latest_rollback_anchor", rollback_source, "放行前必须确认锚点在位")
+        self.assertIn("没有平台回滚锚点", rollback_source, "无锚点 400 必须带指引（v0.5.3 及更早不支持）")
+        self.assertIn("_ensure_no_active_upgrade", rollback_source, "单飞守卫仍作用于人工回滚入口（US-23）")
+        # 旧内联编排（恢复项目文件 + 裸 docker compose up）不得回来
+        self.assertNotIn("self.executor.run", rollback_source, "web-api 不得再内联执行 docker 命令回滚")
+        self.assertNotIn("project_backup_path", rollback_source, "旧内联恢复路径不得复活")
+
+    def test_automatic_rollback_path_untouched(self) -> None:
+        """失败自动回滚能力必须仍然存在（runner 侧锚点回滚 + 计数守卫 + rolled_back 终态）。"""
+        import inspect
+
+        from app.upgrade_runner.engine import UpgradeEngine
+        from app.v2.upgrade.service.execution import ExecutionMixin
+
+        engine_source = inspect.getsource(UpgradeEngine)
+        self.assertIn("_anchor_based_rollback", engine_source, "锚点驱动的自动回滚不得被移除")
+        self.assertIn("business_count_guard", engine_source, "回滚计数守卫不得被移除")
+        self.assertIn('task["status"] = "rolled_back"', engine_source, "rolled_back 终态不得被移除")
         execute_source = inspect.getsource(ExecutionMixin.execute_task)
         self.assertIn('task["status"] = "failed"', execute_source, "执行失败仍应走失败分支（其内含自动回滚）")
-        # 单飞守卫仍作用于人工回滚入口（US-23 不因 US-29 下线而失效）
-        self.assertIn("_ensure_no_active_upgrade", rollback_source)
 
-    def test_ui_no_longer_exposes_rollback_button(self) -> None:
-        """前端不得再暴露「执行回滚」按钮（人工回滚已下线）。"""
+    def test_ui_no_longer_exposes_recovery_rollback_button(self) -> None:
+        """恢复操作区不得提供回滚按钮（那是 recovery 语义，US-29 撤下的入口不再回来）；
+        人工回滚的产品入口在升级中心的「回滚到上一版本」。"""
         shared = Path(__file__).resolve().parents[2] / "frontend" / "src" / "components" / "service" / "shared.tsx"
         text = shared.read_text(encoding="utf-8")
         self.assertNotIn('onRecovery("rollback")', text, "恢复操作区不得再提供回滚按钮")
-        self.assertIn('onRecovery("fail")', text, "「标记失败」必须保留（它是 US-29 后的唯一出路）")
+        self.assertIn('onRecovery("fail")', text, "「标记失败」必须保留（它是失败收尾的出路）")
         self.assertIn('onRecovery("continue")', text, "「继续执行」必须保留")
-        # 自动回滚的内部步骤名仍需存在
-        self.assertIn("rollback_healthcheck", text)
 
 
 if __name__ == "__main__":

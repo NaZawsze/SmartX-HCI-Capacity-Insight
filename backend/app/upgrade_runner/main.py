@@ -446,13 +446,19 @@ def _action_progress(task: dict[str, Any], status: str) -> int:
 
 def _task_message(task: dict[str, Any]) -> str:
     status = str(task.get("status") or "")
+    manual_rollback = str(task.get("kind") or "") == "manual_rollback"
     if status == "success":
         return "升级执行完成"
     if status == "rolled_back":
+        # 场景 B：手动回滚成功不是「升级失败」——文案必须让用户看懂这是他主动发起的回滚
+        if manual_rollback:
+            return f"已回滚到 {task.get('target_version') or '上一版本'}"
         return "升级失败，已自动回滚"
     if status == "recovery_required":
         return "升级需要人工恢复处理"
     if status == "rollback_failed":
+        if manual_rollback:
+            return "手动回滚失败，需要人工处理"
         return "升级自动回滚失败"
     if status == "failed":
         return str(task.get("error") or "升级执行失败")

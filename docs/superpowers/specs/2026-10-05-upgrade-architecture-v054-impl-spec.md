@@ -434,3 +434,31 @@ W5 场景 B/C（批次 B 平台侧）
   无锚点/未执行任务，文案带指引）；②前端升级详情页恢复回滚入口（availability=true 时显示）；
   ③单测：succeeded+锚点放行、无锚点 400、回滚后计数守卫断言。
 - 真机复测：.12 场景 B（available=true → rollback → v0.5.3 → 计数守卫）→ 场景 C → 矩阵闭环。
+
+#### W5-场景B 实施记录（2026-10-07，代码落地）
+
+- **execution.py::rollback() 重写为分发器**：未执行→400「升级尚未执行」；单飞守卫先行；
+  `success` + 真实平台包任务 + 锚点在位 → **委托 `start_manual_rollback()`**（与产品入口同一套
+  判定/单飞/审计/任务化执行），返回新建回滚任务的 public 视图；无锚点→400 带「v0.5.4 起支持/
+  v0.5.3 及更早不支持/可用整备回滚」指引；其余状态→400 带状态出路指引。
+  **旧内联编排（恢复项目文件 + 裸 docker compose up）退役**：它绕过 runner/健康门/计数守卫，
+  且 files.sync 后 project compose 已是新版，"恢复"出来的是新版配置。
+  门禁测试 `test_us27_us29_fail_cleanup.ManualRollbackRetiredTest` 改锁新契约
+  （`self.executor.run` 不得出现于 rollback 源=内联编排不得复活）。
+- **runner 侧收尾**（engine `_finalize_manual_rollback`）：手动回滚任务的计划只有
+  override→apply→health，**计数守卫由引擎在收尾统一过**（`rollback_count_guard` 落任务证据），
+  通过→终态 `rolled_back`（投影映射 success）；失败→`rollback_failed`+recovery（决议「失败进 recovery」）。
+  `main._task_message` 对 `kind=manual_rollback` 特化文案（回滚成功不显示「升级失败，已自动回滚」）。
+- **锚点纪律**：手动回滚任务在首次 apply 前也会捕获锚点（供**该任务自身**失败自动回滚），
+  但带 `captured_for: "manual_rollback"` 标记；web-api `latest_rollback_anchor()` 两个分支
+  （状态文件持久段/task.json 兜底）都跳过带标记锚点——否则回滚完成后判定会把「指回新版本」
+  当成「回滚到上一版本」（available 重新变 true、target=新版本）。`rollback_protected_backups`
+  走同一判定，保护对象始终是**上一次真实升级**的备份。
+- **判定门修正**：`_is_real_platform_package_task` 的 `package_filename` 判据补 `filename` 兜底
+  （raw task.json 只存 `filename`，public 视图才合成 `package_filename`；否则按任务回滚永远判非平台包）。
+- 单测：`test_manual_rollback_scenario_b.py`（锚点跳过×3 + 按任务回滚端点×5）、
+  `test_platform_rollback.py::EngineManualRollbackFinalizeTests`（rolled_back 守卫通过/回归失败进 recovery/
+  只增不减）、`test_v2_upgrade.py`（无锚点 400 带指引，替代旧内联回滚用例）。
+- `.3` 容器 harness 全量：**1105 tests，1 失败**（`test_v2_upgrade` docker-socket 格，既有 harness 限制，
+  HEAD 基线同样失败）——本组改动新增失败 0。另一处全量发现并当场修掉：macOS tar 把 AppleDouble
+  `._*` 垃圾带进测试树，炸掉 5 个 ops 脚本检查（impl-spec §14.2「传输垃圾」的现实重演，已清理）。

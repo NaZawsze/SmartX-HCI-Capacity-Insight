@@ -698,7 +698,14 @@ services:
             self.assertFalse(precheck["ok"])
             self.assertIn("本地 Docker 镜像不存在：prom/prometheus:v2.55.1", next(check for check in precheck["checks"] if check["name"] == "images")["message"])
 
-    def test_rollback_restores_project_files_and_removes_runtime_override(self) -> None:
+    def test_rollback_of_succeeded_task_without_anchor_is_rejected_with_guidance(self) -> None:
+        """W5-场景B 决议：人工回滚恢复为产品能力（v0.5.4 起支持，锚点驱动）。
+
+        无锚点任务（如内联执行的老任务）400 带指引；旧的内联编排
+        （恢复项目文件 + 裸 docker compose up）退役——它绕过 runner、健康门与计数守卫。
+        """
+        from fastapi import HTTPException
+
         from app.v2.config import V2Settings
         from app.v2.database import V2Database
         from app.v2.tasks.service import TaskService
@@ -738,14 +745,14 @@ services:
             )
             self.assertTrue(service.precheck(task["task_id"])["ok"])
             started = service.start(task["task_id"])
-            self.assertEqual((project_path / "docker-compose.offline.yml").read_text(encoding="utf-8"), "new-compose\n")
-            self.assertTrue(Path(started["override_path"]).exists())
+            self.assertEqual(started["status"], "succeeded")
 
-            rolled_back = service.rollback(task["task_id"])
-            self.assertEqual(rolled_back["status"], "rolled_back")
-            self.assertEqual((project_path / "docker-compose.offline.yml").read_text(encoding="utf-8"), "old-compose\n")
-            self.assertFalse(Path(started["override_path"]).exists())
-            self.assertTrue(any(command[-1:] == ["web-api"] for command in service.executor.commands if command[:3] == ["docker", "compose", "-f"]))
+            with self.assertRaises(HTTPException) as ctx:
+                service.rollback(task["task_id"])
+            self.assertEqual(ctx.exception.status_code, 400)
+            detail = str(ctx.exception.detail)
+            self.assertIn("没有平台回滚锚点", detail)
+            self.assertIn("整备回滚", detail)
 
     def test_cancel_pending_upgrade_prevents_runner_execution_and_marks_task_cancelled(self) -> None:
         from app.v2.config import V2Settings

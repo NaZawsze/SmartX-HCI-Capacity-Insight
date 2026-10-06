@@ -136,6 +136,61 @@ class AnchorSourceTests(unittest.TestCase):
             settings = V2Settings(data_root=Path(tmp), secret_key="anchor")
             self.assertIsNone(latest_rollback_anchor(settings))
 
+    def test_manual_rollback_anchor_is_not_the_availability_source(self) -> None:
+        """场景 B 回滚任务自己捕获的锚点（captured_for=manual_rollback）描述的是
+        「回滚出发时还是新版本」的状态——它只服务该任务的失败自动回滚，
+        绝不能成为可回滚性判定的事实源，否则回滚完成后会把「指回新版本」
+        当成「回滚到上一版本」报给用户。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = V2Settings(data_root=root, secret_key="anchor")
+            manual_anchor = {**ANCHOR, "previous_version": "v0.5.4", "captured_for": "manual_rollback", "captured_at": "2026-10-07T03:00:00+00:00"}
+            # 状态文件里最新的锚点是手动回滚任务的，真实升级锚点更旧
+            _write_state_file(settings, {"manual-rollback-1": manual_anchor, "upgrade-1": ANCHOR})
+            anchor = latest_rollback_anchor(settings)
+        self.assertEqual(anchor["anchor_task_id"], "upgrade-1")
+        self.assertEqual(anchor["previous_version"], "v0.5.3")
+
+    def test_manual_rollback_anchor_skipped_in_task_file_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = V2Settings(data_root=root, secret_key="anchor")
+            manual_dir = root / "upgrades" / "manual-rollback-1"
+            manual_dir.mkdir(parents=True)
+            (manual_dir / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": "manual-rollback-1",
+                        "kind": "manual_rollback",
+                        "platform_rollback_anchor": {**ANCHOR, "previous_version": "v0.5.4", "captured_for": "manual_rollback", "captured_at": "2026-10-07T03:00:00+00:00"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            real_dir = root / "upgrades" / "upgrade-1"
+            real_dir.mkdir(parents=True)
+            (real_dir / "task.json").write_text(
+                json.dumps({"task_id": "upgrade-1", "platform_rollback_anchor": ANCHOR}),
+                encoding="utf-8",
+            )
+            anchor = latest_rollback_anchor(settings)
+        self.assertEqual(anchor["anchor_task_id"], "upgrade-1")
+
+    def test_only_manual_rollback_anchor_exists_returns_none(self) -> None:
+        """只有手动回滚锚点（还没发生过 v0.5.4+ 平台升级）→ 判定按无锚点处理。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = V2Settings(data_root=root, secret_key="anchor")
+            manual_anchor = {**ANCHOR, "captured_for": "manual_rollback"}
+            _write_state_file(settings, {"manual-rollback-1": manual_anchor})
+            task_dir = root / "upgrades" / "manual-rollback-1"
+            task_dir.mkdir(parents=True)
+            (task_dir / "task.json").write_text(
+                json.dumps({"task_id": "manual-rollback-1", "platform_rollback_anchor": manual_anchor}),
+                encoding="utf-8",
+            )
+            self.assertIsNone(latest_rollback_anchor(settings))
+
     def test_third_copy_is_not_created(self) -> None:
         """架构纪律：不写 app/rollback-anchor.json——锚点只有 task.json 与状态文件两处。"""
         source = (ROOT / "app" / "v2" / "upgrade" / "service" / "manual_rollback.py").read_text(encoding="utf-8")
@@ -264,6 +319,107 @@ class StartManualRollbackTests(unittest.TestCase):
                 ).fetchone()
         self.assertIsNotNone(row, "tasks 表应有该任务（web-api 独占写入）")
         self.assertEqual(row[1], "upgrade")
+
+
+class LegacyRollbackEndpointTests(unittest.TestCase):
+    """`POST /api/admin/upgrade/rollback/{task_id}`（W5-场景B 决议 ①）。
+
+    决议：succeeded+有锚点任务**放行**到锚点驱动的任务化回滚（与产品入口同一套机制）；
+    400 拦截保留给无锚点/未执行任务，文案带指引；旧的内联编排（恢复项目文件 +
+    裸 docker compose up）退役——它绕过 runner、健康门与计数守卫。
+    """
+
+    def _write_platform_task(self, root: Path, task_id: str, *, status: str, started_at: str | None = "2026-10-07T02:00:00+00:00") -> None:
+        task_dir = root / "upgrades" / task_id
+        task_dir.mkdir(parents=True, exist_ok=True)
+        task = {
+            "task_id": task_id,
+            "status": status,
+            "target_version": "v0.5.4",
+            "package_filename": "upgrade.tar.gz",
+            "package_sha256": "0" * 64,
+            "manifest": {
+                "schema_version": "2",
+                "version": "v0.5.4",
+                "components": [
+                    {"type": "platform", "services": ["web-api"], "images": [{"service": "web-api", "image": "repo/web-api:v0.5.4"}]}
+                ],
+            },
+        }
+        if started_at:
+            task["started_at"] = started_at
+        (task_dir / "task.json").write_text(json.dumps(task), encoding="utf-8")
+
+    def test_succeeded_task_with_anchor_delegates_to_taskized_rollback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = _service(root, _Executor())
+            _write_state_file(service.settings, {"upgrade-1": ANCHOR})
+            self._write_platform_task(root, "upgrade-1", status="success")
+            public = service.rollback("upgrade-1")
+            stored = json.loads((root / "upgrades" / public["task_id"] / "task.json").read_text(encoding="utf-8"))
+        self.assertNotEqual(public["task_id"], "upgrade-1", "放行 = 新建任务化回滚任务，不是改原任务")
+        self.assertEqual(stored["kind"], "manual_rollback")
+        self.assertEqual(stored["target_version"], "v0.5.3")
+        self.assertEqual(public["status"], "pending")
+
+    def test_succeeded_task_without_anchor_is_rejected_with_guidance(self) -> None:
+        from fastapi import HTTPException
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = _service(root, _Executor())
+            self._write_platform_task(root, "upgrade-legacy", status="success")
+            with self.assertRaises(HTTPException) as caught:
+                service.rollback("upgrade-legacy")
+        self.assertEqual(caught.exception.status_code, 400)
+        detail = str(caught.exception.detail)
+        self.assertIn("没有平台回滚锚点", detail)
+        self.assertIn("v0.5.3", detail)
+        self.assertIn("整备回滚", detail)
+
+    def test_not_started_task_is_still_rejected(self) -> None:
+        from fastapi import HTTPException
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = _service(root, _Executor())
+            self._write_platform_task(root, "upgrade-1", status="precheck_passed", started_at=None)
+            with self.assertRaises(HTTPException) as caught:
+                service.rollback("upgrade-1")
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("升级尚未执行", str(caught.exception.detail))
+
+    def test_non_success_status_is_rejected_with_guidance(self) -> None:
+        from fastapi import HTTPException
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = _service(root, _Executor())
+            self._write_platform_task(root, "upgrade-1", status="rolled_back")
+            with self.assertRaises(HTTPException) as caught:
+                service.rollback("upgrade-1")
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("不能手动回滚", str(caught.exception.detail))
+
+    def test_active_upgrade_still_guards_before_delegation(self) -> None:
+        """单飞守卫（US-23）先于放行判定——回滚不能与在跑的升级并行。"""
+        from fastapi import HTTPException
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = _service(root, _Executor())
+            _write_state_file(service.settings, {"upgrade-1": ANCHOR})
+            self._write_platform_task(root, "upgrade-1", status="success")
+            other = root / "upgrades" / "upgrade-running"
+            other.mkdir(parents=True)
+            (other / "task.json").write_text(
+                json.dumps({"task_id": "upgrade-running", "status": "running"}), encoding="utf-8"
+            )
+            with self.assertRaises(HTTPException) as caught:
+                service.rollback("upgrade-1")
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("正在执行或需要恢复", str(caught.exception.detail))
 
 
 class FullRollbackScenarioCTests(unittest.TestCase):

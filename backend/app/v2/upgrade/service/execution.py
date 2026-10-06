@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 import threading
 from datetime import timedelta
 from pathlib import Path
@@ -486,63 +485,46 @@ class ExecutionMixin:
 
 
     def rollback(self, task_id: str) -> dict[str, Any]:
-        # US-29：人工回滚已下线（2026-09-28 用户决定）。保留实现仅为老客户端/历史任务兼容，
-        # 不再作为产品化操作暴露；UI 已隐藏入口。**失败自动回滚路径（execute_task 异常分支）不受影响**。
+        """按任务 ID 发起回滚（前端任务详情「手动回滚」入口 / 老客户端兼容）。
+
+        场景 B 实施决议（2026-10-07 用户批准，**推翻 US-29 的下线决定**）：人工回滚
+        恢复为产品能力，v0.5.4 起支持——锚点由 v0.3.2+ runner 在平台升级时捕获，
+        v0.5.3 及更早的升级没有锚点、不提供手动回滚（CHANGELOG/前端文案带此标注）。
+
+        succeeded 任务放行到**锚点驱动的任务化回滚**（与场景 B 产品入口
+        `POST /api/admin/upgrade/rollback` 同一套机制：override 旧 tag → apply →
+        health → 业务计数守卫，由 runner 执行，单飞/审计全适用），返回新建的回滚任务。
+        旧的内联编排（恢复项目文件 + 裸 docker compose up）就此退役：它绕过 runner、
+        健康门与计数守卫，且 files.sync 之后 project compose 已是新版，"恢复"出来的
+        是新版配置——对 runner 架构的任务是错误语义。
+        """
+        from .intake import _is_real_platform_package_task
+        from .manual_rollback import latest_rollback_anchor
+
         task_dir = self.settings.upgrades_dir / task_id
         task = _read_task_file(task_dir)
         if not task.get("started_at"):
             raise HTTPException(status_code=400, detail="升级尚未执行，不能回滚。")
         self._ensure_no_active_upgrade(task_id)
-        services = sorted(_task_services(task["manifest"]))
-        logs = list(task.get("logs") or [])
-        steps = [
-            _step("rollback_config", "恢复升级前镜像配置", "running"),
-            _step("rollback_restart", "重启回滚服务", "pending"),
-            _step("rollback_healthcheck", "执行回滚健康检查", "pending"),
-        ]
-        task["status"] = "rollback_running"
-        task["rollback_started_at"] = _now().isoformat()
-        task["steps"] = steps
-        _save_task_file(task_dir, task)
-        self.tasks.update_task(task_id, status=TaskStatus.RUNNING, progress=10, message="正在执行手动回滚", logs=logs, steps=steps)
-        try:
-            project_backup = Path(task["project_backup_path"]) if task.get("project_backup_path") else None
-            if project_backup and project_backup.is_dir():
-                for source in sorted(project_backup.rglob("*")):
-                    if source.is_dir():
-                        continue
-                    relative = source.relative_to(project_backup)
-                    target = self.project_path / relative
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(source, target)
-                logs.append(f"已恢复项目文件：{project_backup}")
-            override_path = Path(task["override_path"]) if task.get("override_path") else None
-            if override_path and override_path.exists():
-                override_path.unlink()
-                logs.append(f"已移除运行时覆盖配置：{override_path}")
-            steps = _replace_step(steps, "rollback_config", "succeeded")
-            steps = _replace_step(steps, "rollback_restart", "running")
-            self.tasks.update_task(task_id, progress=60, message="正在重启回滚服务", logs=logs, steps=steps)
-            self.executor.run(["docker", "compose", "-f", self.settings.compose_file, "--project-name", self.settings.compose_project_name, "up", "-d", "--no-deps", *services], cwd=self.project_path)
-            steps = _replace_step(steps, "rollback_restart", "succeeded")
-            steps = _replace_step(steps, "rollback_healthcheck", "succeeded", "回滚健康检查占位通过")
-            task["status"] = "rolled_back"
-            task["rollback_finished_at"] = _now().isoformat()
-            task["steps"] = steps
-            task["logs"] = logs
-            task["updated_at"] = _now().isoformat()
-            _save_task_file(task_dir, task)
-            self.tasks.update_task(task_id, status=TaskStatus.SUCCESS, progress=100, message="回滚完成", logs=logs, steps=steps)
-            return self._public_task(task)
-        except Exception as exc:
-            task["status"] = "rollback_failed"
-            task["error"] = str(exc)
-            task["steps"] = steps
-            task["logs"] = logs + [str(exc)]
-            task["updated_at"] = _now().isoformat()
-            _save_task_file(task_dir, task)
-            self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message=str(exc), logs=task["logs"], steps=steps)
-            raise
+        if str(task.get("status") or "") == "success" and _is_real_platform_package_task(task):
+            if latest_rollback_anchor(self.settings):
+                return self._public_task(self.start_manual_rollback())
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "该升级没有平台回滚锚点：v0.5.4 起的平台升级（upgrade-runner v0.3.2+）"
+                    "才会捕获锚点，v0.5.3 及更早的升级不支持手动回滚。"
+                    "需要数据回到升级前请使用整备回滚。"
+                ),
+            )
+        status = str(task.get("status") or "")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"任务当前状态（{status or '未知'}）不能手动回滚：失败任务请先走恢复流程，"
+                "已回滚的任务无需重复操作。"
+            ),
+        )
 
 
     def execute_task(self, task: dict[str, Any]) -> dict[str, Any]:

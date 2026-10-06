@@ -158,11 +158,18 @@ def capture_platform_rollback_anchor(
     executor: Any,
     target_version: str,
     checkpoint_sink: Any = None,
+    captured_for: str = "",
 ) -> dict[str, Any]:
     """捕获平台升级的回滚锚点。**必须在首次 `compose.apply` 之前调用**。
 
     与组件锚点（`capture_component_rollback_anchor`）同形态，但服务集合不同：
     平台锚点要记的是**三件套的旧镜像**，因为回滚就是把三件套指回旧 tag。
+
+    `captured_for` 标记锚点的用途来源（如 `manual_rollback`）：场景 B 的手动回滚任务
+    也会流过首次 compose.apply，它捕获的锚点描述的是「回滚出发时的状态」（= 新版本）。
+    这个锚点给任务自身的失败自动回滚用是对的，但**不能**成为 web-api
+    「可回滚性判定」的事实源——否则回滚完成后判定会把「指回新版本」当成
+    「回滚到上一版本」报给用户（impl-spec §W5-场景B 决议）。
     """
     project = str(getattr(context, "compose_project", "") or "")
     services = _apply_scope_services(task)
@@ -208,6 +215,8 @@ def capture_platform_rollback_anchor(
         },
         "captured_at": _now(),
     }
+    if captured_for:
+        anchor["captured_for"] = str(captured_for)
     missing = [name for name in ("previous_version", "backup") if not anchor[name]]
     if missing:
         # 不抛：锚点缺失只影响回滚能力，不该让升级本身失败（与组件锚点同一姿态）。

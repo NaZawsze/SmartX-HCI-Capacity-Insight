@@ -51,17 +51,30 @@ ROLLBACK_STEP_DEFS = (
 
 
 def latest_rollback_anchor(settings: Any) -> dict[str, Any] | None:
-    """最近一次平台回滚锚点（状态文件持久段优先，task.json 兜底）。"""
+    """最近一次平台回滚锚点（状态文件持久段优先，task.json 兜底）。
+
+    跳过 `captured_for == "manual_rollback"` 的锚点：那是场景 B 回滚任务出发时
+    捕获的「当时还是新版本」的状态，只服务该任务自身的失败自动回滚。若让它
+    进入判定，回滚完成后 available 会重新变 true、target 指向**新版本**——
+    把「指回新版本」包装成「回滚到上一版本」（impl-spec §W5-场景B 决议）。
+    跳过不是丢弃：真正的回滚事实源始终是**上一次真实平台升级**捕获的锚点。
+    """
     state = read_state_file(settings)
     anchors = state.get("rollback_anchors") if isinstance(state, dict) else None
     if isinstance(anchors, dict) and anchors:
-        newest = max(
-            anchors.items(),
-            key=lambda item: str((item[1] or {}).get("captured_at") or ""),
-        )
-        payload = newest[1]
-        if isinstance(payload, dict) and payload.get("kind") == "platform":
-            return {**payload, "anchor_source": "state_file", "anchor_task_id": newest[0]}
+        candidates = [
+            (task_id, payload)
+            for task_id, payload in anchors.items()
+            if isinstance(payload, dict)
+            and payload.get("kind") == "platform"
+            and payload.get("captured_for") != "manual_rollback"
+        ]
+        if candidates:
+            task_id, payload = max(
+                candidates,
+                key=lambda item: str((item[1] or {}).get("captured_at") or ""),
+            )
+            return {**payload, "anchor_source": "state_file", "anchor_task_id": task_id}
 
     upgrades_dir = Path(settings.upgrades_dir)
     best: dict[str, Any] | None = None
@@ -71,7 +84,11 @@ def latest_rollback_anchor(settings: Any) -> dict[str, Any] | None:
         except (OSError, ValueError):
             continue
         anchor = task.get("platform_rollback_anchor")
-        if not isinstance(anchor, dict) or anchor.get("kind") != "platform":
+        if (
+            not isinstance(anchor, dict)
+            or anchor.get("kind") != "platform"
+            or anchor.get("captured_for") == "manual_rollback"
+        ):
             continue
         if best is None or str(anchor.get("captured_at") or "") > str(best.get("captured_at") or ""):
             best = {**anchor, "anchor_source": "task_file", "anchor_task_id": task_file.parent.name}
@@ -218,7 +235,11 @@ class ManualRollbackMixin:
             "anchor_task_id": (anchor or {}).get("anchor_task_id", ""),
             "captured_at": (anchor or {}).get("captured_at", ""),
             "scope": "application_only",
-            "note": "仅回滚应用、不动数据；数据回到升级前请使用整备回滚",
+            # 版本标注是 W5-场景B 决议的硬要求：用户必须能看出这是 v0.5.4 起的新能力
+            "note": (
+                "仅回滚应用、不动数据（v0.5.4 起支持，需本次升级捕获的回滚锚点）；"
+                "数据回到升级前请使用整备回滚"
+            ),
         }
 
     def _active_upgrade_task_id(self) -> str:
@@ -264,7 +285,10 @@ class ManualRollbackMixin:
             "scope": "application_and_data",
             "data_loss_window": backup.get("data_loss_window", ""),
             "requires_confirmation": True,
-            "note": "整备回滚会用升级前备份覆盖 SQLite/Prometheus，丢失升级时刻至今的采集数据",
+            "note": (
+                "整备回滚会用升级前备份覆盖 SQLite/Prometheus，丢失升级时刻至今的采集数据"
+                "（v0.5.4 起支持，需本次升级捕获的回滚锚点与升级前备份）"
+            ),
         }
 
     def start_full_rollback(self, *, confirm_data_loss: bool = False) -> dict[str, Any]:

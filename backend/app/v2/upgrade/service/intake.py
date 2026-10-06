@@ -263,4 +263,7 @@ def _is_real_platform_package_task(task: dict[str, Any]) -> bool:
         return False
     if "platform" not in _component_types_from_task(task):
         return False
-    return bool(task.get("package_filename") and (task.get("package_sha256") or task.get("uploaded_sha256") or _task_package_sha256(task)))
+    # package_filename 只在 public 视图里合成（taskfile.py:79）；raw task.json 存的是 filename。
+    # 两个形状都要能判——rollback() 等直接读 task.json 的调用方依赖这一点。
+    has_package_file = bool(task.get("package_filename") or task.get("filename"))
+    return bool(has_package_file and (task.get("package_sha256") or task.get("uploaded_sha256") or _task_package_sha256(task)))

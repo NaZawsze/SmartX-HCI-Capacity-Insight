@@ -663,6 +663,114 @@ class EngineRollbackFlowTests(_EngineCase):
         self.assertIn("没有旧镜像 tag", result["error"])
 
 
+def _manual_rollback_task(*, pre_counts: dict[str, int] | None = None) -> dict[str, Any]:
+    """场景 B 的任务化回滚任务（B8 产出形态）：override→apply→health + 原升级锚点。
+
+    计划里**没有**计数守卫动作——守卫由引擎在收尾统一过（impl-spec §W5-场景B 决议）。
+    """
+    return {
+        "task_id": "manual-rollback-1",
+        "kind": "manual_rollback",
+        "status": "pending",
+        "target_version": "v0.5.3",
+        "manifest": {"version": "v0.5.3", "package_type": "manual_rollback"},
+        "rollback_anchor": {
+            "kind": "platform",
+            "previous_version": "v0.5.3",
+            "pre_upgrade": {"counts": pre_counts or {"towers": 3, "clusters": 2, "vms": 10, "volumes": 20}},
+        },
+        "execution_plan": {
+            "protocol_version": 1,
+            "required_capabilities": [],
+            "actions": [
+                {
+                    "id": "rollback-override",
+                    "type": "compose.override",
+                    "params": {
+                        "services": ["web-api"],
+                        "images": [{"service": "web-api", "image": "repo/web-api:v0.5.3"}],
+                    },
+                    "status": "pending",
+                    "attempt": 0,
+                    "checkpoint": {},
+                    "result": {},
+                },
+                {
+                    "id": "rollback-apply",
+                    "type": "compose.apply",
+                    "params": {"services": ["web-api"]},
+                    "status": "pending",
+                    "attempt": 0,
+                    "checkpoint": {},
+                    "result": {},
+                },
+                {
+                    "id": "rollback-healthcheck",
+                    "type": "health.http",
+                    "params": {"url": "http://web-api:8000/api/system/health", "attempts": 1, "delay_seconds": 0},
+                    "status": "pending",
+                    "attempt": 0,
+                    "checkpoint": {},
+                    "result": {},
+                },
+            ],
+        },
+    }
+
+
+class EngineManualRollbackFinalizeTests(_EngineCase):
+    """场景 B 收尾（W5-场景B 决议）：计数守卫（只增不减）→ 终态 rolled_back，失败进 recovery。"""
+
+    def test_success_ends_rolled_back_with_guard_passing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_compose(root, {"web-api": "repo/web-api:v0.5.3"})
+            _write_db(root)
+            executor = _executor_with_containers({"web-api": "repo/web-api:v0.5.3"})
+            engine, _store, sinks, _ = self._engine(root, self._handlers(), _manual_rollback_task(), executor=executor)
+            result = engine.run()
+        self.assertEqual(result["status"], "rolled_back")
+        self.assertEqual(result["recovery_status"], "rolled_back")
+        self.assertEqual(result["available_recovery_actions"], [])
+        self.assertTrue(result["rollback_count_guard"]["ok"], result["rollback_count_guard"])
+        self.assertTrue(any("业务计数守卫通过" in item for item in result["logs"]))
+        self.assertTrue(result["finished_at"])
+        # 手动回滚任务也会捕获自身锚点（供失败自动回滚），但必须带用途标记
+        self.assertEqual(result["platform_rollback_anchor"]["captured_for"], "manual_rollback")
+        self.assertEqual(result["platform_rollback_anchor"]["previous_version"], "v0.5.3")
+        self.assertEqual(len(sinks), 1)
+        self.assertEqual(sinks[0][1]["platform_rollback_anchor"]["captured_for"], "manual_rollback")
+
+    def test_count_guard_regression_marks_rollback_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_compose(root, {"web-api": "repo/web-api:v0.5.3"})
+            _write_db(root, towers=3)
+            executor = _executor_with_containers({"web-api": "repo/web-api:v0.5.3"})
+            task = _manual_rollback_task(pre_counts={"towers": 99})
+            engine, _store, _sinks, _ = self._engine(root, self._handlers(), task, executor=executor)
+            result = engine.run()
+        self.assertEqual(result["status"], "rollback_failed")
+        self.assertEqual(result["recovery_status"], "recovery_required")
+        self.assertEqual(result["available_recovery_actions"], ["rollback", "fail"])
+        self.assertIn("数据变少", result["error"])
+        self.assertFalse(result["rollback_count_guard"]["ok"])
+        self.assertEqual(result["rollback_count_guard"]["regressions"]["towers"], {"before": 99, "after": 3})
+
+    def test_growth_since_upgrade_does_not_fail_the_guard(self) -> None:
+        """只增不减：回滚窗口内采集照常进行，新增业务行不是回退。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_compose(root, {"web-api": "repo/web-api:v0.5.3"})
+            _write_db(root, towers=5)
+            executor = _executor_with_containers({"web-api": "repo/web-api:v0.5.3"})
+            task = _manual_rollback_task(pre_counts={"towers": 3})
+            engine, _store, _sinks, _ = self._engine(root, self._handlers(), task, executor=executor)
+            result = engine.run()
+        self.assertEqual(result["status"], "rolled_back")
+        self.assertTrue(result["rollback_count_guard"]["ok"])
+
+
 class RollbackVocabularyTests(unittest.TestCase):
     def test_no_new_plan_actions_introduced(self) -> None:
         """A5 只复用现有动作实现，不新增计划词汇（W7 动作冻结的前提）。"""

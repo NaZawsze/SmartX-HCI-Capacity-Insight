@@ -5578,3 +5578,43 @@ v0.5.3 出发 —— **覆盖不到**这一格，偏偏它是现场存量最大�
 **当前回归基线（容器口径）**：`Ran 1079 tests`（= 1067 + 交付构建器 4 + 取证脚本纪律 8），
 `failures=1`（唯一失败 `test_start_can_submit_task_for_runner_and_runner_executes_it`：
 镜像有 docker CLI 无 socket，唯一环境限制），`errors=0`。
+
+## 2026-10-07 场景 B 实施：人工回滚恢复为产品能力（W5-场景B 决议落地）
+
+决议（用户批准，推翻 US-29 下线）：人工回滚恢复，v0.5.4 起支持（锚点由 v0.3.2+ runner
+在平台升级时捕获），实施记录见 impl-spec「W5-场景B 实施记录」。
+
+改动（13 文件，commit 见 git log）：
+- `execution.py::rollback()` 重写为分发器：succeeded 平台任务+锚点 → 委托 `start_manual_rollback()`
+  （任务化、runner 执行）；无锚点/未执行/其它状态 400 带指引；旧内联编排退役。
+- runner `engine._finalize_manual_rollback`：手动回滚收尾统一过计数守卫（`rollback_count_guard`
+  落证据），通过→终态 `rolled_back`；失败→`rollback_failed`+recovery。`main._task_message`
+  对 manual_rollback 特化文案。
+- 锚点纪律：手动回滚任务自捕锚点带 `captured_for=manual_rollback`，`latest_rollback_anchor()`
+  两分支都跳过——否则回滚完成后判定会把「指回新版本」当「回滚到上一版本」。
+- `_is_real_platform_package_task` 补 `filename` 兜底（raw task.json 无 `package_filename`）。
+- 门禁测试 `ManualRollbackRetiredTest` 改锁新契约；`api.md`、CHANGELOG（v0.5.4 起支持标注）同步。
+
+### 测试证据（`.3` 容器 harness，`--network=none`，web-api v0.5.3 镜像）
+
+- 定向：`test_manual_rollback_scenario_b` + `test_platform_rollback` → **Ran 53, OK**；
+  `test_us27_us29_fail_cleanup` → **Ran 9, OK**；`test_v2_upgrade`+`test_upgrade_single_flight` → 61 中 1 失败（见下）。
+- 全量：**Ran 1105 tests，failures=1, errors=0, skipped=7**——唯一失败即既有环境限制
+  `test_start_can_submit_task_for_runner_and_runner_executes_it`（容器有 docker CLI 无 socket，
+  progress.md 上轮基线同款）。对照 HEAD 基线（同 harness 跑 `/data/headbase2`）：20 个失败全为
+  树漂移/环境产物，本组改动**新增失败 0**。
+- `scripts/verify_api_docs.py` → `OK: api.md 82 条与后端 81 条路由一致`，EXIT=0。
+
+### 当场修掉的坑
+
+- macOS tar 直传把 AppleDouble `._*` 垃圾带进 `/data/c3fix`，炸掉 5 个 ops 脚本检查
+  （UnicodeDecodeError / "cannot execute binary file"）——impl-spec §14.2「传输垃圾」的现实重演；
+  `find -name "._*" -delete` 清理后 46 tests OK。**以后 tar 传树必须 `COPYFILE_DISABLE=1`
+  或传后清 `._*`**。
+- `/data/c3fix` 树漂移（缺 `models.py` 等若干 HEAD 改动、根脚本陈旧）曾造成 15F+6E 假回归，
+  全树同步后收敛到基线；排查时先用「HEAD 版本替换被疑文件」定是否存在因果。
+
+### 未做（不当作已验证）
+
+- `.12` 场景 B 真机复测（available=true → rollback → v0.5.3 → 计数守卫 → 再直升回 v0.5.4）
+  与场景 C 真机演练——下一步，真机做。

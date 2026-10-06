@@ -166,6 +166,10 @@ class UpgradeEngine:
                     executor=self.context["action_context"].executor,
                     target_version=str(task.get("target_version") or ""),
                     checkpoint_sink=self.checkpoint_sink,
+                    # 场景 B：手动回滚任务捕获的锚点描述「回滚出发时的状态」（= 新版本），
+                    # 只供本任务失败自动回滚用；打上标记让 web-api 的可回滚性判定跳过它，
+                    # 否则回滚完成后判定会把「指回新版本」当成「回滚到上一版本」。
+                    captured_for="manual_rollback" if str(task.get("kind") or "") == "manual_rollback" else "",
                 )
                 task["platform_rollback_anchor"] = anchor
                 task["logs"] = [
@@ -237,6 +241,12 @@ class UpgradeEngine:
                 self._mirror_store = TaskStore(Path(mirror_dir))
             task = self._save(task)
 
+        # 场景 B 收尾（impl-spec §W5-场景B 决议）：手动回滚任务的计划只有
+        # override→apply→health，业务计数守卫在引擎统一过，终态是 rolled_back 而非 success。
+        # 放在 US-32 tag 对账**之前**：手动回滚不做 files.sync，compose 没动过，对账与它无关。
+        if str(task.get("kind") or "") == "manual_rollback":
+            return self._finalize_manual_rollback(task)
+
         # US-32：所有动作完成、project 文件同步之后，把 compose 里的 runner tag
         # 对齐到计划声明的现场镜像。放在这里是因为再往后没有任何动作会覆盖 compose，
         # 而平台升级的 project 同步会把包内基线写进来（实测 v0.3.1）。
@@ -255,6 +265,38 @@ class UpgradeEngine:
         task["recovery_status"] = "none"
         task["available_recovery_actions"] = []
         task["finished_at"] = _now()
+        return self._save(task)
+
+    def _finalize_manual_rollback(self, task: dict[str, Any]) -> dict[str, Any]:
+        """场景 B 收尾：业务计数守卫（只增不减）→ 终态 rolled_back。
+
+        守卫失败 ≠ 应用回滚失败：服务已经在旧版本上健康运行，但数据面出现回退
+        （应用回滚本不该动数据），必须停下进 recovery 让人工判断，失败证据完整保留
+        （impl-spec §W5-场景B 决议「失败进 recovery」）。
+        """
+        action_context = self.context.get("action_context")
+        database = Path(str(getattr(action_context, "data_path", "") or "")) / "smartx.db"
+        anchor = task.get("rollback_anchor") or {}
+        guard = business_count_guard(anchor, database)
+        task["rollback_count_guard"] = guard
+        target = str(task.get("target_version") or anchor.get("previous_version") or "上一版本")
+        if not guard["ok"]:
+            message = (
+                "回滚后业务计数守卫未通过（数据变少）："
+                + json.dumps(guard["regressions"], ensure_ascii=False)
+            )
+            task["status"] = "rollback_failed"
+            task["recovery_status"] = "recovery_required"
+            task["error"] = message
+            task["available_recovery_actions"] = ["rollback", "fail"]
+            task["finished_at"] = _now()
+            task["logs"] = [*task.get("logs", []), message]
+            return self._save(task)
+        task["status"] = "rolled_back"
+        task["recovery_status"] = "rolled_back"
+        task["available_recovery_actions"] = []
+        task["finished_at"] = _now()
+        task["logs"] = [*task.get("logs", []), f"已回滚到 {target}，业务计数守卫通过"]
         return self._save(task)
 
     def _should_auto_rollback(self, task: dict[str, Any], failed_action: dict[str, Any]) -> bool:
