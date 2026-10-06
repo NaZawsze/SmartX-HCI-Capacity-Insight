@@ -847,3 +847,51 @@ docker compose -f docker-compose.offline.yml --project-name smartx-capacity-insi
 **教训（US-03 同类）**：`.3` 冗余不是 09-30 导入带来的（该次 SQLite 合并 0 行），是更早
 迁移历史存量；而"验证数据包导入"的旧测试曾断言「未配置集群的行也能插进去」——
 **测试编码了错误行为**。新语义落地时必须审一遍旧断言的语义前提。
+
+## 2026-10-06 「路由存在 ≠ 端点可用」：三道防线都拦不住的响应模型序列化缺陷
+
+**发现经过**：`.14` 跑 v0.5.3 → v0.5.4 直升（任务 `upgrade-af65f9088136f8d8`）**成功**，
+T3 判据全绿，但紧接着要用的 C3 前置接口
+`GET /api/admin/upgrade/rollback-availability` 与 `.../full-rollback-availability`
+**每次调用 500**。这不是环境问题，也不是 runner 版本问题——**在 r19 镜像上直接复现**：
+
+```
+PydanticUserError: TypeAdapter[Annotated[UpgradeRollbackAvailabilityResponse…]]
+  is not fully defined … then call `.rebuild()`
+```
+
+**根因**：`app/v2/api/models.py` 只导入 `Annotated, Optional, Union`，**漏 `List`**；
+B8/B9 新增的响应模型用了 `List[str]`。该文件有 `from __future__ import annotations`，
+注解是**惰性求值**的字符串，运行时由 pydantic 在**模块命名空间**里解析 →
+找不到 `List` → 模型never fully defined → FastAPI 序列化响应时抛错 → 500。
+容器内扫描全部模型：恰好这 2 个解析失败，其余只是缺必填字段的正常校验错误。
+
+**为什么三道既有防线都没拦住**：
+
+| 防线 | 盲区 |
+| --- | --- |
+| 服务层单测（`test_v2_upgrade` 等） | 直接调 service，**不经过 FastAPI 响应模型序列化**，未解析的注解不会暴露 |
+| `scripts/verify_api_docs.py` | 只做 `api.md` ↔ 后端路由的**双向比对**，不校验响应模型能否构造 |
+| B7 前后端门禁 | 跑构建与前端测试，没有对**这两个端点**发真实请求 |
+
+**结论（写死成规矩）**：
+1. 「路由存在」不等于「端点可用」。新增带 `response_model` 的端点，必须有**端点级测试**
+   （TestClient 真打，断言非 5xx），否则等于没测。
+2. 响应模型的注解必须能在运行时解析：新增 `List`/`Dict`/`tuple` 等名字时，
+   要么显式导入，要么用内置泛型（`list[str]`）。`from __future__ import annotations`
+   让漏导入变成**运行时**错误，而不是导入期错误——更隐蔽。
+3. 第四道防线：`backend/tests/test_api_models_resolve.py` 遍历全部 BaseModel 做
+   `model_rebuild()` + `model_validate({})`，凡 `PydanticUndefinedAnnotation` 即 FAIL，
+   并与「缺必填字段」这类正常校验错误区分开。按用户决策做成**每轮全量都跑的单测**
+   （比只在打包时跑覆盖更密）。
+4. 通用教训：**单测打服务层 ≠ 覆盖了 HTTP 层**。凡涉及框架层行为（序列化、依赖注入、
+   中间件、鉴权），必须有一层测试真正穿过那一层。
+
+**配套的打包纪律（同一轮踩到，一并记）**：
+- `.3` 的 **`/tmp` 是 7.9G tmpfs 且长期 95% 满**；身份门禁用
+  `tempfile.TemporaryDirectory()` 解包 242M 包 → `Errno 28`。
+  **打包必须带 `TMPDIR=/data/build-tmp`**。这同时纠正了一个误判：
+  早前「宿主直跑全量」出现的 `磁盘空间不足 /tmp 可用 459 MiB` 并非测试的固有环境限制，
+  而是 `/tmp` 被占满；容器内跑不共享宿主 tmpfs，所以看不到。
+- 打包前必须核对「**打包点之后有没有动 `backend/app` 的提交**」：r18 就是打在一个
+  缺陷修复之前，只能作废重打（AGENTS §12）。

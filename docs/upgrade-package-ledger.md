@@ -613,11 +613,15 @@ Current execution rule: Python, dependencies, tests, builds and full-chain valid
 
 ### 未完成（不得当作已验证）
 
-`## 2026-10-06 v0.5.4 平台包 r19（Phase 68 批次 C5 重建；**当前唯一有效候选**，未发布）
+`## 2026-10-06 v0.5.4 平台包 r19（Phase 68 批次 C5 重建）—— **⚠️ SUPERSEDED by r20，勿用**
+
+> **作废原因**：`.14` C1 真机实测发现 v0.5.4 的**场景 B/C 回滚可用性端点每次调用 500**
+> （`PydanticUserError`：漏导入 `List`，见 `dcbbb22`）。r19 两份产物都含此缺陷，
+> 用它跑矩阵会重现该缺陷。取代者：**r20**。
 
 | 项 | 值 |
 | --- | --- |
-| Status | **CANDIDATE**（当前唯一有效候选；发布等用户指令，`.14`/`.12` 矩阵未完成前不得发布） |
+| Status | **SUPERSEDED**（含回滚端点 500 缺陷，勿用于任何真机） |
 | 构建 | `.3:/data/r19`（`git init -b dev2` + 单提交 `3ec024e`，内容 = 本地 dev2 HEAD，含 `542906e` 修复），`bash ops/package.sh --branch dev2 --no-fetch --skip-offline --yes --output-dir /data/r19-out` |
 | 平台包 | `.3:/data/r19-out/latest/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `52df80b7bca7cbf3d1d93205a6dc281731b6a9601da23b69107f5231b6b5c3a9` |
 | runner 组件包 | `.3:/data/r19-out/latest/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `f0c87265ba765b0e4d2a6f11366300601971ceb70577f95d92f14b68bab404bf` |
@@ -653,3 +657,49 @@ Current execution rule: Python, dependencies, tests, builds and full-chain valid
 
 `.14` 全新安装 + v0.5.3→v0.5.4 直升（T3）、`.12` 组件升级 v0.3.1→v0.3.2、场景 B/C 真机手动回滚、
 `.12` 老链路回归、离线交付目录（本次 `--skip-offline`，用户口径：不作为阻断项）。
+
+## 2026-10-06 v0.5.4 平台包 r20（**当前唯一有效候选**；修掉回滚端点 500，未发布）
+
+| 项 | 值 |
+| --- | --- |
+| Status | **CANDIDATE**（当前唯一有效候选；矩阵未完成、用户未下令前不得发布） |
+| 构建 | `.3:/data/r20-src`（`git clone` 自 `git bundle`，**含全部 18 个 tag 与完整历史**，HEAD `dcbbb22`），`TMPDIR=/data/build-tmp bash ops/package.sh --branch dev2 --no-fetch --skip-offline --yes --output-dir /data/r20-out` |
+| 平台包 | `.3:/data/r20-out/latest/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `b3548dfa9abfbaa32163600a4f122a24a924f3a151fae3301a2f7d7b6fd37167` |
+| runner 组件包 | `.3:/data/r20-out/latest/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `05d8e015368928d93d41d8ba6881de5153e048578791c6653395e2df95fbaf47` |
+| 相对 r19 | **两包都重切**（用户指令）：`models.py` 补 `List` 导入（`dcbbb22`）。runner 镜像实际只随包 `app/upgrade_runner/*` + `app/upgrade_protocol/*`（10 个模块，**不含 `app/v2/api/models.py`**），但仍两包同代重切，避免代际不一致 |
+| runner 基线 | 平台包对 runner 的基线仍是**已发布 v0.3.1**；常量计划动作集（并集 6 个）⊆ v0.3.1 的 25 个动作 |
+
+### 门禁（全部 PASS）
+
+| 门禁 | 结果 |
+| --- | --- |
+| 平台包身份门禁 | PASS |
+| runner 交付一致性 | **13 PASS 0 FAIL**（包内 `RUNNER_VERSION=v0.3.2`、源码树指纹 `9404e4ff…`、`actions.py` md5 `cd15b38a…`、**30 动作**） |
+| 迁移 expand-only | PASS |
+| 动作词汇冻结 | PASS（并集 6 ⊆ 25；每格 8 动作；`--force-recreate` 禁令 PASS） |
+| **`compiler_changed`** | **PASS：编译器相对 v0.5.3 无变更**（构建树带完整 tag，不再是 r18/r19 的假 WARN） |
+| 敏感文件扫描 | 0 命中 |
+
+### 产物级验证（不靠推断）
+
+| 核实 | 结果 |
+| --- | --- |
+| 平台包 web-api 镜像内 `models.py` 含 `List` 导入 | **1 命中** |
+| **在构建出的 web-api 镜像里真打两个端点** | `rollback-availability` → **HTTP 200**；`full-rollback-availability` → **HTTP 200**（r19 镜像上这两项是 500） |
+
+### 打包环境两个坑（`.3`，均已定位）
+
+1. **`/tmp` 是 7.9G tmpfs 且长期 95% 满**（仅剩 424M）。身份门禁用
+   `tempfile.TemporaryDirectory()` 解包 242M 包（展开 >1G）→ `OSError: Errno 28`。
+   **对策：打包必须带 `TMPDIR=/data/build-tmp`**（`/` 有 24G）。
+   连带解释：早前"宿主直跑全量"出现的 `磁盘空间不足：/tmp/... 可用 459.01 MiB`
+   并不是测试的固有环境限制，而是 `/tmp` 被占满所致；容器内跑因不共享宿主 tmpfs 而不出现。
+2. **Docker Hub 出口曾被 DNS sinkhole**（`auth.docker.io` → Facebook 段 IPv6），
+   期间无法 `docker build`；同日恢复（`docker pull python:3.12-slim` 成功）。
+   镜像本身不会因此丢失——它在升级包内，`docker load` 可复原。
+
+### 未完成（不得当作已验证）
+
+C1'（`.14` 重装 v0.5.3 后用 r20 重跑直升）、C2/C4（`.12`，r20 的 runner 包）、
+C3 场景 B/C、`.14` 组件升级与同版本重装产锚点、C0（v0.5.2 源格 + 数据完整性）、
+离线交付目录（本次 `--skip-offline`；`.3:/data/delivery-v052`、`v053` 已就绪，`v054` 待用 r20 重打）。
