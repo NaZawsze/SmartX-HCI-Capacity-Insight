@@ -577,11 +577,16 @@ Current execution rule: Python, dependencies, tests, builds and full-chain valid
 
 **未覆盖（如实记录）**：本轮起点为**全新空库**，未导入业务基线，故「升级前后数据逐位不变」这一项**沿用 2026-10-01 r9 在 `.12` 的实测证据**（556/89588/1 逐位不变、`.env` sha 未变），本轮不复验。两台的 Tower 凭据为占位密钥，**自动采集未验证**。
 
-## 2026-10-06 v0.5.4 平台包 r18（Phase 68 批次 C5；候选，未发布）
+## 2026-10-06 v0.5.4 平台包 r18（Phase 68 批次 C5；候选，未发布）—— **⚠️ SUPERSEDED by r19，勿用**
+
+> **作废原因（2026-10-06 事后自查发现）**：r18 打在提交 `1e03365`（版本 bump）之后，但**晚于**修复「apply 触发回滚健康门缺陷」的提交 `542906e`。已逐镜像核实：
+> r18 的 runner 组件包镜像与平台包 web-api 镜像内 `PLATFORM_HEALTH_PARAMS` **命中数均为 0**，即两份产物**都不含该修复**——用它执行 C2 组件升级，会把带缺陷的 runner 装进 `.12`。
+> 教训：修复提交与打包之间必须核对「打包点之后的提交是否动了 `backend/app`」（AGENTS §12）。
+> **取代者：r19（见下条）**。r18 的 SHA 一律不得用于任何真机操作。
 
 | 项 | 值 |
 | --- | --- |
-| Status | **CANDIDATE**（发布等用户指令；`.14`/`.12` 矩阵未完成前不得发布） |
+| Status | **SUPERSEDED**（勿用于 C1–C4 或任何真机） |
 | 构建 | `.3:/data/r18`（`git init -b dev2` + 单提交 `101f70f`），`bash ops/package.sh --branch dev2 --no-fetch --skip-offline --yes --output-dir /data/r18-out` |
 | 平台包 | `.3:/data/r18-out/latest/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`（242M）<br>SHA256 `ff4c0f6fcc5389277b42fce5d4c4ddf247129ecf7d8d035b99bdd3687458b7db` |
 | runner 组件包 | `.3:/data/r18-out/latest/smartx-upgrade-runner-v0.3.2.tar.gz`（81M）<br>SHA256 `6b0c170019979fcedc0df76bfefd96a1f6ee102ee11f75925496f6edeaae8129` |
@@ -608,5 +613,43 @@ Current execution rule: Python, dependencies, tests, builds and full-chain valid
 
 ### 未完成（不得当作已验证）
 
-`.14` 全新安装 + v0.5.3→v0.5.4 直升（T3）、组件升级 v0.3.1→v0.3.2 格、场景 A 另两个失败点、
-场景 B/C 真机手动回滚、`.12` 老链路回归、离线交付目录（本次 `--skip-offline`）。
+`## 2026-10-06 v0.5.4 平台包 r19（Phase 68 批次 C5 重建；**当前唯一有效候选**，未发布）
+
+| 项 | 值 |
+| --- | --- |
+| Status | **CANDIDATE**（当前唯一有效候选；发布等用户指令，`.14`/`.12` 矩阵未完成前不得发布） |
+| 构建 | `.3:/data/r19`（`git init -b dev2` + 单提交 `3ec024e`，内容 = 本地 dev2 HEAD，含 `542906e` 修复），`bash ops/package.sh --branch dev2 --no-fetch --skip-offline --yes --output-dir /data/r19-out` |
+| 平台包 | `.3:/data/r19-out/latest/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `52df80b7bca7cbf3d1d93205a6dc281731b6a9601da23b69107f5231b6b5c3a9` |
+| runner 组件包 | `.3:/data/r19-out/latest/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `f0c87265ba765b0e4d2a6f11366300601971ceb70577f95d92f14b68bab404bf` |
+| 源码 | dev2 HEAD（含 `542906e` A5 健康门修复、`acb8771` 测试修复、批次 B 全部、`1e03365` 版本 bump） |
+| runner 基线 | 平台包对 runner 的基线仍是**已发布 v0.3.1**；v0.5.4 常量计划动作集（并集 6 个）⊆ v0.3.1 的 25 个动作 |
+
+### 门禁（全部 PASS）
+
+| 门禁 | 结果 |
+| --- | --- |
+| 平台包身份门禁 | PASS（镜像内 `VERSION=v0.5.4`、runner 基线 `v0.3.1`） |
+| runner 交付一致性 | **13 PASS 0 FAIL**（包内 `RUNNER_VERSION=v0.3.2`、源码树指纹 `9404e4ff…`、`actions.py` md5 `cd15b38a…`、**30 动作**） |
+| 迁移 expand-only | PASS（registry 0 条目） |
+| 动作词汇冻结 | PASS（3 源版本并集 6 个 ⊆ 已发布 25 个；每格 8 动作；`--force-recreate` 禁令 PASS，3 处全在允许路径） |
+| 敏感文件扫描 | 0 命中 |
+
+### 产物新鲜度核实（本次新增的必查项）
+
+| 核实 | 结果 |
+| --- | --- |
+| runner 组件包镜像内 `PLATFORM_HEALTH_PARAMS` | **2 处命中**（r18 为 0） |
+| 平台包 web-api 镜像内 同上 | **2 处命中**（r18 为 0） |
+| runner 镜像动作数 | 30（= 仓库 v0.3.2 动作表） |
+
+### 两条 WARN 的处置（与 r18 同）
+
+| WARN | 处置 |
+| --- | --- |
+| `plan_source_compiled_downstream`（源版本 v0.5.2 低于 v0.5.3） | 该格计划由源端老编译器生成；已用**已发布 v0.5.2 镜像内编译器**编译 v0.5.4 manifest 实测，动作集与候选编译器一致（8 动作）。真机覆盖归 C1/C4 |
+| `compiler_changed`（`fatal: bad revision 'v0.5.3..HEAD'`） | **构建树缺 tag 的假 WARN**：本仓库 `git diff v0.5.3..HEAD -- backend/app/v2/upgrade/compiler.py` 为 0 行变更。正式发布构建树应带完整 git 历史（可用 `git bundle` 传 `.3`，避免删 tag 绕过门禁） |
+
+### 未完成（不得当作已验证）
+
+`.14` 全新安装 + v0.5.3→v0.5.4 直升（T3）、`.12` 组件升级 v0.3.1→v0.3.2、场景 B/C 真机手动回滚、
+`.12` 老链路回归、离线交付目录（本次 `--skip-offline`，用户口径：不作为阻断项）。

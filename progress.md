@@ -5462,3 +5462,53 @@ C1（`.14` 直升，14 条判据 + 基线对照表）、C2（`.12` 组件升级�
    （`OPS_RUNNER_BASELINE_TAG=v0.3.2`），**不得重跑 package.sh**（docker build 不可复现会换 SHA）。
 
 **发布状态不变：r18 在矩阵补齐 + 用户明确指令前不得发布。**
+
+## 2026-10-06 批次 C5 收尾：r18 作废并重建 r19（自查发现打包点晚于缺陷修复）
+
+**触发**：用户问「都做完了？还有什么问题吗」，我按 AGENTS §12「动过交付物构成的代码必须重新打包」
+自查「r18 打包点（提交 `1e03365`）之后是否还有动 `backend/app` 的提交」——
+发现 `542906e`（apply 触发回滚的健康门修复，改 `engine.py`）**晚于 r18**。
+
+**逐镜像核实（不是推断）**：
+
+| 核实 | r18 | r19 |
+| --- | --- | --- |
+| runner 组件包镜像内 `PLATFORM_HEALTH_PARAMS` | **0 命中** | **2 命中** |
+| 平台包 web-api 镜像内 同上 | **0 命中** | **2 命中** |
+| B9 `full_rollback_availability` / B10 `rollback_protected_backups` | 2 / 2（正常，打包点在 B9/B10 之后） | — |
+
+影响：若用 r18 跑 **C2 组件升级**，会把带缺陷的 v0.3.2 runner 装进 `.12`；
+其「apply 失败触发的自动回滚」会以 `rollback_failed` 收场。`.12` 后续的 C4 又跑在这台机上。
+故 **r18 全部作废，禁止用于任何真机**。
+
+**r19 重建（唯一有效候选）**：
+
+- 树：`.3:/data/r19`，`git init -b dev2` + 单提交 `3ec024e`，内容 = 本地 dev2 HEAD。
+  建树后自检 `grep -c PLATFORM_HEALTH_PARAMS engine.py` = **2**，确认修复在树内。
+- 命令：`bash ops/package.sh --branch dev2 --no-fetch --skip-offline --yes --output-dir /data/r19-out`
+  （`OPS_PUBLISHED_RUNNER_PACKAGE` = 已发布 v0.3.1 组件包，动作词汇门禁不拿自己构建的包当基线）。
+- 平台包 SHA256 `52df80b7bca7cbf3d1d93205a6dc281731b6a9601da23b69107f5231b6b5c3a9`
+- runner 组件包 SHA256 `f0c87265ba765b0e4d2a6f11366300601971ceb70577f95d92f14b68bab404bf`
+- 门禁：身份 PASS；runner 交付一致性 **13 PASS 0 FAIL**（源码树指纹 `9404e4ff…`、`actions.py` md5 `cd15b38a…`、
+  **30 动作**）；迁移 expand-only PASS；动作词汇冻结 PASS（并集 6 ⊆ 25、每格 8、`--force-recreate` 禁令 PASS）；
+  敏感文件 0。两条 WARN 处置同 r18（`plan_source_compiled_downstream` 已用已发布 v0.5.2 镜像内编译器实测；
+  `compiler_changed` 为构建树缺 tag 的假 WARN，仓库侧编译器 0 行变更）。
+- ledger 新增 r19 条目并把 r18 标 **SUPERSEDED**；runbook 与 CHANGELOG 的包路径/SHA 全部改指 r19。
+
+**顺带清理 `.3`（本机，允许）**：
+- `check-deps` 曾因磁盘不足（19 GB < 20 GB 门槛）拒绝打包。清掉的都是我自己留下的东西：
+  **遗留沙箱容器 `w3sb-upgrade-runner-1`（已跑 11 小时，T11 那轮的）+ 两个沙箱网络 + `/data/w3sb-live` 等目录 +
+  4 个沙箱镜像（`w4-fake:*`、`w3-runner:v0.3.3-rc`，逐个显式 `docker rmi`）+ 临时同步树 + `docker builder prune -f`（仅构建缓存）**。
+  **未使用任何 filter 驱动删除**（红线），未触碰 `.3` 交付实例的 5 个容器与其镜像；
+  清理后 `docker ps` 仍只有交付实例 5 容器，磁盘回到 21 GB。
+- 根因记一笔：`w3sb` 沙箱在 T11 之后没拆，属遗留状态——沙箱用完要立刻 `docker rm -f <显式名>` + 删网络/目录，
+  否则既占磁盘又会在下次 `check-deps` 时以"磁盘不足"的形式误导排查方向。
+
+**本轮另两件交付**：
+- `ops/evidence.sh` 一键取证脚本（`53c2672`，模式 100755 于 `8a0f85a`）：`.3` 端到端自测 EXIT=0，
+  未升级的 `.3` 如实判出 ❌「应更换却未变」×3 + ❌版本未到位，**不橡皮图章**；
+  开发期修掉两个自造 bug（容器名匹配漏 project 前缀致 ID 全读成 `absent`；期望清单解析失败致
+  **「应更换」被全判成「应不变」**，比不判定更危险，故判定表加自检行）。
+- CHANGELOG v0.5.4 候选草稿（`1b3e8af`）：状态「候选，未发布」；验证说明只列已过静态/沙箱证据 +
+  C1–C4/M1–M7 的 ⏳ 待填格，**无任何预写验收结论**；已知问题预填 US-17 待 C3、runner v0.3.2 本火车首次交付、
+  支持矩阵收窄 + remediation、迁移 registry 为空、`.14` Docker Hub sinkhole。

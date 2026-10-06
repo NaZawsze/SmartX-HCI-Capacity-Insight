@@ -4,12 +4,14 @@
 
 ## v0.5.4（候选，未发布）
 
-状态：**候选，未发布**。打包产物为 r18（平台包 `ff4c0f6f…`、runner 组件包 `6b0c1700…`，见
+状态：**候选，未发布**。打包产物为 **r19**（平台包 `52df80b7…`、runner 组件包 `f0c87265…`，见
 [upgrade-package-ledger.md](upgrade-package-ledger.md)）。**发布门槛：批次 C 矩阵未完成
 （C1–C4 + 兼容矩阵 M1–M7），且需用户明确指令**；未满足前不发布、不推 tag、不推 origin。
 
-> **发布包（尚未生成 Release 资产）**：r18 平台包 SHA256 `ff4c0f6fcc5389277b42fce5d4c4ddf247129ecf7d8d035b99bdd3687458b7db`；
-> runner 组件包 `smartx-upgrade-runner-v0.3.2.tar.gz` SHA256 `6b0c170019979fcedc0df76bfefd96a1f6ee102ee11f75925496f6edeaae8129`。
+> **发布包（尚未生成 Release 资产）**：**r19** 平台包 SHA256 `52df80b7bca7cbf3d1d93205a6dc281731b6a9601da23b69107f5231b6b5c3a9`；
+> runner 组件包 `smartx-upgrade-runner-v0.3.2.tar.gz` SHA256 `f0c87265ba765b0e4d2a6f11366300601971ceb70577f95d92f14b68bab404bf`。
+> （r18 `ff4c0f6f…`/`6b0c1700…` **已作废**：它打在我修掉「apply 触发回滚健康门缺陷」之前，
+> 两份产物都不含该修复，用它做 C2 组件升级会把带缺陷的 runner 装进 `.12`。）
 > 平台包对 runner 的基线仍是**已发布 v0.3.1**——v0.5.4 的计划动作集已实测 ⊆ v0.3.1 的 25 个动作，
 > 现场无需先升 runner 即可直升。**runner v0.3.2 本火车首次随平台交付**（此前只存在于开发线）。
 
@@ -74,7 +76,7 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
 | 项 | 状态 |
 | --- | --- |
 | `.3` 后端全量 / 前端门禁 | 1075 tests / 唯一失败为环境限制（镜像有 docker CLI 无 socket）；前端 `tsc` EXIT=0、`vitest` 114 tests |
-| r18 打包门禁 | 已过：身份 / runner 交付一致性（13 PASS，30 动作）/ 迁移 expand-only / 动作词汇冻结 / `--force-recreate` 禁令 / 敏感文件 0 |
+| r19 打包门禁 | 已过：身份 / runner 交付一致性（13 PASS，30 动作）/ 迁移 expand-only / 动作词汇冻结 / `--force-recreate` 禁令 / 敏感文件 0 |
 | 打包侧静态证据 | 已过：3 个源版本计划动作集并集 6 个 ⊆ 已发布 v0.3.1 的 25 个动作；**已发布 v0.5.2 / v0.5.3 镜像内编译器**对 v0.5.4 manifest 的输出与候选编译器一致 |
 | 沙箱回滚演练（`.3`） | 已过：health 失败 → `rolled_back`；apply 失败 → `rolled_back`；`image.load` 失败 → 干净失败且不回滚 |
 | **C1** `.14` 全新安装 + v0.5.3→v0.5.4 直升（T3） | ⏳ 待填（用户执行，`ops/evidence.sh c1 before/after`） |
