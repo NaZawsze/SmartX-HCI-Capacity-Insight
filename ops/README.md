@@ -91,6 +91,33 @@ sudo bash ops/upgrade.sh --yes \
 
 升级**只走平台自己的 API**——不直接改 Docker、不手工改文件。
 
+## 2.1 升级取证（`evidence.sh`）
+
+矩阵验证（`.12` / `.14`）用的**一键取证**：升级前后各跑一次，自动生成可比对的证据包与判定表。
+
+```bash
+# 升级前（用户执行升级动作之前）
+sudo bash ops/evidence.sh c1 before
+
+# 升级后（用户执行完升级之后）
+sudo bash ops/evidence.sh c1 after --task-id <upgrade-xxxx> --token <access_token>
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `<cell>` | `c1`（`.14` 平台直升）| `c2`（`.12` 组件升级）| `c3`（`.14` 场景 B 手动回滚）| `c4`（`.12` 平台直升） |
+| `before` / `after` | 基线快照 / 采集 + **逐条判定表** |
+| `--task-id` | 升级任务 ID（`after` 用来取差异清单、锚点、回滚记录、precheck remediation） |
+| `--token` | 管理员 access_token（`c3` 取可回滚性判定用） |
+
+输出：`/data/evidence/<cell>/{before,after}/`（10 个文本证据 + `SHA256SUMS`）与
+`/data/evidence/<cell>/judgement.txt`（判定表：容器 ID 是否不变【T3】、计数是否一致、
+版本是否到位、`.env` 指纹、US-37 标记、legacy 路径、SQLite 完整性、差异清单/锚点）。
+
+纪律：**只读**，唯一写路径是它自己的证据目录；容器只按已知服务名拼出的**显式名字**枚举，
+不做过滤扫描（`.3` 两次容器误删事故的形态）；离线可用，root 直登。
+判据表见 [docs/superpowers/plans/2026-10-06-upgrade-matrix-runbook.md](../docs/superpowers/plans/2026-10-06-upgrade-matrix-runbook.md)。
+
 ## 3. 打包（`package.sh`）
 
 出一份可交付的升级包。

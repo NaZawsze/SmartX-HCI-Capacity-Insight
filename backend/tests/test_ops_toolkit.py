@@ -421,6 +421,77 @@ class OpsPackageScriptTest(unittest.TestCase):
             )
 
 
+class EvidenceScriptDisciplineTest(unittest.TestCase):
+    """`ops/evidence.sh`（Phase 68 矩阵取证）的纪律锁定。
+
+    这些不是风格偏好，每一条都对应一次真实事故或项目纪律：
+    - 只读：它跑在 `.12`/`.14` 上，任何写平台的动作都属于"绕过产品流程的手工运维变更"；
+    - 容器只用显式名字：`.3` 2026-09-30/10-05 两次事故的根因就是"过滤扫描 + 批量删除"
+      删掉了生产 upgrade-runner；
+    - 证据目录是唯一写路径：否则"取证脚本"自己就变成变更源；
+    - 离线：`.12`/`.14` 无外网，`.14` 的 Docker Hub 还被 DNS sinkhole。
+    """
+
+    SCRIPT = OPS / "evidence.sh"
+
+    def _text(self) -> str:
+        self.assertTrue(self.SCRIPT.is_file(), "缺少 ops/evidence.sh")
+        return self.SCRIPT.read_text(encoding="utf-8")
+
+    def test_is_syntactically_valid(self) -> None:
+        completed = subprocess.run(["bash", "-n", str(self.SCRIPT)], capture_output=True, text=True, check=False)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_has_no_mutating_docker_verbs(self) -> None:
+        code = "\n".join(line for line in self._text().splitlines() if not line.lstrip().startswith("#"))
+        for forbidden in (
+            "docker rm", "docker rmi", "docker stop", "docker kill", "docker compose", "docker update",
+            "docker restart", "docker system prune", "docker volume rm", "docker network rm",
+        ):
+            self.assertNotIn(forbidden, code, f"取证脚本出现变更类 docker 命令：{forbidden}")
+
+    def test_no_filter_driven_container_enumeration(self) -> None:
+        """容器只能按**已知服务名拼出的显式名字**取；不得 `docker ps | … | xargs`。"""
+        code = "\n".join(line for line in self._text().splitlines() if not line.lstrip().startswith("#"))
+        self.assertNotIn("xargs", code, "不得用 xargs 批量处理容器名（事故形态）")
+        self.assertNotIn("docker rm", code)
+        text = self._text()
+        self.assertIn("""container_name() { printf '%s-%s-1' "$PROJECT" "$1"; }""", text)
+        self.assertIn("已知服务名", text)
+
+    def test_only_writes_to_its_own_evidence_dir(self) -> None:
+        code = "\n".join(line for line in self._text().splitlines() if not line.lstrip().startswith("#"))
+        self.assertIn('EVIDENCE_ROOT="${SMARTX_EVIDENCE_ROOT:-/data/evidence}"', code)
+        # 不允许写平台路径（唯一例外是它自己的证据目录）
+        for forbidden in ("tee ", "> /data/smartx", ">> /data/smartx", "sed -i", "cp /data/smartx"):
+            self.assertNotIn(forbidden, code, f"取证脚本写了平台路径：{forbidden}")
+
+    def test_no_network_dependency_outside_localhost(self) -> None:
+        code = "\n".join(line for line in self._text().splitlines() if not line.lstrip().startswith("#"))
+        self.assertNotIn("docker pull", code)
+        self.assertNotIn("wget ", code)
+        for line in code.splitlines():
+            if "http://" in line or "https://" in line:
+                self.assertNotIn("github.com", line, "不得依赖外网")
+                self.assertNotIn("docker.io", line, "不得依赖 Docker Hub")
+
+    def test_supports_all_four_matrix_cells(self) -> None:
+        text = self._text()
+        self.assertIn("c1|c2|c3|c4", text)
+
+    def test_documents_both_phases_and_judgement_table(self) -> None:
+        text = self._text()
+        self.assertIn("bash ops/evidence.sh <cell> before", text)
+        self.assertIn("bash ops/evidence.sh <cell> after", text)
+        self.assertIn("judgement.txt", text)
+        self.assertIn("T3", text)
+
+    def test_scenario_b_evidence_is_included(self) -> None:
+        text = self._text()
+        self.assertIn("rollback-availability", text)
+        self.assertIn("full-rollback-availability", text)
+
+
 class OpsShellPitfallTest(unittest.TestCase):
     """锁住两个已实测踩到的 shell 陷阱（macOS/精简环境会复现）。"""
 
