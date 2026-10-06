@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) | English
 
-Version: `v0.5.3`
+Version: `v0.5.4`
 
 > Status: This project is currently in the testing stage and is not recommended for production use without additional validation.
 
