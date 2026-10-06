@@ -78,3 +78,29 @@
 - [x] C5b 离线交付目录：delivery-v054（v0.5.4 + v0.3.2 基线）与 delivery-v052（v0.5.2 + v0.3.1，C0 基线用），US-33 自洽通过；构建器补「平台 tag 可落任意版本」（`9fd1be2`）
 - [x] C2b 自换实测（T11）：v0.3.2→v0.3.3-rc，停机 0.75s、presence 7.4s、web-api 零参与
 - [x] C3 沙箱先行：①health 失败→rolled_back（w5sb）②apply 失败→rolled_back（w3c）④image.load 失败→干净失败不回滚（w3c）
+
+### .12 线进度更新（2026-10-07，执行中——接手者按此继续）
+
+已完成：C0-恢复 ✅（v0.5.2 基线 + pre-wipe 快照恢复，543/89547）、C0-直升 ✅（r21 平台包，
+v0.3.1 执行，17✅/4ℹ️，数据逐位不变含 3 台 vm_id 内容抽查，apply.services=三件套——
+裁剪经 v0.5.2 老编译器真机验证；任务 upgrade-cafb4bf42f07c1c3）。
+**教训（排程错误）**：直升时 runner 仍是 v0.3.1 → 无锚点产生。锚点必须由 v0.3.2+ runner
+在直升时捕获——先组件升级 runner，再跑直升。
+
+剩余步骤（在 .12 上，按序）：
+1. 组件升级 runner v0.3.1→v0.3.2（包在 .12:/root/smartx-upgrade-runner-v0.3.2.tar.gz，
+   sha 05d8e015 前缀）→ 判据：runner=v0.3.2、状态文件出现、presence ≤60s、计数不变；
+2. 整机备份 → 重装 v0.5.3 基线（delivery-v053）→ 恢复数据三件
+   （app/smartx.db + prometheus + .env=快照代 8b644112 + 手工补标记行）→ 基线核验
+   543/89547——注意：**恢复与重启期间必须停全容器含 runner**（本轮曾因 runner 未停
+   导致 database disk image is malformed，已修复一次，勿再犯）；
+3. API 直升 v0.5.3→v0.5.4（r21 平台包已在 .12:/root/）→ 锚点产生（previous=v0.5.3）
+   → availability=true → T3/W4 判据（执行者 v0.3.2）；
+4. 场景 B：rollback → v0.5.3 → 计数守卫 → 再直升回 v0.5.4；
+5. 场景 C：整备恢复（显式确认）→ 验证 → 再直升 v0.5.4 → 终态；
+6. 全绿：US-17 关闭、CHANGELOG 回填、停下等发布指令。
+
+现场备注：.12 当前 = v0.5.4（直升 upgrade-cafb4bf42f07c1c3 succeeded）+ runner v0.3.1 +
+真实数据 543/89547 + .env=快照代+标记（sha 9880a516 前缀）；备份三重：
+pre-scenarioB-backup-202610070120（v0.5.4 前整机）、pre-c0-backup-202610062305、
+baselines/pre-wipe-20261004（恢复源）。
