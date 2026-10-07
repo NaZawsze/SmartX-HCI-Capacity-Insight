@@ -264,6 +264,40 @@ def _writeback_runner_compose_tag(settings: Any, task: dict[str, Any], logs: lis
     return stripped
 
 
+def _purge_legacy_compose_if_any(settings: Any, task: dict[str, Any]) -> dict[str, Any] | None:
+    """对已成功的 runner 组件任务做一次旧名 compose 清理检查。
+
+    返回：有清理发生时返回追加了日志的任务（调用方负责保存/投影）；无事可做返回 None
+    （不写盘、不产生日志，避免每轮轮询刷屏）。清理失败只留痕。
+    """
+    try:
+        from app.upgrade_runner.actions import ActionContext, purge_legacy_compose_variants
+
+        project_path = Path(settings.project_path)
+        context = ActionContext(
+            package_path=project_path,
+            project_path=project_path,
+            data_path=Path(settings.data_path),
+            upgrades_path=Path(settings.upgrades_path),
+            backups_path=Path(settings.backups_path),
+            exports_path=Path(settings.exports_path),
+            compose_runtime_path=Path(settings.compose_runtime_path),
+            prometheus_path=Path(settings.prometheus_path),
+            compose_file=settings.compose_file,
+            compose_project=settings.compose_project,
+            executor=CommandExecutor(),
+        )
+        removed = purge_legacy_compose_variants(context, task)
+    except Exception as exc:  # noqa: BLE001 - 清理失败不得影响任何任务状态
+        logger.warning("旧名 compose 清理检查跳过：%s", exc)
+        return None
+    if not removed:
+        return None
+    task = dict(task)
+    task["logs"] = [*task.get("logs", []), "已清理旧名 compose（改名过渡期收尾）：" + "、".join(removed)]
+    return task
+
+
 def _runner_image_from_task(task: dict[str, Any]) -> str:
     from app.upgrade_runner.actions import _runner_image_from_task as resolve
 
@@ -695,6 +729,17 @@ def run_pending_once(
             _project_task(settings.database_path, result)
             executed += 1
             continue
+        # 改名过渡期收尾：旧名 compose 清理**独立于对齐门禁**——`.12` 实测教训：
+        # 一开始把清理挂在 `not aligned` 的分支里，而现场早已全部对齐（正是清理该发生的
+        # 时刻），分支被跳过、清理从未触达。此处对每个已成功的 runner 组件任务做幂等检查：
+        # 无文件可清 → 返回 None，零日志零写入（不产生每轮轮询噪声）。
+        if status == "success" and _is_runner_component_task(task):
+            purged = _purge_legacy_compose_if_any(settings, task)
+            if purged is not None:
+                result = store.save(purged, expected_revision=int(task.get("revision") or 0))
+                _project_task(settings.database_path, result)
+                executed += 1
+                continue
         if status not in {"pending", "running", "runner_restarting", "recovery_required"}:
             continue
         if status == "runner_restarting" and task.get("runner_resume_pending") and not task.get("execution_plan"):

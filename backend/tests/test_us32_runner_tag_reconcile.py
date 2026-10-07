@@ -454,6 +454,67 @@ class LegacyComposePurgeTest(unittest.TestCase):
             self.assertTrue((context.project_path / "docker-compose.yml").is_file())
 
 
+class ClaimLoopPurgeHelperTest(unittest.TestCase):
+    """`.12` 实测教训：清理若挂在 `not aligned` 门禁后会被跳过（现场早已对齐，正是该清理的时刻）。
+    这里锁住独立分支的辅助函数：有清理才写盘，无事可做返回 None（零噪声）。"""
+
+    def _settings(self, root: Path):
+        return SimpleNamespace(
+            project_path=str(root / "project"),
+            data_path=str(root / "app"),
+            upgrades_path=str(root / "upgrades"),
+            backups_path=str(root / "backups"),
+            exports_path=str(root / "exports"),
+            compose_runtime_path=str(root / "compose-runtime"),
+            prometheus_path=str(root / "prometheus"),
+            compose_file="docker-compose.offline.yml",
+            compose_project="smartx-hci-capacity-insight",
+        )
+
+    def _task(self) -> dict:
+        return {
+            "task_id": "upgrade-r",
+            "status": "success",
+            "logs": ["组件升级完成。"],
+            "manifest": {
+                "version": "v0.3.2",
+                "components": [{"type": "runner", "images": [{"service": "upgrade-runner", "image": "repo/upgrade-runner:v0.3.2"}]}],
+            },
+        }
+
+    def test_returns_none_when_nothing_to_purge(self) -> None:
+        from app.upgrade_runner.main import _purge_legacy_compose_if_any
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "project").mkdir()
+            (root / "backups").mkdir()
+            (root / "project" / "docker-compose.offline.yml").write_text(
+                COMPOSE.format(tag="repo/upgrade-runner:v0.3.2"), encoding="utf-8"
+            )
+            result = _purge_legacy_compose_if_any(self._settings(root), self._task())
+        self.assertIsNone(result, "无文件可清 → None（不写盘、不刷日志）")
+
+    def test_returns_task_with_log_when_purged(self) -> None:
+        from app.upgrade_runner.main import _purge_legacy_compose_if_any
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "project").mkdir()
+            (root / "backups").mkdir()
+            (root / "project" / "docker-compose.offline.yml").write_text(
+                COMPOSE.format(tag="repo/upgrade-runner:v0.3.2"), encoding="utf-8"
+            )
+            (root / "project" / "docker-compose.yml").write_text(
+                COMPOSE.format(tag="repo/upgrade-runner:v0.3.1"), encoding="utf-8"
+            )
+            result = _purge_legacy_compose_if_any(self._settings(root), self._task())
+            legacy_gone = not (root / "project" / "docker-compose.yml").exists()
+        self.assertIsNotNone(result)
+        self.assertTrue(legacy_gone)
+        self.assertTrue(any("已清理旧名 compose" in line for line in result["logs"]), result["logs"])
+
+
 class ComponentUpgradeTagWritebackTest(unittest.TestCase):
     """US-32 补洞：组件升级（web-api execute_task 收尾）也必须回写 compose tag。
 
