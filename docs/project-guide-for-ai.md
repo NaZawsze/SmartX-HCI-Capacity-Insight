@@ -90,9 +90,9 @@ Tower 凭据以加密形式进入 SQLite，解密所需的 SMARTX_CREDENTIAL_KEY
 ~~~text
 /data/smartx-storage-forecast/
 ├── project/
-│   ├── docker-compose.yml
+│   ├── docker-compose.dev.yml
 │   ├── docker-compose.offline.yml
-│   ├── docker-compose.release.yml
+│   ├── docker-compose.online.yml
 │   ├── .env
 │   ├── prometheus/
 │   ├── scripts/

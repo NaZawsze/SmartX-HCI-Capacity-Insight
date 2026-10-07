@@ -258,7 +258,7 @@ class UpgradeCompilerTest(unittest.TestCase):
                 }
             ],
             "project_files": True,
-            "project_file_list": ["docker-compose.release.yml"],
+            "project_file_list": ["docker-compose.online.yml"],
             "directory_transition": {
                 "target_root": "/data/smartx-storage-forecast",
                 "upgrades_path": "/data/smartx-storage-forecast/upgrades",
@@ -328,7 +328,7 @@ class UpgradeCompilerTest(unittest.TestCase):
                 }
             ],
             "project_files": True,
-            "project_file_list": ["docker-compose.release.yml"],
+            "project_file_list": ["docker-compose.online.yml"],
             "directory_transition": {
                 "target_root": "/data/smartx-storage-forecast",
                 "upgrades_path": "/data/smartx-storage-forecast/upgrades",
@@ -404,7 +404,7 @@ class UpgradeCompilerTest(unittest.TestCase):
         manifest = {
             "schema_version": "3",
             "project_files": True,
-            "project_file_list": ["docker-compose.release.yml"],
+            "project_file_list": ["docker-compose.online.yml"],
             "directory_transition": transition,
             "components": [
                 {

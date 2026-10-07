@@ -97,8 +97,8 @@ MODERN_PLATFORM_CAPABILITIES = [
 ]
 PROJECT_FILES = [
     "docker-compose.offline.yml",
-    "docker-compose.release.yml",
-    "docker-compose.yml",
+    "docker-compose.online.yml",
+    "docker-compose.dev.yml",
     "prometheus/prometheus.yml",
     "pre_install.sh",
     "README.md",
@@ -163,11 +163,11 @@ def assert_contains(path: Path, expected: str) -> None:
         raise SystemExit(f"Version check failed: {path.relative_to(ROOT)} missing {expected!r}")
 
 
-SOURCE_COMPOSE_FILES = ["docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"]
+SOURCE_COMPOSE_FILES = ["docker-compose.dev.yml", "docker-compose.offline.yml", "docker-compose.online.yml"]
 
 
 def source_compose_prefix(name: str) -> str:
-    return "docker.io/nazawsze" if name == "docker-compose.release.yml" else "nazawsze"
+    return "docker.io/nazawsze" if name == "docker-compose.online.yml" else "nazawsze"
 
 
 def assert_source_compose_literal(version: str, runner_version: str) -> None:
@@ -260,9 +260,9 @@ def temporary_image_version_metadata(version: str):
         ROOT / "backend/app/v2/config.py",
         ROOT / "README.md",
         ROOT / "README.zh-CN.md",
-        ROOT / "docker-compose.yml",
+        ROOT / "docker-compose.dev.yml",
         ROOT / "docker-compose.offline.yml",
-        ROOT / "docker-compose.release.yml",
+        ROOT / "docker-compose.online.yml",
         ROOT / "docker-compose.upgrade.yml",
     ]
     original = {path: path.read_text(encoding="utf-8") for path in paths}
@@ -277,9 +277,9 @@ def temporary_image_version_metadata(version: str):
         for path in (ROOT / "README.md", ROOT / "README.zh-CN.md"):
             path.write_text(_replace_readme_version(original[path], app_version=version), encoding="utf-8")
         for path in (
-            ROOT / "docker-compose.yml",
+            ROOT / "docker-compose.dev.yml",
             ROOT / "docker-compose.offline.yml",
-            ROOT / "docker-compose.release.yml",
+            ROOT / "docker-compose.online.yml",
             ROOT / "docker-compose.upgrade.yml",
         ):
             path.write_text(
@@ -317,7 +317,7 @@ def docker_build(version: str, *, include_frontend: bool) -> None:
                 "docker",
                 "compose",
                 "-f",
-                "docker-compose.yml",
+                "docker-compose.dev.yml",
                 "build",
                 *services,
             ],
@@ -991,7 +991,7 @@ def collect_project_files(version: str, *, check_version_metadata: bool = True) 
 
 
 def _project_file_override(rel: str, *, version: str) -> str | None:
-    if rel not in {"docker-compose.offline.yml", "docker-compose.release.yml", "docker-compose.yml"}:
+    if rel not in {"docker-compose.offline.yml", "docker-compose.online.yml", "docker-compose.dev.yml"}:
         return None
     text = (ROOT / rel).read_text(encoding="utf-8")
     runner_version = _expected_web_api_runner_baseline(version)
@@ -1026,9 +1026,9 @@ def _render_packaged_compose_tags(text: str, *, app_version: str, runner_version
 
 def _assert_project_files_match_version(version: str, project_dir: Path) -> None:
     compose_files = [
-        project_dir / "docker-compose.release.yml",
+        project_dir / "docker-compose.online.yml",
         project_dir / "docker-compose.offline.yml",
-        project_dir / "docker-compose.yml",
+        project_dir / "docker-compose.dev.yml",
     ]
     if _version_tuple(version) < _version_tuple("v0.5.2"):
         required = [
@@ -1277,9 +1277,9 @@ def build_package(
         "│   ├── collector-worker.tar\n"
         "│   └── frontend.tar\n"
         "└── project/\n"
-        "    ├── docker-compose.yml\n"
+        "    ├── docker-compose.dev.yml\n"
         "    ├── docker-compose.offline.yml\n"
-        "    ├── docker-compose.release.yml\n"
+        "    ├── docker-compose.online.yml\n"
         "    ├── README.md\n"
         "    ├── README.zh-CN.md\n"
         "    ├── docs/\n"

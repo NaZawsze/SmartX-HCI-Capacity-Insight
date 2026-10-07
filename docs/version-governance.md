@@ -40,7 +40,7 @@ runner 组件镜像使用 runner 组件版本：
 nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1
 ```
 
-`docker-compose.yml`、`docker-compose.offline.yml` 和 `docker-compose.release.yml` 使用两个独立变量：
+`docker-compose.dev.yml`、`docker-compose.offline.yml` 和 `docker-compose.online.yml` 使用两个独立变量：
 
 ```text
 SMARTX_IMAGE_TAG          # 平台服务 tag，例如 v0.5.3
@@ -128,8 +128,9 @@ OVA 与升级包都禁止包含 `.env`、SQLite 数据库、Prometheus 历史数
 - **验收只认 Release 资产**：链路回归与升级验收必须用 Release 里的平台包 + runner 包跑，禁止用测试机本地重建镜像；验收记录必须写明 SHA 与来源。
 - `backend/app/core/config.py` 中平台默认版本
 - `backend/Dockerfile`、`backend/Dockerfile.worker`、`backend/Dockerfile.upgrade` 是否复制 `VERSION` 和 `RUNNER_VERSION`
+- `docker-compose.dev.yml`
 - `docker-compose.offline.yml`
-- `docker-compose.release.yml`
+- `docker-compose.online.yml`
 - `docker-compose.upgrade.yml`
 - `README.md`
 - `README.zh-CN.md`

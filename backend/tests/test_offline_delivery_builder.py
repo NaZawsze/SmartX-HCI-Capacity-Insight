@@ -182,7 +182,7 @@ class RenderAllDeliveryComposesTest(unittest.TestCase):
     """交付 project 下**所有** compose 的 runner tag 都必须落已发布基线。
 
     2026-09-30 `ops/package.sh` 端到端实测发现：原实现只渲染
-    `docker-compose.offline.yml`，`docker-compose.yml` 原样带着源码开发线 tag
+    `docker-compose.offline.yml`，`docker-compose.dev.yml` 原样带着源码开发线 tag
     （实测 v0.3.2）进了交付目录——而它就在现场、且是 `docker compose up` 的默认读取对象。
     违反 AGENTS §8。
     """
@@ -190,7 +190,7 @@ class RenderAllDeliveryComposesTest(unittest.TestCase):
     def _project(self, tmpdir: str) -> Path:
         project = Path(tmpdir) / "project"
         project.mkdir(parents=True, exist_ok=True)
-        for name in ("docker-compose.yml", "docker-compose.offline.yml"):
+        for name in ("docker-compose.dev.yml", "docker-compose.offline.yml"):
             (project / name).write_text(
                 "services:\n"
                 "  web-api:\n"
@@ -209,7 +209,7 @@ class RenderAllDeliveryComposesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             project = self._project(tmpdir)
             rendered = render_all_delivery_composes(project, "v0.3.1")
-            self.assertIn("docker-compose.yml", rendered)
+            self.assertIn("docker-compose.dev.yml", rendered)
             self.assertIn("docker-compose.offline.yml", rendered)
             for name in rendered:
                 text = (project / name).read_text(encoding="utf-8")
@@ -226,7 +226,7 @@ class RenderAllDeliveryComposesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             project = self._project(tmpdir)
             render_all_delivery_composes(project, "v0.3.1")
-            text = (project / "docker-compose.yml").read_text(encoding="utf-8")
+            text = (project / "docker-compose.dev.yml").read_text(encoding="utf-8")
             self.assertIn("image: repo/web-api:v0.5.3", text)
             self.assertIn("image: prom/prometheus:v2.55.1", text)
 
@@ -1001,7 +1001,7 @@ class DeliveryBundleSelfConsistencyTest(unittest.TestCase):
                     info.size = len(index)
                     tar.addfile(info, _io.BytesIO(index))
 
-            compose = Path(tmpdir) / "docker-compose.yml"
+            compose = Path(tmpdir) / "docker-compose.dev.yml"
             compose.write_text(
                 "services:\n  web-api:\n    image: nazawsze/web-api:v0.5.3\n"
                 "  upgrade-runner:\n    image: nazawsze/upgrade-runner:v0.3.1\n",
@@ -1039,7 +1039,7 @@ class DeliveryBundleSelfConsistencyTest(unittest.TestCase):
                 info.size = len(index)
                 tar.addfile(info, _io.BytesIO(index))
 
-            compose = Path(tmpdir) / "docker-compose.yml"
+            compose = Path(tmpdir) / "docker-compose.dev.yml"
             compose.write_text(
                 "services:\n  upgrade-runner:\n    image: nazawsze/upgrade-runner:v0.3.1\n",
                 encoding="utf-8",

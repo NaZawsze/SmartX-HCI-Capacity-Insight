@@ -125,7 +125,7 @@ def _context(tmp: Path, *, package: Path | None = None) -> ActionContext:
         exports_path=tmp / "exports",
         compose_runtime_path=tmp / "compose-runtime",
         prometheus_path=tmp / "prometheus",
-        compose_file="docker-compose.yml",
+        compose_file="docker-compose.dev.yml",
         compose_project="smartx-hci-capacity-insight",
         executor=_Executor(),
         task_id="upgrade-selfhandoff",
@@ -307,7 +307,7 @@ class RollbackAnchorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "project").mkdir(parents=True)
-            (root / "project" / "docker-compose.yml").write_text(
+            (root / "project" / "docker-compose.dev.yml").write_text(
                 COMPOSE.format(runner_image="repo/runner:v0.3.2"), encoding="utf-8"
             )
             executor = _Executor(running_container="abc123", image_id="deadbeef")
@@ -330,7 +330,7 @@ class RollbackAnchorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "project").mkdir(parents=True)
-            (root / "project" / "docker-compose.yml").write_text(
+            (root / "project" / "docker-compose.dev.yml").write_text(
                 COMPOSE.format(runner_image="repo/runner:v0.3.1"), encoding="utf-8"
             )
             executor = _Executor(running_container="abc", image_id="cafe", runner_version="v0.3.2")
@@ -346,7 +346,7 @@ class RollbackAnchorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "project").mkdir(parents=True)
-            (root / "project" / "docker-compose.yml").write_text(
+            (root / "project" / "docker-compose.dev.yml").write_text(
                 COMPOSE.format(runner_image="repo/runner:v0.3.2"), encoding="utf-8"
             )
             executor = _Executor(running_container="", image_id="")
@@ -363,7 +363,7 @@ class RollbackAnchorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "project").mkdir(parents=True)
-            (root / "project" / "docker-compose.yml").write_text(
+            (root / "project" / "docker-compose.dev.yml").write_text(
                 "services:\n  web-api:\n    image: repo/web-api:v0.5.4\n", encoding="utf-8"
             )
             executor = _Executor()
@@ -380,7 +380,7 @@ class RollbackAnchorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "project").mkdir(parents=True)
-            (root / "project" / "docker-compose.yml").write_text(
+            (root / "project" / "docker-compose.dev.yml").write_text(
                 COMPOSE.format(runner_image="repo/runner:v0.3.2"), encoding="utf-8"
             )
             task = _self_handoff_task(root)
@@ -395,7 +395,7 @@ class RollbackAnchorTests(unittest.TestCase):
                     compose_runtime_path=root / "compose-runtime",
                     prometheus_path=root / "prometheus",
                     project_path=root / "project",
-                    compose_file="docker-compose.yml",
+                    compose_file="docker-compose.dev.yml",
                     compose_project="smartx-hci-capacity-insight",
                     runner_version="v0.3.2",
                 ),
@@ -413,7 +413,7 @@ class RollbackAnchorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "project").mkdir(parents=True)
-            (root / "project" / "docker-compose.yml").write_text(
+            (root / "project" / "docker-compose.dev.yml").write_text(
                 COMPOSE.format(runner_image="repo/runner:v0.3.2"), encoding="utf-8"
             )
             task = _self_handoff_task(root)
@@ -429,7 +429,7 @@ class RollbackAnchorTests(unittest.TestCase):
                     compose_runtime_path=root / "compose-runtime",
                     prometheus_path=root / "prometheus",
                     project_path=root / "project",
-                    compose_file="docker-compose.yml",
+                    compose_file="docker-compose.dev.yml",
                     compose_project="smartx-hci-capacity-insight",
                     runner_version="v0.3.2",
                 ),
@@ -445,7 +445,7 @@ class RollbackAnchorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "project").mkdir(parents=True)
-            compose_path = root / "project" / "docker-compose.yml"
+            compose_path = root / "project" / "docker-compose.dev.yml"
             compose_path.write_text(COMPOSE.format(runner_image="repo/runner:v0.3.2"), encoding="utf-8")
             executor = _Executor(running_container="abc", image_id="oldimage", runner_version="v0.3.2")
             context = _context(root)
@@ -500,7 +500,7 @@ class SelfHandoffActionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "project").mkdir(parents=True)
-            compose_path = root / "project" / "docker-compose.yml"
+            compose_path = root / "project" / "docker-compose.dev.yml"
             compose_path.write_text(COMPOSE.format(runner_image="repo/runner:v0.3.3"), encoding="utf-8")
             handler = default_handlers()["component.compose_writeback"]
             result = handler(
@@ -525,7 +525,7 @@ class SelfHandoffActionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "project").mkdir(parents=True)
-            (root / "project" / "docker-compose.yml").write_text(
+            (root / "project" / "docker-compose.dev.yml").write_text(
                 COMPOSE.format(runner_image="repo/runner:v0.3.2"), encoding="utf-8"
             )
             task = _self_handoff_task(root)
@@ -560,7 +560,7 @@ class NewRunnerFinishTests(unittest.TestCase):
             compose_runtime_path=root / "compose-runtime",
             prometheus_path=root / "prometheus",
             project_path=root / "project",
-            compose_file="docker-compose.yml",
+            compose_file="docker-compose.dev.yml",
             compose_project="smartx-hci-capacity-insight",
             runner_version=runner_version,
         )
@@ -626,7 +626,7 @@ class NewRunnerFinishTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "project").mkdir(parents=True)
-            (root / "project" / "docker-compose.yml").write_text(
+            (root / "project" / "docker-compose.dev.yml").write_text(
                 COMPOSE.format(runner_image="repo/runner:v0.3.3"), encoding="utf-8"
             )
             task = _self_handoff_task(root, target_version="v0.3.3")
@@ -737,7 +737,7 @@ class ComposeTagWritebackCompatTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "project").mkdir(parents=True)
-            compose_path = root / "project" / "docker-compose.yml"
+            compose_path = root / "project" / "docker-compose.dev.yml"
             compose_path.write_text(COMPOSE.format(runner_image="repo/runner:v0.3.3"), encoding="utf-8")
             task = {
                 "execution_plan": {
@@ -764,7 +764,7 @@ class ProjectScopingTests(unittest.TestCase):
 
     def _compose(self, root: Path, tag: str = "repo/runner:v0.3.2") -> None:
         (root / "project").mkdir(parents=True, exist_ok=True)
-        (root / "project" / "docker-compose.yml").write_text(
+        (root / "project" / "docker-compose.dev.yml").write_text(
             COMPOSE.format(runner_image=tag), encoding="utf-8"
         )
 
@@ -913,7 +913,7 @@ class CutoverTimingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "project").mkdir(parents=True)
-            (root / "project" / "docker-compose.yml").write_text(
+            (root / "project" / "docker-compose.dev.yml").write_text(
                 COMPOSE.format(runner_image="repo/runner:v0.3.2"), encoding="utf-8"
             )
             task = _self_handoff_task(root)

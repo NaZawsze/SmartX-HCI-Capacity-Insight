@@ -105,9 +105,9 @@
 
 | 资产 | 职责 |
 | --- | --- |
-| `docker-compose.yml` | 开发/主 Compose（版本由镜像内 VERSION 定） |
+| `docker-compose.dev.yml` | 开发版 Compose（含 `build:`；2026-10-07 由 `docker-compose.yml` 改名） |
 | `docker-compose.offline.yml` | 离线部署（本地镜像，目标布局挂载） |
-| `docker-compose.release.yml` | Release 交付 Compose |
+| `docker-compose.online.yml` | 在线安装 Compose（docker.io 前缀；2026-10-07 由 `docker-compose.release.yml` 改名） |
 | `docker-compose.upgrade.yml` | 升级链路专用（runner bootstrap/cutover） |
 | `pre_install.sh` | 安装前置：目录创建、权限、SELinux/防火墙/Prometheus 权限 |
 | `backend/Dockerfile`、`Dockerfile.worker`、`Dockerfile.upgrade` | web-api / collector-worker / upgrade-runner 镜像 |

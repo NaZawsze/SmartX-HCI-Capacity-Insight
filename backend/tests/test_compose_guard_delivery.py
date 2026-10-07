@@ -77,7 +77,7 @@ def _context(root: Path, executor: Any, *, compose_project: str = "smartx-hci-ca
         exports_path=root / "exports",
         compose_runtime_path=root / "compose-runtime",
         prometheus_path=root / "prometheus",
-        compose_file="docker-compose.yml",
+        compose_file="docker-compose.dev.yml",
         compose_project=compose_project,
         executor=executor,
         task_id="upgrade-a6",
@@ -122,12 +122,12 @@ class MarkerBackfillTests(unittest.TestCase):
             project.mkdir()
             env = project / ".env"
             env.write_text(
-                f"{COMPOSE_MARKER_ENV_KEY}=docker-compose.release.yml\nSMARTX_SECRET_KEY=abc\n", encoding="utf-8"
+                f"{COMPOSE_MARKER_ENV_KEY}=docker-compose.online.yml\nSMARTX_SECRET_KEY=abc\n", encoding="utf-8"
             )
             executor = _Executor(labels={"web-api": "/x/docker-compose.offline.yml"})
             result = files_sync(_payload_with_guard(root), _context(root, executor).as_dict())
             content = env.read_text(encoding="utf-8")
-        self.assertIn(f"{COMPOSE_MARKER_ENV_KEY}=docker-compose.release.yml", content)
+        self.assertIn(f"{COMPOSE_MARKER_ENV_KEY}=docker-compose.online.yml", content)
         self.assertNotIn("docker-compose.offline.yml", content)
         self.assertEqual(result["compose_file_marker"]["written"], False)
         self.assertEqual(result["compose_file_marker"]["reason"], "已有标记，不覆盖")
@@ -193,11 +193,11 @@ class MarkerBackfillTests(unittest.TestCase):
             project.mkdir()
             (project / ".env").write_text("SMARTX_SECRET_KEY=abc\n", encoding="utf-8")
             executor = _Executor(
-                labels={"collector-worker": "/x/docker-compose.yml"},
+                labels={"collector-worker": "/x/docker-compose.dev.yml"},
                 containers={"collector-worker": "col1"},
             )
             result = files_sync(_payload_with_guard(root), _context(root, executor).as_dict())
-        self.assertEqual(result["compose_file_marker"]["value"], "docker-compose.yml")
+        self.assertEqual(result["compose_file_marker"]["value"], "docker-compose.dev.yml")
 
 
 class PackagingTests(unittest.TestCase):
@@ -299,7 +299,7 @@ class GuardScriptBehaviourTests(unittest.TestCase):
                 check=False,
             )
             other = subprocess.run(
-                ["bash", str(guard), "check", str(env), "docker-compose.release.yml"],
+                ["bash", str(guard), "check", str(env), "docker-compose.online.yml"],
                 capture_output=True,
                 text=True,
                 check=False,

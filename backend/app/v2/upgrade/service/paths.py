@@ -168,7 +168,7 @@ networks:
     def _sync_runner_image_into_compose_files(self, runner_image: str) -> list[str]:
         """[已废弃 US-32] 尝试回写 runner tag —— web-api 容器内**无法生效**。
 
-        web-api 的 project 目录是只读挂载（`docker-compose.yml` 里 `:ro`），因此这里的写入
+        web-api 的 project 目录是只读挂载（交付 compose 里 project 卷为 `:ro`），因此这里的写入
         必然抛 `OSError`。历史上该异常被 `except OSError: continue` 静默吞掉，导致 US-26 的
         compose 回写自实现起从未生效、缺陷潜伏了很久（`.12` 实测 compose 长期停在 v0.3.1 而
         现场跑 v0.3.2）。回写职责已移到 runner 侧 `actions.reconcile_project_runner_tag`。
@@ -180,7 +180,16 @@ networks:
             return []
         updated: list[str] = []
         candidates = [
-            self.project_path / "docker-compose.yml",
+            self.project_path / name
+            for name in (
+                "docker-compose.dev.yml",
+                "docker-compose.offline.yml",
+                "docker-compose.online.yml",
+                # 改名前的旧名（files_sync 只增不删，已安装现场可能残留）
+                "docker-compose.yml",
+                "docker-compose.release.yml",
+            )
+        ] + [
             self.settings.compose_runtime_dir / "docker-compose.runner-upgrade.yml",
         ]
         for candidate in candidates:

@@ -56,8 +56,26 @@ PRESENCE_WAIT_TIMEOUT_SECONDS = 120
 #: 预期自换时长（秒），仅用于日志与告警分级：超过它说明自换偏慢，但**不改变判定**。
 EXPECTED_HANDOFF_SECONDS = 15
 
-#: compose writeback 的目标文件（与 US-32 对账同一份文件）。
-COMPOSE_FILENAME = "docker-compose.yml"
+#: 交付 compose 变体（2026-10-07 改名：dev/offline/online 取代 yml/release）。
+#: 现场实际 `up/down` 用的是**活动变体**（US-37 标记 `SMARTX_COMPOSE_FILE_ACTIVE`，
+#: 目标布局默认 offline）。
+COMPOSE_VARIANTS = (
+    "docker-compose.dev.yml",
+    "docker-compose.offline.yml",
+    "docker-compose.online.yml",
+)
+
+#: 改名前的旧文件名。files_sync **只增不删**——已安装现场升级后会残留这些旧名文件，
+#: 写回/对账/锚点读取必须一并覆盖，否则保护落不到真正可能被 `compose up` 的文件上。
+LEGACY_COMPOSE_FILENAMES = ("docker-compose.yml", "docker-compose.release.yml")
+
+#: 写回/对账/锚点读取的目标集合（新名在前、旧名殿后，顺序确定）。
+COMPOSE_ALIGN_FILES = COMPOSE_VARIANTS + LEGACY_COMPOSE_FILENAMES
+
+
+def compose_target_paths(project_path: Path) -> list[Path]:
+    """project 目录下**实际存在**的 compose 写回目标（保持 `COMPOSE_ALIGN_FILES` 顺序）。"""
+    return [project_path / name for name in COMPOSE_ALIGN_FILES if (project_path / name).is_file()]
 
 _IMAGE_LINE = re.compile(r"^(?P<prefix>\s*image:\s*)(?P<image>\S+)\s*$")
 
@@ -213,7 +231,7 @@ def capture_component_rollback_anchor(
 ) -> dict[str, Any]:
     """捕获组件回滚锚点。**必须在 compose writeback 之前调用**。
 
-    为什么必须先取：writeback 会把 `docker-compose.yml` 里的 runner image 改成
+    为什么必须先取：writeback 会把 compose 变体里的 runner image 改成
     `target_version` 对应的镜像。改完之后，"上一版是哪个 tag / 哪个镜像 ID"就再也
     读不出来了——而反向自换（组件回滚）恰恰只能靠这两个值。顺序反了，
     锚点里就只会记到新版本，回滚变成"把新版本换回新版本"。
@@ -226,7 +244,19 @@ def capture_component_rollback_anchor(
     """
     container_id = _running_runner_container_id(executor, getattr(context, "compose_project", ""))
     image_id = _image_id_of_container(executor, container_id)
-    previous_tag = _runner_image_in_compose(Path(context.project_path) / COMPOSE_FILENAME)
+    # 读"compose 当前声明的 image"：活动文件优先（writeback 要覆盖的就是它），
+    # 取不到再按变体集合兜底——改名后旧名文件可能仍在场（files_sync 只增不删）。
+    project_path = Path(context.project_path)
+    candidates: list[Path] = []
+    active = str(getattr(context, "compose_file", "") or "")
+    if active:
+        candidates.append(project_path / active)
+    candidates.extend(path for path in compose_target_paths(project_path) if path not in candidates)
+    previous_tag = ""
+    for candidate in candidates:
+        previous_tag = _runner_image_in_compose(candidate)
+        if previous_tag:
+            break
     previous_version = container_file_value(executor, container_id, "/app/RUNNER_VERSION")
     if not previous_version:
         # 容器不可 exec（正在重启/已退出）时退回从镜像 tag 推断，保底不留空

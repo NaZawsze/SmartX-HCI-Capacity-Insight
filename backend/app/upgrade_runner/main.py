@@ -154,7 +154,7 @@ def _inject_self_handoff_anchor(
 
     ## 为什么锚点必须在 writeback 之前拿
 
-    `component.compose_writeback` 会把 `docker-compose.yml` 里的 runner image 行
+    `component.compose_writeback` 会把 compose 变体里的 runner image 行
     覆盖成新镜像。覆盖之后"上一版的 tag / 镜像 ID"在磁盘上就**再也读不到**了，
     而组件回滚（反向自换）恰恰只能靠这两个值。顺序反了，锚点里记到的就是新版本，
     回滚退化成"把新版本换回新版本"——看起来成功了，现场其实没回退。
@@ -262,40 +262,46 @@ def _runner_image_from_task(task: dict[str, Any]) -> str:
     return resolve(task)
 
 
-def _compose_runner_tag_now(settings: Any) -> str:
-    """读 project compose 里当前声明的 runner tag（读不到返回空串）。"""
-    try:
-        compose_path = Path(settings.project_path) / "docker-compose.yml"
-        if not compose_path.is_file():
-            return ""
-        text = compose_path.read_text(encoding="utf-8")
-    except OSError:
-        return ""
-    in_runner = False
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not in_runner:
-            if stripped.startswith("upgrade-runner:"):
-                in_runner = True
+def _compose_runner_tags_now(settings: Any) -> dict[str, str]:
+    """读 project 下**全部在场 compose 变体**里声明的 runner tag（读不到的不入表）。
+
+    覆盖变体集合本身见 `selfhandoff.COMPOSE_ALIGN_FILES`（dev/offline/online + 旧名残留）：
+    只读单个文件会漏掉活动变体（US-37 标记）与改名前的旧名文件（files_sync 只增不删）。
+    """
+    from app.upgrade_runner.selfhandoff import compose_target_paths
+
+    tags: dict[str, str] = {}
+    for compose_path in compose_target_paths(Path(settings.project_path)):
+        try:
+            text = compose_path.read_text(encoding="utf-8")
+        except OSError:
             continue
-        if stripped.startswith("image:"):
-            return stripped.split("image:", 1)[1].strip()
-    return ""
+        in_runner = False
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not in_runner:
+                if stripped.startswith("upgrade-runner:"):
+                    in_runner = True
+                continue
+            if stripped.startswith("image:"):
+                tags[compose_path.name] = stripped.split("image:", 1)[1].strip()
+                break
+    return tags
 
 
 def _runner_tag_aligned(settings: Any, task: dict[str, Any]) -> bool:
-    """判断这个 runner 组件任务的 compose tag 是否已经对齐（幂等判据）。
+    """判断这个 runner 组件任务的 compose tag 是否**全部变体**都已对齐（幂等判据）。
 
-    对齐定义：compose 里的 tag == 任务声明的 runner 镜像 tag。
-    compose 读不到时返回 True（无从判断，不反复扰动现场）。
+    对齐定义：每个在场变体里的 tag == 任务声明的 runner 镜像 tag。
+    读不到任何变体时返回 True（无从判断，不反复扰动现场）——与旧契约一致。
     """
     expected = _runner_image_from_task(task)
     if not expected:
         return True
-    current = _compose_runner_tag_now(settings)
-    if not current:
+    tags = _compose_runner_tags_now(settings)
+    if not tags:
         return True
-    return current == expected
+    return all(tag == expected for tag in tags.values())
 
 
 def _apply_tag_writeback_if_needed(settings: Any, task: dict[str, Any]) -> dict[str, Any]:

@@ -27,9 +27,9 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNNER_VERSION_FILE = ROOT / "RUNNER_VERSION"
 ACTIONS_FILE = ROOT / "backend" / "app" / "upgrade_runner" / "actions.py"
 SOURCE_COMPOSE_FILES = (
-    "docker-compose.yml",
+    "docker-compose.dev.yml",
     "docker-compose.offline.yml",
-    "docker-compose.release.yml",
+    "docker-compose.online.yml",
 )
 RUNNER_IMAGE_REPO = "nazawsze/smartx-hci-capacity-insight-upgrade-runner"
 DOCKERHUB_TAGS_API = "https://hub.docker.com/v2/repositories/{namespace}/{name}/tags/{tag}"
@@ -157,7 +157,7 @@ def parse_repo_actions(path: Path = ACTIONS_FILE) -> list[str]:
 
 
 def image_prefix_for(name: str) -> str:
-    return "docker.io/nazawsze" if name == "docker-compose.release.yml" else "nazawsze"
+    return "docker.io/nazawsze" if name == "docker-compose.online.yml" else "nazawsze"
 
 
 def check_source_compose(version: str) -> list[dict[str, Any]]:

@@ -47,7 +47,7 @@ class V2SkeletonTest(unittest.TestCase):
         self.assertIn("app.v2.worker", worker_dockerfile)
         self.assertNotIn("app.main:app", web_dockerfile)
         self.assertNotIn("app.collector.worker", worker_dockerfile)
-        for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+        for name in ("docker-compose.dev.yml", "docker-compose.offline.yml", "docker-compose.online.yml"):
             text = (repo_root / name).read_text(encoding="utf-8")
             self.assertIn('command: ["python", "-m", "app.v2.worker"]', text)
             self.assertNotIn('command: ["python", "-m", "app.collector.worker"]', text)

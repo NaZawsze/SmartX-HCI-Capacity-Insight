@@ -326,8 +326,9 @@ curl -s http://127.0.0.1:8000/api/system/health
 
 ## 9.1 compose 变体守卫（US-37）
 
-平台部署目录里有 **4 份 compose 变体**（`docker-compose.yml` /
-`docker-compose.offline.yml` / `.release.yml` / `.upgrade.yml`），
+平台部署目录里有 **4 份 compose 变体**（`docker-compose.dev.yml` /
+`docker-compose.offline.yml` / `.online.yml` / `.upgrade.yml`；2026-10-07 由
+`docker-compose.yml` / `.release.yml` 改名），
 它们**共用同一个 project 名**，但服务定义不同。
 
 **如果你用错变体执行 `docker compose up/down/restart`，Docker 会判定「配置变了」

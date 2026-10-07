@@ -71,7 +71,7 @@ ops/           运维操作入口：安装 / 升级 / 打包（详见 ops/README
 scripts/       构建与校验工具（打包脚本、各类门禁）
 delivery/      离线交付物料的源文件（会被复制进交付目录，不在仓库里直接跑）
 docs/          API、部署、使用说明和截图资源
-docker-compose.yml
+docker-compose.dev.yml
 .env.example
 ```
 
@@ -151,9 +151,9 @@ smartx-capacity-insight-upgrade-v0.5.3.tar.gz
 │   ├── frontend.tar
 │   └── collector-worker.tar
 └── project/
-    ├── docker-compose.yml
+    ├── docker-compose.dev.yml
     ├── docker-compose.offline.yml
-    ├── docker-compose.release.yml
+    ├── docker-compose.online.yml
     ├── prometheus/
     ├── scripts/
     └── docs/

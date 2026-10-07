@@ -109,7 +109,7 @@ bash scripts/build_release_delivery.sh --runner-baseline v0.3.1
 **runner 版本（`RUNNER_VERSION`）**——**改了 runner 能力就必须 bump**（AGENTS §6/§8）：
 
 - `RUNNER_VERSION`
-- `docker-compose.yml`、`docker-compose.offline.yml`、`docker-compose.release.yml` 里的 runner image tag
+- `docker-compose.dev.yml`、`docker-compose.offline.yml`、`docker-compose.online.yml` 里的 runner image tag
 - `backend/app/core/config.py`、`backend/app/v2/config.py` 的 `DEFAULT_RUNNER_VERSION`
 - `backend/app/upgrade_runner/main.py` 的默认值
 - 预检查提示文案、README 示例、`docs/version-governance.md` 等

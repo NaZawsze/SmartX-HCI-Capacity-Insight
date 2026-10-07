@@ -28,7 +28,7 @@ def _load_build_module():
 
 class TestDeploymentConfig(unittest.TestCase):
     def test_compose_mounts_runtime_artifacts_outside_app_data(self) -> None:
-        for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+        for name in ("docker-compose.dev.yml", "docker-compose.offline.yml", "docker-compose.online.yml"):
             text = (ROOT / name).read_text(encoding="utf-8")
             self.assertIn("/data/smartx-storage-forecast/app:/data", text)
             self.assertIn("/data/smartx-storage-forecast/upgrades:/data/upgrades", text)
@@ -108,7 +108,7 @@ class TestDeploymentConfig(unittest.TestCase):
         # 平台版本跟随 VERSION 文件，不写死字面量：写死过一次版本就必须在每次 bump 时改测试，
         # 而漏改的那次会以"与实现无关的失败"混进回归基线里（2026-10-06 bump v0.5.4 时踩到）。
         app_version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
-        for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+        for name in ("docker-compose.dev.yml", "docker-compose.offline.yml", "docker-compose.online.yml"):
             text = (ROOT / name).read_text(encoding="utf-8")
             # 源码 compose 与升级包同一不变量（49-3）：镜像引用（registry+tag）全字面量，
             # 现场 .env 无法覆盖版本。曾经的双形态断言在字面量化后收紧。
@@ -130,7 +130,7 @@ class TestDeploymentConfig(unittest.TestCase):
             self.assertNotIn("SMARTX_IMAGE_TAG:-v0.4.0", text)
 
     def test_compose_project_name_is_consistent_across_runtime_and_upgrade(self) -> None:
-        for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+        for name in ("docker-compose.dev.yml", "docker-compose.offline.yml", "docker-compose.online.yml"):
             text = (ROOT / name).read_text(encoding="utf-8")
             self.assertTrue(text.startswith("name: smartx-hci-capacity-insight\n"))
             self.assertIn("SMARTX_COMPOSE_PROJECT_NAME: smartx-hci-capacity-insight", text)
@@ -138,7 +138,7 @@ class TestDeploymentConfig(unittest.TestCase):
             self.assertIn("name: smartx-hci-capacity-insight-net", text)
             self.assertNotIn("SMARTX_COMPOSE_PROJECT_NAME: smartx-capacity-insight", text)
         deployment_text = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
-        self.assertIn("docker compose -f docker-compose.release.yml up -d", deployment_text)
+        self.assertIn("docker compose -f docker-compose.online.yml up -d", deployment_text)
         self.assertIn("docker compose -f docker-compose.offline.yml up -d", deployment_text)
         self.assertIn("smartx-hci-capacity-insight-net", deployment_text)
 
@@ -166,7 +166,7 @@ class TestDeploymentConfig(unittest.TestCase):
         self.assertNotIn('("upgrade-runner",', text)
 
     def test_upgrade_runner_uses_standalone_runner_entrypoint(self) -> None:
-        for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml", "backend/Dockerfile.upgrade"):
+        for name in ("docker-compose.dev.yml", "docker-compose.offline.yml", "docker-compose.online.yml", "backend/Dockerfile.upgrade"):
             text = (ROOT / name).read_text(encoding="utf-8")
             self.assertIn("app.upgrade_runner.main", text)
         runner = (ROOT / "backend/app/upgrade_runner/main.py").read_text(encoding="utf-8")
@@ -177,7 +177,7 @@ class TestDeploymentConfig(unittest.TestCase):
         self.assertNotIn("COPY backend/app ./app", dockerfile)
 
     def test_upgrade_runner_receives_host_paths_for_sandbox_mounts(self) -> None:
-        for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+        for name in ("docker-compose.dev.yml", "docker-compose.offline.yml", "docker-compose.online.yml"):
             text = (ROOT / name).read_text(encoding="utf-8")
             runner_section = text.split("  upgrade-runner:\n", 1)[1].split("  prometheus:\n", 1)[0]
             self.assertIn("SMARTX_HOST_PROJECT_PATH: /data/smartx-storage-forecast/project", runner_section)
@@ -189,7 +189,7 @@ class TestDeploymentConfig(unittest.TestCase):
             self.assertIn("exec python -m app.upgrade_runner.main", runner_section)
 
     def test_web_api_repairs_migrated_env_permissions_before_startup(self) -> None:
-        for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+        for name in ("docker-compose.dev.yml", "docker-compose.offline.yml", "docker-compose.online.yml"):
             text = (ROOT / name).read_text(encoding="utf-8")
             web_api_section = text.split("  web-api:\n", 1)[1].split("  collector-worker:\n", 1)[0]
 
@@ -202,7 +202,7 @@ class TestDeploymentConfig(unittest.TestCase):
             self.assertIn("/data/smartx-storage-forecast/project:/data/smartx-storage-forecast/project:ro", web_api_section)
 
     def test_v052_compose_uses_target_project_network_and_subnet(self) -> None:
-        for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+        for name in ("docker-compose.dev.yml", "docker-compose.offline.yml", "docker-compose.online.yml"):
             text = (ROOT / name).read_text(encoding="utf-8")
             self.assertTrue(text.startswith("name: smartx-hci-capacity-insight\n"))
             self.assertIn("name: smartx-hci-capacity-insight-net", text)

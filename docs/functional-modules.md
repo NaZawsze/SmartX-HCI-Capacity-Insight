@@ -18,9 +18,9 @@
 - 安装前置脚本：目录创建、权限、SELinux/防火墙/Prometheus 权限
 
 相关文件：
-- `docker-compose.yml`
+- `docker-compose.dev.yml`
 - `docker-compose.offline.yml`
-- `docker-compose.release.yml`
+- `docker-compose.online.yml`
 - `docker-compose.upgrade.yml`
 - `pre_install.sh`
 - `.github/workflows/docker-images.yml`
@@ -392,7 +392,7 @@ observability/images/prometheus.tar  # 可选，仅离线镜像包包含
 - `README.zh-CN.md`
 - `docs/releases/CHANGELOG.md`
 - `.github/workflows/docker-images.yml`
-- `docker-compose.release.yml`
+- `docker-compose.online.yml`
 
 常见问题：
 - `v0.4.0`、`0.4.0`、`v0.4.0U1` 格式不统一

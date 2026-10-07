@@ -351,8 +351,10 @@ mark_done "准备数据目录"
 # ══════════════════════════════════════════════════════════════
 step "放置平台部署文件"
 # ══════════════════════════════════════════════════════════════
-# 先备份既有 compose（重装场景，便于人工比对）
-for name in "$COMPOSE_FILE" docker-compose.yml; do
+# 先备份既有 compose（重装场景，便于人工比对）。
+# 变体 2026-10-07 改名（dev/online 取代 yml/release）：旧名文件在旧现场可能仍在，
+# 一并备份后再覆盖。
+for name in "$COMPOSE_FILE" docker-compose.dev.yml docker-compose.online.yml docker-compose.yml docker-compose.release.yml; do
   if [ -f "$PROJECT_DIR/$name" ] && [ "$name" != "$COMPOSE_FILE" ]; then
     cp -p "$PROJECT_DIR/$name" "$PROJECT_DIR/$name.bak.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
   fi
@@ -372,7 +374,7 @@ ok "compose 与 prometheus 配置已就位"
 # 非默认 install-root 时渲染 compose 里的绝对路径，并**校验渲染彻底**
 DEFAULT_ROOT="/data/smartx-storage-forecast"
 if [ "$INSTALL_ROOT" != "$DEFAULT_ROOT" ]; then
-  for name in "$COMPOSE_FILE" docker-compose.yml; do
+  for name in "$COMPOSE_FILE" docker-compose.dev.yml docker-compose.online.yml; do
     target="$PROJECT_DIR/$name"
     [ -f "$target" ] || continue
     sed -i "s#${DEFAULT_ROOT}#${INSTALL_ROOT}#g" "$target"

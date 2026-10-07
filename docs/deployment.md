@@ -86,16 +86,16 @@ The script creates `/data/smartx-storage-forecast/app` and `/data/smartx-storage
 Source build mode:
 
 ```bash
-docker compose up -d --build
+docker compose -f docker-compose.dev.yml up -d --build
 ```
 
-Release image mode, for servers that can pull images from the registry:
+Online image mode, for servers that can pull images from the registry:
 
 ```bash
-docker compose -f docker-compose.release.yml up -d
+docker compose -f docker-compose.online.yml up -d
 ```
 
-`docker-compose.release.yml` uses the Docker images built by GitHub Actions and does not contain `build:` sections. Use it when the target server should not build images locally, but can access the image registry.
+`docker-compose.online.yml` uses the Docker images built by GitHub Actions and does not contain `build:` sections. Use it when the target server should not build images locally, but can access the image registry.
 
 Offline image mode, for servers that already have the images loaded locally and should not pull from the registry:
 
@@ -127,8 +127,8 @@ docker load -i smartx-hci-capacity-insight-upgrade-runner.tar
 Image references in the compose files are fully literal (registry and tag both fixed, following `VERSION` / `RUNNER_VERSION`); they cannot be overridden via `.env`:
 
 ```text
-nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3        # docker-compose.yml / docker-compose.offline.yml
-docker.io/nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3   # docker-compose.release.yml
+nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3        # docker-compose.dev.yml / docker-compose.offline.yml
+docker.io/nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3   # docker-compose.online.yml
 ```
 
 Service ports:

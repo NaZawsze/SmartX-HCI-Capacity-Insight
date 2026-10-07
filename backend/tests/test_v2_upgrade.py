@@ -1349,7 +1349,20 @@ services:
             self.assertFalse((settings.compose_runtime_dir / "docker-compose.upgrade.yml").exists())
             compose_commands = [command for command in executor.commands if command[:3] == ["docker", "compose", "-f"]]
             self.assertTrue(any("docker-compose.runner-upgrade.yml" in part for command in compose_commands for part in command))
-            self.assertFalse(any("docker-compose.release.yml" in part or "docker-compose.offline.yml" in part for command in compose_commands for part in command))
+            self.assertFalse(
+                any(
+                    variant in part
+                    for command in compose_commands
+                    for part in command
+                    for variant in (
+                        "docker-compose.dev.yml",
+                        "docker-compose.offline.yml",
+                        "docker-compose.online.yml",
+                        "docker-compose.yml",
+                        "docker-compose.release.yml",
+                    )
+                )
+            )
             self.assertTrue(any(command[-1:] == ["upgrade-runner"] for command in compose_commands))
 
             resumed = run_pending_once(settings, TaskService(database), executor=executor, project_path=Path(tmpdir) / "project")

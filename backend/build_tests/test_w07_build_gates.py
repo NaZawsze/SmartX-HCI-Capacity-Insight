@@ -258,10 +258,24 @@ class VocabularyPlanCompilationTests(unittest.TestCase):
             )
             platform_package = _platform_package(directory, _platform_manifest())
             original = vocabulary.compile_plans_from_package
+            # 假计划形如真实编译产物：8 动作、compose.apply 带三件套 services——
+            # 否则 apply_services_scope（r21 硬断言）会把"缺 services"判 FAIL。
+            def _grid() -> list[dict]:
+                return [
+                    {"id": "backup", "type": "backup.create"},
+                    {"id": "load-1", "type": "image.load"},
+                    {"id": "load-2", "type": "image.load"},
+                    {"id": "load-3", "type": "image.load"},
+                    {"id": "sync", "type": "image.load"},
+                    {"id": "compose", "type": "compose.apply", "services": ["collector-worker", "frontend", "web-api"]},
+                    {"id": "health", "type": "health.http"},
+                    {"id": "cleanup", "type": "health.http"},
+                ]
+
             vocabulary.compile_plans_from_package = lambda package, manifest: {
                 "by_source": {
-                    "v0.5.2": [{"id": "backup", "type": "backup.create"}],
-                    "v0.5.3": [{"id": "health", "type": "health.http"}],
+                    "v0.5.2": _grid(),
+                    "v0.5.3": _grid(),
                 },
                 "errors": [],
             }

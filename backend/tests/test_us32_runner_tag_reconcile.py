@@ -1,7 +1,8 @@
 """US-32：compose 里的 runner tag 必须与计划声明的现场镜像一致。
 
-背景：US-26 想在 runner 组件升级后把新 tag 回写进 `project/docker-compose.yml`，但实现放在
-web-api 侧，而 web-api 的 project 目录是**只读挂载**（`docker-compose.yml` 的 `:ro`），写入
+背景：US-26 想在 runner 组件升级后把新 tag 回写进 project 的 compose（当时唯一名
+`docker-compose.yml`；2026-10-07 改名 `docker-compose.dev.yml`），但实现放在
+web-api 侧，而 web-api 的 project 目录是**只读挂载**（交付 compose 里 project 卷 `:ro`），写入
 必然抛 OSError 并被 `except OSError: continue` 吞掉 —— 该回写自实现起从未生效，compose 长期
 停留在包内基线（实测 v0.3.1）而现场实际跑 v0.3.2，任何一次宿主侧 `docker compose up -d`
 都会把 runner 静默降级。
@@ -38,7 +39,7 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
 
         project = root / "project"
         project.mkdir(parents=True, exist_ok=True)
-        (project / "docker-compose.yml").write_text(COMPOSE.format(tag=tag), encoding="utf-8")
+        (project / "docker-compose.dev.yml").write_text(COMPOSE.format(tag=tag), encoding="utf-8")
         return ActionContext.minimal(root, project_path=project)
 
     def _task(self, image: str, *, plan_image: str | None = None) -> dict:
@@ -135,8 +136,8 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
 
             reconciled_files = reconcile_project_runner_tag(context, self._task("repo/upgrade-runner:v0.3.2", plan_image="repo/upgrade-runner:v0.3.2"))
 
-            self.assertEqual(reconciled_files, "docker-compose.yml")
-            content = (context.project_path / "docker-compose.yml").read_text(encoding="utf-8")
+            self.assertEqual(reconciled_files, "docker-compose.dev.yml")
+            content = (context.project_path / "docker-compose.dev.yml").read_text(encoding="utf-8")
             self.assertIn("image: repo/upgrade-runner:v0.3.2", content)
             self.assertNotIn("image: repo/upgrade-runner:v0.3.1", content)
             # 逐行状态机不能破坏 upgrade-runner 块内其它键，更不能误伤后面的服务
@@ -147,9 +148,9 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
 
     def test_aligns_every_delivery_variant_not_just_primary_compose(self) -> None:
         """`.12` 2026-10-07 实测补洞：现场按 US-37 标记用 **offline 变体**运行，
-        平台升级的 files.sync 会把它重置回包内基线——只对齐 docker-compose.yml
+        平台升级的 files.sync 会把它重置回包内基线——只对齐单个文件
         覆盖不到真正的运行路径（实测活动文件仍写 v0.3.1，宿主侧 compose up 照样降级）。
-        对账必须覆盖全部交付变体。"""
+        对账必须覆盖全部交付变体（dev/offline/online）。"""
         from app.upgrade_runner.actions import reconcile_project_runner_tag
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -157,8 +158,8 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
             context = self._context(root, "repo/upgrade-runner:v0.3.1")
             offline = context.project_path / "docker-compose.offline.yml"
             offline.write_text(COMPOSE.format(tag="repo/upgrade-runner:v0.3.1"), encoding="utf-8")
-            release = context.project_path / "docker-compose.release.yml"
-            release.write_text(
+            online = context.project_path / "docker-compose.online.yml"
+            online.write_text(
                 COMPOSE.format(tag="docker.io/repo/upgrade-runner:v0.3.1"), encoding="utf-8"
             )
 
@@ -167,12 +168,35 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
             )
 
             self.assertEqual(
-                reconciled_files, "docker-compose.yml、docker-compose.offline.yml、docker-compose.release.yml"
+                reconciled_files, "docker-compose.dev.yml、docker-compose.offline.yml、docker-compose.online.yml"
             )
-            for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+            for name in ("docker-compose.dev.yml", "docker-compose.offline.yml", "docker-compose.online.yml"):
                 content = (context.project_path / name).read_text(encoding="utf-8")
                 self.assertIn("image: repo/upgrade-runner:v0.3.2", content, name)
                 self.assertNotIn("upgrade-runner:v0.3.1", content, name)
+
+    def test_legacy_leftover_names_are_still_reconciled(self) -> None:
+        """过渡期保障：files_sync 只增不删——改名（yml→dev、release→online）前安装的
+        现场升级后会**残留旧名文件**，它们同样可能被 `compose up` 用到，对账必须覆盖。"""
+        from app.upgrade_runner.actions import reconcile_project_runner_tag
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            context = self._context(root, "repo/upgrade-runner:v0.3.2")  # dev 已对齐
+            legacy = context.project_path / "docker-compose.yml"
+            legacy.write_text(COMPOSE.format(tag="repo/upgrade-runner:v0.3.1"), encoding="utf-8")
+            legacy_release = context.project_path / "docker-compose.release.yml"
+            legacy_release.write_text(
+                COMPOSE.format(tag="docker.io/repo/upgrade-runner:v0.3.1"), encoding="utf-8"
+            )
+
+            reconciled_files = reconcile_project_runner_tag(
+                context, self._task("repo/upgrade-runner:v0.3.2", plan_image="repo/upgrade-runner:v0.3.2")
+            )
+
+            self.assertEqual(reconciled_files, "docker-compose.yml、docker-compose.release.yml")
+            self.assertIn("v0.3.2", legacy.read_text(encoding="utf-8"))
+            self.assertIn("v0.3.2", legacy_release.read_text(encoding="utf-8"))
 
     def test_aligned_variant_is_not_rewritten(self) -> None:
         """已对齐的变体不动（幂等按文件独立判定）；只回写仍陈旧的。"""
@@ -197,10 +221,10 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             context = self._context(root, "repo/upgrade-runner:v0.3.2")
-            before = (context.project_path / "docker-compose.yml").read_text(encoding="utf-8")
+            before = (context.project_path / "docker-compose.dev.yml").read_text(encoding="utf-8")
 
             self.assertEqual(reconcile_project_runner_tag(context, self._task("repo/upgrade-runner:v0.3.2")), "")
-            self.assertEqual((context.project_path / "docker-compose.yml").read_text(encoding="utf-8"), before)
+            self.assertEqual((context.project_path / "docker-compose.dev.yml").read_text(encoding="utf-8"), before)
 
     def test_skips_when_manifest_has_no_runner_image(self) -> None:
         """post-cleanup 等任务没有 runner 条目 → 不得写任何东西。"""
@@ -209,12 +233,12 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             context = self._context(root, "repo/upgrade-runner:v0.3.1")
-            before = (context.project_path / "docker-compose.yml").read_text(encoding="utf-8")
+            before = (context.project_path / "docker-compose.dev.yml").read_text(encoding="utf-8")
 
             self.assertEqual(reconcile_project_runner_tag(context, {"manifest": {"package_type": "post_upgrade_cleanup"}}), "")
             self.assertEqual(reconcile_project_runner_tag(context, {}), "")
             self.assertEqual(reconcile_project_runner_tag(context, {"manifest": None}), "")
-            self.assertEqual((context.project_path / "docker-compose.yml").read_text(encoding="utf-8"), before)
+            self.assertEqual((context.project_path / "docker-compose.dev.yml").read_text(encoding="utf-8"), before)
 
     def test_missing_compose_file_is_noop(self) -> None:
         from app.upgrade_runner.actions import reconcile_project_runner_tag
@@ -222,7 +246,7 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             context = self._context(root, "repo/upgrade-runner:v0.3.1")
-            (context.project_path / "docker-compose.yml").unlink()
+            (context.project_path / "docker-compose.dev.yml").unlink()
             self.assertEqual(reconcile_project_runner_tag(context, self._task("repo/upgrade-runner:v0.3.2")), "")
 
     def test_write_failure_is_logged_not_swallowed(self) -> None:
@@ -234,7 +258,7 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             context = self._context(root, "repo/upgrade-runner:v0.3.1")
-            compose = context.project_path / "docker-compose.yml"
+            compose = context.project_path / "docker-compose.dev.yml"
             original = Path.write_text
 
             def boom(self, *args, **kwargs):
@@ -278,7 +302,7 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
             ).run()
 
             self.assertEqual(result["status"], "success")
-            content = (context.project_path / "docker-compose.yml").read_text(encoding="utf-8")
+            content = (context.project_path / "docker-compose.dev.yml").read_text(encoding="utf-8")
             self.assertIn("image: repo/upgrade-runner:v0.3.2", content)
             self.assertTrue(any("compose runner tag 已对齐" in line for line in result.get("logs", [])), result.get("logs"))
 
@@ -417,7 +441,7 @@ class RunnerSuccessTaskWritebackTest(unittest.TestCase):
             exports_path=tmp / "exports",
             compose_runtime_path=tmp / "compose-runtime",
             prometheus_path=tmp / "prometheus",
-            compose_file="docker-compose.yml",
+            compose_file="docker-compose.dev.yml",
             compose_project="smartx-hci-capacity-insight",
         )
 
@@ -451,7 +475,7 @@ class RunnerSuccessTaskWritebackTest(unittest.TestCase):
 
     def _compose(self, project: Path, tag: str) -> Path:
         project.mkdir(parents=True, exist_ok=True)
-        path = project / "docker-compose.yml"
+        path = project / "docker-compose.dev.yml"
         path.write_text(
             "services:\n"
             "  web-api:\n"

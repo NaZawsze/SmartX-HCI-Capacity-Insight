@@ -36,9 +36,9 @@ smartx-capacity-insight-platform-upgrade-v0.5.x.tar.gz
 │   ├── collector-worker.tar
 │   └── frontend.tar
 ├── project/
-│   ├── docker-compose.yml
+│   ├── docker-compose.dev.yml
 │   ├── docker-compose.offline.yml
-│   ├── docker-compose.release.yml
+│   ├── docker-compose.online.yml
 │   ├── pre_install.sh
 │   ├── prometheus/
 │   │   └── prometheus.yml

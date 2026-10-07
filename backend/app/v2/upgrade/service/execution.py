@@ -632,7 +632,7 @@ class ExecutionMixin:
             if _runner_only(task["manifest"]):
                 # US-32：compose 的 runner tag 回写已移到 runner 侧任务收尾
                 # （`actions.reconcile_project_runner_tag`）。此处曾长期调用 web-api 侧同名
-                # 逻辑，但 web-api 的 project 目录是只读挂载（`docker-compose.yml` 的 `:ro`），
+                # 逻辑，但 web-api 的 project 目录是只读挂载（交付 compose 里 project 卷为 `:ro`），
                 # 写入必抛 OSError 并被吞掉 —— US-26 的回写自实现起从未生效过。
                 # 保留提醒：不要在此再加回写，容器内无写权限。
                 runner_image = next(

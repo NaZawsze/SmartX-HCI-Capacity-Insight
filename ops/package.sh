@@ -171,7 +171,7 @@ info "runner RUNNER_VERSION=$RVER （原始 $RVER_RAW ）"
 
 # 三个源码 compose 的 runner tag 必须与 RUNNER_VERSION 一致
 COMPOSE_TAGS="$(grep -hE '^\s*image:.*upgrade-runner:' \
-  "$ROOT/docker-compose.yml" "$ROOT/docker-compose.offline.yml" "$ROOT/docker-compose.release.yml" 2>/dev/null \
+  "$ROOT/docker-compose.dev.yml" "$ROOT/docker-compose.offline.yml" "$ROOT/docker-compose.online.yml" 2>/dev/null \
   | grep -oE 'upgrade-runner:v[0-9A-Za-z._-]+' | sort -u | sed 's/.*://' | tr '\n' ' ')"
 dim "源码 compose runner tag: $COMPOSE_TAGS"
 MISMATCH=0

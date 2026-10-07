@@ -119,8 +119,8 @@ printf '\n'
 phase "步骤 0/6 · 版本门禁"
 python3 scripts/build_upgrade_package.py --check-version || {
   c_red "版本门禁未通过：VERSION / RUNNER_VERSION / 源码 compose 的 runner tag 不一致"
-  c_yellow "  改版本后请同步检查：VERSION、RUNNER_VERSION、docker-compose.yml、"
-  c_yellow "  docker-compose.offline.yml、docker-compose.release.yml、"
+  c_yellow "  改版本后请同步检查：VERSION、RUNNER_VERSION、docker-compose.dev.yml、"
+  c_yellow "  docker-compose.offline.yml、docker-compose.online.yml、"
   c_yellow "  backend/app/core/config.py 与 backend/app/v2/config.py 的 DEFAULT_RUNNER_VERSION。"
   exit 1
 }

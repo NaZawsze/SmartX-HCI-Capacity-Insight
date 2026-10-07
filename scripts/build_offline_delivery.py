@@ -241,10 +241,11 @@ def render_all_delivery_composes(
 
     为什么不止 offline 那一份（2026-09-30 `ops/package.sh` T2 实测发现）：
     原实现只渲染 `docker-compose.offline.yml`，而 `copy_project_files` 是整份复制，
-    于是 `docker-compose.yml` 原样带着**源码开发线** tag（实测 v0.3.2）进了交付目录。
+    于是开发变体（当时叫 `docker-compose.yml`，2026-10-07 改名 `docker-compose.dev.yml`）
+    原样带着**源码开发线** tag（实测 v0.3.2）进了交付目录。
     而 `delivery/install/install.sh` 启动用 offline 那份（`COMPOSE_FILE`），却把**两个都装进**
     目标目录——现场同时存在一份 tag 正确和一份 tag 错误的 compose。任何人工
-    `docker compose up`（默认读 `docker-compose.yml`）都会拉起未经本轮验收的 runner：
+    `docker compose up`（默认读 `docker-compose.yml`/`docker-compose.dev.yml`）都会拉起未经本轮验收的 runner：
     离线机直接失败（`images/` 里只有基线镜像），联网机则静默换人。违反 AGENTS §8。
     """
     rendered: list[str] = []
@@ -273,7 +274,7 @@ def copy_project_files(destination: Path) -> list[str]:
     放错位置会导致 Prometheus 起不来。
     """
     copied: list[str] = []
-    for name in ("docker-compose.offline.yml", "docker-compose.yml"):
+    for name in ("docker-compose.offline.yml", "docker-compose.dev.yml"):
         source = ROOT / name
         if source.is_file():
             shutil.copy2(source, destination / name)

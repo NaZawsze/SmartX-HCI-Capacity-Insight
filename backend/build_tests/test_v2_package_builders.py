@@ -91,9 +91,9 @@ class V2PackageBuilderTest(unittest.TestCase):
                 names = set(archive.getnames())
                 manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
                 release_notes = archive.extractfile("release-notes.md").read().decode("utf-8")
-                release_compose = archive.extractfile("project/docker-compose.release.yml").read().decode("utf-8")
+                release_compose = archive.extractfile("project/docker-compose.online.yml").read().decode("utf-8")
                 offline_compose = archive.extractfile("project/docker-compose.offline.yml").read().decode("utf-8")
-                dev_compose = archive.extractfile("project/docker-compose.yml").read().decode("utf-8")
+                dev_compose = archive.extractfile("project/docker-compose.dev.yml").read().decode("utf-8")
 
         self.assertEqual(manifest["schema_version"], "3")
         self.assertEqual(manifest["minimum_runner_protocol"], 1)
@@ -220,7 +220,10 @@ class V2PackageBuilderTest(unittest.TestCase):
         self.assertEqual(manifest["restart_services"], ["web-api", "collector-worker", "frontend", "prometheus", "upgrade-runner"])
         self.assertEqual([component["type"] for component in manifest["components"]], ["platform"])
         platform = manifest["components"][0]
-        self.assertEqual(platform["services"], ["web-api", "collector-worker", "frontend", "prometheus", "upgrade-runner"])
+        # r21 裁剪（09ee578，`.14` C1'' 实测）：apply 服务集合剔除 prometheus，
+        # 避免 compose 版本差导致 config-hash 不匹配把 prometheus 重建（T3 判据）；
+        # restart_services 仍是全量（展示口径，见上方断言）。
+        self.assertEqual(platform["services"], ["web-api", "collector-worker", "frontend", "upgrade-runner"])
         self.assertEqual(
             {image["archive"] for image in platform["images"]},
             {"images/web-api.tar", "images/collector-worker.tar", "images/frontend.tar", None},
@@ -310,7 +313,8 @@ class V2PackageBuilderTest(unittest.TestCase):
         override_images = {image["service"]: image["image"] for image in compose_override["params"]["images"]}
         self.assertEqual(override_images["upgrade-runner"], "nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.1")
         compose_apply = next(action for action in plan["actions"] if action["type"] == "compose.apply")
-        self.assertEqual(compose_apply["params"]["services"], ["collector-worker", "frontend", "prometheus", "web-api"])
+        # r21 裁剪：apply 集合只含本次真正变化的三件套（prometheus 移出，防 config-hash 版本差重建）。
+        self.assertEqual(compose_apply["params"]["services"], ["collector-worker", "frontend", "web-api"])
 
     def test_v051u2_package_does_not_include_legacy_cleanup(self) -> None:
         builder = _load_script("build_upgrade_package.py")
@@ -349,8 +353,8 @@ class V2PackageBuilderTest(unittest.TestCase):
 
             with tarfile.open(package, mode="r:gz") as archive:
                 manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
-                release_compose = archive.extractfile("project/docker-compose.release.yml").read().decode("utf-8")
-                dev_compose = archive.extractfile("project/docker-compose.yml").read().decode("utf-8")
+                release_compose = archive.extractfile("project/docker-compose.online.yml").read().decode("utf-8")
+                dev_compose = archive.extractfile("project/docker-compose.dev.yml").read().decode("utf-8")
                 offline_compose = archive.extractfile("project/docker-compose.offline.yml").read().decode("utf-8")
 
         self.assertNotIn("minimum_runner_version", manifest)
@@ -893,7 +897,7 @@ class V2PackageBuilderTest(unittest.TestCase):
         observations: list[tuple[str, bool, str]] = []
 
         def fake_run(command: list[str], cwd: Path = ROOT) -> str:
-            if command[:5] == ["docker", "compose", "-f", "docker-compose.yml", "build"]:
+            if command[:5] == ["docker", "compose", "-f", "docker-compose.dev.yml", "build"]:
                 observations.append(("build", env_file.exists(), env_file.read_text(encoding="utf-8") if env_file.exists() else ""))
             if command[:2] == ["docker", "save"] and "-o" in command:
                 output = Path(command[command.index("-o") + 1])
@@ -1042,7 +1046,7 @@ class V2PackageBuilderTest(unittest.TestCase):
 
             with tarfile.open(package, mode="r:gz") as archive:
                 manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
-                release_compose = archive.extractfile("platform/project/docker-compose.release.yml").read().decode("utf-8")
+                release_compose = archive.extractfile("platform/project/docker-compose.online.yml").read().decode("utf-8")
 
         self.assertEqual(manifest["minimum_runner_version"], "v0.3.1")
         self.assertIn("directory_transition", manifest)

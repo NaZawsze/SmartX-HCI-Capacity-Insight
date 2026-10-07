@@ -173,7 +173,7 @@ def _run_compose_build_with_env() -> None:
         env_file.write_text("", encoding="utf-8")
         created = True
     try:
-        run(['docker', 'compose', '-f', 'docker-compose.yml', 'build', COMPONENT])
+        run(['docker', 'compose', '-f', 'docker-compose.dev.yml', 'build', COMPONENT])
     finally:
         if created:
             env_file.unlink(missing_ok=True)

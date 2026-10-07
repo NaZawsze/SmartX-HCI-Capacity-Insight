@@ -350,7 +350,7 @@ class UpgradeEngineTest(unittest.TestCase):
             exports_path=Path("/data/exports"),
             compose_runtime_path=Path("/data/compose-runtime"),
             prometheus_path=Path("/prometheus-data"),
-            compose_file="docker-compose.release.yml",
+            compose_file="docker-compose.online.yml",
             compose_project="smartx-hci-capacity-insight",
             executor=None,  # type: ignore[arg-type]
             host_data_path=Path("/data/smartx-storage-forecast/app"),

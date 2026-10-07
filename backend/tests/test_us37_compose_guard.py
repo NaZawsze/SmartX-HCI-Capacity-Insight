@@ -19,7 +19,7 @@ GUARD = ROOT / "delivery" / "compose-guard.sh"
 MARKER_KEY = "SMARTX_COMPOSE_FILE_ACTIVE"
 
 OFFLINE = "docker-compose.offline.yml"
-MAIN = "docker-compose.yml"
+MAIN = "docker-compose.dev.yml"
 PROJECT = "smartx-hci-capacity-insight"
 
 

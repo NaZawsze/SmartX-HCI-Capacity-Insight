@@ -68,7 +68,7 @@ ops/           Operations entry points: install / upgrade / package (see ops/REA
 scripts/       Build and verification tooling (package builders, gates)
 delivery/      Source files for the offline delivery bundle (copied into it, not run from repo)
 docs/          API, deployment, usage documentation, and screenshots
-docker-compose.yml
+docker-compose.dev.yml
 .env.example
 ```
 
@@ -148,9 +148,9 @@ smartx-capacity-insight-upgrade-v0.5.3.tar.gz
 │   ├── frontend.tar
 │   └── collector-worker.tar
 └── project/
-    ├── docker-compose.yml
+    ├── docker-compose.dev.yml
     ├── docker-compose.offline.yml
-    ├── docker-compose.release.yml
+    ├── docker-compose.online.yml
     ├── prometheus/
     ├── scripts/
     └── docs/

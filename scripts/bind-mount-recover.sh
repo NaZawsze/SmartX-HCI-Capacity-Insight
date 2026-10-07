@@ -19,7 +19,7 @@
 #
 # 环境变量：
 #   PROJECT_DIR   默认 /data/smartx-storage-forecast/project
-#   COMPOSE_FILE  默认 docker-compose.offline.yml（不存在则回退 docker-compose.yml）
+#   COMPOSE_FILE  默认 docker-compose.offline.yml（不存在则回退 dev 变体、再回退旧名 yml）
 #   HEALTH_URL    默认 http://localhost:8080/api/system/health
 #   APP_ROOT      默认 /data/smartx-storage-forecast/app
 #
@@ -248,10 +248,12 @@ do_recover() {
     echo "== UPG-050 恢复：自动解锁→全量重建→验证→复锁 $(date '+%F %T') =="
     warn_upg050
     if [ ! -f "$PROJECT_DIR/$COMPOSE_FILE" ]; then
-        if [ -f "$PROJECT_DIR/docker-compose.yml" ]; then
+        if [ -f "$PROJECT_DIR/docker-compose.dev.yml" ]; then
+            COMPOSE_FILE="docker-compose.dev.yml"
+        elif [ -f "$PROJECT_DIR/docker-compose.yml" ]; then
             COMPOSE_FILE="docker-compose.yml"
         else
-            echo "错误：$PROJECT_DIR 下找不到 $COMPOSE_FILE / docker-compose.yml" >&2
+            echo "错误：$PROJECT_DIR 下找不到 $COMPOSE_FILE / docker-compose.dev.yml / docker-compose.yml" >&2
             return 1
         fi
     fi

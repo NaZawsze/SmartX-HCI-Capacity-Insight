@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # US-37 守卫：阻止同一 compose project 混用不同 compose 变体。
 #
-# 背景：仓库有 4 个 compose 变体（docker-compose.yml / .offline.yml /
-# .release.yml / .upgrade.yml），共享同一个 project 名，但服务定义不同 →
+# 背景：仓库有 4 个 compose 变体（docker-compose.dev.yml / .offline.yml /
+# .online.yml / .upgrade.yml；2026-10-07 由 yml/release 改名），共享同一个 project 名，
+# 但服务定义不同 →
 # config-hash 必然不同 → 用错变体执行 up/down/restart 会触发 Docker
 # recreate，旧容器被 SIGKILL（exit 137、OOMKilled=false），造成服务中断。
 # 2026-09-30 .3 事故即此因。

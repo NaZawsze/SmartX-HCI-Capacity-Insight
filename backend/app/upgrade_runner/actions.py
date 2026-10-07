@@ -13,12 +13,13 @@ import tempfile
 import time
 import urllib.request
 from dataclasses import dataclass
+from app.upgrade_runner.selfhandoff import COMPOSE_ALIGN_FILES, compose_target_paths
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 #: project 目录下主 compose 文件名（US-32 对账与 W3 自换 writeback 共用同一份）。
-COMPOSE_FILENAME = "docker-compose.yml"
+
 
 
 class CommandExecutor:
@@ -212,14 +213,11 @@ def _runner_image_from_task(task: Any) -> str:
     return ""
 
 
-#: US-32（2026-10-07 扩展）：对账覆盖**现场可能被 docker compose 使用的全部交付变体**。
-#: 只写 docker-compose.yml 不够——安装后的现场按 US-37 标记用 offline/release 变体，
-#: 平台升级的 files.sync 又会把它们重置回包内基线（`.12` 实测活动文件仍写 v0.3.1）。
-RUNNER_RECONCILE_COMPOSE_FILES = (
-    "docker-compose.yml",
-    "docker-compose.offline.yml",
-    "docker-compose.release.yml",
-)
+#: US-32 对账目标 = 全部交付变体 + 旧名残留（见 `selfhandoff.COMPOSE_ALIGN_FILES`：
+#: dev/offline/online + 旧 yml/release）。只写单个文件不够——`.12` 实测：活动文件
+#: （US-37 标记）曾长期停在包内基线 v0.3.1 而 yml 已被对齐，宿主侧照活动文件
+#: `compose up` 照样静默降级 runner。
+RUNNER_RECONCILE_COMPOSE_FILES = COMPOSE_ALIGN_FILES
 
 
 def reconcile_project_runner_tag(context: ActionContext, task: dict[str, Any]) -> str:
@@ -337,58 +335,87 @@ def component_compose_writeback(action: dict[str, Any], context_payload: dict[st
     """写入组件自身部署配置（自换第 3 步）：把 compose 里的 runner tag 对齐到新镜像。
 
     **回滚锚点必须在调用本动作之前捕获**（`selfhandoff.capture_component_rollback_anchor`）。
-    writeback 会覆盖 `docker-compose.yml` 里的 image 行，anchor 的
+    writeback 会覆盖 compose 变体里的 image 行，anchor 的
     `previous_image_tag` / `previous_image_id` 只在被覆盖之前读得到——顺序反了，
     锚点里记到的就是新版本，组件回滚会退化成"把新版本换回新版本"。
 
-    幂等：tag 已经等于目标值时直接返回，不重复写。
+    **2026-10-07 改名后覆盖全部变体**（与 US-32 对账同一目标集）：只写单个文件会漏掉
+    真正被 `compose up` 的活动变体（US-37 标记）与改名前的旧名残留文件
+    （files_sync 只增不删）——`.12` 实测过只对齐 yml 而活动 offline 仍是旧 tag 的降级隐患。
+
+    幂等：所有在场变体的 tag 都等于目标值时直接返回；写失败按原契约抛 OSError
+    （自换宁可失败也不带着错误状态 handoff）。
     """
     context = _context(context_payload)
     target_image = str(action.get("params", {}).get("image") or "").strip()
     if not target_image:
         raise ValueError("自换 writeback 缺少目标镜像。")
-    compose_path = context.project_path / COMPOSE_FILENAME
-    if not compose_path.is_file():
-        raise FileNotFoundError(f"project compose 不存在：{compose_path}")
-    lines = compose_path.read_text(encoding="utf-8").splitlines(keepends=True)
-    in_runner = False
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if not in_runner:
-            if stripped.startswith("upgrade-runner:"):
-                in_runner = True
-            continue
-        if line[:1].strip() == "" and stripped.endswith(":") and not stripped.startswith("#"):
-            break
-        if stripped.startswith("image:"):
-            current = stripped.split("image:", 1)[1].strip()
-            if current == target_image:
-                return {
-                    "image": target_image,
-                    "changed": False,
-                    "previous_image_tag": current,
-                    "checkpoint": {"aligned": True, "changed": False},
-                }
-            prefix = line[: line.index("image:") + len("image:")]
-            newline = "\n" if line.endswith("\n") else ""
-            lines[index] = f"{prefix} {target_image}{newline}"
-            temporary = compose_path.with_suffix(".tmp")
-            try:
-                temporary.write_text("".join(lines), encoding="utf-8")
-                os.replace(temporary, compose_path)
-            except OSError as exc:
-                raise OSError(f"写入 runner compose tag 失败：{compose_path}：{exc}") from exc
-            logging.getLogger(__name__).warning(
-                "runner 自换 compose tag 已对齐：%s -> %s", current, target_image
-            )
-            return {
-                "image": target_image,
-                "changed": True,
-                "previous_image_tag": current,
-                "compose_file": str(compose_path),
-                "checkpoint": {"aligned": True, "changed": True, "previous_image_tag": current},
-            }
-    raise ValueError(f"compose 中未找到 upgrade-runner 的 image 声明：{compose_path}")
+    paths = compose_target_paths(context.project_path)
+    if not paths:
+        raise FileNotFoundError(f"project 下没有任何 compose 变体：{context.project_path}")
+    previous = ""      # 被替换掉的旧 tag（有变化时优先记它）
+    aligned_seen = ""  # 幂等路径的返回值：已对齐时见到的 tag（与旧契约一致）
+    changed_files: list[str] = []
+    for compose_path in paths:
+        lines = compose_path.read_text(encoding="utf-8").splitlines(keepends=True)
+        in_runner = False
+        found_image = False
+        for index, line in enumerate(lines):
+            stripped = line.strip()
+            if not in_runner:
+                if stripped.startswith("upgrade-runner:"):
+                    in_runner = True
+                continue
+            if line[:1].strip() == "" and stripped.endswith(":") and not stripped.startswith("#"):
+                break
+            if stripped.startswith("image:"):
+                found_image = True
+                current = stripped.split("image:", 1)[1].strip()
+                if current == target_image:
+                    if not aligned_seen:
+                        aligned_seen = current
+                    break
+                if not previous:
+                    previous = current
+                prefix = line[: line.index("image:") + len("image:")]
+                newline = "\n" if line.endswith("\n") else ""
+                lines[index] = f"{prefix} {target_image}{newline}"
+                temporary = compose_path.with_suffix(".tmp")
+                try:
+                    temporary.write_text("".join(lines), encoding="utf-8")
+                    os.replace(temporary, compose_path)
+                except OSError as exc:
+                    raise OSError(f"写入 runner compose tag 失败：{compose_path}：{exc}") from exc
+                logging.getLogger(__name__).warning(
+                    "runner 自换 compose tag 已对齐：%s（%s -> %s）",
+                    compose_path.name,
+                    current,
+                    target_image,
+                )
+                changed_files.append(str(compose_path))
+                break
+        if not found_image:
+            raise ValueError(f"compose 中未找到 upgrade-runner 的 image 声明：{compose_path}")
+    if not changed_files:
+        return {
+            "image": target_image,
+            "changed": False,
+            "previous_image_tag": previous or aligned_seen,
+            "checkpoint": {"aligned": True, "changed": False},
+        }
+    return {
+        "image": target_image,
+        "changed": True,
+        "previous_image_tag": previous or aligned_seen,
+        "compose_file": changed_files[0],
+        "compose_files": changed_files,
+        "checkpoint": {
+            "aligned": True,
+            "changed": True,
+            "previous_image_tag": previous,
+            "compose_files": changed_files,
+        },
+    }
 
 
 def component_schedule_self_handoff(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:

@@ -241,7 +241,9 @@ def capture_platform_rollback_anchor(
 def _compose_image_for(context: Any, service: str) -> str:
     """读 project compose 里某服务当前的 image 声明。"""
     compose_path = Path(getattr(context, "project_path", "")) / str(
-        getattr(context, "compose_file", "") or "docker-compose.yml"
+        # 兜底默认：目标布局的活动 compose 是 offline 变体（context 正常情况下都有
+        # compose_file，这里只在异常构造的 context 上生效）
+        getattr(context, "compose_file", "") or "docker-compose.offline.yml"
     )
     if not compose_path.is_file():
         return ""
