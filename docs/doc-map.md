@@ -27,6 +27,7 @@
 | 归档文件 | 迁出内容 | 来源 |
 | --- | --- | --- |
 | [archive/progress-2026-06.md](archive/progress-2026-06.md) | 9 个 `## ` 小节：2026-06 全部执行记录（`## 2026-06-01` 大节内含 2026-05-22 ~ 06-24 早期记录） | progress.md |
+| [ai-handoff-2026-10-08.md](ai-handoff-2026-10-08.md) | **AI 交接（2026-10-08）**：本轮四个提交、候选 r34（已构建未发布）、`.3` 待办（升级/恢复采集间隔/预览清理）、验证基线与命令、关键结论与新坑。 | pending-tasks P0 表 |
 | [archive/progress-2026-07.md](archive/progress-2026-07.md) | 52 个 `## ` 小节：2026-07-02 ~ 07-17 升级链路修复记录（UPG-030 ~ UPG-048） | progress.md |
 | [archive/task-plan-chain-archive.md](archive/task-plan-chain-archive.md) | 4 个已收官整节：当前执行项 UPG-036/037/038/039、当前执行项 UPG-031/fix20、专项升级链路历史任务归档、UPG 修复链路摘要 | task_plan.md |
 | [archive/findings-chain-archive.md](archive/findings-chain-archive.md) | 2 个指针节：专项升级链路发现归档、专项升级链路历史发现归档（已完成） | findings.md |
