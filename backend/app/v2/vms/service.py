@@ -53,7 +53,7 @@ class VmService:
         return keys
 
     def list_vms(self, tower_id: int | None = None, cluster_id: str | None = None) -> list[dict[str, Any]]:
-        latest_names = self._latest_vm_names()
+        latest_info = self._latest_vm_info()
         cluster_names = self._cluster_names()
         enabled_scope = self._enabled_cluster_scope(tower_id=tower_id, cluster_id=cluster_id)
         recycled = self._recycled_vm_keys()
@@ -68,7 +68,8 @@ class VmService:
                 continue
             if (key[0], key[1], str(metric.get("vm_id") or "")) in recycled:
                 continue  # 回收站 VM 不在页面列表展示（#79）
-            name = latest_names.get(key) or str(metric.get("vm_name") or metric.get("vm_id") or "")
+            info = latest_info.get(key) or {}
+            name = info.get("name") or str(metric.get("vm_name") or metric.get("vm_id") or "")
             used_bytes = metric_value(row)
             vms.append(
                 {
@@ -77,6 +78,8 @@ class VmService:
                     "cluster_name": cluster_names.get((key[0], key[1]), str(metric.get("cluster") or "")),
                     "vm_id": str(metric.get("vm_id") or ""),
                     "vm_name": name,
+                    "owner": info.get("owner"),
+                    "folder_name": info.get("folder_name"),
                     "used_bytes": used_bytes,
                     "metric": {
                         "tower_id": str(metric.get("tower_id") or 0),
@@ -118,17 +121,28 @@ class VmService:
     def detail(self, *, vm_id: str, tower_id: int, cluster_id: str) -> dict[str, Any]:
         with self.database.connection() as conn:
             row = conn.execute(
-                "SELECT tower_id, cluster_id, vm_id, name, used_bytes, updated_at FROM vm_latest WHERE tower_id = ? AND cluster_id = ? AND vm_id = ?",
+                "SELECT tower_id, cluster_id, vm_id, name, used_bytes, owner, folder_name, updated_at FROM vm_latest WHERE tower_id = ? AND cluster_id = ? AND vm_id = ?",
                 (tower_id, cluster_id, vm_id),
             ).fetchone()
         if row is None:
-            return {"tower_id": tower_id, "cluster_id": cluster_id, "vm_id": vm_id, "vm_name": vm_id, "used_bytes": 0, "updated_at": None}
+            return {
+                "tower_id": tower_id,
+                "cluster_id": cluster_id,
+                "vm_id": vm_id,
+                "vm_name": vm_id,
+                "used_bytes": 0,
+                "owner": None,
+                "folder_name": None,
+                "updated_at": None,
+            }
         return {
             "tower_id": int(row["tower_id"]),
             "cluster_id": str(row["cluster_id"]),
             "vm_id": str(row["vm_id"]),
             "vm_name": str(row["name"]),
             "used_bytes": int(row["used_bytes"]),
+            "owner": row["owner"],
+            "folder_name": row["folder_name"],
             "updated_at": row["updated_at"],
         }
 
@@ -360,10 +374,23 @@ class VmService:
             for row in rows
         ]
 
-    def _latest_vm_names(self) -> dict[tuple[int, str, str], str]:
+    def _latest_vm_info(self) -> dict[tuple[int, str, str], dict[str, Any]]:
+        """vm_latest 的展示信息全量映射（名/所有者/虚拟机组，Phase 69）。"""
         with self.database.connection() as conn:
-            rows = conn.execute("SELECT tower_id, cluster_id, vm_id, name FROM vm_latest").fetchall()
-        return {(int(row["tower_id"]), str(row["cluster_id"]), str(row["vm_id"])): str(row["name"]) for row in rows}
+            rows = conn.execute(
+                "SELECT tower_id, cluster_id, vm_id, name, owner, folder_name FROM vm_latest"
+            ).fetchall()
+        return {
+            (int(row["tower_id"]), str(row["cluster_id"]), str(row["vm_id"])): {
+                "name": str(row["name"]),
+                "owner": row["owner"],
+                "folder_name": row["folder_name"],
+            }
+            for row in rows
+        }
+
+    def _latest_vm_names(self) -> dict[tuple[int, str, str], str]:
+        return {key: info["name"] for key, info in self._latest_vm_info().items()}
 
     def _cluster_names(self) -> dict[tuple[int, str], str]:
         with self.database.connection() as conn:
@@ -389,7 +416,7 @@ class VmService:
         where = f"WHERE {' AND '.join(filters)}" if filters else ""
         with self.database.connection() as conn:
             rows = conn.execute(
-                f"SELECT tower_id, cluster_id, vm_id, name, used_bytes, in_recycle_bin "
+                f"SELECT tower_id, cluster_id, vm_id, name, used_bytes, in_recycle_bin, owner, folder_name "
                 f"FROM vm_latest {where}",
                 params,
             ).fetchall()
@@ -412,6 +439,8 @@ class VmService:
                     "cluster_name": cluster_name,
                     "vm_id": vm_id,
                     "vm_name": vm_name,
+                    "owner": row["owner"],
+                    "folder_name": row["folder_name"],
                     "used_bytes": used_bytes,
                     "metric": {
                         "tower_id": str(tower_id),

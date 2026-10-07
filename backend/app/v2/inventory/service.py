@@ -52,9 +52,14 @@ class InventoryService:
             rows = conn.execute("SELECT * FROM towers ORDER BY id").fetchall()
             clusters = {
                 int(row["id"]): [
-                    ClusterRecord(cluster_id=cluster["cluster_id"], name=cluster["name"], enabled=bool(cluster["enabled"]))
+                    ClusterRecord(
+                        cluster_id=cluster["cluster_id"],
+                        name=cluster["name"],
+                        enabled=bool(cluster["enabled"]),
+                        os_version=_optional_column(cluster, "os_version"),
+                    )
                     for cluster in conn.execute(
-                        "SELECT cluster_id, name, enabled FROM clusters WHERE tower_id = ? ORDER BY name, cluster_id",
+                        "SELECT cluster_id, name, enabled, os_version FROM clusters WHERE tower_id = ? ORDER BY name, cluster_id",
                         (int(row["id"]),),
                     ).fetchall()
                 ]
@@ -68,10 +73,18 @@ class InventoryService:
             if row is None:
                 return None
             cluster_rows = conn.execute(
-                "SELECT cluster_id, name, enabled FROM clusters WHERE tower_id = ? ORDER BY name, cluster_id",
+                "SELECT cluster_id, name, enabled, os_version FROM clusters WHERE tower_id = ? ORDER BY name, cluster_id",
                 (tower_id,),
             ).fetchall()
-        clusters = [ClusterRecord(cluster_id=item["cluster_id"], name=item["name"], enabled=bool(item["enabled"])) for item in cluster_rows]
+        clusters = [
+            ClusterRecord(
+                cluster_id=item["cluster_id"],
+                name=item["name"],
+                enabled=bool(item["enabled"]),
+                os_version=_optional_column(item, "os_version"),
+            )
+            for item in cluster_rows
+        ]
         return self._tower_from_row(row, clusters)
 
     def update_tower(self, tower_id: int, payload: TowerInput) -> TowerRecord:
@@ -158,12 +171,36 @@ class InventoryService:
                 values,
             )
             row = conn.execute(
-                "SELECT cluster_id, name, enabled FROM clusters WHERE tower_id = ? AND cluster_id = ?",
+                "SELECT cluster_id, name, enabled, os_version FROM clusters WHERE tower_id = ? AND cluster_id = ?",
                 (tower_id, cluster_id),
             ).fetchone()
         if row is None:
             raise KeyError(f"cluster {cluster_id} not found")
-        return ClusterRecord(cluster_id=row["cluster_id"], name=row["name"], enabled=bool(row["enabled"]))
+        return ClusterRecord(
+            cluster_id=row["cluster_id"],
+            name=row["name"],
+            enabled=bool(row["enabled"]),
+            os_version=_optional_column(row, "os_version"),
+        )
+
+    def record_versions(self, *, tower_id: int, tower_version: str | None, cluster_versions: dict[str, str]) -> None:
+        """记录 Tower 平台版本与各集群 SMTX OS 版本（2026-10-07 需求，采集/测试连接顺带刷新）。
+
+        空值不覆盖旧值（Tower 未返回版本时保留上一次已知版本）；不写 updated_at 之外的配置字段。
+        """
+        with self.database.connection() as conn:
+            if tower_version:
+                conn.execute(
+                    "UPDATE towers SET tower_version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (tower_version, tower_id),
+                )
+            for cluster_id, version in cluster_versions.items():
+                if not cluster_id or not version:
+                    continue
+                conn.execute(
+                    "UPDATE clusters SET os_version = ?, updated_at = CURRENT_TIMESTAMP WHERE tower_id = ? AND cluster_id = ?",
+                    (version, tower_id, cluster_id),
+                )
 
     def get_tower_secret_material(self, tower_id: int) -> dict[str, str | None]:
         with self.database.connection() as conn:
@@ -197,6 +234,7 @@ class InventoryService:
             username=row["username"],
             verify_tls=bool(row["verify_tls"]),
             enabled=bool(row["enabled"]),
+            tower_version=_optional_column(row, "tower_version"),
             collection_hour=int(row["collection_hour"] if row["collection_hour"] is not None else 2),
             collection_minute=int(row["collection_minute"] if row["collection_minute"] is not None else 10),
             collection_interval_minutes=int(row["collection_interval_minutes"] if row["collection_interval_minutes"] is not None else 60),
@@ -212,6 +250,14 @@ class InventoryService:
         if current:
             return current
         return decrypt_fernet_secret(value, self.settings.credential_key) or decrypt_fernet_secret(value, self.settings.secret_key)
+
+
+def _optional_column(row, name: str):
+    """读取可能尚未迁移出来的列（expand-only 迁移先于使用，测试用旧 schema 时也不炸）。"""
+    try:
+        return row[name]
+    except (IndexError, KeyError):
+        return None
 
 
 def _clamp_int(value: object, minimum: int, maximum: int, default: int) -> int:

@@ -71,7 +71,7 @@ class FakeReportService:
             if self.window_vms is not None
             else [
                 {
-                    "labels": {"tower_id": "1", "tower": "Tower A", "cluster_id": "cluster-a", "cluster": "Cluster A", "vm_id": "vm-window-1", "vm": "Window VM One"},
+                    "labels": {"tower_id": "1", "tower": "Tower A", "cluster_id": "cluster-a", "cluster": "Cluster A", "vm_id": "vm-window-1", "vm": "Window VM One", "owner": "root", "folder_name": "研发组"},
                     "forecast": {"status": "ok", "slope_per_day": 4, "current": 240 * 1024**3},
                     "growth_amount": 20 * 1024**3,
                     "previous_value": 220 * 1024**3,
@@ -441,6 +441,29 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             single_summary = single_xml.split("一  摘要", 1)[1].split("二  集群容量概览", 1)[0]
             self.assertEqual(single_summary.count("当前已用容量"), 1)
 
+    def test_docx_and_xlsx_vm_tables_include_owner_and_group_columns(self) -> None:
+        """Phase 69：报表 VM 表格必须含「所有者」「虚拟机组」两列（空值显示 -）。"""
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_docx, build_report_xlsx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="reports-owner-secret")
+            report = FakeReportService().latest_report(period_days=30)
+
+            docx_content, _, _, _ = build_report_docx(report, settings, period_days=30)
+            word_xml, _ = _docx_xml(docx_content)
+            self.assertIn("所有者", word_xml)
+            self.assertIn("虚拟机组", word_xml)
+            self.assertIn("root", word_xml)       # 有值行
+            self.assertIn("研发组", word_xml)
+
+            xlsx_content, _, _, _ = build_report_xlsx(report, settings, period_days=30)
+            values = _xlsx_values(xlsx_content)
+            self.assertIn("所有者", values)
+            self.assertIn("虚拟机组", values)
+            self.assertIn("root", values)
+            self.assertIn("研发组", values)
+
     def test_docx_uses_native_toc_and_real_heading_styles(self) -> None:
         from app.v2.config import V2Settings
         from app.v2.reports.export import build_report_docx
@@ -764,12 +787,13 @@ class V2ReportExportDocumentTest(unittest.TestCase):
 
             top_sheet = workbook["VM增长TOP100"]
             self.assertIn("全部虚拟机", str(top_sheet["A1"].value))
-            self.assertIn("全部虚拟机", str(top_sheet["I1"].value))
+            # Phase 69：右侧标题列随每侧 +2 列后移（9 → 11）
+            self.assertIn("全部虚拟机", str(top_sheet["K1"].value))
             self.assertGreaterEqual(top_sheet.column_dimensions["B"].width, 36)
-            self.assertGreaterEqual(top_sheet.column_dimensions["C"].width, 16)
-            self.assertEqual(top_sheet.column_dimensions["E"].width, 13)
-            self.assertIn(f"H1:H{top_sheet.max_row}", {str(item) for item in top_sheet.merged_cells.ranges})
-            self.assertIsNone(top_sheet["H1"].fill.fill_type)
+            self.assertGreaterEqual(top_sheet.column_dimensions["C"].width, 14)
+            self.assertEqual(top_sheet.column_dimensions["E"].width, 16)
+            self.assertIn(f"J1:J{top_sheet.max_row}", {str(item) for item in top_sheet.merged_cells.ranges})
+            self.assertIsNone(top_sheet["J1"].fill.fill_type)
             self.assertEqual(top_sheet.column_dimensions["H"].width, 10)
 
             cluster_sheet = workbook["Cluster A"]
@@ -903,22 +927,25 @@ class V2ReportExportDocumentTest(unittest.TestCase):
         self.assertEqual(top.sheet_view.topLeftCell, "A1")
         self.assertEqual(top.sheet_view.selection[0].activeCell, "A5")
         self.assertEqual(top.sheet_view.selection[0].sqref, "A5")
+        # Phase 69：每侧 +2 列（所有者/虚拟机组）——左侧 1..9、分隔列 J、右侧 11..18
         self.assertAlmostEqual(top.column_dimensions["A"].width, 15.83203125)
         self.assertEqual(top.column_dimensions["B"].width, 50)
-        self.assertEqual(top.column_dimensions["H"].width, 10)
-        self.assertAlmostEqual(top.column_dimensions["I"].width, 15.83203125)
-        self.assertEqual(top.column_dimensions["J"].width, 50)
+        self.assertEqual(top.column_dimensions["J"].width, 10)
+        self.assertAlmostEqual(top.column_dimensions["K"].width, 15.83203125)
+        self.assertEqual(top.column_dimensions["L"].width, 50)
         self.assertEqual(top.row_dimensions[1].height, 34)
         self.assertEqual(top.row_dimensions[3].height, 34)
         self.assertEqual(top.row_dimensions[4].height, 28)
-        self.assertIn(f"H1:H{top.max_row}", {str(item) for item in top.merged_cells.ranges})
+        self.assertIn(f"J1:J{top.max_row}", {str(item) for item in top.merged_cells.ranges})
         self.assertEqual(top["A4"].font.sz, 11)
         self.assertEqual(top["A5"].font.sz, 11)
 
         day_growth = workbook["日增长详情"]
         self.assertEqual(day_growth.column_dimensions["A"].width, 15.83203125)
         self.assertEqual(day_growth.column_dimensions["B"].width, 44.5)
-        self.assertAlmostEqual(day_growth.column_dimensions["C"].width, 25.83203125)
+        # Phase 69：C 为「所有者」，原 Tower 列后移到 E
+        self.assertEqual(day_growth.column_dimensions["C"].width, 16)
+        self.assertAlmostEqual(day_growth.column_dimensions["E"].width, 25.83203125)
         self.assertEqual(day_growth.row_dimensions[4].height, 30)
 
         day_new = workbook["本日新建VM"]
@@ -968,7 +995,8 @@ class V2ReportExportDocumentTest(unittest.TestCase):
                 self.assertEqual(cell.font.color.rgb[-6:], "000000", cell.coordinate)
 
         day_sheet = workbook["日增长详情"]
-        self.assertIn("A1:I1", {str(item) for item in day_sheet.merged_cells.ranges})
+        # Phase 69：9→11 列后标题合并区随宽
+        self.assertIn("A1:K1", {str(item) for item in day_sheet.merged_cells.ranges})
         self.assertIn("日增长最快虚拟机", str(day_sheet["A1"].value))
         self.assertIsNone(day_sheet.sheet_properties.tabColor)
 
@@ -977,9 +1005,14 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             ["日增长详情", "月增长详情", "本日新建VM"],
         )
         month_sheet = workbook["月增长详情"]
-        self.assertIn("A1:I1", {str(item) for item in month_sheet.merged_cells.ranges})
+        # Phase 69：9→11 列后标题合并区随宽
+        self.assertIn("A1:K1", {str(item) for item in month_sheet.merged_cells.ranges})
         self.assertIn("月增长最快虚拟机", str(month_sheet["A1"].value))
-        self.assertEqual(month_sheet["G3"].value, "月增长量")
+        # Phase 69：名称后插入「所有者」「虚拟机组」，月增长量列 G→I
+        self.assertEqual(month_sheet["C3"].value, "所有者")
+        self.assertEqual(month_sheet["D3"].value, "虚拟机组")
+        self.assertEqual(month_sheet["E3"].value, "Tower")
+        self.assertEqual(month_sheet["I3"].value, "月增长量")
         month_text = "\n".join(
             str(cell)
             for row in month_sheet.iter_rows(values_only=True)

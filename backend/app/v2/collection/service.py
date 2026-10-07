@@ -18,6 +18,11 @@ class CloudTowerCollector(Protocol):
     def collect_cluster(self, tower: TowerRecord, cluster: ClusterRecord) -> dict:
         ...
 
+    def version_info(self, tower: TowerRecord) -> dict:
+        # 采集顺带刷新版本（2026-10-07）：{"platform": "v4.5.0", "clusters": {cluster_id: "6.1.1"}}。
+        # 测试 fake 可不实现（CollectionService 侧做了 best-effort 兜底）。
+        ...
+
     def cluster_allocations(self, tower: TowerRecord) -> dict[str, int]:
         # #75 终版：已分配在 collect_cluster 的 payload 内就计算（Σ 卷供给 × 副本/EC），
         # 本协议桩仅为既有协议形状保留，不再被实现调用。
@@ -62,6 +67,7 @@ class CollectionService:
         success_targets: list[dict[str, object]] = []
         failed_targets: list[dict[str, object]] = []
         for tower in towers:
+            self._refresh_tower_versions(tower)
             for cluster in tower.clusters:
                 if not cluster.enabled:
                     continue
@@ -89,6 +95,8 @@ class CollectionService:
                             in_recycle_bin=1 if vm.get("in_recycle_bin") else 0,
                             original_name=vm.get("original_name"),
                             deleted_at=vm.get("deleted_at"),
+                            owner=vm.get("owner"),
+                            folder_name=vm.get("folder_name"),
                         )
                         vm_samples.append(sample)
                         self._upsert_latest_vm(sample)
@@ -136,6 +144,22 @@ class CollectionService:
         if failed_targets and self.tasks is not None and trigger not in {"manual", "post_upgrade"}:
             self._record_collection_warning(run_id, status, message, success_targets, failed_targets, attempt=attempt, max_attempts=max_attempts)
         return CollectionResult(run_id=run_id, status=status, message=message, metrics_text=metrics_text)
+
+    def _refresh_tower_versions(self, tower: TowerRecord) -> None:
+        """采集顺带刷新版本信息（2026-10-07 需求）：Tower 平台版本 + 各集群 SMTX OS 版本。
+
+        用途：设置页 Tower 列表展示；后续按 Tower 版本选择不同 API 的依据。
+        best-effort——版本读取/落库失败只跳过（老 fake 客户端没有该方法也必须无害）。
+        """
+        try:
+            info = self.cloudtower_client.version_info(tower)
+            self.inventory.record_versions(
+                tower_id=tower.id,
+                tower_version=info.get("platform"),
+                cluster_versions=dict(info.get("clusters") or {}),
+            )
+        except Exception:  # noqa: BLE001 - 版本是附加信息，任何失败都不影响采集
+            return
 
     def latest_vm(self, tower_id: int, cluster_id: str, vm_id: str) -> dict | None:
         with self.database.connection() as conn:
@@ -220,14 +244,16 @@ class CollectionService:
         with self.database.connection() as conn:
             conn.execute(
                 """
-                INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes, in_recycle_bin, original_name, deleted_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes, in_recycle_bin, original_name, deleted_at, owner, folder_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(tower_id, cluster_id, vm_id) DO UPDATE SET
                     name = excluded.name,
                     used_bytes = excluded.used_bytes,
                     in_recycle_bin = excluded.in_recycle_bin,
                     original_name = excluded.original_name,
                     deleted_at = excluded.deleted_at,
+                    owner = excluded.owner,
+                    folder_name = excluded.folder_name,
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (
@@ -239,6 +265,8 @@ class CollectionService:
                     int(sample.in_recycle_bin or 0),
                     sample.original_name,
                     sample.deleted_at,
+                    sample.owner,
+                    sample.folder_name,
                 ),
             )
 

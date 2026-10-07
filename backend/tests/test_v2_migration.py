@@ -1029,3 +1029,68 @@ class SummaryDataVersionCacheTest(unittest.TestCase):
             for _ in range(3):
                 service.summary()
             self.assertEqual(fake.instant_calls, after, "重算后再次进入缓存")
+
+
+class SummaryCacheSettleWindowTest(unittest.TestCase):
+    """2026-10-07 实测竞态：采集写库 → Prometheus 抓取（60s 间隔）之间算出的 payload
+    会把旧指标缓存住，直到下次数据变化或 30 分钟 TTL（Test 集群已分配修复值被 0 顶掉）。
+    修法：最近一次采集完成后 SETTLE 窗口内跳过缓存读写。"""
+
+    def test_cache_bypassed_while_collection_settles_then_resumes(self) -> None:
+        from app.v2.config import V2Settings
+        from app.v2.dashboard import service as dashboard_service
+        from app.v2.dashboard.service import DashboardService
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        class MutablePrometheus:
+            def __init__(self):
+                self.value = "0"
+
+            def instant(self, query):
+                if "allocated" not in query:
+                    return []
+                return [{"metric": {"tower_id": "1", "cluster_id": "c-a"}, "value": [0, self.value]}]
+
+            def range(self, query, start, end, step):
+                return []
+
+            def close(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = V2Settings(data_root=Path(tmp), secret_key="s")
+            db = V2Database(settings)
+            db.initialize()
+            inventory = InventoryService(db, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://t.example.com"))
+            inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="c-a", name="CA", enabled=True)])
+
+            fake = MutablePrometheus()
+            dashboard_service._summary_cache.clear()
+            service = DashboardService(db, settings, prometheus=fake)
+            service._cache_enabled = True
+
+            # 采集"刚刚完成"（finished_at 用 DB 的 UTC now()）
+            with db.connection() as conn:
+                conn.execute("INSERT INTO collection_runs (status, message, finished_at) VALUES ('success', 'ok', datetime('now'))")
+
+            service.summary()  # 首次构建，value=0
+            fake.value = "343597383680"  # 模拟 Prometheus 随后抓到的新值（DB 版本指纹不变）
+            settled = service.summary()
+            self.assertEqual(
+                settled["kpis"]["allocated_bytes"], 343597383680.0,
+                "采集完成后 SETTLE 窗口内必须绕过缓存，取到抓取后的新值",
+            )
+
+            # 窗口外（finished_at 是旧时间）：恢复缓存行为——重算一次后，指标再变也不重算
+            with db.connection() as conn:
+                conn.execute("UPDATE collection_runs SET finished_at = '2026-06-07 03:00:00'")
+            service.summary()  # 版本变化 → 重算并缓存（value 仍为 343597383680）
+            before = service.summary()["kpis"]["allocated_bytes"]
+            fake.value = "999"
+            after = service.summary()["kpis"]["allocated_bytes"]
+            self.assertEqual(after, before, "窗口外数据版本未变时应命中缓存（#75 性能轮体感）")
+
+            dashboard_service._summary_cache.clear()

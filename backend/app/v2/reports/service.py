@@ -316,7 +316,10 @@ class ReportService:
 
     def _latest_vm_labels(self) -> dict[tuple[int, str, str], dict[str, str]]:
         with self.database.connection() as conn:
-            rows = conn.execute("SELECT tower_id, cluster_id, vm_id, name FROM vm_latest").fetchall()
+            # Phase 69：报表 VM 表格需要 owner/folder_name（「所有者」「虚拟机组」两列）
+            rows = conn.execute(
+                "SELECT tower_id, cluster_id, vm_id, name, owner, folder_name FROM vm_latest"
+            ).fetchall()
         tower_names = self._tower_names()
         cluster_names = self._cluster_names()
         return {
@@ -328,6 +331,8 @@ class ReportService:
                 "vm_id": str(row["vm_id"]),
                 "vm": str(row["name"]),
                 "vm_name": str(row["name"]),
+                "owner": str(row["owner"]) if row["owner"] is not None else "",
+                "folder_name": str(row["folder_name"]) if row["folder_name"] is not None else "",
             }
             for row in rows
         }

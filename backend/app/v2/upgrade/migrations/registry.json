@@ -1,2 +1,62 @@
 [
+  {
+    "id": "2026-10-07-vm-latest-owner",
+    "version": "v0.5.4",
+    "description": "vm_latest 增加 owner（CloudTower 所有者标签）——Phase 69，expand-only",
+    "database": "sqlite",
+    "sql": [],
+    "operations": [
+      {
+        "action": "add_column_if_missing",
+        "table": "vm_latest",
+        "column": "owner",
+        "definition": "TEXT"
+      }
+    ]
+  },
+  {
+    "id": "2026-10-07-vm-latest-folder-name",
+    "version": "v0.5.4",
+    "description": "vm_latest 增加 folder_name（虚拟机组）——Phase 69，expand-only",
+    "database": "sqlite",
+    "sql": [],
+    "operations": [
+      {
+        "action": "add_column_if_missing",
+        "table": "vm_latest",
+        "column": "folder_name",
+        "definition": "TEXT"
+      }
+    ]
+  },
+  {
+    "id": "2026-10-07-towers-tower-version",
+    "version": "v0.5.4",
+    "description": "towers 增加 tower_version（CloudTower 平台版本，设置页展示）——expand-only",
+    "database": "sqlite",
+    "sql": [],
+    "operations": [
+      {
+        "action": "add_column_if_missing",
+        "table": "towers",
+        "column": "tower_version",
+        "definition": "TEXT"
+      }
+    ]
+  },
+  {
+    "id": "2026-10-07-clusters-os-version",
+    "version": "v0.5.4",
+    "description": "clusters 增加 os_version（SMTX OS 集群版本，设置页展示）——expand-only",
+    "database": "sqlite",
+    "sql": [],
+    "operations": [
+      {
+        "action": "add_column_if_missing",
+        "table": "clusters",
+        "column": "os_version",
+        "definition": "TEXT"
+      }
+    ]
+  }
 ]

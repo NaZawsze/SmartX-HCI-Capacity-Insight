@@ -739,11 +739,12 @@ def _customer_vm_window_note(document: Document, context: dict[str, Any], vms: l
 
 
 def _customer_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode: str, *, empty_text: str) -> None:
-    headers = ["排名", "虚拟机名称", "当前容量", "期初容量", "增长量", "增长率"]
+    # Phase 69：名称后加「所有者」「虚拟机组」两列（6→8）
+    headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "当前容量", "期初容量", "增长量", "增长率"]
     table = document.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _docx_set_table_width(table, [900, 2200, 1500, 1500, 1500, 1300])
+    _docx_set_table_width(table, [700, 1700, 950, 1050, 1200, 1200, 1200, 1000])
     _customer_set_blue_headers(table.rows[0].cells, headers)
     _repeat_table_header(table.rows[0])
     if not vms:
@@ -757,6 +758,8 @@ def _customer_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode:
         values = [
             index,
             labels.get("vm") or labels.get("vm_name") or labels.get("vm_id") or "-",
+            labels.get("owner") or "-",
+            labels.get("folder_name") or "-",
             _bytes_label((vm.get("forecast") or {}).get("current")),
             _bytes_label(vm.get("previous_value")),
             _bytes_label(vm.get("growth_amount")),
@@ -766,10 +769,10 @@ def _customer_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode:
         if index % 2 == 0:
             _docx_shade_row(row, ACCENT_SOFT)
         _docx_set_cell_text_style(row[0], TEXT_MUTED, align=WD_ALIGN_PARAGRAPH.CENTER)
-        _docx_set_cell_text_style(row[4], GROWTH_BLUE, align=WD_ALIGN_PARAGRAPH.CENTER)
+        _docx_set_cell_text_style(row[6], GROWTH_BLUE, align=WD_ALIGN_PARAGRAPH.CENTER)
         ratio = float(vm.get("growth_ratio") or 0)
         ratio_color = RATIO_RED if ratio >= 0.5 else RATIO_ORANGE if ratio >= 0.2 else TEXT_DARK
-        _docx_set_cell_text_style(row[5], ratio_color, align=WD_ALIGN_PARAGRAPH.CENTER)
+        _docx_set_cell_text_style(row[7], ratio_color, align=WD_ALIGN_PARAGRAPH.CENTER)
         _prevent_row_split(table.rows[-1])
 
 

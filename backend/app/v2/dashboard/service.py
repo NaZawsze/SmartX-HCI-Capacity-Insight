@@ -33,6 +33,11 @@ SECONDS_PER_DAY = 86_400
 CAPACITY_WARNING_RATIO = 0.75
 CAPACITY_DANGER_RATIO = 0.80
 SUMMARY_CACHE_MAX_AGE_SECONDS = 1800.0  # 兜底：数据版本未变也最多保留 30 分钟
+#: 采集完成后 Prometheus 抓取存在延迟（scrape_interval=60s，见 delivery 的 prometheus.yml）。
+#: 抓取落地前算出的 payload 会把旧指标缓存住（2026-10-07 实测：已分配修复值被缓存的 0 顶掉，
+#: 页面最长 30 分钟显示旧值）。最近一次采集完成后 SETTLE 窗口内跳过缓存读写；
+#: 窗口外行为不变（版本未变仍命中缓存，保住 #75 性能轮的体感）。
+SUMMARY_CACHE_SETTLE_SECONDS = 120.0
 
 
 def _summary_data_version(database: V2Database) -> tuple:
@@ -77,6 +82,20 @@ def _collection_freshness(last_success_at: str | None, threshold_minutes: int, n
     return "fresh" if (now - parsed).total_seconds() <= threshold_minutes * 60 else "stale"
 
 
+def _collection_settling(version: tuple, now: float) -> bool:
+    """最近一次采集完成不足 SETTLE 秒 → 抓取未落地，跳过缓存（2026-10-07 竞态修复）。
+
+    `version[1]` 是 `_summary_data_version` 里的 `MAX(collection_runs.finished_at)`（UTC 文本）。
+    时间不可解析时保守返回 False（退回原缓存行为）。
+    """
+    if len(version) < 2:
+        return False
+    parsed = parse_db_time(str(version[1] or ""))
+    if parsed is None:
+        return False
+    return (now - parsed.timestamp()) < SUMMARY_CACHE_SETTLE_SECONDS
+
+
 class DashboardService:
     def __init__(self, database: V2Database, settings: V2Settings, prometheus=None, now_ts: int | None = None) -> None:
         self.database = database
@@ -91,17 +110,22 @@ class DashboardService:
         # #75 性能轮：缓存按「数据版本」失效——采集/导入/配置变更才重算，
         # 数据未变期间（哪怕跨天）页面刷新全部命中缓存，不做任何重算。
         # 30 分钟兜底覆盖未建模的输入。
+        # 2026-10-07：采集完成后的抓取窗口内不走缓存（见 SUMMARY_CACHE_SETTLE_SECONDS）。
         cache_key = (tower_id, cluster_id)
         version = None
-        if self._cache_enabled:
+        cache_usable = self._cache_enabled
+        if cache_usable:
             version = _summary_data_version(self.database)
             now = __import__("time").time()
-            with _summary_cache_lock:
-                cached = _summary_cache.get(cache_key)
-                if cached and cached[0] == version and now - cached[1] < SUMMARY_CACHE_MAX_AGE_SECONDS:
-                    return cached[2]
+            if _collection_settling(version, now):
+                cache_usable = False
+            else:
+                with _summary_cache_lock:
+                    cached = _summary_cache.get(cache_key)
+                    if cached and cached[0] == version and now - cached[1] < SUMMARY_CACHE_MAX_AGE_SECONDS:
+                        return cached[2]
         payload = self._build_summary(tower_id=tower_id, cluster_id=cluster_id)
-        if self._cache_enabled:
+        if cache_usable:
             with _summary_cache_lock:
                 _summary_cache[cache_key] = (version, __import__("time").time(), payload)
         return payload

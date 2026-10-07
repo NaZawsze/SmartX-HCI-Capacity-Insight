@@ -241,6 +241,12 @@ class V2Database:
             _ensure_column(conn, "vm_latest", "in_recycle_bin", "INTEGER NOT NULL DEFAULT 0")
             _ensure_column(conn, "vm_latest", "original_name", "TEXT")
             _ensure_column(conn, "vm_latest", "deleted_at", "TEXT")
+            # Phase 69：所有者与虚拟机组（expand-only；旧版本读写无感）
+            _ensure_column(conn, "vm_latest", "owner", "TEXT")
+            _ensure_column(conn, "vm_latest", "folder_name", "TEXT")
+            # 2026-10-07：Tower 平台版本 + 各集群 SMTX OS 版本（设置页展示；后续按版本选择 API 的依据）
+            _ensure_column(conn, "towers", "tower_version", "TEXT")
+            _ensure_column(conn, "clusters", "os_version", "TEXT")
             _ensure_column(conn, "collection_runs", "trigger", "TEXT")
             _ensure_column(conn, "collection_runs", "cycle_id", "TEXT")
             _ensure_column(conn, "collection_runs", "attempt", "INTEGER NOT NULL DEFAULT 0")

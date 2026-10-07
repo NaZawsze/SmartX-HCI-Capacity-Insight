@@ -15,6 +15,8 @@ class ClusterRecord:
     cluster_id: str
     name: str
     enabled: bool = True
+    #: 该集群的 SMTX OS（节点）版本，如 "6.1.1"（get-clusters[].version，采集顺带刷新）
+    os_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -51,3 +53,5 @@ class TowerRecord:
     collection_retry_interval_minutes: int = 15
     collection_retry_max_attempts: int = 3
     clusters: list[ClusterRecord] = field(default_factory=list)
+    #: Tower（CloudTower）平台自身版本，如 "v4.5.0"（GET /v2/api/get-version，采集/测试连接顺带刷新）
+    tower_version: str | None = None

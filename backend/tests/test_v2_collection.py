@@ -691,3 +691,72 @@ class V2CollectionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CollectionVersionRefreshTest(unittest.TestCase):
+    """2026-10-07：采集顺带刷新 Tower 平台版本与集群 SMTX OS 版本（设置页展示）。"""
+
+    def test_collection_records_tower_and_cluster_versions(self) -> None:
+        from app.v2.collection.service import CollectionService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        class VersionedClient(FakeCloudTowerClient):
+            def __init__(self) -> None:
+                super().__init__()
+                self.version_calls = 0
+
+            def version_info(self, tower):
+                self.version_calls += 1
+                return {"platform": "v4.5.0", "clusters": {"enabled-cluster": "6.1.1"}}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="collection-secret")
+            db = V2Database(settings)
+            db.initialize()
+            inventory = InventoryService(db, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            inventory.sync_clusters(
+                tower.id,
+                [
+                    ClusterInput(cluster_id="enabled-cluster", name="Enabled", enabled=True),
+                    ClusterInput(cluster_id="disabled-cluster", name="Disabled", enabled=False),
+                ],
+            )
+
+            client = VersionedClient()
+            CollectionService(db, settings, cloudtower_client=client).run_manual_collection()
+
+            # 每个 Tower 每轮刷新一次（不是每集群一次）
+            self.assertEqual(client.version_calls, 1)
+            refreshed = inventory.get_tower(tower.id)
+            self.assertEqual(refreshed.tower_version, "v4.5.0")
+            versions = {cluster.cluster_id: cluster.os_version for cluster in refreshed.clusters}
+            self.assertEqual(versions, {"enabled-cluster": "6.1.1", "disabled-cluster": None})
+
+    def test_collection_survives_version_lookup_failure(self) -> None:
+        """老 fake/异常塔没有 version_info 或读取失败时，采集不得受影响。"""
+        from app.v2.collection.service import CollectionService
+        from app.v2.config import V2Settings
+        from app.v2.database import V2Database
+        from app.v2.inventory.models import ClusterInput, TowerInput
+        from app.v2.inventory.service import InventoryService
+
+        class ExplodingVersionClient(FakeCloudTowerClient):
+            def version_info(self, tower):
+                raise RuntimeError("version endpoint boom")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="collection-secret")
+            db = V2Database(settings)
+            db.initialize()
+            inventory = InventoryService(db, settings)
+            tower = inventory.create_tower(TowerInput(name="Tower A", base_url="https://tower.example.com"))
+            inventory.sync_clusters(tower.id, [ClusterInput(cluster_id="enabled-cluster", name="Enabled", enabled=True)])
+
+            result = CollectionService(db, settings, cloudtower_client=ExplodingVersionClient()).run_manual_collection()
+
+            self.assertEqual(result.status, "success")
+            self.assertIsNone(inventory.get_tower(tower.id).tower_version)

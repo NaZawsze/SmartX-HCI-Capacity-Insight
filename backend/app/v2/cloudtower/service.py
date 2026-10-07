@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.v2.cloudtower.client import CloudTowerClient, CloudTowerCredentials
+from app.v2.cloudtower.profiles import profile_for_version
 from app.v2.config import V2Settings
 from app.v2.database import V2Database
 from app.v2.inventory.models import ClusterInput
@@ -52,7 +53,35 @@ class CloudTowerService:
             )
         )
         try:
-            return client.get_clusters()
+            clusters = client.get_clusters()
+            # 连接测试顺带刷新版本（设置页展示；版本读取失败不影响连接测试结论）
+            try:
+                info = client.version_info()
+                self.inventory.record_versions(
+                    tower_id=tower_id,
+                    tower_version=info.get("platform"),
+                    cluster_versions=dict(info.get("clusters") or {}),
+                )
+            except Exception:  # noqa: BLE001 - 版本是附加信息，取不到不报错
+                pass
+            return clusters
+        finally:
+            client.close()
+
+    def version_info(self, tower) -> dict:
+        """Tower 平台版本 + 各集群 SMTX OS 版本（采集顺带刷新，见 CollectionService）。"""
+        secrets = self.inventory.get_tower_secret_material(tower.id)
+        client = CloudTowerClient(
+            CloudTowerCredentials(
+                base_url=tower.base_url,
+                username=tower.username,
+                password=secrets.get("password"),
+                api_token=secrets.get("api_token"),
+                verify_tls=tower.verify_tls,
+            )
+        )
+        try:
+            return client.version_info()
         finally:
             client.close()
 
@@ -68,7 +97,9 @@ class CloudTowerService:
             )
         )
         try:
-            return client.collect_cluster(cluster.cluster_id)
+            # #84：按塔的平台版本选画像（版本未知 → None → 客户端用最新画像 + 能力探测兜底）
+            profile = profile_for_version(getattr(tower, "tower_version", None))
+            return client.collect_cluster(cluster.cluster_id, profile=profile)
         finally:
             client.close()
 

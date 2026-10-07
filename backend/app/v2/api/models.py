@@ -88,6 +88,8 @@ class ClusterResponse(BaseModel):
     cluster_id: str
     name: str
     enabled: bool
+    # 2026-10-07：SMTX OS（节点）版本，如 "6.1.1"（采集/测试连接顺带刷新；未知为 null）
+    os_version: Optional[str] = None
 
 
 class TowerResponse(BaseModel):
@@ -106,6 +108,10 @@ class TowerResponse(BaseModel):
     collection_retry_max_attempts: int
     clusters: list[ClusterResponse]
     last_collection: Optional[TowerCollectionStatus] = None
+    # Phase 69 后修：列表"超期提示"以上一次**成功**采集时间为基准（UTC 字符串；从未成功为 null）
+    last_success_at: Optional[str] = None
+    # 2026-10-07：Tower（CloudTower）平台版本，如 "v4.5.0"（采集/测试连接顺带刷新；未知为 null）
+    tower_version: Optional[str] = None
 
 
 class TowerTestPayload(BaseModel):
@@ -370,6 +376,9 @@ class VmDetailResponse(BaseModel):
     tower_id: Optional[Union[str, int]] = None
     cluster_id: Optional[str] = None
     used_bytes: Optional[float] = None
+    # Phase 69：所有者（CloudTower 标签）与虚拟机组（folder 名）；空值 null
+    owner: Optional[str] = None
+    folder_name: Optional[str] = None
     volumes: list[dict] = []
 
 

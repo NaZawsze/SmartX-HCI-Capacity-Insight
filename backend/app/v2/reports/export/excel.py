@@ -366,14 +366,16 @@ def _write_xlsx_data_quality_sheet(sheet, report: dict[str, Any], context: dict[
 def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dict[str, Any], profile: ReportPeriodProfile) -> None:
     _reset_xlsx_sheet_rows(sheet)
     window_label = _vm_sample_window_label(vms, report)
-    sheet.append([f"三、{profile.vm_growth_title}全部虚拟机（{window_label}）", "", "", "", "", "", "", "", "四、虚拟机增长率全部虚拟机"])
+    # Phase 69：每侧 +2 列（所有者/虚拟机组）——左侧 1..9，分隔列 10，右侧 11..18。
+    RIGHT_START = 11
+    sheet.append([f"三、{profile.vm_growth_title}全部虚拟机（{window_label}）", *([""] * 9), "四、虚拟机增长率全部虚拟机"])
     sheet.append([])
-    sheet.append(["按增长量降序", "", "", "", "", "", "", "", "按增长率降序"])
-    amount_headers = ["排名", "虚拟机名称", "当前容量", "期初容量", "增长量", "增长率", "风险"]
-    ratio_headers = ["排名", "虚拟机名称", "当前容量", "期初容量", "增长量", "增长率"]
+    sheet.append(["按增长量降序", *([""] * 9), "按增长率降序"])
+    amount_headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "当前容量", "期初容量", "增长量", "增长率", "风险"]
+    ratio_headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "当前容量", "期初容量", "增长量", "增长率"]
     for index, value in enumerate(amount_headers, start=1):
         sheet.cell(row=4, column=index).value = value
-    for index, value in enumerate(ratio_headers, start=9):
+    for index, value in enumerate(ratio_headers, start=RIGHT_START):
         sheet.cell(row=4, column=index).value = value
     amount_vms = _top_vms(vms, "amount")
     ratio_vms = _top_vms(vms, "ratio")
@@ -383,7 +385,7 @@ def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dic
         for column, value in enumerate(_xlsx_vm_display_row(vm, row_index - 4, include_risk=True), start=1):
             sheet.cell(row=row_index, column=column).value = value
     for row_index, vm in enumerate(ratio_vms, start=5):
-        for column, value in enumerate(_xlsx_vm_display_row(vm, row_index - 4, include_risk=False), start=9):
+        for column, value in enumerate(_xlsx_vm_display_row(vm, row_index - 4, include_risk=False), start=RIGHT_START):
             sheet.cell(row=row_index, column=column).value = value
     _style_customer_xlsx_table(sheet, title_rows={1, 3}, header_rows={4})
     _apply_vm_top100_layout(sheet, left_header_row=4, right_header_row=4)
@@ -405,26 +407,29 @@ def _write_xlsx_template_growth_detail(
     _reset_xlsx_sheet_rows(sheet)
     sheet.append([f"{title}（{_period_window_label(report)}）"])
     sheet.append([])
-    headers = ["排名", "虚拟机名称", "Tower", "集群", "当前容量", "期初容量", growth_header, "增长率", "风险"]
+    # Phase 69：名称后加「所有者」「虚拟机组」两列（9→11）
+    headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "Tower", "集群", "当前容量", "期初容量", growth_header, "增长率", "风险"]
     sheet.append(headers)
     if not vms:
         sheet.append(["暂无日增长 VM 数据"])
     for index, vm in enumerate(vms, start=1):
         row = _xlsx_vm_display_row(vm, index, include_risk=True)
         labels = vm.get("labels") or {}
-        sheet.append([row[0], row[1], labels.get("tower") or labels.get("tower_id") or "", labels.get("cluster") or labels.get("cluster_id") or "", *row[2:]])
+        sheet.append([row[0], row[1], row[2], row[3], labels.get("tower") or labels.get("tower_id") or "", labels.get("cluster") or labels.get("cluster_id") or "", *row[4:]])
     _style_customer_xlsx_table(sheet, title_rows={1}, header_rows={3})
-    _merge_title_row(sheet, 1, 1, 9)
+    _merge_title_row(sheet, 1, 1, 11)
     sheet["A1"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     sheet.freeze_panes = "A4"
     sheet.auto_filter.ref = f"A3:{get_column_letter(len(headers))}{sheet.max_row}"
     for column, width in {
         "A": 15.83203125,
         "B": 44.5,
-        "C": 25.83203125,
-        "E": 14.83203125,
-        "H": 10.83203125,
-        "I": 10,
+        "C": 16,
+        "D": 20,
+        "E": 25.83203125,
+        "G": 14.83203125,
+        "J": 10.83203125,
+        "K": 10,
     }.items():
         sheet.column_dimensions[column].width = width
     sheet.row_dimensions[1].height = 30
@@ -464,15 +469,21 @@ def _merge_title_row(sheet, row: int, start_col: int, end_col: int) -> None:
 
 def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: int | None = None) -> None:
     widths = {
-        "A": 15.83203125,
-        "B": 50,
-        "C": 16,
-        "F": 12,
-        "H": 10,
-        "I": 15.83203125,
-        "J": 50,
-        "K": 16,
-        "N": 12,
+        "A": 15.83203125,   # 排名
+        "B": 50,            # 虚拟机名称
+        "C": 14,            # 所有者（Phase 69）
+        "D": 18,            # 虚拟机组（Phase 69）
+        "E": 16,            # 当前容量
+        "F": 12,            # 期初容量
+        "H": 10,            # 增长率
+        "J": 10,            # 分隔列
+        "K": 15.83203125,
+        "L": 50,
+        "M": 14,
+        "N": 18,
+        "O": 16,
+        "P": 12,
+        "R": 10,
     }
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
@@ -483,27 +494,31 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
             sheet.row_dimensions[row_index].height = 28
         else:
             sheet.row_dimensions[row_index].height = 15
-    _merge_title_row(sheet, 1, 1, 7)
-    if sheet.cell(row=1, column=9).value:
-        _merge_title_row(sheet, 1, 9, 14)
+    # Phase 69：每侧 9/8 列后——左侧合并 1..9、右侧 11..18、分隔列 10（J）
+    _merge_title_row(sheet, 1, 1, 9)
+    if sheet.cell(row=1, column=11).value:
+        _merge_title_row(sheet, 1, 11, 18)
     if sheet.cell(row=3, column=1).value:
-        _merge_title_row(sheet, 3, 1, 7)
-    if sheet.cell(row=3, column=9).value:
-        _merge_title_row(sheet, 3, 9, 14)
+        _merge_title_row(sheet, 3, 1, 9)
+    if sheet.cell(row=3, column=11).value:
+        _merge_title_row(sheet, 3, 11, 18)
     if sheet.max_row >= 1:
-        sheet.merge_cells(start_row=1, start_column=8, end_row=sheet.max_row, end_column=8)
-        separator = sheet.cell(row=1, column=8)
+        sheet.merge_cells(start_row=1, start_column=10, end_row=sheet.max_row, end_column=10)
+        separator = sheet.cell(row=1, column=10)
         separator.value = None
         separator.fill = PatternFill(fill_type=None)
-        sheet.column_dimensions["H"].width = 10
+        sheet.column_dimensions["J"].width = 10
 
 
 def _xlsx_vm_display_row(vm: dict[str, Any], rank: int, *, include_risk: bool) -> list[Any]:
     labels = vm.get("labels") or {}
     forecast = vm.get("forecast") or {}
+    # Phase 69：名称后插入「所有者」「虚拟机组」两列（空值显示 -）
     values: list[Any] = [
         rank,
         labels.get("vm") or labels.get("vm_name") or labels.get("vm_id") or "",
+        labels.get("owner") or "-",
+        labels.get("folder_name") or "-",
         _xlsx_bytes_label(forecast.get("current")),
         _xlsx_bytes_label(vm.get("previous_value")),
         _xlsx_signed_bytes_label(vm.get("growth_amount")),

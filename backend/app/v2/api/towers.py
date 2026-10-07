@@ -25,9 +25,11 @@ def tower_last_collection(inventory: InventoryService, tower_id: int) -> TowerCo
     import json as _json
 
     with inventory.database.connection() as conn:
+        # 窗口取 500（≈ 每小时一轮可覆盖 3 周）：只扫 20 轮（≈20 小时）会漏掉更早的成功，
+        # 把"3 天前成功过"误显示成"从未成功"。
         rows = conn.execute(
             """SELECT success_targets_json, failed_targets_json, status, finished_at, started_at
-               FROM collection_runs ORDER BY id DESC LIMIT 20"""
+               FROM collection_runs ORDER BY id DESC LIMIT 500"""
         ).fetchall()
     for row in rows:
         try:
@@ -36,14 +38,40 @@ def tower_last_collection(inventory: InventoryService, tower_id: int) -> TowerCo
         except (TypeError, ValueError):
             continue
         finished = row["finished_at"] or row["started_at"]
-        if any(int(item.get("tower_id") or -1) == int(tower_id) for item in success if isinstance(item, dict)):
-            return TowerCollectionStatus(status="success", finished_at=finished)
+        # 2026-10-07：**问题优先**——该塔同时出现在 success 与 failed（部分失败）时必须报
+        # failed，否则"有失败的集群"会被静默标成成功（列表页只在问题态显示状态行，
+        # 判错=问题不可见）。完整成功的塔才返回 success。
         if any(int(item.get("tower_id") or -1) == int(tower_id) for item in failed if isinstance(item, dict)):
             return TowerCollectionStatus(status="failed", finished_at=finished)
+        if any(int(item.get("tower_id") or -1) == int(tower_id) for item in success if isinstance(item, dict)):
+            return TowerCollectionStatus(status="success", finished_at=finished)
     return None
 
 
-def tower_response(tower, last_collection: TowerCollectionStatus | None = None) -> TowerResponse:
+def tower_last_success_at(inventory: InventoryService, tower_id: int) -> str | None:
+    """该 Tower 最近一次**成功采集**的时间（UTC 字符串；从未成功 → None）。
+
+    2026-10-07 用户口径：Tower 列表的"超期"提示以**上一次成功采集时间**为基准，
+    不是"最近一次跑到它的采集"（失败也会更新时间戳，会把刚失败的塔显示成"刚刚采集"）。
+    """
+    import json as _json
+
+    with inventory.database.connection() as conn:
+        rows = conn.execute(
+            """SELECT success_targets_json, finished_at, started_at
+               FROM collection_runs ORDER BY id DESC LIMIT 500"""
+        ).fetchall()
+    for row in rows:
+        try:
+            success = _json.loads(row["success_targets_json"] or "[]")
+        except (TypeError, ValueError):
+            continue
+        if any(int(item.get("tower_id") or -1) == int(tower_id) for item in success if isinstance(item, dict)):
+            return row["finished_at"] or row["started_at"]
+    return None
+
+
+def tower_response(tower, last_collection: TowerCollectionStatus | None = None, last_success_at: str | None = None) -> TowerResponse:
     return TowerResponse(
         id=tower.id,
         name=tower.name,
@@ -58,13 +86,28 @@ def tower_response(tower, last_collection: TowerCollectionStatus | None = None) 
         collection_retry_enabled=tower.collection_retry_enabled,
         collection_retry_interval_minutes=tower.collection_retry_interval_minutes,
         collection_retry_max_attempts=tower.collection_retry_max_attempts,
-        clusters=[ClusterResponse(cluster_id=cluster.cluster_id, name=cluster.name, enabled=cluster.enabled) for cluster in tower.clusters],
+        clusters=[
+            ClusterResponse(
+                cluster_id=cluster.cluster_id,
+                name=cluster.name,
+                enabled=cluster.enabled,
+                os_version=getattr(cluster, "os_version", None),
+            )
+            for cluster in tower.clusters
+        ],
         last_collection=last_collection,
+        last_success_at=last_success_at,
+        tower_version=getattr(tower, "tower_version", None),
     )
 
 
 def cluster_response(cluster) -> ClusterResponse:
-    return ClusterResponse(cluster_id=cluster.cluster_id, name=cluster.name, enabled=cluster.enabled)
+    return ClusterResponse(
+        cluster_id=cluster.cluster_id,
+        name=cluster.name,
+        enabled=cluster.enabled,
+        os_version=getattr(cluster, "os_version", None),
+    )
 
 
 def cluster_input_from_any(cluster) -> ClusterInput:
@@ -88,7 +131,14 @@ def list_towers(
     inventory: Annotated[InventoryService, Depends(get_inventory_service)],
 ) -> list[TowerResponse]:
     towers = inventory.list_towers()
-    return [tower_response(tower, tower_last_collection(inventory, tower.id)) for tower in towers]
+    return [
+        tower_response(
+            tower,
+            tower_last_collection(inventory, tower.id),
+            tower_last_success_at(inventory, tower.id),
+        )
+        for tower in towers
+    ]
 
 
 
@@ -116,7 +166,7 @@ def create_tower(
             collection_retry_max_attempts=payload.collection_retry_max_attempts,
         )
     )
-    return tower_response(tower, tower_last_collection(inventory, tower.id))
+    return tower_response(tower, tower_last_collection(inventory, tower.id), tower_last_success_at(inventory, tower.id))
 
 
 
@@ -147,7 +197,7 @@ def update_tower(
                     collection_retry_max_attempts=payload.collection_retry_max_attempts,
                 ),
             )
-        return tower_response(updated, tower_last_collection(inventory, updated.id))
+        return tower_response(updated, tower_last_collection(inventory, updated.id), tower_last_success_at(inventory, updated.id))
     except KeyError:
         raise HTTPException(status_code=404, detail="Tower not found.") from None
 

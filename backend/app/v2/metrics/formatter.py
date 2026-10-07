@@ -23,6 +23,9 @@ class VmCapacitySample:
     in_recycle_bin: int = 0
     original_name: str | None = None
     deleted_at: str | None = None
+    # Phase 69：所有者与虚拟机组（仅落库/展示，不参与 metrics 渲染）
+    owner: str | None = None
+    folder_name: str | None = None
 
 
 def render_capacity_metrics(*, clusters: list[ClusterCapacitySample], vms: list[VmCapacitySample]) -> str:
