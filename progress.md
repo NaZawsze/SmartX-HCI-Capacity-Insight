@@ -5672,3 +5672,28 @@ runner 包重切 r29（`d55c0463…`，平台包沿用 r28）。`.12` 复测：�
 （offline v0.3.1→v0.3.2、release docker.io/…v0.3.1→v0.3.2），三文件实测全为 v0.3.2。
 终态复核：availability=true→v0.5.3（锚点 448104a5）、health ok、数据 543/89547/3/3。
 全量 1117 tests / 1F（既有 harness 限制）。
+
+
+## 2026-10-07 compose 变体改名（用户指令）—— 完整修复 + 真机升级验证
+
+**改名**：`docker-compose.yml → docker-compose.dev.yml`、`docker-compose.release.yml → docker-compose.online.yml`
+（offline/upgrade 不变；命名对齐 · dev=开发构建（唯一带 build:）· offline=离线交付（现场活动）·
+online=在线安装（docker.io 前缀）· upgrade=升级专用）。
+
+**完整修复面**（commit `b5b200e`，60+ 文件）：
+- **运行时去单文件硬编码**（改名会不会影响升级的关键）：`selfhandoff` 新增
+  `COMPOSE_VARIANTS / LEGACY_COMPOSE_FILENAMES / COMPOSE_ALIGN_FILES / compose_target_paths()`；
+  `component_compose_writeback`（自换写回）、US-32 对账、组件锚点捕获、`main._runner_tag_aligned`
+  全部改为**覆盖全部在场变体**——旧名文件在已安装现场会残留（files_sync 只增不删），
+  只认新名会漏掉真正可能被 `compose up` 的文件。
+- 打包（build_upgrade_package/runner_component/offline_delivery/verify_runner_consistency）、
+  ops/package.sh、install.sh（备份链保留旧名兼容）、bind-mount-recover.sh 回退链、US-37 守卫注释。
+- 文档 11 份活文档；历史文档（progress/findings/upgrade-issues/archive）按 §11.1 不篡改。
+- 测试 ~17 后端套件 + 新增「旧名残留仍被对账」用例；顺手修两个 r21 裁剪后未同步的 build_tests 旧夹具。
+
+**验证**：后端全量 **1118 tests / 1F（既有 docker-socket 限制）**；build_tests **48 OK**；
+前端 tsc 0 + vitest 115；r30 两包门禁全 PASS（身份/一致性 12 PASS/词汇 7 PASS/expand-only/SHA）。
+**包内实测**：payload 的 dev/offline compose runner tag 均为**已发布基线 v0.3.1**
+（源码 v0.3.2 只属开发线，打包期按发布事实改写）——直接回答「现场都是 v0.3.1，包里 v0.3.2 会不会有问题」：不会。
+
+**待**：`.12` 用 r30 真机升级验证（旧名残留 + offline 仍活动 + 新名就位）。
