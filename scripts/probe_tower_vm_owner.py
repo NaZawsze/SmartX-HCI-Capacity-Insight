@@ -114,6 +114,10 @@ def _run_readonly_mode(args: argparse.Namespace) -> int:
         result = _dump_get_vms(client, sample=args.sample)
         if args.probe_users:
             _probe_users(client)
+    except Exception as exc:  # noqa: BLE001 - 探针把网络/权限问题如实翻译给人看
+        print(f"[probe] Tower 不可达或调用失败：{exc}", file=sys.stderr)
+        print("[probe] 提示：请从能访问 Tower 的机器/容器运行本探针（Tower 不通时无法得出结论）。", file=sys.stderr)
+        return 3
     finally:
         client.close()
     print(f"[probe] 结论：{result.get('conclusion', '见上')}")
@@ -156,6 +160,10 @@ def _run_configured_mode(args: argparse.Namespace) -> int:
         result = _dump_get_vms(client, sample=args.sample)
         if args.probe_users:
             _probe_users(client)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[probe] Tower 不可达或调用失败：{exc}", file=sys.stderr)
+        print("[probe] 提示：Tower 不通时无法得出结论；确认现场到 Tower 的网络后重跑。", file=sys.stderr)
+        return 3
     finally:
         client.close()
     print(f"[probe] 结论：{result.get('conclusion', '见上')}")
