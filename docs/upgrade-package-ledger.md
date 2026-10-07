@@ -833,3 +833,14 @@ C3 场景 B/C（**US-17 关闭前提，真机尚未跑过**）；C0（v0.5.2 源
 
 ### 相对 r23
 平台包：web-api `manual_rollback.py` 消费侧修复 + 相关测试；runner 包：`rollback.py` 捕获/消费修复。r23 的**自指锚点修复**包含在内（`b547815`）。
+
+## 2026-10-07 v0.5.4 平台包 **r25**（runner 包沿用 r24；"尚未执行"判定修复，未发布）
+
+| 项 | 值 |
+| --- | --- |
+| Status | **CANDIDATE**（当前唯一有效候选；场景 B 真机复测进行中） |
+| 平台包 | `.3:/data/r25-out/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `49db2a5cf29bd9ae4c5892dddb20764c9471b5a2b3729b49c9953efa262b39e1` |
+| runner 组件包 | `.3:/data/r25-out/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `26fc00bfc852ab336893b1f4be12f83221586a90315b2349d014bf813c0de94b`（与 r24 逐字节一致，本修复不涉 runner） |
+| 源码溯源 | dev2 `0e72805`：**「尚未执行」判定改按状态**——`.12` 实测 runner 执行的任务无顶层 `started_at`（只有 action 级；legacy inline 路径才写 task 级），原守卫把 exactly 要服务的 succeeded+锚点任务误拒成 400「升级尚未执行」。改 `_NOT_EXECUTED_UPGRADE_STATUSES`（uploaded/precheck_*/pending/cancelled）；前端「手动回滚」按钮同步改按 status（原按 started_at 在 runner 任务上永远置灰） |
+| 门禁 | 身份 PASS；词汇 7 PASS；expand-only PASS；`sha256sum -c` 两包 OK |
+| 回归 | 后端全量 **1111 tests / 1 failure**（既有 harness 限制）；前端 `tsc` 0 + `vitest` **115 passed**；定向 4 套件 77 OK |
