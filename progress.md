@@ -5745,3 +5745,23 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
 
 **意义**：改名 + 清理链路在**干净机 + 老交付现场形态**下闭环；C1（全新安装+直升）与 C2
 （组件升级）格的**最终候选版证据**就位（见 CHANGELOG 验证说明表）。
+
+
+## 2026-10-07 发布前收尾（用户指令「先不发布，把所有问题解决」）
+
+1. **脱敏扫描**：`scripts/verify_release_docs_safe.py` → `[PASS] 对外发布文档安全扫描通过`（EXIT=0）。
+2. **v0.5.4 离线交付目录重建**：`.3:/data/delivery-v054`（1.4G，`build_offline_delivery.py`
+   + r30 平台包 + r33 runner 包，`--runner-baseline v0.3.2` 按 a345362 决策、`--platform-version v0.5.4`）。
+   安装 compose 实测：平台三件套 v0.5.4 + **runner v0.3.2** + prometheus v2.55.1；images 5 tar +
+   SHA256SUMS；upgrade/packages 含 r30 + r33 两包。
+3. **新交付真机安装验证（`.14`，全清后）**：`install.sh --yes` EXIT=0，**直接装出 v0.5.4 + runner v0.3.2**；
+   现场变体 = **dev + offline（纯新名，零旧名残留）**；8 项验收全过（health v0.5.4/v0.3.2、5 容器、
+   network/subnet、SQLite ok、Prometheus 200、.env 600、legacy 全清、UI 200）。
+   —— 加上此前同日的「老交付（v0.5.3）安装 → 升 r30 → 组件升 r33 → 旧名清理」链，
+   **新旧两种现场形态在本轮全部真机闭环**。
+4. **前端浏览器目视（`.14`）**：登录（admin/password）→ 服务管理 → 平台升级页 → 选中上传的 r30 包：
+   回滚区四个按钮渲染正确（`回滚到上一版本`/`整备回滚` disabled、`检查回滚可行性` 可点、
+   `手动回滚` 在已上传任务上 disabled【按钮条件修复的真机确认】），两处 blocker 文案
+   「没有平台回滚锚点（需先完成一次 v0.5.4+ 平台升级）」正确显示；服务状态区 v0.5.4/v0.3.2/五服务运行中。
+5. **CHANGELOG 已知问题补两条**：未装 v0.3.2 的现场不清理旧名（设计内、无害）；
+   手动回滚失败分支为有意的单测覆盖边界（真机需刻意制造数据回退且依赖回滚链）。

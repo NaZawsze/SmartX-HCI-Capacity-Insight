@@ -144,6 +144,13 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   已由门禁 `apply_services_scope` 锁死。详见 [upgrade-issues](upgrade-issues.md) UPG-051。
   *连带口径*：裁剪后预检查不再要求"本机已存在 prometheus 镜像"——语义自洽（apply 不再启动它），
   但"先停掉 prometheus 再升级"这种非常规场景不再被预检查拦住。
+- **未安装 runner v0.3.2 的现场不会清理旧名 compose**：改名后的旧名文件（`docker-compose.yml` /
+  `docker-compose.release.yml`）清理由 **v0.3.2 runner** 在收尾时执行——只完成平台升级、未做
+  runner 组件升级的现场会保留旧名文件（它们仍被对账逻辑覆盖、不会降级，无害）；完成组件升级后
+  自动清理并归档。
+- **手动回滚的失败分支（计数守卫不过 → `rollback_failed` → recovery）**：由引擎级单测覆盖
+  （真实 `business_count_guard` + SQLite）；真机只演练了成功路径（`rolled_back`）。失败路径需要
+  刻意制造数据回退（且要求存在有效回滚链），未做真机故障注入——记录为有意的覆盖边界。
 - **US-17 已关闭（2026-10-07）**：回滚三场景代码、沙箱演练与 **`.12` 真机手动回滚（场景 B/C）**
   全部完成（证据见上方 C3 行与 ledger r22–r28）；人工回滚恢复为产品能力（v0.5.4 起支持，
   推翻 US-29 下线决定，见 impl-spec §W5-场景B 决议）。

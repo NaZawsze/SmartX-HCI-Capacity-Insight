@@ -968,3 +968,11 @@ C3 场景 B/C（**US-17 关闭前提，真机尚未跑过**）；C0（v0.5.2 源
 （runner 未被动）→ 组件升级 **r33** succeeded（对账 + 旧名 yml 清理归档，变体收敛 3 新名）→
 **8 项验收全过**（health/容器/network/SQLite/Prometheus/.env/legacy/UI）。C1/C2 格最终候选版证据就位；
 C3 场景 B/C 与 C4 平台直升的 r30/r33 实测见上文各节。**等待用户发布指令。**
+
+
+### 交付物料登记（2026-10-07）
+
+- **v0.5.4 离线交付目录**：`.3:/data/delivery-v054`（1.4G；`build_offline_delivery.py` 构建，
+  r30 平台包 + r33 runner 包，安装 compose 落 v0.5.4 + **runner v0.3.2**；US-33 自洽门禁随构建通过）。
+  **`.14` 真机验证**：全清 → 全新安装 EXIT=0 → 8 项验收全过；现场变体纯新名（dev/offline）。
+- 同期「老交付 v0.5.3 → 升 r30 → 组件升 r33 → 旧名清理」链也在 `.14` 闭环（见 progress 同日节）。
