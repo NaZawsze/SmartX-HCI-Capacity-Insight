@@ -320,7 +320,7 @@ bundle 包（带 observability 组件）额外 `health.prometheus`。
 | M4 | v0.5.3 | v0.3.2 | presence/预检查 | DB 兼容镜像保证 v0.5.3 判定正常 |
 | M5 | v0.5.4 | v0.3.1 | presence 文件缺失回落 DB | 行为与今天一致 |
 | M6 | v0.5.4 | v0.3.2 | 终态：自换/文件优先/投影 | 全部新特性生效 |
-| M7 | v0.5.4 | v0.3.2 | 场景 B/C 手动回滚 | 判定 API + 任务化执行 |
+| M7 | v0.5.4 | v0.3.2 | 场景 B/C 手动回滚 | 判定 API + 任务化执行；**.12 真机通过（2026-10-07）：B=rolled_back+计数守卫；C=4 动作全过+v0.5.3+数据 543/89547 逐位恢复** |
 
 ## 11. 测试规格汇总
 
@@ -462,3 +462,35 @@ W5 场景 B/C（批次 B 平台侧）
 - `.3` 容器 harness 全量：**1105 tests，1 失败**（`test_v2_upgrade` docker-socket 格，既有 harness 限制，
   HEAD 基线同样失败）——本组改动新增失败 0。另一处全量发现并当场修掉：macOS tar 把 AppleDouble
   `._*` 垃圾带进测试树，炸掉 5 个 ops 脚本检查（impl-spec §14.2「传输垃圾」的现实重演，已清理）。
+
+#### W5-场景B/C 真机复测记录（2026-10-07，`.12`，r22→r28 六轮候选）
+
+**结果：场景 B 与场景 C 全链路真机通过**（逐条证据见 ledger r22–r28 与 CHANGELOG C3 行）。
+真机暴露并当场修掉 **5 个沙箱/单测没能拦住的缺陷**——全部是"测试夹具形状 ≠ 真机形状"或
+"单元路径 ≠ 真实路径"：
+
+1. **同版本升级的自指锚点遮蔽 N-1 链**：同版本重装/升级也捕获锚点（`previous==target`），
+   按 captured_at 最新者把真正的 v0.5.3 锚点遮蔽 → 可回滚性被一次无关升级静默清零。
+   修复：`latest_rollback_anchor()` 跳过自指锚点（留档不删），与 `captured_for` 同规则
+   （`_is_rollback_chain_anchor`）。
+2. **锚点 tag 被 files.sync 污染**：捕获发生在首次 compose.apply 前，但 files.sync 已把
+   project compose 换成包内新 tag 声明——先读 compose 会把旧镜像记成升级目标版本
+   （实测 `tag=v0.5.4` / `running_ref=v0.5.3`），回滚 override 指回新版本=原地不动。
+   沙箱没暴露因为沙箱计划里 files.sync 不覆盖 compose。修复：捕获与消费（`anchor_image_ref` /
+   `_anchor_image_ref`）均 running_ref 优先——历史锚点自愈。
+3. **「尚未执行」判定按 `started_at`**：runner 执行的任务没有顶层 `started_at`
+   （只有 action 级；legacy inline 路径才写 task 级）→ 恰好要服务的 succeeded+锚点任务被
+   误拒 400。前端按钮同因在能回滚的任务上永远置灰。修复：按状态判定 + 前端改按 status。
+4. **无包任务缺 `package_path` 卡死 runner**：手动回滚任务让 `_package_path_for_task` 抛
+   KeyError，`run_pending_once` **每轮轮询异常退出**（合法任务卡死整条流水线）。
+   修复：`PACKAGELESS_TASK_TYPES` 补两类 + web-api 写入 `package_path` 双保险。
+5. **场景 C「指回旧 tag」缺失**：restore 的起服务用 base compose；场景 B 只写 override 不动
+   base compose → "升级前项目文件"携带的仍是新版声明 → **数据回了、版本没回**（静默）。
+   修复：C 计划补显式 override+apply；项目文件备份改取**锚定任务自己**的 files.sync 备份
+   （原按任务名字母倒序会选中更早的任务）。
+6. 另修：`.12` 侧 r22 构建门禁连环抓出两处版本身份遗漏（根 README 版本行、后端
+   `DEFAULT_APP_VERSION` 仍是 v0.5.3）——v0.5.4 身份变更的遗留，已补。
+
+**纪律复盘**：这 5 个缺陷全部属于 AGENTS §12「交付类改动必须在干净 VM 上真机跑通」的适用范围——
+单测/沙箱绿而真机红。夹具必须按**真机形状**构造（runner 任务的字段集、files.sync 对 compose 的
+替换顺序、状态文件的锚点代际）。

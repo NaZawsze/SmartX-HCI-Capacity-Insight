@@ -66,6 +66,23 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   强制写明到达路径（拒绝必须带出路），并修正两处被文档改动带出的回归。
 - **presence 用例的定时炸弹**：两处心跳新鲜度用例的时间戳原钉在模块导入时刻，
   全量跑（>30s）必然假失败、污染回归基线，改为每例现算。
+- **手动回滚真机复测暴露并修掉的 4 个缺陷**（`.12`，2026-10-07，逐条见 ledger r22–r28）：
+  ①**自指锚点遮蔽 N-1 链**——同版本重装/升级捕获 `previous_version==target_version` 的锚点，
+  按最新者遮蔽真正有意义的上一版锚点，可回滚性被一次无关的同版本升级静默清零；
+  修复为查询侧跳过自指锚点（留档不删）。
+  ②**锚点旧镜像记成新版本**——锚点捕获发生在 files.sync 之后，按 compose 声明记 tag 会把旧镜像
+  记成升级目标版本，回滚 override 指回新版本＝原地不动；修复为捕获与消费均 `running_ref` 优先
+  （历史锚点自愈）。
+  ③**「尚未执行」判定按 `started_at`**——runner 执行的任务没有顶层该字段，
+  恰好要服务的成功任务被误拒成 400「升级尚未执行」（前端按钮同因在能回滚的任务上永远置灰）；
+  改按状态判定。
+  ④**无包任务缺 `package_path`**——手动回滚任务让 runner 每轮轮询 KeyError 异常退出，
+  整条升级流水线被一个合法任务卡死；补 `PACKAGELESS_TASK_TYPES` + web-api 写入 `package_path` 双保险。
+- **整备回滚（场景 C）"指回旧 tag"缺失**（`.12` 真机暴露）：原计划只有 `rollback.restore`，
+  其起服务用 base compose——而场景 B 的回滚只写 override 不动 base compose，
+  「升级前项目文件」携带的仍是新版声明，结果**数据回了、版本没回**（静默）。
+  补显式 `compose.override` + `compose.apply`；项目文件备份改取**锚定任务自己**的 files.sync 备份
+  （原按任务名字母倒序扫会选中更早的任务）。
 
 ### 工程与运维
 
@@ -89,12 +106,13 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
 | --- | --- |
 | `.3` 后端全量 / 前端门禁 | 1075 tests / 唯一失败为环境限制（镜像有 docker CLI 无 socket）；前端 `tsc` EXIT=0、`vitest` 114 tests |
 | r21 打包门禁 | 已过：身份 / runner 交付一致性（13 PASS，30 动作）/ 迁移 expand-only / 动作词汇冻结 / `--force-recreate` 禁令 / 敏感文件 0 |
+| r28 打包门禁（当前候选；r22–r28 迭代见 ledger） | 已过：身份 / runner 交付一致性（12 PASS，30 动作）/ expand-only / 词汇 7 PASS / `sha256sum -c`；后端全量 **1115 tests / 1 failure**（既有 harness 限制）；前端 `tsc` 0 + `vitest` 115 passed |
 | 打包侧静态证据 | 已过：3 个源版本计划动作集并集 6 个 ⊆ 已发布 v0.3.1 的 25 个动作；**已发布 v0.5.2 / v0.5.3 镜像内编译器**对 v0.5.4 manifest 的输出与候选编译器一致 |
 | 沙箱回滚演练（`.3`） | 已过：health 失败 → `rolled_back`；apply 失败 → `rolled_back`；`image.load` 失败 → 干净失败且不回滚 |
 | **`.14` C1''** v0.5.3 → v0.5.4（r21，runner 执行者为**已发布 v0.3.1**） | ⏳ 待回填：任务 `upgrade-390655228052b596` succeeded，判定表 **17 ✅ / 4 ℹ️ / 0 ❌ / 0 ⚠️**；**T3 于 v0.3.1 执行者下通过**（prometheus 容器 ID/`created`/存量 config-hash 三条独立证据均未被重建）；两个回滚可用性端点 200。**本表其余格待矩阵完成后统一回填** |
 | **C1** `.14` 全新安装 + v0.5.3→v0.5.4 直升（T3） | ⏳ 待填（用户执行，`ops/evidence.sh c1 before/after`） |
 | **C2** `.12` 组件升级 v0.3.1→v0.3.2 | ⏳ 待填（用户执行，`ops/evidence.sh c2`） |
-| **C3** 场景 B / 场景 C 真机手动回滚 | ⏳ 待填（用户执行，`ops/evidence.sh c3`） |
+| **C3** 场景 B / 场景 C 真机手动回滚 | ✅ 已通过（`.12`，2026-10-07，r26/r28 候选）：场景 B 任务 `manual-rollback-20261007042914` **终态 `rolled_back`**、`rollback_count_guard.ok=true`、平台实证回退 v0.5.4→v0.5.3（三容器镜像 + `/app/VERSION`）、数据未动；场景 C 任务 `manual-full-rollback-20261007045927` 4 动作全 succeeded（restore→override→apply→health）、override 3×v0.5.3、**数据 543 VM / 89547 卷逐位恢复**、平台回退 v0.5.3；回滚后再次直升 v0.5.4 成功（`upgrade-448104a503763822`）、新锚点就位（availability=true→v0.5.3）。真机暴露并当场修掉 4 个缺陷（见「修复」节），逐条证据在 [upgrade-package-ledger](upgrade-package-ledger.md) r22–r28 节 |
 | **C4** `.12` 平台直升回归 | ⏳ 待填（用户执行，`ops/evidence.sh c4`） |
 | 兼容矩阵 M1–M7 | ⏳ 待填（M1/M2 归本批次回归格） |
 | `post_upgrade` 触发面 | 单测覆盖（2026-10-06 决议：与已实测的 apply 触发回滚走同一代码路径，不强制沙箱复现） |
@@ -110,8 +128,9 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   已由门禁 `apply_services_scope` 锁死。详见 [upgrade-issues](upgrade-issues.md) UPG-051。
   *连带口径*：裁剪后预检查不再要求"本机已存在 prometheus 镜像"——语义自洽（apply 不再启动它），
   但"先停掉 prometheus 再升级"这种非常规场景不再被预检查拦住。
-- **US-17 关闭待 C3**：回滚三场景的代码与沙箱演练已完成，**真机手动回滚（场景 B/C）未执行**，
-  关闭前不得对外宣称"支持回滚"。
+- **US-17 已关闭（2026-10-07）**：回滚三场景代码、沙箱演练与 **`.12` 真机手动回滚（场景 B/C）**
+  全部完成（证据见上方 C3 行与 ledger r22–r28）；人工回滚恢复为产品能力（v0.5.4 起支持，
+  推翻 US-29 下线决定，见 impl-spec §W5-场景B 决议）。
 - **支持矩阵收窄**：v0.5.4 只支持目标布局源（v0.5.2+）。`v0.5.0 / v0.5.1 / v0.5.1u1 / v0.5.1u2`
   不支持直升 v0.5.4，需**先升 v0.5.3**（该链路已验证），再升 v0.5.4。
   precheck 会拒绝并给出引导文案（`remediation`：结构化字段 + 检查项 message，双处落地）。

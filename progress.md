@@ -5618,3 +5618,47 @@ v0.5.3 出发 —— **覆盖不到**这一格，偏偏它是现场存量最大�
 
 - `.12` 场景 B 真机复测（available=true → rollback → v0.5.3 → 计数守卫 → 再直升回 v0.5.4）
   与场景 C 真机演练——下一步，真机做。
+
+## 2026-10-07 场景 B/C 真机复测全通过（`.12`，r22→r28 六轮候选迭代）
+
+**结果**：场景 B（手动应用回滚）与场景 C（整备回滚）全链路真机通过；`.12` 终态 =
+v0.5.4（r28）+ runner v0.3.2（r26）+ 真实数据完整（vm_latest=543 / vm_volumes=89547 / towers=3）
++ 新锚点在位（availability=true→v0.5.3）。**US-17 关闭**。
+
+### 真机证据（关键行）
+
+- **场景 B**：按任务端点 `POST /rollback/upgrade-93c6b4fb`（决议①放行路径）→ 新建
+  `manual-rollback-20261007042914` → **终态 `rolled_back`**、`rollback_count_guard.ok=true`
+  （before==after: towers=3/clusters=3）、日志「已回滚到 v0.5.3，业务计数守卫通过」、
+  平台实证 v0.5.4→v0.5.3（三容器镜像 + /app/VERSION）、数据未动。
+  回滚后 v0.5.3 上 rollback-availability=404 → 预期（v0.5.4 起支持的自然边界）。
+- **场景 C**：`POST /full-rollback {"confirm_data_loss":true}` → `manual-full-rollback-20261007045927`
+  4 动作全 succeeded（restore→override→apply→health）、override 3×v0.5.3、
+  数据 **543/89547 逐位恢复**、平台回退 v0.5.3。
+- **回滚后升级**：`upgrade-448104a503763822`（v0.5.3→v0.5.4，r28）succeeded → availability 再次 true。
+
+### 真机暴露并当场修掉 5 个缺陷（沙箱/单测全绿也没拦住；记录于 impl-spec W5 复测记录）
+
+1. 同版本升级自指锚点遮蔽 N-1 链（`b547815`）→ 查询侧跳过自指锚点。
+2. 锚点 tag 被 files.sync 污染（`835f5e9`）→ 捕获/消费均 running_ref 优先，历史锚点自愈。
+3. 「尚未执行」按 started_at 误拒 runner 任务（`0e72805`）→ 按状态判定 + 前端按钮同步。
+4. 无包任务缺 package_path 卡死 runner 轮询（`2380a3e`）→ PACKAGELESS 补类型 + web-api 双保险。
+5. 场景 C「指回旧 tag」缺失 + 项目备份选错任务（`fefdb7c`、`06ab103`）→ 补 override+apply、
+   备份取锚定任务自己的 files.sync。
+6. 连带：r22 构建门禁抓出两处版本身份遗漏（根 README `a61dc0c9`、DEFAULT_APP_VERSION `47bc25ad`）。
+
+### 候选迭代（ledger 已逐轮登记）
+
+r22（场景 B 落地）→ r23（自指锚点）→ r24（running_ref 两包重切）→ r25（尚未执行判定）→
+r26（package_path 两包重切）→ r27（C 项目备份）→ **r28（C 指回旧 tag，当前候选）**。
+每轮门禁：身份 / runner 一致性 / 词汇 / expand-only / sha256 全 PASS；
+全量回归 1105→1115 tests，唯一失败恒为既有 docker-socket harness 限制。
+
+### 操作过程记录（供复盘）
+
+- 同版本升级在 `.12` 产生自指锚点是**产品缺陷的第一次现实暴露**（r22 轮）；
+  修复本身又需要一次同版本升级部署（r23），r23 的自指锚点被修复跳过——链条自洽。
+- pending 手动任务触发单飞守卫挡住新 runner 部署 → 取消该 pending 任务（产品流程 cancel）破环；
+  该死锁形态已记录：升级卡 pending + 需要新 runner 修复时，先 cancel 再组件升级。
+- `.3` 侧 macOS tar 的 `._*` 垃圾进测试树炸掉 5 个 ops 检查（已清理）；
+  `/data/c3fix` 树漂移曾造成 15F+6E 假回归（全树同步后收敛）；全量基线 = 1F（docker socket）。
