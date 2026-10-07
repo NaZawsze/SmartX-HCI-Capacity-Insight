@@ -5916,5 +5916,18 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
 - US-40 四件套登记（issues/findings/task_plan Phase 71/pending #86）；
   `docs/version-governance.md` 开头「v0.5.4 尚未启动」修正为当前开发口径 v0.5.4（P2-5）；
   该文档被 `test_us01_version_skew_matrix.py` 引用但**只断言被矩阵文档引用**，不解析内容（已核）。
+- 回填批（提交 `2afd41b`）：ledger 登记 runner 组件包 **r35**（候选对更新为 平台 r34 + runner r35）、
+  pending #86 与 US-40 状态翻转为「已修并 `.3` 真机验证通过」、CHANGELOG v0.5.4 状态块/修复节/
+  验证说明同步（新增 `.3` r34+r35 验证链一行）、交接文档 §1/§2/§4/§5/§6/§7 回填完成状态。
 - 发布前剩余（P1-4，等用户指令）：r34+r35 的 `.12`/`.14` 重走发布验收；发布动作链只在
   用户明确说「发布」后执行；runner v0.3.2 交付物（tag/镜像/Release 资产）仍按 #53 挂起。
+
+## E. 收尾后 `.3` 全量复跑（文档批提交 `2afd41b` 后）
+
+- `git archive 2afd41b | ssh .3 tar -x -C /data/c3fix`（同步）→ v0.5.4 镜像内全量：
+  **Ran 1150 tests in 405.5s / FAILED (failures=1, skipped=7)**——唯一失败即既有环境限制用例
+  `test_v2_upgrade.V2UpgradeServiceTest.test_start_can_submit_task_for_runner_and_runner_executes_it`
+  （需真实 docker socket），非回归。
+- **基线勘误**：交接文档原记「1148 tests」系沿用旧轮数字——用测试加载器在 `.3` 上对
+  93cf4bb（交接态）与 2afd41b（当前）两棵树 × v0.5.3/v0.5.4 两镜像各探测，均为 **1150**；
+  2bfb003 未新增测试方法（仅重构 1 例 + 补断言）。交接文档 §1/§6 与 ledger r34 验证状态行已同步修正。

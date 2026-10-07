@@ -21,7 +21,7 @@
 | 平台包位置 | `.3:/data/r34-out/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`（SHA256 `1601c66afb7321701145907b9f643d5b29b630fbc74a9e0055b8ff74e07bb998`） |
 | `.3` 运行实例 | **平台 v0.5.4 + runner v0.3.2**（2026-10-08 完成：组件升级 `upgrade-926c2f7a3fccf0c1` + 平台升级 `upgrade-36bbb3312806abdd` 均 succeeded，8 项验收全过） |
 | 发布状态 | **未发布**，等用户明确指令；r30 的既有验收**不覆盖 r34**，发布前须重走链路 |
-| 测试基线（.3） | 后端 **1148 tests / 1 failure（既有环境限制，见 §6）/ 7 skipped**；前端 **124 passed + tsc 0**；`verify_api_docs` OK；矩阵门禁 2 项 OK |
+| 测试基线（.3） | 后端 **1150 tests / 1 failure（既有环境限制，见 §6）/ 7 skipped**（2026-10-08 接手会话复跑确认；原记 1148 系沿用旧轮数字）；前端 **124 passed + tsc 0**；`verify_api_docs` OK；矩阵门禁 2 项 OK |
 | 本轮主线 | Phase 69 所有者/虚拟机组落地 + Tower 版本可见与「按版本选 API」（#84）+ 用户报的 4 个 UI 问题 + 两个真机缺陷（已分配=0 / 缓存竞态） |
 
 ---
@@ -178,7 +178,7 @@ rm -f /data/c3fix/tmp_probe*.py             # 本轮临时探针（仓库内正�
 docker run --rm --network=none -v /data/c3fix:/w -w /w/backend -e PYTHONPATH=/w/backend \
   --entrypoint python nazawsze/smartx-hci-capacity-insight-web-api:v0.5.4 \
   -m unittest discover -s tests
-# 期望：Ran 1148 tests / FAILED (failures=1, skipped=7)
+# 期望：Ran 1150 tests / FAILED (failures=1, skipped=7)
 # 唯一失败 = test_v2_upgrade.V2UpgradeServiceTest.test_start_can_submit_task_for_runner_and_runner_executes_it
 #   —— 既有环境限制（该用例需要真实 docker socket / runner 执行链），非本轮回归。
 
