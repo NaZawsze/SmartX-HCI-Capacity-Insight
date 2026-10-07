@@ -12,6 +12,39 @@ from pathlib import Path
 from unittest.mock import patch
 
 
+class PackagePathForTaskTest(unittest.TestCase):
+    """`.12` 实测：无包任务缺 package_path 时 `_package_path_for_task` 抛 KeyError，
+    runner **每轮轮询都异常退出**——手动回滚（场景 B/C）会卡死整条升级流水线。"""
+
+    def test_manual_rollback_types_are_packageless(self) -> None:
+        from app.upgrade_runner.main import _package_path_for_task
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "manual-rollback-1"
+            for package_type in ("manual_rollback", "post_upgrade_cleanup"):
+                path = _package_path_for_task(
+                    {"manifest": {"package_type": package_type}}, task_dir
+                )
+                self.assertEqual(path, task_dir / "package")
+
+    def test_explicit_package_path_wins(self) -> None:
+        from app.upgrade_runner.main import _package_path_for_task
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _package_path_for_task(
+                {"package_path": f"{tmpdir}/explicit", "manifest": {}}, Path(tmpdir)
+            )
+        self.assertEqual(path, Path(f"{tmpdir}/explicit"))
+
+    def test_unknown_task_without_package_path_still_raises(self) -> None:
+        """保留原语义：真正的平台升级任务缺 package_path 仍是异常（不能静默放行）。"""
+        from app.upgrade_runner.main import _package_path_for_task
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(KeyError):
+                _package_path_for_task({"manifest": {"package_type": "platform"}}, Path(tmpdir))
+
+
 class UpgradeLeaseTest(unittest.TestCase):
     def test_lease_prevents_concurrent_owner_and_allows_expired_takeover(self) -> None:
         from app.upgrade_runner.lease import LeaseManager

@@ -103,7 +103,12 @@ def _is_runner_component_task(task: dict[str, Any]) -> bool:
     return bool(manifest_components) and manifest_components <= {"runner"}
 
 
-PACKAGELESS_TASK_TYPES = {"post_upgrade_cleanup"}
+#: 没有升级包载荷的任务类型（`_package_path_for_task` 对它们返回 `<任务目录>/package`，
+#: 目录可以不存在——这些任务的计划里没有 image.load，不会真去读）。
+#: 场景 B/C 的手动回滚任务由 web-api 的判定/计划生成，本身就无包
+#: （`.12` 实测：缺这一项时 KeyError('package_path') 让 runner **每轮轮询都异常退出**，
+#: 整条升级流水线（含其他任务）被一个合法任务卡死）。
+PACKAGELESS_TASK_TYPES = {"post_upgrade_cleanup", "manual_rollback", "manual_full_rollback"}
 
 #: W3：走自换路径的组件任务用的动作类型（只出现在 v0.3.2+ runner 执行的任务里）。
 SELF_HANDOFF_ACTIONS = frozenset(

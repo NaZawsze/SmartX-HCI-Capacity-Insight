@@ -331,6 +331,7 @@ class StartManualRollbackTests(unittest.TestCase):
         self.assertEqual(task["kind"], "manual_rollback")
         self.assertEqual(task["target_version"], "v0.5.3")
         self.assertEqual(stored["status"], "pending")
+        self.assertTrue(stored["package_path"], "无包任务也要写 package_path——否则 runner 轮询 KeyError（.12 实测）")
         self.assertIsNotNone(projected, "回滚任务必须进任务中心投影")
         types = [item["type"] for item in stored["execution_plan"]["actions"]]
         self.assertEqual(types, ["compose.override", "compose.apply", "health.http"])

@@ -377,6 +377,8 @@ class ManualRollbackMixin:
             "status": "pending",
             "kind": "manual_full_rollback",
             "package_type": "manual_rollback",
+            # 同场景 B：无包任务也写 package_path，避免 runner 轮询因未知类型 KeyError。
+            "package_path": str(task_dir / "package"),
             "target_version": target_version,
             "components": ["platform"],
             "manifest": {
@@ -441,6 +443,10 @@ class ManualRollbackMixin:
             "status": "pending",
             "kind": "manual_rollback",
             "package_type": "manual_rollback",
+            # 无包任务也写 package_path：runner 的 `_package_path_for_task` 对未知类型会
+            # KeyError（`.12` 实测会炸掉整轮轮询）；指向任务目录下的空 package 位，
+            # 手动回滚的计划没有 image.load，不会真去读它。老 runner 也照常认领。
+            "package_path": str(task_dir / "package"),
             "target_version": target_version,
             "components": ["platform"],
             "manifest": {
