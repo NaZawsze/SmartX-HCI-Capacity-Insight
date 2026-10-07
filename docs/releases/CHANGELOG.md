@@ -97,8 +97,13 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   `docker-compose.release.yml → docker-compose.online.yml`（offline/upgrade 不变），命名与用途对齐
   （dev=开发构建 / offline=离线交付 / online=在线安装 / upgrade=升级专用）。**现场活动变体
   offline.yml 名字不变**，已安装机器的标记与配置零影响；运行时写回/对账/锚点读取改为覆盖
-  **全部在场变体 + 旧名残留**（files_sync 只增不删），宿主侧无论用哪个文件 `compose up`
-  都不会静默降级 runner。旧名文件过渡期后在后续版本统一清理。
+  **全部在场变体**，宿主侧无论用哪个文件 `compose up` 都不会静默降级 runner。
+- **旧名 compose 过渡期清理（2026-10-07，`.12` 真机闭环）**：v0.3.2 runner 在收尾时对已安装现场
+  做幂等清理——**新名变体就位且对齐后**才移除残留的旧名文件（白名单两个精确名、绝不删活动文件、
+  删除前归档到 `backups/legacy-compose-removed-<ts>/`）。清理与整备回滚的语义：回滚恢复到所锚定
+  升级前一刻的项目文件集合（若当时旧名尚在会被带回复原，属对称语义；再升级会重新清理）。
+  真机三连纠错（清理分支被对齐门禁跳过 / `os.replace` 跨 bind 挂载 EXDEV / 失败重试空目录堆积）
+  已逐条修复并复验，见 ledger r31–r33。
 - 打包收窄支持矩阵：`source_compatibility = [v0.5.2, v0.5.3, v0.5.4]`，
   v0.5.4 起不再声明目录迁移与 legacy 清理 → 计划为**常量动作集**
   （`backup.create → image.load×3 → files.sync → compose.override → compose.apply → health.http`）。
