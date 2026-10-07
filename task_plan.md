@@ -2282,9 +2282,12 @@ B=`rolled_back`+计数守卫、C=restore→override→apply→health 四动作+v
 
 ## Phase 69 - 虚拟机所有者可见性（VM Owner；Tower 只读可达后实施）
 
-来源：2026-10-07 用户需求（原话见设计文档）。**状态：设计草案已成文，等待门 1**
-（Tower 可达 + 只读账号可见性；探针 `scripts/probe_tower_vm_owner.py` 已就绪，塔恢复后一条命令出结论）。
+来源：2026-10-07 用户需求（原话见设计文档）。**状态：门 1 已通过（只读账号实测）+ 设计定稿，
+待用户批准开工。** 用户同日确认「虚拟机组 = CloudTower folder（文件夹），不是放置组」。
 
-**目标**：①只读账号能读到每台 VM 所有者（门 1）；②平台展示所有者；③报表导出（Word/Excel）加「所有者」列。
-**设计**：docs/superpowers/specs/2026-10-07-vm-owner-visibility-design.md（含口径、改动面预估、
-门 1 失败台阶、测试计划、回滚）。**排期**：独立小特性，与 #62/#56 改造解耦，门 1 通过后即可实施。
+**目标**：①只读账号读到每台 VM 所有者（门 1 ✅——`labels` 里 `system.cloudtower/owner`，值即名字）；
+②平台 VM 页展示「所有者」「虚拟机组」；③报表导出（Word/Excel）加「所有者」「虚拟机组」两列。
+**设计（实现级）**：docs/superpowers/specs/2026-10-07-vm-owner-visibility-design.md——口径、
+逐文件改动面（采集归一/落库/API/前端/报表）、可执行验收 A1–A5、风险与回滚、测试计划。
+探针：scripts/probe_tower_vm_owner.py（`.3` 容器内 `--configured` 一条命令复现门 1 结论）。
+**排期**：不与 v0.5.4 发布捆绑，随下一版本交付。
