@@ -4,8 +4,8 @@
 
 ## 版本模型
 
-- 平台版本由根目录 `VERSION` 定义。**已正式发布的平台版本为 `v0.5.3`（2026-10-05 发布，tag `v0.5.3`，Release 资产 `ef3fab9f…`；runner 基线=已发布 `v0.3.1`，`v0.3.2` 未交付）**。下一开发口径 `v0.5.4` 尚未启动；启动时第一步把 `VERSION` 与三份 compose 字面量同步升到 `v0.5.4`。
-- 当前开发口径固定为 `v0.5.3`：源码版本、README、文档、升级包和常规镜像 tag 必须一致；候选的验收状态以 `docs/releases/CHANGELOG.md` v0.5.3 节为准（未发布）。
+- 平台版本由根目录 `VERSION` 定义。**已正式发布的平台版本为 `v0.5.3`（2026-10-05 发布，tag `v0.5.3`，Release 资产 `ef3fab9f…`；runner 基线=已发布 `v0.3.1`，`v0.3.2` 未交付）**。
+- 当前开发口径为 `v0.5.4`（2026-10-07 启动，`VERSION` 与三份 compose 字面量已同步）：源码版本、README、文档、升级包和常规镜像 tag 必须一致；候选的验收状态以 `docs/releases/CHANGELOG.md` v0.5.4 节为准（**候选，未发布**）。
 - 临时测试升级包可以使用不同目标版本验证升级链路，但只作为测试包元数据；不能反向修改 `VERSION`、README 或正式发布口径。
 - 平台服务包括 `web-api`、`collector-worker`、`frontend`。
 - `upgrade-runner` 是独立升级执行组件，版本由根目录 `RUNNER_VERSION` 定义，当前为 **`v0.3.2`**（该版本从未交付/发布，US-24 修复于 2026-09-28 直接并入——`engine._save` 对「与主 store 同一文件」的 mirror 不再双写；已发布线 `v0.3.1` 见 Release 资产 `d10e15cf…`）。

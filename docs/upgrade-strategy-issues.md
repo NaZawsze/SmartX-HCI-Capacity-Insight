@@ -436,7 +436,7 @@
   列为显式检查项（现状：`verify_site_acceptance.sh` 会 FAIL，据此发现本问题）。
 - **状态**：🟠 **已登记待立项**；不阻塞 v0.5.3 发布（属存量缺口非回归，CHANGELOG 已知问题已注明）。
 
-### US-40 🔴 已修（2026-10-08 `.3` 升级 r34 首次实跑发现）：迁移沙箱的**脚本挂载用容器内路径**——目标布局下宿主被 docker 建出空目录，迁移动作必然失败
+### US-40 🟢 已修并 `.3` 真机验证通过（2026-10-08 `.3` 升级 r34 首次实跑发现）：迁移沙箱的**脚本挂载用容器内路径**——目标布局下宿主被 docker 建出空目录，迁移动作必然失败
 
 - **现象（`.3` 实测，task `upgrade-93e46d573190529f`，v0.5.3→v0.5.4 平台升级 r34）**：
   precheck 9 项全过、start 后 backup/镜像加载/项目文件同步/compose override 全部 succeeded，
@@ -471,4 +471,13 @@
 - **验证要求**：`.3` 重建 runner v0.3.2 组件包 → 组件升级（v0.5.3 平台 + US-11 守卫在位）→
   重跑 r34 平台升级，`run-migration` succeeded、4 条迁移落库（schema_migrations）、
   切版后 health/8 项验收全过。
-- **状态**：🟢 **已修（代码+测试已提交，`.3` 验证进行中）**。
+- **状态**：🟢 **已修并 `.3` 真机验证通过（2026-10-08）**。验收链全过：组件包 **r35** 重建
+  （SHA `3518402b…`，`verify_runner_delivery_consistency.py --live-probe` 15 PASS/1 SKIP）→
+  组件升级 `upgrade-926c2f7a3fccf0c1` succeeded（precheck 7 项含 `runner_first_order`）→
+  r34 平台升级二跑 `upgrade-36bbb3312806abdd` **succeeded 且 `run-migration` succeeded**
+  （该代码路径首次真机执行，9 动作全 succeeded）→ 切版后 8 项验收全过
+  （health v0.5.4/v0.3.2、`schema_migrations` 4 条落库、数据计数 201/2/2/1 不变、
+  `.env` sha `d186b584…` 逐位不变、legacy 已清、UI 200）→ US-06 升级后自动采集落库
+  已分配 343,597,383,680 B（320.00 GiB · 32.65%），不再被定时采集覆盖回 0。
+  候选对更新为 **平台 r34 + runner r35**（ledger r35 节）。
+  **发布前剩余**：`.12`/`.14` 按发布验收清单重走（r30 的既有验证不覆盖本内容）。

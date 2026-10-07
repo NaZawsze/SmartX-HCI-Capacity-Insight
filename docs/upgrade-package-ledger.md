@@ -982,9 +982,9 @@ C3 场景 B/C 与 C4 平台直升的 r30/r33 实测见上文各节。**等待用
 
 | 项 | 值 |
 | --- | --- |
-| Status | **CANDIDATE**（当前唯一有效候选对：**平台 r34** + runner r33；r30 平台包被本包取代） |
+| Status | **CANDIDATE**（平台包 r34 仍为当前候选；runner 侧由 r35 取代 r33，见 2026-10-08 节；r30 平台包被本包取代） |
 | 平台包 | `.3:/data/r34-out/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `1601c66afb7321701145907b9f643d5b29b630fbc74a9e0055b8ff74e07bb998` |
-| runner 组件包 | 沿用 r33 `72291ec7…`（本批不动 runner；平台包内 runner 基线仍为**已发布 v0.3.1**） |
+| runner 组件包 | 构建时沿用 r33 `72291ec7…`（本批不动 runner；平台包内 runner 基线仍为**已发布 v0.3.1**）；**2026-10-08 起 runner 侧由 r35 取代**（US-40 修复） |
 | 源码溯源 | dev2 `ed90c85`（后端 `e10d4a3` / 前端 `bd7b679` / 文档 `ed90c85`） |
 | 构建 | `.3:/data/r34-src`（`git archive HEAD` 精确提交解包）→ `TMPDIR=/data/build-tmp python3 scripts/build_upgrade_package.py --output-dir /data/r34-out`，EXIT=0 |
 
@@ -1006,3 +1006,49 @@ C3 场景 B/C 与 C4 平台直升的 r30/r33 实测见上文各节。**等待用
 前端 **124 passed + tsc 0**、`verify_api_docs` OK；Phase 69 A1–A5 与两处缺陷修复的真机
 证据见 progress.md 2026-10-07 节。**发布前仍需**：`.12`/`.14` 按发布验收清单走链路
 （r30 的既有验证**不覆盖本包内容**——候选内容已变，需重走）。
+
+## 2026-10-08 runner 组件包 **重切 r35**（US-40 迁移沙箱脚本挂载修复；平台包沿用 r34）
+
+| 项 | 值 |
+| --- | --- |
+| Status | **CANDIDATE**（当前唯一有效候选对：**平台 r34 + runner r35**；r33 被本包取代，勿用） |
+| runner 组件包 | `.3:/data/components-v032-us40/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `3518402b1e86dcf9f4d4cd5098511551de4f2699ce32ed15c302ec1087db7f3d`（取代 r33 `72291ec7…`；r33 不含 US-40 修复） |
+| 平台包 | 沿用 **r34** `1601c66a…`（本修复在 runner 侧，平台包逐字节不变） |
+| 源码溯源 | dev2 `2bfb003`（US-40 修复；v0.3.2 开发线，未发布版本按 #82 先例**无需 bump `RUNNER_VERSION`**） |
+| 构建 | `.3:/data/c3fix`（`git archive 2bfb003` 精确解包，sandbox.py 双端 SHA 一致）→ `build_runner_component_package.py --version v0.3.2 --output-dir /data/components-v032-us40` |
+| 门禁 | `verify_runner_delivery_consistency.py --live-probe` **15 PASS / 1 SKIP**（dockerhub 按 #53 不查） |
+
+**内容**：US-40——迁移沙箱的**脚本自身挂载** `-v {script}:/upgrade/...` 用容器内路径
+（`-v` 左半边由宿主 dockerd 解析；源不存在时 dockerd 静默自建**整条空目录树**）→
+目标布局下任何带迁移的包（v0.5.4 起）在现场必然在 `run-migration` 失败
+（`python: can't find '__main__' module`）。修复 = 脚本挂载改走
+`context.docker_host_path(script)`（一行）；回归测试重构为真实布局形态并断言
+「脚本挂载必须是宿主路径、不得出现容器内路径形态」+ 无 host 映射回退口径。
+详见 docs/upgrade-strategy-issues.md US-40、findings.md 2026-10-08 条。
+
+**`.3` 真机验证（2026-10-08，US-40 验收链全部完成）**：
+- 组件升级 task `upgrade-926c2f7a3fccf0c1` **succeeded**（18:06:17 UTC；precheck 7 项全过，
+  含 `runner_first_order`：源端 v0.5.3 已含同 project 守卫（US-11），原地升级 runner 安全）；
+  判别：容器 tag `…-upgrade-runner:v0.3.2`、镜像内 `/app/RUNNER_VERSION=v0.3.2`、
+  组件版本 API 与 health 均 `runner_version=v0.3.2`（三 checks true）。
+- r34 平台升级二跑 task `upgrade-36bbb3312806abdd` **succeeded**（18:09:31 UTC，
+  包 SHA `1601c66a…` 不变；precheck 9 项全过、`runner_protocol` 显示 v0.3.2/9 动作全支持），
+  **`run-migration` succeeded——该代码路径首次真机执行**；9 动作全 succeeded。
+  首跑失败 task `upgrade-93e46d573190529f` 的完整取证（含宿主空目录 birth 时间吻合、
+  包内脚本 5671 字节 SHA `9edbafdc…` 与 manifest 一致）见 US-40 条目。
+- 切版后 **8 项验收全过**：health `ok=true / v0.5.4 / v0.3.2 / 三 checks true`；
+  5 容器（三件套 v0.5.4、runner v0.3.2 未被平台升级触碰、prometheus 未重建）；
+  network `smartx-hci-capacity-insight-net` / subnet `10.249.251.0/24`；
+  SQLite integrity ok、计数与升级前一致（vm_latest 201 / clusters 2 / towers 2 /
+  metric_snapshots 1）、**`schema_migrations` 4 条落库**（owner/folder_name/
+  tower_version/os_version）；Prometheus `/-/ready` Ready；`.env` 600、
+  sha256 `d186b584…` 与升级前逐位一致；legacy 路径已清（观察项：`/data/prometheus`
+  存 178 字节 10-05 的 `prometheus.yml`，非数据目录，未动）；UI 8080=200。
+  post-cleanup 状态 `not_required`（v0.5.4 七步常量流程无清理动作，符合设计）。
+- 业务判别：US-06 升级后事件驱动采集 18:10:02 触发（SMTX_TEST success；CHINATOWER
+  不可达为既有环境限制）；**已分配 = 343,597,383,680 B（320.00 GiB · 32.65%）**
+  与 #85 修复预期逐字节一致、不再被定时采集覆盖回 0；`towers.tower_version=v4.5.0`、
+  `clusters.os_version=6.1.1`、owner/folder 落库。
+
+**发布前剩余**：r34+r35 的 `.12`/`.14` 按发布验收清单重走（r30 的既有验证不覆盖本内容）；
+runner v0.3.2 交付物（git tag / DockerHub 镜像 / Release 资产）仍按 #53 挂起，随发布一起出。

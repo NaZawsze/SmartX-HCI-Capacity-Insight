@@ -4,16 +4,16 @@
 
 ## v0.5.4（候选，未发布）
 
-状态：**候选，未发布**。当前候选对 = **平台 r34 + runner r33**（见
+状态：**候选，未发布**。当前候选对 = **平台 r34 + runner r35**（见
 [upgrade-package-ledger.md](upgrade-package-ledger.md)）。**发布门槛：批次 C 矩阵未完成
 （C1–C4 + 兼容矩阵 M1–M7），且需用户明确指令**；未满足前不发布、不推 tag、不推 origin。
 **注意**：r34 在 r30 之后加入了 Phase 69（所有者/虚拟机组）、版本可见与画像（#84）、
 已分配与缓存竞态修复等——**r30 的既有验收结论不覆盖 r34，发布前须按发布验收清单重走链路**。
 
 > **发布包（尚未生成 Release 资产）**：**r34** 平台包 SHA256 `1601c66afb7321701145907b9f643d5b29b630fbc74a9e0055b8ff74e07bb998`；
-> runner 组件包沿用 **r33** `smartx-upgrade-runner-v0.3.2.tar.gz` SHA256 `72291ec79969f1a2b2a182c8a66b852dd73c953e3b24ea3d4ace7f8afe9924e4`。
-> （已作废：平台 **r30** `065e1c82…`（被 r34 取代）；更早 **r21** `074a4937…`）
-> （runner 组件包 SHA 以 ledger r33 条目为准。）
+> runner 组件包 **r35** `smartx-upgrade-runner-v0.3.2.tar.gz` SHA256 `3518402b1e86dcf9f4d4cd5098511551de4f2699ce32ed15c302ec1087db7f3d`
+> （取代 r33 `72291ec7…`——r33 不含 US-40 修复，勿用；细节见 ledger r35 条目）。
+> （已作废：平台 **r30** `065e1c82…`（被 r34 取代）；更早 **r21** `074a4937…`；runner **r33**（被 r35 取代））
 > （历史作废：**r18** `ff4c0f6f…`/`6b0c1700…` 打在「apply 触发回滚健康门缺陷」修复之前；
 > **r19** `52df80b7…`/`f0c87265…` 含「回滚可用性端点 500」缺陷；
 > **r20 平台包** `b3548dfa…` 的 `compose.apply` 服务集合含 prometheus，会导致其被重建。）
@@ -121,6 +121,18 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
 - **切换集群/数据中心跳回概览**：侧边栏切换作用域时强制 `onNavigate("dashboard")`，
   用户在虚拟机/报表页切换集群会被踢回概览。修复为保持当前标签页（虚拟机页会自动重选新作用域内
   的首台 VM）。
+- **US-40 迁移沙箱脚本挂载用容器内路径（2026-10-08 `.3` 升级 r34 首跑发现，发布阻断）**：
+  `run-migration`（沙箱）的**脚本自身挂载** `-v {script}:/upgrade/...` 用容器内路径——
+  `-v` 左半边由宿主 dockerd 解析，源不存在时静默自建**整条空目录树**，容器挂到空目录后
+  Python 报 `can't find '__main__' module`。目标布局下容器路径与宿主路径永远不一致，
+  所以**任何带迁移的包（v0.5.4 起）在任何标准布局现场必然在同一动作失败**（v0.5.4 之前的
+  包从不带迁移脚本，该代码路径从未真机执行过，单测也从未断言脚本挂载本身）。
+  修复（v0.3.2 开发线，组件包 **r35**）：脚本挂载改走 `docker_host_path()`（一行）+
+  回归测试断言实际命令（宿主路径必须在、容器内路径形态必须不在）。`.3` 验证链全过：
+  组件升级 `upgrade-926c2f7a3fccf0c1` succeeded → 平台升级二跑 `upgrade-36bbb3312806abdd`
+  succeeded 且 `run-migration` succeeded（该代码路径首次真机执行）→ 8 项验收全过、
+  `schema_migrations` 4 条落库、升级后自动采集已分配 320.00 GiB 稳定。
+  详见 [upgrade-issues](../upgrade-strategy-issues.md) US-40 与 progress.md 2026-10-08 节。
 
 ### 工程与运维
 
@@ -153,9 +165,11 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
 - 新增矩阵执行清单 `docs/superpowers/plans/2026-10-06-upgrade-matrix-runbook.md`
   与一键取证脚本 `ops/evidence.sh`（只读、容器只按显式名字枚举、离线可用）。
 
-### 验证说明（**待回填** — 批次 C 尚未执行）
+### 验证说明
 
-> 本节在矩阵完成前**只列待填格子，不预写任何结论**（AGENTS §11：禁止把计划中的验收写成已完成）。
+> 本节原规则「矩阵完成前只列待填格子、不预写任何结论」（AGENTS §11：禁止把计划中的验收
+> 写成已完成）。批次 C 矩阵已于 2026-10-07 完成回填；2026-10-08 候选推进到 **r34+r35**
+> 后补了 `.3` 真机升级链一行（C1–C4 各格仍为 r30+r33 版本证据，发布前须按最终候选重走）。
 
 | 项 | 状态 |
 | --- | --- |
@@ -169,6 +183,7 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
 | **C2** `.12` 组件升级 v0.3.1→v0.3.2 | ✅ 已通过（`.12` 多轮 + `.14` 最终候选 r33）：组件升级 succeeded、runner v0.3.2 就位、收尾对账 + 旧名清理归档、变体收敛为 3 个新名 |
 | **C3** 场景 B / 场景 C 真机手动回滚 | ✅ 已通过（`.12`，2026-10-07，r26/r28 候选）：场景 B 任务 `manual-rollback-20261007042914` **终态 `rolled_back`**、`rollback_count_guard.ok=true`、平台实证回退 v0.5.4→v0.5.3（三容器镜像 + `/app/VERSION`）、数据未动；场景 C 任务 `manual-full-rollback-20261007045927` 4 动作全 succeeded（restore→override→apply→health）、override 3×v0.5.3、**数据 543 VM / 89547 卷逐位恢复**、平台回退 v0.5.3；回滚后再次直升 v0.5.4 成功（`upgrade-448104a503763822`）、新锚点就位（availability=true→v0.5.3）。真机暴露并当场修掉 4 个缺陷（见「修复」节），逐条证据在 [upgrade-package-ledger](upgrade-package-ledger.md) r22–r28 节 |
 | **C4** `.12` 平台直升回归 | ✅ 已通过（`.12`，2026-10-07，**最终候选** r30/r33）：同版本直升多轮 succeeded（含 r30 `upgrade-e246e7abe51ebd16`）；场景 B/C 回滚后 v0.5.3→v0.5.4 再升级 succeeded（`upgrade-448104a503763822`）且新锚点就位；availability/health/数据 543/89547 全程正常 |
+| `.3` 真机升级 r34+r35（US-40 验证链，2026-10-08） | ✅ 已通过：组件包 r35 门禁 15 PASS/1 SKIP → 组件升级 `upgrade-926c2f7a3fccf0c1` succeeded → 平台升级 `upgrade-36bbb3312806abdd` succeeded（9 动作含 `run-migration`，首次真机执行）→ 8 项验收全过（health v0.5.4/v0.3.2、`schema_migrations` 4 条落库、数据 201/2/2/1 不变、`.env` sha 逐位不变、legacy 已清、UI 200）→ US-06 升级后自动采集已分配 320.00 GiB 落库。**注意：C1–C4 各格是 r30+r33 版本的证据，候选现为 r34+r35（内容已变），发布前须按最终候选重走** |
 | 兼容矩阵 M1–M7 | ✅ 逐格证据就位：M2/M3/M6/M7 真机通过（M7 见上行 C3、M2/M3 见 C1/C2、M6=.12 v0.5.4+v0.3.2 全特性）；M1 走已发布路径回归；M4/M5 presence 兼容在对应轮次覆盖；M3-08/M3-10 按用户 2026-09-28 口径 **N/A**（runner-first 非受支持链路）。详见 impl-spec §10 与各轮 progress |
 | `post_upgrade` 触发面 | 单测覆盖（2026-10-06 决议：与已实测的 apply 触发回滚走同一代码路径，不强制沙箱复现） |
 

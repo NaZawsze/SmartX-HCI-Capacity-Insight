@@ -5833,3 +5833,88 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
 4. **测试与真机**：本地/`.3` 定向 `test_v2_cloudtower_client`（20 项，含 4.4.x 不请求容量端点、
    未知版本探测回退、可用端点失败必须上报）+ 矩阵门禁 2 项；`.3` 测试塔（v4.5.0）重采集后
    已分配仍 343597383680（320 GiB），`capacity_source=cluster-storage-info`。
+
+# 2026-10-08（接手会话：.3 三个待办 + US-40 发现与修复）
+
+> 会话开始于检查点提交 `c2376ea`（用户令「before qwen3.8-27b干活之前」空提交标记）；
+> 依据 [docs/ai-handoff-2026-10-08.md](docs/ai-handoff-2026-10-08.md) §4/§5 接手。
+
+## A. 交接待办 P0-2：恢复 SMTX_TEST 采集间隔
+
+- `PUT /api/towers/4`（`.3` 平台 API 8000）：`collection_interval_minutes` 1440→60，
+  回读确认两塔均 60。任务：交接文档 §4 P0-2 原 payload。
+
+## B. 交接待办 P0-1：.3 平台升级 r34 —— 首跑失败，发现 US-40，修复后二跑成功
+
+1. **首跑（17:18 UTC，task `upgrade-93e46d573190529f`）**：precheck 9 项全过 → start →
+   backup/load-image×3/sync-project-files/compose.override 全 succeeded →
+   **`run-migration` 失败**：`python: can't find '__main__' module in '/upgrade/run_migrations.py'`。
+   现场安全：5 容器未切版（v0.5.3）、DB 未动、升级前备份
+   `/data/smartx-storage-forecast/backups/upgrade-v0.5.4-before-20261007171814.tar.gz` 已生成。
+2. **根因（US-40，docs/upgrade-strategy-issues.md US-40 / findings.md 2026-10-08 条）**：
+   `upgrade_runner/sandbox.py` 的脚本挂载 `-v {script}:/upgrade/...` 用**容器内路径**
+   （未过 `docker_host_path()`）；宿主对应路径不存在时 **dockerd 静默自建整条空目录**
+   （宿主遗留路径 `/data/upgrades/<task>/package/migrations/run_migrations.py` 成为空目录，
+   birth 与失败时刻逐秒吻合）→ 容器内挂到空目录 → Python 报 "can't find `__main__`"。
+   排查弯路已记录：曾误判「包内脚本是目录」——实际包内是正常 5671 字节文件、SHA
+   `9edbafdc…` 与 manifest 一致（`/data/smartx-storage-forecast/upgrades/...` 真实包完好）。
+   v0.5.4 之前发布的包从不带迁移脚本，该代码路径**从未真机执行过**；单测也从未断言脚本挂载本身。
+3. **修复（提交 `2bfb003`，v0.3.2 开发线，按 #82 先例未发布版本不再 bump 版本号）**：
+   脚本挂载改走 `context.docker_host_path(script)`（一行 + 约束注释）；
+   `test_sandbox_command_has_security_boundaries_and_no_docker_socket` 重构为真实布局形态
+   （包在 upgrades/<task>/package 下 + `host_upgrades_path` 映射），新断言「脚本挂载必须是
+   宿主路径、不得出现容器内路径形态」+ 无映射回退口径。
+   本地定向：`test_upgrade_runner_engine`+`test_deployment_config`+`test_upgrade_protocol`
+   共 **104 tests OK（skipped=1）**；**变异校验**（还原 bug 行 → 新断言 FAILED，恢复 → OK）。
+4. **`.3` 重走（runner 组件包重建 + 组件升级 + 平台升级二跑）**：
+   - 源码同步：`git archive 2bfb003 | ssh .3 tar -x -C /data/c3fix`（sandbox.py SHA
+     `068a6c65…` 双端一致）。
+   - runner v0.3.2 组件包：`build_runner_component_package.py --version v0.3.2 --output-dir /data/components-v032-us40`
+     → `smartx-upgrade-runner-v0.3.2.tar.gz` **SHA `3518402b1e86dcf9f4d4cd5098511551de4f2699ce32ed15c302ec1087db7f3d`**；
+     `verify_runner_delivery_consistency.py --live-probe` **15 PASS / 1 SKIP（dockerhub，按 #53 不查）**。
+   - 组件升级（task `upgrade-926c2f7a3fccf0c1`）：precheck 7 项全过（含 `runner_first_order`：
+     「源端 v0.5.3 已含同 project 守卫，原地升级 runner 安全」）→ **succeeded**（18:06:17 UTC）；
+     判别：runner 容器 `…-upgrade-runner:v0.3.2`、`/app/RUNNER_VERSION=v0.3.2`、
+     组件版本 API v0.3.2、health `runner_version=v0.3.2` 三 checks true。
+   - 平台升级二跑（task `upgrade-36bbb3312806abdd`，包 SHA `1601c66a…` 不变）：
+     precheck 9 项全过（`runner_protocol` 显示 v0.3.2、9 动作全支持）→ **succeeded**（18:09:31 UTC），
+     **`run-migration` succeeded**（US-40 真机判别）；9 动作全 succeeded。
+     注：轮询脚本在 `apply-compose` 重建 web-api 的空窗读到空响应误判终态（轮询需容忍
+     切版窗口，非产品问题）。
+5. **8 项验收（二跑后，全过）**：
+   ① health `ok=true / v0.5.4 / v0.3.2 / 三 checks true`；
+   ② 5 容器：web-api/collector/frontend=v0.5.4、runner=v0.3.2（平台升级未碰 runner）、prometheus v2.55.1 未重建；
+   ③ network `smartx-hci-capacity-insight-net` / subnet 10.249.251.0/24；
+   ④ SQLite integrity ok、计数与升级前基线一致（vm_latest 201 / clusters 2 / towers 2 / metric_snapshots 1）、
+     **`schema_migrations` 4 条落库**、新列 owner/folder_name/tower_version/os_version 在场；
+   ⑤ Prometheus `/-/ready` Ready；
+   ⑥ `.env` mode 600 + size 397 + sha256 `d186b584…` 与升级前**逐位一致**；
+   ⑦ legacy 路径：`/opt/smartx-storage-forecast`、`/data/backups`、`/data/exports`、`/data/compose-runtime` 已清；
+     观察项：`/data/prometheus` 仅存 10-05 的 178 字节 `prometheus.yml`（非数据目录，未动）；
+   ⑧ UI 8080=200。
+   post-cleanup 状态 **`not_required`**（v0.5.4 七步常量流程无清理动作，符合设计）。
+6. **业务判别**：升级后事件驱动自动采集 18:10:02 触发（US-06 生效）：SMTX_TEST success、
+   CHINATOWER failed（塔不可达，既有环境限制）；**已分配 = 343,597,383,680 B（320.00 GiB · 32.65%）**
+   与修复预期逐字节一致，不再被定时采集覆盖回 0；`towers.tower_version=v4.5.0`、
+   `clusters.os_version=6.1.1` 落库；测试塔 4 台 VM owner/folder（Test3 owner=root、Test4 空值）
+   与门 1 探针口径一致。
+
+## C. 交接待办 P1-3：清理 `.3` 预览环境
+
+- `docker rm -f p69-api`；vite 进程 2334704/2334716/2334717/2405187 已 kill；
+  `vite.p69.config.ts`、`/tmp/p69-*`、`/tmp/full-suite*.log`、`/tmp/r34-build.log`、
+  `tmp_probe*.py` 已删。**教训**：清理命令里 `ps|grep` 的 kill 循环把自己的 shell
+  命令行（含字面 `vite.p69.config.ts`）匹配进去杀掉（SSH exit 255）——
+  交接文档「勿用 pkill -f」的警告在「同一条命令里 ps+grep+kill」时同样成立。
+- 附带清理：首跑失败任务 `upgrade-93e46d573190529f` 产物经产品 API 删除
+  （`deleted_count=2`、释放 874,938,240 B、`kept_record=true`）；宿主遗留路径
+  `/data/upgrades/upgrade-93e46d573190529f`（docker 自建空目录树）已删，
+  `/data/upgrades` 顶层目录（10-04 建、期间为空）一并 rmdir。
+
+## D. 文档收尾
+
+- US-40 四件套登记（issues/findings/task_plan Phase 71/pending #86）；
+  `docs/version-governance.md` 开头「v0.5.4 尚未启动」修正为当前开发口径 v0.5.4（P2-5）；
+  该文档被 `test_us01_version_skew_matrix.py` 引用但**只断言被矩阵文档引用**，不解析内容（已核）。
+- 发布前剩余（P1-4，等用户指令）：r34+r35 的 `.12`/`.14` 重走发布验收；发布动作链只在
+  用户明确说「发布」后执行；runner v0.3.2 交付物（tag/镜像/Release 资产）仍按 #53 挂起。
