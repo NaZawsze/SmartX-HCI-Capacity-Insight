@@ -19,6 +19,7 @@ const apiMock = vi.hoisted(() => ({
   startComponentUpgrade: vi.fn(),
   continueUpgradeRecovery: vi.fn(),
   rollbackUpgradeRecovery: vi.fn(),
+  rollbackUpgrade: vi.fn(),
   upgradeRollbackAvailability: vi.fn(),
   rollbackToPreviousVersion: vi.fn(),
   fullRollbackAvailability: vi.fn(),
@@ -863,6 +864,28 @@ describe("ServicePage upgrade center", () => {
 
     await waitFor(() => expect(apiMock.rollbackToPreviousVersion).toHaveBeenCalled());
     expect(await screen.findByText(/已提交回滚到 v0\.5\.2/)).toBeInTheDocument();
+  });
+
+  it("enables per-task rollback for a succeeded runner-shaped task without started_at", async () => {
+    // .12 实测形状：runner 执行的任务没有顶层 started_at——按钮不能按它置灰，
+    // 否则恰好能回滚的任务上按钮永远不可点。
+    mockServicePageBootstrap();
+    apiMock.upgradeHistory.mockResolvedValue([
+      { ...uploadedPlatformTask(), status: "succeeded", started_at: undefined, finished_at: "2026-10-06T17:50:49+00:00" }
+    ]);
+    apiMock.rollbackUpgrade.mockResolvedValue({
+      ...uploadedPlatformTask(),
+      task_id: "manual-rollback-20261007",
+      status: "pending"
+    });
+    render(<ServicePage addTask={vi.fn()} updateTask={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText("v0.5.2"));
+    const button = await screen.findByRole("button", { name: "手动回滚" });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+
+    await waitFor(() => expect(apiMock.rollbackUpgrade).toHaveBeenCalledWith("upgrade-1"));
   });
 
   it("blocks scenario C full rollback when the pre-upgrade backup is missing", async () => {

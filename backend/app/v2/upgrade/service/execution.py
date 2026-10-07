@@ -71,6 +71,16 @@ _ACTIVE_UPGRADE_STATUSES = frozenset({
     "rollback_running",
 })
 
+#: 明确「尚未执行」的任务状态（人工回滚的前置拒绝面）。
+#: 判定用状态而非 started_at——runner 执行的任务没有顶层 started_at（`.12` 实测）。
+_NOT_EXECUTED_UPGRADE_STATUSES = frozenset({
+    "uploaded",
+    "precheck_passed",
+    "precheck_failed",
+    "pending",
+    "cancelled",
+})
+
 
 class ExecutionMixin:
     def _ensure_no_active_upgrade(self, exclude_task_id: str) -> None:
@@ -497,16 +507,22 @@ class ExecutionMixin:
         旧的内联编排（恢复项目文件 + 裸 docker compose up）就此退役：它绕过 runner、
         健康门与计数守卫，且 files.sync 之后 project compose 已是新版，"恢复"出来的
         是新版配置——对 runner 架构的任务是错误语义。
+
+        「尚未执行」判定用**状态**而非 `started_at`：runner 执行的任务只有
+        action 级 started_at 与顶层 created_at/finished_at（`.12` 实测，
+        `.14` C1 换装后同样形状），按 `started_at` 判会把正是要服务的成功任务
+        误拒成「尚未执行」。
         """
         from .intake import _is_real_platform_package_task
         from .manual_rollback import latest_rollback_anchor
 
         task_dir = self.settings.upgrades_dir / task_id
         task = _read_task_file(task_dir)
-        if not task.get("started_at"):
+        status = str(task.get("status") or "")
+        if status in _NOT_EXECUTED_UPGRADE_STATUSES:
             raise HTTPException(status_code=400, detail="升级尚未执行，不能回滚。")
         self._ensure_no_active_upgrade(task_id)
-        if str(task.get("status") or "") == "success" and _is_real_platform_package_task(task):
+        if status == "success" and _is_real_platform_package_task(task):
             if latest_rollback_anchor(self.settings):
                 return self._public_task(self.start_manual_rollback())
             raise HTTPException(
@@ -517,7 +533,6 @@ class ExecutionMixin:
                     "需要数据回到升级前请使用整备回滚。"
                 ),
             )
-        status = str(task.get("status") or "")
         raise HTTPException(
             status_code=400,
             detail=(

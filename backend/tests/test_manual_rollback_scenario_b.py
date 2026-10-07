@@ -415,6 +415,25 @@ class LegacyRollbackEndpointTests(unittest.TestCase):
         self.assertEqual(stored["target_version"], "v0.5.3")
         self.assertEqual(public["status"], "pending")
 
+    def test_runner_shaped_success_task_delegates_without_started_at(self) -> None:
+        """`.12` 实测形状：runner 执行的任务**没有顶层 started_at**（只有 action 级）。
+        「尚未执行」判定必须按状态，否则恰好要服务的成功任务被误拒成「升级尚未执行」。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = _service(root, _Executor())
+            _write_state_file(service.settings, {"upgrade-1": ANCHOR})
+            self._write_platform_task(root, "upgrade-1", status="success", started_at=None)
+            # 补上 runner 形状的真实时间字段
+            task_file = root / "upgrades" / "upgrade-1" / "task.json"
+            task = json.loads(task_file.read_text(encoding="utf-8"))
+            task["created_at"] = "2026-10-06T17:50:00+00:00"
+            task["finished_at"] = "2026-10-06T17:50:49+00:00"
+            task_file.write_text(json.dumps(task), encoding="utf-8")
+            public = service.rollback("upgrade-1")
+            stored = json.loads((root / "upgrades" / public["task_id"] / "task.json").read_text(encoding="utf-8"))
+        self.assertEqual(stored["kind"], "manual_rollback")
+        self.assertEqual(stored["target_version"], "v0.5.3")
+
     def test_succeeded_task_without_anchor_is_rejected_with_guidance(self) -> None:
         from fastapi import HTTPException
 

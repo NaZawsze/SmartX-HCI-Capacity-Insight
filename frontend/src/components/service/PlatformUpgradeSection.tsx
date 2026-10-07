@@ -733,7 +733,15 @@ export function PlatformUpgradeSection({
                 ))}
               </div>
             )}
-            <button className="secondary-button danger-button" type="button" onClick={rollbackUpgrade} disabled={upgradeBusy || isRunning || needsRecovery || !upgradeTask.started_at}>
+            {/* 手动回滚（按任务）：服务端自 v0.5.4 起放行 succeeded+有锚点任务到任务化回滚。
+                条件不能用 started_at——runner 执行的任务没有顶层该字段（.12 实测），
+                按它会把这个按钮在**恰好能回滚**的任务上永远置灰。 */}
+            <button
+              className="secondary-button danger-button"
+              type="button"
+              onClick={rollbackUpgrade}
+              disabled={upgradeBusy || isRunning || needsRecovery || ["uploaded", "prechecked", "pending", "cancelled"].includes(upgradeTask.status)}
+            >
               <RotateCcw size={16} />
               手动回滚
             </button>
