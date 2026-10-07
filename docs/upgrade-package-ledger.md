@@ -870,3 +870,14 @@ C3 场景 B/C（**US-17 关闭前提，真机尚未跑过**）；C0（v0.5.2 源
 ### 场景 B 真机结果（`.12`，r26 部署，2026-10-07）
 
 任务 `manual-rollback-20261007042914`：**终态 `rolled_back`**、`rollback_count_guard.ok=true`（before==after: towers=3/clusters=3）、平台实证回退 v0.5.4→**v0.5.3**（三容器镜像 + /app/VERSION）、数据未动；手动锚点带 `captured_for=manual_rollback`。回滚后 `rollback-availability` 在 v0.5.3（无该端点）→ 404 属预期（v0.5.4 起支持的自然边界）。**场景 B 判定通过**（用户批准语义全项满足）。
+
+## 2026-10-07 v0.5.4 平台包 **r28**（runner 包沿用 r26；整备回滚补「指回旧 tag」，未发布）
+
+| 项 | 值 |
+| --- | --- |
+| Status | **CANDIDATE**（当前唯一有效候选；场景 C 真机复测进行中） |
+| 平台包 | `.3:/data/r28-out/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `41c5d5857e9955fa05a688810996c486f8c480fe2ea0d0102911ed529bf8fee6` |
+| runner 组件包 | `.3:/data/r28-out/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `94dae4ec7c67a2cd0222683d7124e7457f37e434deef01be165c967b67a8ce9d`（与 r26 逐字节一致） |
+| 源码溯源 | dev2 `06ab103`：**整备回滚计划补「指回旧 tag」（compose.override + compose.apply）**——`.12` 实测 r27 的 C 任务：数据恢复成功但版本仍在 v0.5.4（restore 的起服务用 base compose，而场景 B 只写 override 不动 base compose，「升级前项目文件」携带的仍是新版声明——指望它指回旧 tag 不成立）。新计划 = restore（数据+项目文件）→ override（锚点旧镜像）→ apply → health |
+| 门禁 | 身份 PASS；词汇 7 PASS；`sha256sum -c` 两包 OK |
+| 回归 | 后端全量 **1115 tests / 1 failure**（既有 harness 限制） |
