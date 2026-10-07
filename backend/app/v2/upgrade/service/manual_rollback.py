@@ -347,11 +347,14 @@ class ManualRollbackMixin:
             backup_path=str(backup.get("path") or ""),
             project_backup_path=project_backup,
             project_files=project_files,
-            services=sorted(
-                service
-                for service, facts in (anchor.get("images") or {}).items()
-                if _anchor_image_ref(facts) and service not in ROLLBACK_EXCLUDED_SERVICES
-            ),
+            images=[
+                {"service": service, "image": ref}
+                for service, ref in sorted(
+                    (service, _anchor_image_ref(facts))
+                    for service, facts in (anchor.get("images") or {}).items()
+                )
+                if ref and service not in ROLLBACK_EXCLUDED_SERVICES
+            ],
         )
         task = {
             "task_id": task_id,
@@ -547,9 +550,9 @@ def _full_rollback_plan(
     backup_path: str,
     project_backup_path: str | None,
     project_files: list[dict[str, Any]],
-    services: list[str],
+    images: list[dict[str, str]],
 ) -> dict[str, Any]:
-    """整备回滚计划：`rollback.restore`（恢复五步）→ `health.http`。
+    """整备回滚计划：`rollback.restore`（恢复五步）→ **指回旧 tag**（override+apply）→ `health.http`。
 
     ## 为什么复用 rollback.restore 而不是新写一份沙箱恢复脚本
 
@@ -558,9 +561,19 @@ def _full_rollback_plan(
     两份恢复逻辑各自演化就会出现"手动回滚恢复得对、整备回滚恢复得不对"的难查差异。
     `rollback.restore` 已在**已发布 runner 词汇**内（不新增计划词汇），改用它更安全也更少代码。
 
+    ## 为什么"指回旧 tag"必须独立成 override+apply
+
+    原实现只有 restore，指望它恢复出来的项目文件携带旧 tag——`.12` 实测证伪：
+    场景 B 的回滚只写 override、**不动 base compose**，所以"升级前项目文件"里的 compose
+    仍是新版本声明；restore 的起服务用 base compose → 数据回了、**版本没回**（静默）。
+    这里补上显式的 `compose.override`（锚点旧镜像）+ `compose.apply`，与场景 B 同一套指回机制。
+    restore 内部那次 `up -d --force-recreate` 是过渡性的（随后被 apply 收敛），保留它是因为
+    停写方→恢复数据→起服务是 restore 的既有顺序，不能从中截断。
+
     参数与 runner 侧 `rollback_restore` 一一对应；restore 内部的 `up -d --force-recreate`
     是**故意**的：整备回滚的目标配置可能与当前 config-hash 不同，必须重建。
     """
+    services = [str(item["service"]) for item in images]
     actions = [
         ExecutionAction(
             id="full-restore",
@@ -572,6 +585,16 @@ def _full_rollback_plan(
                 "project_backup_path": project_backup_path,
                 "project_files": project_files,
             },
+        ),
+        ExecutionAction(
+            id="full-rollback-override",
+            type="compose.override",
+            params={"images": images, "services": services},
+        ),
+        ExecutionAction(
+            id="full-rollback-apply",
+            type="compose.apply",
+            params={"services": services, "images": images},
         ),
         ExecutionAction(
             id="full-rollback-healthcheck",

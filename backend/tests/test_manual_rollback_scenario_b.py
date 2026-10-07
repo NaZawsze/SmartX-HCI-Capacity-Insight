@@ -561,7 +561,12 @@ class FullRollbackScenarioCTests(unittest.TestCase):
             stored = json.loads((root / "upgrades" / task["task_id"] / "task.json").read_text(encoding="utf-8"))
         self.assertEqual(task["kind"], "manual_full_rollback")
         types = [item["type"] for item in stored["execution_plan"]["actions"]]
-        self.assertEqual(types, ["rollback.restore", "health.http"])
+        # 恢复 → **指回旧 tag**（override+apply）→ 健康门。
+        # `.12` 实测：只有 restore 时它用 base compose 起服务（新版声明），数据回了版本没回——
+        # "指回旧 tag"必须是显式动作，不能指望恢复出来的项目文件携带旧 tag。
+        self.assertEqual(types, ["rollback.restore", "compose.override", "compose.apply", "health.http"])
+        override_images = stored["execution_plan"]["actions"][1]["params"]["images"]
+        self.assertTrue(all(item["image"].endswith(":v0.5.3") for item in override_images), override_images)
         self.assertNotIn("upgrade-runner", stored["execution_plan"]["actions"][0]["params"]["services"])
         self.assertTrue(stored["data_loss_window"])
 
