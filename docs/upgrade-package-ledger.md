@@ -881,3 +881,21 @@ C3 场景 B/C（**US-17 关闭前提，真机尚未跑过**）；C0（v0.5.2 源
 | 源码溯源 | dev2 `06ab103`：**整备回滚计划补「指回旧 tag」（compose.override + compose.apply）**——`.12` 实测 r27 的 C 任务：数据恢复成功但版本仍在 v0.5.4（restore 的起服务用 base compose，而场景 B 只写 override 不动 base compose，「升级前项目文件」携带的仍是新版声明——指望它指回旧 tag 不成立）。新计划 = restore（数据+项目文件）→ override（锚点旧镜像）→ apply → health |
 | 门禁 | 身份 PASS；词汇 7 PASS；`sha256sum -c` 两包 OK |
 | 回归 | 后端全量 **1115 tests / 1 failure**（既有 harness 限制） |
+
+## 2026-10-07 runner 组件包 **重切 r29**（US-32 对账覆盖全部交付变体；平台包沿用 r28）
+
+| 项 | 值 |
+| --- | --- |
+| Status | **CANDIDATE**（当前唯一有效候选对：平台 r28 + runner r29） |
+| runner 组件包 | `.3:/data/r29-out/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `d55c0463aeb8a65257313a11f425894f8997ff5cb64a6c78a9bef55f81ba1b5f`（取代 r26 的 `94dae4ec…`） |
+| 平台包 | 沿用 **r28** `41c5d585…`（本修复不涉 web-api，平台包逐字节不变） |
+| 源码溯源 | dev2 `0a6cf99`：**runner tag 对账覆盖全部交付变体**——`.12` 复核发现 US-32 只对齐 `docker-compose.yml`：实测 docker-compose.yml 已对齐 v0.3.2 而**活动文件**（US-37 标记 `SMARTX_COMPOSE_FILE_ACTIVE`）`docker-compose.offline.yml` 仍写 v0.3.1，宿主侧 `compose up -d` 照样静默降级 runner（US-32 要堵的场景原样存在；平台升级的 files.sync 每次都会把交付变体重置回包内基线）。修复：`RUNNER_RECONCILE_COMPOSE_FILES` = yml/offline/release 三变体，逐文件独立幂等；返回被改写文件名清单 |
+| 门禁 | runner 交付一致性 12 PASS + dockerhub SKIP（未发布，显式） |
+| 回归 | 后端全量 **1117 tests / 1 failure**（既有 harness 限制）；US-32 定向 25 OK |
+
+### 补充：`.12` US-32 复核原始证据（修复前）
+
+- `docker-compose.yml`（12:48 前被某次升级对账写入）：runner tag = **v0.3.2** ✓
+- `docker-compose.offline.yml`（**活动文件**，mtime 12:48:33 = files.sync 写入）：runner tag = **v0.3.1** ✗
+- `docker-compose.release.yml`：runner tag = **v0.3.1** ✗
+- 运行容器 = v0.3.2；日志反复出现"已对齐 v0.3.1 -> v0.3.2"（只对 yml 那一个文件生效）
