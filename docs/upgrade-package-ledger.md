@@ -976,3 +976,33 @@ C3 场景 B/C 与 C4 平台直升的 r30/r33 实测见上文各节。**等待用
   r30 平台包 + r33 runner 包，安装 compose 落 v0.5.4 + **runner v0.3.2**；US-33 自洽门禁随构建通过）。
   **`.14` 真机验证**：全清 → 全新安装 EXIT=0 → 8 项验收全过；现场变体纯新名（dev/offline）。
 - 同期「老交付 v0.5.3 → 升 r30 → 组件升 r33 → 旧名清理」链也在 `.14` 闭环（见 progress 同日节）。
+
+
+## 2026-10-07 平台包 **重切 r34**（Phase 69 所有者/虚拟机组 + 版本可见与画像 + 已分配与缓存竞态修复 + 4 个 UI 修正；runner 沿用 r33）
+
+| 项 | 值 |
+| --- | --- |
+| Status | **CANDIDATE**（当前唯一有效候选对：**平台 r34** + runner r33；r30 平台包被本包取代） |
+| 平台包 | `.3:/data/r34-out/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `1601c66afb7321701145907b9f643d5b29b630fbc74a9e0055b8ff74e07bb998` |
+| runner 组件包 | 沿用 r33 `72291ec7…`（本批不动 runner；平台包内 runner 基线仍为**已发布 v0.3.1**） |
+| 源码溯源 | dev2 `ed90c85`（后端 `e10d4a3` / 前端 `bd7b679` / 文档 `ed90c85`） |
+| 构建 | `.3:/data/r34-src`（`git archive HEAD` 精确提交解包）→ `TMPDIR=/data/build-tmp python3 scripts/build_upgrade_package.py --output-dir /data/r34-out`，EXIT=0 |
+
+**门禁（全部 EXIT=0）**：
+- `--check-version` → `Version metadata OK: v0.5.4`；
+- **包身份** `verify_upgrade_package_identity.py --expected-version v0.5.4` → PASS
+  （镜像 tag `…/web-api:v0.5.4`，镜像内 `VERSION=v0.5.4`、**runner 基线 v0.3.1**）；
+- **迁移 expand-only** `verify_migrations_expand_only.py` → OK（4 条目全部为加列），
+  包内 `migration_steps` = 本批 4 条（vm_latest.owner / folder_name、towers.tower_version、clusters.os_version）；
+- **敏感文件扫描**（tar 列名）→ 0 命中（168 成员；顶层 `images/ project/ migrations/ manifest.json checksums.sha256 release-notes.md`）；
+- `source_compatibility` = v0.5.2 / v0.5.3 / v0.5.4（收窄矩阵，remediation 齐全）。
+
+**内容**：Phase 69 虚拟机所有者/虚拟机组（含报表两列）；Tower/SmartXOS 版本可见；
+#84 版本画像（4.4.0+，容量来源按版本分派）；已分配策略串修复（Test 集群 320 GiB）；
+摘要缓存×Prometheus 抓取竞态修复（120s 结算窗口）；四个 UI 修正（Tower 状态行 /
+卷负值哨兵 / 趋势图溢出 / 切换集群不跳页）。
+
+**验证状态**：`.3` 后端全量 **1148 tests / 1 failure（既有环境限制）/ 7 skipped**、
+前端 **124 passed + tsc 0**、`verify_api_docs` OK；Phase 69 A1–A5 与两处缺陷修复的真机
+证据见 progress.md 2026-10-07 节。**发布前仍需**：`.12`/`.14` 按发布验收清单走链路
+（r30 的既有验证**不覆盖本包内容**——候选内容已变，需重走）。
