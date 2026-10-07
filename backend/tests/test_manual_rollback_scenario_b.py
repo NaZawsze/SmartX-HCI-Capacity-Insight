@@ -587,6 +587,64 @@ class FullRollbackScenarioCTests(unittest.TestCase):
         body = source.read_text(encoding="utf-8").split("def rollback_restore", 1)[1].split("\ndef ", 1)[0]
         self.assertIn("--force-recreate", body)
 
+    def test_project_backup_comes_from_the_anchored_task(self) -> None:
+        """`.12` 实测缺陷：原实现按任务名字母倒序扫「最近一次 files.sync」，
+        选中字母序更大但时间更早的任务 → 恢复回新版本的项目文件 → 版本回退静默失效。
+        必须取**锚定任务自己**的 files.sync 备份（字母序更大的干扰任务不得胜出）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = self._service_with(root, self._anchor_with_backup(root))
+            # 锚定任务：名字母序小（b76…），带自己的 files.sync 备份
+            anchored = root / "upgrades" / "upgrade-b76aaaaa00000001"
+            anchored.mkdir(parents=True)
+            (anchored / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": "upgrade-b76aaaaa00000001",
+                        "status": "success",
+                        "finished_at": "2026-10-07T04:31:00+00:00",
+                        "execution_plan": {
+                            "actions": [
+                                {
+                                    "type": "files.sync",
+                                    "result": {"backup_path": "/data/backups/project-files-anchored"},
+                                    "checkpoint": {"files": [{"path": "docker-compose.offline.yml"}]},
+                                }
+                            ]
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            # 干扰任务：字母序更大、时间更早，且有自己的 files.sync 备份
+            decoy = root / "upgrades" / "upgrade-fb70000000000000"
+            decoy.mkdir(parents=True)
+            (decoy / "task.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": "upgrade-fb70000000000000",
+                        "status": "success",
+                        "finished_at": "2026-10-07T04:28:00+00:00",
+                        "execution_plan": {
+                            "actions": [
+                                {
+                                    "type": "files.sync",
+                                    "result": {"backup_path": "/data/backups/project-files-decoy"},
+                                    "checkpoint": {"files": []},
+                                }
+                            ]
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            # 让状态文件的锚点指向 b76 任务（latest_rollback_anchor 会带上 anchor_task_id）
+            _write_state_file(service.settings, {"upgrade-b76aaaaa00000001": self._anchor_with_backup(root)})
+            task = service.start_full_rollback(confirm_data_loss=True)
+            stored = json.loads((root / "upgrades" / task["task_id"] / "task.json").read_text(encoding="utf-8"))
+        restore = stored["execution_plan"]["actions"][0]["params"]
+        self.assertEqual(restore["project_backup_path"], "/data/backups/project-files-anchored")
+
 
 if __name__ == "__main__":
     unittest.main()

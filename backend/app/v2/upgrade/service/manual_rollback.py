@@ -339,26 +339,7 @@ class ManualRollbackMixin:
         self._ensure_no_active_upgrade("")
         target_version = str(anchor.get("previous_version") or "")
         backup = availability["backup"]
-        project_backup = None
-        project_files: list[dict[str, Any]] = []
-        # 项目文件备份：取最近一次完成过 files.sync 的任务（它的 checkpoint.files 里带配对信息）
-        for task_file in sorted(Path(self.settings.upgrades_dir).glob("*/task.json"), reverse=True):
-            try:
-                other = json.loads(task_file.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            for action in other.get("execution_plan", {}).get("actions") or []:
-                if str(action.get("type") or "") != "files.sync":
-                    continue
-                result = action.get("result") or {}
-                backup_path = result.get("backup_path")
-                if not backup_path:
-                    continue
-                project_backup = str(backup_path)
-                project_files = list((action.get("checkpoint") or {}).get("files") or [])
-                break
-            if project_backup:
-                break
+        project_backup, project_files = self._project_backup_for_anchor(anchor)
         task_id = f"manual-full-rollback-{_now().strftime('%Y%m%d%H%M%S')}"
         task_dir = Path(self.settings.upgrades_dir) / task_id
         task_dir.mkdir(parents=True, exist_ok=True)
@@ -418,6 +399,51 @@ class ManualRollbackMixin:
         )
         project_if_newer(self.tasks.database, task)
         return task
+
+    def _project_backup_for_anchor(self, anchor: dict[str, Any]) -> tuple[str | None, list[dict[str, Any]]]:
+        """整备回滚要恢复的**项目文件备份**：优先取锚定任务自己那次 files.sync 的备份。
+
+        为什么必须是锚定任务的：restore 内部靠「恢复出来的 project 文件 + force-recreate」
+        把服务指回旧版本——恢复错的 compose 会让数据回了、版本没回。
+        `.12` 实测缺陷：原实现按任务目录名字母倒序扫"最近一次 files.sync"，
+        选中了字母序更大但**时间更早**的另一任务（fb779c56 > b76932b1），
+        把 v0.5.4 的项目文件恢复回去，版本回退静默失效。
+        兜底扫描也改为**按任务时间倒序**（finished_at/updated_at 优先）。
+        """
+        anchor_task_id = str(anchor.get("anchor_task_id") or "")
+        candidates = [Path(self.settings.upgrades_dir) / anchor_task_id / "task.json"]
+        if not anchor_task_id or not candidates[0].is_file():
+            candidates = sorted(
+                Path(self.settings.upgrades_dir).glob("*/task.json"),
+                key=lambda path: str(self._task_time_hint(path)),
+                reverse=True,
+            )
+        for task_file in candidates:
+            try:
+                other = json.loads(task_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            for action in other.get("execution_plan", {}).get("actions") or []:
+                if str(action.get("type") or "") != "files.sync":
+                    continue
+                result = action.get("result") or {}
+                backup_path = result.get("backup_path")
+                if not backup_path:
+                    continue
+                return str(backup_path), list((action.get("checkpoint") or {}).get("files") or [])
+        return None, []
+
+    @staticmethod
+    def _task_time_hint(task_file: Path) -> str:
+        try:
+            task = json.loads(task_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return ""
+        for key in ("finished_at", "updated_at", "started_at", "created_at"):
+            value = str(task.get(key) or "")
+            if value:
+                return value
+        return ""
 
     def start_manual_rollback(self) -> dict[str, Any]:
         availability = self.rollback_availability()
