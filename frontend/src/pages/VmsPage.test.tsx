@@ -64,6 +64,82 @@ describe("VmsPage", () => {
     expect(screen.getByText("已使用 60.0%")).toBeInTheDocument();
   });
 
+  it("treats negative volume usage as unreported and shows - instead of -1 B", async () => {
+    // 2026-10-07 实测：Tower 对无用量数据的卷返回 used_size=-1，原页显示「-1 B / -2 B」
+    apiMock.vms.mockResolvedValue([
+      {
+        metric: { tower_id: "3", cluster_id: "cluster-a", vm_id: "vm-1", vm: "VM One", cluster: "Cluster A" },
+        value: 70
+      }
+    ]);
+    apiMock.vmDetail.mockResolvedValue({
+      tower_id: 3,
+      cluster_id: "cluster-a",
+      vm_id: "vm-1",
+      vm_name: "VM One",
+      used_bytes: 70
+    });
+    apiMock.vmTrend.mockResolvedValue({ vm_id: "vm-1", metric: "used", points: [] });
+    apiMock.vmVolumes.mockResolvedValue({
+      vm_id: "vm-1",
+      volumes: [
+        { volume_id: "vol-bad", name: "纳管系统文件存储-1", used_bytes: -1, size_bytes: 2199023255552, replica_num: 2, thin_provision: true },
+        { volume_id: "vol-ok", name: "naguan-file-1", used_bytes: 1024, size_bytes: 2048, replica_num: 1 }
+      ]
+    });
+    apiMock.vmVolumesUsageSummary.mockResolvedValue([]);
+
+    render(<VmsPage scope={{ type: "cluster", towerId: 3, clusterId: "cluster-a" }} selectedVmId="vm-1" />);
+
+    expect(await screen.findByText("纳管系统文件存储-1")).toBeInTheDocument();
+    // 哨兵卷：实际使用空间(-1) 与 实际占用(-1×2) 都显示 "-"，绝不出现负数
+    expect(screen.queryByText("-1 B")).not.toBeInTheDocument();
+    expect(screen.queryByText("-2 B")).not.toBeInTheDocument();
+    const badRow = screen.getByText("纳管系统文件存储-1").closest(".volume-table-row");
+    expect(badRow).not.toBeNull();
+    const cells = Array.from(badRow!.querySelectorAll("strong")).map((cell) => cell.textContent);
+    // 本测试文件的 formatBytes 是桩（`${value} B`）：使用/占用为哨兵 → "-"；分配空间合法保留原值
+    expect(cells[0]).toBe("-");
+    expect(cells[cells.length - 1]).toBe("-");
+    // 正常卷不受影响（桩口径：原值 + B；可能出现多处 → 允许 >=1）
+    expect(screen.getAllByText("1024 B").length).toBeGreaterThan(0);
+  });
+
+  it("shows owner and vm group per row, with - for empty values (Phase 69)", async () => {
+    apiMock.vms.mockResolvedValue([
+      {
+        metric: { tower_id: "1", cluster_id: "cluster-a", vm_id: "vm-1", vm: "VM One", cluster: "Cluster A" },
+        value: 70,
+        owner: "root",
+        folder_name: "研发组"
+      },
+      {
+        metric: { tower_id: "1", cluster_id: "cluster-a", vm_id: "vm-2", vm: "VM Two", cluster: "Cluster A" },
+        value: 10,
+        owner: null,
+        folder_name: null
+      }
+    ]);
+    apiMock.vmDetail.mockResolvedValue({
+      tower_id: 1,
+      cluster_id: "cluster-a",
+      vm_id: "vm-1",
+      vm_name: "VM One",
+      used_bytes: 70,
+      owner: "root",
+      folder_name: "研发组"
+    });
+    apiMock.vmTrend.mockResolvedValue({ vm_id: "vm-1", metric: "used", points: [] });
+    apiMock.vmVolumes.mockResolvedValue({ vm_id: "vm-1", volumes: [] });
+    apiMock.vmVolumesUsageSummary.mockResolvedValue([]);
+
+    render(<VmsPage scope={{ type: "cluster", towerId: 1, clusterId: "cluster-a" }} selectedVmId="vm-1" />);
+
+    // 同一信息同时出现在列表行与趋势卡信息行 → 允许两处
+    expect((await screen.findAllByText("所有者 root · 虚拟机组 研发组")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("所有者 - · 虚拟机组 -").length).toBeGreaterThan(0);
+  });
+
   it("does not reload the vm list or trend when auto-selecting the first vm syncs to the parent", async () => {
     apiMock.vms.mockResolvedValue([
       {

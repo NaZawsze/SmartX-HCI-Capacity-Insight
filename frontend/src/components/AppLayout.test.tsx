@@ -203,6 +203,21 @@ describe("AppLayout menus", () => {
     expect(onNavigate).toHaveBeenCalledWith("service");
   });
 
+  it("keeps the current page when switching datacenter or cluster scope", () => {
+    const onNavigate = vi.fn();
+    const onScopeChange = vi.fn();
+    render(<AppLayout {...baseProps} activePage="vms" onNavigate={onNavigate} onScopeChange={onScopeChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Tower A/ }));
+    expect(onScopeChange).toHaveBeenCalledWith({ type: "tower", towerId: 1 });
+
+    fireEvent.click(screen.getByRole("button", { name: /Cluster 1/ }));
+    expect(onScopeChange).toHaveBeenCalledWith({ type: "cluster", towerId: 1, clusterId: "cluster-1" });
+
+    expect(onNavigate).not.toHaveBeenCalledWith("dashboard");
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
   it("shows data freshness banner when summary refresh fails", () => {
     render(<AppLayout {...baseProps} summaryFreshness={{ lastSuccessAt: "2026-09-12T08:00:00Z", lastError: "请求超时" }} />);
     const banner = screen.getByRole("status");

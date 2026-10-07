@@ -1,4 +1,4 @@
-import { CheckCircle, Pencil, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle, Pencil, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { Card } from "../components/Card";
 import { TowerForm, emptyTowerForm, normalizeTowerCreatePayload, normalizeTowerUpdatePayload, type TowerFormState } from "../components/tower/TowerForm";
@@ -148,6 +148,8 @@ export function SettingsPage() {
               <div>
                 <strong>{tower.name}</strong>
                 <span>{tower.base_url}</span>
+                <span className="tower-versions">Tower: {tower.tower_version || "-"}</span>
+                <span className="tower-versions">SmartXOS: {osVersionsLabel(tower)}</span>
               </div>
               <div className="tower-meta">
                 <span>
@@ -161,11 +163,29 @@ export function SettingsPage() {
               </div>
               <div className="row-actions">
                 <div className="tower-health-stack">
-                  <span className={`tower-health ${tower.last_collection ? tower.last_collection.status : "none"}`}>
-                    {tower.last_collection
-                      ? `${tower.last_collection.status === "success" ? "✓" : "✗"} ${formatRelativeTime(tower.last_collection.finished_at)}采集`
-                      : "未采集"}
-                  </span>
+                  {/* 2026-10-07 用户口径（原话）：按**上一次成功采集时间**算，超过 24 小时
+                      才出现——简单的「黄色三角感叹号 + 多少天」，24 小时内一律不显示。
+                      从未成功过则显示「⚠ 未采集」。 */}
+                  {(() => {
+                    const days = staleDays(tower.last_success_at);
+                    if (days === null) {
+                      return (
+                        <span className="tower-health stale">
+                          <AlertTriangle size={14} />
+                          未采集
+                        </span>
+                      );
+                    }
+                    if (days >= 1) {
+                      return (
+                        <span className="tower-health stale">
+                          <AlertTriangle size={14} />
+                          {days} 天
+                        </span>
+                      );
+                    }
+                    return null;
+                  })()}
                   {rowTestMessage && (
                     <span className={`tower-test-result ${rowTestMessage.startsWith("✓") ? "ok" : "fail"}`}>
                       {rowTestMessage}
@@ -215,14 +235,29 @@ export function SettingsPage() {
   );
 }
 
-function formatRelativeTime(iso?: string | null): string {
-  if (!iso) return "";
-  const time = new Date(iso).getTime();
-  if (!Number.isFinite(time)) return "";
-  const minutes = Math.round((Date.now() - time) / 60000);
-  if (minutes < 1) return "刚刚";
-  if (minutes < 60) return `${minutes} 分钟前`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  return `${Math.round(hours / 24)} 天前`;
+function parseBackendUtc(iso?: string | null): number | null {
+  if (!iso) return null;
+  // SQLite 的 CURRENT_TIMESTAMP 输出「YYYY-MM-DD HH:MM:SS」= UTC 且**不带时区**；
+  // 直接 new Date() 会按浏览器本地时区解析（UTC+8 下凭空差 8 小时）。无时区信息时显式按 UTC。
+  const normalized = /Z$|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : `${iso.replace(" ", "T")}Z`;
+  const time = new Date(normalized).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
+//: 距上一次成功采集的天数（用户口径 2026-10-07）：
+//: null = 从未成功（显示「未采集」）；0 = 24 小时内（正常，不显示）；>=1 = 超期天数。
+function staleDays(lastSuccessAt?: string | null): number | null {
+  const time = parseBackendUtc(lastSuccessAt);
+  if (time === null) return null;
+  const hours = (Date.now() - time) / 3_600_000;
+  if (hours <= 24) return 0;
+  return Math.floor(hours / 24);
+}
+
+//: 各集群 SMTX OS 版本去重后展示（一塔多集群、版本不同时并列；都没有显示 "-"）。
+function osVersionsLabel(tower: Tower): string {
+  const versions = Array.from(
+    new Set(tower.clusters.map((cluster) => cluster.os_version).filter((value): value is string => Boolean(value)))
+  );
+  return versions.length ? versions.join(" / ") : "-";
 }

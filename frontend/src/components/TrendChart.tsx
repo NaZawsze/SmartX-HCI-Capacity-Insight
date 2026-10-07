@@ -4,7 +4,10 @@ import { formatBytes } from "../services/api";
 interface TrendChartProps {
   points: [number, number][];
   referenceValue?: number;
-  height?: number;
+  /** 图表高度：默认占满父容器（卡片 flex 布局的剩余高度）。
+   *  2026-10-07：原先固定 360px，窄窗口下"缺采警告条"换行把内容顶出 520px 固定高卡片，
+   *  底部日期标签会画到卡片边框外——改为自适应后由布局保证不溢出。 */
+  height?: number | string;
   gapDates?: string[];
 }
 
@@ -67,7 +70,7 @@ function formatYAxisBytes(value: number): string {
   return `${Math.round(value / gib)} GiB`;
 }
 
-export function TrendChart({ points, referenceValue, height = 280, gapDates = [] }: TrendChartProps) {
+export function TrendChart({ points, referenceValue, height = "100%", gapDates = [] }: TrendChartProps) {
   const data = dailyPoints(points, gapDates);
   const numericValues = data.map(([, value]) => value).filter((value): value is number => typeof value === "number");
   const scale = yAxisScale(numericValues, referenceValue);
@@ -119,5 +122,5 @@ export function TrendChart({ points, referenceValue, height = 280, gapDates = []
     return <div className="empty-chart">暂无趋势数据</div>;
   }
 
-  return <ReactECharts option={option} style={{ height }} notMerge />;
+  return <ReactECharts option={option} style={{ height, width: "100%" }} notMerge />;
 }

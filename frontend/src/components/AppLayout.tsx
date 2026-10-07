@@ -249,12 +249,10 @@ export function AppLayout({ activePage, onNavigate, onLogout, scope, onScopeChan
 
   function selectTower(towerId: number) {
     onScopeChange({ type: "tower", towerId });
-    onNavigate("dashboard");
   }
 
   function selectCluster(towerId: number, clusterId: string) {
     onScopeChange({ type: "cluster", towerId, clusterId });
-    onNavigate("dashboard");
   }
 
   function toggleTower(towerId: number) {

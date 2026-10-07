@@ -1637,6 +1637,24 @@ button.risk-cluster-row:hover {
   height: 520px;
 }
 
+/* 2026-10-07：趋势卡改 flex 列——图表吃掉剩余高度（自适应）。
+   原固定 360px 图表 + 520px 固定卡高：窄窗口下警告条换行会顶出画布，
+   底部日期标签画到卡片边框外。overflow:hidden 仅作兜底，正常布局下无裁剪。 */
+.trend-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.trend-card .echarts-for-react {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.trend-card .empty-chart {
+  flex: 1 1 auto;
+}
+
 .vm-list-card {
   display: flex;
   flex-direction: column;
@@ -1719,9 +1737,21 @@ button.risk-cluster-row:hover {
   padding: 10px 12px;
   display: grid;
   grid-template-columns: 1fr auto;
-  grid-template-rows: auto auto;
+  /* Phase 69：第三行放「所有者 / 虚拟机组」 */
+  grid-template-rows: auto auto auto;
   gap: 3px 14px;
   text-align: left;
+}
+
+/* Phase 69：所有者 / 虚拟机组（整行小字，空值显示 -） */
+.vm-owner {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .vm-item span,
@@ -1769,6 +1799,13 @@ button.risk-cluster-row:hover {
   justify-content: space-between;
   color: var(--muted);
   margin-bottom: 10px;
+}
+
+/* Phase 69：当前 VM 的所有者 / 虚拟机组 */
+.trend-meta-extra {
+  color: var(--muted);
+  font-size: 12px;
+  margin: -4px 0 10px;
 }
 
 .trend-meta strong {
@@ -3130,6 +3167,12 @@ button.risk-cluster-row:hover {
 .tower-row span {
   color: var(--muted);
   font-size: 13px;
+}
+
+/* 2026-10-07：网址下方的 Tower 平台版本 / SMTX OS 版本两行（12px、弱化色，避免抢主体） */
+.tower-versions {
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .tower-meta {
@@ -5453,6 +5496,14 @@ button.risk-cluster-row:hover {
 
 .tower-health.failed {
   color: var(--orange);
+}
+
+/* 2026-10-07 用户口径：超期提示 = 黄色三角感叹号 + 天数（>24h 才出现） */
+.tower-health.stale {
+  color: var(--orange);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .tower-health-stack {

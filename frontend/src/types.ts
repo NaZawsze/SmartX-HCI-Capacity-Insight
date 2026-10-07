@@ -10,6 +10,8 @@ export interface Cluster {
   cluster_id: string;
   name: string;
   enabled: boolean;
+  // 2026-10-07：SMTX OS（节点）版本，如 "6.1.1"（采集/测试连接顺带刷新；未知 null）
+  os_version?: string | null;
 }
 
 export interface Tower {
@@ -28,6 +30,10 @@ export interface Tower {
   collection_retry_max_attempts: number;
   last_error?: string | null;
   last_collection?: { status: string; finished_at?: string | null } | null;
+  // 2026-10-07：Tower 列表超期提示以上一次**成功**采集时间为基准（UTC 字符串；从未成功 null）
+  last_success_at?: string | null;
+  // 2026-10-07：Tower（CloudTower）平台版本，如 "v4.5.0"（设置页展示；未知 null）
+  tower_version?: string | null;
   clusters: Cluster[];
 }
 
@@ -39,6 +45,9 @@ export interface MetricItem {
   cluster?: string | null;
   vm_id?: string | null;
   vm_name?: string | null;
+  // Phase 69：所有者与虚拟机组（空值 null）
+  owner?: string | null;
+  folder_name?: string | null;
   current_bytes?: number | null;
   used_bytes?: number | null;
   growth_amount?: number | null;
@@ -167,6 +176,9 @@ export interface VmDetail {
   vm_id: string;
   vm_name: string;
   used_bytes: number;
+  // Phase 69：所有者与虚拟机组（空值 null）
+  owner?: string | null;
+  folder_name?: string | null;
   updated_at?: string | null;
 }
 

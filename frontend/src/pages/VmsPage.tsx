@@ -313,6 +313,8 @@ export function VmsPage({ refreshKey = 0, scope, summary, selectedVmId = "", sel
                 <small className="vm-cluster">{item.metric.cluster}</small>
                 <strong>{formatBytes(item.value)}</strong>
                 <small className={usage >= 0.8 ? "vm-usage over-limit" : "vm-usage"}>{formatUsageLabel(item, usageSummary)}</small>
+                {/* Phase 69：所有者 / 虚拟机组（空值显示 -） */}
+                <small className="vm-owner">所有者 {item.owner || "-"} · 虚拟机组 {item.folder_name || "-"}</small>
               </button>
             );
           })}
@@ -341,13 +343,17 @@ export function VmsPage({ refreshKey = 0, scope, summary, selectedVmId = "", sel
             {trend?.data_freshness && trend.data_freshness !== "fresh" && <small className="freshness-badge stale">非最新</small>}
           </span>
         </div>
+        {/* Phase 69：当前 VM 的所有者 / 虚拟机组（空值显示 -） */}
+        <div className="trend-meta-extra">
+          所有者 {detail?.owner || current?.owner || "-"} · 虚拟机组 {detail?.folder_name || current?.folder_name || "-"}
+        </div>
         {trend?.data_freshness && trend.data_freshness !== "fresh" && (
           <div className="trend-freshness-warning">
             当前集群最近一次成功采集：{trend.latest_success_at || "暂无成功记录"}；存在缺采，趋势图可能不连续
             {trend.gap_dates?.length ? `。缺采日期：${trend.gap_dates.join("、")}` : ""}
           </div>
         )}
-        <TrendChart points={trend?.points || []} referenceValue={current?.value} height={360} gapDates={trend?.gap_dates || []} />
+        <TrendChart points={trend?.points || []} referenceValue={current?.value} gapDates={trend?.gap_dates || []} />
       </Card>
 
       <Card title="当前虚拟机明细" subtitle={detail?.vm_name || current?.metric.vm || "未选择虚拟机"} className="current-volume-card">
@@ -411,10 +417,10 @@ function renderVolumeRow(volume: VmVolume, index?: number) {
   return (
     <div className="volume-table-row" key={key}>
       <span data-testid="volume-name" title={readVolumeName(volume)}>{readVolumeName(volume)}</span>
-      <strong>{formatBytes(actualUsed)}</strong>
-      <strong>{formatBytes(provisioned)}</strong>
+      <strong>{formatSizeOrDash(actualUsed)}</strong>
+      <strong>{formatSizeOrDash(provisioned)}</strong>
       <span>{readVolumePolicy(volume) || "-"}</span>
-      <strong>{formatBytes(actualOccupied)}</strong>
+      <strong>{formatSizeOrDash(actualOccupied)}</strong>
     </div>
   );
 }
@@ -436,10 +442,10 @@ function renderAllVolumeRow(volume: VmVolumeRow, index?: number, onSelectVm?: (v
       )}
       <span title={volume.cluster_name || volume.cluster_id || "-"}>{volume.cluster_name || volume.cluster_id || "-"}</span>
       <span data-testid="volume-name" title={readVolumeName(volume)}>{readVolumeName(volume)}</span>
-      <strong>{formatBytes(actualUsed)}</strong>
-      <strong>{formatBytes(provisioned)}</strong>
+      <strong>{formatSizeOrDash(actualUsed)}</strong>
+      <strong>{formatSizeOrDash(provisioned)}</strong>
       <span>{readVolumePolicy(volume) || "-"}</span>
-      <strong>{formatBytes(actualOccupied)}</strong>
+      <strong>{formatSizeOrDash(actualOccupied)}</strong>
     </div>
   );
 }
@@ -562,9 +568,20 @@ function readVolumeName(volume: VmVolume): string {
 function readSize(volume: VmVolume, keys: string[]): number | null {
   for (const key of keys) {
     const size = numberish(volume[key]);
-    if (size !== null) return size;
+    if (size !== null) {
+      // 2026-10-07 实测：CloudTower 对"未上报用量"的卷返回 `used_size: -1`（实为哨兵而非真实值），
+      // 原样展示会出现"实际使用空间 -1 B / 实际占用 -2 B"。容量与用量不可能为负：
+      // 负值一律视为**未上报**（不再回退其它别名键），展示层显示 `-`。
+      return size >= 0 ? size : null;
+    }
   }
   return null;
+}
+
+// 缺失（未上报/无数据）显示 "-"——与平台其它列的空值口径一致；
+// 不要用 formatBytes(null)（会显示 0 B，误导为"用量为零"）。
+function formatSizeOrDash(value: number | null): string {
+  return value === null ? "-" : formatBytes(value);
 }
 
 function readVolumePolicy(volume: VmVolume): string {
