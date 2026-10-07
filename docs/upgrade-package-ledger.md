@@ -844,3 +844,14 @@ C3 场景 B/C（**US-17 关闭前提，真机尚未跑过**）；C0（v0.5.2 源
 | 源码溯源 | dev2 `0e72805`：**「尚未执行」判定改按状态**——`.12` 实测 runner 执行的任务无顶层 `started_at`（只有 action 级；legacy inline 路径才写 task 级），原守卫把 exactly 要服务的 succeeded+锚点任务误拒成 400「升级尚未执行」。改 `_NOT_EXECUTED_UPGRADE_STATUSES`（uploaded/precheck_*/pending/cancelled）；前端「手动回滚」按钮同步改按 status（原按 started_at 在 runner 任务上永远置灰） |
 | 门禁 | 身份 PASS；词汇 7 PASS；expand-only PASS；`sha256sum -c` 两包 OK |
 | 回归 | 后端全量 **1111 tests / 1 failure**（既有 harness 限制）；前端 `tsc` 0 + `vitest` **115 passed**；定向 4 套件 77 OK |
+
+## 2026-10-07 v0.5.4 平台包 **r26** / runner 包重切（无包任务 package_path 修复，未发布）
+
+| 项 | 值 |
+| --- | --- |
+| Status | **CANDIDATE**（当前唯一有效候选对；场景 B 真机复测进行中） |
+| 平台包 | `.3:/data/r26-out/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `6960ac18710dd54f4db0d7603f72c55c48d3054b7b91b76e17203c28ca464729` |
+| runner 组件包 | `.3:/data/r26-out/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `94dae4ec7c67a2cd0222683d7124e7457f37e434deef01be165c967b67a8ce9d`（取代 `26fc00bf…`；本修复动 runner `main.py`） |
+| 源码溯源 | dev2 `2380a3e`：**无包任务补 package_path / PACKAGELESS 类型**——`.12` 实测手动回滚任务无 `package_path`，runner 的 `_package_path_for_task` 对未知类型抛 KeyError，**run_pending_once 每轮异常退出**（日志「runner 本轮执行异常，继续下一轮」循环），手动回滚永远 pending 且整条流水线被一个合法任务卡死。修复：`PACKAGELESS_TASK_TYPES` 补 `manual_rollback`/`manual_full_rollback`；web-api 场景 B/C 任务写入 `package_path`（老 runner 兼容 + 防崩轮询双保险） |
+| 门禁 | 身份 PASS；runner 一致性 12 PASS；词汇 7 PASS；expand-only PASS；`sha256sum -c` 两包 OK |
+| 回归 | 后端全量 **1114 tests / 1 failure**（既有 harness 限制）；定向 130 OK |
