@@ -819,3 +819,17 @@ C3 场景 B/C（**US-17 关闭前提，真机尚未跑过**）；C0（v0.5.2 源
 ### 对 .12 现场的意义
 
 `.12` 状态文件现存两个锚点：`upgrade-93c6b4fb`（v0.5.3→v0.5.4，有效 N-1）与 `upgrade-d712c645`（v0.5.4→v0.5.4，r22 同版本升级产生的自指锚点）。升入 r23 后查询侧跳过自指锚点 → 回滚事实源回到 v0.5.3 锚点 → 场景 B 可继续。
+
+## 2026-10-07 v0.5.4 平台包 **r24** / runner 包 **重切**（锚点 running_ref 修复，未发布）
+
+| 项 | 值 |
+| --- | --- |
+| Status | **CANDIDATE**（当前唯一有效候选对；场景 B 真机复测进行中） |
+| 平台包 | `.3:/data/r24-out/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `f345308ecc1e5bf83b4ad1c01adcf83bcc87544316fb5fb34e1e2a1c0abc7c4d` |
+| runner 组件包 | `.3:/data/r24-out/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `26fc00bfc852ab336893b1f4be12f83221586a90315b2349d014bf813c0de94b`（取代 `0d3cdb10…`；本修复动 runner 侧 `rollback.py`） |
+| 源码溯源 | dev2 `835f5e9`：**锚点镜像引用以 running_ref 优先**——`.12` 实测锚点捕获发生在首次 compose.apply 前、但 files.sync 已把 project compose 换成包内新 tag 声明，按 compose 声明记 tag 会把旧镜像记成升级目标版本（实测 `anchor.tag=v0.5.4` / `running_ref=v0.5.3`），回滚 override 指回新版本 = 原地不动。沙箱未暴露（沙箱计划里 files.sync 不覆盖 compose）。修复：捕获侧 `tag=running_ref 优先`；消费侧新增 `anchor_image_ref()`（runner `rollback.py`）与 `_anchor_image_ref()`（web-api `manual_rollback.py`），两处均 running_ref 优先——**已捕获的历史锚点自愈** |
+| 门禁 | 身份 PASS；runner 一致性 12 PASS；词汇 7 PASS；expand-only PASS；`sha256sum -c` 两包 OK |
+| 全量回归 | 构建树 `835f5e9`：**1110 tests，failures=1**（既有 docker-socket harness 限制），新增失败 0 |
+
+### 相对 r23
+平台包：web-api `manual_rollback.py` 消费侧修复 + 相关测试；runner 包：`rollback.py` 捕获/消费修复。r23 的**自指锚点修复**包含在内（`b547815`）。
