@@ -258,6 +258,20 @@ class UpgradeEngine:
                     *task.get("logs", []),
                     f"compose runner tag 已对齐：{reconciled_files} → {_runner_image_from_task(task)}",
                 ]
+            # 改名过渡期收尾：新名变体就位且对齐后，清掉残留的旧名 compose（安全不变量见函数文档）。
+            # 只在有 action_context 时尝试——合成/异常构造的上下文下静默跳过（US-31 夹具判别）。
+            if action_context is not None:
+                try:
+                    from app.upgrade_runner.actions import purge_legacy_compose_variants
+
+                    removed_legacy = purge_legacy_compose_variants(action_context, task)
+                    if removed_legacy:
+                        task["logs"] = [
+                            *task.get("logs", []),
+                            "已清理旧名 compose（改名过渡期收尾）：" + "、".join(removed_legacy),
+                        ]
+                except Exception as exc:  # noqa: BLE001 - 清理失败不得让升级任务判失败
+                    task["logs"] = [*task.get("logs", []), f"旧名 compose 清理跳过：{exc}"]
         except Exception as exc:  # noqa: BLE001 - 对账失败不得让升级任务判失败
             task["logs"] = [*task.get("logs", []), f"runner tag 对账跳过：{exc}"]
 

@@ -251,9 +251,17 @@ def _writeback_runner_compose_tag(settings: Any, task: dict[str, Any], logs: lis
         previous = reconcile_project_runner_tag(context, task)
     except Exception as exc:  # noqa: BLE001
         return [*logs, f"compose tag 回写失败：{exc}"]
-    if previous:
-        return [*logs, f"已对齐 compose runner tag：{previous} → {_runner_image_from_task(task)}"]
-    return logs
+    stripped = [*logs, f"已对齐 compose runner tag：{previous} → {_runner_image_from_task(task)}"] if previous else list(logs)
+    # 改名过渡期收尾：组件升级收尾同样清理旧名 compose（与 engine 收尾同一安全不变量）。
+    try:
+        from app.upgrade_runner.actions import purge_legacy_compose_variants
+
+        removed_legacy = purge_legacy_compose_variants(context, task)
+        if removed_legacy:
+            stripped.append("已清理旧名 compose（改名过渡期收尾）：" + "、".join(removed_legacy))
+    except Exception as exc:  # noqa: BLE001 - 清理失败不得影响组件升级收尾
+        stripped.append(f"旧名 compose 清理跳过：{exc}")
+    return stripped
 
 
 def _runner_image_from_task(task: dict[str, Any]) -> str:
@@ -283,6 +291,9 @@ def _compose_runner_tags_now(settings: Any) -> dict[str, str]:
                 if stripped.startswith("upgrade-runner:"):
                     in_runner = True
                 continue
+            # 顶格的新服务名 = 已离开 upgrade-runner 块（行首非空白）
+            if line[:1] not in (" ", "\t") and stripped.endswith(":") and not stripped.startswith("#"):
+                break
             if stripped.startswith("image:"):
                 tags[compose_path.name] = stripped.split("image:", 1)[1].strip()
                 break

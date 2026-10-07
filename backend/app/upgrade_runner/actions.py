@@ -13,7 +13,7 @@ import tempfile
 import time
 import urllib.request
 from dataclasses import dataclass
-from app.upgrade_runner.selfhandoff import COMPOSE_ALIGN_FILES, compose_target_paths
+from app.upgrade_runner.selfhandoff import COMPOSE_ALIGN_FILES, COMPOSE_VARIANTS, LEGACY_COMPOSE_FILENAMES, _runner_image_in_compose, compose_target_paths
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -293,6 +293,65 @@ def reconcile_project_runner_tag(context: ActionContext, task: dict[str, Any]) -
     return "、".join(changed)
 
 
+def purge_legacy_compose_variants(context: ActionContext, task: dict[str, Any]) -> list[str]:
+    """改名过渡期收尾：新名变体（dev/offline/online）就位后，移除现场残留的旧名 compose。
+
+    背景（2026-10-07 改名）：files_sync 只增不删——改名前的现场升级后，旧名
+    `docker-compose.yml` / `docker-compose.release.yml` 会残留在 project 目录。
+    它们是可被 `compose up` 用到的潜在降级源，必须在过渡期后清理。
+
+    安全不变量（缺一不动，宁可留垃圾也不误删）：
+    ① **至少存在一个新名变体**——否则现场还没换过来，删完就没有 compose 可用了；
+    ② 新名变体与**计划声明的现场镜像**一致（对账已先行完成，这里复核）——
+       对齐前的旧名文件还承担着 compose 参考的职责；
+    ③ 只删**旧名白名单**两个精确文件名，绝不通配、绝不递归；
+    ④ 绝不删活动文件（`context.compose_file` / US-37 标记指向的那个）。
+
+    删除前把文件**移入 `backups/legacy-compose-removed-<ts>/`** 留档（几 KB 的
+    文本文件，取证便宜；避免"某个现场的自定义改动被静默删除"）。
+
+    只在新名集合就位且对齐后执行，幂等；无文件可清时返回空列表。
+    """
+    project_path = Path(context.project_path)
+    new_present = [name for name in COMPOSE_VARIANTS if (project_path / name).is_file()]
+    if not new_present:
+        return []
+    expected = _runner_image_from_task(task)
+    if not expected:
+        # 无从复核对齐状态（例如无 runner 条目的任务）——不冒然删
+        return []
+    for name in new_present:
+        if _runner_image_in_compose(project_path / name) != expected:
+            logging.getLogger(__name__).warning(
+                "US-32n：跳过旧名 compose 清理——新名变体 %s 尚未对齐 %s", name, expected
+            )
+            return []
+    active = str(getattr(context, "compose_file", "") or "")
+    removed: list[str] = []
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    for name in LEGACY_COMPOSE_FILENAMES:
+        if name == active:
+            continue
+        legacy = project_path / name
+        if not legacy.is_file():
+            continue
+        archive_dir = Path(context.backups_path) / f"legacy-compose-removed-{stamp}"
+        try:
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            os.replace(legacy, archive_dir / name)
+        except OSError as exc:
+            # 清理是善后动作：失败只留痕，绝不影响升级结果
+            logging.getLogger(__name__).warning(
+                "US-32n：旧名 compose 清理失败（%s）：%s", legacy, exc
+            )
+            continue
+        removed.append(name)
+        logging.getLogger(__name__).warning(
+            "US-32n：旧名 compose 已清理：%s -> %s/（改名过渡期收尾）", name, archive_dir.name
+        )
+    return removed
+
+
 def component_verify(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:
     """组件包校验（自换第 1 步）：复核镜像 tar 的 SHA256 与 manifest 声明一致。
 
@@ -366,7 +425,9 @@ def component_compose_writeback(action: dict[str, Any], context_payload: dict[st
                 if stripped.startswith("upgrade-runner:"):
                     in_runner = True
                 continue
-            if line[:1].strip() == "" and stripped.endswith(":") and not stripped.startswith("#"):
+            # 顶格的新服务名 = 已离开 upgrade-runner 块（行首非空白；含 build: 的真实
+            # compose 不能在此中断——2026-10-07 与 selfhandoff 读取器同因修正）
+            if line[:1] not in (" ", "\t") and stripped.endswith(":") and not stripped.startswith("#"):
                 break
             if stripped.startswith("image:"):
                 found_image = True

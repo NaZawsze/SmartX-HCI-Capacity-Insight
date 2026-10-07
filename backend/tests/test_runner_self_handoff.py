@@ -47,10 +47,16 @@ from app.upgrade_runner.selfhandoff import (  # noqa: E402
 )
 from app.upgrade_runner.store import TaskStore  # noqa: E402
 
+# 真机形状：upgrade-runner 块内**先有 build: 再是 image:**（dev/旧名 yml 变体实测如此）。
+# 2026-10-07 修正 _runner_image_in_compose 的"离开块"判定——夹具此前没有 build: 行，
+# 恰好绕过了那个 bug（注释写着"真实 compose 在 upgrade-runner: 之后先有 build: 块"，
+# 而测试形状与注释描述的现场不一致）。
 COMPOSE = """services:
   web-api:
     image: repo/web-api:v0.5.4
   upgrade-runner:
+    build:
+      context: .
     image: {runner_image}
     restart: unless-stopped
   prometheus:

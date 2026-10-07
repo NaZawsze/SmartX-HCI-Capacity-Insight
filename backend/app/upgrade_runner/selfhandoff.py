@@ -124,8 +124,11 @@ def _runner_image_in_compose(compose_path: Path) -> str:
             if stripped.startswith("upgrade-runner:"):
                 in_runner = True
             continue
-        # 顶格的新服务名 = 已离开 upgrade-runner 块
-        if line[:1].strip() == "" and stripped.endswith(":") and not stripped.startswith("#"):
+        # 顶格的新服务名 = 已离开 upgrade-runner 块。
+        # 2026-10-07 修正：原判定写成 `line[:1].strip() == ""`（= 行首**是**空白），
+        # 于是任何缩进且以冒号结尾的行（真实 compose 的 `    build:`）都会提前 break，
+        # 在含 build: 的文件上永远读不到 image（测试夹具恰好没带 build: 才长期未暴露）。
+        if line[:1] not in (" ", "\t") and stripped.endswith(":") and not stripped.startswith("#"):
             break
         if stripped.startswith("image:"):
             return stripped.split("image:", 1)[1].strip()

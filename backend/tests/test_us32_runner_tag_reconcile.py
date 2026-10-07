@@ -349,6 +349,111 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class LegacyComposePurgeTest(unittest.TestCase):
+    """改名过渡期收尾：新名变体就位且对齐后，清理残留的旧名 compose。
+
+    安全不变量逐条覆盖：无新名不删、未对齐不删、活动文件不删、白名单精确、留档可查。
+    """
+
+    def _context(self, root: Path):
+        from app.upgrade_runner.actions import ActionContext
+
+        project = root / "project"
+        project.mkdir(parents=True, exist_ok=True)
+        (root / "backups").mkdir(parents=True, exist_ok=True)
+        return ActionContext(
+            package_path=root / "package",
+            project_path=project,
+            data_path=root,
+            upgrades_path=root / "upgrades",
+            backups_path=root / "backups",
+            exports_path=root / "exports",
+            compose_runtime_path=root / "compose-runtime",
+            prometheus_path=root / "prometheus",
+            compose_file="docker-compose.offline.yml",
+            compose_project="smartx-hci-capacity-insight",
+            executor=SimpleNamespace(run=lambda *a, **k: "", output=lambda *a, **k: ""),
+        )
+
+    def _task(self, image: str = "repo/upgrade-runner:v0.3.2") -> dict:
+        return {
+            "task_id": "upgrade-purge",
+            "manifest": {
+                "version": "v0.5.4",
+                "components": [{"type": "platform", "images": [{"service": "upgrade-runner", "image": image}]}],
+            },
+        }
+
+    def _write(self, path: Path, tag: str) -> None:
+        path.write_text(COMPOSE.format(tag=tag), encoding="utf-8")
+
+    def test_purges_legacy_only_after_new_variants_aligned(self) -> None:
+        from app.upgrade_runner.actions import purge_legacy_compose_variants
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            context = self._context(root)
+            self._write(context.project_path / "docker-compose.dev.yml", "repo/upgrade-runner:v0.3.2")
+            self._write(context.project_path / "docker-compose.offline.yml", "repo/upgrade-runner:v0.3.2")
+            self._write(context.project_path / "docker-compose.yml", "repo/upgrade-runner:v0.3.1")
+            self._write(context.project_path / "docker-compose.release.yml", "docker.io/repo/upgrade-runner:v0.3.1")
+
+            removed = purge_legacy_compose_variants(context, self._task())
+            again = purge_legacy_compose_variants(context, self._task())
+            archived = sorted(p.name for p in (root / "backups").glob("legacy-compose-removed-*/*"))
+
+            self.assertEqual(removed, ["docker-compose.yml", "docker-compose.release.yml"])
+            self.assertEqual(again, [], "幂等：第二次调用无事可做")
+            self.assertFalse((root / "project" / "docker-compose.yml").exists())
+            self.assertFalse((root / "project" / "docker-compose.release.yml").exists())
+            self.assertTrue((context.project_path / "docker-compose.dev.yml").is_file(), "新名变体不得被动")
+            self.assertTrue((context.project_path / "docker-compose.offline.yml").is_file(), "活动文件不得被动")
+            self.assertEqual(archived, ["docker-compose.release.yml", "docker-compose.yml"], "删除前留档")
+
+    def test_no_purge_when_new_variants_absent(self) -> None:
+        """现场还没换过来（只有旧名）——删了就没 compose 可用，绝不动作。"""
+        from app.upgrade_runner.actions import purge_legacy_compose_variants
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            context = self._context(root)
+            self._write(context.project_path / "docker-compose.yml", "repo/upgrade-runner:v0.3.1")
+
+            removed = purge_legacy_compose_variants(context, self._task())
+
+            self.assertEqual(removed, [])
+            self.assertTrue((context.project_path / "docker-compose.yml").is_file())
+
+    def test_no_purge_when_new_variants_not_aligned(self) -> None:
+        from app.upgrade_runner.actions import purge_legacy_compose_variants
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            context = self._context(root)
+            self._write(context.project_path / "docker-compose.dev.yml", "repo/upgrade-runner:v0.3.1")  # 未对齐
+            self._write(context.project_path / "docker-compose.yml", "repo/upgrade-runner:v0.3.1")
+
+            removed = purge_legacy_compose_variants(context, self._task())
+
+            self.assertEqual(removed, [])
+            self.assertTrue((context.project_path / "docker-compose.yml").is_file(), "对齐前旧名还承担参考职责")
+
+    def test_never_deletes_the_active_file(self) -> None:
+        from app.upgrade_runner.actions import purge_legacy_compose_variants
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            context = self._context(root)
+            context.compose_file = "docker-compose.yml"  # 假设现场活动文件就是旧名（极端情形）
+            self._write(context.project_path / "docker-compose.dev.yml", "repo/upgrade-runner:v0.3.2")
+            self._write(context.project_path / "docker-compose.yml", "repo/upgrade-runner:v0.3.2")
+
+            removed = purge_legacy_compose_variants(context, self._task())
+
+            self.assertEqual(removed, [])
+            self.assertTrue((context.project_path / "docker-compose.yml").is_file())
+
+
 class ComponentUpgradeTagWritebackTest(unittest.TestCase):
     """US-32 补洞：组件升级（web-api execute_task 收尾）也必须回写 compose tag。
 
