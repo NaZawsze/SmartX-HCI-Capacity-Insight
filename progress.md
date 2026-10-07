@@ -5662,3 +5662,13 @@ r26（package_path 两包重切）→ r27（C 项目备份）→ **r28（C 指�
   该死锁形态已记录：升级卡 pending + 需要新 runner 修复时，先 cancel 再组件升级。
 - `.3` 侧 macOS tar 的 `._*` 垃圾进测试树炸掉 5 个 ops 检查（已清理）；
   `/data/c3fix` 树漂移曾造成 15F+6E 假回归（全树同步后收敛）；全量基线 = 1F（docker socket）。
+
+### 补记（同日）：US-32 对账覆盖全部交付变体（复核「全部修复了吗」时发现）
+
+`.12` 复核发现 US-32 只对齐 `docker-compose.yml`，而现场按 US-37 标记用 **offline/release 变体**
+（每次平台升级 files.sync 又把它们重置回包内基线）——实测活动文件 offline.yml 仍写 v0.3.1
+而现场跑 v0.3.2，宿主侧 `compose up -d` 照样静默降级。修复 `0a6cf99`：对账覆盖三变体；
+runner 包重切 r29（`d55c0463…`，平台包沿用 r28）。`.12` 复测：升级收尾日志逐文件对齐
+（offline v0.3.1→v0.3.2、release docker.io/…v0.3.1→v0.3.2），三文件实测全为 v0.3.2。
+终态复核：availability=true→v0.5.3（锚点 448104a5）、health ok、数据 543/89547/3/3。
+全量 1117 tests / 1F（既有 harness 限制）。

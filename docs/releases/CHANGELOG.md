@@ -83,6 +83,11 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   「升级前项目文件」携带的仍是新版声明，结果**数据回了、版本没回**（静默）。
   补显式 `compose.override` + `compose.apply`；项目文件备份改取**锚定任务自己**的 files.sync 备份
   （原按任务名字母倒序扫会选中更早的任务）。
+- **US-32 runner tag 对账只覆盖 `docker-compose.yml`**（`.12` 复核发现）：安装后按 US-37 标记
+  （`SMARTX_COMPOSE_FILE_ACTIVE`）运维脚本用的是 **offline/release 变体**，而平台升级的 files.sync
+  每次把它们重置回包内基线——实测 docker-compose.yml 已对齐 v0.3.2 而**活动文件** offline.yml
+  仍写 v0.3.1，宿主侧 `compose up -d` 照样静默降级 runner。修复：对账覆盖 yml/offline/release
+  三变体（逐文件独立幂等）；`.12` 复测：三文件全部对齐 v0.3.2。
 
 ### 工程与运维
 
