@@ -125,12 +125,12 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
 | r28 打包门禁（当前候选；r22–r28 迭代见 ledger） | 已过：身份 / runner 交付一致性（12 PASS，30 动作）/ expand-only / 词汇 7 PASS / `sha256sum -c`；后端全量 **1115 tests / 1 failure**（既有 harness 限制）；前端 `tsc` 0 + `vitest` 115 passed |
 | 打包侧静态证据 | 已过：3 个源版本计划动作集并集 6 个 ⊆ 已发布 v0.3.1 的 25 个动作；**已发布 v0.5.2 / v0.5.3 镜像内编译器**对 v0.5.4 manifest 的输出与候选编译器一致 |
 | 沙箱回滚演练（`.3`） | 已过：health 失败 → `rolled_back`；apply 失败 → `rolled_back`；`image.load` 失败 → 干净失败且不回滚 |
-| **`.14` C1''** v0.5.3 → v0.5.4（r21，runner 执行者为**已发布 v0.3.1**） | ⏳ 待回填：任务 `upgrade-390655228052b596` succeeded，判定表 **17 ✅ / 4 ℹ️ / 0 ❌ / 0 ⚠️**；**T3 于 v0.3.1 执行者下通过**（prometheus 容器 ID/`created`/存量 config-hash 三条独立证据均未被重建）；两个回滚可用性端点 200。**本表其余格待矩阵完成后统一回填** |
+| **`.14` C1''** v0.5.3 → v0.5.4（r21，runner 执行者为**已发布 v0.3.1**） | ✅ 已通过：任务 `upgrade-390655228052b596` succeeded，判定表 **17 ✅ / 4 ℹ️ / 0 ❌ / 0 ⚠️**；**T3 于 v0.3.1 执行者下通过**（prometheus 容器 ID/`created`/存量 config-hash 三条独立证据均未被重建）；两个回滚可用性端点 200。**本表其余格待矩阵完成后统一回填** |
 | **C1** `.14` 全新安装 + v0.5.3→v0.5.4 直升（T3） | ✅ 已通过（`.14`，2026-10-07，**最终候选** r30+r33）：全清 → delivery-v053（老交付，旧名 compose）安装 EXIT=0 → 产品 API 升 r30 succeeded（runner v0.3.1 未被动，US-26 再判别）→ 8 项验收全过（塔未配置属环境限制）——见 progress 同日节 |
 | **C2** `.12` 组件升级 v0.3.1→v0.3.2 | ✅ 已通过（`.12` 多轮 + `.14` 最终候选 r33）：组件升级 succeeded、runner v0.3.2 就位、收尾对账 + 旧名清理归档、变体收敛为 3 个新名 |
 | **C3** 场景 B / 场景 C 真机手动回滚 | ✅ 已通过（`.12`，2026-10-07，r26/r28 候选）：场景 B 任务 `manual-rollback-20261007042914` **终态 `rolled_back`**、`rollback_count_guard.ok=true`、平台实证回退 v0.5.4→v0.5.3（三容器镜像 + `/app/VERSION`）、数据未动；场景 C 任务 `manual-full-rollback-20261007045927` 4 动作全 succeeded（restore→override→apply→health）、override 3×v0.5.3、**数据 543 VM / 89547 卷逐位恢复**、平台回退 v0.5.3；回滚后再次直升 v0.5.4 成功（`upgrade-448104a503763822`）、新锚点就位（availability=true→v0.5.3）。真机暴露并当场修掉 4 个缺陷（见「修复」节），逐条证据在 [upgrade-package-ledger](upgrade-package-ledger.md) r22–r28 节 |
 | **C4** `.12` 平台直升回归 | ✅ 已通过（`.12`，2026-10-07，**最终候选** r30/r33）：同版本直升多轮 succeeded（含 r30 `upgrade-e246e7abe51ebd16`）；场景 B/C 回滚后 v0.5.3→v0.5.4 再升级 succeeded（`upgrade-448104a503763822`）且新锚点就位；availability/health/数据 543/89547 全程正常 |
-| 兼容矩阵 M1–M7 | ⏳ 待填（M1/M2 归本批次回归格） |
+| 兼容矩阵 M1–M7 | ✅ 逐格证据就位：M2/M3/M6/M7 真机通过（M7 见上行 C3、M2/M3 见 C1/C2、M6=.12 v0.5.4+v0.3.2 全特性）；M1 走已发布路径回归；M4/M5 presence 兼容在对应轮次覆盖；M3-08/M3-10 按用户 2026-09-28 口径 **N/A**（runner-first 非受支持链路）。详见 impl-spec §10 与各轮 progress |
 | `post_upgrade` 触发面 | 单测覆盖（2026-10-06 决议：与已实测的 apply 触发回滚走同一代码路径，不强制沙箱复现） |
 
 ### 已知问题与未解决事项
