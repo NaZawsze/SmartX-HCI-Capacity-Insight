@@ -45,6 +45,7 @@
 | [module-inventory.md](module-inventory.md) | 代码模块清单：后端/前端全部代码模块、部署与测试资产的结构索引（路径、规模、职责、所属容器）。 | — |
 | [frontend-style-guide.md](frontend-style-guide.md) | 前端 UI 风格规范：设计变量、圆角/阴影、按钮/输入/分段开关规格、状态色语义、布局模式。AI 写任何 UI 前必读。 | 全部前端任务 |
 | [api.md](api.md) | API Reference：对外接口说明。 | — |
+| [cloudtower-api-version-matrix.md](cloudtower-api-version-matrix.md) | **CloudTower 版本对接矩阵（4.4.0+，长期维护件）**：我们对接的 6 个端点、各版本 API 差异（哪个版本需要换端点/换字段）、版本画像表、策略枚举、新版本更新流程。**与 `backend/app/v2/cloudtower/profiles.py` 由单测强制一致**（文档漂移即测试失败）。 | task_plan Phase 70（#84）；探针 `scripts/probe_cloudtower_api_versions.py` |
 | [usage.md](usage.md) | 使用说明。 | — |
 | [deployment.md](deployment.md) | 部署指南：目标服务器 Compose 部署、目录、运行时配置和离线部署。 | v2-rebuild Phase V2-9 |
 | [troubleshooting.md](troubleshooting.md) | 故障排查手册：健康分诊、挂载衰减（UPG-050）、数据库、采集/Tower、Prometheus 链路、升级失败取证的症状→检查→处理。 | 运维 |（含 §10 `exit 137`+`OOMKilled=false` 判别与 compose 变体守卫）

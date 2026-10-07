@@ -2291,3 +2291,22 @@ B=`rolled_back`+计数守卫、C=restore→override→apply→health 四动作+v
 逐文件改动面（采集归一/落库/API/前端/报表）、可执行验收 A1–A5、风险与回滚、测试计划。
 探针：scripts/probe_tower_vm_owner.py（`.3` 容器内 `--configured` 一条命令复现门 1 结论）。
 **排期**：不与 v0.5.4 发布捆绑，随下一版本交付。
+
+## Phase 70 - Tower 版本可见性（平台版本 + SMTX OS 版本；按版本选 API 的数据准备）
+
+来源：2026-10-07 用户需求——设置页 Tower 列表在网址下方显示两行版本
+（`Tower: v4.5.0` / `SmartXOS: 6.1.1`），并要求后续**按不同 Tower 版本选择不同 API**。
+**状态：已实施 + `.3` 真机验证通过（只对 10.20.11.101 测试塔；生产塔当日不可达）。**
+
+**口径**（无专项设计文档，理由：单字段+展示型小任务，口径与逐文件改动面记录于本任务项 + findings.md）：
+- 平台版本 = `GET /v2/api/get-version`（**纯文本**，POST 同路径 405）；节点版本 = `get-clusters[].version`（如 6.1.1）。
+- 刷新时机：每次采集（每塔一次，best-effort，失败不影响采集）+ 连接测试（`POST /api/towers/{id}/test`）。
+- 存储：`towers.tower_version`、`clusters.os_version`（expand-only 迁移，registry v0.5.5 两条）。
+- 展示：网址下两行；未读到显示 `-`；一塔多集群版本不同并列 `6.1.1 / 6.0.3`。
+- **#84 按版本选 API：已实施（2026-10-07）**——`cloudtower/profiles.py` 版本画像（4.4.0 下限，四档 floor），
+  客户端按画像选容量来源（4.4.x 无 `get-cluster-storage-info` → 读集群记录），版本未知时最新画像 +
+  能力探测兜底；证据与矩阵见 findings.md 2026-10-07「4.4.0+ API 版本差异矩阵」，
+  设计见 `docs/superpowers/specs/2026-10-07-tower-api-version-profiles-design.md`，
+  探针 `scripts/probe_cloudtower_api_versions.py --all`。
+- 验收：后端定向 33 项 + 前端 124 项/tsc + verify_api_docs；`.3` 真机 `/api/towers` 返回
+  `tower_version: v4.5.0`、`clusters[0].os_version: 6.1.1`；设置页两行渲染（浏览器目视）。

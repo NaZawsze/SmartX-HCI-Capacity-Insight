@@ -5765,3 +5765,71 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
    「没有平台回滚锚点（需先完成一次 v0.5.4+ 平台升级）」正确显示；服务状态区 v0.5.4/v0.3.2/五服务运行中。
 5. **CHANGELOG 已知问题补两条**：未装 v0.3.2 的现场不清理旧名（设计内、无害）；
    手动回滚失败分支为有意的单测覆盖边界（真机需刻意制造数据回退且依赖回滚链）。
+
+
+## 2026-10-07 Phase 69 落地 + 四个 UI 修正 + 两个真机缺陷（Test 集群已分配 / 摘要缓存竞态）
+
+工作树：本批全部**未提交**（等用户在页面确认后再提交，用户指令「改完之后让我在页面确认一下先」）。
+验证环境：`.3` 预览 = `p69-api` 容器（8098，新代码 `-w /w/backend`）+ vite dev（8082）；
+**只对可达塔 `10.20.11.101` 测试**（生产塔 `10.20.11.7:4433` 当日全天不可达，见下）。
+
+### A. Phase 69（虚拟机所有者 / 虚拟机组）实施与验收
+
+1. **代码**：采集归一 `owner`/`folder_name`（`client.py`）→ 落库（迁移 `vm-latest-owner`/`-folder-name`，v0.5.5）
+   → `vms`/`reports` 查询 → VM 页第三行 + 趋势卡 → Word/Excel 两列（所有者、虚拟机组）。
+2. **A1–A5 结论**：A1 `.3` 真机采集与塔 `labels`/`folder` 逐条一致（含空值）；
+   A2 接口真值；A3 浏览器目视（.3:8082 预览）；A4 Word/Excel 表头与列序（单测锁定行级）；
+   A5 后端全量 **1142 tests / 1 failure（既有环境限制：`test_start_can_submit_task_for_runner_and_runner_executes_it`
+   需 docker socket）/ 7 skipped**、前端 **124 passed / 12 files**、`tsc --noEmit` 0、`verify_api_docs.py` OK。
+3. **用户报的四个 UI 问题**（全部修 + 测 + 预览目视）：
+   ① Tower 列表只显问题态「⚠ N 天」（按**上一次成功采集**算，>24h 才出现；UTC 无时区解析修正）；
+   ② 卷表 `-1 B / 实际 -2 B` → 负值一律按「未上报」（读侧 `readSize` + 采集侧 `_non_negative`，界面显 `-`）；
+   ③ Trend 图小窗口日期溢出卡片 → `.trend-card` 弹性高度（700/860/1280 实测不越界）；
+   ④ 切换集群/数据中心跳回概览 → `AppLayout.selectTower/selectCluster` 不再强制 `onNavigate("dashboard")`
+   （新增回归测试；浏览器实测：虚拟机页与报表页切换塔/集群后仍停留在当前页）。
+
+### B. 用户报障「Test 集群没有已分配」——两条独立缺陷
+
+1. **策略串-only 卷响应**（根因 + 修法 + 验证）：新版塔（SMTX OS 6.1.1 / CloudTower v4.5.0）的
+   `get-vm-volumes` 只给 `elf_storage_policy: "REPLICA_2_THIN_PROVISION"`，没有 `replica_num` 扁平字段
+   → 采集公式「已分配 = Σ size × 副本数」恒乘 0。修法：缺失时按策略串推导（官方枚举核对见 findings.md）。
+   真机：4×40GiB×2 = **343,597,383,680 B（320.00 GiB · 32.65%）**，Prometheus 与页面一致。
+2. **摘要缓存 × Prometheus 抓取竞态**（同轮暴露）：缓存按 DB 版本指纹失效，指标却读 Prometheus（60s 抓取），
+   采集后窗口内算出的 payload 把旧值缓存最长 30 分钟（实测复现：修复后的值仍显示 0，重启才正确）。
+   修法：`SUMMARY_CACHE_SETTLE_SECONDS=120`，采集完成后的 SETTLE 窗口内跳过缓存读写；
+   真机判别：窗口内两次调用 `evaluated_at` 不同（每次重建）、窗口外相同（恢复命中）。
+3. **生产塔不可达（环境事实）**：`.3` 宿主机与容器对 `10.20.11.7:4433` 均 `No route to host`；
+   CHINATOWER 最后一次成功采集 = 2026-10-04 19:32:34 UTC，此后每轮失败（页面「⚠ N 天」属实）。
+
+### C. 新增：Tower 版本可见性（Phase 70，用户需求）
+
+- 口径：平台版本 `GET /v2/api/get-version`（纯文本，POST 同路径 405）；节点版本 `get-clusters[].version`。
+  采集（每塔一次，best-effort）+ 连接测试顺带刷新；落库 `towers.tower_version` / `clusters.os_version`
+  （迁移两条，v0.5.5）；设置页 Tower 列表网址下两行展示。
+- 真机：`/api/towers` → `SMTX_TEST: tower_version=v4.5.0, SMTX_Test.os_version=6.1.1`；不可达塔显示 `-`；
+  浏览器目视两行渲染正确。
+- 文档站结论（findings.md）：官方 Swagger 可按版本取 `https://code-site.smartx.com/specs/<version>-swagger.json`
+  （4.9.0 / 3.4.4 实测 200），策略枚举与我们的推导规则一致。
+
+### D. 待办
+
+- 用户页面确认后：提交本批（dev2，单任务尽量单提交）、清理 `.3` 预览（`p69-api` 容器 + vite + `/tmp/p69-*` + `vite.p69.config.ts`）。
+- A5 的全量后端证据见 `/tmp/full-suite.log`（`.3`），前端证据见同轮 vitest 输出。
+
+### E. #84 按 Tower 版本选择 API（版本画像）+ 版本对接矩阵文档
+
+1. **证据**：探针 `scripts/probe_cloudtower_api_versions.py --all`（官方规范站按版本取
+   `specs/<version>-swagger.json`，带缓存）比对 4.4.0–4.9.0 共 9 个可抓版本（4 个版本该目录无规范文件）。
+   三个断点：**4.5.0** 起才有 `get-cluster-storage-info`（4.4.x 无）；**4.7.0** 起才有卷扁平策略字段
+   （≤4.6 无）；**4.6.0** 起才有 `used_size`（≤4.5 无）。`Cluster.used_data_space/total_data_capacity`
+   在 4.4.0+ 全有（容量兜底来源）。
+2. **实现**：`backend/app/v2/cloudtower/profiles.py`（版本→画像纯函数，4.4.0 下限、四档 floor）；
+   客户端按画像选容量来源（`capacity_source` 随 payload 返回）；**版本未知 → 最新画像 + 能力探测兜底**
+   （先试端点，失败回退集群记录）；画像说端点可用时失败**必须上报**，不静默换源。
+3. **独立文档（用户 2026-10-07 要求）**：[docs/cloudtower-api-version-matrix.md](docs/cloudtower-api-version-matrix.md)
+   ——对接端点清单、差异断点、每版一行表、画像表、策略枚举、新版本更新流程、变更记录；
+   已登记 doc-map §2。**一致性门禁**：`backend/tests/test_cloudtower_api_version_matrix.py`
+   解析该文档矩阵块比对 `profiles.py`（实测：篡改一行 → FAILED，还原 → OK）。
+4. **测试与真机**：本地/`.3` 定向 `test_v2_cloudtower_client`（20 项，含 4.4.x 不请求容量端点、
+   未知版本探测回退、可用端点失败必须上报）+ 矩阵门禁 2 项；`.3` 测试塔（v4.5.0）重采集后
+   已分配仍 343597383680（320 GiB），`capacity_source=cluster-storage-info`。

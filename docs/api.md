@@ -88,7 +88,7 @@ Response:
 GET /api/towers
 ```
 
-Returns configured Tower entries and discovered clusters. Sensitive fields such as passwords and API tokens are never returned.
+Returns configured Tower entries and discovered clusters. Sensitive fields such as passwords and API tokens are never returned. Each entry carries `last_success_at` (UTC timestamp of the most recent successful collection for that Tower; `null` if never), `tower_version` (CloudTower platform version read from `GET /v2/api/get-version`, e.g. `"v4.5.0"`; `null` if never read), and each `clusters[i].os_version` (SMTX OS cluster version from `get-clusters[].version`, e.g. `"6.1.1"`; `null` if never read). Both version fields are refreshed as a side effect of collection and of the Tower connection test.
 
 ### Create Tower
 
@@ -250,7 +250,7 @@ Returns KPI data, scope information, latest collection status, Tower-level colle
 GET /api/vms
 ```
 
-Returns all VMs sorted by actual used storage size (no server-side limit). Each item includes labels, actual used bytes, guest used bytes, provisioned bytes, and usage ratios when available.
+Returns all VMs sorted by actual used storage size (no server-side limit). Each item includes labels, actual used bytes, guest used bytes, provisioned bytes, and usage ratios when available. It also carries `owner` (CloudTower label `system.cloudtower/owner`) and `folder_name` (VM group / CloudTower folder name) when collected; both are `null` until the next collection.
 
 ### VM Detail
 
@@ -258,7 +258,7 @@ Returns all VMs sorted by actual used storage size (no server-side limit). Each 
 GET /api/vms/{vm_id}
 ```
 
-Returns one VM's capacity summary and labels. Pass `tower_id` (and `cluster_id`) as query parameters to disambiguate the VM identity.
+Returns one VM's capacity summary and labels, including `owner` and `folder_name` (either may be `null`). Pass `tower_id` (and `cluster_id`) as query parameters to disambiguate the VM identity.
 
 ### VM Trend
 

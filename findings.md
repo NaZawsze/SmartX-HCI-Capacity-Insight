@@ -895,3 +895,109 @@ B8/B9 新增的响应模型用了 `List[str]`。该文件有 `from __future__ im
   而是 `/tmp` 被占满；容器内跑不共享宿主 tmpfs，所以看不到。
 - 打包前必须核对「**打包点之后有没有动 `backend/app` 的提交**」：r18 就是打在一个
   缺陷修复之前，只能作废重打（AGENTS §12）。
+
+## 2026-10-07 Tower 版本号取法（平台 vs 节点）与「策略串-only」卷响应致已分配归零
+
+**版本号有两个层级，不要混用**（`.3` 对可读塔实测，探针：容器内直连 Tower API）：
+
+| 想要的版本 | 取法 | 实测值（10.20.11.101，只读账号） |
+| --- | --- | --- |
+| **Tower / CloudTower 平台版本** | `GET /v2/api/get-version`，返回**纯文本** | `v4.5.0` |
+| SMTX OS 集群（节点）版本 | `get-clusters` 每条集群记录 | `version: 6.1.1`，另有 `upgrade_tool_version: 6.1.0-rc57`、`application_highest_version: 6.0.0` |
+
+- `get-version` 必须用 **GET**：同一个路径用 POST 打返回 **405 Method Not Allowed**
+  （误导性很强——405 说明路径存在，不是不存在）。
+- `get-clusters` 里的 `version` 是**被纳管集群（SMTX OS）**的版本，不是 Tower 平台版本；
+  两个层级都要记录时需分字段（本次尚未入库，仅探测结论）。
+- 只读账号即可读取上述两类版本信息，无需额外权限。
+
+**同期实测（可用性事实）**：生产塔 CHINATOWER（`10.20.11.7:4433`）2026-10-07 全天从 `.3`
+宿主机与容器均不可达（ping 全丢、`curl exit 7`、容器内 `Errno 113 No route to host`）；
+其最后一次成功采集 = **2026-10-04 19:32:34 UTC**，此后 `collection_runs` 持续失败。
+同机测试塔（`10.20.11.101`）正常，最后成功采集 2026-10-07 14:58:34 UTC。
+
+**已分配归零根因（新式卷响应只有策略串）**：6.1.1 集群 / v4.5.0 塔的
+`get-vm-volumes` 卷记录里**没有** `replica_num`、`elf_storage_policy_replica_num`、
+`used_size` 等扁平字段，副本信息只存在于字符串 `elf_storage_policy`：
+`"REPLICA_2_THIN_PROVISION"`（旧塔另有扁平字段 `elf_storage_policy_replica_num: 2`）。
+采集公式「已分配 = Σ(卷供给 × 副本数)」在副本数缺失时按 0 计 → **已分配恒为 0**
+（Test 集群实测：4 卷 × 40GiB 全为 NULL 副本 → 已分配 0；修后应为 320GiB）。
+修法（`backend/app/v2/cloudtower/client.py`）：扁平字段缺失时从策略串推导
+`REPLICA_<n>` → 副本数（显式字段优先、认不出的串不猜）；`used_size` 缺失与
+`-1` 哨兵同义（页面显示「-」，2026-10-07 已按「未上报」处理）。
+
+## 2026-10-07 概览摘要缓存 × Prometheus 抓取竞态：采集后页面最长 30 分钟显示旧值
+
+**现象**：Test 集群「已分配」采集修复后，DB 与 Prometheus 都已是 320GiB，
+页面/接口仍返回 0；重启 web-api（清进程内缓存）后立刻正确。
+
+**机制**：`dashboard/service.py` 的 summary 缓存按「数据版本」失效，版本指纹来自
+DB（`collection_runs.finished_at`、`vm_volumes` rowid 等）。但指标读取走
+**Prometheus instant query**，而 Prometheus 是 **60s 周期抓取** collector-worker:9108
+（`delivery` 的 prometheus.yml：`scrape_interval: 60s`）。于是存在窗口：
+
+```text
+采集写 DB（版本指纹变化） → [窗口期，Prometheus 还没抓到新值]
+   → 期间任一次 summary 请求：用旧指标算出 payload 并按新版本缓存
+   → Prometheus 抓取落地（DB 版本指纹不再变化）
+   → 缓存持续命中旧 payload，直到下次采集/配置变化或 30 分钟 TTL
+```
+
+实测时间线：run 204 完成 ~15:44:2x → summary 15:44:47 命中（旧值 0）并缓存 →
+Prometheus 15:45:12 抓到 343597383680 → 后续 summary 全部返回缓存的 0。
+
+**影响面**：所有 Prometheus 派生字段（已使用/总容量/已分配/预测/趋势）都可能在
+每次采集后的一段窗口内"少一拍"，直到缓存 TTL 或下一次数据变化。
+
+**修法（2026-10-07）**：最近一次采集完成后的 `SUMMARY_CACHE_SETTLE_SECONDS`（120s，
+> 抓取间隔 60s 并留余量）内**跳过缓存读写**，让页面直接取到抓取后的新值；
+窗口外行为不变（版本未变仍命中缓存，保住 #75 性能轮的用户体感）。
+
+**教训**：缓存失效条件必须覆盖**所有**上游数据源——DB 变了不等于 Prometheus 也变了；
+凡是"落库 → 中间系统消费 → 前端读中间系统"的链路，缓存窗口要按中间系统的同步延迟设。
+
+## 2026-10-07 CloudTower API 文档站可按版本程序化获取（后续「按塔版本选 API」的数据源）
+
+`https://code.smartx.com/api` 301 到 `https://code-site.smartx.com/api/`；版本选择器切换的是
+`?version=X.Y.Z`，页面实际按版本加载 **Swagger JSON**，URL 规律（浏览器实测 resource 列表 + 直接 fetch 验证）：
+
+```text
+https://code-site.smartx.com/specs/<version>-swagger.json
+例：/specs/4.9.0-swagger.json（200，约 2.7MB）、/specs/3.4.4-swagger.json（200）
+```
+
+- 可选版本（页面下拉）：最新 4.9 → 4.8 P1…4.0.0，另有 `3.4.x LTS`、`2.x` 归档。
+- 另有桌面版文档应用：`github.com/smartxworks/cloudtower-api-doc-tauri`（releases）。
+- **卷策略枚举**（`VmVolumeElfStoragePolicyType`，4.9.0 spec 原文）恰好覆盖我们按串推导副本数的取值面：
+  `REPLICA_1/2/3_THIN_PROVISION`、`REPLICA_1/2/3_THICK_PROVISION`、
+  `ELF_CP_REPLICA_2/3_THIN/THICK_PROVISION`、`EC`
+  —— 因此「扁平字段缺失时按 `REPLICA_<n>`/`THIN`/`THICK` 解析」与官方枚举一致；
+  纯 `EC` 串不含 k/m（不猜，按 0 计）。
+- 注意：3.4.4 的 spec 里**也没有** `elf_storage_policy_replica_num` 字段文档，而生产塔确实返回了该扁平字段
+  —— 所以「新式塔只给策略串」到底是版本差异还是账号（只读）差异，暂未定论；
+  解析兜底对两种情况都成立。
+
+## 2026-10-07 CloudTower 4.4.0+ API 版本差异矩阵（#84 版本画像的证据）
+
+**来源**：官方文档站按版本发布的 OpenAPI 规范 `https://code-site.smartx.com/specs/<version>-swagger.json`；
+探针 `scripts/probe_cloudtower_api_versions.py --all`（带缓存，只读）。
+覆盖 4.9.0 → 4.4.0（用户 2026-10-07 口径：只管 4.4.0+），其中
+`4.7.1 / 4.6.2 / 4.6.1 / 4.4.2` 在该目录下没有规范文件（站点返回 200 + HTML），
+由相邻版本覆盖断点。**实测结论**：
+
+| 差异 | 版本边界 | 应对（已实施） |
+| --- | --- | --- |
+| `get-cluster-storage-info` 端点 | **4.5.0+ 有；4.4.0/4.4.1 无** | 4.4.x 从 `get-clusters` 的 `Cluster.used_data_space/total_data_capacity` 取容量 |
+| 卷扁平字段 `elf_storage_policy_replica_num/_thin_provision/_ec_k/_ec_m` | **4.7.0+ 有；≤4.6 无** | 缺失时按策略串推导（`REPLICA_2_THIN_PROVISION` → 2 副本） |
+| `Vm.used_size` / `VmVolume.used_size` | **4.6.0+ 有；≤4.5 无** | 按未上报处理（卷页面显示 `-`） |
+| `Cluster.used_data_space` / `total_data_capacity` | **4.4.0+ 全有** | 容量兜底来源（跨全支持面可靠） |
+| `GET /v2/api/get-version` | 4.4.0+ 全有 | 版本探测始终可用 |
+
+**旁证与预测**：`.3` 测试塔 = v4.5.0，实测其卷响应**没有**扁平副本字段（与矩阵一致）；
+生产塔返回扁平字段 → 预测其平台版本 **≥ 4.7.0**（可达后读 `get-version` 即可验证）。
+`VmVolume.replica_num`（不带 elf_ 前缀）在任何版本都不存在——代码里的该候选字段名来自
+迁移导入路径的兼容读取，不是 CloudTower 正式字段。
+
+**落地**：矩阵已独立成长期维护文档 [docs/cloudtower-api-version-matrix.md](docs/cloudtower-api-version-matrix.md)（含每版一行表、断点清单、更新流程；与画像表由单测强制一致）；代码 `backend/app/v2/cloudtower/profiles.py`（版本→画像纯函数）+ 客户端按画像选容量来源
+（`capacity_source` 随 payload 返回）；版本未知时用最新画像 + 能力探测兜底
+（详见 docs/superpowers/specs/2026-10-07-tower-api-version-profiles-design.md）。

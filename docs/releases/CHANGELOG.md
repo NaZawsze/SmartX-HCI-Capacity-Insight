@@ -53,6 +53,16 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
 - **构建门禁两道**：计划动作词汇冻结（候选包编译器对各源版本编译的动作集必须 ⊆ 已发布 runner 动作集）
   与迁移 expand-only 断言；矩阵一键取证脚本 `ops/evidence.sh`（升级前后各跑一次出判定表）。
 
+- **虚拟机所有者与虚拟机组（Phase 69）**：Tower 只读账号即可读到每台 VM 的
+  `system.cloudtower/owner` 标签与 `folder.name`（虚拟机组，用户口径非放置组）；
+  采集 → SQLite → VM 页第三条信息行 → 报表导出 Word/Excel 各加「所有者」「虚拟机组」两列。
+- **Tower / SMTX OS 版本可见**：设置页 Tower 列表在网址下方显示 `Tower: v4.5.0` /
+  `SmartXOS: 6.1.1`（平台版本取 `GET /v2/api/get-version`，节点版本取 `get-clusters[].version`，
+  采集与连接测试顺带刷新；读不到显示 `-`）。
+- **按 Tower 版本选择 API（版本画像，4.4.0+）**：版本 → 画像纯函数（`cloudtower/profiles.py`），
+  容量来源按画像分派（4.4.x 无容量端点 → 读集群记录），版本未知时最新画像 + 能力探测兜底；
+  证据为官方按版本发布的 OpenAPI 规范矩阵。
+
 ### 修复
 
 - **US-26（平台升级静默降级 runner）**：平台升级不再按包内基线 tag 重建现场更高的 runner。
@@ -89,6 +99,26 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   仍写 v0.3.1，宿主侧 `compose up -d` 照样静默降级 runner。修复：对账覆盖 yml/offline/release
   三变体（逐文件独立幂等）；`.12` 复测：三文件全部对齐 v0.3.2。
 
+- **Test 集群「已分配」恒为 0**（用户实测报障）：新版 Tower（SMTX OS 6.1.1 / CloudTower v4.5.0）
+  的 `get-vm-volumes` 只返回策略串 `elf_storage_policy`（如 `REPLICA_2_THIN_PROVISION`），
+  没有扁平副本字段 → 「已分配 = Σ 卷容量 × 副本数」恒乘 0。修复：扁平字段缺失时按策略串推导
+  副本数/精简（枚举与官方规范逐项核对）。`.3` 真机复验：320.00 GiB · 32.65%。
+- **概览摘要缓存 × Prometheus 抓取竞态**（同一轮暴露）：摘要缓存按数据库版本指纹失效，
+  而指标经 Prometheus（60s 抓取）读取——采集完成后、抓取落地前算出的 payload 会把旧值
+  缓存最长 30 分钟（实测：修复后的已分配仍显示 0，重启才恢复）。修复：采集完成后
+  120 秒结算窗口内跳过缓存读写；窗口内每次重建、窗口外恢复命中缓存（真机逐项判别）。
+- **纳管存储卷「实际使用空间 -1 B / 实际占用 -2 B」**：CloudTower 对无用量数据的卷返回
+  `used_size: -1` 哨兵，原样落库并显示为负值。修复：读侧与采集侧一律按「未上报」处理，
+  页面显示 `-`。
+- **Tower 列表采集状态误导**：原按「最后一次采集（含失败）」显示「N 分钟前」并在正常采集后
+  也标黄。改为：按**上一次成功采集**计算，仅超过 24 小时才显示黄色三角 + 天数
+  （`⚠ 2 天`）；并修正 SQLite UTC 时间串被按本地时区解析带来的 8 小时偏差。
+- **虚拟机趋势图小窗口溢出**：卡片固定高度 + 图表固定像素高，窗口变窄时最下方日期轴超出卡片边框。
+  改为卡片弹性高度；700/860/1280 三档实测不越界。
+- **切换集群/数据中心跳回概览**：侧边栏切换作用域时强制 `onNavigate("dashboard")`，
+  用户在虚拟机/报表页切换集群会被踢回概览。修复为保持当前标签页（虚拟机页会自动重选新作用域内
+  的首台 VM）。
+
 ### 工程与运维
 
 - 版本身份 bump 到 v0.5.4（`VERSION`、四个 compose 变体、后端默认版本、交付 README 同步），
@@ -107,6 +137,12 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
 - 打包收窄支持矩阵：`source_compatibility = [v0.5.2, v0.5.3, v0.5.4]`，
   v0.5.4 起不再声明目录迁移与 legacy 清理 → 计划为**常量动作集**
   （`backup.create → image.load×3 → files.sync → compose.override → compose.apply → health.http`）。
+- **Phase 69 / 版本字段迁移 4 条（expand-only，随 v0.5.4 计划执行）**：
+  `vm_latest.owner`、`vm_latest.folder_name`、`towers.tower_version`、`clusters.os_version`。
+- **CloudTower API 版本对接矩阵文档** `docs/cloudtower-api-version-matrix.md`（长期维护件）：
+  对接端点清单、各版本 API 差异断点、每版一行表、画像表、策略枚举与新版本更新流程；
+  由 `backend/tests/test_cloudtower_api_version_matrix.py` 与 `profiles.py` **强制一致**
+  （文档漂移即测试失败，已实测门禁有效）。生成工具 `scripts/probe_cloudtower_api_versions.py`。
 - 退役登记（v0.5.5 候选）：`filesystem.prepare`、`task.migrate_runtime_state`、
   `task.sync_runtime_state`、`compose.project_migrate`、`runner.*`、`legacy.cleanup`、
   `post_cleanup.*` 等不再出现在 v0.5.4 默认计划模板中；**动作实现一律保留**，
