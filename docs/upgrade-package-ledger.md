@@ -899,3 +899,23 @@ C3 场景 B/C（**US-17 关闭前提，真机尚未跑过**）；C0（v0.5.2 源
 - `docker-compose.offline.yml`（**活动文件**，mtime 12:48:33 = files.sync 写入）：runner tag = **v0.3.1** ✗
 - `docker-compose.release.yml`：runner tag = **v0.3.1** ✗
 - 运行容器 = v0.3.2；日志反复出现"已对齐 v0.3.1 -> v0.3.2"（只对 yml 那一个文件生效）
+
+## 2026-10-07 **compose 变体改名** + 平台包 r30 / runner 包重切（未发布）
+
+| 项 | 值 |
+| --- | --- |
+| Status | **CANDIDATE**（当前唯一有效候选对） |
+| 改名 | `docker-compose.yml → docker-compose.dev.yml`；`docker-compose.release.yml → docker-compose.online.yml`（用户 2026-10-07 指令；offline/upgrade 不变）。**现场活动变体 offline.yml 名字不变**——已安装机器的 marker/`SMARTX_COMPOSE_FILE` 零影响 |
+| 平台包 | `.3:/data/r30-out/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `065e1c822944b59c7f0bd99eb084209e7054ae95801101e6147c9e4f9f85b95a` |
+| runner 组件包 | `.3:/data/r30-out/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `f852143b5f5c5ff838f5710df3a716da08c8c73f5b3e810b302dc44578e98524`（取代 `d55c0463…`） |
+| 源码溯源 | dev2 `b5b200e` |
+| 运行时去硬编码 | `selfhandoff.COMPOSE_ALIGN_FILES`（dev/offline/online + **旧名 yml/release 过渡覆盖**）+ `compose_target_paths()`；`component_compose_writeback`、US-32 对账、组件锚点捕获、`_runner_tag_aligned` 全部改为多文件；`paths.py` 废弃回写候选表同步 |
+| 门禁 | 身份 PASS；runner 一致性 12 PASS；词汇 7 PASS；expand-only PASS；`sha256sum -c` 两包 OK |
+| 回归 | 后端全量 **1118 tests / 1 failure**（既有 harness 限制）；build_tests **48 OK**（顺带修两个 r21 裁剪后未同步的旧夹具）；前端 tsc 0 + vitest 115 |
+| 包内实测 | `project/docker-compose.{dev,offline}.yml` 的 runner tag 均为**已发布基线 v0.3.1**（源码 v0.3.2 为开发线口径，`_expected_web_api_runner_baseline` 打包期改写）——客户升级不会拿到 v0.3.2 引用 |
+
+### 升级安全性（改名会不会影响升级）
+
+- **活动文件不变**：现场 `SMARTX_COMPOSE_FILE_ACTIVE=docker-compose.offline.yml`（US-37 标记）与 `SMARTX_COMPOSE_FILE` 默认值都不变 → 安装/升级/预检查/up/down 全链路零改道。
+- **旧名残留是预期**：files_sync 只增不删，已安装现场升级后会同时存在 dev/online（新）+ yml/release（旧）。运行时写回/对账/锚点读取**同时覆盖新名与旧名**（`COMPOSE_ALIGN_FILES`），宿主侧无论用哪个文件 `compose up` 都不会静默降级 runner。
+- **新装现场**只有新名；旧名在过渡期后可在下个版本统一清理（不引入 legacy_cleanup，保持支持矩阵收窄口径）。
