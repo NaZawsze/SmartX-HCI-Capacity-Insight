@@ -159,6 +159,11 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   precheck 会拒绝并给出引导文案（`remediation`：结构化字段 + 检查项 message，双处落地）。
 - **runner v0.3.2 首次随平台交付**：此前只在开发线；本版起随 Release 一起发
   （组件升级走旧编排是最后一次，后续平台升级的 runner 变更走自换）。现场 runner ≥ 包基线 v0.3.1 时不动它。
+  **交付口径（用户 2026-10-07 确认过目）**：平台包的 runner 基线**保持已发布 v0.3.1**，不因本次随发
+  v0.3.2 而上调——这是 **US-04 顺序约束**的必然：v0.5.2/v0.5.3 源端的 web-api 在执行 runner 组件升级时
+  会停掉刚启动的新 runner，**平台升级不得要求"先升 runner"**；正确顺序始终是**先平台（v0.5.4）→
+  再 runner 组件升级（v0.3.2）**。包内 compose 实测落 v0.3.1（打包期按发布事实改写，源码 compose 的
+  v0.3.2 只属开发线）；完成组件升级后由 v0.3.2 runner 收尾把现场 compose 对账到实际版本。
 - **迁移 registry 目前为空**：`applied_migrations` 快照与 contract 阻塞判定的字段与读取路径已就位，
   等真有 registry 条目时自动生效；expand-only 门禁当前无条目可检。
 - **`.14` 的 Docker Hub 出口被 DNS sinkhole**：该机无法 `docker pull`，取证与升级一律走

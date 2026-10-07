@@ -2278,3 +2278,13 @@ C4 `.12` 老链路回归、C5 打包门禁全过。设计回滚：runner/platfor
 B=`rolled_back`+计数守卫、C=restore→override→apply→health 四动作+v0.5.3+数据 543/89547 逐位恢复；
 真机暴露并修掉 5 个缺陷（impl-spec §W5 复测记录）。**2026-10-07 后续**：compose 变体改名（dev/online 取代 yml/release；运行时写回/对账/锚点读取覆盖全部在场变体）+ 旧名文件过渡期清理（v0.3.2 runner 收尾执行，`.12` 真机闭环：归档留证、幂等稳定）+ 三处 compose 读取器『离开块』判定修复。逐轮候选见 ledger r22–r33（当前 **r30 平台 + r33 runner**，全量 1124 tests/1F）。
 剩余：C1/C2/C4 格的 evidence.sh 正式回填、**`.14` 最终候选复跑**（pending #68）+ 用户明确发布指令（runner v0.3.2 随 v0.5.4 交付）。
+
+
+## Phase 69 - 虚拟机所有者可见性（VM Owner；Tower 只读可达后实施）
+
+来源：2026-10-07 用户需求（原话见设计文档）。**状态：设计草案已成文，等待门 1**
+（Tower 可达 + 只读账号可见性；探针 `scripts/probe_tower_vm_owner.py` 已就绪，塔恢复后一条命令出结论）。
+
+**目标**：①只读账号能读到每台 VM 所有者（门 1）；②平台展示所有者；③报表导出（Word/Excel）加「所有者」列。
+**设计**：docs/superpowers/specs/2026-10-07-vm-owner-visibility-design.md（含口径、改动面预估、
+门 1 失败台阶、测试计划、回滚）。**排期**：独立小特性，与 #62/#56 改造解耦，门 1 通过后即可实施。
