@@ -919,3 +919,14 @@ C3 场景 B/C（**US-17 关闭前提，真机尚未跑过**）；C0（v0.5.2 源
 - **活动文件不变**：现场 `SMARTX_COMPOSE_FILE_ACTIVE=docker-compose.offline.yml`（US-37 标记）与 `SMARTX_COMPOSE_FILE` 默认值都不变 → 安装/升级/预检查/up/down 全链路零改道。
 - **旧名残留是预期**：files_sync 只增不删，已安装现场升级后会同时存在 dev/online（新）+ yml/release（旧）。运行时写回/对账/锚点读取**同时覆盖新名与旧名**（`COMPOSE_ALIGN_FILES`），宿主侧无论用哪个文件 `compose up` 都不会静默降级 runner。
 - **新装现场**只有新名；旧名在过渡期后可在下个版本统一清理（不引入 legacy_cleanup，保持支持矩阵收窄口径）。
+
+## 2026-10-07 runner 组件包 **重切 r31**（旧名变体过渡期清理 + 读取器修正；平台包沿用 r30）
+
+| 项 | 值 |
+| --- | --- |
+| Status | **CANDIDATE**（当前唯一有效候选对：平台 r30 + runner r31） |
+| runner 组件包 | `.3:/data/r31-out/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `e381cf85069376f1587d0687eb1e15fc16eede3bdac26a4cd86d238360bc340e`（取代 `f852143b…`） |
+| 平台包 | 沿用 **r30** `065e1c82…`（本修复不涉 web-api，平台包逐字节不变） |
+| 源码溯源 | dev2 `2179594`：①**旧名变体过渡期清理**（用户指令）——挂在 runner 两个收尾点（平台升级结束 / 组件升级收尾），安全不变量：新名就位且对齐前绝不删旧名、只删白名单两个精确名、绝不删活动文件、删除前移入 `backups/legacy-compose-removed-<ts>/` 留档；不加动作/不改计划形状（旧源端编译器发不出新动作，清理只能由 runner v0.3.2+ 收尾执行）。②**修三处 compose 读取器「离开块」判定写反**（`line[:1].strip()==""` 应为行首非空白；实测含 `build:` 的 dev/旧名文件上读取提前中断）——影响组件回滚锚点 `previous_image_tag` 与自换 writeback（会直接抛 ValueError）；夹具改为真机形状（带 `build:`） |
+| 门禁 | runner 一致性 12 PASS；`sha256sum -c` OK |
+| 回归 | 后端全量 **1122 tests / 1 failure**（既有 harness 限制）；定向 152 OK（purge 4 例：幂等 / 无新名不删 / 未对齐不删 / 活动文件不删） |
