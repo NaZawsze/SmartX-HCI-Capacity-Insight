@@ -1001,3 +1001,30 @@ https://code-site.smartx.com/specs/<version>-swagger.json
 **落地**：矩阵已独立成长期维护文档 [docs/cloudtower-api-version-matrix.md](docs/cloudtower-api-version-matrix.md)（含每版一行表、断点清单、更新流程；与画像表由单测强制一致）；代码 `backend/app/v2/cloudtower/profiles.py`（版本→画像纯函数）+ 客户端按画像选容量来源
 （`capacity_source` 随 payload 返回）；版本未知时用最新画像 + 能力探测兜底
 （详见 docs/superpowers/specs/2026-10-07-tower-api-version-profiles-design.md）。
+
+## 2026-10-08 docker `-v` 左半边是宿主路径；源不存在时 dockerd 会把整条路径建为空目录（US-40 根因）
+
+**结论（`.3` 升级 r34 实跑 + 代码对照取证）**：
+
+1. `docker run -v <src>:<dst>` 的 `<src>` 由**宿主 dockerd** 解析——runner 容器内执行
+   `docker run`（经 docker.sock）时，`<src>` 必须是**宿主路径**，不是容器内路径。
+   runner 里已有统一映射 `ActionContext.docker_host_path()`（`SMARTX_HOST_*_PATH` 注入，
+   容器 `/data|/data/upgrades|/data/backups|...` → 宿主 `/data/smartx-storage-forecast/...`），
+   runner 自换 helper 的挂载早已按此处理（注释在案）。
+2. **dockerd 对不存在的 bind 源会静默自动创建——且是空目录**（整条路径逐层 mkdir）。
+   于是「容器内路径当宿主路径用」不会报 mount 错误，而是挂出一个**空目录**；
+   入参给 `python <目录>` 时报 `can't find '__main__' module in '<目录>'`。
+   排查时**不要**被这个报错带偏去怀疑脚本文件本身（本次包内脚本是正常文件、SHA 一致，
+   被 docker 自建的是宿主遗留路径 `/data/upgrades/...` 下的空目录——目标布局里容器
+   `/data/upgrades` 对应宿主 `/data/smartx-storage-forecast/upgrades`，两个 upgrades 目录并存，
+   看错目录会得出「包坏了」的假结论）。
+3. 凡在 runner/web-api 里拼 `docker run -v` 的代码，挂载源必须过 `docker_host_path()`；
+   回归测试要断言**实际命令字符串**（含脚本/文件挂载，不只参数挂载）。
+   缺陷实例：`upgrade_runner/sandbox.py` 迁移沙箱的脚本挂载（US-40，已修）——
+   v0.5.4 之前发布的包从不带迁移脚本，该路径从未真机执行过，r34 是第一次。
+
+**现场证据位置**：`.3` task `upgrade-93e46d573190529f`（失败任务记录，含逐动作时间线）；
+宿主 `/data/upgrades/upgrade-93e46d573190529f/package/migrations/run_migrations.py`
+（docker 自建空目录，birth 与失败时刻吻合）；
+`/data/smartx-storage-forecast/upgrades/upgrade-93e46d573190529f/package/migrations/run_migrations.py`
+（真实脚本，5671 字节，SHA `9edbafdc…` 与 manifest 一致）。

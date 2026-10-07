@@ -2310,3 +2310,24 @@ B=`rolled_back`+计数守卫、C=restore→override→apply→health 四动作+v
   探针 `scripts/probe_cloudtower_api_versions.py --all`。
 - 验收：后端定向 33 项 + 前端 124 项/tsc + verify_api_docs；`.3` 真机 `/api/towers` 返回
   `tower_version: v4.5.0`、`clusters[0].os_version: 6.1.1`；设置页两行渲染（浏览器目视）。
+
+## Phase 71 - US-40 迁移沙箱脚本挂载修复（v0.3.2 开发线）+ r34 `.3` 升级完成
+
+来源：2026-10-08 `.3` 升级 r34 首跑失败（task `upgrade-93e46d573190529f`，
+`run-migration` 报 `can't find '__main__' module in '/upgrade/run_migrations.py'`）。
+
+**目标**：①修掉 `upgrade_runner/sandbox.py` 迁移沙箱脚本挂载用容器内路径的缺陷
+（改走 `docker_host_path()`，一行 + 回归测试断言实际命令）；②`.3` 重建 runner v0.3.2
+组件包并完成组件升级（v0.5.3 平台 + US-11 守卫在位）；③重跑 r34 平台升级至成功，
+8 项验收 + 已分配 320 GiB 稳定。
+
+**无专项设计文档，口径记录于本文件 + docs/upgrade-strategy-issues.md US-40 + findings.md
+2026-10-08 条**（理由：单行缺陷修复，机制与证据链已在两份文档写全，改动面=1 行代码 + 1 个测试）。
+
+**验收**：
+- A1 定向测试：`test_sandbox_command_has_security_boundaries_and_no_docker_socket`（新增脚本挂载宿主路径断言）过。
+- A2 `.3` runner 组件包重建 + `verify_runner_delivery_consistency.py` 门禁过；组件升级
+  v0.3.1→v0.3.2 succeeded、runner 存活、版本/心跳正确。
+- A3 `.3` r34 平台升级 succeeded：`run-migration` succeeded、`schema_migrations` 4 条落库、
+  8 项验收（health/5 容器/network/SQLite/Prometheus/.env/legacy/UI）全过、升级后自动采集成功、
+  已分配 = 320.00 GiB（不再被定时采集覆盖回 0）。

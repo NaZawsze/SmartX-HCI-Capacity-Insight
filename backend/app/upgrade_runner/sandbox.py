@@ -33,6 +33,11 @@ def run_sandboxed_script(action: dict[str, Any], context_payload: dict[str, Any]
         context.project_path.resolve(),
         context.compose_runtime_path.resolve(),
     ]
+    # `-v` 左半边由宿主 dockerd 解析：脚本挂载与参数挂载一样必须过
+    # docker_host_path()——容器内 /data/upgrades/... 在宿主是
+    # /data/smartx-storage-forecast/upgrades/...，两者不一致时源路径在宿主
+    # 不存在，dockerd 会静默自建**空目录**，Python 挂到目录上只报
+    # "can't find '__main__' module"（US-40，.3 2026-10-08 升级 r34 首跑实证）。
     command = [
         "docker",
         "run",
@@ -45,7 +50,7 @@ def run_sandboxed_script(action: dict[str, Any], context_payload: dict[str, Any]
         "--tmpfs",
         "/tmp:rw,noexec,nosuid,size=64m",
         "-v",
-        f"{script}:/upgrade/{script.name}:ro",
+        f"{context.docker_host_path(script)}:/upgrade/{script.name}:ro",
     ]
     for mount in params.get("mounts") or []:
         source = Path(str(mount.get("source") or "")).resolve()

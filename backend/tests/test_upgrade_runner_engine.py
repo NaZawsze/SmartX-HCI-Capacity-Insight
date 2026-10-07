@@ -2438,8 +2438,10 @@ with sqlite3.connect("/fixture/smartx.db") as connection:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            package = root / "package"
-            package.mkdir()
+            # 包位置镜像真实目标布局：容器内 /data/upgrades/<task>/package（宿主是
+            # /data/smartx-storage-forecast/upgrades/<task>/package）——US-40 的现场形态。
+            package = root / "upgrades" / "upgrade-t1" / "package"
+            package.mkdir(parents=True)
             script = package / "migrate.py"
             script.write_text("print('ok')", encoding="utf-8")
             executor = FakeExecutor()
@@ -2447,12 +2449,13 @@ with sqlite3.connect("/fixture/smartx.db") as connection:
             host_data_path = root / "host-data"
             host_backups_path = root / "host-backups"
             host_prometheus_path = root / "host-prometheus"
-            host_data_path.mkdir()
-            host_backups_path.mkdir()
-            host_prometheus_path.mkdir()
+            host_upgrades_path = root / "host-upgrades"
+            for host_path in (host_data_path, host_backups_path, host_prometheus_path, host_upgrades_path):
+                host_path.mkdir()
             context.host_data_path = host_data_path
             context.host_backups_path = host_backups_path
             context.host_prometheus_path = host_prometheus_path
+            context.host_upgrades_path = host_upgrades_path
             result = run_sandboxed_script(
                 {
                     "params": {
@@ -2479,7 +2482,40 @@ with sqlite3.connect("/fixture/smartx.db") as connection:
             self.assertIn(f"{host_backups_path}:/data/backups:rw", command)
             self.assertIn(f"{host_prometheus_path}:/prometheus:ro", command)
             self.assertNotIn(f"{context.data_path}:/data:rw", command)
+            # US-40：脚本挂载同样必须用宿主路径（dockerd 在宿主解析 `-v` 左半边；
+            # 用容器内路径会在宿主建出空目录，容器里挂到目录 → "can't find '__main__' module"）。
+            host_script = host_upgrades_path / "upgrade-t1" / "package" / "migrate.py"
+            self.assertIn(f"{host_script}:/upgrade/migrate.py:ro", command)
+            self.assertNotIn(f"{script}:/upgrade/migrate.py:ro", command)
             self.assertEqual(result["checkpoint"]["completed"], True)
+
+            # 回退口径：无 host 映射（路径一致的开发机）时脚本挂载保持容器内路径原样。
+            fallback_executor = FakeExecutor()
+            fallback_root = Path(tempfile.mkdtemp())
+            try:
+                fallback_package = fallback_root / "package"
+                fallback_package.mkdir()
+                fallback_script = fallback_package / "migrate.py"
+                fallback_script.write_text("print('ok')", encoding="utf-8")
+                fallback_context = ActionContext.minimal(fallback_root, executor=fallback_executor, package_path=fallback_package)
+                run_sandboxed_script(
+                    {
+                        "params": {
+                            "script": "migrate.py",
+                            "sha256": hashlib.sha256(fallback_script.read_bytes()).hexdigest(),
+                            "image": "repo/web-api:v1",
+                            "mounts": [],
+                            "timeout_seconds": 900,
+                        }
+                    },
+                    fallback_context.as_dict(),
+                )
+                fallback_command = fallback_executor.commands[0]
+                self.assertIn(f"{fallback_script}:/upgrade/migrate.py:ro", fallback_command)
+            finally:
+                import shutil
+
+                shutil.rmtree(fallback_root, ignore_errors=True)
 
             with self.assertRaisesRegex(ValueError, "禁止挂载"):
                 run_sandboxed_script(

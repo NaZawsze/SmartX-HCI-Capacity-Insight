@@ -435,3 +435,40 @@
   覆盖用交付脚本升级的客户，但覆盖不了走产品 UI 上传升级的场景）；③验收脚本把「升级后仍无标记」
   列为显式检查项（现状：`verify_site_acceptance.sh` 会 FAIL，据此发现本问题）。
 - **状态**：🟠 **已登记待立项**；不阻塞 v0.5.3 发布（属存量缺口非回归，CHANGELOG 已知问题已注明）。
+
+### US-40 🔴 已修（2026-10-08 `.3` 升级 r34 首次实跑发现）：迁移沙箱的**脚本挂载用容器内路径**——目标布局下宿主被 docker 建出空目录，迁移动作必然失败
+
+- **现象（`.3` 实测，task `upgrade-93e46d573190529f`，v0.5.3→v0.5.4 平台升级 r34）**：
+  precheck 9 项全过、start 后 backup/镜像加载/项目文件同步/compose override 全部 succeeded，
+  到 `run-migration`（script.run_sandboxed）失败：
+  `python: can't find '__main__' module in '/upgrade/run_migrations.py'`。
+  平台未切版（5 容器原样 v0.5.3）、数据库未动、升级前备份已生成
+  （`/data/smartx-storage-forecast/backups/upgrade-v0.5.4-before-20261007171814.tar.gz`）。
+- **根因（两层证据）**：
+  ①`upgrade_runner/sandbox.py::run_sandboxed_script` 构造 docker 命令时，**参数挂载走了
+  `context.docker_host_path()`（正确映射到宿主 `/data/smartx-storage-forecast/...`），
+  唯独脚本自身的挂载 `-v {script}:/upgrade/run_migrations.py:ro` 直接用容器内路径**
+  （容器内 `/data/upgrades/<task>/package/...`，宿主对应 `/data/smartx-storage-forecast/upgrades/...`）。
+  ②dockerd 在宿主解析 `-v` 左半边，源路径不存在时**自动把整条路径建为空目录**——
+  `.3` 上宿主遗留路径 `/data/upgrades/<task>/package/migrations/run_migrations.py` 因此成为一个
+  **空目录**（birth 与失败时刻逐秒吻合），容器内挂到的就是空目录，
+  Python 对目录入参报 "can't find `__main__` module"。
+  同文件里 runner 自换（cutover helper）的挂载**已经正确处理**了这个容器/宿主差异
+  （注释明确「`-v` 的左半边由宿主 dockerd 解析，必须用宿主路径」，`.14` 实测通过）——
+  迁移沙箱是唯一漏掉的地方。
+- **为什么当初没拦住**：v0.5.4 之前发布的平台包**从不带迁移脚本**（`database_migration=false`，
+  无 script.run_sandboxed 动作），该代码路径**从未在任何真机执行过**（r30 的 `.14` 全流程验收
+  覆盖不到它）；单测 `test_sandbox_command_has_security_boundaries_and_no_docker_socket`
+  断言了三处参数挂载的宿主路径，但**从未断言脚本挂载本身**。标准目标布局下容器路径与宿主路径
+  永远不一致（宿主恒有 `/data/smartx-storage-forecast/` 前缀），所以该路径在标准部署下必然坏。
+- **影响**：v0.5.4 平台包（r34 及之后任何带迁移的包）在**任何**标准布局现场都会在同一动作失败；
+  失败时点安全（备份后、切版前），但会留下宿主遗留路径下的空目录垃圾（易误导排查——
+  本次即先误判为「包内脚本是目录」，实际包内是正常 5671 字节文件、SHA 与 manifest 一致）。
+- **修复（v0.3.2 开发线，未发布版本，按 #82 先例无需再 bump 版本号）**：
+  脚本挂载改走 `context.docker_host_path(script)`（一行）；回归测试补断言
+  「脚本挂载必须是宿主路径、且不得出现容器内路径形态」+ 无 host 映射时的回退行为。
+  已发布 v0.3.1 组件包不动（发布物不追溯修改）。
+- **验证要求**：`.3` 重建 runner v0.3.2 组件包 → 组件升级（v0.5.3 平台 + US-11 守卫在位）→
+  重跑 r34 平台升级，`run-migration` succeeded、4 条迁移落库（schema_migrations）、
+  切版后 health/8 项验收全过。
+- **状态**：🟢 **已修（代码+测试已提交，`.3` 验证进行中）**。
