@@ -255,6 +255,30 @@ class AvailabilityTests(unittest.TestCase):
         self.assertFalse(payload["available"])
         self.assertTrue(any("web-api:v0.5.3" in item for item in payload["blockers"]), payload["blockers"])
 
+    def test_availability_heals_polluted_tag_via_running_ref(self) -> None:
+        """`.12` 2026-10-07 实测：早期锚点 tag 被 files.sync 后的新 compose 声明污染
+        （记成 v0.5.4），running_ref 才是旧镜像（v0.5.3）——判定与计划都以 running_ref 优先。"""
+        polluted = {
+            **ANCHOR,
+            "images": {
+                "web-api": {"tag": "repo/web-api:v0.5.4", "running_ref": "repo/web-api:v0.5.3", "image_id": "sha256:web"},
+                "collector-worker": {"tag": "repo/collector:v0.5.4", "running_ref": "repo/collector:v0.5.3", "image_id": "sha256:col"},
+                "upgrade-runner": {"tag": "repo/runner:v0.3.2", "running_ref": "repo/runner:v0.3.2", "image_id": "sha256:run"},
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = _service(root, _Executor())
+            _write_state_file(service.settings, {"upgrade-1": polluted})
+            payload = service.rollback_availability()
+            task = service.start_manual_rollback()
+            stored = json.loads((root / "upgrades" / task["task_id"] / "task.json").read_text(encoding="utf-8"))
+        self.assertTrue(payload["available"], payload["blockers"])
+        self.assertTrue(all("v0.5.3" in item for item in payload["images"]), payload["images"])
+        plan_images = {item["service"]: item["image"] for item in stored["execution_plan"]["actions"][0]["params"]["images"]}
+        self.assertEqual(plan_images["web-api"], "repo/web-api:v0.5.3")
+        self.assertEqual(plan_images["collector-worker"], "repo/collector:v0.5.3")
+
     def test_active_task_blocks(self) -> None:
         """单飞守卫（US-23）：回滚也是升级任务，不能与在跑的升级并行。"""
         with tempfile.TemporaryDirectory() as tmp:

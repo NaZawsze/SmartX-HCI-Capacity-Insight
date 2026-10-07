@@ -140,20 +140,30 @@ def _contract_migration_blockers(anchor: dict[str, Any], registry_path: Path) ->
 ROLLBACK_EXCLUDED_SERVICES = frozenset({"upgrade-runner"})
 
 
+def _anchor_image_ref(facts: dict[str, Any]) -> str:
+    """锚点里某服务的回滚镜像引用：**running_ref 优先**。
+
+    2026-10-07 `.12` 实测：早期锚点的 tag 被 files.sync 后的新 compose 声明污染
+    （记成了升级目标版本），running_ref 才是容器实际运行的旧镜像——
+    优先它让已捕获的历史锚点自愈（与 runner 侧 anchor_image_ref 同一规则）。
+    """
+    return str((facts or {}).get("running_ref") or (facts or {}).get("tag") or "")
+
+
 def _missing_images(anchor: dict[str, Any], executor: Any) -> list[str]:
-    """锚点里的旧镜像是否还在本地。tag 被清理过就不能回滚。"""
+    """锚点里的旧镜像是否还在本地。引用被清理过就不能回滚。"""
     missing = []
     for service, facts in sorted((anchor.get("images") or {}).items()):
         if service in ROLLBACK_EXCLUDED_SERVICES:
             continue
-        tag = str((facts or {}).get("tag") or "")
-        if not tag:
+        ref = _anchor_image_ref(facts)
+        if not ref:
             missing.append(f"{service}（锚点未记录旧镜像引用）")
             continue
         try:
-            executor.output(["docker", "image", "inspect", tag])
+            executor.output(["docker", "image", "inspect", ref])
         except Exception:  # noqa: BLE001 - inspect 失败即视为本地没有
-            missing.append(f"{service}（{tag}）")
+            missing.append(f"{service}（{ref}）")
     return missing
 
 
@@ -224,9 +234,9 @@ class ManualRollbackMixin:
         else:
             previous_version = str(anchor.get("previous_version") or "")
             images = [
-                str(facts.get("tag") or "")
+                _anchor_image_ref(facts)
                 for service, facts in (anchor.get("images") or {}).items()
-                if str(facts.get("tag") or "") and service not in ROLLBACK_EXCLUDED_SERVICES
+                if _anchor_image_ref(facts) and service not in ROLLBACK_EXCLUDED_SERVICES
             ]
             if not images:
                 blockers.append("锚点未记录旧镜像引用，无法指回上一版本")
@@ -359,7 +369,7 @@ class ManualRollbackMixin:
             services=sorted(
                 service
                 for service, facts in (anchor.get("images") or {}).items()
-                if str(facts.get("tag") or "") and service not in ROLLBACK_EXCLUDED_SERVICES
+                if _anchor_image_ref(facts) and service not in ROLLBACK_EXCLUDED_SERVICES
             ),
         )
         task = {
@@ -420,7 +430,7 @@ class ManualRollbackMixin:
         services = sorted(
             service
             for service, facts in (anchor.get("images") or {}).items()
-            if str((facts or {}).get("tag") or "") and service not in ROLLBACK_EXCLUDED_SERVICES
+            if _anchor_image_ref(facts) and service not in ROLLBACK_EXCLUDED_SERVICES
         )
         task_id = f"manual-rollback-{_now().strftime('%Y%m%d%H%M%S')}"
         task_dir = self.settings.upgrades_dir / task_id
@@ -465,11 +475,14 @@ class ManualRollbackMixin:
 
 
 def _manual_rollback_plan(anchor: dict[str, Any], *, services: list[str]) -> dict[str, Any]:
-    """回滚计划：指回旧 tag → compose.apply → 健康门。**全部是既有动作**，不新增计划词汇。"""
+    """回滚计划：指回旧镜像 → compose.apply → 健康门。**全部是既有动作**，不新增计划词汇。"""
     images = [
-        {"service": service, "image": str((facts or {}).get("tag"))}
-        for service, facts in sorted((anchor.get("images") or {}).items())
-        if str((facts or {}).get("tag") or "") and service not in ROLLBACK_EXCLUDED_SERVICES
+        {"service": service, "image": ref}
+        for service, ref in sorted(
+            (service, _anchor_image_ref(facts))
+            for service, facts in (anchor.get("images") or {}).items()
+        )
+        if ref and service not in ROLLBACK_EXCLUDED_SERVICES
     ]
     actions = [
         ExecutionAction(

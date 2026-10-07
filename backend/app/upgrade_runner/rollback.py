@@ -185,8 +185,12 @@ def capture_platform_rollback_anchor(
             except Exception as exc:  # noqa: BLE001 - 探测失败只让锚点不完整
                 logger.warning("回滚锚点：读取 %s 运行镜像引用失败（%s）", service, exc)
         images[service] = {
-            # compose 里声明的 image（apply 要覆盖的那个值）
-            "tag": _compose_image_for(context, service) or running_ref,
+            # 回滚要指回的镜像引用：**运行中容器的实际镜像**优先。
+            # 2026-10-07 `.12` 实测教训：捕获发生在首次 compose.apply 之前，但
+            # files.sync 已经把 project compose 换成了**包内新 tag 声明**——先读 compose
+            # 会把 tag 记成新版本，回滚变成"原地重拉当前版"（真机上 anchor.tag=v0.5.4、
+            # running_ref=v0.5.3，沙箱没暴露是因为沙箱计划里 files.sync 不覆盖 compose）。
+            "tag": running_ref or _compose_image_for(context, service),
             # 运行中容器的不可变镜像 ID：tag 被移动后仍能定位镜像本体
             "image_id": image_id_of_container(executor, container_id),
             # 按引用查到的镜像 ID：与上一项不一致说明 tag 在容器运行期间被移动过
@@ -259,17 +263,27 @@ def _compose_image_for(context: Any, service: str) -> str:
     return ""
 
 
+def anchor_image_ref(facts: dict[str, Any]) -> str:
+    """锚点里某服务「回滚要指回」的镜像引用。
+
+    **运行中镜像引用（running_ref）优先于 tag**：早期锚点（2026-10-07 前捕获）的
+    tag 字段被 files.sync 后的新 compose 声明污染（记录成了升级目标版本），
+    running_ref 始终是容器实际运行的旧镜像——优先用它能让**已捕获的历史锚点自愈**。
+    """
+    return str((facts or {}).get("running_ref") or (facts or {}).get("tag") or "")
+
+
 def anchor_rollback_override_images(anchor: dict[str, Any]) -> list[dict[str, str]]:
     """回滚时要写回 override 的旧镜像列表（`compose.override` 的 images 形状）。
 
-    只取**有旧 tag** 的服务；缺 tag 的服务宁可留在原地也不要换成空 image
+    只取**有旧镜像引用**的服务；缺引用的服务宁可留在原地也不要换成空 image
     ——那会让 compose 把它当成"没有镜像"而报错，回滚反而失败。
     """
     images: list[dict[str, str]] = []
     for service, facts in (anchor.get("images") or {}).items():
-        tag = str((facts or {}).get("tag") or "")
-        if tag:
-            images.append({"service": str(service), "image": tag})
+        ref = anchor_image_ref(facts)
+        if ref:
+            images.append({"service": str(service), "image": ref})
     return images
 
 

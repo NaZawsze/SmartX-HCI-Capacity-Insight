@@ -346,6 +346,28 @@ class AnchorCaptureTests(unittest.TestCase):
             [{"service": "web-api", "image": "repo/web-api:v0.5.3"}],
         )
 
+    def test_override_images_prefer_running_ref_over_polluted_tag(self) -> None:
+        """`.12` 2026-10-07 实测：早期锚点的 tag 被 files.sync 后的新 compose 声明污染
+        （记成了升级目标版本 v0.5.4），running_ref 才是真实旧镜像（v0.5.3）——
+        回滚 override 必须优先 running_ref，否则"回滚"= 原地重拉当前版。"""
+        anchor = {
+            "images": {
+                "web-api": {
+                    "tag": "repo/web-api:v0.5.4",
+                    "running_ref": "repo/web-api:v0.5.3",
+                    "image_id": "sha256:old",
+                },
+                "collector-worker": {"tag": "", "running_ref": "repo/collector:v0.5.3"},
+            }
+        }
+        self.assertEqual(
+            anchor_rollback_override_images(anchor),
+            [
+                {"service": "web-api", "image": "repo/web-api:v0.5.3"},
+                {"service": "collector-worker", "image": "repo/collector:v0.5.3"},
+            ],
+        )
+
 
 class BusinessCountGuardTests(unittest.TestCase):
     def test_growth_is_allowed_and_shrink_is_not(self) -> None:
@@ -482,6 +504,21 @@ class EngineAnchorTests(_EngineCase):
         self.assertEqual(seen, [True], "compose.apply 执行时锚点必须已经在 task 里")
         self.assertEqual(result["platform_rollback_anchor"]["previous_version"], "v0.5.3")
         self.assertEqual(len(sinks), 1, "锚点必须写一次状态文件 checkpoint")
+
+    def test_anchor_tag_prefers_running_image_over_compose_declaration(self) -> None:
+        """files.sync 在 apply 前把 project compose 换成包内新 tag 声明（真机实测）——
+        锚点必须记**运行中容器的实际镜像**，否则回滚 = 指回新版本（原地不动）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # compose 已被 files.sync 换成 v0.5.4 声明；容器实际还在跑 v0.5.3
+            _write_compose(root, {"web-api": "repo/web-api:v0.5.4"})
+            _write_db(root)
+            executor = _executor_with_containers({"web-api": "repo/web-api:v0.5.3"})
+            engine, _store, _sinks, _ = self._engine(root, self._handlers(), _platform_task(), executor=executor)
+            result = engine.run()
+        images = result["platform_rollback_anchor"]["images"]
+        self.assertEqual(images["web-api"]["tag"], "repo/web-api:v0.5.3", "tag 必须记运行中镜像")
+        self.assertEqual(images["web-api"]["running_ref"], "repo/web-api:v0.5.3")
 
     def test_existing_anchor_is_not_recaptured(self) -> None:
         """崩溃重入（同一 task 再次被 runner 捡起）不得覆盖已有锚点、也不重复写 checkpoint。"""
