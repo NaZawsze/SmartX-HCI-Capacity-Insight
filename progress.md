@@ -5696,4 +5696,12 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
 **包内实测**：payload 的 dev/offline compose runner tag 均为**已发布基线 v0.3.1**
 （源码 v0.3.2 只属开发线，打包期按发布事实改写）——直接回答「现场都是 v0.3.1，包里 v0.3.2 会不会有问题」：不会。
 
-**待**：`.12` 用 r30 真机升级验证（旧名残留 + offline 仍活动 + 新名就位）。
+**`.12` 真机验证（r30，2026-10-07 14:10）**：平台升级 succeeded（同版本）。
+- project 目录现状：**5 个变体并存**——新名 dev/offline/online（r30 同步进来）+ 旧名 yml/release
+  （升级前残留，files_sync 只增不删，**预期行为**）。
+- 活动标记不变：`SMARTX_COMPOSE_FILE_ACTIVE=docker-compose.offline.yml` ✓
+- US-32 对账日志逐文件覆盖新名（dev v0.3.1→v0.3.2、offline 同、online `docker.io/…`→…），
+  最终**5 个变体的 runner tag 实测全部 = v0.3.2**——宿主侧无论用哪个文件 `compose up` 都不会降级。
+- 终态：health ok、availability=true→v0.5.3、数据 543/89547/3/3 完整。
+- 顺带：本轮 14 个过期候选包上传把 `.12` 盘挤到 2.6G（预检查 disk_space 拦下，**非改名问题**），
+  按产品流程 DELETE 清 14 个包 → 12G 空闲后升级即过。
