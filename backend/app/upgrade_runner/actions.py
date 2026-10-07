@@ -212,6 +212,16 @@ def _runner_image_from_task(task: Any) -> str:
     return ""
 
 
+#: US-32（2026-10-07 扩展）：对账覆盖**现场可能被 docker compose 使用的全部交付变体**。
+#: 只写 docker-compose.yml 不够——安装后的现场按 US-37 标记用 offline/release 变体，
+#: 平台升级的 files.sync 又会把它们重置回包内基线（`.12` 实测活动文件仍写 v0.3.1）。
+RUNNER_RECONCILE_COMPOSE_FILES = (
+    "docker-compose.yml",
+    "docker-compose.offline.yml",
+    "docker-compose.release.yml",
+)
+
+
 def reconcile_project_runner_tag(context: ActionContext, task: dict[str, Any]) -> str:
     """US-32：把 project compose 里的 runner tag 对齐到本次计划声明的镜像。
 
@@ -224,51 +234,65 @@ def reconcile_project_runner_tag(context: ActionContext, task: dict[str, Any]) -
     放在任务收尾（所有动作完成、project 文件同步之后）执行，用计划里已注入的现场镜像，
     不需要 `docker inspect`，也不新增动作/能力集 —— 旧 runner 缺这段逻辑只是维持现状，
     不会让升级失败，平台包的 minimum_runner_version 无需变更。
+
+    **为什么必须对齐全部交付变体（2026-10-07 `.12` 实测补）**：
+    只写 `docker-compose.yml` 覆盖不到现场真正的运行路径——安装后按 US-37 标记
+    （`SMARTX_COMPOSE_FILE_ACTIVE`）运维脚本用的是 **offline/release 变体**，
+    而每次平台升级的 files.sync 又会把它们重置回包内基线。实测状态：docker-compose.yml
+    已被对齐到 v0.3.2，**活动文件** `docker-compose.offline.yml` 仍写 v0.3.1——
+    宿主侧照活动文件 `compose up -d` 依旧会把 runner 静默降级，US-32 要堵的场景原样存在。
+
+    返回：本次被改写的文件名（顿号分隔）；没有任何文件需要改动时返回空串。
     """
     runner_image = _runner_image_from_task(task)
     if not runner_image:
         return ""
-    compose_path = context.project_path / "docker-compose.yml"
-    try:
-        if not compose_path.is_file():
-            return ""
-        lines = compose_path.read_text(encoding="utf-8").splitlines(keepends=True)
-    except OSError as exc:
-        # 绝不静默：写不进去必须留痕，否则又是一次长期潜伏的多事实源
-        logging.getLogger(__name__).warning(
-            "US-32 runner tag 对账跳过（compose 不可读 %s）：%s", compose_path, exc
-        )
-        return ""
-    in_runner = False
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if not in_runner:
-            if stripped == "upgrade-runner:" or stripped.startswith("upgrade-runner:"):
-                in_runner = True
-            continue
-        if line[:1].strip() == "" and stripped and ":" in stripped and not stripped.startswith("#"):
-            if not line.startswith((" ", "\t")):
-                break
-        if stripped.startswith("image:"):
-            current = stripped.split("image:", 1)[1].strip()
-            if current == runner_image:
-                return ""
-            prefix = line[: line.index("image:") + len("image:")]
-            newline = "\n" if line.endswith("\n") else ""
-            lines[index] = f"{prefix} {runner_image}{newline}"
-            try:
-                compose_path.write_text("".join(lines), encoding="utf-8")
-            except OSError as exc:
-                logging.getLogger(__name__).warning(
-                    "US-32 runner tag 对账失败（compose 不可写 %s）：%s", compose_path, exc
-                )
-                return ""
+    changed: list[str] = []
+    for name in RUNNER_RECONCILE_COMPOSE_FILES:
+        compose_path = context.project_path / name
+        try:
+            if not compose_path.is_file():
+                continue
+            lines = compose_path.read_text(encoding="utf-8").splitlines(keepends=True)
+        except OSError as exc:
+            # 绝不静默：写不进去必须留痕，否则又是一次长期潜伏的多事实源
             logging.getLogger(__name__).warning(
-                "US-32 compose runner tag 已对齐：%s -> %s（此前不一致会让 compose 重建降级 runner）",
-                current, runner_image,
+                "US-32 runner tag 对账跳过（compose 不可读 %s）：%s", compose_path, exc
             )
-            return current
-    return ""
+            continue
+        in_runner = False
+        for index, line in enumerate(lines):
+            stripped = line.strip()
+            if not in_runner:
+                if stripped == "upgrade-runner:" or stripped.startswith("upgrade-runner:"):
+                    in_runner = True
+                continue
+            if line[:1].strip() == "" and stripped and ":" in stripped and not stripped.startswith("#"):
+                if not line.startswith((" ", "\t")):
+                    break
+            if stripped.startswith("image:"):
+                current = stripped.split("image:", 1)[1].strip()
+                if current == runner_image:
+                    break
+                prefix = line[: line.index("image:") + len("image:")]
+                newline = "\n" if line.endswith("\n") else ""
+                lines[index] = f"{prefix} {runner_image}{newline}"
+                try:
+                    compose_path.write_text("".join(lines), encoding="utf-8")
+                except OSError as exc:
+                    logging.getLogger(__name__).warning(
+                        "US-32 runner tag 对账失败（compose 不可写 %s）：%s", compose_path, exc
+                    )
+                    break
+                logging.getLogger(__name__).warning(
+                    "US-32 compose runner tag 已对齐：%s（%s -> %s）",
+                    name,
+                    current,
+                    runner_image,
+                )
+                changed.append(name)
+                break
+    return "、".join(changed)
 
 
 def component_verify(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:

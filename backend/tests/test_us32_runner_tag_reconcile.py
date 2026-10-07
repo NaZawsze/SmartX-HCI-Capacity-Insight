@@ -133,9 +133,9 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
             root = Path(tmpdir)
             context = self._context(root, "repo/upgrade-runner:v0.3.1")
 
-            previous = reconcile_project_runner_tag(context, self._task("repo/upgrade-runner:v0.3.2", plan_image="repo/upgrade-runner:v0.3.2"))
+            reconciled_files = reconcile_project_runner_tag(context, self._task("repo/upgrade-runner:v0.3.2", plan_image="repo/upgrade-runner:v0.3.2"))
 
-            self.assertEqual(previous, "repo/upgrade-runner:v0.3.1")
+            self.assertEqual(reconciled_files, "docker-compose.yml")
             content = (context.project_path / "docker-compose.yml").read_text(encoding="utf-8")
             self.assertIn("image: repo/upgrade-runner:v0.3.2", content)
             self.assertNotIn("image: repo/upgrade-runner:v0.3.1", content)
@@ -144,6 +144,52 @@ class ReconcileProjectRunnerTagTest(unittest.TestCase):
             self.assertIn("      - .env\n", content)
             self.assertIn("image: repo/prometheus:v2.40.0", content)
             self.assertIn("image: repo/web-api:v0.5.3", content)
+
+    def test_aligns_every_delivery_variant_not_just_primary_compose(self) -> None:
+        """`.12` 2026-10-07 实测补洞：现场按 US-37 标记用 **offline 变体**运行，
+        平台升级的 files.sync 会把它重置回包内基线——只对齐 docker-compose.yml
+        覆盖不到真正的运行路径（实测活动文件仍写 v0.3.1，宿主侧 compose up 照样降级）。
+        对账必须覆盖全部交付变体。"""
+        from app.upgrade_runner.actions import reconcile_project_runner_tag
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            context = self._context(root, "repo/upgrade-runner:v0.3.1")
+            offline = context.project_path / "docker-compose.offline.yml"
+            offline.write_text(COMPOSE.format(tag="repo/upgrade-runner:v0.3.1"), encoding="utf-8")
+            release = context.project_path / "docker-compose.release.yml"
+            release.write_text(
+                COMPOSE.format(tag="docker.io/repo/upgrade-runner:v0.3.1"), encoding="utf-8"
+            )
+
+            reconciled_files = reconcile_project_runner_tag(
+                context, self._task("repo/upgrade-runner:v0.3.2", plan_image="repo/upgrade-runner:v0.3.2")
+            )
+
+            self.assertEqual(
+                reconciled_files, "docker-compose.yml、docker-compose.offline.yml、docker-compose.release.yml"
+            )
+            for name in ("docker-compose.yml", "docker-compose.offline.yml", "docker-compose.release.yml"):
+                content = (context.project_path / name).read_text(encoding="utf-8")
+                self.assertIn("image: repo/upgrade-runner:v0.3.2", content, name)
+                self.assertNotIn("upgrade-runner:v0.3.1", content, name)
+
+    def test_aligned_variant_is_not_rewritten(self) -> None:
+        """已对齐的变体不动（幂等按文件独立判定）；只回写仍陈旧的。"""
+        from app.upgrade_runner.actions import reconcile_project_runner_tag
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            context = self._context(root, "repo/upgrade-runner:v0.3.2")
+            offline = context.project_path / "docker-compose.offline.yml"
+            offline.write_text(COMPOSE.format(tag="repo/upgrade-runner:v0.3.1"), encoding="utf-8")
+
+            reconciled_files = reconcile_project_runner_tag(
+                context, self._task("repo/upgrade-runner:v0.3.2", plan_image="repo/upgrade-runner:v0.3.2")
+            )
+
+            self.assertEqual(reconciled_files, "docker-compose.offline.yml")
+            self.assertIn("v0.3.2", offline.read_text(encoding="utf-8"))
 
     def test_idempotent_when_already_aligned(self) -> None:
         from app.upgrade_runner.actions import reconcile_project_runner_tag

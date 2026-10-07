@@ -252,11 +252,11 @@ class UpgradeEngine:
         # 而平台升级的 project 同步会把包内基线写进来（实测 v0.3.1）。
         try:
             action_context = self.context.get("action_context")
-            previous_tag = reconcile_project_runner_tag(action_context, task)
-            if previous_tag:
+            reconciled_files = reconcile_project_runner_tag(action_context, task)
+            if reconciled_files:
                 task["logs"] = [
                     *task.get("logs", []),
-                    f"compose runner tag 已对齐：{previous_tag} -> {_runner_image_from_task(task)}",
+                    f"compose runner tag 已对齐：{reconciled_files} → {_runner_image_from_task(task)}",
                 ]
         except Exception as exc:  # noqa: BLE001 - 对账失败不得让升级任务判失败
             task["logs"] = [*task.get("logs", []), f"runner tag 对账跳过：{exc}"]

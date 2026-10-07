@@ -252,7 +252,7 @@ def _writeback_runner_compose_tag(settings: Any, task: dict[str, Any], logs: lis
     except Exception as exc:  # noqa: BLE001
         return [*logs, f"compose tag 回写失败：{exc}"]
     if previous:
-        return [*logs, f"已对齐 compose runner tag：{previous} -> {_runner_image_from_task(task)}"]
+        return [*logs, f"已对齐 compose runner tag：{previous} → {_runner_image_from_task(task)}"]
     return logs
 
 
