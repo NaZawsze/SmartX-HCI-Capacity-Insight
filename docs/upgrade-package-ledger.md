@@ -855,3 +855,18 @@ C3 场景 B/C（**US-17 关闭前提，真机尚未跑过**）；C0（v0.5.2 源
 | 源码溯源 | dev2 `2380a3e`：**无包任务补 package_path / PACKAGELESS 类型**——`.12` 实测手动回滚任务无 `package_path`，runner 的 `_package_path_for_task` 对未知类型抛 KeyError，**run_pending_once 每轮异常退出**（日志「runner 本轮执行异常，继续下一轮」循环），手动回滚永远 pending 且整条流水线被一个合法任务卡死。修复：`PACKAGELESS_TASK_TYPES` 补 `manual_rollback`/`manual_full_rollback`；web-api 场景 B/C 任务写入 `package_path`（老 runner 兼容 + 防崩轮询双保险） |
 | 门禁 | 身份 PASS；runner 一致性 12 PASS；词汇 7 PASS；expand-only PASS；`sha256sum -c` 两包 OK |
 | 回归 | 后端全量 **1114 tests / 1 failure**（既有 harness 限制）；定向 130 OK |
+
+## 2026-10-07 v0.5.4 平台包 **r27**（runner 包沿用 r26；整备回滚项目文件备份修复，未发布）
+
+| 项 | 值 |
+| --- | --- |
+| Status | **CANDIDATE**（当前唯一有效候选；场景 C 真机复测进行中） |
+| 平台包 | `.3:/data/r27-out/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`<br>SHA256 `3c41a56b5f0d73191ad23647500e0f8a41a2649fea20596c48ff5e7d8407e56b` |
+| runner 组件包 | `.3:/data/r27-out/smartx-upgrade-runner-v0.3.2.tar.gz`<br>SHA256 `94dae4ec7c67a2cd0222683d7124e7457f37e434deef01be165c967b67a8ce9d`（与 r26 逐字节一致） |
+| 源码溯源 | dev2 `fefdb7c`：**整备回滚的项目文件备份取锚定任务自己的 files.sync 备份**——`.12` 实测原实现按任务目录名字母倒序扫，选中字母序更大但时间更早的任务（fb779c56 > b76932b1），恢复回新版本项目文件，版本回退静默失效（数据回了、版本没回）。兜底扫描改按任务时间倒序 |
+| 门禁 | 身份 PASS；词汇 7 PASS；expand-only PASS；`sha256sum -c` 两包 OK |
+| 回归 | 后端全量 **1115 tests / 1 failure**（既有 harness 限制） |
+
+### 场景 B 真机结果（`.12`，r26 部署，2026-10-07）
+
+任务 `manual-rollback-20261007042914`：**终态 `rolled_back`**、`rollback_count_guard.ok=true`（before==after: towers=3/clusters=3）、平台实证回退 v0.5.4→**v0.5.3**（三容器镜像 + /app/VERSION）、数据未动；手动锚点带 `captured_for=manual_rollback`。回滚后 `rollback-availability` 在 v0.5.3（无该端点）→ 404 属预期（v0.5.4 起支持的自然边界）。**场景 B 判定通过**（用户批准语义全项满足）。
