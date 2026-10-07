@@ -5722,3 +5722,26 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
 `backups/legacy-compose-removed-20261007065642/`（两文件在位）；日志两条「已清理」；
 25s 复查无新增（幂等）；health ok / availability→v0.5.3 / 数据 543/89547 完整。
 全量 **1124 tests / 1F（既有 harness 限制）**。
+
+
+## 2026-10-07 `.14` 最终候选（r30+r33）干净机全流程复跑 —— 通过
+
+物料：`delivery-v053`（v0.5.3 + runner v0.3.1，旧名 compose 的老交付）+ 平台 r30
+`065e1c82…` + runner r33 `72291ec7…`。这是真实客户形态：**老交付装出来 → 升到改名后的新包**。
+
+1. **全清**：compose down → 显式删 5 容器 19 镜像 → 删 `/data/smartx-storage-forecast`（0 容器 0 镜像）。
+2. **全新安装**（delivery-v053，`install.sh --yes`）EXIT=0：v0.5.3 + runner v0.3.1、5 容器、标记
+   offline、守卫 755、health 三 checks true；**老现场形状 = 只有 `offline.yml + docker-compose.yml`**
+   （release 未随旧交付）——正是清理要处理的真实形态。
+3. **平台升 r30**（产品 API）succeeded：v0.5.4；**runner 保持 v0.3.1 未被动**（US-26 再判别）；
+   变体变为 4 个（dev/online 新增 + yml 旧名残留），标记仍 offline。
+4. **runner 组件升 r33**（产品 API）succeeded：v0.3.2；收尾日志逐文件对账
+   （offline/online/yml 全部 v0.3.1→v0.3.2 后）→ **旧名 yml 清理归档**
+   （`backups/legacy-compose-removed-20261007072628/docker-compose.yml`）；最终变体 = **3 个新名**。
+5. **8 项验收全过**：①health v0.5.4/v0.3.2 三 checks true ②5 容器镜像正确 ③network
+   `smartx-hci-capacity-insight-net`/subnet `10.249.251.0/24` ④SQLite integrity ok ⑤Prometheus
+   `/-/ready` 200 ⑥`.env` 0600 root:root ⑦legacy 路径抽查全清 ⑧UI 200。
+   环境限制记录：`.14` 无 Tower 配置（towers=0），采集需配置 Tower 后才产生——与既有轮次口径一致。
+
+**意义**：改名 + 清理链路在**干净机 + 老交付现场形态**下闭环；C1（全新安装+直升）与 C2
+（组件升级）格的**最终候选版证据**就位（见 CHANGELOG 验证说明表）。
