@@ -338,9 +338,18 @@ def purge_legacy_compose_variants(context: ActionContext, task: dict[str, Any]) 
         archive_dir = Path(context.backups_path) / f"legacy-compose-removed-{stamp}"
         try:
             archive_dir.mkdir(parents=True, exist_ok=True)
-            os.replace(legacy, archive_dir / name)
+            # 必须 copy+unlink 而非 os.replace：project 与 backups 在容器视角是**两个
+            # bind 挂载**，rename(2) 跨挂载返回 EXDEV（`.12` 实测 Errno 18）。
+            shutil.copy2(legacy, archive_dir / name)
+            legacy.unlink()
         except OSError as exc:
-            # 清理是善后动作：失败只留痕，绝不影响升级结果
+            # 清理是善后动作：失败只留痕，绝不影响升级结果。
+            # 失败时尽力回收本次新建的留档目录——否则每轮轮询都会留一个空目录
+            # （`.12` 实测一分钟堆了 22 个）。
+            try:
+                archive_dir.rmdir()
+            except OSError:
+                pass
             logging.getLogger(__name__).warning(
                 "US-32n：旧名 compose 清理失败（%s）：%s", legacy, exc
             )
