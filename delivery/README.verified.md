@@ -6,10 +6,11 @@
 本清单由 `backend/tests/test_us49` 系列的 `test_documented_verification_state_is_honest`
 静态锁定（命令必须同时出现在 README 里、状态必须在三个允许值内）。
 
-## 当前状态（2026-09-29）
+## 当前状态（2026-10-08）
 
 | 命令 | 状态 | 证据 |
 | --- | --- | --- |
+| 组件升级（服务管理 → 组件升级：上传 → 预检查 → 开始） | 已验证 | `.3` v0.5.3 环境 v0.3.1→v0.3.2（r35）task `upgrade-926c2f7a3fccf0c1` succeeded；`.12` 同版本自换 task `upgrade-ad6d942746adebe7` succeeded（Web UI 与 API 为同一产品流程） |
 | `bash install/install.sh --help` | 已验证 | `.3` 真实执行，退出码 0、帮助正常输出 |
 | `bash upgrade/upgrade.sh --help` | 已验证 | 单测 `UpgradeScriptExecutionTest::test_help_exits_zero` 真实执行 |
 | `bash install/install.sh`（非 root） | 已验证 | `.3` 用 `su - user1` 真实执行，正确拒绝并说明原因 |

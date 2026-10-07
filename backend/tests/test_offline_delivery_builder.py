@@ -711,10 +711,17 @@ class DeliveryReadmeTest(unittest.TestCase):
         self.assertIn("rm -rf /data/smartx-storage-forecast", text)
 
     def test_documents_upgrade_order(self) -> None:
-        """必须写清"先平台、后 runner"，否则客户容易顺序颠倒导致升级中断。"""
+        """v0.5.4 起必须写清"先 runner 组件、后平台"。
+
+        v0.5.4 平台包包含数据库迁移，由当前运行的 runner 执行；旧 runner（含已发布
+        v0.3.1）执行会因 US-40 失败，因此交付顺序自 v0.5.4 批次起与 v0.5.3 相反。
+        README 若仍写「先平台、后 runner」，客户照做会在迁移步骤失败——用显式断言锁住。
+        """
         text = self._readme()
         self.assertIn("升级顺序", text)
-        self.assertTrue("成功之后" in text or "成功之后" in text)
+        self.assertIn("先 runner 组件", text)
+        self.assertIn("US-40", text)
+        # --with-runner 仍要出现（作为「本批次请勿使用」的警示），不得只字不提
         self.assertIn("--with-runner", text)
 
     def test_explains_why_upgrade_must_use_api(self) -> None:

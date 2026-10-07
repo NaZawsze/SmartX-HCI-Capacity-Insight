@@ -123,26 +123,35 @@ sudo bash install/install.sh \
 
 ---
 
-## 4. 离线升级
+## 4. 离线升级（本批次固定顺序：先 runner 组件，后平台）
+
+**本批次（v0.5.4）的升级分两步，顺序不能颠倒**（原因见 §4.3）：
+
+**第 1 步 — 组件升级**（Web 界面操作：服务管理 → 组件升级）：
+
+1. 浏览器打开 `http://<本机IP>:8080`，用管理员账号登录
+2. 进入「组件升级」：上传 `upgrade/packages/<随包提供的 runner 组件包名>.tar.gz`
+3. 预检查（全部通过）→ 开始升级 → 等待任务到达终态（succeeded）
+
+**第 2 步 — 平台升级**（组件升级成功之后）：
 
 ```bash
 cd smartx-capacity-insight-v0.5.4-offline
 sudo bash upgrade/upgrade.sh
 ```
 
-`packages/` 里只有一个平台升级包时会被自动选中；多个时用 `--package` 指定。
+`packages/` 里只有一个平台升级包时会被自动选中；多个时用 `--package` 指定：
 
 ```bash
 # 指定包
 sudo bash upgrade/upgrade.sh --package upgrade/packages/<随包提供的平台升级包名>.tar.gz --yes
 
-# 平台升级成功之后，若本批次交付了 runner 组件包（以随包交付说明为准），
-# 连带升级 runner 组件
-sudo bash upgrade/upgrade.sh --with-runner upgrade/packages/<随包提供的 runner 组件包名>.tar.gz --yes
+# 当前平台已经是 v0.5.4（同版本重装/修复场景）时，需显式放行：
+sudo bash upgrade/upgrade.sh --allow-same-version --yes
 ```
 
-> **在哪个目录执行都行。** `--package` / `--with-runner` 的相对路径按**脚本自身位置**
-> 解析（不是按你当前所在的目录），所以在 `/root`、`/tmp` 等任意目录下执行上面两条命令
+> **在哪个目录执行都行。** `--package` 的相对路径按**脚本自身位置**
+> 解析（不是按你当前所在的目录），所以在 `/root`、`/tmp` 等任意目录下执行上面命令
 > 都能正确找到包；写绝对路径当然也可以。
 
 ### 4.1 升级脚本做了什么
@@ -169,18 +178,31 @@ sudo bash upgrade/upgrade.sh --with-runner upgrade/packages/<随包提供的 run
 
 本机 API 不需要外网，所以走 API **不会牺牲离线性**。
 
-### 4.3 升级顺序
+### 4.3 升级顺序（本批次：先组件、后平台）
 
-**默认只升平台。** runner 组件升级请在平台升级**成功之后**单独发起（即上面的 `--with-runner`）。
+本批次平台包**包含数据库结构迁移**，迁移由**当前正在运行的 runner** 执行。
+早于本批次组件包的 runner（包括已发布的 v0.3.1 与旧的 v0.3.2 构建）存在脚本挂载缺陷
+（US-40），执行迁移步骤时会挂到空目录、升级失败。因此既有环境必须：
 
-顺序颠倒（旧平台的 web-api 会停掉刚启动的新 runner）可能导致升级中断、runner 心跳丢失。
+1. **先**做第 1 步组件升级（把 runner 换成本批次的 v0.3.2）；
+2. **后**做第 2 步平台升级。
+
+- 当前平台是 **v0.5.3 及以上**：先做组件升级是安全的（平台已含同 project 守卫，
+  原地替换 runner 不会中断服务）。
+- 当前平台是 **v0.5.2**：**不能**先做组件升级（v0.5.2 平台没有该守卫，组件升级会
+  停掉刚启动的新 runner）。请先用 v0.5.3 交付包升级到 v0.5.3，到达 v0.5.3 后再
+  按本节的「组件 → 平台」两步进行。
+- `--with-runner` 选项（平台与组件一次连升）**不适用于本批次**：它的内部顺序是
+  「先平台、后 runner」，在旧环境会在迁移步骤失败。请勿使用。
+- 顺序做反了（先平台）的后果：升级在迁移步骤失败，环境仍停留在旧版本（升级前
+  备份已生成、数据未动）；补做组件升级后重新执行平台升级即可成功。
 
 ### 4.4 升级脚本选项
 
 | 选项 | 默认值 | 说明 |
 | --- | --- | --- |
 | `--package <包路径>` | 自动选 `packages/` 里唯一的平台包 | 要升级的包 |
-| `--with-runner <组件包>` | 不做 | 平台升级成功后再升级 runner 组件 |
+| `--with-runner <组件包>` | 不做 | **本批次请勿使用**：内部顺序是「先平台、后 runner」，在旧环境会在迁移步骤失败（见 §4.3）。本批次组件升级请走第 1 步（Web 界面） |
 | `--base-url <地址>` | `http://127.0.0.1:8000` | 平台 API 地址（默认本机）。排障时可用它指向别处验证连通性 |
 | `--admin-user` / `--admin-password` | 读 `.env`，回退 `admin` / `password` | 管理员凭据 |
 | `--env-file <路径>` | `/data/smartx-storage-forecast/project/.env` | 读取凭据用的 `.env` 位置 |

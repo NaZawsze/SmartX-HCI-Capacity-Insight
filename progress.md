@@ -5931,3 +5931,68 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
 - **基线勘误**：交接文档原记「1148 tests」系沿用旧轮数字——用测试加载器在 `.3` 上对
   93cf4bb（交接态）与 2afd41b（当前）两棵树 × v0.5.3/v0.5.4 两镜像各探测，均为 **1150**；
   2bfb003 未新增测试方法（仅重构 1 例 + 补断言）。交接文档 §1/§6 与 ledger r34 验证状态行已同步修正。
+
+## F. P1-4 重走 ①：`.12` 最终候选（r34+r35）重走发布验收 —— 通过（含 US-40 顺序约束实证）
+
+> 用户 2026-10-08 夜授权「全部完成」；范围 = 发布前重走验收（`.12`/`.14`），
+> **不含**发布动作链（等用户「发布」二字）。`.12` 纪律照旧：只走产品流程、先记基线、宿主不做手工变更。
+
+1. **基线（动手前记录）**：v0.5.4（r30 内容，10-07 C4 产物）+ runner v0.3.2（**r33 内容，
+   未含 US-40 修复**）；health ok=true 三 checks true；数据 3/3/543/89547/1
+   （clusters/towers/vm_latest/vm_volumes/metric_snapshots）、integrity ok；
+   `.env` sha256 `9880a516782cf595…`、mode 600；network 10.249.251.0/24；
+   **环境事件**：宿主 2026-10-08 01:04 重启（`.14` 同时刻同事件，容器全部自动拉起、
+   服务健康，判定为宿主级事件非平台问题）。
+2. **首跑（顺序错误，我的失误）**：按默认铁律「先平台」直接升 r34（task
+   `upgrade-f7d8ca1e7d644c5c`）→ precheck 9 项全过 → 前 4 动作 succeeded →
+   **`run-migration` 失败**：docker 命令里脚本挂载是**容器内路径**
+   `/data/upgrades/upgrade-f7d8ca1e7d644c5c/package/migrations/run_migrations.py`
+   （参数挂载是正确宿主路径）——现场 runner 是 r33（未含修复），US-40 在 `.12` 第二次真机复现。
+   失败现场安全：容器未切版（仍 v0.5.4 r30 内容）、DB 未动（无 owner 列）、
+   备份已生成、compose 未被降级。**根因即 §7.4 顺序约束：r34 带迁移，任何低于 r35 的
+   runner（含已发布 v0.3.1）执行都会撞 US-40。**
+3. **改序重走（组件先、平台后）**：
+   - 组件升级 r35（task `upgrade-ad6d942746adebe7`）：同版本自换机制实证——
+     `component_compose_writeback` 对已等值 tag 幂等 no-op，但 cutover helper
+     `--force-recreate` 无条件换容器 → v0.3.2(r33)→v0.3.2(r35) 内容替换成功，**succeeded**；
+   - 平台升级 r34（task `upgrade-0b0859ec1df3fc88`，`--allow-same-version` 场景：
+     同版本重装）：9 动作全 succeeded，**`run-migration` succeeded**，**succeeded**。
+   - 插曲：轮询 token 用 240 秒 TTL 中途过期（`create_token` 第三参是**秒**），重签 7200 续跑；
+     另遇 `.12` sshd 限流（连续 20 次轮询后 Permission denied），sleep 20s 自愈——
+     轮询节奏按 15-20s 执行。
+4. **8 项验收（全过）**：
+   ① health `ok=true / v0.5.4 / v0.3.2`、三 checks true；
+   ② 5 容器：三件套 v0.5.4、runner v0.3.2（新镜像 `b7615ee1…`，restarts=0）、prometheus v2.55.1 未重建；
+   ③ network `smartx-hci-capacity-insight-net` / 10.249.251.0/24；
+   ④ SQLite 3/3/543/89547/1 **与基线逐位一致**、integrity ok、`schema_migrations`=4、
+     owner/folder_name 列在场；
+   ⑤ Prometheus `/-/ready` 200；
+   ⑥ `.env` sha `9880a516782cf595…` **未变**、mode 600；
+   ⑦ legacy 路径全部不存在；
+   ⑧ UI 8080=200。
+   **US-40 内容判别**：runner 容器内 `sandbox.py` 脚本挂载行 = `docker_host_path(script)` 形态（r35 内容确认）。
+5. **收尾（产品流程内）**：3 个测试任务包经产品 API 删除（`kept_record=true`，
+   历史可查、`has_package=false`），staging 目录已清，磁盘回 11G 空闲。
+   `.12` 现态 = 最终候选：v0.5.4（r34 内容）+ runner v0.3.2（r35 内容）。
+
+## G. delivery-v054 重建（r34+r35）+ 交付 README 顺序修订（发布阻断级文档缺陷）
+
+1. **重建（`.3`）**：`build_offline_delivery.py --platform-package r34 --runner-package r35
+   --runner-baseline v0.3.2 …` **EXIT=0**，21 文件；双包 SHA 复核
+   `1601c66a…`/`3518402b…` OK；install compose 全部变体 runner tag = v0.3.2
+   （镜像取 `.3` 本地 v0.3.2 tag = r35 构建，新装直接落 r35 内容）。
+   旧目录（r30+r33）改名保留 `/data/delivery-v054-r30r33-stale`。
+2. **发现的发布阻断级文档缺陷**：交付 README §4.3 原写「默认只升平台、组件升级在平台
+   成功之后（`--with-runner`）」——按 US-40 顺序约束，客户照做**必然**在迁移步骤失败。
+   修订（`delivery/README.md` + `delivery/README.verified.md` + 门禁测试
+   `test_documents_upgrade_order` 同步翻转）：
+   - §4 改为两步固定顺序：**第 1 步组件升级**（Web 界面 服务管理→组件升级：上传→预检查→开始）
+     **第 2 步平台升级**（`upgrade.sh`）；
+   - §4.3 说明原因（r34 含迁移、由当前 runner 执行、旧 runner 有 US-40）+
+     **v0.5.2 源端须先升 v0.5.3**（US-04 不能先组件）+ `--with-runner` 本批次禁用 +
+     顺序做反的后果（迁移步骤失败、环境留旧版、补组件后重跑即可）；
+   - 本地门禁：`test_offline_delivery_builder` **68 tests OK (skipped=3)**、
+     `verify_release_docs_safe.py` **PASS**（README 无内网 IP/敏感信息）。
+   - 注：`upgrade.sh` 无「纯组件升级」模式（`--with-runner` 恒为平台后组件）——
+     第 1 步走 Web 界面（同一产品 API 流程），不给脚本加新参数（避免扩大交付面）；
+     `--runner-only` 选项列入下版待办。
