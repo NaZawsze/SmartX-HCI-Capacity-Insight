@@ -5996,3 +5996,72 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
    - 注：`upgrade.sh` 无「纯组件升级」模式（`--with-runner` 恒为平台后组件）——
      第 1 步走 Web 界面（同一产品 API 流程），不给脚本加新参数（避免扩大交付面）；
      `--runner-only` 选项列入下版待办。
+3. **`.3` 重建 + `.14` 重传**：新树 `c86c51d` 同步 `.3` → delivery-v054 重建
+   **EXIT=0**（双包/5 镜像 SHA 全 OK，README 新内容在场）→ 整目录管道重传 `.14`
+   （旧目录改名保留后删除；`.14` 上双包 SHA 复核 OK）。
+
+## H. P1-4 重走 ②：`.14` 链 A —— 最终候选全新安装（新装路径）—— 通过
+
+1. **物料**：新 delivery-v054（r34+r35，新 README）+ r34/r35 包（`.3`→本地→`.14`，
+   双端 SHA `1601c66a…`/`3518402b…` 复核 OK）。
+2. **基线（动手前）**：`.14` 现为 v0.5.4（r30 内容）+ runner v0.3.2（r33 内容，
+   10-07 C1 链产物），health ok、towers=0（无业务数据）；**宿主 2026-10-08 01:04
+   重启**（与 `.12` 同时刻，宿主级事件，容器自动拉起）。
+3. **全清（产品式）**：compose down → 逐容器 `docker rm -f` / 逐镜像 `docker rmi` →
+   `rm -rf /data/smartx-storage-forecast`；清后 containers=0 / images=0 / 目录 GONE。
+4. **全新安装**：`install/install.sh --yes` **EXIT=0**，11 步全绿，健康检查通过，
+   平台 v0.5.4 + runner v0.3.2。
+5. **8 项验收（全过）**：
+   ① health `ok=true / v0.5.4 / v0.3.2`、三 checks true；
+   ② 5 容器：三件套 v0.5.4、runner v0.3.2、prometheus v2.55.1；
+   ③ network `smartx-hci-capacity-insight-net` / 10.249.251.0/24；
+   ④ SQLite integrity ok；新列 owner/folder_name/tower_version/os_version 全在场；
+     `schema_migrations`=**0 行**（全新库口径：表存在、台账为空，schema 由构建即完整，
+     与升级态 4 行区分）；vm_latest=0；
+   ⑤ Prometheus `/-/ready` 200；
+   ⑥ `.env` mode 600、新生成（sha `b67c95c7…`）；
+   ⑦ legacy 路径全部不存在；
+   ⑧ UI 8080=200。
+   **runner r35 内容判别**：容器镜像 `sha256:b7615ee16…` **与 `.12` r35 镜像逐位一致**
+   （交付 install 直接装 r35 构建，US-33 口径成立）、`RUNNER_VERSION=v0.3.2`、
+   `sandbox.py:53` = `docker_host_path(script)` 形态。
+
+## I. P1-4 重走 ③：`.14` 链 B —— 客户升级路径 v0.5.3 → v0.5.4（C1 格最终候选）—— 通过
+
+1. **全清**（同 H 第 3 步）→ 解包安装 **delivery-v053**（已发布 v0.5.3 交付，
+   install compose runner=已发布 v0.3.1）：`install.sh --yes` EXIT=0，
+   落点 **v0.5.3 + runner v0.3.1（已发布）** = C1 格真客户基线。
+2. **第 1 步 组件升级 r35**（新 README 两步顺序，走同一产品 API 流程）：
+   upload → precheck（含 `runner_first_order`：v0.5.3 源端守卫在位）→ start，
+   task **`upgrade-b73eeddd5f1adc0e`** **succeeded**；判别：runner 镜像
+   `b7615ee16…`（r35）、`sandbox.py:53` 修复形态、组件版本 API v0.3.2、
+   **web-api 未重启**（旧编排 + US-11 守卫，与 `.3` 昨日同路径）。
+3. **第 2 步 平台升级 r34**（客户脚本路径 `upgrade.sh --yes`，自新 delivery 的
+   packages/）：**预检查 9 项逐项 OK**（`source_compatibility: 支持 v0.5.2→v0.5.4、
+   v0.5.3→v0.5.4、v0.5.4→v0.5.4`；`runner_actions: 9 个动作 v0.3.2 全部支持`）→
+   task **`upgrade-a19d579a69020239`** **升级成功**（UPGRADE_EXIT=0），
+   「v0.5.3 → v0.5.4 / Runner v0.3.2 → v0.3.2」；**run-migration 由 r35 runner 执行成功**。
+   升级后事件驱动自动采集任务 `post-upgrade-collection-…a19d579a69020239` success
+   （US-06 生效，towers=0 空转）。
+4. **8 项验收（全过）**：
+   ① health `ok=true / v0.5.4 / v0.3.2`、三 checks true；
+   ② 5 容器：三件套 v0.5.4、runner v0.3.2（Up 3 分钟——平台升级未 recreate runner）、
+   prometheus v2.55.1；
+   ③ network 10.249.251.0/24；
+   ④ SQLite integrity ok、新列全在场、**`schema_migrations`=4 条全部落库**
+   （vm-latest-owner / vm-latest-folder-name / towers-tower-version / clusters-os-version，
+   均 v0.5.4 expand-only）、vm_latest/towers=0（全新 v0.5.3 基线无数据）；
+   ⑤ Prometheus ready 200；
+   ⑥ `.env` mode 600、sha `2b30fdf8…`（v0.5.3 安装值，平台升级未覆盖）；
+   ⑦ legacy 全部不存在；
+   ⑧ UI 200。
+   **US-26 判别**：平台升级后 runner 镜像仍 `b7615ee16…`（r35）未被降级。
+5. **收尾（产品流程内）**：两任务包经产品 API 删除
+   （`/api/admin/component-upgrade/package/…`、`/api/admin/upgrade/package/…`，
+   `kept_record=true`、释放 301,930,075 + 874,938,240 B，历史 `has_package=False` 可查）；
+   旧 delivery 目录（pre-readme-fix / r30r33-stale）与 staging 包已清；
+   `.14` 保留 delivery-v054（最终）+ delivery-v053 + rel-* 发布资产，20G 空闲。
+
+> **P1-4 重走结论**：r34+r35 在 `.12`（v0.5.4 源端同版本重装 + 组件自换）与
+> `.14`（新装 + v0.5.3 源端客户升级）两形态全链路通过；US-40 顺序约束
+> （先组件后平台）在两机实证。发布前剩余仅**用户明确「发布」指令**后的发布动作链。

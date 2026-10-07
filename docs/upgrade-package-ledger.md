@@ -1051,5 +1051,62 @@ C3 场景 B/C 与 C4 平台直升的 r30/r33 实测见上文各节。**等待用
   与 #85 修复预期逐字节一致、不再被定时采集覆盖回 0；`towers.tower_version=v4.5.0`、
   `clusters.os_version=6.1.1`、owner/folder 落库。
 
-**发布前剩余**：r34+r35 的 `.12`/`.14` 按发布验收清单重走（r30 的既有验证不覆盖本内容）；
+**发布前剩余**：~~r34+r35 的 `.12`/`.14` 按发布验收清单重走~~ **已完成（2026-10-08，见下节）**；
 runner v0.3.2 交付物（git tag / DockerHub 镜像 / Release 资产）仍按 #53 挂起，随发布一起出。
+
+## 2026-10-08 r34+r35 最终候选：`.12`/`.14` 发布验收重走 + **US-40 顺序约束** + delivery-v054 重建（新 README）
+
+### 顺序约束（本轮新增的交付事实，落 docs/upgrade-chain.md §7.4 与交付 README §4.3）
+
+- r34 含数据库迁移，迁移由**当前运行的 runner** 执行；任何低于 r35 的 runner
+  （**含已发布 v0.3.1** 与旧 v0.3.2 构建 r33）都会在 `run-migration` 撞 US-40。
+  版本级 `minimum_runner_version=v0.3.1` 识别不了这种「同版本号不同内容」缺口。
+- 因此 **v0.5.4 批次既有环境交付顺序 = 先组件升级（r35）、后平台升级（r34）**
+  （铁律「平台确需更高 runner」例外的首个实际案例）；v0.5.2 源端因 US-04 不能先组件，
+  须经 v0.5.3 两步到达；全新安装无此问题（install 直接落 r35 构建）。
+- 实证（`.12` 2026-10-08）：先平台（runner=r33）→ `run-migration` 失败
+  （task `upgrade-f7d8ca1e7d644c5c`，现场安全）→ 改先组件 r35
+  （`upgrade-ad6d942746adebe7`）再平台 r34（`upgrade-0b0859ec1df3fc88`）→ 全过。
+
+### `.12`（v0.5.4 源端：同版本重装 + 组件自换，2026-10-08）
+
+组件升级 r35（同版本自换，`--force-recreate` 无条件换容器）succeeded →
+平台升级 r34（`--allow-same-version`）succeeded、`run-migration` succeeded →
+**8 项验收全过**：health v0.5.4/v0.3.2；5 容器（三件套 v0.5.4、runner 新镜像
+`b7615ee1…`、prometheus 未重建）；network 10.249.251.0/24；SQLite 3/3/543/89547/1
+（clusters/towers/vm_latest/vm_volumes/metric_snapshots）逐位不变 + integrity ok +
+`schema_migrations`=4 + 新列在场；Prometheus ready；`.env` sha `9880a516…` 未变 + 600；
+legacy 全清；UI 200。runner 容器 `sandbox.py:53` = `docker_host_path` 形态（r35 内容确认）。
+测试包经产品 API 删除（记录保留）。**`.12` 现态 = 最终候选。**
+（环境事件：宿主 2026-10-08 01:04 重启，容器自动拉起，非平台问题。）
+
+### `.14` 链 A（全新安装，2026-10-08）
+
+全清 → 新 delivery-v054（r34+r35、新 README）`install.sh --yes` **EXIT=0** →
+**8 项验收全过**（health v0.5.4/v0.3.2；5 容器；network；SQLite integrity ok + 新列全在场 +
+`schema_migrations`=0（全新库口径）；Prometheus ready；`.env` 600 新生成；legacy 全清；UI 200）；
+runner 镜像 `b7615ee1…` **与 `.12` r35 逐位一致**（install 直接落 r35 构建，US-33 口径成立）。
+
+### `.14` 链 B（客户升级路径 v0.5.3 → v0.5.4，C1 格最终候选，2026-10-08）
+
+全清 → delivery-v053 全新安装（**v0.5.3 + 已发布 v0.3.1** = 真客户基线）→
+**第 1 步 组件升级 r35** task `upgrade-b73eeddd5f1adc0e` succeeded
+（旧编排 + US-11 守卫，web-api 未重启）→ **第 2 步 平台升级 r34**
+（客户脚本 `upgrade.sh --yes`，预检查 9 项逐项 OK）task `upgrade-a19d579a69020239`
+**succeeded**、`run-migration` 由 r35 runner 执行成功 → **8 项验收全过**
+（health v0.5.4/v0.3.2；5 容器且 runner 未被 recreate（US-26 判别）；network；
+SQLite integrity ok + **`schema_migrations`=4 全部落库** + 新列在场；Prometheus ready；
+`.env` sha `2b30fdf8…`（v0.5.3 值）未覆盖；legacy 全清；UI 200）。
+两任务包经产品 API 删除（`kept_record=true`，历史可查）。
+
+### delivery-v054 重建（新 README，2026-10-08）
+
+- 因 US-40 顺序约束，交付 README §4/§4.3/§4.4 由「默认只升平台、`--with-runner` 平台后组件」
+  修订为「**两步固定顺序：先组件（Web 界面 服务管理→组件升级）、后平台（`upgrade.sh`）**」
+  + v0.5.2 两步到达 + `--with-runner` 本批次禁用 + 做反后果（commit `c86c51d`；
+  门禁测试 `test_documents_upgrade_order` 断言同步翻转；`test_offline_delivery_builder`
+  68 OK / `verify_release_docs_safe` PASS）。
+- `.3:/data/delivery-v054` 重建 **EXIT=0**（r34 平台包 `1601c66a…` + r35 runner 包
+  `3518402b…`，install compose 全部变体 runner tag=v0.3.2、镜像为 r35 构建）；
+  双包/5 镜像 SHA 全 OK。`.14` 已用该目录完成链 A/链 B（见上）。
+  旧目录（r30+r33、pre-readme-fix）已在 `.3`/`.14` 改名归档后按需清理。
