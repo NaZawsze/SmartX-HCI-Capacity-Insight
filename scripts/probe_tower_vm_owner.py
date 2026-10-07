@@ -34,6 +34,23 @@ if str(ROOT / "backend") not in sys.path:
     sys.path.insert(0, str(ROOT / "backend"))
 
 OWNER_KEY_PATTERN = re.compile(r"owner|user|creator|admin", re.IGNORECASE)
+#: CloudTower 约定：VM 的"所有者"以标签承载（2026-10-07 `.3` 只读账号实测：
+#: `labels: [{{"key": "system.cloudtower/owner", "value": "<用户名>"}}]`，值已是**名字**，
+#: 无需 get-users 解析——且只读账号对该端点 500 无权限，恰好不影响本路径）。
+OWNER_LABEL_KEY = "system.cloudtower/owner"
+#: 分组类字段（"虚拟机组/文件夹"候选）：folder 与 vm_placement_group。
+GROUP_KEY_PATTERN = re.compile(r"folder|group|placement", re.IGNORECASE)
+
+
+def _owner_from_labels(item: dict) -> str | None:
+    labels = item.get("labels")
+    if not isinstance(labels, list):
+        return None
+    for label in labels:
+        if isinstance(label, dict) and str(label.get("key") or "") == OWNER_LABEL_KEY:
+            value = label.get("value")
+            return None if value in (None, "") else str(value)
+    return None
 
 
 def _truncate(value: object, limit: int = 120) -> str:
@@ -59,12 +76,31 @@ def _dump_get_vms(client, *, sample: int) -> dict:
     owner_fields_all: set[str] = set()
     for vm in vms[: max(1, sample)]:
         owner_fields_all.update(str(key) for key in _owner_like_fields(vm))
+    # ① labels 承载的所有者（CloudTower 约定）
+    label_owners = {str(vm.get("name") or vm.get("id") or "?"): _owner_from_labels(vm) for vm in vms[: max(1, sample)]}
+    non_null = {name: owner for name, owner in label_owners.items() if owner}
+    if non_null:
+        print(f"[probe] **所有者（labels['{OWNER_LABEL_KEY}']）命中**，样例 {len(non_null)}/{len(label_owners)} 台非空：")
+        for name, owner in label_owners.items():
+            print(f"        - vm={name!r} → owner={owner!r}" + ("" if owner else "（未设置该标签）"))
+        owner_fields_all.add(f"labels[{OWNER_LABEL_KEY}]")
+    # ② 分组类字段（folder / vm_placement_group——"虚拟机组/文件夹"候选）
+    group_hits: dict[str, dict] = {}
+    for vm in vms[: max(1, sample)]:
+        for key in vm:
+            if GROUP_KEY_PATTERN.search(str(key)) and vm.get(key) not in (None, "", [], {}):
+                group_hits.setdefault(str(key), {})[str(vm.get("name") or "?")] = vm.get(key)
+    for key, values in group_hits.items():
+        print(f"[probe] 分组类字段 {key}：{json.dumps({k: _truncate(v) for k, v in values.items()}, ensure_ascii=False)}")
     if owner_fields_all:
         print(f"[probe] 所有者相关字段命中（样例前 {max(1, sample)} 台）：{', '.join(sorted(owner_fields_all))}")
         for vm in vms[: max(1, sample)]:
             name = str(vm.get("name") or vm.get("id") or "?")
             print(f"        - vm={name!r} → {json.dumps({k: _truncate(v) for k, v in _owner_like_fields(vm).items()}, ensure_ascii=False)}")
-        conclusion = "get-vms 原始返回**包含**所有者相关字段——只读可见性由本次调用的账号权限决定（用只读账号跑 Mode A 即为结论）"
+        conclusion = (
+            "get-vms 原始返回**包含**所有者信息——只读可见性由本次调用账号的权限决定"
+            "（只读账号跑出非空即为门 1 通过）"
+        )
     else:
         print("[probe] get-vms 原始返回**未发现**所有者相关字段（owner/user/creator/admin）")
         conclusion = "get-vms 原始返回未含所有者字段——需要另找数据源（见设计文档「候选路径」）"
@@ -132,7 +168,11 @@ def _run_configured_mode(args: argparse.Namespace) -> int:
 
     settings = settings_from_environment()
     database = V2Database(settings)
-    inventory = InventoryService(database)
+    # 兼容两代签名：v0.5.3 的 InventoryService(database, settings)；开发线单参数。
+    try:
+        inventory = InventoryService(database, settings)
+    except TypeError:
+        inventory = InventoryService(database)
     towers = inventory.list_towers()
     if not towers:
         print("产品库里没有已配置的 Tower。", file=sys.stderr)

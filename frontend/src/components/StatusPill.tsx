@@ -4,10 +4,14 @@ interface StatusPillProps {
 
 export function StatusPill({ status }: StatusPillProps) {
   const normalized = status || "unknown";
+  // `partial_failed` 是采集侧"部分失败"的真实取值（collection/service.py），
+  // 曾因前端只认 `partial` 而落到"未知"——2026-10-07 `.14` 实测抓到（部分失败显示未知，
+  // 与右侧"采集异常：成功 N 个集群、失败 M 个集群"自相矛盾）。
+  const partial = normalized === "partial" || normalized === "partial_failed";
   const tone =
     normalized === "success"
       ? "success"
-      : normalized === "partial" || normalized === "running"
+      : partial || normalized === "running"
         ? "warning"
         : normalized === "failed"
           ? "danger"
@@ -15,7 +19,7 @@ export function StatusPill({ status }: StatusPillProps) {
   const label =
     normalized === "success"
       ? "正常"
-      : normalized === "partial"
+      : partial
         ? "部分失败"
         : normalized === "running"
           ? "采集中"
