@@ -147,15 +147,21 @@ sudo bash install/install.sh
 ```bash
 cd offline-delivery
 
-# 平台升级（升级包已在 upgrade/packages/ 里，脚本自动选）
-sudo bash upgrade/upgrade.sh --yes
+# 【v0.5.4 批次固定顺序：第 1 步组件升级走 Web 界面，第 2 步平台升级走脚本】
+# 第 1 步：浏览器打开 http://<客户机器IP>:8080 → 服务管理 → 组件升级 →
+#         上传 upgrade/packages/ 里的 runner 组件包 → 预检查 → 开始升级
 
-# 平台升级成功之后，连带升级 runner 组件
-sudo bash upgrade/upgrade.sh --yes --with-runner packages/smartx-upgrade-runner-v0.3.2.tar.gz
+# 第 2 步：组件升级成功之后，平台升级
+sudo bash upgrade/upgrade.sh --yes
 ```
 
-**升级顺序铁律：先平台，后 runner。** 顺序颠倒（旧平台的 web-api 会停掉刚启动的新 runner）会导致升级中断。
-`--with-runner` 会**先等升级后清理（post-cleanup）收敛**再升 runner，不会被单飞守卫拒绝。
+**升级顺序：v0.5.4 批次「先组件（Web 界面）、后平台」（2026-10-08 US-40）。**
+v0.5.4 平台包包含数据库迁移，由现场正在运行的 runner 执行；旧 runner（含已发布 v0.3.1）
+在迁移步骤必失败，所以**必须先做组件升级**再做平台升级。反序会升级失败（现场安全：
+容器未切版、数据未动，补做组件升级后重跑即可）。
+- v0.5.2 源端：先升 v0.5.3，再按上面两步到达 v0.5.4（v0.5.2 平台不能先组件）。
+- `--with-runner`（平台+组件一次连升）**本批次请勿使用**——内部顺序是「先平台、后 runner」。
+- 历史批次（v0.5.4 之前）的顺序铁律是「先平台、后 runner」；细节见 `docs/upgrade-chain.md` §7.4。
 
 ### 4.3 客户侧常见问题
 

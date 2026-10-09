@@ -276,6 +276,7 @@ Replace `admin` with the actual platform username when needed. After reset, log 
 **顺序铁律（条件式）：默认先升平台、后升 runner 组件；唯一例外是「平台确需更高 runner」——此时先升 runner、再升平台。**
 - **默认（够用就不动 runner）**：平台包的 `minimum_runner_version` 只表示**最低**要求，现场 runner **≥** 它即可执行本次升级（预检查按「≥」判定，不限精确版本）。既然够用，**runner 就不需要动**——现场 runner 保持原样，平台升级也不应改动它。
 - **例外（平台确需更高 runner）**：当平台新增了旧 runner **无法执行**的能力/动作（平台包的 `minimum_runner_version` 高于现场 runner）时，才**先升 runner、再升平台**；此时平台预检查会明确拒绝并提示所需 runner 版本，不会放行。
+- **v0.5.4 批次例外（2026-10-08，US-40）**：v0.5.4 平台包包含数据库迁移、由**现场正在运行的 runner** 执行；早于本批次组件构建（r35）的 runner——**含已发布 v0.3.1**——在迁移步骤必失败（版本级 `minimum_runner_version` 识别不了这种「同版本号、不同内容」的缺口）。因此**既有环境升级 v0.5.4 必须「先组件、后平台」**：v0.5.3+ 源端直接两步；v0.5.2 源端先升 v0.5.3 再走两步；全新安装无顺序问题。权威说明见 [upgrade-chain.md](upgrade-chain.md) §7.4，客户操作见交付包内 `README.md` §4。
 - **推论（US-26）**：现场 runner 已满足平台包要求时，平台升级**不得按包内基线 tag 重建 runner**（当前实现会，详见 `docs/upgrade-strategy-issues.md` US-26）。
 
 1. **为什么必须按这个顺序**：目标布局源端（v0.5.2）的 web-api 在执行 runner 组件升级时会无条件执行 `docker compose --project-name <当前 project> stop upgrade-runner`；目标布局机器上停掉的就是**刚启动的新 runner**（实测约 10s 后 `SIGKILL`、`exit=137`，心跳过期 → 后续升级预检查报「未检测到 upgrade-runner 心跳」）。这个同 project 守卫只在 **v0.5.3 起**的镜像里，旧源端改不到，所以**任何现场都按上述顺序做**。

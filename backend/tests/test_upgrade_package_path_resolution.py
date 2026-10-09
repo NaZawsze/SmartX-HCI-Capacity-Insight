@@ -164,16 +164,28 @@ class DocumentedCommandMatchesBehaviourTest(unittest.TestCase):
         self.readme = (ROOT / "delivery" / "README.md").read_text(encoding="utf-8")
 
     def test_readme_example_is_a_supported_relative_form(self) -> None:
-        """README 给的相对写法必须是归一化支持的两种之一。"""
+        """README 里出现的 --with-runner 实参写法必须是归一化支持的两种之一。
+
+        2026-10-08（US-40 修订）：v0.5.4 批次交付 README 固定「先组件（Web 界面）、后平台」
+        两步，并以文字写明 `--with-runner` **本批次请勿使用**——README 因此不再给出该选项的
+        示例命令。本测试改为条件式：出现真实示例时锁定写法；未出现时必须写明禁用/不适用原因
+        （禁止"把示例悄悄删掉"就当放宽）。
+        """
         examples = [
             m.group(1) for m in re.finditer(r"--with-runner\s+(\S+)", self.readme)
             if not m.group(1).startswith("<")
         ]
-        self.assertTrue(examples, "README 应给出 --with-runner 示例")
-        arg = examples[0]
+        if examples:
+            arg = examples[0]
+            self.assertTrue(
+                arg.startswith("packages/") or arg.startswith("upgrade/packages/"),
+                f"README 示例应为受支持的相对写法，实际 {arg}",
+            )
+            return
+        self.assertIn("--with-runner", self.readme, "README 应至少提及 --with-runner（禁用也需有出处）")
         self.assertTrue(
-            arg.startswith("packages/") or arg.startswith("upgrade/packages/"),
-            f"README 示例应为受支持的相对写法，实际 {arg}",
+            "请勿使用" in self.readme or "不适用" in self.readme,
+            "README 未给 --with-runner 示例时必须写明本批次禁用/不适用的原因",
         )
 
     def test_script_usage_shows_same_form(self) -> None:
