@@ -48,8 +48,12 @@ export function setToken(token: string | null): void {
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+// 采集是同步长请求：实测 .3（201 台 VM）约 80s、.12（543 台 VM）约 111s。
+// 4 分钟上限低于 nginx proxy_read_timeout（300s）；超时只是前端放弃等待，不影响后台采集。
+const COLLECTION_REQUEST_TIMEOUT_MS = 240_000;
+const COLLECTION_TIMEOUT_MESSAGE = "采集执行超过 4 分钟未返回：后台可能仍在执行，请稍后在采集状态或任务中心查看结果";
 
-async function request<T>(path: string, options: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
+async function request<T>(path: string, options: RequestInit & { timeoutMs?: number; timeoutMessage?: string } = {}): Promise<T> {
   const token = getToken();
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
@@ -64,7 +68,7 @@ async function request<T>(path: string, options: RequestInit & { timeoutMs?: num
   } catch (exc) {
     window.clearTimeout(timer);
     if (exc instanceof DOMException && exc.name === "AbortError") {
-      throw new Error("请求超时");
+      throw new Error(options.timeoutMessage ?? "请求超时");
     }
     throw new Error(exc instanceof Error ? exc.message : "网络请求失败");
   }
@@ -327,7 +331,9 @@ export const api = {
   async runCollection(taskId?: string): Promise<{ run_id: number; status: string; message: string; task_id?: string }> {
     return request<{ run_id: number; status: string; message: string; task_id?: string }>("/api/collection/run", {
       method: "POST",
-      body: taskId ? JSON.stringify({ task_id: taskId }) : undefined
+      body: taskId ? JSON.stringify({ task_id: taskId }) : undefined,
+      timeoutMs: COLLECTION_REQUEST_TIMEOUT_MS,
+      timeoutMessage: COLLECTION_TIMEOUT_MESSAGE
     });
   },
   async vms(scope?: DashboardScope): Promise<MetricItem[]> {

@@ -2332,3 +2332,30 @@ B=`rolled_back`+计数守卫、C=restore→override→apply→health 四动作+v
 - A3 `.3` r34 平台升级 succeeded：`run-migration` succeeded、`schema_migrations` 4 条落库、
   8 项验收（health/5 容器/network/SQLite/Prometheus/.env/legacy/UI）全过、升级后自动采集成功、
   已分配 = 320.00 GiB（不再被定时采集覆盖回 0）。
+
+## Phase 72 - 「请求超时」误报修复（采集同步长请求 × 前端 30s 全局超时）+ 候选重切 r36
+
+来源：2026-10-09 用户截图——总览点「立即采集」约 30s 后出现「请求超时」，同时状态仍显示
+「采集中」，用户询问含义。根因取证：`/api/collection/run` 是同步接口（.3 201 台 VM 实测
+78–80s、.12 543 台实测约 111s），前端 `request()` 默认 30s AbortController 超时必然先触发
+并抛「请求超时」；**abort 只是前端放弃等待，后端采集未被中断、整轮照常成功落库**
+（.3 collection_runs #302–304 均 success）。所以这是**误报**而非采集失败。
+
+**目标**：①采集请求专用超时 240s（< nginx `proxy_read_timeout` 300s），35s 不误杀、
+240s 触发诚实文案（「后台可能仍在执行，请稍后在采集状态或任务中心查看结果」）；
+②默认 30s 超时对其他接口不变；③vitest 两例回归锁定；④发布侧：重切平台包 **r36**
+（r34 + 本修复），走 `.3` 同版本重装 + 8 项验收 + **真实采集端到端**（含浏览器目视），
+`.12` 重装验收，delivery 重建并 `.14` 双链复验。
+
+**无专项设计文档，口径记录于本文件 + findings.md 2026-10-09 条 + pending-tasks #87**
+（理由：单点缺陷修复，改动面=前端 api.ts 一个请求选项 + 一个新测试文件 + 打包重切；
+真正的结构性修法「采集接口异步化」登记 pending #87，列下一版范围）。
+
+**验收**：
+- B1 本地：`tsc -b` exit 0、`vitest run` 全过（含新增 api.test.ts 两例）。
+- B2 `.3`：前端门禁全过 → 重建平台包 r36 + identity/expand-only/词汇/敏感门禁全过。
+- B3 `.3`：同版本重装（`--allow-same-version`）r36 succeeded → 8 项验收全过 →
+  **页面真实采集**：点「立即采集」不再出现 30s「请求超时」误报，任务中心与
+  collection_runs 落 success。
+- B4 `.12`：基线记录 → r36 重装 succeeded → 8 项验收（runner r35 未被平台升级触碰）。
+- B5 `.14`：delivery 重建（r36+r35）→ 链 A 全新安装 + 链 B 客户升级路径，各 8 项验收全过。

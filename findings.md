@@ -1028,3 +1028,30 @@ https://code-site.smartx.com/specs/<version>-swagger.json
 （docker 自建空目录，birth 与失败时刻吻合）；
 `/data/smartx-storage-forecast/upgrades/upgrade-93e46d573190529f/package/migrations/run_migrations.py`
 （真实脚本，5671 字节，SHA `9edbafdc…` 与 manifest 一致）。
+
+## 2026-10-09 前端 30s 超时遇采集同步长请求 =「请求超时」误报（.3/.12 实测 + 用户截图）
+
+**现象**：总览点「立即采集」，约 30 秒后采集状态卡出现「请求超时」，而按钮/状态颗粒仍显示「采集中」；
+再过约 1 分钟数据更新、「最后成功采集」刷新——用户误判采集失败（2026-10-09 用户截图即为 .3 该状态）。
+
+**证据链（实库 + 代码对照）**：
+
+1. `/api/collection/run` 是**同步接口**：`CollectionService.run_manual_collection` 全部采集完才返回。
+   实测耗时：`.3`（201 台 VM）**78–80 秒**（collection_runs #302–304 均 success）；
+   `.12`（543 台 VM）**约 111 秒**（#329）。均远超 30 秒。
+2. 前端 `frontend/src/services/api.ts` 的 `request()` 默认 **30s** AbortController 超时
+   → 必然先于后端完成而 abort 并抛「请求超时」；**abort 只是前端放弃等待，
+   后端请求未被中断**，继续执行并成功落库（.3 #304：22:45:58 开始 → 22:47:16 success）。
+3. 30s 之后到采集完成之间，UI 同时显示两个互相矛盾的信号：「采集中」（来自 summary 轮询读到的
+   `latest_run.status=running`，是**真实**状态）与「请求超时」（前端 abort，是**误报**）。
+   后端任务中心记录最后会翻成 success，进一步说明是误报。
+
+**修复（2026-10-09，v0.5.4 候选内）**：采集请求专用超时 **240s**（< nginx `proxy_read_timeout` 300s），
+超时文案改为诚实措辞「采集执行超过 4 分钟未返回：后台可能仍在执行，请稍后在采集状态或任务中心查看结果」；
+默认 30s 超时对其他接口保持不变（2026-09-12 缺陷 A 的修复初衷不受影响）。vitest 两例锁定：
+35s 不误杀采集、240s 触发诚实文案。**根因归类**：同步长请求 × 客户端短超时组合缺陷；
+真正的结构性修法是采集接口异步化（提交即返回 `run_id`、前端轮询），登记 pending #87（下版）。
+
+**同类审计（未超 30s，本次不改）**：`/api/admin/system/restart`（compose up ≈ 秒级）、
+SQLite vacuum（本地快）、迁移导入/导出（已走异步任务）均未观察到 >30s；如后续出现同类症状，
+按同一手法（专用超时 + 诚实文案）处理。
