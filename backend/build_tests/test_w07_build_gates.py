@@ -287,6 +287,94 @@ class VocabularyPlanCompilationTests(unittest.TestCase):
         subset = next(item for item in result["checks"] if item["id"] == "plan_actions_subset")
         self.assertEqual(subset["status"], "PASS")
 
+    def test_plan_count_allows_migration_action_when_manifest_requires_it(self) -> None:
+        """2026-10-09（r36 打包门禁真跑暴露的漂移）：带迁移包的合法计划是 9 动作。
+
+        r34 起 manifest 含 expand-only 迁移（`migration.required=true`），编译器插入
+        第 9 个动作 `run-migration`（script.run_sandboxed）。原门禁硬编码 8 只对无迁移包
+        成立——若不按 manifest 推导，任何带迁移的包在真跑时会误报 FAIL（注释诱因是
+        r34/r35 打包时该门禁未被重跑）。
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            runner_package = _runner_package(
+                directory,
+                version="v0.3.1",
+                actions=[
+                    "backup.create", "compose.apply", "image.load", "health.http",
+                    "script.run_sandboxed", "files.sync", "compose.override",
+                ],
+            )
+            manifest = _platform_manifest()
+            manifest["migration"] = {"required": True, "script": "migrations/run_migrations.py", "sha256": "x"}
+            platform_package = _platform_package(directory, manifest)
+            original = vocabulary.compile_plans_from_package
+
+            def _grid() -> list[dict]:
+                return [
+                    {"id": "backup", "type": "backup.create"},
+                    {"id": "load-1", "type": "image.load"},
+                    {"id": "load-2", "type": "image.load"},
+                    {"id": "load-3", "type": "image.load"},
+                    {"id": "sync", "type": "files.sync"},
+                    {"id": "override", "type": "compose.override"},
+                    {"id": "run-migration", "type": "script.run_sandboxed"},
+                    {"id": "compose", "type": "compose.apply", "services": ["collector-worker", "frontend", "web-api"]},
+                    {"id": "health", "type": "health.http"},
+                ]
+
+            vocabulary.compile_plans_from_package = lambda package, manifest: {
+                "by_source": {"v0.5.2": _grid(), "v0.5.3": _grid()},
+                "errors": [],
+            }
+            try:
+                result = vocabulary.verify(platform_package=platform_package, runner_package=runner_package)
+            finally:
+                vocabulary.compile_plans_from_package = original
+        self.assertTrue(result["ok"], result)
+        scope = next(item for item in result["checks"] if item["id"] == "apply_services_scope")
+        self.assertEqual(scope["status"], "PASS")
+        self.assertIn("9 个", scope["detail"])
+        self.assertIn("run-migration", scope["detail"])
+
+    def test_plan_count_still_rejects_extra_action_without_migration(self) -> None:
+        """无迁移包仍是 8 动作硬断言——多一个动作必须 FAIL（防漂移保持有效）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            runner_package = _runner_package(
+                directory, version="v0.3.1",
+                actions=["backup.create", "compose.apply", "image.load", "health.http", "script.run_sandboxed"],
+            )
+            platform_package = _platform_package(directory, _platform_manifest())
+            original = vocabulary.compile_plans_from_package
+
+            def _grid() -> list[dict]:
+                grid = [
+                    {"id": "backup", "type": "backup.create"},
+                    {"id": "load-1", "type": "image.load"},
+                    {"id": "load-2", "type": "image.load"},
+                    {"id": "load-3", "type": "image.load"},
+                    {"id": "sync", "type": "files.sync"},
+                    {"id": "override", "type": "compose.override"},
+                    {"id": "compose", "type": "compose.apply", "services": ["collector-worker", "frontend", "web-api"]},
+                    {"id": "health", "type": "health.http"},
+                ]
+                grid.append({"id": "extra", "type": "health.http"})
+                return grid
+
+            vocabulary.compile_plans_from_package = lambda package, manifest: {
+                "by_source": {"v0.5.3": _grid()},
+                "errors": [],
+            }
+            try:
+                result = vocabulary.verify(platform_package=platform_package, runner_package=runner_package)
+            finally:
+                vocabulary.compile_plans_from_package = original
+        self.assertFalse(result["ok"])
+        scope = next(item for item in result["checks"] if item["id"] == "apply_services_scope")
+        self.assertEqual(scope["status"], "FAIL")
+        self.assertIn("期望 8", scope["detail"])
+
     def test_schema_mismatch_fails_even_when_actions_fine(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)

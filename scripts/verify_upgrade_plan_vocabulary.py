@@ -55,10 +55,18 @@ COMPILER_SOURCE = "backend/app/v2/upgrade/compiler.py"
 # 计划里出现这些动作类型就必然需要更高版本 runner（人类可读的失败原因补充）
 _NOTE_SOURCE_COMPILED_BELOW = "v0.5.3"
 
-#: v0.5.4 平台包每个源版本格的动作数（常量计划：backup.create + image.load×3 +
+#: v0.5.4 平台包的**基础**动作数（常量计划：backup.create + image.load×3 +
 #: files.sync + compose.override + compose.apply + health.http）。裁剪 apply 服务集合
 #: **不得**改动动作序列本身——只改 compose.apply 的 params.services。
+#:
+#: 2026-10-09 修复（r36 打包门禁真跑暴露）：r34 起包含 expand-only 迁移
+#: （`manifest.migration.required=true`），编译器会插入第 9 个动作
+#: `run-migration`（script.run_sandboxed）——原硬编码 8 只覆盖无迁移包，
+#: r34/r35 打包时该门禁**未被重跑**因而漂移未被发现。现改为按 manifest 推导：
+#: expected = 8 + (1 if migration.required else 0)，有迁移的包按 9 断言。
 PLAN_ACTION_COUNT = 8
+#: 带迁移包的额外动作数（run-migration）：`script.run_sandboxed`。
+PLAN_ACTION_COUNT_WITH_MIGRATION = PLAN_ACTION_COUNT + 1
 
 
 class GateError(Exception):
@@ -404,7 +412,10 @@ def verify(
             # 而 config-hash 是 compose **版本相关**的算法，容器永久携带创建者的版本算出的值，
             # apply 用的却是 runner 镜像内置的 compose —— 版本不一致必然不匹配。
             # 因此这里把「apply 集合 = 三件套」升为硬断言：谁把 prometheus 放回去，门禁就红。
+            # 2026-10-09：动作数按 manifest 推导（有迁移 +1 个 run-migration），见常量注释。
             expected_apply = ["collector-worker", "frontend", "web-api"]
+            migration_required = bool((manifest.get("migration") or {}).get("required"))
+            expected_count = PLAN_ACTION_COUNT_WITH_MIGRATION if migration_required else PLAN_ACTION_COUNT
             scope_bad: list[str] = []
             count_bad: list[str] = []
             for source in sorted(by_source):
@@ -416,8 +427,8 @@ def verify(
                         break
                 if apply_services != expected_apply:
                     scope_bad.append(f"{source}: {apply_services}")
-                if len(items) != PLAN_ACTION_COUNT:
-                    count_bad.append(f"{source}: {len(items)} 个（期望 {PLAN_ACTION_COUNT}）")
+                if len(items) != expected_count:
+                    count_bad.append(f"{source}: {len(items)} 个（期望 {expected_count}）")
             if scope_bad:
                 record(
                     "apply_services_scope",
@@ -432,7 +443,8 @@ def verify(
                     "apply_services_scope",
                     "PASS",
                     f"{len(by_source)} 个源版本格的 compose.apply.services 均为 {expected_apply}"
-                    f"（prometheus/upgrade-runner 均不在集合内），动作序列仍为 {PLAN_ACTION_COUNT} 个不变",
+                    f"（prometheus/upgrade-runner 均不在集合内），动作序列为 {expected_count} 个"
+                    f"（{'含' if migration_required else '无'} run-migration{'，manifest.migration.required=true' if migration_required else ''}）",
                 )
             legacy_sources = sorted(source for source in by_source if source < _NOTE_SOURCE_COMPILED_BELOW)
             if legacy_sources:
