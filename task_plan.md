@@ -2359,3 +2359,17 @@ B=`rolled_back`+计数守卫、C=restore→override→apply→health 四动作+v
   collection_runs 落 success。
 - B4 `.12`：基线记录 → r36 重装 succeeded → 8 项验收（runner r35 未被平台升级触碰）。
 - B5 `.14`：delivery 重建（r36+r35）→ 链 A 全新安装 + 链 B 客户升级路径，各 8 项验收全过。
+
+## Phase 73 - 报表导出增强：所有者/虚拟机组/已分配全量落位
+
+来源：2026-10-09 用户需求「导出的 word 和 xlsx 需要有新增的虚拟机组、虚拟机所属者，还有已分配」。
+Phase 69 只给 Word/Excel 的 VM 增长类表格加了两列；真实导出样本盘点（.3，2026-10-09）发现缺口：
+集群层完全没消费 `clusters[].allocated`，Excel 新建 VM 两 Sheet 与每集群 Sheet 的 VM 表没有 owner/folder。
+
+设计：`docs/superpowers/specs/2026-10-09-report-export-owner-folder-allocated-design.md`（含逐表现状
+盘点、改动面、测试计划、3 个决策点默认值）。改动仅导出层（word.py/excel.py + 单测），数据源全部已存在。
+
+验收：
+- C1 本地：导出单测（新布局/空值/allocated 缺失四形态）+ 既有导出回归全过。
+- C2 `.3`：导出 Word/Excel 逐项断言（info 表含总已分配行、容量趋势含已分配两列、
+  新建 VM Sheet 7 列含 owner/folder）+ 人工目视一次。
