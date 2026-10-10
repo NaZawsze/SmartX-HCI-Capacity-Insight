@@ -5,7 +5,8 @@ import urllib.request
 import zipfile
 from openpyxl import load_workbook
 
-BASE_URL = "http://127.0.0.1:8000"  # 容器内部端口为 8000
+import os
+BASE_URL = os.environ.get("SMARTX_API_URL") or (sys.argv[1] if len(sys.argv) > 1 else "http://10.20.11.3:8000")
 
 def main():
     print("1. 正在登录平台...")
