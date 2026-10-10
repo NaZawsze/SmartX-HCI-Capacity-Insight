@@ -2366,10 +2366,16 @@ B=`rolled_back`+计数守卫、C=restore→override→apply→health 四动作+v
 Phase 69 只给 Word/Excel 的 VM 增长类表格加了两列；真实导出样本盘点（.3，2026-10-09）发现缺口：
 集群层完全没消费 `clusters[].allocated`，Excel 新建 VM 两 Sheet 与每集群 Sheet 的 VM 表没有 owner/folder。
 
-设计：`docs/superpowers/specs/2026-10-09-report-export-owner-folder-allocated-design.md`（含逐表现状
-盘点、改动面、测试计划、3 个决策点默认值）。改动仅导出层（word.py/excel.py + 单测），数据源全部已存在。
+- 设计：`docs/superpowers/specs/2026-10-09-report-export-owner-folder-allocated-design.md`（含逐表现状盘点、改动面、测试计划、3 个决策点默认值）。
+- 实施计划：`docs/superpowers/plans/2026-10-10-report-export-enhancement.md`。
+
+任务列表：
+- [x] Word 导出：范围基本信息表加「总已分配容量」，集群增长表加「已分配（占比）」列（7列），排版美化。
+- [x] Excel 导出：执行摘要 KPI 条 4→5 格，容量趋势表加「已分配容量」「已分配率」（11列），新建 VM 两 Sheet 加「所有者」「虚拟机组」（7列），每集群 Sheet 头部加「已分配容量」（10列）及 VM 表加两列（7列），全局对齐与列宽优化。
+- [x] 本地测试：新增/更新导出单测，测试空值与缺失兼容性，测试通过。
+- [ ] dev2 提交：本地提交。
+- [ ] .3 远端验证：同步至 .3，运行测试，部署并导出真实 Word/Excel 文件目视核对。
 
 验收：
 - C1 本地：导出单测（新布局/空值/allocated 缺失四形态）+ 既有导出回归全过。
-- C2 `.3`：导出 Word/Excel 逐项断言（info 表含总已分配行、容量趋势含已分配两列、
-  新建 VM Sheet 7 列含 owner/folder）+ 人工目视一次。
+- C2 `.3`：导出 Word/Excel 逐项断言（info 表含总已分配行、容量趋势含已分配两列、新建 VM Sheet 7 列含 owner/folder）+ 人工目视一次。

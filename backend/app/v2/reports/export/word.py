@@ -584,6 +584,7 @@ def _customer_cluster_info_table(
 ) -> None:
     total_current = sum(float((item.get("forecast") or {}).get("current") or 0) for item in clusters)
     total_capacity = sum(float(item.get("total") or 0) for item in clusters)
+    total_allocated = sum(float(item.get("allocated") or 0) for item in clusters)
     risk_clusters = [item for item in clusters if _risk_level(item)[0] != "正常"]
     vm_total = sum(_cluster_vm_count(item, vm_counts.get(_cluster_key(item.get("labels") or {}))) for item in clusters)
     risk = _overall_risk_status(clusters)[0] if clusters else "数据不足"
@@ -595,6 +596,7 @@ def _customer_cluster_info_table(
         ("集群数量", f"{len(clusters)} 个"),
         ("当前已用容量", _bytes_label(total_current)),
         ("总容量", _bytes_label(total_capacity)),
+        ("总已分配容量", _bytes_label(total_allocated)),
         ("风险状态", risk),
         ("风险集群数", f"{len(risk_clusters)} 个"),
         ("增长 VM 样本数", f"{vm_total} 台"),
@@ -609,15 +611,27 @@ def _customer_cluster_info_table(
         _docx_set_cell(table_row.cells[1], value, color=_risk_word_color(str(value)) if label == "风险状态" else TEXT_DARK, bold=label == "风险状态", font_size=10)
 
 
+def _cluster_allocated_ratio_label(cluster: dict[str, Any]) -> str:
+    allocated = float(cluster.get("allocated") or 0)
+    total = float(cluster.get("total") or 0)
+    allocated_str = _bytes_label(allocated)
+    if total > 0 and allocated > 0:
+        return f"{allocated_str} · {allocated / total:.2%}"
+    return allocated_str
+
+
 def _customer_cluster_growth_table(document: Document, context: dict[str, Any], clusters: list[dict[str, Any]]) -> None:
-    headers = ["Tower", "集群", "近 14 天样本增长", "近 30 天样本增长", "近 90 天样本增长", "90 天预测容量"]
+    headers = ["Tower", "集群", "已分配（占比）", "近 14 天样本增长", "近 30 天样本增长", "近 90 天样本增长", "90 天预测容量"]
     table = document.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _docx_set_table_width(table, [1400, 1700, 1500, 1500, 1500, 1500])
+    _docx_set_table_width(table, [1200, 1500, 1600, 1200, 1200, 1200, 1200])
     _customer_set_blue_headers(table.rows[0].cells, headers)
+    _repeat_table_header(table.rows[0])
     if not clusters:
-        _docx_set_docx_row(table.add_row().cells, ["当前范围暂无集群容量数据"] + ["-"] * (len(headers) - 1))
+        row = table.add_row().cells
+        _docx_set_docx_row(row, ["当前范围暂无集群容量数据"] + ["-"] * (len(headers) - 1))
+        _prevent_row_split(table.rows[-1])
         return
     for index, cluster in enumerate(clusters[:8], start=1):
         row = table.add_row().cells
@@ -626,6 +640,7 @@ def _customer_cluster_growth_table(document: Document, context: dict[str, Any], 
         values = [
             labels.get("tower") or labels.get("tower_id") or "-",
             _cluster_name(cluster),
+            _cluster_allocated_ratio_label(cluster),
             _cluster_growth_window_label(cluster, 14),
             _cluster_growth_window_label(cluster, 30),
             _cluster_growth_window_label(cluster, 90),
@@ -634,8 +649,11 @@ def _customer_cluster_growth_table(document: Document, context: dict[str, Any], 
         _docx_set_docx_row(row, values)
         if index % 2 == 0:
             _docx_shade_row(row, ACCENT_SOFT)
-        for cell in row[2:5]:
+        _docx_set_cell_text_style(row[2], TEXT_DARK, align=WD_ALIGN_PARAGRAPH.CENTER)
+        for cell in row[3:6]:
             _docx_set_cell_text_style(cell, GROWTH_BLUE, align=WD_ALIGN_PARAGRAPH.CENTER)
+        _docx_set_cell_text_style(row[6], TEXT_DARK, align=WD_ALIGN_PARAGRAPH.CENTER)
+        _prevent_row_split(table.rows[-1])
     _customer_table_note(document, "说明：近 14/30/90 天样本增长按对应周期内采集样本计算；采集历史不足对应天数时显示数据不足。")
 
 

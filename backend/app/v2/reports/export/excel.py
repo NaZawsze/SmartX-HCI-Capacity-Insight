@@ -173,12 +173,14 @@ def _write_xlsx_template_summary(
 ) -> None:
     _clear_xlsx_sheet(sheet)
     current = sum(float((cluster.get("forecast") or {}).get("current") or 0) for cluster in clusters)
+    allocated = sum(float(cluster.get("allocated") or 0) for cluster in clusters)
     forecast_90d = sum(float((cluster.get("forecast") or {}).get("forecast_90d") or 0) for cluster in clusters)
     total = sum(float(cluster.get("total") or 0) for cluster in clusters)
     growth = sum(_cluster_period_growth(cluster, profile.days) for cluster in clusters)
     risk_status, _, risk_note = _overall_risk_status(clusters)
     growth_ratio = growth / max(current - growth, 1) if growth > 0 else 0.0
     usage_ratio = current / total if total else 0.0
+    allocated_ratio = allocated / total if total else 0.0
     forecast_ratio = forecast_90d / total if total else 0.0
 
     _set_xlsx_cell(sheet, "A1", "一、执行摘要", size=16, bold=True, color=ACCENT_DARK)
@@ -189,9 +191,15 @@ def _write_xlsx_template_summary(
         size=10,
         color=TEXT_MUTED,
     )
-    headers = ["当前已用容量", profile.window_growth_label, "90 天预测容量", "风险状态"]
-    values = [_xlsx_bytes_label(current), _xlsx_signed_bytes_label(growth), _xlsx_bytes_label(forecast_90d), risk_status]
-    subtitles = [f"使用率 {_percent_label(usage_ratio)}", f"增长率 {_percent_label(growth_ratio)}", f"预计使用率 {_percent_label(forecast_ratio)}", risk_note]
+    headers = ["当前已用容量", "已分配容量", profile.window_growth_label, "90 天预测容量", "风险状态"]
+    values = [_xlsx_bytes_label(current), _xlsx_bytes_label(allocated), _xlsx_signed_bytes_label(growth), _xlsx_bytes_label(forecast_90d), risk_status]
+    subtitles = [
+        f"使用率 {_percent_label(usage_ratio)}",
+        f"已分配率 {_percent_label(allocated_ratio)}" if total else "-",
+        f"增长率 {_percent_label(growth_ratio)}",
+        f"预计使用率 {_percent_label(forecast_ratio)}",
+        risk_note,
+    ]
     for column, (header, value, subtitle) in enumerate(zip(headers, values, subtitles), start=1):
         for row in [4, 5, 6]:
             cell = sheet.cell(row=row, column=column)
@@ -200,7 +208,7 @@ def _write_xlsx_template_summary(
         sheet.cell(row=4, column=column).value = header
         sheet.cell(row=4, column=column).font = Font(name=XLSX_FONT_NAME, size=10, bold=True, color="000000")
         sheet.cell(row=5, column=column).value = value
-        sheet.cell(row=5, column=column).font = Font(name=XLSX_FONT_NAME, size=18, bold=True, color=RATIO_RED if risk_status == "高风险" and column == 4 else ACCENT_DARK)
+        sheet.cell(row=5, column=column).font = Font(name=XLSX_FONT_NAME, size=18, bold=True, color=RATIO_RED if risk_status == "高风险" and column == 5 else ACCENT_DARK)
         sheet.cell(row=6, column=column).value = subtitle
         sheet.cell(row=6, column=column).font = Font(name=XLSX_FONT_NAME, size=10, bold=True, color="000000")
 
@@ -226,7 +234,7 @@ def _write_xlsx_template_summary(
     )
     for row in [1, 2, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, disclaimer_row]:
         _merge_title_row(sheet, row, 1, 6)
-    for column, width in {"A": 50, "B": 20.5, "C": 18, "D": 38.83203125, "E": 16}.items():
+    for column, width in {"A": 26, "B": 24, "C": 24, "D": 24, "E": 26, "F": 16}.items():
         sheet.column_dimensions[column].width = width
     for row, height in {
         1: 30,
@@ -257,7 +265,7 @@ def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: 
     _reset_xlsx_sheet_rows(sheet)
     sheet.append(["二、集群容量趋势"])
     sheet.append([f"统计窗口：{_period_window_label(report)}；{_profile_sample_notice(report, profile)}"])
-    headers = ["Tower", "集群", "当前已用容量", profile.window_growth_label, "90 天预测容量", "总容量", "使用率", "预计耗尽天数", "风险状态"]
+    headers = ["Tower", "集群", "当前已用容量", profile.window_growth_label, "90 天预测容量", "总容量", "已分配容量", "已分配率", "使用率", "预计耗尽天数", "风险状态"]
     sheet.append(headers)
     if not clusters:
         sheet.append(["当前范围暂无集群容量数据"] + [""] * (len(headers) - 1))
@@ -265,6 +273,9 @@ def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: 
         labels = cluster.get("labels") or {}
         forecast = cluster.get("forecast") or {}
         risk, _ = _risk_level(cluster)
+        total = float(cluster.get("total") or 0)
+        allocated = float(cluster.get("allocated") or 0)
+        allocated_ratio = allocated / total if total else 0.0
         sheet.append(
             [
                 labels.get("tower") or labels.get("tower_id") or "",
@@ -273,30 +284,37 @@ def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: 
                 _xlsx_signed_bytes_label(_cluster_period_growth(cluster, profile.days)),
                 _xlsx_bytes_label(forecast.get("forecast_90d")),
                 _xlsx_bytes_label(cluster.get("total")),
+                _xlsx_bytes_label(allocated),
+                _percent_label(allocated_ratio),
                 _percent_label(_cluster_used_ratio(cluster)),
                 _days_label(forecast.get("exhaustion_days")),
                 risk,
             ]
         )
     _style_customer_xlsx_table(sheet, title_rows={1, 2}, header_rows={3})
+    _merge_title_row(sheet, 1, 1, len(headers))
+    _merge_title_row(sheet, 2, 1, len(headers))
     sheet.freeze_panes = "A4"
     sheet.auto_filter.ref = f"A3:{get_column_letter(len(headers))}{sheet.max_row}"
     for column, width in {
-        "A": 50,
-        "B": 25.83203125,
-        "C": 16.83203125,
-        "D": 20.83203125,
-        "E": 16.83203125,
-        "F": 14.83203125,
-        "G": 16.83203125,
-        "I": 14.83203125,
+        "A": 28,
+        "B": 26,
+        "C": 18,
+        "D": 20,
+        "E": 18,
+        "F": 18,
+        "G": 18,
+        "H": 14,
+        "I": 14,
+        "J": 16,
+        "K": 14,
     }.items():
         sheet.column_dimensions[column].width = width
     sheet.row_dimensions[1].height = 30
-    sheet.row_dimensions[2].height = 51
-    sheet.row_dimensions[3].height = 16
+    sheet.row_dimensions[2].height = 42
+    sheet.row_dimensions[3].height = 24
     for row_index in range(4, sheet.max_row + 1):
-        sheet.row_dimensions[row_index].height = 30
+        sheet.row_dimensions[row_index].height = 26
 
     _add_capacity_trend_chart(sheet, clusters)
     _setup_xlsx_print_layout(sheet)
@@ -568,7 +586,7 @@ def _xlsx_signed_bytes_label(value: Any) -> str:
 def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *, include_growth: bool) -> None:
     _clear_xlsx_sheet(sheet)
     _clear_xlsx_tables(sheet)
-    headers = ["Tower", "集群", "VM", "当前容量"]
+    headers = ["Tower", "集群", "VM", "所有者", "虚拟机组", "当前容量"]
     if include_growth:
         headers.extend(["期初容量", "增长量", "增长率"])
     else:
@@ -584,6 +602,8 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
             labels.get("tower") or labels.get("tower_id") or "",
             labels.get("cluster") or labels.get("cluster_id") or "",
             labels.get("vm") or labels.get("vm_id") or "",
+            labels.get("owner") or "-",
+            labels.get("folder_name") or "-",
             _xlsx_bytes_label((vm.get("forecast") or {}).get("current")),
         ]
         if include_growth:
@@ -593,14 +613,25 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
                 _percent_label(vm.get("growth_ratio")),
             ])
         else:
-            row.append(vm.get("first_seen_at") or "")
+            row.append(vm.get("first_seen_at") or "-")
         for column, value in enumerate(row, start=1):
             sheet.cell(row=row_index, column=column).value = value
     _style_customer_xlsx_table(sheet, title_rows={1}, header_rows={2})
+    _merge_title_row(sheet, 1, 1, len(headers))
     sheet.freeze_panes = "A3"
     sheet.auto_filter.ref = f"A2:{get_column_letter(len(headers))}{sheet.max_row}"
-    widths = {"A": 17.5, "B": 18, "C": 36, "D": 16}
-    widths["G" if include_growth else "E"] = 13 if include_growth else 30
+    widths = {
+        "A": 17.5,
+        "B": 18,
+        "C": 36,
+        "D": 16,
+        "E": 20,
+        "F": 16,
+    }
+    widths["G" if not include_growth else "I"] = 24 if not include_growth else 14
+    if include_growth:
+        widths["G"] = 16
+        widths["H"] = 16
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
     sheet.row_dimensions[1].height = 22
@@ -616,7 +647,7 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
     risk, _ = _risk_level(cluster)
     labels = cluster.get("labels") or {}
     sheet.append([_cluster_full_name(cluster)])
-    sheet.append(["Tower", "集群", "当前容量", profile.window_growth_label, "风险", "90 天预测容量", "总容量", "使用率", "预计耗尽天数"])
+    sheet.append(["Tower", "集群", "当前容量", profile.window_growth_label, "风险", "90 天预测容量", "总容量", "已分配容量", "使用率", "预计耗尽天数"])
     sheet.append(
         [
             labels.get("tower") or labels.get("tower_id") or "",
@@ -626,13 +657,14 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
             risk,
             _xlsx_bytes_label(forecast.get("forecast_90d")),
             _xlsx_bytes_label(cluster.get("total")),
+            _xlsx_bytes_label(cluster.get("allocated")),
             _percent_label(_cluster_used_ratio(cluster)),
             _days_label(forecast.get("exhaustion_days")),
         ]
     )
     sheet.append([_profile_sample_notice(report, profile)])
     sheet.append([])
-    headers = ["VM", "当前容量", "期初容量", "增长量", "增长率"]
+    headers = ["VM", "所有者", "虚拟机组", "当前容量", "期初容量", "增长量", "增长率"]
     window_label = _vm_sample_window_label(vms, report)
     sheet.append([f"{profile.vm_growth_title} 增长量全部虚拟机（按增长量降序，统计窗口：{window_label}）"])
     sheet.append(headers)
@@ -656,12 +688,12 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
             sheet.append(_vm_xlsx_row(vm, include_cluster=False))
     ratio_end = sheet.max_row
     _style_customer_xlsx_table(sheet, title_rows={1, 4, 6, ratio_title_row}, header_rows={2, 7, ratio_header_row})
-    _style_vm_rows(sheet, amount_start, amount_end, 5)
-    _style_vm_rows(sheet, ratio_start, ratio_end, 5)
-    _merge_title_row(sheet, 1, 1, 9)
-    _merge_title_row(sheet, 4, 1, 9)
-    _merge_title_row(sheet, 6, 1, 5)
-    _merge_title_row(sheet, ratio_title_row, 1, 5)
+    _style_vm_rows(sheet, amount_start, amount_end, len(headers))
+    _style_vm_rows(sheet, ratio_start, ratio_end, len(headers))
+    _merge_title_row(sheet, 1, 1, 10)
+    _merge_title_row(sheet, 4, 1, 10)
+    _merge_title_row(sheet, 6, 1, len(headers))
+    _merge_title_row(sheet, ratio_title_row, 1, len(headers))
     _apply_cluster_sheet_layout(sheet, amount_header_row=7, ratio_header_row=ratio_header_row)
     sheet.freeze_panes = "A7"
     _add_excel_table(sheet, _table_safe_name(sheet.title, "Amount"), 7, amount_end, len(headers))
@@ -676,6 +708,8 @@ def _apply_cluster_sheet_layout(sheet, *, amount_header_row: int, ratio_header_r
         "D": 19.6640625,
         "E": 15,
         "F": 16,
+        "G": 14,
+        "H": 18,
         "I": 12,
         "J": 8.83203125,
     }
@@ -739,6 +773,8 @@ def _vm_xlsx_row(vm: dict[str, Any], *, include_cluster: bool) -> list[Any]:
         row.extend([labels.get("tower") or labels.get("tower_id") or "", labels.get("cluster") or labels.get("cluster_id") or ""])
     row.extend([
         labels.get("vm") or labels.get("vm_name") or labels.get("vm_id") or "",
+        labels.get("owner") or "-",
+        labels.get("folder_name") or "-",
         _xlsx_bytes_label(forecast.get("current")),
         _xlsx_bytes_label(vm.get("previous_value")),
         _xlsx_signed_bytes_label(vm.get("growth_amount")),
