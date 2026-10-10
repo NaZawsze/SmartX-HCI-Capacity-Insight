@@ -62,9 +62,11 @@ def build_report_xlsx(report: dict[str, Any], settings: V2Settings, *, period_da
     vms_by_cluster = _vms_by_cluster(month_vms)
     for cluster in clusters:
         labels = cluster.get("labels", {})
+        cluster_name = labels.get("cluster") or labels.get("cluster_id") or "集群"
+        tab_name = f"集群-{cluster_name}" if not str(cluster_name).startswith("集群") else str(cluster_name)
         sheet = _clone_cluster_template_sheet(
             workbook,
-            _safe_sheet_name(labels.get("cluster") or labels.get("cluster_id") or "集群"),
+            _safe_sheet_name(tab_name),
         )
         _write_cluster_vm_sheet(sheet, cluster, vms_by_cluster.get(_cluster_key(labels), []), report, profile)
     _remove_sheets(workbook, ["目录", "范围明细", "集群汇总", "VM_TOP100_汇总", "汇总", XLSX_CLUSTER_TEMPLATE_SHEET])
@@ -440,20 +442,26 @@ def _write_xlsx_template_growth_detail(
     sheet.freeze_panes = "A4"
     sheet.auto_filter.ref = f"A3:{get_column_letter(len(headers))}{sheet.max_row}"
     for column, width in {
-        "A": 15.83203125,
-        "B": 44.5,
+        "A": 12,
+        "B": 50,
         "C": 16,
         "D": 20,
-        "E": 25.83203125,
-        "G": 14.83203125,
-        "J": 10.83203125,
+        "E": 20,
+        "F": 22,
+        "G": 18,
+        "H": 18,
+        "I": 22,
+        "J": 14,
         "K": 10,
     }.items():
         sheet.column_dimensions[column].width = width
     sheet.row_dimensions[1].height = 30
-    sheet.row_dimensions[3].height = 16
+    sheet.row_dimensions[3].height = 20
     for row_index in range(4, sheet.max_row + 1):
-        sheet.row_dimensions[row_index].height = 30
+        sheet.row_dimensions[row_index].height = 22
+        for cell in sheet[row_index]:
+            if not isinstance(cell, MergedCell):
+                cell.alignment = Alignment(vertical="center", wrap_text=False)
 
 
 def _style_customer_xlsx_table(sheet, *, title_rows: set[int] | None = None, header_rows: set[int] | None = None) -> None:
@@ -489,19 +497,22 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
     widths = {
         "A": 15.83203125,   # 排名
         "B": 50,            # 虚拟机名称
-        "C": 14,            # 所有者（Phase 69）
-        "D": 18,            # 虚拟机组（Phase 69）
-        "E": 16,            # 当前容量
-        "F": 12,            # 期初容量
-        "H": 10,            # 增长率
+        "C": 16,            # 所有者（Phase 69）
+        "D": 20,            # 虚拟机组（Phase 69）
+        "E": 18,            # 当前容量
+        "F": 18,            # 期初容量
+        "G": 22,            # 增长量
+        "H": 14,            # 增长率
+        "I": 10,            # 风险
         "J": 10,            # 分隔列
         "K": 15.83203125,
         "L": 50,
-        "M": 14,
-        "N": 18,
-        "O": 16,
-        "P": 12,
-        "R": 10,
+        "M": 16,
+        "N": 20,
+        "O": 18,
+        "P": 18,
+        "Q": 22,
+        "R": 14,
     }
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
@@ -511,7 +522,10 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
         elif row_index in {left_header_row, right_header_row}:
             sheet.row_dimensions[row_index].height = 28
         else:
-            sheet.row_dimensions[row_index].height = 15
+            sheet.row_dimensions[row_index].height = 20
+            for cell in sheet[row_index]:
+                if not isinstance(cell, MergedCell):
+                    cell.alignment = Alignment(vertical="center", wrap_text=False)
     # Phase 69：每侧 9/8 列后——左侧合并 1..9、右侧 11..18、分隔列 10（J）
     _merge_title_row(sheet, 1, 1, 9)
     if sheet.cell(row=1, column=11).value:
@@ -621,23 +635,26 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
     sheet.freeze_panes = "A3"
     sheet.auto_filter.ref = f"A2:{get_column_letter(len(headers))}{sheet.max_row}"
     widths = {
-        "A": 17.5,
-        "B": 18,
-        "C": 36,
+        "A": 18,
+        "B": 20,
+        "C": 48,
         "D": 16,
         "E": 20,
-        "F": 16,
+        "F": 18,
     }
     widths["G" if not include_growth else "I"] = 24 if not include_growth else 14
     if include_growth:
-        widths["G"] = 16
-        widths["H"] = 16
+        widths["G"] = 18
+        widths["H"] = 22
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
-    sheet.row_dimensions[1].height = 22
-    sheet.row_dimensions[2].height = 16
+    sheet.row_dimensions[1].height = 24
+    sheet.row_dimensions[2].height = 20
     for row_index in range(3, sheet.max_row + 1):
-        sheet.row_dimensions[row_index].height = 15
+        sheet.row_dimensions[row_index].height = 20
+        for cell in sheet[row_index]:
+            if not isinstance(cell, MergedCell):
+                cell.alignment = Alignment(vertical="center", wrap_text=False)
 
 
 def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, Any]], report: dict[str, Any], profile: ReportPeriodProfile) -> None:
@@ -702,16 +719,16 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
 
 def _apply_cluster_sheet_layout(sheet, *, amount_header_row: int, ratio_header_row: int) -> None:
     widths = {
-        "A": 36.83203125,
+        "A": 52,
         "B": 39.5,
-        "C": 22.6640625,
-        "D": 19.6640625,
-        "E": 15,
-        "F": 16,
-        "G": 14,
-        "H": 18,
-        "I": 12,
-        "J": 8.83203125,
+        "C": 24,
+        "D": 20,
+        "E": 20,
+        "F": 22,
+        "G": 16,
+        "H": 20,
+        "I": 14,
+        "J": 14,
     }
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
@@ -728,9 +745,9 @@ def _apply_cluster_sheet_layout(sheet, *, amount_header_row: int, ratio_header_r
     sheet.row_dimensions[ratio_header_row - 1].height = 32
     sheet.row_dimensions[ratio_header_row].height = 24
     for row_index in range(amount_start, amount_end + 1):
-        sheet.row_dimensions[row_index].height = 17
+        sheet.row_dimensions[row_index].height = 22
     for row_index in range(ratio_start, sheet.max_row + 1):
-        sheet.row_dimensions[row_index].height = 17
+        sheet.row_dimensions[row_index].height = 22
 
     for cell in sheet[1]:
         if not isinstance(cell, MergedCell):
@@ -750,6 +767,7 @@ def _apply_cluster_sheet_layout(sheet, *, amount_header_row: int, ratio_header_r
             if not isinstance(cell, MergedCell):
                 cell.font = Font(name=XLSX_FONT_NAME, size=12, color=TEXT_DARK)
                 cell.fill = PatternFill(fill_type=None)
+                cell.alignment = Alignment(vertical="center", wrap_text=False)
 
 
 def _normalize_xlsx_fonts(workbook: Workbook) -> None:

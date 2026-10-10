@@ -751,8 +751,8 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("月增长详情", workbook.sheetnames)
             self.assertIn("本日新建VM", workbook.sheetnames)
             self.assertIn("本月新建VM", workbook.sheetnames)
-            self.assertIn("Cluster A", workbook.sheetnames)
-            self.assertIn("Cluster B", workbook.sheetnames)
+            self.assertIn("集群-Cluster A", workbook.sheetnames)
+            self.assertIn("集群-Cluster B", workbook.sheetnames)
             for removed_sheet in ["目录", "范围明细", "集群汇总", "VM_TOP100_汇总", "VM增长TOP20", "汇总"]:
                 self.assertNotIn(removed_sheet, workbook.sheetnames)
 
@@ -791,12 +791,12 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("全部虚拟机", str(top_sheet["K1"].value))
             self.assertGreaterEqual(top_sheet.column_dimensions["B"].width, 36)
             self.assertGreaterEqual(top_sheet.column_dimensions["C"].width, 14)
-            self.assertEqual(top_sheet.column_dimensions["E"].width, 16)
+            self.assertEqual(top_sheet.column_dimensions["E"].width, 18)
             self.assertIn(f"J1:J{top_sheet.max_row}", {str(item) for item in top_sheet.merged_cells.ranges})
             self.assertIsNone(top_sheet["J1"].fill.fill_type)
-            self.assertEqual(top_sheet.column_dimensions["H"].width, 10)
+            self.assertEqual(top_sheet.column_dimensions["H"].width, 14)
 
-            cluster_sheet = workbook["Cluster A"]
+            cluster_sheet = workbook["集群-Cluster A"]
             cluster_values = [cell for row in cluster_sheet.iter_rows(values_only=True) for cell in row if cell is not None]
             cluster_text = "\n".join(str(value) for value in cluster_values)
             self.assertIn("Tower", cluster_text)
@@ -882,8 +882,8 @@ class V2ReportExportDocumentTest(unittest.TestCase):
                 "月增长详情",
                 "本日新建VM",
                 "本月新建VM",
-                "Cluster A",
-                "Cluster B",
+                "集群-Cluster A",
+                "集群-Cluster B",
             ],
         )
 
@@ -944,25 +944,25 @@ class V2ReportExportDocumentTest(unittest.TestCase):
         self.assertEqual(top["A5"].font.sz, 11)
 
         day_growth = workbook["日增长详情"]
-        self.assertEqual(day_growth.column_dimensions["A"].width, 15.83203125)
-        self.assertEqual(day_growth.column_dimensions["B"].width, 44.5)
+        self.assertEqual(day_growth.column_dimensions["A"].width, 12)
+        self.assertEqual(day_growth.column_dimensions["B"].width, 50)
         # Phase 69：C 为「所有者」，原 Tower 列后移到 E
         self.assertEqual(day_growth.column_dimensions["C"].width, 16)
-        self.assertAlmostEqual(day_growth.column_dimensions["E"].width, 25.83203125)
-        self.assertEqual(day_growth.row_dimensions[4].height, 30)
+        self.assertEqual(day_growth.column_dimensions["E"].width, 20)
+        self.assertEqual(day_growth.row_dimensions[4].height, 22)
 
         day_new = workbook["本日新建VM"]
-        self.assertEqual(day_new.column_dimensions["A"].width, 17.5)
-        self.assertEqual(day_new.column_dimensions["B"].width, 18)
-        self.assertEqual(day_new.column_dimensions["C"].width, 36)
-        self.assertEqual(day_new.row_dimensions[1].height, 22)
+        self.assertEqual(day_new.column_dimensions["A"].width, 18)
+        self.assertEqual(day_new.column_dimensions["B"].width, 20)
+        self.assertEqual(day_new.column_dimensions["C"].width, 48)
+        self.assertEqual(day_new.row_dimensions[1].height, 24)
 
-        cluster = workbook["Cluster A"]
-        self.assertAlmostEqual(cluster.column_dimensions["A"].width, 36.83203125)
+        cluster = workbook["集群-Cluster A"]
+        self.assertEqual(cluster.column_dimensions["A"].width, 52)
         self.assertEqual(cluster.column_dimensions["B"].width, 39.5)
-        self.assertAlmostEqual(cluster.column_dimensions["C"].width, 22.6640625)
-        self.assertAlmostEqual(cluster.column_dimensions["D"].width, 19.6640625)
-        self.assertEqual(cluster.column_dimensions["E"].width, 15)
+        self.assertEqual(cluster.column_dimensions["C"].width, 24)
+        self.assertEqual(cluster.column_dimensions["D"].width, 20)
+        self.assertEqual(cluster.column_dimensions["E"].width, 20)
         self.assertEqual(cluster.row_dimensions[1].height, 32)
         self.assertEqual(cluster.row_dimensions[2].height, 24)
         self.assertEqual(cluster.row_dimensions[3].height, 24)
@@ -1189,7 +1189,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertEqual(day_new["E4"].value, "-")
 
             # 2.4 每集群 Sheet：头部信息行 10 列包含已分配容量；VM 表 7 列含所有者和虚拟机组
-            cluster_sheet = wb["Cluster A"]
+            cluster_sheet = wb["集群-Cluster A"]
             head_row2 = [cluster_sheet.cell(row=2, column=col).value for col in range(1, 11)]
             self.assertEqual(
                 head_row2,
@@ -1293,7 +1293,7 @@ class V2ReportExportApiTest(unittest.TestCase):
                     workbook = load_workbook(excel_path, read_only=True)
                     self.assertIn("执行摘要", workbook.sheetnames)
                     self.assertIn("VM增长TOP100", workbook.sheetnames)
-                    self.assertIn("Cluster A", workbook.sheetnames)
+                    self.assertIn("集群-Cluster A", workbook.sheetnames)
                     for removed_sheet in ["目录", "范围明细", "集群汇总", "VM_TOP100_汇总", "VM增长TOP20"]:
                         self.assertNotIn(removed_sheet, workbook.sheetnames)
                     summary_values = [cell for row in workbook["执行摘要"].iter_rows(values_only=True) for cell in row if cell]
@@ -1383,7 +1383,7 @@ class V2ReportExportApiTest(unittest.TestCase):
                     self.assertIn("VM增长TOP100", workbook.sheetnames)
                     for removed_sheet in ["目录", "范围明细", "集群汇总", "VM_TOP100_汇总", "VM增长TOP20"]:
                         self.assertNotIn(removed_sheet, workbook.sheetnames)
-                    self.assertTrue(any(name.startswith("Cluster A") for name in workbook.sheetnames))
+                    self.assertTrue(any("Cluster A" in name for name in workbook.sheetnames))
                     workbook_values = [
                         str(cell)
                         for sheet in workbook.worksheets
