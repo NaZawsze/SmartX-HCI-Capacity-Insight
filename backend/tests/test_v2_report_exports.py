@@ -921,7 +921,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
         self.assertEqual(trend.freeze_panes, "A4")
         self.assertEqual(trend.column_dimensions["A"].width, 28)
         self.assertEqual(trend.column_dimensions["B"].width, 26)
-        self.assertEqual(trend.column_dimensions["C"].width, 18)
+        self.assertEqual(trend.column_dimensions["C"].width, 22)
         self.assertEqual(trend.row_dimensions[2].height, 42)
         self.assertEqual(trend.row_dimensions[4].height, 26)
 
@@ -940,8 +940,8 @@ class V2ReportExportDocumentTest(unittest.TestCase):
         self.assertEqual(top.row_dimensions[3].height, 34)
         self.assertEqual(top.row_dimensions[4].height, 28)
         self.assertIn(f"J1:J{top.max_row}", {str(item) for item in top.merged_cells.ranges})
-        self.assertEqual(top["A4"].font.sz, 11)
-        self.assertEqual(top["A5"].font.sz, 11)
+        self.assertEqual(top["A4"].font.sz, 12)
+        self.assertEqual(top["A5"].font.sz, 12)
 
         day_growth = workbook["日增长详情"]
         self.assertEqual(day_growth.column_dimensions["A"].width, 12)

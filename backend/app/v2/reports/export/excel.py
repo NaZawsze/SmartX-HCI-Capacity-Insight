@@ -25,17 +25,17 @@ from .common import (
     VM_ALERT_FILL, XLSX_CLUSTER_TEMPLATE_SHEET, XLSX_FONT_NAME, XLSX_TEMPLATE_PATH,
 )
 
-BORDER_LIGHT_GRAY = Side(style="thin", color="E0E6ED")
-BORDER_HEADER_DARK = Side(style="medium", color="15325B")
+BORDER_SOLID_GRAY = Side(style="thin", color="64748B")
+BORDER_HEADER_DARK = Side(style="medium", color="0F2942")
 DATA_BORDER = Border(
-    left=BORDER_LIGHT_GRAY,
-    right=BORDER_LIGHT_GRAY,
-    top=BORDER_LIGHT_GRAY,
-    bottom=BORDER_LIGHT_GRAY,
+    left=BORDER_SOLID_GRAY,
+    right=BORDER_SOLID_GRAY,
+    top=BORDER_SOLID_GRAY,
+    bottom=BORDER_SOLID_GRAY,
 )
 HEADER_BORDER = Border(
-    left=Side(style="thin", color="15325B"),
-    right=Side(style="thin", color="15325B"),
+    left=Side(style="thin", color="0F2942"),
+    right=Side(style="thin", color="0F2942"),
     top=BORDER_HEADER_DARK,
     bottom=BORDER_HEADER_DARK,
 )
@@ -43,27 +43,27 @@ HEADER_BORDER = Border(
 RISK_BADGES = {
     "高": {
         "fill": PatternFill(fill_type="solid", fgColor="FDE8E8"),
-        "font": Font(name=XLSX_FONT_NAME, size=11, bold=True, color="C5221F"),
+        "font": Font(name=XLSX_FONT_NAME, size=12, bold=True, color="C5221F"),
     },
     "高风险": {
         "fill": PatternFill(fill_type="solid", fgColor="FDE8E8"),
-        "font": Font(name=XLSX_FONT_NAME, size=11, bold=True, color="C5221F"),
+        "font": Font(name=XLSX_FONT_NAME, size=12, bold=True, color="C5221F"),
     },
     "中": {
         "fill": PatternFill(fill_type="solid", fgColor="FEF3D6"),
-        "font": Font(name=XLSX_FONT_NAME, size=11, bold=True, color="B06000"),
+        "font": Font(name=XLSX_FONT_NAME, size=12, bold=True, color="B06000"),
     },
     "中风险": {
         "fill": PatternFill(fill_type="solid", fgColor="FEF3D6"),
-        "font": Font(name=XLSX_FONT_NAME, size=11, bold=True, color="B06000"),
+        "font": Font(name=XLSX_FONT_NAME, size=12, bold=True, color="B06000"),
     },
     "低": {
         "fill": PatternFill(fill_type="solid", fgColor="EAF7EF"),
-        "font": Font(name=XLSX_FONT_NAME, size=11, bold=False, color="188038"),
+        "font": Font(name=XLSX_FONT_NAME, size=12, bold=False, color="188038"),
     },
     "正常": {
         "fill": PatternFill(fill_type="solid", fgColor="EAF7EF"),
-        "font": Font(name=XLSX_FONT_NAME, size=11, bold=False, color="188038"),
+        "font": Font(name=XLSX_FONT_NAME, size=12, bold=False, color="188038"),
     },
 }
 
@@ -279,19 +279,20 @@ def _write_xlsx_template_summary(
             cell = sheet.cell(row=row, column=column)
             cell.fill = PatternFill(fill_type="solid", fgColor=ACCENT_LIGHT)
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = DATA_BORDER
         sheet.cell(row=4, column=column).value = header
-        sheet.cell(row=4, column=column).font = Font(name=XLSX_FONT_NAME, size=10, bold=True, color="000000")
+        sheet.cell(row=4, column=column).font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="000000")
         sheet.cell(row=5, column=column).value = value
         sheet.cell(row=5, column=column).font = Font(name=XLSX_FONT_NAME, size=18, bold=True, color=RATIO_RED if risk_status == "高风险" and column == 5 else ACCENT_DARK)
         sheet.cell(row=6, column=column).value = subtitle
-        sheet.cell(row=6, column=column).font = Font(name=XLSX_FONT_NAME, size=10, bold=True, color="000000")
+        sheet.cell(row=6, column=column).font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="000000")
 
     _set_xlsx_cell(sheet, "A8", "关键发现", size=14, bold=True, color=ACCENT_DARK)
     findings = _customer_key_findings(clusters, _customer_growth_vms(report), risk_note, context)
     for offset, finding in enumerate(findings[:4], start=9):
-        _set_xlsx_cell(sheet, f"A{offset}", finding, size=11, color=TEXT_DARK)
+        _set_xlsx_cell(sheet, f"A{offset}", finding, size=12, color="0F172A")
     _set_xlsx_cell(sheet, "A13", "容量风险摘要", size=14, bold=True, color=ACCENT_DARK)
-    _set_xlsx_cell(sheet, "A14", _capacity_risk_summary(report), size=11, color=TEXT_DARK)
+    _set_xlsx_cell(sheet, "A14", _capacity_risk_summary(report), size=12, color="0F172A")
     _set_xlsx_cell(sheet, "A15", f"当前软件版本：{settings.app_version}", size=10, color=TEXT_MUTED)
     _set_xlsx_cell(sheet, "A16", _profile_sample_notice(report, profile), size=10, color=TEXT_MUTED)
     _set_xlsx_cell(sheet, "A18", "容量增长速率口径", size=14, bold=True, color=ACCENT_DARK)
@@ -373,20 +374,20 @@ def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: 
     for column, width in {
         "A": 28,
         "B": 26,
-        "C": 18,
-        "D": 20,
-        "E": 18,
-        "F": 18,
-        "G": 18,
-        "H": 14,
-        "I": 14,
-        "J": 16,
-        "K": 14,
+        "C": 22,
+        "D": 25,
+        "E": 22,
+        "F": 20,
+        "G": 22,
+        "H": 18,
+        "I": 16,
+        "J": 20,
+        "K": 16,
     }.items():
         sheet.column_dimensions[column].width = width
-    sheet.row_dimensions[1].height = 30
+    sheet.row_dimensions[1].height = 32
     sheet.row_dimensions[2].height = 42
-    sheet.row_dimensions[3].height = 24
+    sheet.row_dimensions[3].height = 30
     for row_index in range(4, sheet.max_row + 1):
         sheet.row_dimensions[row_index].height = 26
 
@@ -443,16 +444,25 @@ def _write_xlsx_data_quality_sheet(sheet, report: dict[str, Any], context: dict[
 
     _style_customer_xlsx_table(sheet, title_rows={1, 2, start_row}, header_rows={3, start_row + 1})
     _merge_title_row(sheet, 1, 1, 3)
-    _merge_title_row(sheet, 2, 1, 3)
+    _merge_title_row(sheet, 2, 1, 3, align="left")
+    _merge_title_row(sheet, 3, 2, 3, align="left")
+    for r in range(4, start_row - 1):
+        _merge_title_row(sheet, r, 2, 3, align="left")
     _merge_title_row(sheet, start_row, 1, 3)
     sheet.freeze_panes = "A4"
-    sheet.column_dimensions["A"].width = 24
+    sheet.column_dimensions["A"].width = 28
     sheet.column_dimensions["B"].width = 44
     sheet.column_dimensions["C"].width = 58
-    sheet.row_dimensions[1].height = 30
+    sheet.row_dimensions[1].height = 32
     sheet.row_dimensions[2].height = 52
+    sheet.row_dimensions[3].height = 30
+    sheet.row_dimensions[start_row].height = 32
+    sheet.row_dimensions[start_row + 1].height = 30
     for row_index in range(4, sheet.max_row + 1):
-        sheet.row_dimensions[row_index].height = 28
+        if row_index == start_row - 1:
+            sheet.row_dimensions[row_index].height = 16
+        elif row_index not in {start_row, start_row + 1}:
+            sheet.row_dimensions[row_index].height = 26
 
 
 def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dict[str, Any], profile: ReportPeriodProfile) -> None:
@@ -522,9 +532,9 @@ def _write_xlsx_template_growth_detail(
         "F": 22,
         "G": 18,
         "H": 18,
-        "I": 22,
-        "J": 14,
-        "K": 10,
+        "I": 24,
+        "J": 16,
+        "K": 14,
     }.items():
         sheet.column_dimensions[column].width = width
     sheet.row_dimensions[1].height = 30
@@ -537,10 +547,11 @@ def _style_customer_xlsx_table(sheet, *, title_rows: set[int] | None = None, hea
     title_rows = title_rows or set()
     header_rows = header_rows or {1}
 
+    # 关闭外部网格线干扰，突出内部清晰实线边框
     if hasattr(sheet, "sheet_view"):
-        sheet.sheet_view.showGridLines = True
+        sheet.sheet_view.showGridLines = False
     if getattr(sheet, "views", None) and sheet.views.sheetView:
-        sheet.views.sheetView[0].showGridLines = True
+        sheet.views.sheetView[0].showGridLines = False
 
     header_map: dict[int, str] = {}
     for h_row in sorted(header_rows):
@@ -549,6 +560,10 @@ def _style_customer_xlsx_table(sheet, *, title_rows: set[int] | None = None, hea
                 header_map[cell.column] = str(cell.value).strip()
 
     for row in sheet.iter_rows():
+        r = row[0].row if row else 0
+        if r not in title_rows and r not in header_rows and all(c.value is None for c in row):
+            continue
+
         for cell in row:
             if isinstance(cell, MergedCell):
                 continue
@@ -557,18 +572,18 @@ def _style_customer_xlsx_table(sheet, *, title_rows: set[int] | None = None, hea
             val = cell.value
 
             if r in title_rows:
-                cell.font = Font(name=XLSX_FONT_NAME, size=16 if r == 1 else 12, bold=True, color=ACCENT_DARK)
+                cell.font = Font(name=XLSX_FONT_NAME, size=16 if r == 1 else 13, bold=True, color=ACCENT_DARK)
                 cell.alignment = Alignment(vertical="center", wrap_text=True)
                 continue
 
             col_header = header_map.get(c, "")
             if r in header_rows:
-                cell.font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="FFFFFF")
+                cell.font = Font(name=XLSX_FONT_NAME, size=12, bold=True, color="FFFFFF")
                 cell.fill = PatternFill(fill_type="solid", fgColor=ACCENT_DARK)
                 cell.border = HEADER_BORDER
                 cell.alignment = _column_alignment(col_header, val, is_header=True)
             else:
-                cell.font = Font(name=XLSX_FONT_NAME, size=11, color=TEXT_DARK)
+                cell.font = Font(name=XLSX_FONT_NAME, size=12, color="0F172A")
                 cell.border = DATA_BORDER
                 s_val = str(val or "").strip()
                 if s_val in RISK_BADGES:
@@ -578,17 +593,25 @@ def _style_customer_xlsx_table(sheet, *, title_rows: set[int] | None = None, hea
                     cell.fill = PatternFill(fill_type="solid", fgColor=ACCENT_SOFT)
                 else:
                     cell.fill = PatternFill(fill_type="solid", fgColor="FFFFFF")
-                cell.alignment = _column_alignment(col_header, val, is_header=False)
+
+                # 说明/原因列统一步调居左，不被数字百分比打乱
+                if col_header in {"说明", "原因"}:
+                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
+                else:
+                    cell.alignment = _column_alignment(col_header, val, is_header=False)
 
 
-def _merge_title_row(sheet, row: int, start_col: int, end_col: int) -> None:
+def _merge_title_row(sheet, row: int, start_col: int, end_col: int, *, align: str | None = None) -> None:
     if end_col <= start_col:
         return
     range_ref = f"{get_column_letter(start_col)}{row}:{get_column_letter(end_col)}{row}"
     if range_ref not in {str(merged) for merged in sheet.merged_cells.ranges}:
         sheet.merge_cells(range_ref)
     cell = sheet.cell(row=row, column=start_col)
-    cell.alignment = Alignment(vertical="center", wrap_text=True)
+    if align:
+        cell.alignment = Alignment(horizontal=align, vertical="center", wrap_text=True)
+    else:
+        cell.alignment = Alignment(vertical="center", wrap_text=True)
 
 
 def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: int | None = None) -> None:
@@ -631,12 +654,12 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
                 else:
                     cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
         else:
-            sheet.row_dimensions[row_index].height = 20
+            sheet.row_dimensions[row_index].height = 26
             for c_idx in range(1, 19):
                 cell = sheet.cell(row=row_index, column=c_idx)
                 if isinstance(cell, MergedCell) or c_idx == 10:
                     continue
-                cell.font = Font(name=XLSX_FONT_NAME, size=11, color=TEXT_DARK)
+                cell.font = Font(name=XLSX_FONT_NAME, size=12, color="0F172A")
                 cell.border = DATA_BORDER
                 s_val = str(cell.value or "").strip()
                 if s_val in RISK_BADGES:
@@ -894,7 +917,7 @@ def _apply_cluster_sheet_layout(sheet, *, amount_header_row: int, ratio_header_r
     for col_idx in range(1, 11):
         d_cell = sheet.cell(row=3, column=col_idx)
         if not isinstance(d_cell, MergedCell):
-            d_cell.font = Font(name=XLSX_FONT_NAME, size=12, color=TEXT_DARK)
+            d_cell.font = Font(name=XLSX_FONT_NAME, size=12, color="0F172A")
             d_cell.border = DATA_BORDER
             d_val = str(d_cell.value or "").strip()
             if d_val in RISK_BADGES:
@@ -941,7 +964,7 @@ def _apply_cluster_sheet_layout(sheet, *, amount_header_row: int, ratio_header_r
             cell = sheet.cell(row=row_index, column=col_idx)
             if isinstance(cell, MergedCell):
                 continue
-            cell.font = Font(name=XLSX_FONT_NAME, size=11, color=TEXT_DARK)
+            cell.font = Font(name=XLSX_FONT_NAME, size=12, color="0F172A")
             cell.border = DATA_BORDER
             if is_alert:
                 cell.fill = PatternFill(fill_type="solid", fgColor=VM_ALERT_FILL)
@@ -964,7 +987,7 @@ def _normalize_xlsx_fonts(workbook: Workbook) -> None:
                     continue
                 font = copy(cell.font)
                 font.name = XLSX_FONT_NAME
-                font.sz = float(font.sz or 11)
+                font.sz = float(font.sz or 12)
                 font.scheme = None
                 cell.font = font
 
