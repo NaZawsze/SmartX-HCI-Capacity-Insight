@@ -10,7 +10,7 @@ from openpyxl.chart import BarChart, Reference
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell.cell import MergedCell
 from openpyxl.drawing.image import Image as XlsxImage
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.properties import PageSetupProperties
 from openpyxl.worksheet.table import Table, TableStyleInfo
@@ -24,6 +24,78 @@ from .common import (
     ACCENT_SOFT, GROWTH_BLUE, RATIO_RED, REPORT_COVER_SUBTITLE, REPORT_COVER_TITLE, REPORT_PRODUCT_NAME, TEXT_DARK, TEXT_MUTED,
     VM_ALERT_FILL, XLSX_CLUSTER_TEMPLATE_SHEET, XLSX_FONT_NAME, XLSX_TEMPLATE_PATH,
 )
+
+BORDER_LIGHT_GRAY = Side(style="thin", color="E0E6ED")
+BORDER_HEADER_DARK = Side(style="medium", color="15325B")
+DATA_BORDER = Border(
+    left=BORDER_LIGHT_GRAY,
+    right=BORDER_LIGHT_GRAY,
+    top=BORDER_LIGHT_GRAY,
+    bottom=BORDER_LIGHT_GRAY,
+)
+HEADER_BORDER = Border(
+    left=Side(style="thin", color="15325B"),
+    right=Side(style="thin", color="15325B"),
+    top=BORDER_HEADER_DARK,
+    bottom=BORDER_HEADER_DARK,
+)
+
+RISK_BADGES = {
+    "高": {
+        "fill": PatternFill(fill_type="solid", fgColor="FDE8E8"),
+        "font": Font(name=XLSX_FONT_NAME, size=11, bold=True, color="C5221F"),
+    },
+    "高风险": {
+        "fill": PatternFill(fill_type="solid", fgColor="FDE8E8"),
+        "font": Font(name=XLSX_FONT_NAME, size=11, bold=True, color="C5221F"),
+    },
+    "中": {
+        "fill": PatternFill(fill_type="solid", fgColor="FEF3D6"),
+        "font": Font(name=XLSX_FONT_NAME, size=11, bold=True, color="B06000"),
+    },
+    "中风险": {
+        "fill": PatternFill(fill_type="solid", fgColor="FEF3D6"),
+        "font": Font(name=XLSX_FONT_NAME, size=11, bold=True, color="B06000"),
+    },
+    "低": {
+        "fill": PatternFill(fill_type="solid", fgColor="EAF7EF"),
+        "font": Font(name=XLSX_FONT_NAME, size=11, bold=False, color="188038"),
+    },
+    "正常": {
+        "fill": PatternFill(fill_type="solid", fgColor="EAF7EF"),
+        "font": Font(name=XLSX_FONT_NAME, size=11, bold=False, color="188038"),
+    },
+}
+
+def _is_numeric_column(header_text: str, cell_val: Any) -> bool:
+    h = str(header_text or "")
+    if any(k in h for k in ["容量", "增长量", "增长率", "使用率", "预测", "率", "已分配"]):
+        return True
+    s = str(cell_val or "").strip()
+    if s.endswith("%"):
+        return True
+    parts = s.split()
+    if len(parts) >= 2 and parts[-1] in ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "KB", "MB", "GB", "TB", "PB"]:
+        return True
+    return False
+
+def _is_center_column(header_text: str, cell_val: Any) -> bool:
+    h = str(header_text or "")
+    if any(k in h for k in ["排名", "风险", "状态", "耗尽", "天数", "时间"]):
+        return True
+    s = str(cell_val or "").strip()
+    if s in RISK_BADGES:
+        return True
+    if s.endswith("天") or s == "未触发":
+        return True
+    return False
+
+def _column_alignment(header_text: str, cell_val: Any, *, is_header: bool = False) -> Alignment:
+    if _is_numeric_column(header_text, cell_val):
+        return Alignment(horizontal="right", vertical="center", wrap_text=is_header)
+    if _is_center_column(header_text, cell_val):
+        return Alignment(horizontal="center", vertical="center", wrap_text=is_header)
+    return Alignment(horizontal="left", vertical="center", wrap_text=is_header)
 
 def build_report_xlsx(report: dict[str, Any], settings: V2Settings, *, period_days: int) -> tuple[bytes, str, Path, str]:
     context = _export_context(report, settings, period_days, "xlsx")
@@ -459,28 +531,54 @@ def _write_xlsx_template_growth_detail(
     sheet.row_dimensions[3].height = 20
     for row_index in range(4, sheet.max_row + 1):
         sheet.row_dimensions[row_index].height = 22
-        for cell in sheet[row_index]:
-            if not isinstance(cell, MergedCell):
-                cell.alignment = Alignment(vertical="center", wrap_text=False)
 
 
 def _style_customer_xlsx_table(sheet, *, title_rows: set[int] | None = None, header_rows: set[int] | None = None) -> None:
     title_rows = title_rows or set()
     header_rows = header_rows or {1}
+
+    if hasattr(sheet, "sheet_view"):
+        sheet.sheet_view.showGridLines = True
+    if getattr(sheet, "views", None) and sheet.views.sheetView:
+        sheet.views.sheetView[0].showGridLines = True
+
+    header_map: dict[int, str] = {}
+    for h_row in sorted(header_rows):
+        for cell in sheet[h_row]:
+            if cell.value:
+                header_map[cell.column] = str(cell.value).strip()
+
     for row in sheet.iter_rows():
         for cell in row:
             if isinstance(cell, MergedCell):
                 continue
-            cell.alignment = Alignment(vertical="center", wrap_text=True)
-            cell.font = Font(name=XLSX_FONT_NAME, size=11, color=TEXT_DARK)
-            if cell.row in title_rows:
-                cell.font = Font(name=XLSX_FONT_NAME, size=16 if cell.row == 1 else 12, bold=True, color=ACCENT_DARK)
-            if cell.row in header_rows:
+            r = cell.row
+            c = cell.column
+            val = cell.value
+
+            if r in title_rows:
+                cell.font = Font(name=XLSX_FONT_NAME, size=16 if r == 1 else 12, bold=True, color=ACCENT_DARK)
+                cell.alignment = Alignment(vertical="center", wrap_text=True)
+                continue
+
+            col_header = header_map.get(c, "")
+            if r in header_rows:
                 cell.font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="FFFFFF")
                 cell.fill = PatternFill(fill_type="solid", fgColor=ACCENT_DARK)
-                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            elif cell.row not in title_rows and cell.row % 2 == 0:
-                cell.fill = PatternFill(fill_type="solid", fgColor=ACCENT_SOFT)
+                cell.border = HEADER_BORDER
+                cell.alignment = _column_alignment(col_header, val, is_header=True)
+            else:
+                cell.font = Font(name=XLSX_FONT_NAME, size=11, color=TEXT_DARK)
+                cell.border = DATA_BORDER
+                s_val = str(val or "").strip()
+                if s_val in RISK_BADGES:
+                    cell.fill = RISK_BADGES[s_val]["fill"]
+                    cell.font = RISK_BADGES[s_val]["font"]
+                elif r % 2 == 0:
+                    cell.fill = PatternFill(fill_type="solid", fgColor=ACCENT_SOFT)
+                else:
+                    cell.fill = PatternFill(fill_type="solid", fgColor="FFFFFF")
+                cell.alignment = _column_alignment(col_header, val, is_header=False)
 
 
 def _merge_title_row(sheet, row: int, start_col: int, end_col: int) -> None:
@@ -521,11 +619,40 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
             sheet.row_dimensions[row_index].height = 34
         elif row_index in {left_header_row, right_header_row}:
             sheet.row_dimensions[row_index].height = 28
+            for c_idx in range(1, 19):
+                cell = sheet.cell(row=row_index, column=c_idx)
+                if c_idx == 10:
+                    continue
+                cell.border = HEADER_BORDER
+                if c_idx in {5, 6, 7, 8, 15, 16, 17, 18}:
+                    cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
+                elif c_idx in {1, 9, 11}:
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                else:
+                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
         else:
             sheet.row_dimensions[row_index].height = 20
-            for cell in sheet[row_index]:
-                if not isinstance(cell, MergedCell):
-                    cell.alignment = Alignment(vertical="center", wrap_text=False)
+            for c_idx in range(1, 19):
+                cell = sheet.cell(row=row_index, column=c_idx)
+                if isinstance(cell, MergedCell) or c_idx == 10:
+                    continue
+                cell.font = Font(name=XLSX_FONT_NAME, size=11, color=TEXT_DARK)
+                cell.border = DATA_BORDER
+                s_val = str(cell.value or "").strip()
+                if s_val in RISK_BADGES:
+                    cell.fill = RISK_BADGES[s_val]["fill"]
+                    cell.font = RISK_BADGES[s_val]["font"]
+                elif row_index % 2 == 0:
+                    cell.fill = PatternFill(fill_type="solid", fgColor=ACCENT_SOFT)
+                else:
+                    cell.fill = PatternFill(fill_type="solid", fgColor="FFFFFF")
+
+                if c_idx in {5, 6, 7, 8, 15, 16, 17, 18}:
+                    cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                elif c_idx in {1, 9, 11}:
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
+                else:
+                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
     # Phase 69：每侧 9/8 列后——左侧合并 1..9、右侧 11..18、分隔列 10（J）
     _merge_title_row(sheet, 1, 1, 9)
     if sheet.cell(row=1, column=11).value:
@@ -652,9 +779,6 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
     sheet.row_dimensions[2].height = 20
     for row_index in range(3, sheet.max_row + 1):
         sheet.row_dimensions[row_index].height = 20
-        for cell in sheet[row_index]:
-            if not isinstance(cell, MergedCell):
-                cell.alignment = Alignment(vertical="center", wrap_text=False)
 
 
 def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, Any]], report: dict[str, Any], profile: ReportPeriodProfile) -> None:
@@ -752,22 +876,84 @@ def _apply_cluster_sheet_layout(sheet, *, amount_header_row: int, ratio_header_r
     for cell in sheet[1]:
         if not isinstance(cell, MergedCell):
             cell.font = Font(name=XLSX_FONT_NAME, size=23, bold=True, color=ACCENT_DARK)
-    for cell in sheet[3]:
-        if not isinstance(cell, MergedCell):
-            cell.font = Font(name=XLSX_FONT_NAME, size=12, color=TEXT_DARK)
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+
+    # 头部第 2 行表头边框与对齐
+    for col_idx in range(1, 11):
+        h_cell = sheet.cell(row=2, column=col_idx)
+        if not isinstance(h_cell, MergedCell):
+            h_cell.border = HEADER_BORDER
+            if col_idx in {3, 4, 6, 7, 8, 9}:
+                h_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
+            elif col_idx in {5, 10}:
+                h_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            else:
+                h_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+    # 头部第 3 行数据行
+    for col_idx in range(1, 11):
+        d_cell = sheet.cell(row=3, column=col_idx)
+        if not isinstance(d_cell, MergedCell):
+            d_cell.font = Font(name=XLSX_FONT_NAME, size=12, color=TEXT_DARK)
+            d_cell.border = DATA_BORDER
+            d_val = str(d_cell.value or "").strip()
+            if d_val in RISK_BADGES:
+                d_cell.fill = RISK_BADGES[d_val]["fill"]
+                d_cell.font = RISK_BADGES[d_val]["font"]
+            else:
+                d_cell.fill = PatternFill(fill_type="solid", fgColor=ACCENT_LIGHT)
+
+            if col_idx in {3, 4, 6, 7, 8, 9}:
+                d_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            elif col_idx in {5, 10}:
+                d_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
+            else:
+                d_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
+
     for cell in sheet[4]:
         if not isinstance(cell, MergedCell):
-            cell.font = Font(name=XLSX_FONT_NAME, size=18, color=ACCENT_DARK)
+            cell.font = Font(name=XLSX_FONT_NAME, size=11, color="555555")
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+
     for row_index in [6, ratio_header_row - 1]:
         for cell in sheet[row_index]:
             if not isinstance(cell, MergedCell):
-                cell.font = Font(name=XLSX_FONT_NAME, size=14, color=ACCENT_DARK)
+                cell.font = Font(name=XLSX_FONT_NAME, size=14, bold=True, color=ACCENT_DARK)
+                cell.alignment = Alignment(vertical="center", wrap_text=True)
+
+    for h_row in [amount_header_row, ratio_header_row]:
+        for col_idx in range(1, 8):
+            cell = sheet.cell(row=h_row, column=col_idx)
+            cell.border = HEADER_BORDER
+            if col_idx in {4, 5, 6, 7}:
+                cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
+            else:
+                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
     for row_index in [*range(amount_start, amount_end + 1), *range(ratio_start, sheet.max_row + 1)]:
-        for cell in sheet[row_index]:
-            if not isinstance(cell, MergedCell):
-                cell.font = Font(name=XLSX_FONT_NAME, size=12, color=TEXT_DARK)
-                cell.fill = PatternFill(fill_type=None)
-                cell.alignment = Alignment(vertical="center", wrap_text=False)
+        first_cell = sheet.cell(row=row_index, column=1)
+        is_alert = (
+            first_cell.fill
+            and first_cell.fill.fill_type
+            and getattr(first_cell.fill.fgColor, "rgb", "") in {f"00{VM_ALERT_FILL}", VM_ALERT_FILL}
+        )
+        for col_idx in range(1, 8):
+            cell = sheet.cell(row=row_index, column=col_idx)
+            if isinstance(cell, MergedCell):
+                continue
+            cell.font = Font(name=XLSX_FONT_NAME, size=11, color=TEXT_DARK)
+            cell.border = DATA_BORDER
+            if is_alert:
+                cell.fill = PatternFill(fill_type="solid", fgColor=VM_ALERT_FILL)
+            elif row_index % 2 == 0:
+                cell.fill = PatternFill(fill_type="solid", fgColor=ACCENT_SOFT)
+            else:
+                cell.fill = PatternFill(fill_type="solid", fgColor="FFFFFF")
+
+            if col_idx in {4, 5, 6, 7}:
+                cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            else:
+                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
 
 
 def _normalize_xlsx_fonts(workbook: Workbook) -> None:
