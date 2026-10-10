@@ -6065,3 +6065,23 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
 > **P1-4 重走结论**：r34+r35 在 `.12`（v0.5.4 源端同版本重装 + 组件自换）与
 > `.14`（新装 + v0.5.3 源端客户升级）两形态全链路通过；US-40 顺序约束
 > （先组件后平台）在两机实证。发布前剩余仅**用户明确「发布」指令**后的发布动作链。
+
+## 2026-10-10 Phase 73 - 报表导出增强：所有者/虚拟机组/已分配全量落位与视觉优化
+
+- **背景与目标**：遵循设计文档 `2026-10-09-report-export-owner-folder-allocated-design.md`，全量落位 Word 与 Excel 导出物中缺失的「已分配容量」「所有者」「虚拟机组」，采纳 3 个默认决策（Word 使用率双条精简、Word 结构不加新建 VM 章节、Excel 摘要 KPI 扩充为 5 格），全面优化导出排版、列宽、行高与表头层级。
+- **改动范围**：
+  - `backend/app/v2/reports/export/word.py`：范围基本信息表增加「总已分配容量」行；集群增长表增加「已分配（占比）」列（7列），对齐宽度与文本样式；
+  - `backend/app/v2/reports/export/excel.py`：执行摘要扩充为 5 格 KPI 卡片（新增已分配容量与已分配率副行），容量趋势表在总容量后增加已分配容量与已分配率两列（11列），新建 VM 两 Sheet 增加所有者与虚拟机组（7列），每集群 Sheet 头部概览增加已分配容量（10列）且 VM 增长两段增加所有者与虚拟机组（7列），全面重构列宽与卡片高度；
+  - `backend/tests/test_v2_report_exports.py`：同步既有断言，新增 Phase 73 专项单元测试及缺失/空值容错测试。
+- **本地验证**：
+  - `backend/tests/test_v2_report_exports.py`：28 项测试全部通过（Ran 28 tests in 6.190s, OK）。
+  - `git diff --check`：通过（零空白行/语法告警）。
+  - 本地提交：`dev2 a52aefe`。
+- **10.20.11.3 远端真机验证**：
+  - 同步源码（git archive）至 `.3` `/data/phase73-src`，在 `nazawsze/smartx-hci-capacity-insight-web-api:v0.5.4` 容器内运行导出全套单元测试：**Ran 28 tests in 83.783s, OK** 全部通过；
+  - 热更部署并重启 web-api 容器，健康检查正常返回（`version: v0.5.4, checks: true`）；
+  - 调用真实接口导出 period_days=30 报表，通过自动化脚本 `scripts/verify_remote_exported_reports.py` 逐项断言全部通过：
+    - Word (`/tmp/report-sample/sample.docx`，200,044 B)：范围基本信息表包含「总已分配容量 172.20 TB」，集群增长表 7 列包含「已分配（占比） 171.88 TB · 78.42%」；
+    - Excel (`/tmp/report-sample/sample.xlsx`，104,825 B)：执行摘要 5 格 KPI（已分配容量 172.20 TiB，已分配率 78.22%），容量趋势 11 列（已分配容量 171.88 TiB，已分配率 78.42%），新建 VM 7 列（所有者、虚拟机组），集群 Sheet（SMARTX-TT-WW）头部 10 列包含已分配容量、VM 增长明细 7 列包含所有者（如 `liuliluo`）；
+  - 本地下载样本目视核对：5 卡片比例匀称大气、表格斑马纹与层次清晰、数值单位规范（Word 为 TB/GB，Excel 为 TiB/GiB），无 `###` 或截断换行异常。
+- **验收结论**：C1（本地单测）与 C2（.3 真机逐项断言 + 目视核对）全部通过，Phase 73 完结。
