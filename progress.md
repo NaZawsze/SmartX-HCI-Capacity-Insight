@@ -6085,3 +6085,34 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
     - Excel (`/tmp/report-sample/sample.xlsx`，104,825 B)：执行摘要 5 格 KPI（已分配容量 172.20 TiB，已分配率 78.22%），容量趋势 11 列（已分配容量 171.88 TiB，已分配率 78.42%），新建 VM 7 列（所有者、虚拟机组），集群 Sheet（SMARTX-TT-WW）头部 10 列包含已分配容量、VM 增长明细 7 列包含所有者（如 `liuliluo`）；
   - 本地下载样本目视核对：5 卡片比例匀称大气、表格斑马纹与层次清晰、数值单位规范（Word 为 TB/GB，Excel 为 TiB/GiB），无 `###` 或截断换行异常。
 - **验收结论**：C1（本地单测）与 C2（.3 真机逐项断言 + 目视核对）全部通过，Phase 73 完结。
+
+## 2026-10-10 Phase 74 - 报表虚拟机表格全量落位「分配空间」与「使用率」
+
+- **背景与目标**：用户明确需求在 Excel/Word 所有虚拟机增长与新建表格中增加虚拟机磁盘供给分配空间（精简置备上限）与使用率（当前容量/分配空间），统一列顺序为「所有者 | 虚拟机组 | 分配空间 | 当前容量 | 使用率」，口径遵循建议3方案B。
+- **改动范围**：
+  - `backend/app/v2/reports/service.py`：`_latest_vm_labels` 从 `vm_volumes` 聚合计算各虚机 `allocated_bytes` 并并入 labels；
+  - `backend/app/v2/reports/export/excel.py`：VM增长TOP100（双表）、日/月增长详情（13列）、本日/本月新建VM（9列）、集群VM增长（9列）全量落位「分配空间」与「使用率」，执行摘要 A17 新增容量口径解释；
+  - `backend/app/v2/reports/export/word.py`：Word VM 增长表落位「分配空间」与「使用率」；
+  - `backend/tests/test_v2_report_exports.py`：单元测试断言同步扩展。
+- **远端真机验证**：
+  - `.3` 容器内运行 `tests.test_v2_report_exports`：Ran 29 tests in 95.197s, OK 全部通过；
+  - 导出真实 Word 与 Excel，写入桌面 `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx` 与 `.docx`，断言全部通过。
+
+## 2026-10-11 Phase 75 - 报表增长排行榜与新建列表排除已删除虚拟机（方案 A）
+
+- **背景与目标**：用户审阅报表发现已彻底删除的虚拟机（如 `LiuYu-Ubuntu`）排在月增长第 42 名，经排查确认系历史 Prometheus 时序存在净增长，但 SQLite 活跃库中已彻底删除导致元数据标签缺失；用户明确指令采纳方案 A（直接排除已删除虚拟机）。
+- **改动范围**：
+  - `backend/app/v2/reports/service.py`：`_latest_vm_labels` SQL 增加 `WHERE (deleted_at IS NULL OR deleted_at = '') AND (in_recycle_bin = 0 OR in_recycle_bin IS NULL)`；`_growth_reports_from_series` 与 `_new_vm_reports_from_series` 均增加存活过滤；
+  - `backend/app/v2/vms/growth.py`：`compute_growth_vms` 增加 `alive_only=True` 选项，跳过不在活跃列表中的非存活机器；
+  - `backend/app/v2/database.py`：`vm_latest` 建表语句补全 `owner` 与 `folder_name`；
+  - `backend/tests/test_v2_reports.py`：增加已删除/回收站虚机过滤测试 `test_growth_vm_lists_exclude_deleted_and_recycled_vms_from_sqlite` 与 `DeletedVmPrometheus`。
+- **10.20.11.3 远端真机验证**：
+  - 同步代码至 `.3`，在 web-api 容器内运行全套测试：
+    - `tests.test_v2_reports`：Ran 22 tests in 13.411s, OK 全部通过；
+    - `tests.test_v2_report_exports`：Ran 29 tests in 95.197s, OK 全部通过；
+  - 重启容器并调用 API 导出真实报表，自动化全表扫描断言：
+    - `LiuYu-Ubuntu`、`in-recycle-bin` 等已删除/回收站机器 100% 排除，零残留；
+    - 原裸露集群 ID `cm551tvrv029a0858up57q8qu` 零残留；
+    - 榜单中所有虚拟机均带真实所有者、虚拟机组、分配空间、当前容量及使用率；
+    - 最新报告已覆盖写回桌面 `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx` 与 `.docx`。
+
