@@ -757,12 +757,12 @@ def _customer_vm_window_note(document: Document, context: dict[str, Any], vms: l
 
 
 def _customer_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode: str, *, empty_text: str) -> None:
-    # Phase 69：名称后加「所有者」「虚拟机组」两列（6→8）
-    headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "当前容量", "期初容量", "增长量", "增长率"]
+    # Phase 74：名称后加「所有者」「虚拟机组」「分配空间」「当前容量」「使用率」（8→10）
+    headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "期初容量", "增长量", "增长率"]
     table = document.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _docx_set_table_width(table, [700, 1700, 950, 1050, 1200, 1200, 1200, 1000])
+    _docx_set_table_width(table, [600, 1500, 850, 950, 1000, 1000, 800, 1000, 1000, 800])
     _customer_set_blue_headers(table.rows[0].cells, headers)
     _repeat_table_header(table.rows[0])
     if not vms:
@@ -773,12 +773,31 @@ def _customer_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode:
     for index, vm in enumerate(vms, start=1):
         row = table.add_row().cells
         labels = vm.get("labels") or {}
+        current_val = (vm.get("forecast") or {}).get("current")
+        allocated_val = labels.get("allocated")
+        try:
+            current_num = float(current_val) if current_val is not None else None
+        except (TypeError, ValueError):
+            current_num = None
+        try:
+            allocated_num = float(allocated_val) if allocated_val is not None else None
+        except (TypeError, ValueError):
+            allocated_num = None
+        if current_num is not None and allocated_num and allocated_num > 0:
+            used_ratio_label = _percent_label(current_num / allocated_num)
+            used_ratio_num = current_num / allocated_num
+        else:
+            used_ratio_label = "-"
+            used_ratio_num = 0.0
+
         values = [
             index,
             labels.get("vm") or labels.get("vm_name") or labels.get("vm_id") or "-",
             labels.get("owner") or "-",
             labels.get("folder_name") or "-",
-            _bytes_label((vm.get("forecast") or {}).get("current")),
+            _bytes_label(allocated_val) if (allocated_num and allocated_num > 0) else "-",
+            _bytes_label(current_val),
+            used_ratio_label,
             _bytes_label(vm.get("previous_value")),
             _bytes_label(vm.get("growth_amount")),
             _percent_label(vm.get("growth_ratio")),
@@ -787,10 +806,16 @@ def _customer_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode:
         if index % 2 == 0:
             _docx_shade_row(row, ACCENT_SOFT)
         _docx_set_cell_text_style(row[0], TEXT_MUTED, align=WD_ALIGN_PARAGRAPH.CENTER)
-        _docx_set_cell_text_style(row[6], GROWTH_BLUE, align=WD_ALIGN_PARAGRAPH.CENTER)
+        if used_ratio_num >= 0.85:
+            _docx_set_cell_text_style(row[6], RATIO_RED, align=WD_ALIGN_PARAGRAPH.CENTER)
+        elif used_ratio_num >= 0.70:
+            _docx_set_cell_text_style(row[6], RATIO_ORANGE, align=WD_ALIGN_PARAGRAPH.CENTER)
+        else:
+            _docx_set_cell_text_style(row[6], TEXT_DARK, align=WD_ALIGN_PARAGRAPH.CENTER)
+        _docx_set_cell_text_style(row[8], GROWTH_BLUE, align=WD_ALIGN_PARAGRAPH.CENTER)
         ratio = float(vm.get("growth_ratio") or 0)
         ratio_color = RATIO_RED if ratio >= 0.5 else RATIO_ORANGE if ratio >= 0.2 else TEXT_DARK
-        _docx_set_cell_text_style(row[7], ratio_color, align=WD_ALIGN_PARAGRAPH.CENTER)
+        _docx_set_cell_text_style(row[9], ratio_color, align=WD_ALIGN_PARAGRAPH.CENTER)
         _prevent_row_split(table.rows[-1])
 
 

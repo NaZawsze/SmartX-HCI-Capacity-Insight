@@ -316,9 +316,18 @@ class ReportService:
 
     def _latest_vm_labels(self) -> dict[tuple[int, str, str], dict[str, str]]:
         with self.database.connection() as conn:
-            # Phase 69：报表 VM 表格需要 owner/folder_name（「所有者」「虚拟机组」两列）
+            # Phase 69/74：报表 VM 表格需要 owner/folder_name 以及虚拟磁盘分配空间 allocated_bytes
             rows = conn.execute(
-                "SELECT tower_id, cluster_id, vm_id, name, owner, folder_name FROM vm_latest"
+                """
+                SELECT l.tower_id, l.cluster_id, l.vm_id, l.name, l.owner, l.folder_name,
+                       COALESCE(v.allocated_bytes, 0) AS allocated_bytes
+                FROM vm_latest l
+                LEFT JOIN (
+                    SELECT tower_id, cluster_id, vm_id, SUM(size_bytes) AS allocated_bytes
+                    FROM vm_volumes
+                    GROUP BY tower_id, cluster_id, vm_id
+                ) v ON l.tower_id = v.tower_id AND l.cluster_id = v.cluster_id AND l.vm_id = v.vm_id
+                """
             ).fetchall()
         tower_names = self._tower_names()
         cluster_names = self._cluster_names()
@@ -333,6 +342,8 @@ class ReportService:
                 "vm_name": str(row["name"]),
                 "owner": str(row["owner"]) if row["owner"] is not None else "",
                 "folder_name": str(row["folder_name"]) if row["folder_name"] is not None else "",
+                "allocated": float(row["allocated_bytes"] or 0),
+                "allocated_bytes": float(row["allocated_bytes"] or 0),
             }
             for row in rows
         }

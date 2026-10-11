@@ -295,6 +295,13 @@ def _write_xlsx_template_summary(
     _set_xlsx_cell(sheet, "A14", _capacity_risk_summary(report), size=12, color="0F172A")
     _set_xlsx_cell(sheet, "A15", f"当前软件版本：{settings.app_version}", size=10, color=TEXT_MUTED)
     _set_xlsx_cell(sheet, "A16", _profile_sample_notice(report, profile), size=10, color=TEXT_MUTED)
+    _set_xlsx_cell(
+        sheet,
+        "A17",
+        "虚拟机容量口径说明：分配空间为虚拟机虚拟磁盘供给总容量（精简置备配置上限），当前容量为实际已占用的物理存储，使用率 = 当前容量 / 分配空间。",
+        size=10,
+        color=TEXT_MUTED,
+    )
     _set_xlsx_cell(sheet, "A18", "容量增长速率口径", size=14, bold=True, color=ACCENT_DARK)
     growth_lines = list(_growth_rate_method_lines(report))
     for offset, line in enumerate(growth_lines, start=19):
@@ -307,7 +314,7 @@ def _write_xlsx_template_summary(
         size=10,
         color=TEXT_MUTED,
     )
-    for row in [1, 2, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, disclaimer_row]:
+    for row in [1, 2, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, disclaimer_row]:
         _merge_title_row(sheet, row, 1, 6)
     for column, width in {"A": 26, "B": 24, "C": 24, "D": 24, "E": 26, "F": 16}.items():
         sheet.column_dimensions[column].width = width
@@ -328,6 +335,7 @@ def _write_xlsx_template_summary(
         14: 15,
         15: 15,
         16: 38,
+        17: 24,
         18: 26,
         19: 28,
         20: 28,
@@ -468,13 +476,13 @@ def _write_xlsx_data_quality_sheet(sheet, report: dict[str, Any], context: dict[
 def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dict[str, Any], profile: ReportPeriodProfile) -> None:
     _reset_xlsx_sheet_rows(sheet)
     window_label = _vm_sample_window_label(vms, report)
-    # Phase 69：每侧 +2 列（所有者/虚拟机组）——左侧 1..9，分隔列 10，右侧 11..18。
-    RIGHT_START = 11
-    sheet.append([f"三、{profile.vm_growth_title}全部虚拟机（{window_label}）", *([""] * 9), "四、虚拟机增长率全部虚拟机"])
+    # Phase 74：每侧 +2 列（分配空间/使用率）——左侧 1..11，分隔列 12，右侧 13..22。
+    RIGHT_START = 13
+    sheet.append([f"三、{profile.vm_growth_title}全部虚拟机（{window_label}）", *([""] * 11), "四、虚拟机增长率全部虚拟机"])
     sheet.append([])
-    sheet.append(["按增长量降序", *([""] * 9), "按增长率降序"])
-    amount_headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "当前容量", "期初容量", "增长量", "增长率", "风险"]
-    ratio_headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "当前容量", "期初容量", "增长量", "增长率"]
+    sheet.append(["按增长量降序", *([""] * 11), "按增长率降序"])
+    amount_headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "期初容量", "增长量", "增长率", "风险"]
+    ratio_headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "期初容量", "增长量", "增长率"]
     for index, value in enumerate(amount_headers, start=1):
         sheet.cell(row=4, column=index).value = value
     for index, value in enumerate(ratio_headers, start=RIGHT_START):
@@ -509,8 +517,8 @@ def _write_xlsx_template_growth_detail(
     _reset_xlsx_sheet_rows(sheet)
     sheet.append([f"{title}（{_period_window_label(report)}）"])
     sheet.append([])
-    # Phase 69：名称后加「所有者」「虚拟机组」两列（9→11）
-    headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "Tower", "集群", "当前容量", "期初容量", growth_header, "增长率", "风险"]
+    # Phase 74：加入「分配空间」「使用率」两列（11→13）
+    headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "Tower", "集群", "分配空间", "当前容量", "使用率", "期初容量", growth_header, "增长率", "风险"]
     sheet.append(headers)
     if not vms:
         sheet.append(["暂无日增长 VM 数据"])
@@ -519,7 +527,7 @@ def _write_xlsx_template_growth_detail(
         labels = vm.get("labels") or {}
         sheet.append([row[0], row[1], row[2], row[3], labels.get("tower") or labels.get("tower_id") or "", labels.get("cluster") or labels.get("cluster_id") or "", *row[4:]])
     _style_customer_xlsx_table(sheet, title_rows={1}, header_rows={3})
-    _merge_title_row(sheet, 1, 1, 11)
+    _merge_title_row(sheet, 1, 1, 13)
     sheet["A1"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     sheet.freeze_panes = "A4"
     sheet.auto_filter.ref = f"A3:{get_column_letter(len(headers))}{sheet.max_row}"
@@ -532,9 +540,11 @@ def _write_xlsx_template_growth_detail(
         "F": 22,
         "G": 18,
         "H": 18,
-        "I": 24,
-        "J": 16,
-        "K": 14,
+        "I": 14,
+        "J": 18,
+        "K": 24,
+        "L": 16,
+        "M": 14,
     }.items():
         sheet.column_dimensions[column].width = width
     sheet.row_dimensions[1].height = 30
@@ -620,20 +630,24 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
         "B": 50,            # 虚拟机名称
         "C": 16,            # 所有者（Phase 69）
         "D": 20,            # 虚拟机组（Phase 69）
-        "E": 18,            # 当前容量
-        "F": 18,            # 期初容量
-        "G": 22,            # 增长量
-        "H": 14,            # 增长率
-        "I": 10,            # 风险
-        "J": 10,            # 分隔列
-        "K": 15.83203125,
-        "L": 50,
-        "M": 16,
-        "N": 20,
-        "O": 18,
-        "P": 18,
-        "Q": 22,
-        "R": 14,
+        "E": 18,            # 分配空间（Phase 74）
+        "F": 18,            # 当前容量
+        "G": 14,            # 使用率（Phase 74）
+        "H": 18,            # 期初容量
+        "I": 22,            # 增长量
+        "J": 14,            # 增长率
+        "K": 10,            # 风险
+        "L": 10,            # 分隔列
+        "M": 15.83203125,
+        "N": 50,
+        "O": 16,
+        "P": 20,
+        "Q": 18,
+        "R": 18,
+        "S": 14,
+        "T": 18,
+        "U": 22,
+        "V": 14,
     }
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
@@ -642,22 +656,22 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
             sheet.row_dimensions[row_index].height = 34
         elif row_index in {left_header_row, right_header_row}:
             sheet.row_dimensions[row_index].height = 28
-            for c_idx in range(1, 19):
+            for c_idx in range(1, 23):
                 cell = sheet.cell(row=row_index, column=c_idx)
-                if c_idx == 10:
+                if c_idx == 12:
                     continue
                 cell.border = HEADER_BORDER
-                if c_idx in {5, 6, 7, 8, 15, 16, 17, 18}:
+                if c_idx in {5, 6, 7, 8, 9, 10, 17, 18, 19, 20, 21, 22}:
                     cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
-                elif c_idx in {1, 9, 11}:
+                elif c_idx in {1, 11, 13}:
                     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
                 else:
                     cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
         else:
             sheet.row_dimensions[row_index].height = 26
-            for c_idx in range(1, 19):
+            for c_idx in range(1, 23):
                 cell = sheet.cell(row=row_index, column=c_idx)
-                if isinstance(cell, MergedCell) or c_idx == 10:
+                if isinstance(cell, MergedCell) or c_idx == 12:
                     continue
                 cell.font = Font(name=XLSX_FONT_NAME, size=12, color="0F172A")
                 cell.border = DATA_BORDER
@@ -670,38 +684,56 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
                 else:
                     cell.fill = PatternFill(fill_type="solid", fgColor="FFFFFF")
 
-                if c_idx in {5, 6, 7, 8, 15, 16, 17, 18}:
+                if c_idx in {5, 6, 7, 8, 9, 10, 17, 18, 19, 20, 21, 22}:
                     cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-                elif c_idx in {1, 9, 11}:
+                elif c_idx in {1, 11, 13}:
                     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
                 else:
                     cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
-    # Phase 69：每侧 9/8 列后——左侧合并 1..9、右侧 11..18、分隔列 10（J）
-    _merge_title_row(sheet, 1, 1, 9)
-    if sheet.cell(row=1, column=11).value:
-        _merge_title_row(sheet, 1, 11, 18)
+    # Phase 74：每侧 11/10 列后——左侧合并 1..11、右侧 13..22、分隔列 12（L）
+    _merge_title_row(sheet, 1, 1, 11)
+    if sheet.cell(row=1, column=13).value:
+        _merge_title_row(sheet, 1, 13, 22)
     if sheet.cell(row=3, column=1).value:
-        _merge_title_row(sheet, 3, 1, 9)
-    if sheet.cell(row=3, column=11).value:
-        _merge_title_row(sheet, 3, 11, 18)
+        _merge_title_row(sheet, 3, 1, 11)
+    if sheet.cell(row=3, column=13).value:
+        _merge_title_row(sheet, 3, 13, 22)
     if sheet.max_row >= 1:
-        sheet.merge_cells(start_row=1, start_column=10, end_row=sheet.max_row, end_column=10)
-        separator = sheet.cell(row=1, column=10)
+        sheet.merge_cells(start_row=1, start_column=12, end_row=sheet.max_row, end_column=12)
+        separator = sheet.cell(row=1, column=12)
         separator.value = None
         separator.fill = PatternFill(fill_type=None)
-        sheet.column_dimensions["J"].width = 10
+        sheet.column_dimensions["L"].width = 10
 
 
 def _xlsx_vm_display_row(vm: dict[str, Any], rank: int, *, include_risk: bool) -> list[Any]:
     labels = vm.get("labels") or {}
     forecast = vm.get("forecast") or {}
-    # Phase 69：名称后插入「所有者」「虚拟机组」两列（空值显示 -）
+    current = forecast.get("current")
+    allocated = labels.get("allocated")
+    try:
+        current_num = float(current) if current is not None else None
+    except (TypeError, ValueError):
+        current_num = None
+    try:
+        allocated_num = float(allocated) if allocated is not None else None
+    except (TypeError, ValueError):
+        allocated_num = None
+
+    if current_num is not None and allocated_num and allocated_num > 0:
+        used_ratio_label = _percent_label(current_num / allocated_num)
+    else:
+        used_ratio_label = "-"
+
+    # Phase 74：名称后插入「所有者」「虚拟机组」「分配空间」「当前容量」「使用率」
     values: list[Any] = [
         rank,
         labels.get("vm") or labels.get("vm_name") or labels.get("vm_id") or "",
         labels.get("owner") or "-",
         labels.get("folder_name") or "-",
-        _xlsx_bytes_label(forecast.get("current")),
+        _xlsx_bytes_label(allocated) if (allocated_num and allocated_num > 0) else "-",
+        _xlsx_bytes_label(current),
+        used_ratio_label,
         _xlsx_bytes_label(vm.get("previous_value")),
         _xlsx_signed_bytes_label(vm.get("growth_amount")),
         _percent_label(vm.get("growth_ratio")),
@@ -750,7 +782,8 @@ def _xlsx_signed_bytes_label(value: Any) -> str:
 def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *, include_growth: bool) -> None:
     _clear_xlsx_sheet(sheet)
     _clear_xlsx_tables(sheet)
-    headers = ["Tower", "集群", "VM", "所有者", "虚拟机组", "当前容量"]
+    # Phase 74：加入「分配空间」「当前容量」「使用率」
+    headers = ["Tower", "集群", "VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率"]
     if include_growth:
         headers.extend(["期初容量", "增长量", "增长率"])
     else:
@@ -762,13 +795,30 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
         sheet.cell(row=3, column=1).value = empty_text
     for row_index, vm in enumerate(vms, start=3):
         labels = vm.get("labels", {})
+        current = (vm.get("forecast") or {}).get("current")
+        allocated = labels.get("allocated")
+        try:
+            current_num = float(current) if current is not None else None
+        except (TypeError, ValueError):
+            current_num = None
+        try:
+            allocated_num = float(allocated) if allocated is not None else None
+        except (TypeError, ValueError):
+            allocated_num = None
+        if current_num is not None and allocated_num and allocated_num > 0:
+            used_ratio_label = _percent_label(current_num / allocated_num)
+        else:
+            used_ratio_label = "-"
+
         row = [
             labels.get("tower") or labels.get("tower_id") or "",
             labels.get("cluster") or labels.get("cluster_id") or "",
             labels.get("vm") or labels.get("vm_id") or "",
             labels.get("owner") or "-",
             labels.get("folder_name") or "-",
-            _xlsx_bytes_label((vm.get("forecast") or {}).get("current")),
+            _xlsx_bytes_label(allocated) if (allocated_num and allocated_num > 0) else "-",
+            _xlsx_bytes_label(current),
+            used_ratio_label,
         ]
         if include_growth:
             row.extend([
@@ -791,11 +841,15 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
         "D": 16,
         "E": 20,
         "F": 18,
+        "G": 18,
+        "H": 14,
     }
-    widths["G" if not include_growth else "I"] = 24 if not include_growth else 14
-    if include_growth:
-        widths["G"] = 18
-        widths["H"] = 22
+    if not include_growth:
+        widths["I"] = 24
+    else:
+        widths["I"] = 18
+        widths["J"] = 22
+        widths["K"] = 14
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
     sheet.row_dimensions[1].height = 24
@@ -828,7 +882,7 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
     )
     sheet.append([_profile_sample_notice(report, profile)])
     sheet.append([])
-    headers = ["VM", "所有者", "虚拟机组", "当前容量", "期初容量", "增长量", "增长率"]
+    headers = ["VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "期初容量", "增长量", "增长率"]
     window_label = _vm_sample_window_label(vms, report)
     sheet.append([f"{profile.vm_growth_title} 增长量全部虚拟机（按增长量降序，统计窗口：{window_label}）"])
     sheet.append(headers)
@@ -874,8 +928,8 @@ def _apply_cluster_sheet_layout(sheet, *, amount_header_row: int, ratio_header_r
         "F": 22,
         "G": 16,
         "H": 20,
-        "I": 14,
-        "J": 14,
+        "I": 22,
+        "J": 16,
     }
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
@@ -945,10 +999,10 @@ def _apply_cluster_sheet_layout(sheet, *, amount_header_row: int, ratio_header_r
                 cell.alignment = Alignment(vertical="center", wrap_text=True)
 
     for h_row in [amount_header_row, ratio_header_row]:
-        for col_idx in range(1, 8):
+        for col_idx in range(1, 10):
             cell = sheet.cell(row=h_row, column=col_idx)
             cell.border = HEADER_BORDER
-            if col_idx in {4, 5, 6, 7}:
+            if col_idx in {4, 5, 6, 7, 8, 9}:
                 cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
             else:
                 cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
@@ -960,7 +1014,7 @@ def _apply_cluster_sheet_layout(sheet, *, amount_header_row: int, ratio_header_r
             and first_cell.fill.fill_type
             and getattr(first_cell.fill.fgColor, "rgb", "") in {f"00{VM_ALERT_FILL}", VM_ALERT_FILL}
         )
-        for col_idx in range(1, 8):
+        for col_idx in range(1, 10):
             cell = sheet.cell(row=row_index, column=col_idx)
             if isinstance(cell, MergedCell):
                 continue
@@ -973,7 +1027,7 @@ def _apply_cluster_sheet_layout(sheet, *, amount_header_row: int, ratio_header_r
             else:
                 cell.fill = PatternFill(fill_type="solid", fgColor="FFFFFF")
 
-            if col_idx in {4, 5, 6, 7}:
+            if col_idx in {4, 5, 6, 7, 8, 9}:
                 cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
             else:
                 cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
@@ -995,6 +1049,21 @@ def _normalize_xlsx_fonts(workbook: Workbook) -> None:
 def _vm_xlsx_row(vm: dict[str, Any], *, include_cluster: bool) -> list[Any]:
     labels = vm.get("labels", {})
     forecast = vm.get("forecast", {})
+    current = forecast.get("current")
+    allocated = labels.get("allocated")
+    try:
+        current_num = float(current) if current is not None else None
+    except (TypeError, ValueError):
+        current_num = None
+    try:
+        allocated_num = float(allocated) if allocated is not None else None
+    except (TypeError, ValueError):
+        allocated_num = None
+    if current_num is not None and allocated_num and allocated_num > 0:
+        used_ratio_label = _percent_label(current_num / allocated_num)
+    else:
+        used_ratio_label = "-"
+
     row: list[Any] = []
     if include_cluster:
         row.extend([labels.get("tower") or labels.get("tower_id") or "", labels.get("cluster") or labels.get("cluster_id") or ""])
@@ -1002,7 +1071,9 @@ def _vm_xlsx_row(vm: dict[str, Any], *, include_cluster: bool) -> list[Any]:
         labels.get("vm") or labels.get("vm_name") or labels.get("vm_id") or "",
         labels.get("owner") or "-",
         labels.get("folder_name") or "-",
-        _xlsx_bytes_label(forecast.get("current")),
+        _xlsx_bytes_label(allocated) if (allocated_num and allocated_num > 0) else "-",
+        _xlsx_bytes_label(current),
+        used_ratio_label,
         _xlsx_bytes_label(vm.get("previous_value")),
         _xlsx_signed_bytes_label(vm.get("growth_amount")),
         _percent_label(vm.get("growth_ratio")),

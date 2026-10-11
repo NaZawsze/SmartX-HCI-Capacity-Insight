@@ -787,14 +787,14 @@ class V2ReportExportDocumentTest(unittest.TestCase):
 
             top_sheet = workbook["VM增长TOP100"]
             self.assertIn("全部虚拟机", str(top_sheet["A1"].value))
-            # Phase 69：右侧标题列随每侧 +2 列后移（9 → 11）
-            self.assertIn("全部虚拟机", str(top_sheet["K1"].value))
+            # Phase 74：右侧标题列随每侧 +2 列后移（11 → 13）
+            self.assertIn("全部虚拟机", str(top_sheet["M1"].value))
             self.assertGreaterEqual(top_sheet.column_dimensions["B"].width, 36)
             self.assertGreaterEqual(top_sheet.column_dimensions["C"].width, 14)
             self.assertEqual(top_sheet.column_dimensions["E"].width, 18)
-            self.assertIn(f"J1:J{top_sheet.max_row}", {str(item) for item in top_sheet.merged_cells.ranges})
-            self.assertIsNone(top_sheet["J1"].fill.fill_type)
-            self.assertEqual(top_sheet.column_dimensions["H"].width, 14)
+            self.assertIn(f"L1:L{top_sheet.max_row}", {str(item) for item in top_sheet.merged_cells.ranges})
+            self.assertIsNone(top_sheet["L1"].fill.fill_type)
+            self.assertEqual(top_sheet.column_dimensions["H"].width, 18)
 
             cluster_sheet = workbook["集群-Cluster A"]
             cluster_values = [cell for row in cluster_sheet.iter_rows(values_only=True) for cell in row if cell is not None]
@@ -821,7 +821,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
                 row_index
                 for row_index in range(1, cluster_sheet.max_row + 1)
                 if cluster_sheet.cell(row=row_index, column=1).value == "VM"
-                and cluster_sheet.cell(row=row_index, column=4).value == "当前容量"
+                and cluster_sheet.cell(row=row_index, column=5).value == "当前容量"
             ]
             self.assertEqual(len(vm_header_rows), 2)
             for header_row in vm_header_rows:
@@ -912,8 +912,8 @@ class V2ReportExportDocumentTest(unittest.TestCase):
 
         day_new = workbook["本日新建VM"]
         month_new = workbook["本月新建VM"]
-        self.assertEqual(day_new.column_dimensions["G"].width, 24)
-        self.assertEqual(month_new.column_dimensions["G"].width, 24)
+        self.assertEqual(day_new.column_dimensions["I"].width, 24)
+        self.assertEqual(month_new.column_dimensions["I"].width, 24)
         self.assertEqual(day_new.column_dimensions["E"].width, 20)
         self.assertEqual(month_new.column_dimensions["E"].width, 20)
 
@@ -930,16 +930,16 @@ class V2ReportExportDocumentTest(unittest.TestCase):
         self.assertEqual(top.sheet_view.topLeftCell, "A1")
         self.assertEqual(top.sheet_view.selection[0].activeCell, "A5")
         self.assertEqual(top.sheet_view.selection[0].sqref, "A5")
-        # Phase 69：每侧 +2 列（所有者/虚拟机组）——左侧 1..9、分隔列 J、右侧 11..18
+        # Phase 74：每侧 +2 列（分配空间/使用率）——左侧 1..11、分隔列 L、右侧 13..22
         self.assertAlmostEqual(top.column_dimensions["A"].width, 15.83203125)
         self.assertEqual(top.column_dimensions["B"].width, 50)
-        self.assertEqual(top.column_dimensions["J"].width, 10)
-        self.assertAlmostEqual(top.column_dimensions["K"].width, 15.83203125)
-        self.assertEqual(top.column_dimensions["L"].width, 50)
+        self.assertEqual(top.column_dimensions["L"].width, 10)
+        self.assertAlmostEqual(top.column_dimensions["M"].width, 15.83203125)
+        self.assertEqual(top.column_dimensions["N"].width, 50)
         self.assertEqual(top.row_dimensions[1].height, 34)
         self.assertEqual(top.row_dimensions[3].height, 34)
         self.assertEqual(top.row_dimensions[4].height, 28)
-        self.assertIn(f"J1:J{top.max_row}", {str(item) for item in top.merged_cells.ranges})
+        self.assertIn(f"L1:L{top.max_row}", {str(item) for item in top.merged_cells.ranges})
         self.assertEqual(top["A4"].font.sz, 12)
         self.assertEqual(top["A5"].font.sz, 12)
 
@@ -998,8 +998,8 @@ class V2ReportExportDocumentTest(unittest.TestCase):
                 self.assertEqual(cell.font.color.rgb[-6:], "000000", cell.coordinate)
 
         day_sheet = workbook["日增长详情"]
-        # Phase 69：9→11 列后标题合并区随宽
-        self.assertIn("A1:K1", {str(item) for item in day_sheet.merged_cells.ranges})
+        # Phase 74：11→13 列后标题合并区随宽
+        self.assertIn("A1:M1", {str(item) for item in day_sheet.merged_cells.ranges})
         self.assertIn("日增长最快虚拟机", str(day_sheet["A1"].value))
         self.assertIsNone(day_sheet.sheet_properties.tabColor)
 
@@ -1008,14 +1008,18 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             ["日增长详情", "月增长详情", "本日新建VM"],
         )
         month_sheet = workbook["月增长详情"]
-        # Phase 69：9→11 列后标题合并区随宽
-        self.assertIn("A1:K1", {str(item) for item in month_sheet.merged_cells.ranges})
+        # Phase 74：11→13 列后标题合并区随宽
+        self.assertIn("A1:M1", {str(item) for item in month_sheet.merged_cells.ranges})
         self.assertIn("月增长最快虚拟机", str(month_sheet["A1"].value))
-        # Phase 69：名称后插入「所有者」「虚拟机组」，月增长量列 G→I
+        # Phase 74：名称后插入「所有者」「虚拟机组」「分配空间」「当前容量」「使用率」
         self.assertEqual(month_sheet["C3"].value, "所有者")
         self.assertEqual(month_sheet["D3"].value, "虚拟机组")
         self.assertEqual(month_sheet["E3"].value, "Tower")
-        self.assertEqual(month_sheet["I3"].value, "月增长量")
+        self.assertEqual(month_sheet["F3"].value, "集群")
+        self.assertEqual(month_sheet["G3"].value, "分配空间")
+        self.assertEqual(month_sheet["H3"].value, "当前容量")
+        self.assertEqual(month_sheet["I3"].value, "使用率")
+        self.assertEqual(month_sheet["K3"].value, "月增长量")
         month_text = "\n".join(
             str(cell)
             for row in month_sheet.iter_rows(values_only=True)
@@ -1174,21 +1178,21 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertEqual(trend.cell(row=4, column=7).value, "250.00 GiB")   # 已分配容量
             self.assertEqual(trend.cell(row=4, column=8).value, "25.00%")       # 已分配率
 
-            # 2.3 本日新建 VM：7 列含所有者/虚拟机组，空值显示 -
+            # 2.3 本日新建 VM：9 列含所有者/虚拟机组/分配空间/当前容量/使用率，空值显示 -
             day_new = wb["本日新建VM"]
-            new_headers = [day_new.cell(row=2, column=col).value for col in range(1, 8)]
-            self.assertEqual(new_headers, ["Tower", "集群", "VM", "所有者", "虚拟机组", "当前容量", "首次出现时间"])
+            new_headers = [day_new.cell(row=2, column=col).value for col in range(1, 10)]
+            self.assertEqual(new_headers, ["Tower", "集群", "VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "首次出现时间"])
             # 第 1 台 VM 有 owner 和 folder_name
             self.assertEqual(day_new["C3"].value, "NewVM-1")
             self.assertEqual(day_new["D3"].value, "alice")
             self.assertEqual(day_new["E3"].value, "核心业务组")
-            self.assertEqual(day_new["F3"].value, "50.00 GiB")
+            self.assertEqual(day_new["G3"].value, "50.00 GiB")
             # 第 2 台 VM 无 owner 和 folder_name，显示 -
             self.assertEqual(day_new["C4"].value, "NewVM-2")
             self.assertEqual(day_new["D4"].value, "-")
             self.assertEqual(day_new["E4"].value, "-")
 
-            # 2.4 每集群 Sheet：头部信息行 10 列包含已分配容量；VM 表 7 列含所有者和虚拟机组
+            # 2.4 每集群 Sheet：头部信息行 10 列包含已分配容量；VM 表 9 列含所有者、虚拟机组、分配空间、使用率
             cluster_sheet = wb["集群-Cluster A"]
             head_row2 = [cluster_sheet.cell(row=2, column=col).value for col in range(1, 11)]
             self.assertEqual(
@@ -1198,8 +1202,8 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertEqual(cluster_sheet["H3"].value, "250.00 GiB")
 
             # VM 增长量段表头（第 7 行）
-            vm_headers = [cluster_sheet.cell(row=7, column=col).value for col in range(1, 8)]
-            self.assertEqual(vm_headers, ["VM", "所有者", "虚拟机组", "当前容量", "期初容量", "增长量", "增长率"])
+            vm_headers = [cluster_sheet.cell(row=7, column=col).value for col in range(1, 10)]
+            self.assertEqual(vm_headers, ["VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "期初容量", "增长量", "增长率"])
             self.assertEqual(cluster_sheet["A8"].value, "MonthVM-1")
             self.assertEqual(cluster_sheet["B8"].value, "bob")
             self.assertEqual(cluster_sheet["C8"].value, "基础架构组")
@@ -1239,6 +1243,133 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertEqual(summary["B4"].value, "已分配容量")
             self.assertEqual(summary["B5"].value, "0.00 B")
             self.assertEqual(summary["B6"].value, "-")
+
+    def test_phase74_export_vm_allocated_and_used_ratio_placement(self) -> None:
+        """Phase 74: Word 与 Excel 导出全量落位「分配空间」与「使用率」两列。"""
+        from openpyxl import load_workbook
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_docx, build_report_xlsx
+
+        clusters = [
+            {
+                "labels": {"tower_id": "1", "tower": "Tower A", "cluster_id": "cluster-a", "cluster": "Cluster A"},
+                "forecast": {"status": "ok", "slope_per_day": 1, "current": 800 * 1024**3, "forecast_90d": 900 * 1024**3},
+                "points": [[1764547200, 800 * 1024**3]],
+                "total": 1000 * 1024**3,
+                "allocated": 400 * 1024**3,
+            }
+        ]
+        month_vms = [
+            {
+                "labels": {
+                    "tower_id": "1", "tower": "Tower A",
+                    "cluster_id": "cluster-a", "cluster": "Cluster A",
+                    "vm_id": "vm-test-1", "vm": "App-VM-1",
+                    "owner": "dev_team", "folder_name": "支付系统",
+                    "allocated": 400 * 1024**3,
+                    "allocated_bytes": 400 * 1024**3,
+                },
+                "forecast": {"status": "ok", "slope_per_day": 2, "current": 300 * 1024**3},
+                "growth_amount": 50 * 1024**3,
+                "previous_value": 250 * 1024**3,
+                "growth_ratio": 0.20,
+            },
+            {
+                "labels": {
+                    "tower_id": "1", "tower": "Tower A",
+                    "cluster_id": "cluster-a", "cluster": "Cluster A",
+                    "vm_id": "vm-test-2", "vm": "App-VM-2",
+                    "owner": "-", "folder_name": "-",
+                },
+                "forecast": {"status": "ok", "slope_per_day": 1, "current": 50 * 1024**3},
+                "growth_amount": 10 * 1024**3,
+                "previous_value": 40 * 1024**3,
+                "growth_ratio": 0.25,
+            },
+        ]
+        day_new_vms = [
+            {
+                "labels": {
+                    "tower_id": "1", "tower": "Tower A",
+                    "cluster_id": "cluster-a", "cluster": "Cluster A",
+                    "vm_id": "vm-new-1", "vm": "New-VM-1",
+                    "owner": "ops", "folder_name": "测试组",
+                    "allocated": 100 * 1024**3,
+                    "allocated_bytes": 100 * 1024**3,
+                },
+                "forecast": {"status": "ok", "current": 20 * 1024**3},
+                "first_seen_at": "2026-10-10 12:00:00",
+            }
+        ]
+        service = FakeReportService(clusters=clusters)
+        report = service.latest_report(period_days=30)
+        report["month_fastest_growing_vms"] = month_vms
+        report["day_fastest_growing_vms"] = month_vms
+        report["day_new_vms"] = day_new_vms
+        report["month_new_vms"] = day_new_vms
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="phase74-test-secret")
+            docx_content, _, _, _ = build_report_docx(report, settings, period_days=30)
+            word_xml, _ = _docx_xml(docx_content)
+
+            # 1. Word 断言
+            self.assertIn("分配空间", word_xml)
+            self.assertIn("使用率", word_xml)
+            self.assertIn("400.00 GB", word_xml)
+            self.assertIn("300.00 GB", word_xml)
+            self.assertIn("75.00%", word_xml)
+
+            # 2. Excel 断言
+            xlsx_content, _, _, _ = build_report_xlsx(report, settings, period_days=30)
+            wb = load_workbook(io.BytesIO(xlsx_content))
+
+            # 2.1 执行摘要 A17 注记
+            summary = wb["执行摘要"]
+            self.assertIn("虚拟机容量口径说明", str(summary["A17"].value))
+
+            # 2.2 VM 增长 TOP100 表
+            top_sheet = wb["VM增长TOP100"]
+            top_headers_left = [top_sheet.cell(row=4, column=col).value for col in range(1, 12)]
+            self.assertEqual(
+                top_headers_left,
+                ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "期初容量", "增长量", "增长率", "风险"],
+            )
+            self.assertEqual(top_sheet["E5"].value, "400.00 GiB")
+            self.assertEqual(top_sheet["F5"].value, "300.00 GiB")
+            self.assertEqual(top_sheet["G5"].value, "75.00%")
+            self.assertEqual(top_sheet["E6"].value, "-")
+            self.assertEqual(top_sheet["G6"].value, "-")
+
+            # 2.3 日增长详情表
+            day_sheet = wb["日增长详情"]
+            day_headers = [day_sheet.cell(row=3, column=col).value for col in range(1, 14)]
+            self.assertEqual(
+                day_headers,
+                ["排名", "虚拟机名称", "所有者", "虚拟机组", "Tower", "集群", "分配空间", "当前容量", "使用率", "期初容量", "日增长量", "增长率", "风险"],
+            )
+
+            # 2.4 本日新建 VM 表
+            new_sheet = wb["本日新建VM"]
+            new_headers = [new_sheet.cell(row=2, column=col).value for col in range(1, 10)]
+            self.assertEqual(
+                new_headers,
+                ["Tower", "集群", "VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "首次出现时间"],
+            )
+            self.assertEqual(new_sheet["F3"].value, "100.00 GiB")
+            self.assertEqual(new_sheet["G3"].value, "20.00 GiB")
+            self.assertEqual(new_sheet["H3"].value, "20.00%")
+
+            # 2.5 集群专属 Sheet VM 表
+            cluster_sheet = wb["集群-Cluster A"]
+            c_vm_headers = [cluster_sheet.cell(row=7, column=col).value for col in range(1, 10)]
+            self.assertEqual(
+                c_vm_headers,
+                ["VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "期初容量", "增长量", "增长率"],
+            )
+            self.assertEqual(cluster_sheet["D8"].value, "400.00 GiB")
+            self.assertEqual(cluster_sheet["E8"].value, "300.00 GiB")
+            self.assertEqual(cluster_sheet["F8"].value, "75.00%")
 
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
