@@ -2415,3 +2415,27 @@ Phase 69 只给 Word/Excel 的 VM 增长类表格加了两列；真实导出样�
 - [x] 测试机验证：在 `10.20.11.3` 远端容器内运行 `tests.test_v2_reports`（22 tests OK）与 `tests.test_v2_report_exports`（29 tests OK）共 51 tests 全量通过。
 - [x] .3 远端部署与回归：同步至 .3，重启容器，导出真实报表验证第 42 名已删除机器已被过滤、排名顺延且全部合法。
 - [x] 覆盖用户桌面文件：写入最新 Excel 与 Word 文件，经脚本全表扫描断言零已删除/回收站虚机、零裸露集群 ID。
+
+## Phase 76 - 报表导出体验优化：重命名「周期初始容量」、口径注释、解决筛选按钮遮挡与向右滑动引导
+
+来源：2026-10-12 用户针对导出的 Excel/Word 报表提出三项排版与可读性优化建议：
+1. 原「期初容量」术语不够直观，统一重命名为「周期初始容量」，并在表格上方空白处添加注释解释口径；
+2. 原数值表头右对齐导致文字最后一个字紧贴右边缘被 Excel 自动筛选下拉箭头（`▼`）遮挡（如“量”、“率”、“间”）；
+3. `VM增长TOP100` Sheet 打开时仅能看到左侧增长量榜单，用户不易发现右侧还有增长率榜单，要求在右上空白处添加「向右滑动」引导提示。
+
+任务列表：
+- [x] 报表导出模块实现：
+  - `backend/app/v2/reports/export/excel.py`：所有表格（TOP100、日/月增长详情、集群 VM 表）中的「期初容量」统一重命名为「周期初始容量」；
+  - 表头对齐：表头单元格一律居中对齐（`Alignment(horizontal="center", vertical="center", wrap_text=True)`），彻底消除 Excel 筛选按钮遮挡文字；数据行保持靠右对齐；
+  - 口径注释：`VM增长TOP100` 第 2 行 A2:I2 及增长详情表第 2 行 A2:M2 写入 `* 注：周期初始容量指统计周期起始时虚拟机的物理占用容量；若机器在周期内新建，则为建机首次采样容量。`；
+  - 向右滑动引导：`VM增长TOP100` 第 2 行 J2:K2 写入粗体蓝色 `向右滑动查看增长率榜单 ➔`（`002563EB bold: True align: right`）；
+  - `backend/app/v2/reports/export/word.py`：表头同步重命名为「周期初始容量」并增加口径说明段落。
+- [x] 单元测试同步更新：
+  - `backend/tests/test_v2_report_exports.py` 更新 4 处表头断言及第 2 行说明/向右滑动提示断言；
+  - 列宽与行高断言对齐。
+- [x] `10.20.11.3` 远端容器内验证：
+  - 容器内全量运行 `tests.test_v2_report_exports`：**29 项测试全部通过（Ran 29 tests in 95.192s, OK）**；
+  - 运行 `scripts/verify_remote_exported_reports.py http://10.20.11.3:8000` 导出真实报表，Word 与 Excel 全表断言通过。
+- [x] 覆盖用户桌面文件：
+  - 已刷新写入 `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx`；
+  - 已刷新写入 `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.docx`。

@@ -1203,7 +1203,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
 
             # VM 增长量段表头（第 7 行）
             vm_headers = [cluster_sheet.cell(row=7, column=col).value for col in range(1, 10)]
-            self.assertEqual(vm_headers, ["VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "期初容量", "增长量", "增长率"])
+            self.assertEqual(vm_headers, ["VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率"])
             self.assertEqual(cluster_sheet["A8"].value, "MonthVM-1")
             self.assertEqual(cluster_sheet["B8"].value, "bob")
             self.assertEqual(cluster_sheet["C8"].value, "基础架构组")
@@ -1330,10 +1330,12 @@ class V2ReportExportDocumentTest(unittest.TestCase):
 
             # 2.2 VM 增长 TOP100 表
             top_sheet = wb["VM增长TOP100"]
+            self.assertIn("周期初始容量", str(top_sheet["A2"].value or ""))
+            self.assertTrue(any("向右滑动" in str(top_sheet.cell(row=2, column=c).value or "") for c in range(1, 13)))
             top_headers_left = [top_sheet.cell(row=4, column=col).value for col in range(1, 12)]
             self.assertEqual(
                 top_headers_left,
-                ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "期初容量", "增长量", "增长率", "风险"],
+                ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率", "风险"],
             )
             self.assertEqual(top_sheet["E5"].value, "400.00 GiB")
             self.assertEqual(top_sheet["F5"].value, "300.00 GiB")
@@ -1343,10 +1345,11 @@ class V2ReportExportDocumentTest(unittest.TestCase):
 
             # 2.3 日增长详情表
             day_sheet = wb["日增长详情"]
+            self.assertIn("周期初始容量", str(day_sheet["A2"].value or ""))
             day_headers = [day_sheet.cell(row=3, column=col).value for col in range(1, 14)]
             self.assertEqual(
                 day_headers,
-                ["排名", "虚拟机名称", "所有者", "虚拟机组", "Tower", "集群", "分配空间", "当前容量", "使用率", "期初容量", "日增长量", "增长率", "风险"],
+                ["排名", "虚拟机名称", "所有者", "虚拟机组", "Tower", "集群", "分配空间", "当前容量", "使用率", "周期初始容量", "日增长量", "增长率", "风险"],
             )
 
             # 2.4 本日新建 VM 表
@@ -1365,7 +1368,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             c_vm_headers = [cluster_sheet.cell(row=7, column=col).value for col in range(1, 10)]
             self.assertEqual(
                 c_vm_headers,
-                ["VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "期初容量", "增长量", "增长率"],
+                ["VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率"],
             )
             self.assertEqual(cluster_sheet["D8"].value, "400.00 GiB")
             self.assertEqual(cluster_sheet["E8"].value, "300.00 GiB")

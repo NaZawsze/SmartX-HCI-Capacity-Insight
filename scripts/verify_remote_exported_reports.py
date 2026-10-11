@@ -33,7 +33,8 @@ def main():
     assert "已分配（占比）" in word_xml, "Word 集群增长表缺失「已分配（占比）」列！"
     assert "分配空间" in word_xml, "Word 虚拟机增长表缺失「分配空间」列！"
     assert "使用率" in word_xml, "Word 虚拟机增长表缺失「使用率」列！"
-    print(" [Word 验证通过] 范围基本信息表包含「总已分配容量」，集群增长表包含「已分配（占比）」，VM 表包含「分配空间」与「使用率」！")
+    assert "周期初始容量" in word_xml, "Word 虚拟机增长表缺失「周期初始容量」列！"
+    print(" [Word 验证通过] 范围基本信息表包含「总已分配容量」，集群增长表包含「已分配（占比）」，VM 表包含「分配空间」「使用率」与「周期初始容量」！")
 
     print("\n3. 正在导出 Excel (xlsx) 报表 (period_days=30)...")
     req_excel = urllib.request.Request(f"{BASE_URL}/api/reports/export/excel?period_days=30", headers=headers)
@@ -71,10 +72,14 @@ def main():
     top_sheet = wb["VM增长TOP100"]
     top_headers_left = [top_sheet.cell(row=4, column=col).value for col in range(1, 12)]
     print(f" [Excel VM增长TOP100] 左表头 11 列: {top_headers_left}")
-    assert top_headers_left == ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "期初容量", "增长量", "增长率", "风险"], f"TOP100 左表头不匹配: {top_headers_left}"
+    assert top_headers_left == ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率", "风险"], f"TOP100 左表头不匹配: {top_headers_left}"
     top_headers_right = [top_sheet.cell(row=4, column=col).value for col in range(13, 23)]
     print(f" [Excel VM增长TOP100] 右表头 10 列: {top_headers_right}")
-    assert top_headers_right == ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "期初容量", "增长量", "增长率"], f"TOP100 右表头不匹配: {top_headers_right}"
+    assert top_headers_right == ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率"], f"TOP100 右表头不匹配: {top_headers_right}"
+    # 验证第 2 行的说明与向右滑动引导提示
+    assert "周期初始容量" in str(top_sheet["A2"].value or ""), "TOP100 第2行缺失「周期初始容量说明」！"
+    assert any("向右滑动" in str(top_sheet.cell(row=2, column=col).value or "") for col in range(1, 13)), "TOP100 第2行缺失「向右滑动」引导提示！"
+    print(f" [Excel VM增长TOP100 引导提示] A2={top_sheet['A2'].value[:25]}..., 右侧引导={top_sheet['J2'].value or top_sheet['K2'].value}")
     # 打印第一台 VM 的分配空间与使用率
     print(f" [Excel VM增长TOP100 第一台 VM] 名称: {top_sheet['B5'].value}, 分配空间: {top_sheet['E5'].value}, 当前容量: {top_sheet['F5'].value}, 使用率: {top_sheet['G5'].value}")
 
@@ -82,9 +87,10 @@ def main():
     for s_name in ["日增长详情", "月增长详情"]:
         if s_name in wb.sheetnames:
             detail_sheet = wb[s_name]
+            assert "周期初始容量" in str(detail_sheet["A2"].value or ""), f"{s_name} 第2行缺失「周期初始容量」说明！"
             detail_headers = [detail_sheet.cell(row=3, column=col).value for col in range(1, 14)]
             print(f" [Excel {s_name}] 表头 13 列: {detail_headers}")
-            assert "分配空间" in detail_headers and "使用率" in detail_headers, f"{s_name} 缺失分配空间或使用率！"
+            assert "分配空间" in detail_headers and "使用率" in detail_headers and "周期初始容量" in detail_headers, f"{s_name} 缺失关键列！"
             print(f" [Excel {s_name} 第一台 VM] 名称: {detail_sheet['B4'].value}, 分配空间: {detail_sheet['G4'].value}, 当前容量: {detail_sheet['H4'].value}, 使用率: {detail_sheet['I4'].value}")
 
     # 3.5 新建 VM Sheet

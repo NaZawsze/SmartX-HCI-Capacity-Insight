@@ -747,7 +747,7 @@ def _customer_usage_summary(cluster: dict[str, Any], current_ratio: float, futur
 
 
 def _customer_vm_window_note(document: Document, context: dict[str, Any], vms: list[dict[str, Any]], suffix: str) -> None:
-    paragraph = document.add_paragraph(f"统计窗口：{_vm_sample_window_label(vms, context['report'])} | {suffix}")
+    paragraph = document.add_paragraph(f"统计窗口：{_vm_sample_window_label(vms, context['report'])} | {suffix} | 周期初始容量指统计周期起始时虚拟机的物理占用容量")
     paragraph.paragraph_format.space_after = Pt(4)
     paragraph.paragraph_format.keep_with_next = True
     for run in paragraph.runs:
@@ -757,12 +757,12 @@ def _customer_vm_window_note(document: Document, context: dict[str, Any], vms: l
 
 
 def _customer_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode: str, *, empty_text: str) -> None:
-    # Phase 74：名称后加「所有者」「虚拟机组」「分配空间」「当前容量」「使用率」（8→10）
-    headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "期初容量", "增长量", "增长率"]
+    # Phase 74/75：名称后加「所有者」「虚拟机组」「分配空间」「当前容量」「使用率」「周期初始容量」（8→10）
+    headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率"]
     table = document.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _docx_set_table_width(table, [600, 1500, 850, 950, 1000, 1000, 800, 1000, 1000, 800])
+    _docx_set_table_width(table, [550, 1450, 800, 900, 950, 950, 750, 1150, 950, 750])
     _customer_set_blue_headers(table.rows[0].cells, headers)
     _repeat_table_header(table.rows[0])
     if not vms:

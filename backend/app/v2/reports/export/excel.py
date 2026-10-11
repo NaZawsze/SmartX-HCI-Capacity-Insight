@@ -91,11 +91,13 @@ def _is_center_column(header_text: str, cell_val: Any) -> bool:
     return False
 
 def _column_alignment(header_text: str, cell_val: Any, *, is_header: bool = False) -> Alignment:
+    if is_header:
+        return Alignment(horizontal="center", vertical="center", wrap_text=True)
     if _is_numeric_column(header_text, cell_val):
-        return Alignment(horizontal="right", vertical="center", wrap_text=is_header)
+        return Alignment(horizontal="right", vertical="center", wrap_text=False)
     if _is_center_column(header_text, cell_val):
-        return Alignment(horizontal="center", vertical="center", wrap_text=is_header)
-    return Alignment(horizontal="left", vertical="center", wrap_text=is_header)
+        return Alignment(horizontal="center", vertical="center", wrap_text=False)
+    return Alignment(horizontal="left", vertical="center", wrap_text=False)
 
 def build_report_xlsx(report: dict[str, Any], settings: V2Settings, *, period_days: int) -> tuple[bytes, str, Path, str]:
     context = _export_context(report, settings, period_days, "xlsx")
@@ -479,10 +481,10 @@ def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dic
     # Phase 74：每侧 +2 列（分配空间/使用率）——左侧 1..11，分隔列 12，右侧 13..22。
     RIGHT_START = 13
     sheet.append([f"三、{profile.vm_growth_title}全部虚拟机（{window_label}）", *([""] * 11), "四、虚拟机增长率全部虚拟机"])
-    sheet.append([])
+    sheet.append(["* 注：周期初始容量指统计周期起始时虚拟机的物理占用容量；若机器在周期内新建，则为建机首次采样容量。", *([""] * 8), "向右滑动查看增长率榜单 ➔", "", ""])
     sheet.append(["按增长量降序", *([""] * 11), "按增长率降序"])
-    amount_headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "期初容量", "增长量", "增长率", "风险"]
-    ratio_headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "期初容量", "增长量", "增长率"]
+    amount_headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率", "风险"]
+    ratio_headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率"]
     for index, value in enumerate(amount_headers, start=1):
         sheet.cell(row=4, column=index).value = value
     for index, value in enumerate(ratio_headers, start=RIGHT_START):
@@ -497,7 +499,7 @@ def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dic
     for row_index, vm in enumerate(ratio_vms, start=5):
         for column, value in enumerate(_xlsx_vm_display_row(vm, row_index - 4, include_risk=False), start=RIGHT_START):
             sheet.cell(row=row_index, column=column).value = value
-    _style_customer_xlsx_table(sheet, title_rows={1, 3}, header_rows={4})
+    _style_customer_xlsx_table(sheet, title_rows={1, 2, 3}, header_rows={4})
     _apply_vm_top100_layout(sheet, left_header_row=4, right_header_row=4)
     sheet.freeze_panes = "A5"
     sheet.sheet_view.topLeftCell = "A1"
@@ -516,9 +518,9 @@ def _write_xlsx_template_growth_detail(
 ) -> None:
     _reset_xlsx_sheet_rows(sheet)
     sheet.append([f"{title}（{_period_window_label(report)}）"])
-    sheet.append([])
+    sheet.append(["* 注：周期初始容量指统计周期起始时虚拟机的物理占用容量；若机器在周期内新建，则为建机首次采样容量。"])
     # Phase 74：加入「分配空间」「使用率」两列（11→13）
-    headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "Tower", "集群", "分配空间", "当前容量", "使用率", "期初容量", growth_header, "增长率", "风险"]
+    headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "Tower", "集群", "分配空间", "当前容量", "使用率", "周期初始容量", growth_header, "增长率", "风险"]
     sheet.append(headers)
     if not vms:
         sheet.append(["暂无日增长 VM 数据"])
@@ -526,9 +528,12 @@ def _write_xlsx_template_growth_detail(
         row = _xlsx_vm_display_row(vm, index, include_risk=True)
         labels = vm.get("labels") or {}
         sheet.append([row[0], row[1], row[2], row[3], labels.get("tower") or labels.get("tower_id") or "", labels.get("cluster") or labels.get("cluster_id") or "", *row[4:]])
-    _style_customer_xlsx_table(sheet, title_rows={1}, header_rows={3})
+    _style_customer_xlsx_table(sheet, title_rows={1, 2}, header_rows={3})
     _merge_title_row(sheet, 1, 1, 13)
+    _merge_title_row(sheet, 2, 1, 13, align="left")
     sheet["A1"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    sheet["A2"].font = Font(name=XLSX_FONT_NAME, size=10, color="64748B")
+    sheet["A2"].alignment = Alignment(horizontal="left", vertical="center")
     sheet.freeze_panes = "A4"
     sheet.auto_filter.ref = f"A3:{get_column_letter(len(headers))}{sheet.max_row}"
     for column, width in {
@@ -548,7 +553,8 @@ def _write_xlsx_template_growth_detail(
     }.items():
         sheet.column_dimensions[column].width = width
     sheet.row_dimensions[1].height = 30
-    sheet.row_dimensions[3].height = 20
+    sheet.row_dimensions[2].height = 24
+    sheet.row_dimensions[3].height = 24
     for row_index in range(4, sheet.max_row + 1):
         sheet.row_dimensions[row_index].height = 22
 
@@ -633,7 +639,7 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
         "E": 18,            # 分配空间（Phase 74）
         "F": 18,            # 当前容量
         "G": 14,            # 使用率（Phase 74）
-        "H": 18,            # 期初容量
+        "H": 18,            # 周期初始容量
         "I": 22,            # 增长量
         "J": 14,            # 增长率
         "K": 10,            # 风险
@@ -652,7 +658,11 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
     for row_index in range(1, sheet.max_row + 1):
-        if row_index in {1, 3}:
+        if row_index == 1:
+            sheet.row_dimensions[row_index].height = 34
+        elif row_index == 2:
+            sheet.row_dimensions[row_index].height = 24
+        elif row_index == 3:
             sheet.row_dimensions[row_index].height = 34
         elif row_index in {left_header_row, right_header_row}:
             sheet.row_dimensions[row_index].height = 28
@@ -661,12 +671,7 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
                 if c_idx == 12:
                     continue
                 cell.border = HEADER_BORDER
-                if c_idx in {5, 6, 7, 8, 9, 10, 17, 18, 19, 20, 21, 22}:
-                    cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
-                elif c_idx in {1, 11, 13}:
-                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-                else:
-                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         else:
             sheet.row_dimensions[row_index].height = 26
             for c_idx in range(1, 23):
@@ -690,10 +695,18 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
                     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
                 else:
                     cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
-    # Phase 74：每侧 11/10 列后——左侧合并 1..11、右侧 13..22、分隔列 12（L）
+    # Phase 74/75：每侧 11/10 列后——左侧合并 1..11、右侧 13..22、分隔列 12（L）
     _merge_title_row(sheet, 1, 1, 11)
     if sheet.cell(row=1, column=13).value:
         _merge_title_row(sheet, 1, 13, 22)
+    # 第 2 行：左侧放置「周期初始容量说明」，右侧放置「向右滑动查看增长率榜单 ➔」
+    _merge_title_row(sheet, 2, 1, 9, align="left")
+    sheet.cell(row=2, column=1).font = Font(name=XLSX_FONT_NAME, size=10, color="64748B")
+    sheet.cell(row=2, column=10).value = "向右滑动查看增长率榜单 ➔"
+    _merge_title_row(sheet, 2, 10, 11, align="right")
+    hint_cell = sheet.cell(row=2, column=10)
+    hint_cell.font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="2563EB")
+    hint_cell.alignment = Alignment(horizontal="right", vertical="center")
     if sheet.cell(row=3, column=1).value:
         _merge_title_row(sheet, 3, 1, 11)
     if sheet.cell(row=3, column=13).value:
@@ -785,7 +798,7 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
     # Phase 74：加入「分配空间」「当前容量」「使用率」
     headers = ["Tower", "集群", "VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率"]
     if include_growth:
-        headers.extend(["期初容量", "增长量", "增长率"])
+        headers.extend(["周期初始容量", "增长量", "增长率"])
     else:
         headers.append("首次出现时间")
     sheet.cell(row=1, column=1).value = sheet.title
@@ -882,7 +895,7 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
     )
     sheet.append([_profile_sample_notice(report, profile)])
     sheet.append([])
-    headers = ["VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "期初容量", "增长量", "增长率"]
+    headers = ["VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率"]
     window_label = _vm_sample_window_label(vms, report)
     sheet.append([f"{profile.vm_growth_title} 增长量全部虚拟机（按增长量降序，统计窗口：{window_label}）"])
     sheet.append(headers)
@@ -926,10 +939,10 @@ def _apply_cluster_sheet_layout(sheet, *, amount_header_row: int, ratio_header_r
         "D": 20,
         "E": 20,
         "F": 22,
-        "G": 16,
-        "H": 20,
-        "I": 22,
-        "J": 16,
+        "G": 20,
+        "H": 22,
+        "I": 16,
+        "J": 18,
     }
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
