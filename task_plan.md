@@ -2399,3 +2399,19 @@ Phase 69 只给 Word/Excel 的 VM 增长类表格加了两列；真实导出样�
 - [x] dev2 提交：本地提交 `26be168`。
 - [x] .3 远端验证：同步至 .3，重启容器，执行 `verify_remote_exported_reports.py` 验证 Word / Excel 全部断言通过，真实 VM 显示如 500 GiB / 456.58 GiB / 91.32%。
 - [x] 覆盖用户桌面文件：已写入 `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx` 与 `.docx`。
+
+## Phase 75 - 报表增长排行榜与新建列表排除已删除虚拟机（方案 A）
+
+来源：2026-10-11 用户审阅报表发现已彻底删除的虚拟机 `LiuYu-Ubuntu`（无当前分配空间、显示为 ID）排在月增长第 42 名，经分析确认系历史时序净增长命中但活跃库已删除；用户明确指令采纳方案 A（直接排除已删除虚拟机）。
+
+- 设计：`docs/superpowers/specs/2026-10-11-filter-deleted-vms-from-growth-reports-design.md`。
+
+任务列表：
+- [x] 报表服务层：
+  - `_latest_vm_labels` 明确限定只查询未删除活跃虚机 `(deleted_at IS NULL OR deleted_at = '') AND (in_recycle_bin = 0 OR in_recycle_bin IS NULL)`。
+  - `_growth_reports_from_series` 与 `compute_growth_vms` 增加存活检查：不在活跃列表中的已删除虚机直接排除。
+  - `_new_vm_reports_from_series` 同样排除非活跃虚机。
+  - 兜底保障：即使遇到未知虚机，Tower/Cluster ID 必须经全局映射翻译为中文名称，不裸露纯 ID。
+- [x] 测试机验证：在 `10.20.11.3` 远端容器内运行 `tests.test_v2_reports`（22 tests OK）与 `tests.test_v2_report_exports`（29 tests OK）共 51 tests 全量通过。
+- [x] .3 远端部署与回归：同步至 .3，重启容器，导出真实报表验证第 42 名已删除机器已被过滤、排名顺延且全部合法。
+- [x] 覆盖用户桌面文件：写入最新 Excel 与 Word 文件，经脚本全表扫描断言零已删除/回收站虚机、零裸露集群 ID。

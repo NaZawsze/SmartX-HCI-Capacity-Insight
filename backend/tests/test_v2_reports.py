@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -279,6 +281,37 @@ class StaleBackfillPrometheus(FakePrometheus):
         return super().range(query, start=start, end=end, step=step)
 
 
+class DeletedVmPrometheus(FakePrometheus):
+    """Prometheus 含有正常 VM 以及已删除/回收站 VM 的时序指标。"""
+
+    def instant(self, query: str):
+        if query.startswith("smartx_vm_storage_used_bytes"):
+            return [
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-old", "vm_name": "Old Raw"}, "value": [self.now_ts, "300"]},
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-del", "vm_name": "Deleted Raw"}, "value": [self.now_ts, "400"]},
+                {"metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-rec", "vm_name": "Recycled Raw"}, "value": [self.now_ts, "500"]},
+            ]
+        return super().instant(query)
+
+    def range(self, query: str, *, start: int, end: int, step: str):
+        if query.startswith("smartx_vm_storage_used_bytes"):
+            return [
+                {
+                    "metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-old", "vm_name": "Old Raw"},
+                    "values": [[self.now_ts - 29 * SECONDS_PER_DAY, "100"], [self.now_ts, "300"]],
+                },
+                {
+                    "metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-del", "vm_name": "Deleted Raw"},
+                    "values": [[self.now_ts - 29 * SECONDS_PER_DAY, "100"], [self.now_ts, "400"]],
+                },
+                {
+                    "metric": {"tower_id": "1", "cluster_id": "cluster-a", "vm_id": "vm-rec", "vm_name": "Recycled Raw"},
+                    "values": [[self.now_ts - 29 * SECONDS_PER_DAY, "100"], [self.now_ts, "500"]],
+                },
+            ]
+        return super().range(query, start=start, end=end, step=step)
+
+
 class V2ReportsTest(unittest.TestCase):
     def _seed_inventory(self, tmpdir: str, success_at: str | list[str] | None = None):
         from app.v2.config import V2Settings
@@ -485,12 +518,32 @@ class V2ReportsTest(unittest.TestCase):
         now_ts = 1_700_000_000
         with tempfile.TemporaryDirectory() as tmpdir:
             settings, db = self._seed_inventory(tmpdir, success_at="2023-11-14 22:13:20")
+            with db.connection() as conn:
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes) VALUES (1, 'cluster-a', 'vm-real', 'Real VM', 200)")
             report = ReportService(db, settings, prometheus=GrowthRecycleTailPrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
 
             for key in ("day_fastest_growing_vms", "month_fastest_growing_vms", "window_fastest_growing_vms"):
                 vm_ids = [item["vm_id"] for item in report[key]]
                 self.assertIn("vm-real", vm_ids, key)
                 self.assertNotIn("vm-bin", vm_ids, key)
+
+    def test_growth_vm_lists_exclude_deleted_and_recycled_vms_from_sqlite(self) -> None:
+        """Phase 75：已标记 deleted_at 或 in_recycle_bin=1 的 VM 全程不出现在增长和新建列表中。"""
+        from app.v2.reports.service import ReportService
+
+        now_ts = 1_700_000_000
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings, db = self._seed_inventory(tmpdir, success_at="2023-11-14 22:13:20")
+            with db.connection() as conn:
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes, deleted_at) VALUES (1, 'cluster-a', 'vm-del', 'Deleted VM', 200, '2026-10-10 12:00:00')")
+                conn.execute("INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes, in_recycle_bin) VALUES (1, 'cluster-a', 'vm-rec', 'Recycled VM', 200, 1)")
+            report = ReportService(db, settings, prometheus=DeletedVmPrometheus(now_ts), now_ts=now_ts).latest_report(period_days=30, chart_days=90)
+
+            for key in ("day_fastest_growing_vms", "month_fastest_growing_vms", "window_fastest_growing_vms"):
+                vm_ids = [item["vm_id"] for item in report[key]]
+                self.assertIn("vm-old", vm_ids, key)
+                self.assertNotIn("vm-del", vm_ids, key)
+                self.assertNotIn("vm-rec", vm_ids, key)
 
     def test_report_clusters_expose_allocated_capacity(self) -> None:
         """49-46：报表集群项带已分配容量（instant；缺失按 0，比例分母为 total）。"""

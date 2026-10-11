@@ -134,6 +134,8 @@ class V2Database:
                     in_recycle_bin INTEGER NOT NULL DEFAULT 0,
                     original_name TEXT,
                     deleted_at TEXT,
+                    owner TEXT,
+                    folder_name TEXT,
                     PRIMARY KEY (tower_id, cluster_id, vm_id)
                 );
 

@@ -108,12 +108,14 @@ def compute_growth_vms(
     series_list: list[dict[str, Any]],
     latest_items: list[dict[str, Any]],
     latest_label_by_vm: dict[tuple[int, str, str], dict[str, str]],
+    alive_only: bool = True,
 ) -> list[dict[str, Any]]:
     """增长最快 VM 的唯一计算口径（49-45），概览与报表共用。
 
     - 基线 = 窗口内最早样本；当前值 = latest_items（instant ∪ 序列尾部）；
     - growth = current - baseline，仅保留 > 0；
     - sample_span_days = (latest_ts - baseline_ts) / 86400，供前端样本跨度过滤；
+    - Phase 75：若开启 alive_only，仅保留在当前活跃元数据表中存活的虚拟机，已彻底删除机器全程排除；
     - 回收站 VM 全程排除；排序 growth 降序、次键 vm_name。
     """
     points_by_key = points_by_vm(series_list)
@@ -121,6 +123,9 @@ def compute_growth_vms(
     for item in latest_items:
         labels = item.get("metric", {})
         key = vm_key(labels)
+        # Phase 75：过滤已删除/非当前活跃虚拟机
+        if alive_only and latest_label_by_vm and key not in latest_label_by_vm:
+            continue
         points = points_by_key.get(key) or []
         if not points:
             continue

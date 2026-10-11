@@ -327,6 +327,7 @@ class ReportService:
                     FROM vm_volumes
                     GROUP BY tower_id, cluster_id, vm_id
                 ) v ON l.tower_id = v.tower_id AND l.cluster_id = v.cluster_id AND l.vm_id = v.vm_id
+                WHERE (l.deleted_at IS NULL OR l.deleted_at = '') AND (l.in_recycle_bin = 0 OR l.in_recycle_bin IS NULL)
                 """
             ).fetchall()
         tower_names = self._tower_names()
@@ -456,14 +457,26 @@ def _growth_reports_from_series(
     latest_label_by_vm: dict[tuple[int, str, str], dict[str, str]],
     min_sample_days: int | None = None,
     max_sample_days: int | None = None,
+    alive_only: bool = True,
+    tower_names: dict[int, str] | None = None,
+    cluster_names: dict[tuple[int, str], str] | None = None,
 ) -> list[dict[str, Any]]:
     """报表增长列表 = 共享口径 `compute_growth_vms`（49-45）+ 报表侧字段（forecast/period_days 等）。
 
-    min/max_sample_days 是报表侧的样本跨度过滤（月列表按所选周期截断），概览无此参数。
+    - Phase 75：若开启 alive_only，仅保留在当前活跃元数据表中存活的虚拟机，已彻底删除机器全程排除。
+    - min/max_sample_days 是报表侧的样本跨度过滤（月列表按所选周期截断），概览无此参数。
     """
-    records = compute_growth_vms(series_list=series_list, latest_items=latest_items, latest_label_by_vm=latest_label_by_vm)
+    records = compute_growth_vms(
+        series_list=series_list,
+        latest_items=latest_items,
+        latest_label_by_vm=latest_label_by_vm,
+        alive_only=alive_only,
+    )
     mapped = []
     for record in records:
+        key = (int(record["tower_id"]), str(record["cluster_id"]), str(record["vm_id"]))
+        if alive_only and latest_label_by_vm and key not in latest_label_by_vm:
+            continue
         sample_span_days = float(record["sample_span_days"])
         if min_sample_days is not None and sample_span_days < min_sample_days:
             continue
@@ -472,6 +485,17 @@ def _growth_reports_from_series(
         current = float(record["current_bytes"])
         slope_per_day = float(record["slope_per_day"])
         labels_latest = dict(record["metric"])
+        t_id = record.get("tower_id")
+        c_id = record.get("cluster_id")
+        if tower_names and t_id is not None:
+            labels_latest.setdefault("tower", tower_names.get(int(t_id), str(t_id)))
+            if labels_latest.get("tower") == str(t_id) and int(t_id) in tower_names:
+                labels_latest["tower"] = tower_names[int(t_id)]
+        if cluster_names and t_id is not None and c_id:
+            c_key = (int(t_id), str(c_id))
+            labels_latest.setdefault("cluster", cluster_names.get(c_key, str(c_id)))
+            if labels_latest.get("cluster") == str(c_id) and c_key in cluster_names:
+                labels_latest["cluster"] = cluster_names[c_key]
         mapped.append(
             {
                 "vm_id": record["vm_id"],
@@ -517,6 +541,9 @@ def _new_vm_reports_from_series(
         current = latest_value_by_vm.get(key, points[-1][1])
         labels_latest = labels_with_latest_name(latest_labels_by_key.get(key, {}), latest_label_by_vm)
         if is_recycled_vm_name(vm_display_name(labels_latest)):
+            continue
+        # Phase 75：过滤已删除/非当前活跃虚拟机
+        if latest_label_by_vm and key not in latest_label_by_vm:
             continue
         mapped.append(
             {
