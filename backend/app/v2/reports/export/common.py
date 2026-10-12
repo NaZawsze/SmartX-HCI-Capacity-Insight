@@ -44,6 +44,9 @@ TEXT_MUTED = "999999"
 GROWTH_BLUE = "007ACC"
 RATIO_ORANGE = "E67E22"
 RATIO_RED = "DC3535"
+# 占用率配色阈值（用户口径：≥70% 黄、≥80% 红）——报表「使用率」列统一使用
+USAGE_WARNING_RATIO = 0.70
+USAGE_CRITICAL_RATIO = 0.80
 EMPTY_MONTH_VM_TEXT = "当前样本跨度区间暂无 VM 增长数据"
 PERIODS = [("month", "较上月", 30), ("quarter", "较上季度", 90), ("year", "较上一年", 365)]
 

@@ -1399,6 +1399,79 @@ class V2ReportExportDocumentTest(unittest.TestCase):
 
 
 
+    def test_excel_usage_ratio_colors_and_tab_alpha(self) -> None:
+        """Excel：使用率列按 70%/80% 阈值上色；Tab 颜色统一为不透明 FF。"""
+        from openpyxl import load_workbook
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_xlsx
+
+        clusters = [
+            {
+                "labels": {"tower_id": "1", "tower": "Tower A", "cluster_id": "cluster-a", "cluster": "Cluster A"},
+                "forecast": {"status": "ok", "slope_per_day": 1, "current": 850 * 1024**3, "forecast_90d": 900 * 1024**3},
+                "points": [[1764547200, 850 * 1024**3]],
+                "total": 1000 * 1024**3,
+                "allocated": 900 * 1024**3,
+            }
+        ]
+
+        def vm(name: str, used_percent: int) -> dict:
+            return {
+                "labels": {
+                    "tower_id": "1", "tower": "Tower A", "cluster_id": "cluster-a", "cluster": "Cluster A",
+                    "vm_id": name, "vm": name, "owner": "root", "folder_name": "-",
+                    "allocated": 100 * 1024**3,
+                },
+                "forecast": {"status": "ok", "slope_per_day": 1, "current": used_percent * 1024**3},
+                "growth_amount": 10 * 1024**3,
+                "previous_value": (used_percent - 10) * 1024**3,
+                "growth_ratio": 0.1,
+            }
+
+        vms = [vm("HighVM", 90), vm("WarnVM", 75), vm("LowVM", 30)]
+        report = FakeReportService(clusters=clusters, month_vms=vms, window_vms=vms).latest_report(period_days=30)
+        report["day_fastest_growing_vms"] = vms
+        report["day_new_vms"] = vms
+        report["month_new_vms"] = vms
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="excel-usage-secret")
+            content, _, _, _ = build_report_xlsx(report, settings, period_days=30)
+            wb = load_workbook(io.BytesIO(content))
+
+            # 1. Tab 颜色统一为不透明 FF（原先为 00，与模板封面不一致）
+            for name in wb.sheetnames:
+                tab = wb[name].sheet_properties.tabColor
+                if tab is not None and tab.rgb:
+                    self.assertTrue(str(tab.rgb).startswith("FF"), f"{name} tabColor 非 FF: {tab.rgb}")
+
+            # 2. 容量趋势「使用率」列（第 9 列）：集群 85% → 红
+            trend = wb["容量趋势"]
+            self.assertEqual(trend.cell(row=4, column=9).value, "85.00%")
+            self.assertEqual(str(trend.cell(row=4, column=9).font.color.rgb), "FFDC3535")
+
+            # 3. 日增长详情「使用率」列（第 9 列）：90% 红 / 75% 黄 / 30% 不染色
+            detail = wb["日增长详情"]
+            by_name = {}
+            for r in range(4, detail.max_row + 1):
+                name_v = detail.cell(row=r, column=2).value
+                cell = detail.cell(row=r, column=9)
+                by_name[name_v] = str(cell.font.color.rgb) if cell.font.color else None
+            self.assertEqual(by_name.get("HighVM"), "FFDC3535")
+            self.assertEqual(by_name.get("WarnVM"), "FFE67E22")
+            self.assertNotIn(by_name.get("LowVM"), {"FFDC3535", "FFE67E22"})
+
+            # 4. 新建 VM Sheet「使用率」列（第 8 列）同样生效
+            new_sheet = wb["本月新建VM"]
+            new_colors = {}
+            for r in range(3, new_sheet.max_row + 1):
+                name_v = new_sheet.cell(row=r, column=3).value
+                cell = new_sheet.cell(row=r, column=8)
+                new_colors[name_v] = str(cell.font.color.rgb) if cell.font.color else None
+            self.assertEqual(new_colors.get("HighVM"), "FFDC3535")
+            self.assertEqual(new_colors.get("WarnVM"), "FFE67E22")
+
+
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2ReportExportApiTest(unittest.TestCase):
     def test_report_exports_require_auth_save_files_and_expose_download_link(self) -> None:

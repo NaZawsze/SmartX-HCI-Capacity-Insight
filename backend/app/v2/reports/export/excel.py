@@ -10,7 +10,7 @@ from openpyxl.chart import BarChart, Reference
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell.cell import MergedCell
 from openpyxl.drawing.image import Image as XlsxImage
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Alignment, Border, Color, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.properties import PageSetupProperties
 from openpyxl.worksheet.table import Table, TableStyleInfo
@@ -21,7 +21,8 @@ from .common import (
     _customer_growth_vms, _customer_key_findings, _data_quality_status_message, _data_quality_summary_rows, _days_label, _effective_report_window, _export_context, _float_or_none,
     _growth_rate_method_lines, _is_alert_vm, _line_chart_image, _merged_cluster_points, _overall_risk_status, _parse_report_datetime, _percent_label, _period_window_label, _persist_report, _report_data_quality,
     _risk_level, _top_vms, _tower_scope_label, _vm_sample_window_label, _vms_by_cluster, ACCENT, ACCENT_DARK, ACCENT_LIGHT,
-    ACCENT_SOFT, GROWTH_BLUE, RATIO_RED, REPORT_COVER_SUBTITLE, REPORT_COVER_TITLE, REPORT_PRODUCT_NAME, TEXT_DARK, TEXT_MUTED,
+    ACCENT_SOFT, GROWTH_BLUE, RATIO_ORANGE, RATIO_RED, REPORT_COVER_SUBTITLE, REPORT_COVER_TITLE, REPORT_PRODUCT_NAME,
+    TEXT_DARK, TEXT_MUTED, USAGE_CRITICAL_RATIO, USAGE_WARNING_RATIO,
     VM_ALERT_FILL, XLSX_CLUSTER_TEMPLATE_SHEET, XLSX_FONT_NAME, XLSX_TEMPLATE_PATH,
 )
 
@@ -403,6 +404,7 @@ def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: 
             ]
         )
     _style_customer_xlsx_table(sheet, title_rows={1, 2}, header_rows={3})
+    _apply_usage_ratio_colors(sheet, [9], 4, sheet.max_row)
     _merge_title_row(sheet, 1, 1, len(headers))
     _merge_title_row(sheet, 2, 1, len(headers))
     sheet.freeze_panes = "A4"
@@ -537,6 +539,7 @@ def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dic
             sheet.cell(row=row_index, column=column).value = value
     _style_customer_xlsx_table(sheet, title_rows={1, 2, 3}, header_rows={4})
     _apply_vm_top100_layout(sheet, left_header_row=4, right_header_row=4)
+    _apply_usage_ratio_colors(sheet, [7, 19], 5, sheet.max_row)
     sheet.freeze_panes = "A5"
     sheet.sheet_view.topLeftCell = "A1"
     for selection in sheet.sheet_view.selection:
@@ -570,6 +573,7 @@ def _write_xlsx_template_growth_detail(
     sheet["A1"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     sheet["A2"].font = Font(name=XLSX_FONT_NAME, size=12, color="334155")
     sheet["A2"].alignment = Alignment(horizontal="left", vertical="center")
+    _apply_usage_ratio_colors(sheet, [9], 4, sheet.max_row)
     sheet.freeze_panes = "A4"
     sheet.auto_filter.ref = f"A3:{get_column_letter(len(headers))}{sheet.max_row}"
     for column, width in {
@@ -915,6 +919,7 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
             sheet.cell(row=row_index, column=column).value = value
     _style_customer_xlsx_table(sheet, title_rows={1}, header_rows={2})
     _merge_title_row(sheet, 1, 1, len(headers))
+    _apply_usage_ratio_colors(sheet, [8], 3, sheet.max_row)
     sheet.freeze_panes = "A3"
     sheet.auto_filter.ref = f"A2:{get_column_letter(len(headers))}{sheet.max_row}"
     widths = {
@@ -1028,6 +1033,8 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
         end_row = 7 + total_rows
 
     _apply_cluster_sheet_layout(sheet, end_row=end_row)
+    _apply_usage_ratio_colors(sheet, [9, 19], 3, 3)      # 集群概览行「使用率」
+    _apply_usage_ratio_colors(sheet, [6, 16], 8, end_row)  # 左右双轨 VM 表「使用率」
     sheet.freeze_panes = "A8"
 
 
@@ -1202,19 +1209,21 @@ def _normalize_xlsx_fonts(workbook: Workbook) -> None:
 
 def _apply_xlsx_tab_colors(workbook: Workbook) -> None:
     """按功能分类为底部工作表 Tab 赋予清晰专业的品牌主题色。"""
+    # 统一使用 8 位 ARGB（FF 不透明）——原先 6 位写法被 openpyxl 补成 00（全透明），
+    # 与模板封面（FF1A3C6E）不一致，部分渲染器可能不显色。
     color_map = {
         # 概览驾驶舱：品牌深蓝
-        "执行摘要": "1D4ED8",
-        "容量趋势": "1D4ED8",
+        "执行摘要": "FF1D4ED8",
+        "容量趋势": "FF1D4ED8",
         # 增长分析与详情：商务翡翠绿
-        "VM增长TOP100": "059669",
-        "日增长详情": "059669",
-        "月增长详情": "059669",
+        "VM增长TOP100": "FF059669",
+        "日增长详情": "FF059669",
+        "月增长详情": "FF059669",
         # 新增纳管视角：科技活力蓝
-        "本日新建VM": "2563EB",
-        "本月新建VM": "2563EB",
+        "本日新建VM": "FF2563EB",
+        "本月新建VM": "FF2563EB",
         # 数据说明：中性冷灰
-        "数据质量说明": "64748B",
+        "数据质量说明": "FF64748B",
     }
     for sheet_name in workbook.sheetnames:
         sheet = workbook[sheet_name]
@@ -1222,7 +1231,7 @@ def _apply_xlsx_tab_colors(workbook: Workbook) -> None:
             sheet.sheet_properties.tabColor = color_map[sheet_name]
         elif str(sheet_name).startswith("集群"):
             # 各集群专属 Sheet：高质感灰青/紫灰
-            sheet.sheet_properties.tabColor = "6366F1"
+            sheet.sheet_properties.tabColor = "FF6366F1"
 
 
 def _apply_xlsx_page_footers(workbook: Workbook) -> None:
@@ -1323,6 +1332,32 @@ def _parse_percent_label(value: Any) -> float:
         return float(text[:-1]) / 100
     except (TypeError, ValueError):
         return 0.0
+
+
+def _usage_ratio_font_color(value: Any) -> str | None:
+    """占用率配色：≥80% 红、≥70% 黄，其余不染色（用户口径）。"""
+    ratio = _parse_percent_label(value)
+    if ratio >= USAGE_CRITICAL_RATIO:
+        return RATIO_RED
+    if ratio >= USAGE_WARNING_RATIO:
+        return RATIO_ORANGE
+    return None
+
+
+def _apply_usage_ratio_colors(sheet, columns: list[int], start_row: int, end_row: int) -> None:
+    """给「使用率」列按占用率上色（须在各表样式应用之后调用，否则会被样式覆盖）。"""
+    if end_row < start_row:
+        return
+    for column in columns:
+        for row_index in range(start_row, end_row + 1):
+            cell = sheet.cell(row=row_index, column=column)
+            color = _usage_ratio_font_color(cell.value)
+            if color is None:
+                continue
+            font = copy(cell.font)
+            font.color = Color(rgb="FF" + color)
+            font.bold = True
+            cell.font = font
 
 
 def _add_excel_table(sheet, name: str, header_row: int, end_row: int, column_count: int) -> None:
