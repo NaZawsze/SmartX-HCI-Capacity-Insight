@@ -998,12 +998,17 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             workbook = load_workbook(io.BytesIO(content), data_only=True)
 
         summary = workbook["执行摘要"]
-        for row_index in [4, 6]:
-            for column_index in range(1, 5):
-                cell = summary.cell(row=row_index, column=column_index)
-                self.assertTrue(cell.font.bold, cell.coordinate)
-                self.assertEqual(cell.font.color.type, "rgb", cell.coordinate)
-                self.assertEqual(cell.font.color.rgb[-6:], "000000", cell.coordinate)
+        # 表头行与其它 Sheet 一致：深蓝底 + 白色粗体
+        for column_index in range(1, 5):
+            cell = summary.cell(row=4, column=column_index)
+            self.assertTrue(cell.font.bold, cell.coordinate)
+            self.assertEqual(cell.font.color.rgb[-6:], "FFFFFF", cell.coordinate)
+            self.assertEqual(cell.fill.fgColor.rgb[-6:], "1A3C6E", cell.coordinate)
+        # 副值行：正文色、不加粗
+        for column_index in range(1, 5):
+            cell = summary.cell(row=6, column=column_index)
+            self.assertFalse(cell.font.bold, cell.coordinate)
+            self.assertEqual(cell.font.color.rgb[-6:], "0F172A", cell.coordinate)
 
         day_sheet = workbook["日增长详情"]
         # Phase 74：11→13 列后标题合并区随宽
@@ -1495,17 +1500,20 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             wb = load_workbook(io.BytesIO(content))
             summary = wb["执行摘要"]
 
-            # 1. KPI 卡片分层：标签 11pt / 数值 18pt 深蓝 / 副值 11pt
+            # 1. KPI 卡片与其它 Sheet 同风格：表头深蓝底白字、数值 18pt、副值正文色
             self.assertEqual(summary["A4"].value, "当前已用容量")
-            self.assertEqual(summary["A4"].font.size, 11)
+            self.assertEqual(summary["A4"].font.size, 12)
             self.assertEqual(summary["A5"].font.size, 18)
-            self.assertEqual(summary["A6"].font.size, 11)
+            self.assertEqual(summary["A6"].font.size, 12)
             self.assertEqual(str(summary["A5"].font.color.rgb)[-6:], "1A3C6E")
-            self.assertEqual(str(summary["A4"].font.color.rgb)[-6:], "000000")
-            # 数值行白底、标签/副值行浅蓝底 + 浅蓝细边框（原三行同色、黑灰粗边框）
+            self.assertEqual(str(summary["A4"].font.color.rgb)[-6:], "FFFFFF")
+            self.assertEqual(summary["A4"].fill.fgColor.rgb[-6:], "1A3C6E")
             self.assertEqual(summary["A5"].fill.fgColor.rgb[-6:], "FFFFFF")
-            self.assertEqual(summary["A4"].fill.fgColor.rgb[-6:], "F0F4FA")
-            self.assertEqual(summary["A4"].border.left.color.rgb[-6:], "BFDBFE")
+            self.assertEqual(summary["A6"].fill.fgColor.rgb[-6:], "F7F9FC")
+            self.assertEqual(summary["A4"].border.left.color.rgb[-6:], "64748B")
+            # 说明/口径类文字与其它 Sheet 数据字号一致（12pt）
+            self.assertEqual(summary["A15"].font.size, 12)
+            self.assertEqual(summary["A19"].font.size, 12)
 
             # 2. 风险状态值按等级上色（本用例使用率 50% → 正常 → 绿）
             self.assertEqual(summary["E5"].value, "正常")

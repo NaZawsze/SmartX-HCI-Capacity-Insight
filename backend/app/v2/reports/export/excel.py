@@ -291,8 +291,8 @@ def _write_xlsx_template_summary(
         sheet,
         "A2",
         f"报告周期：{_period_window_label(report)}  |  Tower：{_tower_scope_label(clusters, context['scope_label'])}  |  集群：{_cluster_scope_label(clusters, context['scope_label'])}  |  统计口径：{profile.window_growth_label}",
-        size=10,
-        color=TEXT_MUTED,
+        size=12,
+        color="334155",
     )
     headers = ["当前已用容量", "已分配容量", profile.window_growth_label, "90 天预测容量", "风险状态"]
     values = [_xlsx_bytes_label(current), _xlsx_bytes_label(allocated), _xlsx_signed_bytes_label(growth), _xlsx_bytes_label(forecast_90d), risk_status]
@@ -303,21 +303,20 @@ def _write_xlsx_template_summary(
         f"预计使用率 {_percent_label(forecast_ratio)}",
         risk_note,
     ]
-    # KPI 卡片分层：标签/副值行浅蓝底、数值行白底 + 浅蓝细边框（原三行同色、边框偏重）
-    card_light_fill = PatternFill(fill_type="solid", fgColor=ACCENT_LIGHT)
-    card_value_fill = PatternFill(fill_type="solid", fgColor="FFFFFF")
-    card_border_side = Side(style="thin", color="BFDBFE")
-    card_border = Border(left=card_border_side, right=card_border_side, top=card_border_side, bottom=card_border_side)
+    # KPI 卡片：表头行与其它 Sheet 一致（深蓝底 + 白色粗体），数值行白底大字，副值行斑马浅底
+    header_fill = PatternFill(fill_type="solid", fgColor=ACCENT_DARK)
+    value_fill = PatternFill(fill_type="solid", fgColor="FFFFFF")
+    note_fill = PatternFill(fill_type="solid", fgColor=ACCENT_SOFT)
     risk_value_color = {"高风险": "C5221F", "需关注": "B06000", "正常": "188038"}.get(risk_status, ACCENT_DARK)
     for column, (header, value, subtitle) in enumerate(zip(headers, values, subtitles), start=1):
-        for row, fill in [(4, card_light_fill), (5, card_value_fill), (6, card_light_fill)]:
+        for row, fill in [(4, header_fill), (5, value_fill), (6, note_fill)]:
             cell = sheet.cell(row=row, column=column)
             cell.fill = fill
-            cell.border = card_border
+            cell.border = DATA_BORDER
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         header_cell = sheet.cell(row=4, column=column)
         header_cell.value = header
-        header_cell.font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="000000")
+        header_cell.font = Font(name=XLSX_FONT_NAME, size=12, bold=True, color="FFFFFF")
         value_cell = sheet.cell(row=5, column=column)
         value_cell.value = value
         value_cell.font = Font(
@@ -328,34 +327,34 @@ def _write_xlsx_template_summary(
         )
         subtitle_cell = sheet.cell(row=6, column=column)
         subtitle_cell.value = subtitle
-        subtitle_cell.font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="000000")
+        subtitle_cell.font = Font(name=XLSX_FONT_NAME, size=12, color="0F172A")
 
-    _set_xlsx_cell(sheet, "A8", "关键发现", size=14, bold=True, color=ACCENT_DARK)
+    _set_xlsx_cell(sheet, "A8", "关键发现", size=15, bold=True, color=ACCENT_DARK)
     findings = _customer_key_findings(clusters, _customer_growth_vms(report), risk_note, context)
     for offset, finding in enumerate(findings[:4], start=9):
         _set_xlsx_cell(sheet, f"A{offset}", f"• {finding}", size=12, color="0F172A")
-    _set_xlsx_cell(sheet, "A13", "容量风险摘要", size=14, bold=True, color=ACCENT_DARK)
+    _set_xlsx_cell(sheet, "A13", "容量风险摘要", size=15, bold=True, color=ACCENT_DARK)
     _set_xlsx_cell(sheet, "A14", _capacity_risk_summary(report), size=12, color="0F172A")
-    _set_xlsx_cell(sheet, "A15", f"当前软件版本：{settings.app_version}", size=10, color=TEXT_MUTED)
-    _set_xlsx_cell(sheet, "A16", _profile_sample_notice(report, profile), size=10, color=TEXT_MUTED)
+    _set_xlsx_cell(sheet, "A15", f"当前软件版本：{settings.app_version}", size=12, color="334155")
+    _set_xlsx_cell(sheet, "A16", _profile_sample_notice(report, profile), size=12, color="334155")
     _set_xlsx_cell(
         sheet,
         "A17",
         "虚拟机容量口径说明：分配空间为虚拟机虚拟磁盘供给总容量（精简置备配置上限），当前容量为实际已占用的物理存储，使用率 = 当前容量 / 分配空间。",
-        size=10,
-        color=TEXT_MUTED,
+        size=12,
+        color="334155",
     )
-    _set_xlsx_cell(sheet, "A18", "容量增长速率口径", size=14, bold=True, color=ACCENT_DARK)
+    _set_xlsx_cell(sheet, "A18", "容量增长速率口径", size=15, bold=True, color=ACCENT_DARK)
     growth_lines = list(_growth_rate_method_lines(report))
     for offset, line in enumerate(growth_lines, start=19):
-        _set_xlsx_cell(sheet, f"A{offset}", line, size=10, color=TEXT_DARK)
+        _set_xlsx_cell(sheet, f"A{offset}", line, size=12, color=TEXT_DARK)
     disclaimer_row = 19 + len(growth_lines) + 1
     _set_xlsx_cell(
         sheet,
         f"A{disclaimer_row}",
         "声明：预测结果基于历史增长趋势推算，预测值可能会有偏差，仅供参考，请以实际使用情况为准。",
-        size=10,
-        color=TEXT_MUTED,
+        size=12,
+        color="334155",
     )
     merge_rows = [1, 2, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
     merge_rows += list(range(19, 19 + len(growth_lines)))
@@ -367,15 +366,15 @@ def _write_xlsx_template_summary(
     # 行高按内容设定（原先第 13/14/15 行仅 15pt，标题与正文被压扁）
     heights = {
         1: 30, 2: 38, 3: 10,
-        4: 24, 5: 40, 6: 24, 7: 10,
-        8: 28,
-        13: 26, 14: 24, 15: 20, 16: 30, 17: 30, 18: 26,
+        4: 26, 5: 40, 6: 26, 7: 10,
+        8: 30,
+        13: 28, 14: 26, 15: 24, 16: 32, 17: 32, 18: 28,
     }
     for offset in range(9, 13):
         heights[offset] = 34
     for offset in range(19, 19 + len(growth_lines)):
-        heights[offset] = 20
-    heights[disclaimer_row] = 24
+        heights[offset] = 24
+    heights[disclaimer_row] = 26
     for row, height in heights.items():
         sheet.row_dimensions[row].height = height
 
