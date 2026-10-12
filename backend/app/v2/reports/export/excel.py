@@ -303,23 +303,37 @@ def _write_xlsx_template_summary(
         f"预计使用率 {_percent_label(forecast_ratio)}",
         risk_note,
     ]
+    # KPI 卡片分层：标签/副值行浅蓝底、数值行白底 + 浅蓝细边框（原三行同色、边框偏重）
+    card_light_fill = PatternFill(fill_type="solid", fgColor=ACCENT_LIGHT)
+    card_value_fill = PatternFill(fill_type="solid", fgColor="FFFFFF")
+    card_border_side = Side(style="thin", color="BFDBFE")
+    card_border = Border(left=card_border_side, right=card_border_side, top=card_border_side, bottom=card_border_side)
+    risk_value_color = {"高风险": "C5221F", "需关注": "B06000", "正常": "188038"}.get(risk_status, ACCENT_DARK)
     for column, (header, value, subtitle) in enumerate(zip(headers, values, subtitles), start=1):
-        for row in [4, 5, 6]:
+        for row, fill in [(4, card_light_fill), (5, card_value_fill), (6, card_light_fill)]:
             cell = sheet.cell(row=row, column=column)
-            cell.fill = PatternFill(fill_type="solid", fgColor=ACCENT_LIGHT)
+            cell.fill = fill
+            cell.border = card_border
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            cell.border = DATA_BORDER
-        sheet.cell(row=4, column=column).value = header
-        sheet.cell(row=4, column=column).font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="000000")
-        sheet.cell(row=5, column=column).value = value
-        sheet.cell(row=5, column=column).font = Font(name=XLSX_FONT_NAME, size=18, bold=True, color=RATIO_RED if risk_status == "高风险" and column == 5 else ACCENT_DARK)
-        sheet.cell(row=6, column=column).value = subtitle
-        sheet.cell(row=6, column=column).font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="000000")
+        header_cell = sheet.cell(row=4, column=column)
+        header_cell.value = header
+        header_cell.font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="000000")
+        value_cell = sheet.cell(row=5, column=column)
+        value_cell.value = value
+        value_cell.font = Font(
+            name=XLSX_FONT_NAME,
+            size=18,
+            bold=True,
+            color=risk_value_color if column == len(headers) else ACCENT_DARK,
+        )
+        subtitle_cell = sheet.cell(row=6, column=column)
+        subtitle_cell.value = subtitle
+        subtitle_cell.font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="000000")
 
     _set_xlsx_cell(sheet, "A8", "关键发现", size=14, bold=True, color=ACCENT_DARK)
     findings = _customer_key_findings(clusters, _customer_growth_vms(report), risk_note, context)
     for offset, finding in enumerate(findings[:4], start=9):
-        _set_xlsx_cell(sheet, f"A{offset}", finding, size=12, color="0F172A")
+        _set_xlsx_cell(sheet, f"A{offset}", f"• {finding}", size=12, color="0F172A")
     _set_xlsx_cell(sheet, "A13", "容量风险摘要", size=14, bold=True, color=ACCENT_DARK)
     _set_xlsx_cell(sheet, "A14", _capacity_risk_summary(report), size=12, color="0F172A")
     _set_xlsx_cell(sheet, "A15", f"当前软件版本：{settings.app_version}", size=10, color=TEXT_MUTED)
@@ -343,33 +357,26 @@ def _write_xlsx_template_summary(
         size=10,
         color=TEXT_MUTED,
     )
-    for row in [1, 2, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, disclaimer_row]:
+    merge_rows = [1, 2, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+    merge_rows += list(range(19, 19 + len(growth_lines)))
+    merge_rows.append(disclaimer_row)
+    for row in merge_rows:
         _merge_title_row(sheet, row, 1, 6)
     for column, width in {"A": 26, "B": 24, "C": 24, "D": 24, "E": 26, "F": 16}.items():
         sheet.column_dimensions[column].width = width
-    for row, height in {
-        1: 30,
-        2: 38,
-        3: 15,
-        4: 24,
-        5: 36,
-        6: 28,
-        7: 15,
-        8: 30,
-        9: 38,
-        10: 38,
-        11: 38,
-        12: 38,
-        13: 15,
-        14: 15,
-        15: 15,
-        16: 38,
-        17: 24,
-        18: 26,
-        19: 28,
-        20: 28,
-        21: 28,
-    }.items():
+    # 行高按内容设定（原先第 13/14/15 行仅 15pt，标题与正文被压扁）
+    heights = {
+        1: 30, 2: 38, 3: 10,
+        4: 24, 5: 40, 6: 24, 7: 10,
+        8: 28,
+        13: 26, 14: 24, 15: 20, 16: 30, 17: 30, 18: 26,
+    }
+    for offset in range(9, 13):
+        heights[offset] = 34
+    for offset in range(19, 19 + len(growth_lines)):
+        heights[offset] = 20
+    heights[disclaimer_row] = 24
+    for row, height in heights.items():
         sheet.row_dimensions[row].height = height
 
 

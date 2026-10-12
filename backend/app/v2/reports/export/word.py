@@ -23,7 +23,7 @@ from .common import (
     _report_data_quality, _requested_report_window_label, _risk_level, _signed_bytes_label, _top_vms, _tower_scope_label,
     _vm_sample_window_label, _vms_by_cluster, ACCENT, ACCENT_DARK, ACCENT_LIGHT, ACCENT_SOFT, BORDER, DOCX_FONT_ASCII,
     DOCX_FONT_EAST_ASIA, EMPTY_MONTH_VM_TEXT, GROWTH_BLUE, RATIO_ORANGE, RATIO_RED, REPORT_COVER_SUBTITLE, REPORT_COVER_TITLE, REPORT_PRODUCT_NAME,
-    TEXT_DARK, TEXT_MUTED, VM_ALERT_FILL,
+    TEXT_DARK, TEXT_MUTED, USAGE_CRITICAL_RATIO, USAGE_WARNING_RATIO, VM_ALERT_FILL,
 )
 
 def _risk_text_color(level: str) -> str:
@@ -814,9 +814,10 @@ def _customer_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode:
         if index % 2 == 0:
             _docx_shade_row(row, ACCENT_SOFT)
         _docx_set_cell_text_style(row[0], TEXT_MUTED, align=WD_ALIGN_PARAGRAPH.CENTER)
-        if used_ratio_num >= 0.85:
+        # 占用率配色阈值与 Excel 统一（≥80% 红 / ≥70% 黄）
+        if used_ratio_num >= USAGE_CRITICAL_RATIO:
             _docx_set_cell_text_style(row[6], RATIO_RED, align=WD_ALIGN_PARAGRAPH.CENTER)
-        elif used_ratio_num >= 0.70:
+        elif used_ratio_num >= USAGE_WARNING_RATIO:
             _docx_set_cell_text_style(row[6], RATIO_ORANGE, align=WD_ALIGN_PARAGRAPH.CENTER)
         else:
             _docx_set_cell_text_style(row[6], TEXT_DARK, align=WD_ALIGN_PARAGRAPH.CENTER)

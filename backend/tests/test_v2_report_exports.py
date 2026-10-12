@@ -1472,6 +1472,53 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertEqual(new_colors.get("WarnVM"), "FFE67E22")
 
 
+    def test_excel_summary_sheet_layout_and_risk_color(self) -> None:
+        """Excel 执行摘要：KPI 卡片三层分明、风险状态按等级上色、行高不再压扁、关键发现带项目符号。"""
+        from openpyxl import load_workbook
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_xlsx
+
+        clusters = [
+            {
+                "labels": {"tower_id": "1", "tower": "Tower A", "cluster_id": "cluster-a", "cluster": "Cluster A"},
+                "forecast": {"status": "ok", "slope_per_day": 1, "current": 500 * 1024**3, "forecast_90d": 600 * 1024**3},
+                "points": [[1764547200, 500 * 1024**3]],
+                "total": 1000 * 1024**3,
+                "allocated": 800 * 1024**3,
+            }
+        ]
+        report = FakeReportService(clusters=clusters).latest_report(period_days=30)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="excel-summary-secret")
+            content, _, _, _ = build_report_xlsx(report, settings, period_days=30)
+            wb = load_workbook(io.BytesIO(content))
+            summary = wb["执行摘要"]
+
+            # 1. KPI 卡片分层：标签 11pt / 数值 18pt 深蓝 / 副值 11pt
+            self.assertEqual(summary["A4"].value, "当前已用容量")
+            self.assertEqual(summary["A4"].font.size, 11)
+            self.assertEqual(summary["A5"].font.size, 18)
+            self.assertEqual(summary["A6"].font.size, 11)
+            self.assertEqual(str(summary["A5"].font.color.rgb)[-6:], "1A3C6E")
+            self.assertEqual(str(summary["A4"].font.color.rgb)[-6:], "000000")
+            # 数值行白底、标签/副值行浅蓝底 + 浅蓝细边框（原三行同色、黑灰粗边框）
+            self.assertEqual(summary["A5"].fill.fgColor.rgb[-6:], "FFFFFF")
+            self.assertEqual(summary["A4"].fill.fgColor.rgb[-6:], "F0F4FA")
+            self.assertEqual(summary["A4"].border.left.color.rgb[-6:], "BFDBFE")
+
+            # 2. 风险状态值按等级上色（本用例使用率 50% → 正常 → 绿）
+            self.assertEqual(summary["E5"].value, "正常")
+            self.assertEqual(str(summary["E5"].font.color.rgb)[-6:], "188038")
+
+            # 3. 行高不再被压扁（原先第 13/14/15 行均为 15pt）
+            for row in (13, 14, 15):
+                self.assertGreaterEqual(summary.row_dimensions[row].height, 20, f"第 {row} 行行高过小")
+
+            # 4. 关键发现带项目符号
+            self.assertTrue(str(summary["A9"].value).startswith("• "), summary["A9"].value)
+
+
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2ReportExportApiTest(unittest.TestCase):
     def test_report_exports_require_auth_save_files_and_expose_download_link(self) -> None:
