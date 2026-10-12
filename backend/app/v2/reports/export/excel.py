@@ -378,6 +378,7 @@ def _write_xlsx_template_summary(
     variable_rows = [14, 15, 16, 17] + list(range(9, 13)) + list(range(19, 19 + len(growth_lines))) + [disclaimer_row]
     for row in variable_rows:
         sheet.row_dimensions[row].height = _xlsx_wrapped_row_height(sheet.cell(row=row, column=1).value, summary_width)
+    _setup_xlsx_print_layout(sheet)
 
 
 def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: dict[str, Any], clusters: list[dict[str, Any]], profile: ReportPeriodProfile) -> None:
@@ -485,6 +486,23 @@ def _xlsx_wrapped_row_height(
     return max(min_height, lines * line_height + padding)
 
 
+def _xlsx_name_column_width(
+    values: Any,
+    *,
+    min_width: float,
+    max_width: float = 96.0,
+    font_size: float = 12.0,
+) -> float:
+    """按最长内容计算列宽，避免长名称被右侧单元格截断。
+
+    列宽单位 ≈ 11pt 下的半角字符数；可用半角字符数 = 列宽 × 11 / 字号，
+    因此要让 display_width 个半角宽的内容放下，列宽需 ≥ display_width × 字号 / 11。
+    """
+    widest = max((_xlsx_display_width(value) for value in values), default=0)
+    needed = widest * font_size / 11.0 + 2.0
+    return max(min_width, min(max_width, round(needed, 1)))
+
+
 def _write_xlsx_data_quality_sheet(sheet, report: dict[str, Any], context: dict[str, Any]) -> None:
     _reset_xlsx_sheet_rows(sheet)
     quality = _report_data_quality(report)
@@ -519,7 +537,10 @@ def _write_xlsx_data_quality_sheet(sheet, report: dict[str, Any], context: dict[
         _merge_title_row(sheet, r, 2, 3, align="left")
     _merge_title_row(sheet, start_row, 1, 3)
     sheet.freeze_panes = "A4"
-    sheet.column_dimensions["A"].width = 28
+    # A 列按最长指标名自适应（如「Prometheus 当前集群 series 数」），避免被 B 列截断
+    sheet.column_dimensions["A"].width = _xlsx_name_column_width(
+        [label for label, _ in summary_rows], min_width=28
+    )
     sheet.column_dimensions["B"].width = 44
     sheet.column_dimensions["C"].width = 58
     sheet.row_dimensions[1].height = 32
@@ -544,6 +565,7 @@ def _write_xlsx_data_quality_sheet(sheet, report: dict[str, Any], context: dict[
                 _xlsx_wrapped_row_height(sheet.cell(row=row_index, column=2).value, 44),
                 _xlsx_wrapped_row_height(sheet.cell(row=row_index, column=3).value, 58),
             )
+    _setup_xlsx_print_layout(sheet)
 
 
 def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dict[str, Any], profile: ReportPeriodProfile) -> None:
@@ -581,7 +603,14 @@ def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dic
         for column, value in enumerate(_xlsx_vm_display_row(vm, row_index - 4, include_risk=False), start=RIGHT_START):
             sheet.cell(row=row_index, column=column).value = value
     _style_customer_xlsx_table(sheet, title_rows={1, 2, 3}, header_rows={4})
-    _apply_vm_top100_layout(sheet, left_header_row=4, right_header_row=4)
+    _apply_vm_top100_layout(
+        sheet,
+        left_header_row=4,
+        right_header_row=4,
+        name_width=_xlsx_name_column_width(
+            [(vm.get("labels") or {}).get("vm") for vm in vms], min_width=50
+        ),
+    )
     _apply_usage_ratio_colors(sheet, [7, 19], 5, sheet.max_row)
     sheet.freeze_panes = "A5"
     sheet.sheet_view.topLeftCell = "A1"
@@ -635,6 +664,10 @@ def _write_xlsx_template_growth_detail(
         "M": 14,
     }.items():
         sheet.column_dimensions[column].width = width
+    # B 列（虚拟机名称）按最长名称自适应，避免长名称被右侧单元格截断
+    sheet.column_dimensions["B"].width = _xlsx_name_column_width(
+        [(vm.get("labels") or {}).get("vm") for vm in vms], min_width=50
+    )
     sheet.row_dimensions[1].height = 30
     sheet.row_dimensions[2].height = 24
     sheet.row_dimensions[3].height = 24
@@ -713,7 +746,13 @@ def _merge_title_row(sheet, row: int, start_col: int, end_col: int, *, align: st
         cell.alignment = Alignment(vertical="center", wrap_text=True)
 
 
-def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: int | None = None) -> None:
+def _apply_vm_top100_layout(
+    sheet,
+    *,
+    left_header_row: int,
+    right_header_row: int | None = None,
+    name_width: float | None = None,
+) -> None:
     widths = {
         "A": 15.83203125,   # 排名
         "B": 50,            # 虚拟机名称
@@ -738,6 +777,9 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
         "U": 22,
         "V": 14,
     }
+    if name_width is not None:
+        widths["B"] = name_width
+        widths["N"] = name_width
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
     for row_index in range(1, sheet.max_row + 1):
@@ -987,6 +1029,7 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
     sheet.row_dimensions[2].height = 20
     for row_index in range(3, sheet.max_row + 1):
         sheet.row_dimensions[row_index].height = 20
+    _setup_xlsx_print_layout(sheet)
 
 
 def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, Any]], report: dict[str, Any], profile: ReportPeriodProfile) -> None:
@@ -1075,13 +1118,19 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
                     sheet.cell(row=r, column=c_idx + 10).value = val
         end_row = 7 + total_rows
 
-    _apply_cluster_sheet_layout(sheet, end_row=end_row)
+    _apply_cluster_sheet_layout(
+        sheet,
+        end_row=end_row,
+        name_width=_xlsx_name_column_width(
+            [(vm.get("labels") or {}).get("vm") for vm in vms], min_width=52
+        ),
+    )
     _apply_usage_ratio_colors(sheet, [9, 19], 3, 3)      # 集群概览行「使用率」
     _apply_usage_ratio_colors(sheet, [6, 16], 8, end_row)  # 左右双轨 VM 表「使用率」
     sheet.freeze_panes = "A8"
 
 
-def _apply_cluster_sheet_layout(sheet, *, end_row: int) -> None:
+def _apply_cluster_sheet_layout(sheet, *, end_row: int, name_width: float | None = None) -> None:
     widths = {
         "A": 52,
         "B": 39.5,
@@ -1104,6 +1153,9 @@ def _apply_cluster_sheet_layout(sheet, *, end_row: int) -> None:
         "S": 16,
         "T": 18,
     }
+    if name_width is not None:
+        widths["A"] = name_width
+        widths["K"] = name_width
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
 
@@ -1112,7 +1164,7 @@ def _apply_cluster_sheet_layout(sheet, *, end_row: int) -> None:
     if getattr(sheet, "views", None) and sheet.views.sheetView:
         sheet.views.sheetView[0].showGridLines = False
 
-    sheet.row_dimensions[1].height = 32
+    sheet.row_dimensions[1].height = 36  # 23pt 集群大标题需更大行高
     sheet.row_dimensions[2].height = 24
     sheet.row_dimensions[3].height = 24
     sheet.row_dimensions[4].height = 24

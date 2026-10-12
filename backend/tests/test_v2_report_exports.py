@@ -970,7 +970,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
         self.assertEqual(cluster.column_dimensions["C"].width, 24)
         self.assertEqual(cluster.column_dimensions["D"].width, 20)
         self.assertEqual(cluster.column_dimensions["E"].width, 20)
-        self.assertEqual(cluster.row_dimensions[1].height, 32)
+        self.assertEqual(cluster.row_dimensions[1].height, 36)
         self.assertEqual(cluster.row_dimensions[2].height, 24)
         self.assertEqual(cluster.row_dimensions[3].height, 24)
         self.assertEqual(cluster.row_dimensions[4].height, 24)
@@ -1555,6 +1555,60 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertGreater(height, 26, f"缺采天数行高过小（未自适应折行）：{height}")
             # 单行短文本行不应被无谓拉高
             self.assertLessEqual(quality.row_dimensions[4].height, 30)
+
+
+    def test_excel_long_text_widens_columns_to_avoid_truncation(self) -> None:
+        """Excel：超长虚拟机名称自动加宽名称列（短名称保持模板原宽度）。"""
+        from openpyxl import load_workbook
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_xlsx
+
+        # 显示宽度 54 个半角字符（原模板 B 列 50 只够约 45 个）
+        long_name = "everoute-cluster-cm5520gk30a0308589azyiw-abcdefghijklm"
+        clusters = [
+            {
+                "labels": {"tower_id": "1", "tower": "Tower A", "cluster_id": "cluster-a", "cluster": "Cluster A"},
+                "forecast": {"status": "ok", "slope_per_day": 1, "current": 500 * 1024**3, "forecast_90d": 600 * 1024**3},
+                "points": [[1764547200, 500 * 1024**3]],
+                "total": 1000 * 1024**3,
+                "allocated": 800 * 1024**3,
+            }
+        ]
+        long_vm = {
+            "labels": {
+                "tower_id": "1", "tower": "Tower A", "cluster_id": "cluster-a", "cluster": "Cluster A",
+                "vm_id": "vm-long", "vm": long_name, "owner": "root", "folder_name": "-",
+                "allocated": 100 * 1024**3,
+            },
+            "forecast": {"status": "ok", "slope_per_day": 1, "current": 50 * 1024**3},
+            "growth_amount": 5 * 1024**3,
+            "previous_value": 45 * 1024**3,
+            "growth_ratio": 0.1,
+        }
+        report = FakeReportService(clusters=clusters, month_vms=[long_vm], window_vms=[long_vm]).latest_report(period_days=30)
+        report["day_fastest_growing_vms"] = [long_vm]
+        report["day_new_vms"] = [long_vm]
+        report["month_new_vms"] = [long_vm]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="excel-width-secret")
+            content, _, _, _ = build_report_xlsx(report, settings, period_days=30)
+            wb = load_workbook(io.BytesIO(content))
+
+            # 名称列加宽到能容纳 54 个半角字符（≥ 54×12/11）
+            self.assertGreaterEqual(wb["VM增长TOP100"].column_dimensions["B"].width, 60)
+            self.assertGreaterEqual(wb["月增长详情"].column_dimensions["B"].width, 60)
+            for name in [n for n in wb.sheetnames if n.startswith("集群")]:
+                self.assertGreaterEqual(wb[name].column_dimensions["A"].width, 60, name)
+            # 数据质量说明 A 列需容纳「Prometheus 当前集群 series 数」（29 个半角宽）
+            self.assertGreaterEqual(wb["数据质量说明"].column_dimensions["A"].width, 31)
+
+        # 短名称场景：保持模板原宽度（不无谓加宽）
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="excel-width-short-secret")
+            content, _, _, _ = build_report_xlsx(FakeReportService().latest_report(period_days=30), settings, period_days=30)
+            wb = load_workbook(io.BytesIO(content))
+            self.assertEqual(wb["VM增长TOP100"].column_dimensions["B"].width, 50)
 
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
