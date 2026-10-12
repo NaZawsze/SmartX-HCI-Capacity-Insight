@@ -275,6 +275,8 @@ def _write_xlsx_template_cover(sheet, report: dict[str, Any], context: dict[str,
     _set_xlsx_cell(sheet, "B14", f"Tower范围：{_tower_scope_label(clusters, context['scope_label'])}", size=12, color="555555", align="center")
     _set_xlsx_cell(sheet, "B15", f"集群范围：{_cluster_scope_label(clusters, context['scope_label'])}", size=12, color="555555", align="center")
     _set_xlsx_cell(sheet, "B16", f"统计窗口：{_period_window_label(report)}", size=12, color="555555", align="center")
+    # 封面整页打印（纵向、缩放到一页）
+    _setup_xlsx_print_layout(sheet, print_area="A1:D16", fit_to_height=1, orientation="portrait")
 
 
 def _write_xlsx_template_summary(
@@ -340,11 +342,11 @@ def _write_xlsx_template_summary(
         subtitle_cell.value = subtitle
         subtitle_cell.font = Font(name=XLSX_FONT_NAME, size=12, color="0F172A")
 
-    _set_xlsx_cell(sheet, "A8", "关键发现", size=15, bold=True, color=ACCENT_DARK)
+    _set_xlsx_cell(sheet, "A8", "关键发现", size=14, bold=True, color=ACCENT_DARK)
     findings = _customer_key_findings(clusters, _customer_growth_vms(report), risk_note, context)
     for offset, finding in enumerate(findings[:4], start=9):
         _set_xlsx_cell(sheet, f"A{offset}", f"• {finding}", size=12, color="0F172A")
-    _set_xlsx_cell(sheet, "A13", "容量风险摘要", size=15, bold=True, color=ACCENT_DARK)
+    _set_xlsx_cell(sheet, "A13", "容量风险摘要", size=14, bold=True, color=ACCENT_DARK)
     _set_xlsx_cell(sheet, "A14", _capacity_risk_summary(report), size=12, color="0F172A")
     _set_xlsx_cell(sheet, "A15", f"当前软件版本：{settings.app_version}", size=12, color="334155")
     _set_xlsx_cell(sheet, "A16", _profile_sample_notice(report, profile), size=12, color="334155")
@@ -355,7 +357,7 @@ def _write_xlsx_template_summary(
         size=12,
         color="334155",
     )
-    _set_xlsx_cell(sheet, "A18", "容量增长速率口径", size=15, bold=True, color=ACCENT_DARK)
+    _set_xlsx_cell(sheet, "A18", "容量增长速率口径", size=14, bold=True, color=ACCENT_DARK)
     growth_lines = list(_growth_rate_method_lines(report))
     for offset, line in enumerate(growth_lines, start=19):
         _set_xlsx_cell(sheet, f"A{offset}", line, size=12, color=TEXT_DARK)
@@ -473,7 +475,14 @@ def _add_capacity_trend_chart(sheet, clusters: list[dict[str, Any]]) -> None:
     sheet.add_image(xlsx_image, f"A{anchor_row}")
 
 
-def _setup_xlsx_print_layout(sheet, *, print_area: Any = None, fit_to_width: int = 1) -> None:
+def _setup_xlsx_print_layout(
+    sheet,
+    *,
+    print_area: Any = None,
+    fit_to_width: int = 1,
+    fit_to_height: int = 0,
+    orientation: str = "landscape",
+) -> None:
     """设置打印区域与自适应页面。
 
     print_area 可传多个区域（列表），Excel 会把每个区域单独成页——这样双轨并排的
@@ -481,10 +490,10 @@ def _setup_xlsx_print_layout(sheet, *, print_area: Any = None, fit_to_width: int
     """
     area = print_area or f"A1:{get_column_letter(sheet.max_column)}{sheet.max_row}"
     sheet.print_area = area
-    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.orientation = orientation
     sheet.page_setup.fitToPage = True
     sheet.page_setup.fitToWidth = fit_to_width
-    sheet.page_setup.fitToHeight = 0
+    sheet.page_setup.fitToHeight = fit_to_height
     sheet.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
 
 
@@ -753,7 +762,7 @@ def _style_customer_xlsx_table(sheet, *, title_rows: set[int] | None = None, hea
             val = cell.value
 
             if r in title_rows:
-                cell.font = Font(name=XLSX_FONT_NAME, size=16 if r == 1 else 13, bold=True, color=ACCENT_DARK)
+                cell.font = Font(name=XLSX_FONT_NAME, size=16 if r == 1 else 14, bold=True, color=ACCENT_DARK)
                 cell.alignment = Alignment(vertical="center", wrap_text=True)
                 continue
 
