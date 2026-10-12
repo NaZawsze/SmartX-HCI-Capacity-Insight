@@ -364,20 +364,20 @@ def _write_xlsx_template_summary(
     for column, width in {"A": 26, "B": 24, "C": 24, "D": 24, "E": 26, "F": 16}.items():
         sheet.column_dimensions[column].width = width
     # 行高按内容设定（原先第 13/14/15 行仅 15pt，标题与正文被压扁）
-    # 行高需容纳 12pt 正文折行（合并区宽度按 12pt 中文重新估算，避免第二行被压住）
-    heights = {
-        1: 30, 2: 38, 3: 10,
-        4: 26, 5: 40, 6: 38, 7: 10,
-        8: 30,
-        13: 28, 14: 26, 15: 24, 16: 36, 17: 38, 18: 28,
-    }
-    for offset in range(9, 13):
-        heights[offset] = 38
-    for offset in range(19, 19 + len(growth_lines)):
-        heights[offset] = 24
-    heights[disclaimer_row] = 26
-    for row, height in heights.items():
+    # 固定行高（标题 / KPI 表头与数值 / 小节标题）
+    for row, height in {1: 30, 2: 38, 3: 10, 4: 26, 5: 40, 7: 10, 8: 30, 13: 28, 18: 28}.items():
         sheet.row_dimensions[row].height = height
+    # KPI 副值行：按最长的副值估算（风险状态说明通常最长）
+    summary_widths = [26, 24, 24, 24, 26, 16]
+    sheet.row_dimensions[6].height = max(
+        38.0,
+        max(_xlsx_wrapped_row_height(subtitle, summary_widths[index]) for index, subtitle in enumerate(subtitles)),
+    )
+    # 可变长正文行：按内容估算行高（合并区 Excel 不会自动适应折行，内容变长也不会被压住）
+    summary_width = sum(summary_widths)
+    variable_rows = [14, 15, 16, 17] + list(range(9, 13)) + list(range(19, 19 + len(growth_lines))) + [disclaimer_row]
+    for row in variable_rows:
+        sheet.row_dimensions[row].height = _xlsx_wrapped_row_height(sheet.cell(row=row, column=1).value, summary_width)
 
 
 def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: dict[str, Any], clusters: list[dict[str, Any]], profile: ReportPeriodProfile) -> None:
@@ -461,6 +461,30 @@ def _setup_xlsx_print_layout(sheet) -> None:
     sheet.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
 
 
+def _xlsx_display_width(text: Any) -> int:
+    """估算文本显示宽度（半角字符为单位）：中日韩等全角字符按 2，其余按 1。"""
+    return sum(2 if ord(char) > 0x2E80 else 1 for char in str(text or ""))
+
+
+def _xlsx_wrapped_row_height(
+    text: Any,
+    column_width_chars: float,
+    *,
+    font_size: float = 12.0,
+    line_height: float = 16.5,
+    padding: float = 8.0,
+    min_height: float = 24.0,
+) -> float:
+    """按内容估算折行所需行高。
+
+    合并单元格 Excel 不会自动适应折行高度，内容变长（如缺采日期增多）就会被压住，
+    因此这里显式按文本显示宽度 / 可用宽度算出折行数，再折算行高。
+    """
+    available = max(1, int(column_width_chars * 11.0 / font_size))
+    lines = max(1, -(-_xlsx_display_width(text) // available))
+    return max(min_height, lines * line_height + padding)
+
+
 def _write_xlsx_data_quality_sheet(sheet, report: dict[str, Any], context: dict[str, Any]) -> None:
     _reset_xlsx_sheet_rows(sheet)
     quality = _report_data_quality(report)
@@ -503,11 +527,23 @@ def _write_xlsx_data_quality_sheet(sheet, report: dict[str, Any], context: dict[
     sheet.row_dimensions[3].height = 30
     sheet.row_dimensions[start_row].height = 32
     sheet.row_dimensions[start_row + 1].height = 30
+    # 指标/说明两列（说明列 B:C 合并，宽度 44+58）；明细表为 Tower/集群/原因 三列
     for row_index in range(4, sheet.max_row + 1):
         if row_index == start_row - 1:
             sheet.row_dimensions[row_index].height = 16
-        elif row_index not in {start_row, start_row + 1}:
-            sheet.row_dimensions[row_index].height = 26
+            continue
+        if row_index in {start_row, start_row + 1}:
+            continue
+        if row_index < start_row:
+            sheet.row_dimensions[row_index].height = _xlsx_wrapped_row_height(
+                sheet.cell(row=row_index, column=2).value, 44 + 58
+            )
+        else:
+            sheet.row_dimensions[row_index].height = max(
+                _xlsx_wrapped_row_height(sheet.cell(row=row_index, column=1).value, 28),
+                _xlsx_wrapped_row_height(sheet.cell(row=row_index, column=2).value, 44),
+                _xlsx_wrapped_row_height(sheet.cell(row=row_index, column=3).value, 58),
+            )
 
 
 def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dict[str, Any], profile: ReportPeriodProfile) -> None:

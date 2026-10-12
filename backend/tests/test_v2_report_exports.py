@@ -1527,6 +1527,36 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertTrue(str(summary["A9"].value).startswith("• "), summary["A9"].value)
 
 
+    def test_excel_data_quality_rows_auto_size_for_wrapped_text(self) -> None:
+        """Excel 数据质量说明：长文本行（如缺采天数）行高随内容自适应，不被压住。"""
+        from openpyxl import load_workbook
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_xlsx
+
+        report = FakeReportService().latest_report(period_days=30)
+        report["data_quality"]["missing_collection_dates"] = [f"2026-09-{day:02d}" for day in range(1, 29)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="excel-dq-secret")
+            content, _, _, _ = build_report_xlsx(report, settings, period_days=30)
+            wb = load_workbook(io.BytesIO(content))
+            quality = wb["数据质量说明"]
+
+            target_row = None
+            for row_index in range(4, quality.max_row + 1):
+                if "缺采" in str(quality.cell(row=row_index, column=1).value or ""):
+                    target_row = row_index
+                    break
+            self.assertIsNotNone(target_row, "未找到「缺采天数」行")
+
+            # 28 个缺采日期必然折多行，行高应显著高于单行的 26pt
+            height = quality.row_dimensions[target_row].height
+            self.assertIsNotNone(height)
+            self.assertGreater(height, 26, f"缺采天数行高过小（未自适应折行）：{height}")
+            # 单行短文本行不应被无谓拉高
+            self.assertLessEqual(quality.row_dimensions[4].height, 30)
+
+
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2ReportExportApiTest(unittest.TestCase):
     def test_report_exports_require_auth_save_files_and_expose_download_link(self) -> None:
