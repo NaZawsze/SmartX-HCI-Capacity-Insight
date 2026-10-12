@@ -1611,6 +1611,35 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertEqual(wb["VM增长TOP100"].column_dimensions["B"].width, 50)
 
 
+    def test_excel_dual_track_sheets_use_two_print_areas(self) -> None:
+        """Excel：双轨并排 Sheet 使用两段打印区域（左右各自成页），屏幕上仍是同一个 Sheet。"""
+        from openpyxl import load_workbook
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_xlsx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="excel-print-area-secret")
+            content, _, _, _ = build_report_xlsx(FakeReportService().latest_report(period_days=30), settings, period_days=30)
+            wb = load_workbook(io.BytesIO(content))
+
+            # 集群 Sheet：左轨 A:J、右轨 K:T 两段
+            cluster_sheets = [name for name in wb.sheetnames if name.startswith("集群")]
+            self.assertTrue(cluster_sheets)
+            for name in cluster_sheets:
+                area = str(wb[name].print_area)
+                self.assertIn("$A$1:$J$", area, name)
+                self.assertIn("$K$1:$T$", area, name)
+
+            # TOP100：左 A:K、右 M:V 两段
+            top_area = str(wb["VM增长TOP100"].print_area)
+            self.assertIn("$A$1:$K$", top_area)
+            self.assertIn("$M$1:$V$", top_area)
+
+            # 窄表仍为单段整表打印区域
+            for name in ["执行摘要", "数据质量说明", "本日新建VM"]:
+                self.assertIn("$A$1:", str(wb[name].print_area), name)
+
+
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")
 class V2ReportExportApiTest(unittest.TestCase):
     def test_report_exports_require_auth_save_files_and_expose_download_link(self) -> None:

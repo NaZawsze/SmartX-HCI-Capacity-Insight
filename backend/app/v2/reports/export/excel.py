@@ -453,11 +453,17 @@ def _add_capacity_trend_chart(sheet, clusters: list[dict[str, Any]]) -> None:
     sheet.add_image(xlsx_image, f"A{anchor_row}")
 
 
-def _setup_xlsx_print_layout(sheet) -> None:
-    sheet.print_area = f"A1:{get_column_letter(sheet.max_column)}{sheet.max_row}"
+def _setup_xlsx_print_layout(sheet, *, print_area: Any = None, fit_to_width: int = 1) -> None:
+    """设置打印区域与自适应页面。
+
+    print_area 可传多个区域（列表），Excel 会把每个区域单独成页——这样双轨并排的
+    Sheet 在屏幕上保持单表，打印时左右两块各自成一页可读页面。
+    """
+    area = print_area or f"A1:{get_column_letter(sheet.max_column)}{sheet.max_row}"
+    sheet.print_area = area
     sheet.page_setup.orientation = "landscape"
     sheet.page_setup.fitToPage = True
-    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToWidth = fit_to_width
     sheet.page_setup.fitToHeight = 0
     sheet.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
 
@@ -612,6 +618,11 @@ def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dic
         ),
     )
     _apply_usage_ratio_colors(sheet, [7, 19], 5, sheet.max_row)
+    # 打印区域分两段：左（增长量）/ 右（增长率）各成一页
+    _setup_xlsx_print_layout(
+        sheet,
+        print_area=[f"A1:K{sheet.max_row}", f"M1:V{sheet.max_row}"],
+    )
     sheet.freeze_panes = "A5"
     sheet.sheet_view.topLeftCell = "A1"
     for selection in sheet.sheet_view.selection:
@@ -673,6 +684,7 @@ def _write_xlsx_template_growth_detail(
     sheet.row_dimensions[3].height = 24
     for row_index in range(4, sheet.max_row + 1):
         sheet.row_dimensions[row_index].height = 22
+    _setup_xlsx_print_layout(sheet)
 
 
 def _style_customer_xlsx_table(sheet, *, title_rows: set[int] | None = None, header_rows: set[int] | None = None) -> None:
@@ -1127,6 +1139,8 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
     )
     _apply_usage_ratio_colors(sheet, [9, 19], 3, 3)      # 集群概览行「使用率」
     _apply_usage_ratio_colors(sheet, [6, 16], 8, end_row)  # 左右双轨 VM 表「使用率」
+    # 打印区域分两段：左（增长量榜）/ 右（增长率榜）各成一页，屏幕上仍是同一个 Sheet
+    _setup_xlsx_print_layout(sheet, print_area=[f"A1:J{end_row}", f"K1:T{end_row}"])
     sheet.freeze_panes = "A8"
 
 
