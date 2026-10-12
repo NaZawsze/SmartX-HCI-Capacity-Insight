@@ -2450,16 +2450,16 @@ Phase 69 只给 Word/Excel 的 VM 增长类表格加了两列；真实导出样�
 - [x] 报表导出服务重构：
   - `backend/app/v2/reports/export/excel.py`：
     - 重构 `_write_cluster_vm_sheet` 与 `_apply_cluster_sheet_layout` 为左右对称双轨并排；
-    - 左侧（A~J 列，10 列）：增长量视角，A~I 为 VM 表，J 列为间距与滑动引导（第 5 行放置粗体蓝色 `向右滑动查看增长率榜单 ➔`）；
-    - 右侧（K~T 列，10 列）：增长率视角，K~S 为 VM 表，顶部对称镜像完整的一套集群概况指标（K1 集群标题、K2:T2 概览表头、K3:T3 概览指标数值、K4 样本说明、K5 周期初始容量口径说明）；
+    - 左侧（A~J 列，10 列）：增长量视角，A~I 为 VM 表，J 列为间距与滑动引导；针对 J5 处于窗口边缘容易被遮挡的问题，在概览指标「已分配容量/使用率/预计耗尽天数」正下方将 Row 4~5 的 H4:J5 合并为一个大大的浅蓝卡片（13pt 粗体深蓝 `向右滑动查看增长率榜单 ➔`），彻底杜绝遮挡；
+    - 右侧（K~T 列，10 列）：增长率视角，K~S 为 VM 表，顶部对称镜像完整的一套集群概况指标（K1 集群标题、K2:T2 概览表头、K3:T3 概览指标数值、K4:Q4 样本说明、K5:Q5 周期初始容量口径说明），R4:T5 对应对称合并大卡片（`⬅ 向左滑动返回增长量榜单`）；
     - 第 6 行为双侧榜单子标题，第 7 行为双侧 VM 表头（居中对齐消除筛选下拉箭头遮挡）；
     - 第 8 行起左右双轨遍历写入 VM 数据行，使用 `_is_alert_vm` 动态识别告警机器并填充 `VM_ALERT_FILL`（`F4CCCC`）；
     - 冻结窗格调整为 `freeze_panes = "A8"`，向下滚动时双表头始终吸顶，彻底消除标题遮挡。
 - [x] 单元测试同步更新：
-  - `backend/tests/test_v2_report_exports.py`：更新针对集群 Sheet 中 `vm_header_rows` 的断言（左侧 column 1 出现 1 次，右侧 column 11 出现 1 次，均在第 7 行）。
-  - `scripts/verify_remote_exported_reports.py`：新增对右侧镜像集群概况（K2:T2）及右侧 VM 表头（K7:S7）的端到端断言。
+  - `backend/tests/test_v2_report_exports.py`：更新针对集群 Sheet 中 `vm_header_rows` 的断言，以及 H4:J5 与 R4:T5 合并卡片与文案的断言。
+  - `scripts/verify_remote_exported_reports.py`：新增对右侧镜像集群概况（K2:T2）、右侧 VM 表头（K7:S7）及滑动卡片（H4:J5、R4:T5）的端到端断言。
 - [x] `10.20.11.3` 远端真机验证：
-  - 容器内全量测试：在 `smartx-hci-capacity-insight-web-api-1` 容器内运行 `tests.test_v2_report_exports`：**Ran 29 tests in 93.823s, OK** 100% 绿灯全过；
+  - 容器内全量测试：在 `smartx-hci-capacity-insight-web-api-1` 容器内运行 `tests.test_v2_report_exports`：**Ran 29 tests in 94.857s, OK** 100% 绿灯全过；
   - 真实接口端到端导出：运行 `scripts/verify_remote_exported_reports.py http://10.20.11.3:8000`，Word 与 Excel 导出全量断言通过。
 - [x] 覆盖用户桌面文件：
   - 已刷新写入 `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx`；

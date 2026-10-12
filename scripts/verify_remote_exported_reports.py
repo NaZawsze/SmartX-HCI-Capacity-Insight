@@ -129,6 +129,14 @@ def main():
         print(f" [Excel 集群 {c_name}] 右侧头部第 2 行: {right_head2}")
         print(f" [Excel 集群 {c_name}] 右侧 VM 表头 9 列: {right_vm_headers}")
 
+        # 验证滑动提示大卡片（H4:J5 与 R4:T5）
+        assert cs["H4"].value == "向右滑动查看增长率榜单 ➔", f"集群 {c_name} H4 缺失向右滑动提示！"
+        assert cs["R4"].value == "⬅ 向左滑动返回增长量榜单", f"集群 {c_name} R4 缺失向左滑动提示！"
+        merged_ranges = {str(m) for m in cs.merged_cells.ranges}
+        assert "H4:J5" in merged_ranges, f"集群 {c_name} 缺失 H4:J5 合并卡片！"
+        assert "R4:T5" in merged_ranges, f"集群 {c_name} 缺失 R4:T5 合并卡片！"
+        print(f" [Excel 集群 {c_name}] 滑动提示卡片 H4:J5 与 R4:T5 验证通过！")
+
     # 4. 覆盖桌面文件
     desktop_xlsx = "/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx"
     desktop_docx = "/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.docx"

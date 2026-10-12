@@ -912,14 +912,17 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
         sheet.cell(row=3, column=idx).value = d_val
         sheet.cell(row=3, column=idx + 10).value = d_val
 
-    # 第 4 行：样本说明（左右对称）
+    # 第 4 行：样本说明（左右对称，左 1..7，右 11..17）
     sheet.cell(row=4, column=1).value = notice_text
     sheet.cell(row=4, column=11).value = notice_text
 
-    # 第 5 行：周期初始容量口径说明，及中间向右滑动提示
+    # 第 5 行：周期初始容量口径说明（左右对称，左 1..7，右 11..17）
     sheet.cell(row=5, column=1).value = note_text
-    sheet.cell(row=5, column=10).value = "向右滑动查看增长率榜单 ➔"
     sheet.cell(row=5, column=11).value = note_text
+
+    # 滑动提示大卡片（对应已分配容量/使用率/预计耗尽天数下方，左 8..10 列，右 18..20 列）
+    sheet.cell(row=4, column=8).value = "向右滑动查看增长率榜单 ➔"
+    sheet.cell(row=4, column=18).value = "⬅ 向左滑动返回增长量榜单"
 
     # 第 6 行：榜单子标题
     sheet.cell(row=6, column=1).value = left_sub_title
@@ -999,10 +1002,12 @@ def _apply_cluster_sheet_layout(sheet, *, end_row: int) -> None:
 
     _merge_title_row(sheet, 1, 1, 10)
     _merge_title_row(sheet, 1, 11, 20)
-    _merge_title_row(sheet, 4, 1, 10, align="left")
-    _merge_title_row(sheet, 4, 11, 20, align="left")
-    _merge_title_row(sheet, 5, 1, 9, align="left")
-    _merge_title_row(sheet, 5, 11, 20, align="left")
+    _merge_title_row(sheet, 4, 1, 7, align="left")
+    _merge_title_row(sheet, 4, 11, 17, align="left")
+    _merge_title_row(sheet, 5, 1, 7, align="left")
+    _merge_title_row(sheet, 5, 11, 17, align="left")
+    sheet.merge_cells(start_row=4, start_column=8, end_row=5, end_column=10)
+    sheet.merge_cells(start_row=4, start_column=18, end_row=5, end_column=20)
     _merge_title_row(sheet, 6, 1, 9, align="left")
     _merge_title_row(sheet, 6, 11, 19, align="left")
 
@@ -1045,9 +1050,27 @@ def _apply_cluster_sheet_layout(sheet, *, end_row: int) -> None:
         c5.font = Font(name=XLSX_FONT_NAME, size=10, color="64748B")
         c5.alignment = Alignment(vertical="center", wrap_text=True)
 
-    hint_cell = sheet.cell(row=5, column=10)
-    hint_cell.font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="2563EB")
-    hint_cell.alignment = Alignment(horizontal="center", vertical="center")
+    card_fill = PatternFill(fill_type="solid", fgColor="EFF6FF")
+    card_border_side = Side(border_style="thin", color="BFDBFE")
+    card_border = Border(
+        left=card_border_side,
+        right=card_border_side,
+        top=card_border_side,
+        bottom=card_border_side,
+    )
+    card_font = Font(name=XLSX_FONT_NAME, size=13, bold=True, color="1D4ED8")
+    card_align = Alignment(horizontal="center", vertical="center")
+
+    for start_col, hint_text in [(8, "向右滑动查看增长率榜单 ➔"), (18, "⬅ 向左滑动返回增长量榜单")]:
+        top_cell = sheet.cell(row=4, column=start_col)
+        top_cell.value = hint_text
+        top_cell.font = card_font
+        top_cell.alignment = card_align
+        for r_idx in (4, 5):
+            for c_idx in range(start_col, start_col + 3):
+                cell_item = sheet.cell(row=r_idx, column=c_idx)
+                cell_item.fill = card_fill
+                cell_item.border = card_border
 
     for start_c in [1, 11]:
         c6 = sheet.cell(row=6, column=start_c)

@@ -1380,6 +1380,12 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertEqual(cluster_sheet["D8"].value, "400.00 GiB")
             self.assertEqual(cluster_sheet["E8"].value, "300.00 GiB")
             self.assertEqual(cluster_sheet["F8"].value, "75.00%")
+            self.assertEqual(cluster_sheet["H4"].value, "向右滑动查看增长率榜单 ➔")
+            self.assertEqual(cluster_sheet["R4"].value, "⬅ 向左滑动返回增长量榜单")
+            cluster_merged = {str(m) for m in cluster_sheet.merged_cells.ranges}
+            self.assertIn("H4:J5", cluster_merged)
+            self.assertIn("R4:T5", cluster_merged)
+
 
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")

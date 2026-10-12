@@ -6158,26 +6158,27 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
 - **改动范围**：
   - `backend/app/v2/reports/export/excel.py`：
     - 重构 `_write_cluster_vm_sheet` 与 `_apply_cluster_sheet_layout`：
-    - 左侧区域（A~J 列，共 10 列）：A~I 列为按增长量降序的全部虚拟机表格，J 列作为间距列并于 J5 设置粗体蓝色 `向右滑动查看增长率榜单 ➔`；
-    - 右侧区域（K~T 列，共 10 列）：K~S 列为按增长率降序的全部虚拟机表格，顶部对称镜像完整的集群概况指标（Row 1 集群标题、Row 2:3 集群指标表头及数值、Row 4 样本说明、Row 5 周期初始容量口径说明）；
+    - 左侧区域（A~J 列，共 10 列）：A~I 列为按增长量降序的全部虚拟机表格；为解决第 10 列处于窗口边缘容易被切断截断的问题，采纳用户建议将概览指标「已分配容量/使用率/预计耗尽天数」正下方 Row 4~5 的第 8~10 列合并（`H4:J5`），生成大号浅蓝卡片（13pt 粗体深蓝 `向右滑动查看增长率榜单 ➔`），底色 `#EFF6FF` 配 `#BFDBFE` 细边框，水平垂直居中，视野饱满绝不遮挡；
+    - 右侧区域（K~T 列，共 10 列）：K~S 列为按增长率降序的全部虚拟机表格，顶部对称镜像完整的集群概况指标（Row 1 集群标题、Row 2:3 集群指标表头及数值、Row 4:Q4 样本说明、Row 5:Q5 周期初始容量口径说明），对应的 Row 4~5 第 18~20 列合并（`R4:T5`）对称大卡片（`⬅ 向左滑动返回增长量榜单`）；
     - Row 6 放置各自榜单的子标题；
     - Row 7 放置各自的 VM 表头，统一采用居中对齐彻底消除 Excel 筛选按钮遮挡文字的问题；
     - Row 8 起左右双轨并行写入 VM 数据行，使用 `_is_alert_vm` 动态识别告警机器并填充 `VM_ALERT_FILL`（`#F4CCCC` 浅红底色）；
     - 冻结窗格调整为 `freeze_panes = "A8"`，向下滚动时双侧表头始终吸顶、双侧数据无缝同步滚动，彻底消除任何标题遮挡。
   - `backend/tests/test_v2_report_exports.py`：
-    - 更新针对集群 Sheet 中 `vm_header_rows` 的断言，改为断言左侧第 1 列与右侧第 11 列均在第 7 行出现表头。
+    - 更新针对集群 Sheet 中 `vm_header_rows` 的断言，以及针对 H4:J5 与 R4:T5 存在性与文案的断言。
   - `scripts/verify_remote_exported_reports.py`：
-    - 扩充针对远端真实导出的断言，涵盖右侧镜像集群概况（K2:T2）及右侧 VM 表头（K7:S7）核验。
+    - 扩充针对远端真实导出的断言，涵盖右侧镜像集群概况（K2:T2）、右侧 VM 表头（K7:S7）及滑动大卡片（H4:J5、R4:T5）核验。
 - **10.20.11.3 远端真机验证**：
   - 源码与容器同步：同步修改代码至 `.3`，更新容器内 `/app` 与挂载卷代码，重启 web-api 容器；
-  - 容器内全量测试：在 `smartx-hci-capacity-insight-web-api-1` 容器内运行 `tests.test_v2_report_exports`：**Ran 29 tests in 93.823s, OK** 100% 绿灯全部通过；
+  - 容器内全量测试：在 `smartx-hci-capacity-insight-web-api-1` 容器内运行 `tests.test_v2_report_exports`：**Ran 29 tests in 94.857s, OK** 100% 绿灯全部通过；
   - 真实接口端到端导出：运行 `scripts/verify_remote_exported_reports.py http://10.20.11.3:8000`，Word 与 Excel 导出全量断言通过；
   - 桌面报表文件刷新覆盖：
     - `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx`
     - `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.docx`
   - 桌面 Excel 结构核验：
     - `freeze_panes` 为 `A8`；
-    - Row 1~5 左右两侧对称镜像（左侧 A1~J5，右侧 K1~T5），右侧包含完整的集群容量指标；
-    - J5 包含粗体蓝色 `向右滑动查看增长率榜单 ➔`；
+    - Row 1~5 左右两侧对称镜像，右侧包含完整的集群容量指标；
+    - H4:J5 合并大卡片包含 `向右滑动查看增长率榜单 ➔`（13pt 粗体，#1D4ED8 蓝字，#EFF6FF 浅蓝底，居中）；
+    - R4:T5 合并大卡片包含 `⬅ 向左滑动返回增长量榜单`；
     - Row 7 表头居中对齐，筛选下拉框零遮挡；
     - 向下滚动数据时左右两侧无遮挡且表头吸顶。
