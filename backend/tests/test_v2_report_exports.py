@@ -289,7 +289,8 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("存储容量预测平台", word_xml)
             self.assertIn("SMARTX超融合存储容量分析报告", word_xml)
             self.assertIn("SMARTX HCI Storage Capacity Analysis Report", word_xml)
-            self.assertIn("客户名称", word_xml)
+            # Phase 79：封面「客户名称」未配置时不再渲染空占位行
+            self.assertNotIn("客户名称", word_xml)
             self.assertIn("Tower范围", word_xml)
             self.assertIn("集群范围", word_xml)
             self.assertIn("数据质量说明", word_xml)
@@ -323,14 +324,13 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("容量阈值", word_xml)
             self.assertIn("容量安全边际", word_xml)
             usage_section = word_xml.split("2.3  容量使用率可视化", 1)[1].split("三  集群虚拟机增长分析", 1)[0]
-            self.assertIn("█", usage_section)
-            self.assertIn("░", usage_section)
-            self.assertIn(f"{'█' * 6}{'░' * 44}", usage_section)
-            self.assertIn(f"{'█' * 15}{'░' * 35}", usage_section)
-            self.assertNotIn(f"{'█' * 12}{'░' * 38}", usage_section)
-            self.assertIn('w:color w:val="1A3C6E"', usage_section)
-            self.assertIn('w:color w:val="007ACC"', usage_section)
-            self.assertNotIn("w:tbl", usage_section)
+            # Phase 79：使用率条由 █/░ 字符画改为表格化比例条（1×20 无边框表格，按比例填色）
+            self.assertNotIn("█", usage_section)
+            self.assertNotIn("░", usage_section)
+            self.assertIn("w:tbl", usage_section)
+            self.assertIn('w:fill="1A3C6E"', usage_section)
+            self.assertIn('w:fill="007ACC"', usage_section)
+            self.assertIn('w:fill="E8EEF7"', usage_section)
             self.assertNotIn("Top 10 集群容量使用率", usage_section)
             self.assertIn("近 14 天样本增长", word_xml)
             self.assertIn("近 30 天样本增长", word_xml)
@@ -343,7 +343,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn('w:fill="1A3C6E"', word_xml)
             self.assertIn('w:fill="F0F4FA"', word_xml)
             self.assertIn('w:color w:val="007ACC"', word_xml)
-            self.assertIn("Noto Serif CJK SC", word_xml)
+            self.assertIn("Noto Sans CJK SC", word_xml)
             self.assertNotIn("微软雅黑", word_xml)
             self.assertNotIn("Microsoft YaHei", word_xml)
             self.assertIn("<w:tblHeader", word_xml)
@@ -551,7 +551,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("近 30 天样本增长", word_xml)
             self.assertIn("近 90 天样本增长", word_xml)
             self.assertNotIn("近 365 天样本增长", word_xml)
-            self.assertIn("140.00 GB", word_xml)
+            self.assertIn("140.00 GiB", word_xml)
             self.assertIn("数据不足", word_xml)
 
     def test_docx_scope_information_handles_multiple_towers_and_clusters(self) -> None:
@@ -658,11 +658,11 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("一  摘要", word_xml)
             self.assertIn("关键发现", word_xml)
             self.assertIn("边缘云管理平台04", word_xml)
-            self.assertIn("20.00 GB", word_xml)
+            self.assertIn("20.00 GiB", word_xml)
             self.assertIn('<w:t xml:space="preserve"> 边缘云管理平台04 </w:t>', word_xml)
             self.assertIn('<w:t>Tower A</w:t>', word_xml)
             self.assertIn('<w:t>Cluster A</w:t>', word_xml)
-            self.assertNotIn('<w:t xml:space="preserve">  20.00 GB  </w:t>', word_xml)
+            self.assertNotIn('<w:t xml:space="preserve">  20.00 GiB  </w:t>', word_xml)
             self.assertIn('w:b/>', word_xml)
             self.assertIn('w:sz w:val="23"', word_xml)
             self.assertIn("全集群汇总报告", word_xml)
@@ -1155,13 +1155,13 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             word_xml, _ = _docx_xml(docx_content)
 
             # 1. Word 断言
-            # 1.1 范围基本信息表必须包含「总已分配容量」行，400 GB
+            # 1.1 范围基本信息表必须包含「总已分配容量」行，400 GiB
             self.assertIn("总已分配容量", word_xml)
-            self.assertIn("400.00 GB", word_xml)
-            # 1.2 集群增长表必须包含「已分配（占比）」列及占比数值（250 GB · 25.00%）
+            self.assertIn("400.00 GiB", word_xml)
+            # 1.2 集群增长表必须包含「已分配（占比）」列及占比数值（250 GiB · 25.00%）
             self.assertIn("已分配（占比）", word_xml)
-            self.assertIn("250.00 GB · 25.00%", word_xml)
-            self.assertIn("150.00 GB · 15.00%", word_xml)
+            self.assertIn("250.00 GiB · 25.00%", word_xml)
+            self.assertIn("150.00 GiB · 15.00%", word_xml)
 
             # 2. Excel 断言
             xlsx_content, _, _, _ = build_report_xlsx(report, settings, period_days=30)
@@ -1324,8 +1324,8 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             # 1. Word 断言
             self.assertIn("分配空间", word_xml)
             self.assertIn("使用率", word_xml)
-            self.assertIn("400.00 GB", word_xml)
-            self.assertIn("300.00 GB", word_xml)
+            self.assertIn("400.00 GiB", word_xml)
+            self.assertIn("300.00 GiB", word_xml)
             self.assertIn("75.00%", word_xml)
 
             # 2. Excel 断言
@@ -1397,6 +1397,93 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertEqual(wb["VM增长TOP100"]["S2"].fill.fgColor.rgb, "00EFF6FF")
 
 
+
+
+    def test_phase79_readability_typography_colors_and_units(self) -> None:
+        """Phase 79: 标题层级、注记字号/对比度、强调色、表格边框、使用率条与单位标签。"""
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_docx
+        from app.v2.reports.export.word import USAGE_BAR_SEGMENTS, _risk_word_color
+
+        clusters = [
+            {
+                "labels": {"tower_id": "1", "tower": "Tower A", "cluster_id": "cluster-a", "cluster": "Cluster A"},
+                "forecast": {"status": "ok", "slope_per_day": 1, "current": 800 * 1024**3, "forecast_90d": 900 * 1024**3},
+                "points": [[1764547200, 800 * 1024**3]],
+                "total": 1000 * 1024**3,
+                "allocated": 400 * 1024**3,
+            }
+        ]
+        month_vms = [
+            {
+                "labels": {
+                    "tower_id": "1", "tower": "Tower A",
+                    "cluster_id": "cluster-a", "cluster": "Cluster A",
+                    "vm_id": "vm-test-1", "vm": "App-VM-1",
+                    "owner": "dev_team", "folder_name": "支付系统",
+                    "allocated": 400 * 1024**3,
+                },
+                "forecast": {"status": "ok", "slope_per_day": 2, "current": 300 * 1024**3},
+                "growth_amount": 50 * 1024**3,
+                "previous_value": 250 * 1024**3,
+                "growth_ratio": 0.20,
+            }
+        ]
+        report = FakeReportService(clusters=clusters).latest_report(period_days=30)
+        report["month_fastest_growing_vms"] = month_vms
+        report["day_fastest_growing_vms"] = month_vms
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = V2Settings(data_root=Path(tmpdir), secret_key="phase79-test-secret")
+            content, _, _, _ = build_report_docx(report, settings, period_days=30)
+            word_xml, _ = _docx_xml(content)
+
+            # 1. 标题层级：二级 14pt(=28)、三级 12pt(=24)，不再同为 13pt(=26)
+            h2 = _docx_paragraph_containing(word_xml, "2.1  范围基本信息")
+            self.assertIn('w:sz w:val="28"', h2)
+            self.assertNotIn('w:sz w:val="26"', h2)
+            h3 = _docx_paragraph_containing(word_xml, "（增长量 Top 20）")
+            self.assertIn('w:sz w:val="24"', h3)
+            self.assertNotIn('w:sz w:val="28"', h3)
+
+            # 2. 注记文字：10pt(=20) + 深灰 475569（替代 999999）
+            note = _docx_paragraph_containing(word_xml, "说明：近 14/30/90 天样本增长")
+            self.assertIn('w:sz w:val="20"', note)
+            self.assertIn('w:color w:val="475569"', note)
+            self.assertNotIn('w:color w:val="999999"', word_xml)
+
+            # 3. 关键数字强调用色 1A3C6E
+            finding = _docx_paragraph_containing(word_xml, "当前导出范围已用容量")
+            self.assertIn('w:color w:val="1A3C6E"', finding)
+
+            # 4. 表格边框浅蓝 BFDBFE，无黑色网格
+            self.assertIn('w:color="BFDBFE"', word_xml)
+            self.assertNotIn('w:color="000000"', word_xml)
+
+            # 5. 使用率条改为表格化比例条（不再使用 █/░ 字符画）
+            self.assertNotIn("█", word_xml)
+            self.assertNotIn("░", word_xml)
+            self.assertEqual(USAGE_BAR_SEGMENTS, 20)
+
+            # 6. 单位标签统一为二进制：GiB 出现、十进制 GB 不再出现
+            self.assertIn("400.00 GiB", word_xml)
+            self.assertNotIn("400.00 GB", word_xml)
+            self.assertIn("单位：GiB", word_xml)
+            self.assertNotIn("单位：GB", word_xml)
+
+            # 7. 正文东亚字体为无衬线，与 Excel 统一
+            self.assertIn('w:eastAsia="Noto Sans CJK SC"', word_xml)
+
+            # 8. 封面空「客户名称」行不渲染
+            self.assertNotIn("客户名称", word_xml)
+
+        # 9. 风险状态色判定（显式等级映射）
+        self.assertEqual(_risk_word_color("高"), "DC3535")
+        self.assertEqual(_risk_word_color("中"), "E67E22")
+        self.assertEqual(_risk_word_color("需关注"), "E67E22")
+        self.assertEqual(_risk_word_color("正常"), "27AE60")
+        self.assertEqual(_risk_word_color("低"), "27AE60")
+        self.assertEqual(_risk_word_color(""), "333333")
 
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")

@@ -108,6 +108,7 @@ docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
 | 31 | 报表页容量增长速率算法优化 | 已完成 | 无专项设计文档；实施口径记录在本文件 |
 | 32~48 | 升级链路专项（fix9~fix18、UPG-031~033、Phase 45/46 镜像版本与基线验证） | 全部完成 | [docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md) 对应章节；执行记录见 [docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)；fix10 并入 Phase 32，无独立 Phase 33 |
 | 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md)；49-18/19 见 [docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md)；49-20 见 [docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md](docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md)；49-21 见 [docs/superpowers/specs/2026-09-19-forecast-band-design.md](docs/superpowers/specs/2026-09-19-forecast-band-design.md)；49-22 见 [docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md](docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md)；49-23 见 [docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md](docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md)；49-3 收尾见 [docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md](docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md)；49-36（已分配容量，已实施并部署 .3）见本文件 Phase 49 第 36 条与 [docs/superpowers/specs/2026-09-25-allocated-capacity-bar-design.md](docs/superpowers/specs/2026-09-25-allocated-capacity-bar-design.md)；49-37（手动采集清空快照修复 + 看板过期标注）见 [docs/superpowers/specs/2026-09-25-collection-snapshot-merge-and-stale-annotation-design.md](docs/superpowers/specs/2026-09-25-collection-snapshot-merge-and-stale-annotation-design.md)；49-39（报表容量增长率窗口口径 + 不足项「-/单位」与标题黄色「数据不足」）见 [docs/superpowers/specs/2026-09-26-reports-growth-window-requires-successful-collection-design.md](docs/superpowers/specs/2026-09-26-reports-growth-window-requires-successful-collection-design.md) ；49-49/49-50（runner 能力对齐方案 A/B，**已实施并验收；v0.3.2 交付动作（tag/镜像/资产）待用户决策**）见 [docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md](docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md)；49-52（US-05/US-23 发布阻塞项修复，**`.12` MVP 验收待授权**）见 [docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md](docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md)；49-53（文档一致性与发布口径修复）无专项设计文档，口径记录于本文件第 53 条；49-54（runner 交付一致性硬门禁，#47②/US-02）见 [docs/superpowers/specs/2026-09-27-runner-delivery-consistency-gate-design.md](docs/superpowers/specs/2026-09-27-runner-delivery-consistency-gate-design.md)；49-55（升级预检查磁盘空间硬校验，US-07/S1-1）见 [docs/superpowers/specs/2026-09-27-upgrade-disk-space-precheck-design.md](docs/superpowers/specs/2026-09-27-upgrade-disk-space-precheck-design.md)；49-56（升级任务产物自动清理，US-09/S1-2）见 [docs/superpowers/specs/2026-09-27-upgrade-artifact-housekeeping-design.md](docs/superpowers/specs/2026-09-27-upgrade-artifact-housekeeping-design.md)；49-57（执行期间 runner 在场判定，US-08/S1-3）见 [docs/superpowers/specs/2026-09-27-runner-presence-during-execution-design.md](docs/superpowers/specs/2026-09-27-runner-presence-during-execution-design.md)；剩余问题执行顺序见 [docs/superpowers/plans/2026-09-27-remaining-work-sequence.md](docs/superpowers/plans/2026-09-27-remaining-work-sequence.md) |
+| 79 | 报表导出可读性改造（Word 格式/配色 + 导出层口径统一） | 实施中 | [docs/superpowers/specs/2026-10-12-report-export-readability-design.md](docs/superpowers/specs/2026-10-12-report-export-readability-design.md)、[docs/superpowers/plans/2026-10-12-report-export-readability-plan.md](docs/superpowers/plans/2026-10-12-report-export-readability-plan.md) |
 
 升级后自动采集与 verification 历史查询的专项计划/设计：
 
@@ -2555,3 +2556,37 @@ Phase 69 只给 Word/Excel 的 VM 增长类表格加了两列；真实导出样�
   - **企业级装订打印页脚**：各 Sheet 统一设置左侧报告名称 `SmartX HCI 存储容量分析报告` 与右侧页码 `第 &P 页 / 共 &N 页`；
   - **容量趋势图尺寸调优**：折线图尺寸调整为 750×420，匹配 11 列宽表格视觉张力。
 - 验证：本地及 `10.20.11.3` 远端容器测试全绿（29 tests OK），真实接口导出脚本核验全部通过，桌面文件已重新覆盖。
+
+## Phase 79 - 报表导出可读性改造：Word 格式/配色治理 + 导出层口径统一
+
+来源：2026-10-12 用户审阅导出物提出「文档人读起来不太容易，特别是格式和颜色方面」，并指示
+「按照 AGENTS.md 来做」。问题清单基于对 `SmartX_存储容量分析报告_20261010.docx` 的逐段实测
+（字号/颜色/底色/列宽全量导出）与导出层代码走查，详见设计文档 §2。
+
+**基线标记**：`beforeworkbuddydf41f`（改造前快照，仅本地 tag，未推送）。
+
+**目标**：
+① 标题层级拉开——二级/三级标题当前同为 13pt 粗体深蓝，层级消失；
+② 说明/注记文字由 9pt `#999999`（对比度约 2.8:1，低于 WCAG AA 4.5:1）提升到可读的字号与对比度；
+③ Word 正文字体由衬线（Noto Serif）改无衬线并与 Excel 统一；
+④ 关键数字强调补颜色（当前仅加粗 +1pt、同色）；
+⑤ 表格边框由黑色网格改浅蓝细线，与 Excel 卡片风格统一；
+⑥ 使用率条由 8pt `█/░` 字符画改表格化比例条（跨字体稳定、不依赖方块字形）；
+⑦ Word 单位标签与 Excel 统一为二进制 `GiB/TiB`（现 `_bytes_label` 用十进制单位名却按 1024 换算，属错标）；
+⑧ `_risk_word_color` 改显式等级映射（现为子串匹配 + `or/and` 混用，脆弱）；
+⑨ 图表字体 `Noto Serif CJK JP`（日文变体）改 `SC`；新增/改动的字号与颜色抽为常量。
+
+**不做**：Excel Sheet 结构/布局改动（Phase 73~78 已定稿）；Word 章节结构改动；采集/接口/前端改动；历史导出物回填。
+
+**设计**：[docs/superpowers/specs/2026-10-12-report-export-readability-design.md](docs/superpowers/specs/2026-10-12-report-export-readability-design.md)
+**计划**：[docs/superpowers/plans/2026-10-12-report-export-readability-plan.md](docs/superpowers/plans/2026-10-12-report-export-readability-plan.md)
+
+**验收标准**：
+1. 本地与 `.3` 容器内 `tests.test_v2_report_exports` 全量通过（含新增/更新断言：标题字号、注记字号与颜色、表格边框色、使用率条结构、单位标签）；
+2. `.3` 真机导出并运行 `scripts/verify_remote_exported_reports.py` 全量断言通过；
+3. 桌面 Word 实测：二级标题 14pt / 三级 12pt、注记 10pt 且颜色对比度 ≥4.5:1、正文为无衬线、表格边框非黑、使用率条为表格化比例条、数值单位与 Excel 一致（GiB/TiB）；
+4. 前端/接口零改动，Excel 结构回归不变。
+
+**回滚**：纯展示层单提交，`git revert <commit>` 即可；无数据/接口/存储变更。
+
+**状态**：实施中（2026-10-12 立项）。

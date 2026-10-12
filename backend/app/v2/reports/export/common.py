@@ -21,9 +21,9 @@ XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.s
 VM_ALERT_FILL = "F4CCCC"
 VM_ALERT_RATIO = 0.2
 VM_ALERT_BYTES = 100 * 1024**3
-DOCX_FONT_ASCII = "Noto Serif"
-DOCX_FONT_EAST_ASIA = "Noto Serif CJK SC"
-CHART_FONT_FAMILY = "Noto Serif CJK JP"
+DOCX_FONT_ASCII = "Noto Sans"
+DOCX_FONT_EAST_ASIA = "Noto Sans CJK SC"
+CHART_FONT_FAMILY = "Noto Serif CJK SC"
 CHART_FONT_PATH = "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc"
 REPORT_PRODUCT_NAME = "存储容量预测平台"
 REPORT_COVER_TITLE = "SMARTX超融合存储容量分析报告"
@@ -44,6 +44,16 @@ TEXT_MUTED = "999999"
 GROWTH_BLUE = "007ACC"
 RATIO_ORANGE = "E67E22"
 RATIO_RED = "DC3535"
+# Phase 79 排版规范（Word 导出可读性）：字号与颜色 token
+NOTE_TEXT = "475569"        # 说明/注记文字色（白底对比度 ≈7.6:1；替代 #999999 的 2.85:1）
+TABLE_BORDER = "BFDBFE"     # 表格细线（替代黑色网格）
+EMPHASIS = ACCENT_DARK      # 关键数字强调色
+WORD_H1_SIZE = 18
+WORD_H2_SIZE = 14
+WORD_H3_SIZE = 12
+WORD_BODY_SIZE = 10.5
+WORD_NOTE_SIZE = 10
+WORD_MICRO_SIZE = 9
 EMPTY_MONTH_VM_TEXT = "当前样本跨度区间暂无 VM 增长数据"
 PERIODS = [("month", "较上月", 30), ("quarter", "较上季度", 90), ("year", "较上一年", 365)]
 
@@ -753,7 +763,7 @@ def _bytes_label(value: Any) -> str:
         numeric = float(value)
     except (TypeError, ValueError):
         return "-"
-    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"]
     index = 0
     while abs(numeric) >= 1024 and index < len(units) - 1:
         numeric /= 1024
