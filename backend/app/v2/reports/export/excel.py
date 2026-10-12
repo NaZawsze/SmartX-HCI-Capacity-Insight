@@ -364,14 +364,15 @@ def _write_xlsx_template_summary(
     for column, width in {"A": 26, "B": 24, "C": 24, "D": 24, "E": 26, "F": 16}.items():
         sheet.column_dimensions[column].width = width
     # 行高按内容设定（原先第 13/14/15 行仅 15pt，标题与正文被压扁）
+    # 行高需容纳 12pt 正文折行（合并区宽度按 12pt 中文重新估算，避免第二行被压住）
     heights = {
         1: 30, 2: 38, 3: 10,
-        4: 26, 5: 40, 6: 26, 7: 10,
+        4: 26, 5: 40, 6: 38, 7: 10,
         8: 30,
-        13: 28, 14: 26, 15: 24, 16: 32, 17: 32, 18: 28,
+        13: 28, 14: 26, 15: 24, 16: 36, 17: 38, 18: 28,
     }
     for offset in range(9, 13):
-        heights[offset] = 34
+        heights[offset] = 38
     for offset in range(19, 19 + len(growth_lines)):
         heights[offset] = 24
     heights[disclaimer_row] = 26
