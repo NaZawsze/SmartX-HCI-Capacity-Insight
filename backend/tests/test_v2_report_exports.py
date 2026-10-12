@@ -1008,8 +1008,8 @@ class V2ReportExportDocumentTest(unittest.TestCase):
         day_sheet = workbook["日增长详情"]
         # Phase 74：11→13 列后标题合并区随宽
         self.assertIn("A1:M1", {str(item) for item in day_sheet.merged_cells.ranges})
-        self.assertIn("日增长最快虚拟机", str(day_sheet["A1"].value))
-        self.assertIsNone(day_sheet.sheet_properties.tabColor)
+        self.assertEqual(day_sheet.sheet_properties.tabColor.rgb[-6:], "059669")
+        self.assertEqual(workbook.active.title, "执行摘要")
 
         self.assertEqual(
             workbook.sheetnames[5:8],

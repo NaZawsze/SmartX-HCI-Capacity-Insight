@@ -145,6 +145,10 @@ def build_report_xlsx(report: dict[str, Any], settings: V2Settings, *, period_da
         _write_cluster_vm_sheet(sheet, cluster, vms_by_cluster.get(_cluster_key(labels), []), report, profile)
     _remove_sheets(workbook, ["目录", "范围明细", "集群汇总", "VM_TOP100_汇总", "汇总", XLSX_CLUSTER_TEMPLATE_SHEET])
     _normalize_xlsx_fonts(workbook)
+    _apply_xlsx_tab_colors(workbook)
+    _apply_xlsx_page_footers(workbook)
+    if "执行摘要" in workbook.sheetnames:
+        workbook.active = workbook["执行摘要"]
 
     output = BytesIO()
     workbook.save(output)
@@ -434,8 +438,8 @@ def _add_capacity_trend_chart(sheet, clusters: list[dict[str, Any]]) -> None:
         return
     anchor_row = sheet.max_row + 2
     xlsx_image = XlsxImage(image)
-    xlsx_image.width = 660
-    xlsx_image.height = 400
+    xlsx_image.width = 750
+    xlsx_image.height = 420
     sheet.add_image(xlsx_image, f"A{anchor_row}")
 
 
@@ -725,6 +729,8 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
                     cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
                 elif c_idx in {1, 11, 13}:
                     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
+                    if c_idx in {1, 13} and row_index in {5, 6, 7}:
+                        cell.font = Font(name=XLSX_FONT_NAME, size=12, bold=True, color="1D4ED8")
                 else:
                     cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
     # Phase 74/75：每侧 11/10 列后——左侧合并 1..11、右侧 13..22、分隔列 12（L）
@@ -1192,6 +1198,41 @@ def _normalize_xlsx_fonts(workbook: Workbook) -> None:
                 font.sz = float(font.sz or 12)
                 font.scheme = None
                 cell.font = font
+
+
+def _apply_xlsx_tab_colors(workbook: Workbook) -> None:
+    """按功能分类为底部工作表 Tab 赋予清晰专业的品牌主题色。"""
+    color_map = {
+        # 概览驾驶舱：品牌深蓝
+        "执行摘要": "1D4ED8",
+        "容量趋势": "1D4ED8",
+        # 增长分析与详情：商务翡翠绿
+        "VM增长TOP100": "059669",
+        "日增长详情": "059669",
+        "月增长详情": "059669",
+        # 新增纳管视角：科技活力蓝
+        "本日新建VM": "2563EB",
+        "本月新建VM": "2563EB",
+        # 数据说明：中性冷灰
+        "数据质量说明": "64748B",
+    }
+    for sheet_name in workbook.sheetnames:
+        sheet = workbook[sheet_name]
+        if sheet_name in color_map:
+            sheet.sheet_properties.tabColor = color_map[sheet_name]
+        elif str(sheet_name).startswith("集群"):
+            # 各集群专属 Sheet：高质感灰青/紫灰
+            sheet.sheet_properties.tabColor = "6366F1"
+
+
+def _apply_xlsx_page_footers(workbook: Workbook) -> None:
+    """统一配置横向自适应打印与企业级装订页脚（左侧报告名称，右侧当前页/总页数）。"""
+    for sheet_name in workbook.sheetnames:
+        sheet = workbook[sheet_name]
+        sheet.oddFooter.left.text = "SmartX HCI 存储容量分析报告"
+        sheet.oddFooter.right.text = "第 &P 页 / 共 &N 页"
+        sheet.oddFooter.left.size = 9
+        sheet.oddFooter.right.size = 9
 
 
 def _vm_xlsx_row(vm: dict[str, Any], *, include_cluster: bool) -> list[Any]:

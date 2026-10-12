@@ -47,8 +47,14 @@ def main():
     # 验证 Excel 内容与布局
     wb = load_workbook(io.BytesIO(excel_bytes))
 
-    # 3.1 执行摘要
+    # 验证默认激活「执行摘要」与 Tab 色彩分组及页脚
+    assert wb.active.title == "执行摘要", f"工作簿默认激活预期 '执行摘要'，实际为 '{wb.active.title}'"
     summary = wb["执行摘要"]
+    assert summary.sheet_properties.tabColor.rgb[-6:] == "1D4ED8", "执行摘要 Tab 标签颜色预期深蓝 1D4ED8"
+    assert summary.oddFooter.right.text == "第 &P 页 / 共 &N 页", "缺失标准装订页脚！"
+    print(f" [Excel 工作簿规范] 默认激活: {wb.active.title}, 执行摘要TabColor: {summary.sheet_properties.tabColor.rgb}, 页脚: {summary.oddFooter.right.text}")
+
+    # 3.1 执行摘要
     assert summary["B4"].value == "已分配容量", f"执行摘要 B4 预期 '已分配容量'，实际 '{summary['B4'].value}'"
     print(f" [Excel 执行摘要] B4={summary['B4'].value}, B5={summary['B5'].value}, B6={summary['B6'].value}")
     assert summary["E4"].value == "风险状态", f"执行摘要 E4 预期 '风险状态'，实际 '{summary['E4'].value}'"
