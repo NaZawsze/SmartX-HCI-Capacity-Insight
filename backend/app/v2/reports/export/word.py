@@ -25,7 +25,8 @@ from .common import (
     DOCX_FONT_EAST_ASIA, EMPTY_MONTH_VM_TEXT, GROWTH_BLUE, RATIO_ORANGE, RATIO_RED, REPORT_COVER_SUBTITLE, REPORT_COVER_TITLE, REPORT_PRODUCT_NAME,
     EMPHASIS, NOTE_TEXT, TABLE_BORDER, TEXT_DARK, VM_ALERT_FILL, WORD_BODY_SIZE, WORD_H1_SIZE,
     USAGE_CRITICAL_RATIO, USAGE_WARNING_RATIO,
-    WORD_H2_SIZE, WORD_H3_SIZE, WORD_KPI_VALUE_SIZE, WORD_MICRO_SIZE, WORD_NOTE_SIZE, WORD_TABLE_SIZE,
+    WORD_H2_SIZE, WORD_H3_SIZE, WORD_KPI_VALUE_SIZE, WORD_LINE_SPACING, WORD_MICRO_SIZE, WORD_NOTE_SIZE,
+    WORD_TABLE_SIZE,
 )
 
 # Phase 79：使用率条改为表格化比例条（跨字体稳定，不依赖 █/░ 方块字形）
@@ -424,6 +425,7 @@ def _customer_add_growth_rate_method(document: Document, report: dict[str, Any])
         paragraph = document.add_paragraph()
         paragraph.paragraph_format.left_indent = Inches(0.24)
         paragraph.paragraph_format.space_after = Pt(5)
+        paragraph.paragraph_format.line_spacing = WORD_LINE_SPACING
         run = paragraph.add_run(line)
         _docx_apply_run_font(run)
         run.font.size = Pt(WORD_NOTE_SIZE)
@@ -913,6 +915,7 @@ def _customer_set_blue_headers(cells: Any, headers: list[str]) -> None:
 def _customer_table_note(document: Document, text: str) -> None:
     paragraph = document.add_paragraph(text)
     paragraph.paragraph_format.space_after = Pt(8)
+    paragraph.paragraph_format.line_spacing = WORD_LINE_SPACING
     for run in paragraph.runs:
         _docx_apply_run_font(run)
         run.font.size = Pt(WORD_NOTE_SIZE)
@@ -920,6 +923,7 @@ def _customer_table_note(document: Document, text: str) -> None:
 
 
 def _customer_add_emphasis_text(paragraph: Any, text: str, *, base_size: float = WORD_BODY_SIZE) -> None:
+    paragraph.paragraph_format.line_spacing = WORD_LINE_SPACING
     for segment, highlight in _customer_emphasis_segments(text):
         run = paragraph.add_run(_customer_emphasis_text(segment, highlight))
         _docx_apply_run_font(run)

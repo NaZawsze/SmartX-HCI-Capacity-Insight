@@ -77,12 +77,17 @@
 NOTE_TEXT = "475569"        # 注记文字色（替代 TEXT_MUTED 的 999999 用途）
 TABLE_BORDER = "BFDBFE"     # 表格细线
 EMPHASIS = ACCENT_DARK      # 关键数字强调色（1A3C6E）
-WORD_H1_SIZE = 18
-WORD_H2_SIZE = 14
-WORD_H3_SIZE = 12
-WORD_BODY_SIZE = 10.5
-WORD_NOTE_SIZE = 10
-WORD_MICRO_SIZE = 9
+USAGE_WARNING_RATIO = 0.70  # 占用率 ≥70% → 黄
+USAGE_CRITICAL_RATIO = 0.80 # 占用率 ≥80% → 红
+WORD_H1_SIZE = 22
+WORD_H2_SIZE = 17
+WORD_H3_SIZE = 14
+WORD_BODY_SIZE = 12
+WORD_NOTE_SIZE = 11
+WORD_MICRO_SIZE = 10
+WORD_KPI_VALUE_SIZE = 22
+WORD_TABLE_SIZE = 10.5
+WORD_LINE_SPACING = 1.3     # 正文行距（关键发现/注记/口径行/建议项；表格单元格保持单倍）
 ```
 
 `TEXT_MUTED`（`999999`）保留常量定义以免外部引用断裂，但 Word 侧**不再用于正文可读文本**（仅保留给极其次要的元素，若有）。

@@ -59,6 +59,7 @@ WORD_NOTE_SIZE = 11
 WORD_MICRO_SIZE = 10
 WORD_KPI_VALUE_SIZE = 22
 WORD_TABLE_SIZE = 10.5
+WORD_LINE_SPACING = 1.3  # 正文行距（中文长段落更透气；表格单元格不受影响）
 EMPTY_MONTH_VM_TEXT = "当前样本跨度区间暂无 VM 增长数据"
 PERIODS = [("month", "较上月", 30), ("quarter", "较上季度", 90), ("year", "较上一年", 365)]
 
