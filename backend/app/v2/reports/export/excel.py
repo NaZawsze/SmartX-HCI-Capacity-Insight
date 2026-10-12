@@ -403,13 +403,6 @@ def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: 
     _merge_title_row(sheet, 2, 1, len(headers))
     sheet.freeze_panes = "A4"
     sheet.auto_filter.ref = f"A3:{get_column_letter(len(headers))}{sheet.max_row}"
-    for row_index in range(4, sheet.max_row + 1):
-        cell_node = sheet.cell(row=row_index, column=2)
-        c_val = str(cell_node.value or "").strip()
-        if c_val and not c_val.startswith("当前范围"):
-            target_sheet_name = f"集群-{c_val}" if not c_val.startswith("集群") else c_val
-            cell_node.hyperlink = f"#'{target_sheet_name}'!A1"
-            cell_node.font = Font(name=XLSX_FONT_NAME, size=12, color="2563EB", underline="single")
     for column, width in {
         "A": 28,
         "B": 26,
@@ -1073,8 +1066,8 @@ def _apply_cluster_sheet_layout(sheet, *, end_row: int) -> None:
     for r in range(8, end_row + 1):
         sheet.row_dimensions[r].height = 22
 
-    _merge_title_row(sheet, 1, 1, 9)
-    _merge_title_row(sheet, 1, 11, 19)
+    _merge_title_row(sheet, 1, 1, 10)
+    _merge_title_row(sheet, 1, 11, 20)
     # 第 4 行：样本说明整行居左展示
     _merge_title_row(sheet, 4, 1, 10, align="left")
     _merge_title_row(sheet, 4, 11, 20, align="left")
@@ -1090,13 +1083,6 @@ def _apply_cluster_sheet_layout(sheet, *, end_row: int) -> None:
         c_node = sheet.cell(row=1, column=start_c)
         c_node.font = Font(name=XLSX_FONT_NAME, size=23, bold=True, color=ACCENT_DARK)
         c_node.alignment = Alignment(vertical="center", wrap_text=True)
-
-    for back_c in [10, 20]:
-        b_cell = sheet.cell(row=1, column=back_c)
-        b_cell.value = "返回执行摘要 ➔"
-        b_cell.hyperlink = "#'执行摘要'!A1"
-        b_cell.font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="2563EB", underline="single")
-        b_cell.alignment = Alignment(horizontal="center", vertical="center")
 
     for offset in [0, 10]:
         for col in range(1, 11):

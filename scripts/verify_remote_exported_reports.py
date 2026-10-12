@@ -67,11 +67,10 @@ def main():
     col_alloc_ratio = headers_trend.index("已分配率") + 1
     assert col_alloc == col_total + 1, "已分配容量应紧随总容量之后！"
     assert col_alloc_ratio == col_alloc + 1, "已分配率应紧随已分配容量之后！"
-    # 验证容量趋势集群名称包含跳转对应集群 Sheet 的超链接
+    # 验证容量趋势集群名称为纯文本（无多余跳转）
     trend_cluster_cell = trend.cell(row=4, column=2)
-    if trend_cluster_cell.value:
-        assert trend_cluster_cell.hyperlink and trend_cluster_cell.hyperlink.target.startswith("#'集群-"), f"容量趋势集群单元格 {trend_cluster_cell.value} 缺失集群跳转超链接！"
-        print(f" [Excel 容量趋势 超链接] 集群 {trend_cluster_cell.value} -> {trend_cluster_cell.hyperlink.target}")
+    assert not trend_cluster_cell.hyperlink, f"容量趋势集群单元格 {trend_cluster_cell.value} 不应包含跳转超链接！"
+    print(f" [Excel 容量趋势] 集群单元格 {trend_cluster_cell.value} 验证为纯净文本展示！")
 
     # 3.3 TOP100 Sheet
     top_sheet = wb["VM增长TOP100"]
@@ -150,10 +149,12 @@ def main():
         assert "P5:S5" in merged_ranges, f"集群 {c_name} 缺失 P5:S5 合并卡片！"
         print(f" [Excel 集群 {c_name}] 滑动提示卡片 F5:I5 与 P5:S5 验证通过！")
 
-        # 验证返回执行摘要超链接（J1 与 T1）
-        assert cs["J1"].hyperlink and cs["J1"].hyperlink.target == "#'执行摘要'!A1", f"集群 {c_name} J1 缺失返回执行摘要超链接！"
-        assert cs["T1"].hyperlink and cs["T1"].hyperlink.target == "#'执行摘要'!A1", f"集群 {c_name} T1 缺失返回执行摘要超链接！"
-        print(f" [Excel 集群 {c_name}] 返回执行摘要超链接 J1/T1 验证通过！")
+        # 验证整行标题合并（A1:J1 与 K1:T1）及无多余返回跳转
+        assert "A1:J1" in merged_ranges, f"集群 {c_name} 缺失 A1:J1 完整标题合并！"
+        assert "K1:T1" in merged_ranges, f"集群 {c_name} 缺失 K1:T1 完整标题合并！"
+        assert not cs["J1"].hyperlink, f"集群 {c_name} J1 不应包含返回超链接！"
+        assert not cs["T1"].hyperlink, f"集群 {c_name} T1 不应包含返回超链接！"
+        print(f" [Excel 集群 {c_name}] 第1行完整大标题合并 A1:J1 与 K1:T1 验证通过（已移除返回跳转）！")
 
     # 4. 覆盖桌面文件
     desktop_xlsx = "/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx"
