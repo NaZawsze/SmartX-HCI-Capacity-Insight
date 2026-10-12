@@ -6267,3 +6267,25 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
     - `VM增长TOP100` S2:V2: `⬅ 向左滑动返回增长量榜单`, sz=12, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center；
     - 集群专属 Sheet F5:I5: `向右滑动查看增长率榜单 ➡`, sz=12, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center，行高 28pt；
     - 集群专属 Sheet P5:S5: `⬅ 向左滑动返回增长量榜单`, sz=12, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center，行高 28pt。
+
+### 2026-10-12 Phase 78 箭头字形跨平台修复：终结豆腐块 Tofu，实心三角指示对（◀ 与 ▶）全真机闭环
+- **背景与问题定位**：
+  - 用户实机审阅指出：“你所有的左箭头都没了”，截图证实卡片渲染为缺失字形方框 `□ 向左滑动返回增长量榜单`；
+  - 根因分析：
+    - 此前使用的左箭头 `⬅`（U+2B05，Miscellaneous Symbols and Arrows）在 macOS/Windows 默认中文字体（PingFang SC、Microsoft YaHei、SimSun）以及 Noto Sans CJK 中无原生字形，Office 无法正确 fallback 导致渲染成 tofu `□`；而右箭头 `➡`（U+27A1，Dingbats）无同源左箭头，导致不对称且跨平台极其脆弱。
+- **重构方案**：
+  - 经用户实机对照验证（测试文件第 6 行），全面采用 Unicode 1.0 几何形状区块内 100% 具备字形的对称实心大三角指示对：
+    - 右侧滑动卡片：`向右滑动查看增长率榜单 ▶`（U+25B6，右指实心大三角）；
+    - 左侧反向卡片：`◀ 向左滑动返回增长量榜单`（U+25C0，左指实心大三角）；
+  - 字体统一升级为 **13pt 粗体深蓝**（`#1D4ED8`），在 28pt 行高与 78~80 列宽的浅蓝（`#EFF6FF`）胶囊底纹中居中呈现，端正对称，0 缺失风险；
+- **10.20.11.3 远端真机验证**：
+  - 容器内全量测试：在 `smartx-hci-capacity-insight-web-api-1` 容器内运行 `tests.test_v2_report_exports`：**Ran 29 tests in 95.995s, OK** 100% 绿灯全部通过；
+  - 真实接口端到端导出与校验：运行 `scripts/verify_remote_exported_reports.py http://10.20.11.3:8000`，全表断言 100% 通过；
+  - 桌面报表文件刷新覆盖：
+    - `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx`
+    - `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.docx`
+  - 桌面 Excel 结构核验：
+    - `VM增长TOP100` G2: `向右滑动查看增长率榜单 ▶`, sz=13, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center；
+    - `VM增长TOP100` S2: `◀ 向左滑动返回增长量榜单`, sz=13, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center；
+    - 集群专属 Sheet F5: `向右滑动查看增长率榜单 ▶`, sz=13, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center；
+    - 集群专属 Sheet P5: `◀ 向左滑动返回增长量榜单`, sz=13, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center。
