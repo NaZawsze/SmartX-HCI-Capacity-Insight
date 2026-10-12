@@ -6182,3 +6182,37 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
     - R4:T5 合并大卡片包含 `⬅ 向左滑动返回增长量榜单`；
     - Row 7 表头居中对齐，筛选下拉框零遮挡；
     - 向下滚动数据时左右两侧无遮挡且表头吸顶。
+
+## 2026-10-12 Phase 78 - 报表导出深度体验优化：跨 Sheet 超链接导航、新建 VM 时间规整、双向滑动闭环与 Word 概览卡片补全
+
+- **背景与目标**：
+  - 用户审阅 Phase 77 完成后的报表交互与视觉呈现，批准落地 4 项深度体验优化：
+    1. **跨 Sheet 超链接双向穿透与返回**：`容量趋势` 表中集群名称单元格添加超链接一键直达对应集群专属 Sheet（`#'集群-xxx'!A1`）；在每个集群专属 Sheet 的 Row 1 右侧（J1 与 T1）设置 `返回执行摘要 ➔` 超链接（`#'执行摘要'!A1`），实现秒级穿透与快速返回；
+    2. **TOP100 双向滑动引导闭环**：`VM增长TOP100` Sheet 右侧表格上方第 2 行（U2:V2）对称补充 `⬅ 向左滑动返回增长量榜单`，消除向右滑动后的视觉空白；
+    3. **新建 VM 时间格式化**：`本日新建VM` 与 `本月新建VM` 表中的「首次出现时间」由原始 ISO 字符串（如 `2026-10-08T04:51:47+00:00`）格式化为人性化本地时间（`YYYY-MM-DD HH:MM:SS`，转换为 Asia/Shanghai 东八区）；
+    4. **Word 报告概览卡片补齐已分配容量**：Word 报告顶部集群 4 格概览卡片第一格在总容量下补充 `已分配 {allocated} · {allocated_ratio}`，与 Excel 概览 10 项指标完全对齐。
+- **改动范围**：
+  - `backend/app/v2/reports/export/excel.py`：
+    - 新增 `_format_first_seen_time`：安全解析 ISO 字符串、转换为 Asia/Shanghai 本地时区并输出 `YYYY-MM-DD HH:MM:SS`；在 `_write_simple_vm_sheet` 中应用，新建 VM 时间格式清晰易读；
+    - `_write_xlsx_template_capacity_trend`：在写入集群名称单元格时添加 `#'{sheet_title}'!A1` 超链接与深蓝粗体样式，实现从容量趋势直达集群详情 Sheet；
+    - `_apply_vm_top100_layout`：在 U2:V2 单元格合并写入浅蓝底色深蓝文字 `⬅ 向左滑动返回增长量榜单`，达成双向滑动指引闭环；
+    - `_write_cluster_vm_sheet` 与 `_apply_cluster_sheet_layout`：在左右双轨的 Row 1 右上角（J1 与 T1）写入 `返回执行摘要 ➔` 并绑定 `#'执行摘要'!A1` 超链接，字体为 10pt 深蓝粗体加下划线，居中对齐，优雅不占数据列；
+  - `backend/app/v2/reports/export/word.py`：
+    - `_customer_kpi_table`：顶部第 1 格概览卡片在「总容量」下方追加「已分配 {allocated} · {allocated_ratio}」，全面对齐已分配容量口径；
+  - `backend/tests/test_v2_report_exports.py`：
+    - 增补对容量趋势集群跳转超链接（`#'集群-SMARTX-TT-WW'!A1`）、集群 Sheet J1/T1 返回超链接（`#'执行摘要'!A1`）及 TOP100 右侧 U2 反向滑动提示的断言；
+  - `scripts/verify_remote_exported_reports.py`：
+    - 增补对真实导出文件的端到端断言，验证容量趋势跳转、TOP100 反向提示、新建 VM 格式化时间、集群 J1/T1 返回链接及 Word 概览卡片已分配容量。
+- **10.20.11.3 远端真机验证**：
+  - 源码与容器同步：通过 expect/ssh 脚本将 `excel.py`, `word.py`, `test_v2_report_exports.py` 传输至宿主机并同步覆盖至 `smartx-hci-capacity-insight-web-api-1` 容器内 `/app`，重启 web-api 容器；
+  - 容器内全量测试：在容器内运行 `python3 -m unittest tests.test_v2_report_exports`：**Ran 29 tests in 94.060s, OK** 全部 29 项测试绿灯通过；
+  - 真实接口端到端导出与校验：运行 `scripts/verify_remote_exported_reports.py http://10.20.11.3:8000`：
+    - Word 导出成功（202285 字节），验证第一格卡片包含 `已分配 174.85 TB · 79.78%`，口径完整；
+    - Excel 导出成功（101781 字节）：
+      - 容量趋势集群单元格超链接 `SMARTX-TT-WW -> #'集群-SMARTX-TT-WW'!A1`；
+      - TOP100 右侧 U2 单元格包含 `⬅ 向左滑动返回增长量榜单`；
+      - 本日/本月新建 VM 首次出现时间规整展示为 `2026-10-12 18:40:45`，无 T/UTC 时区后缀；
+      - 两个集群专属 Sheet 的 J1 与 T1 均包含 `#'执行摘要'!A1` 返回超链接；
+  - 桌面文件刷新覆盖：
+    - `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx`
+    - `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.docx`

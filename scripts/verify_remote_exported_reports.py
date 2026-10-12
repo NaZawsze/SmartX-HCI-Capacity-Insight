@@ -67,6 +67,11 @@ def main():
     col_alloc_ratio = headers_trend.index("已分配率") + 1
     assert col_alloc == col_total + 1, "已分配容量应紧随总容量之后！"
     assert col_alloc_ratio == col_alloc + 1, "已分配率应紧随已分配容量之后！"
+    # 验证容量趋势集群名称包含跳转对应集群 Sheet 的超链接
+    trend_cluster_cell = trend.cell(row=4, column=2)
+    if trend_cluster_cell.value:
+        assert trend_cluster_cell.hyperlink and trend_cluster_cell.hyperlink.target.startswith("#'集群-"), f"容量趋势集群单元格 {trend_cluster_cell.value} 缺失集群跳转超链接！"
+        print(f" [Excel 容量趋势 超链接] 集群 {trend_cluster_cell.value} -> {trend_cluster_cell.hyperlink.target}")
 
     # 3.3 TOP100 Sheet
     top_sheet = wb["VM增长TOP100"]
@@ -79,7 +84,8 @@ def main():
     # 验证第 2 行的说明与向右滑动引导提示
     assert "周期初始容量" in str(top_sheet["A2"].value or ""), "TOP100 第2行缺失「周期初始容量说明」！"
     assert any("向右滑动" in str(top_sheet.cell(row=2, column=col).value or "") for col in range(1, 13)), "TOP100 第2行缺失「向右滑动」引导提示！"
-    print(f" [Excel VM增长TOP100 引导提示] A2={top_sheet['A2'].value[:25]}..., 右侧引导={top_sheet['J2'].value or top_sheet['K2'].value}")
+    assert "向左滑动返回增长量榜单" in str(top_sheet["U2"].value or ""), "TOP100 右侧第2行 U2 缺失向左滑动返回提示！"
+    print(f" [Excel VM增长TOP100 引导提示] A2={top_sheet['A2'].value[:25]}..., 右侧引导={top_sheet['J2'].value or top_sheet['K2'].value}, U2={top_sheet['U2'].value}")
     # 打印第一台 VM 的分配空间与使用率
     print(f" [Excel VM增长TOP100 第一台 VM] 名称: {top_sheet['B5'].value}, 分配空间: {top_sheet['E5'].value}, 当前容量: {top_sheet['F5'].value}, 使用率: {top_sheet['G5'].value}")
 
@@ -102,6 +108,10 @@ def main():
             assert "分配空间" in headers_new, f"{sheet_name} 缺失「分配空间」！"
             assert "当前容量" in headers_new, f"{sheet_name} 缺失「当前容量」！"
             assert "使用率" in headers_new, f"{sheet_name} 缺失「使用率」！"
+            time_val = sheet.cell(row=3, column=9).value
+            if time_val:
+                assert "T" not in str(time_val) and "+00:00" not in str(time_val), f"{sheet_name} 首次出现时间未正确格式化: {time_val}"
+                print(f" [Excel {sheet_name} 格式化时间] 首台 VM 首次出现时间: {time_val}")
 
     # 3.6 每集群 Sheet
     cluster_sheets = [s for s in wb.sheetnames if s not in ["封面", "执行摘要", "数据质量说明", "容量趋势", "VM增长TOP100", "日增长详情", "月增长详情", "本日新建VM", "本月新建VM"]]
@@ -136,6 +146,11 @@ def main():
         assert "H4:J5" in merged_ranges, f"集群 {c_name} 缺失 H4:J5 合并卡片！"
         assert "R4:T5" in merged_ranges, f"集群 {c_name} 缺失 R4:T5 合并卡片！"
         print(f" [Excel 集群 {c_name}] 滑动提示卡片 H4:J5 与 R4:T5 验证通过！")
+
+        # 验证返回执行摘要超链接（J1 与 T1）
+        assert cs["J1"].hyperlink and cs["J1"].hyperlink.target == "#'执行摘要'!A1", f"集群 {c_name} J1 缺失返回执行摘要超链接！"
+        assert cs["T1"].hyperlink and cs["T1"].hyperlink.target == "#'执行摘要'!A1", f"集群 {c_name} T1 缺失返回执行摘要超链接！"
+        print(f" [Excel 集群 {c_name}] 返回执行摘要超链接 J1/T1 验证通过！")
 
     # 4. 覆盖桌面文件
     desktop_xlsx = "/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx"

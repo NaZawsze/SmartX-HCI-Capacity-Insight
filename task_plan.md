@@ -2464,3 +2464,29 @@ Phase 69 只给 Word/Excel 的 VM 增长类表格加了两列；真实导出样�
 - [x] 覆盖用户桌面文件：
   - 已刷新写入 `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx`；
   - 已刷新写入 `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.docx`。
+
+## Phase 78 - 报表导出深度体验优化：跨 Sheet 超链接导航、新建 VM 时间规整、双向滑动闭环与 Word 概览卡片补全
+
+来源：2026-10-12 用户针对 Phase 77 完成后的报表深度体验，批准落地 4 项关键优化：
+1. **跨 Sheet 超链接导航**：`容量趋势` 表中集群名称单元格添加超链接一键直达对应集群专属 Sheet（`#'集群-xxx'!A1`）；在每个集群专属 Sheet 的 Row 1 右侧（J1 与 T1）设置 `返回执行摘要 ➔` 超链接（`#'执行摘要'!A1`），实现秒级一键双向穿透与返回；
+2. **TOP100 双向滑动引导闭环**：`VM增长TOP100` Sheet 右侧表格上方第 2 行（U2:V2）对称补充 `⬅ 向左滑动返回增长量榜单`，消除向右滑动后的视觉空白；
+3. **新建 VM 时间格式化**：`本日新建VM` 与 `本月新建VM` 表中的「首次出现时间」由原始 ISO 字符串（如 `2026-10-08T04:51:47+00:00`）格式化为人性化本地时间（`YYYY-MM-DD HH:MM:SS`，转换为 Asia/Shanghai 东八区）；
+4. **Word 报告概览卡片补齐已分配容量**：Word 报告顶部集群 4 格概览卡片第一格在总容量下补充 `已分配 {allocated} · {allocated_ratio}`，与 Excel 概览 10 项指标完全对齐。
+
+任务列表：
+- [x] 报表导出模块实现：
+  - `backend/app/v2/reports/export/excel.py`：
+    - `_format_first_seen_time`：增加安全时间解析与本地化格式化逻辑；`_write_simple_vm_sheet` 应用格式化时间；
+    - `_write_xlsx_template_capacity_trend`：集群名称单元格绑定 `#'{sheet_title}'!A1` 超链接；
+    - `_apply_vm_top100_layout`：U2:V2 合并并写入粗体浅蓝 `⬅ 向左滑动返回增长量榜单`；
+    - `_write_cluster_vm_sheet` 与 `_apply_cluster_sheet_layout`：在 J1 与 T1 设置 `返回执行摘要 ➔` 粗体深蓝超链接（`#'执行摘要'!A1`）；
+  - `backend/app/v2/reports/export/word.py`：`_customer_kpi_table` 第一格增加 `已分配 {allocated} · {allocated_ratio}`。
+- [x] 单元测试同步更新：
+  - `backend/tests/test_v2_report_exports.py`：增补容量趋势跳转超链接、集群 Sheet J1/T1 返回超链接以及 TOP100 右侧反向滑动提示的断言。
+  - `scripts/verify_remote_exported_reports.py`：增补端到端断言，验证容量趋势跳转、TOP100 反向提示、新建 VM 格式化时间、集群 J1/T1 返回链接及 Word 概览卡片已分配容量。
+- [x] `10.20.11.3` 远端容器内验证：
+  - 容器内全量测试：在 `smartx-hci-capacity-insight-web-api-1` 容器内运行 `tests.test_v2_report_exports`：**Ran 29 tests in 94.060s, OK** 100% 绿灯全过；
+  - 真实接口端到端导出：运行 `scripts/verify_remote_exported_reports.py http://10.20.11.3:8000`，Word 与 Excel 导出全量断言通过。
+- [x] 覆盖用户桌面文件：
+  - 已刷新写入 `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx`；
+  - 已刷新写入 `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.docx`。

@@ -226,6 +226,28 @@ def _set_xlsx_cell(sheet, coordinate: str, value: Any, *, size: float | None = N
         cell.alignment = Alignment(horizontal=align, vertical="center", wrap_text=True)
 
 
+def _format_first_seen_time(val: Any) -> str:
+    if not val:
+        return "-"
+    s = str(val).strip()
+    if not s or s == "-":
+        return "-"
+    try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        s_clean = s.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s_clean)
+        if dt.tzinfo is not None:
+            local_dt = dt.astimezone(ZoneInfo("Asia/Shanghai"))
+        else:
+            local_dt = dt
+        return local_dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        if "T" in s:
+            return s.replace("T", " ").split("+")[0].split(".")[0]
+        return s
+
+
 def _write_xlsx_template_cover(sheet, report: dict[str, Any], context: dict[str, Any], settings: V2Settings) -> None:
     clusters = report.get("clusters") or []
     _clear_xlsx_sheet(sheet)
@@ -381,6 +403,13 @@ def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: 
     _merge_title_row(sheet, 2, 1, len(headers))
     sheet.freeze_panes = "A4"
     sheet.auto_filter.ref = f"A3:{get_column_letter(len(headers))}{sheet.max_row}"
+    for row_index in range(4, sheet.max_row + 1):
+        cell_node = sheet.cell(row=row_index, column=2)
+        c_val = str(cell_node.value or "").strip()
+        if c_val and not c_val.startswith("当前范围"):
+            target_sheet_name = f"集群-{c_val}" if not c_val.startswith("集群") else c_val
+            cell_node.hyperlink = f"#'{target_sheet_name}'!A1"
+            cell_node.font = Font(name=XLSX_FONT_NAME, size=12, color="2563EB", underline="single")
     for column, width in {
         "A": 28,
         "B": 26,
@@ -707,6 +736,16 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
     hint_cell = sheet.cell(row=2, column=10)
     hint_cell.font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="2563EB")
     hint_cell.alignment = Alignment(horizontal="right", vertical="center")
+
+    # 右侧第 13..20 列放置「周期初始容量说明」，第 21..22 列放置「⬅ 向左滑动返回增长量榜单」
+    sheet.cell(row=2, column=13).value = "* 注：周期初始容量指统计周期起始时虚拟机的物理占用容量；若机器在周期内新建，则为建机首次采样容量。"
+    _merge_title_row(sheet, 2, 13, 20, align="left")
+    sheet.cell(row=2, column=13).font = Font(name=XLSX_FONT_NAME, size=10, color="64748B")
+    sheet.cell(row=2, column=21).value = "⬅ 向左滑动返回增长量榜单"
+    _merge_title_row(sheet, 2, 21, 22, align="right")
+    back_hint_cell = sheet.cell(row=2, column=21)
+    back_hint_cell.font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="2563EB")
+    back_hint_cell.alignment = Alignment(horizontal="right", vertical="center")
     if sheet.cell(row=3, column=1).value:
         _merge_title_row(sheet, 3, 1, 11)
     if sheet.cell(row=3, column=13).value:
@@ -840,7 +879,7 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
                 _percent_label(vm.get("growth_ratio")),
             ])
         else:
-            row.append(vm.get("first_seen_at") or "-")
+            row.append(_format_first_seen_time(vm.get("first_seen_at")))
         for column, value in enumerate(row, start=1):
             sheet.cell(row=row_index, column=column).value = value
     _style_customer_xlsx_table(sheet, title_rows={1}, header_rows={2})
@@ -898,9 +937,11 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
     right_sub_title = f"{profile.vm_growth_title} 增长率全部虚拟机（按增长率降序，统计窗口：{window_label}）"
     headers = ["VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率"]
 
-    # 第 1 行：集群全称大标题（左右对称各 10 列）
+    # 第 1 行：集群全称大标题（左 1..9，右 11..19）及返回执行摘要链接（J1 与 T1）
     sheet.cell(row=1, column=1).value = cluster_title
+    sheet.cell(row=1, column=10).value = "返回执行摘要 ➔"
     sheet.cell(row=1, column=11).value = cluster_title
+    sheet.cell(row=1, column=20).value = "返回执行摘要 ➔"
 
     # 第 2 行：集群概览指标表头（左右对称各 10 列）
     for idx, h_val in enumerate(cluster_overview_headers, start=1):
@@ -1000,8 +1041,8 @@ def _apply_cluster_sheet_layout(sheet, *, end_row: int) -> None:
     for r in range(8, end_row + 1):
         sheet.row_dimensions[r].height = 22
 
-    _merge_title_row(sheet, 1, 1, 10)
-    _merge_title_row(sheet, 1, 11, 20)
+    _merge_title_row(sheet, 1, 1, 9)
+    _merge_title_row(sheet, 1, 11, 19)
     _merge_title_row(sheet, 4, 1, 7, align="left")
     _merge_title_row(sheet, 4, 11, 17, align="left")
     _merge_title_row(sheet, 5, 1, 7, align="left")
@@ -1015,6 +1056,13 @@ def _apply_cluster_sheet_layout(sheet, *, end_row: int) -> None:
         c_node = sheet.cell(row=1, column=start_c)
         c_node.font = Font(name=XLSX_FONT_NAME, size=23, bold=True, color=ACCENT_DARK)
         c_node.alignment = Alignment(vertical="center", wrap_text=True)
+
+    for back_c in [10, 20]:
+        b_cell = sheet.cell(row=1, column=back_c)
+        b_cell.value = "返回执行摘要 ➔"
+        b_cell.hyperlink = "#'执行摘要'!A1"
+        b_cell.font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="2563EB", underline="single")
+        b_cell.alignment = Alignment(horizontal="center", vertical="center")
 
     for offset in [0, 10]:
         for col in range(1, 11):

@@ -538,10 +538,18 @@ def _customer_kpi_table(document: Document, context: dict[str, Any], clusters: l
     total_window = sum(_cluster_period_growth(cluster, _customer_window_days(context["report"])) for cluster in clusters)
     total_forecast_90 = sum(float((cluster.get("forecast") or {}).get("forecast_90d") or 0) for cluster in clusters)
     total_capacity = sum(float(cluster.get("total") or 0) for cluster in clusters)
+    total_allocated = sum(float(cluster.get("allocated") or 0) for cluster in clusters)
     risk_label = _overall_risk_status(clusters)[0]
     risk_note = "无容量风险集群" if risk_label == "正常" else "存在容量风险集群"
+
+    cap_lines = [f"总容量 {_bytes_label(total_capacity)}"]
+    if total_allocated > 0:
+        ratio_str = f" · {_percent_label(total_allocated / total_capacity)}" if total_capacity > 0 else ""
+        cap_lines.append(f"已分配 {_bytes_label(total_allocated)}{ratio_str}")
+    cap_lines.append(f"使用率 {_percent_label(total_current / total_capacity) if total_capacity > 0 else '-'}")
+
     values = [
-        ("当前已用容量", _bytes_label(total_current), f"总容量 {_bytes_label(total_capacity)}\n使用率 {_percent_label(total_current / total_capacity) if total_capacity > 0 else '-'}"),
+        ("当前已用容量", _bytes_label(total_current), "\n".join(cap_lines)),
         (profile.window_growth_label, _signed_bytes_label(total_window), _period_window_label(context["report"])),
         ("90 天预测容量", _bytes_label(total_forecast_90), f"使用率 {_percent_label(total_forecast_90 / total_capacity) if total_capacity > 0 else '-'}"),
         ("风险状态", risk_label, risk_note),

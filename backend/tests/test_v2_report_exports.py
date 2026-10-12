@@ -1385,6 +1385,13 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             cluster_merged = {str(m) for m in cluster_sheet.merged_cells.ranges}
             self.assertIn("H4:J5", cluster_merged)
             self.assertIn("R4:T5", cluster_merged)
+            self.assertEqual(wb["容量趋势"]["B4"].hyperlink.target, "#'集群-Cluster A'!A1")
+            self.assertEqual(cluster_sheet["J1"].value, "返回执行摘要 ➔")
+            self.assertEqual(cluster_sheet["J1"].hyperlink.target, "#'执行摘要'!A1")
+            self.assertEqual(cluster_sheet["T1"].value, "返回执行摘要 ➔")
+            self.assertEqual(cluster_sheet["T1"].hyperlink.target, "#'执行摘要'!A1")
+            self.assertEqual(wb["VM增长TOP100"]["U2"].value, "⬅ 向左滑动返回增长量榜单")
+
 
 
 
