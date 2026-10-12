@@ -34,5 +34,8 @@ AGENTS.md
 # Codex local workspace（skills/API 文档仅保留在本地）
 .codex/
 
+# WorkBuddy AI local workspace（skills/memory 仅保留在本地）
+.workbuddy-ai/
+
 # CLI 工具链产物（本地留存，不入库）
 cli/packages/
