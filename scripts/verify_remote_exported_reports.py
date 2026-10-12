@@ -83,11 +83,11 @@ def main():
     assert top_headers_right == ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率"], f"TOP100 右表头不匹配: {top_headers_right}"
     # 验证第 2 行的说明与向右滑动引导提示
     assert "周期初始容量" in str(top_sheet["A2"].value or ""), "TOP100 第2行缺失「周期初始容量说明」！"
-    assert top_sheet["J2"].value == "向右滑动查看增长率榜单 ➡", f"TOP100 第2行 J2 预期为 '向右滑动查看增长率榜单 ➡'，实际为 '{top_sheet['J2'].value}'"
-    assert top_sheet["J2"].fill.fgColor.rgb == "00EFF6FF", f"TOP100 第2行 J2 缺失浅蓝卡片底纹！实际为: {top_sheet['J2'].fill.fgColor.rgb}"
-    assert "向左滑动返回增长量榜单" in str(top_sheet["U2"].value or ""), "TOP100 右侧第2行 U2 缺失向左滑动返回提示！"
-    assert top_sheet["U2"].fill.fgColor.rgb == "00EFF6FF", f"TOP100 第2行 U2 缺失浅蓝卡片底纹！实际为: {top_sheet['U2'].fill.fgColor.rgb}"
-    print(f" [Excel VM增长TOP100 引导卡片] A2={top_sheet['A2'].value[:25]}..., J2={top_sheet['J2'].value} (底纹={top_sheet['J2'].fill.fgColor.rgb}), U2={top_sheet['U2'].value}")
+    assert top_sheet["G2"].value == "向右滑动查看增长率榜单 ➡", f"TOP100 第2行 G2 预期为 '向右滑动查看增长率榜单 ➡'，实际为 '{top_sheet['G2'].value}'"
+    assert top_sheet["G2"].fill.fgColor.rgb == "00EFF6FF", f"TOP100 第2行 G2 缺失浅蓝卡片底纹！实际为: {top_sheet['G2'].fill.fgColor.rgb}"
+    assert "向左滑动返回增长量榜单" in str(top_sheet["S2"].value or ""), "TOP100 右侧第2行 S2 缺失向左滑动返回提示！"
+    assert top_sheet["S2"].fill.fgColor.rgb == "00EFF6FF", f"TOP100 第2行 S2 缺失浅蓝卡片底纹！实际为: {top_sheet['S2'].fill.fgColor.rgb}"
+    print(f" [Excel VM增长TOP100 引导卡片] A2={top_sheet['A2'].value[:25]}..., G2={top_sheet['G2'].value} (底纹={top_sheet['G2'].fill.fgColor.rgb}), S2={top_sheet['S2'].value}")
     # 打印第一台 VM 的分配空间与使用率
     print(f" [Excel VM增长TOP100 第一台 VM] 名称: {top_sheet['B5'].value}, 分配空间: {top_sheet['E5'].value}, 当前容量: {top_sheet['F5'].value}, 使用率: {top_sheet['G5'].value}")
 
@@ -141,13 +141,13 @@ def main():
         print(f" [Excel 集群 {c_name}] 右侧头部第 2 行: {right_head2}")
         print(f" [Excel 集群 {c_name}] 右侧 VM 表头 9 列: {right_vm_headers}")
 
-        # 验证滑动提示大卡片（H4:J5 与 R4:T5）
-        assert cs["H4"].value == "向右滑动查看增长率榜单 ➡", f"集群 {c_name} H4 缺失向右滑动提示！"
-        assert cs["R4"].value == "⬅ 向左滑动返回增长量榜单", f"集群 {c_name} R4 缺失向左滑动提示！"
+        # 验证滑动提示大卡片（F5:I5 与 P5:S5）
+        assert cs["F5"].value == "向右滑动查看增长率榜单 ➡", f"集群 {c_name} F5 缺失向右滑动提示！"
+        assert cs["P5"].value == "⬅ 向左滑动返回增长量榜单", f"集群 {c_name} P5 缺失向左滑动提示！"
         merged_ranges = {str(m) for m in cs.merged_cells.ranges}
-        assert "H4:J5" in merged_ranges, f"集群 {c_name} 缺失 H4:J5 合并卡片！"
-        assert "R4:T5" in merged_ranges, f"集群 {c_name} 缺失 R4:T5 合并卡片！"
-        print(f" [Excel 集群 {c_name}] 滑动提示卡片 H4:J5 与 R4:T5 验证通过！")
+        assert "F5:I5" in merged_ranges, f"集群 {c_name} 缺失 F5:I5 合并卡片！"
+        assert "P5:S5" in merged_ranges, f"集群 {c_name} 缺失 P5:S5 合并卡片！"
+        print(f" [Excel 集群 {c_name}] 滑动提示卡片 F5:I5 与 P5:S5 验证通过！")
 
         # 验证返回执行摘要超链接（J1 与 T1）
         assert cs["J1"].hyperlink and cs["J1"].hyperlink.target == "#'执行摘要'!A1", f"集群 {c_name} J1 缺失返回执行摘要超链接！"

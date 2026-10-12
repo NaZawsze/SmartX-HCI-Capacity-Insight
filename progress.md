@@ -6243,3 +6243,27 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
     - `VM增长TOP100` Row 2 行高=28；
     - 集群专属 Sheet H4: `向右滑动查看增长率榜单 ➡`, sz=14, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center；
     - 集群专属 Sheet R4: `⬅ 向左滑动返回增长量榜单`, sz=14, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center。
+
+### 2026-10-12 Phase 78 黄金比例重构：解决“大小不适配表格、大的大小的小、显示不全”
+- **背景与问题定位**：
+  - 用户审阅后反馈：“这个大小完全不适配表格，而且大的大小的小，显示不全”；
+  - 根因分析：
+    1. TOP100 的提示原本仅合并在 J2:K2 两列，总列宽只有 24.0，14 个字符需要至少 32 宽，导致两端被严重裁切，左切“向”字右切箭头；
+    2. 集群专属 Sheet 原本合并 H4:J5 跨越两行高达 56pt，像笨重的大色块（“大的大”）；且从 H 列延伸到 J 列，在普通屏幕视口下 J 列被右侧窗口边界裁切，导致后半截“率榜单 ➡”被挤出屏幕（“显示不全”）。
+- **重构方案与落地**：
+  - **统一度量衡（单行 28pt 优雅胶囊卡片）**：
+    - `VM增长TOP100` Sheet：第 2 行行高 28pt，滑动提示扩展合并至 **G2:K2**（宽度暴增至 **78.0**），反向卡片合并至 **S2:V2**（宽 **68.0**），说明文字分别落在 A2:F2 与 M2:R2；
+    - 集群专属 Sheet：告别跨越两行的笨拙大色块，将滑动提示卡片移至 **Row 5** 单行（行高 **28pt**），合并 **F5:I5**（宽度达到 **80.0**），反向卡片合并 **P5:S5**（宽 **80.0**），Row 4 样本说明整行展开（A4:J4，行高 24pt）；
+  - **视口安全区布局（彻底根绝显示不全）**：两张表全部从 G 列 / F 列开始向内居中收敛，稳居屏幕中央偏右的核心黄金视线区，绝不碰触被切断的边缘列，空间余量达到 50% 以上，无论任何屏幕尺寸均 100% 完整显示；
+  - **黄金字号对齐（消除大小不均）**：两张表字号统一为 **12pt 粗体**（`#1D4ED8` 深蓝），在 28pt 行高与 78~80 列宽中居中陈列，留白优雅，比例完全对称统一。
+- **10.20.11.3 远端真机验证**：
+  - 容器内全量测试：在 `smartx-hci-capacity-insight-web-api-1` 容器内运行 `tests.test_v2_report_exports`：**Ran 29 tests in 96.533s, OK** 100% 绿灯全部通过；
+  - 真实接口端到端导出与校验：运行 `scripts/verify_remote_exported_reports.py http://10.20.11.3:8000`，全表断言 100% 通过；
+  - 桌面报表文件刷新覆盖：
+    - `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx`
+    - `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.docx`
+  - 桌面 Excel 结构核验：
+    - `VM增长TOP100` G2:K2: `向右滑动查看增长率榜单 ➡`, sz=12, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center，行高 28pt；
+    - `VM增长TOP100` S2:V2: `⬅ 向左滑动返回增长量榜单`, sz=12, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center；
+    - 集群专属 Sheet F5:I5: `向右滑动查看增长率榜单 ➡`, sz=12, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center，行高 28pt；
+    - 集群专属 Sheet P5:S5: `⬅ 向左滑动返回增长量榜单`, sz=12, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center，行高 28pt。

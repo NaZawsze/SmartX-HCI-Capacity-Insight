@@ -510,7 +510,17 @@ def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dic
     # Phase 74：每侧 +2 列（分配空间/使用率）——左侧 1..11，分隔列 12，右侧 13..22。
     RIGHT_START = 13
     sheet.append([f"三、{profile.vm_growth_title}全部虚拟机（{window_label}）", *([""] * 11), "四、虚拟机增长率全部虚拟机"])
-    sheet.append(["* 注：周期初始容量指统计周期起始时虚拟机的物理占用容量；若机器在周期内新建，则为建机首次采样容量。", *([""] * 8), "向右滑动查看增长率榜单 ➡", "", ""])
+    sheet.append([
+        "* 注：周期初始容量指统计周期起始时虚拟机的物理占用容量；若机器在周期内新建，则为建机首次采样容量。",
+        *([""] * 5),
+        "向右滑动查看增长率榜单 ➡",
+        *([""] * 4),
+        "",
+        "* 注：周期初始容量指统计周期起始时虚拟机的物理占用容量；若机器在周期内新建，则为建机首次采样容量。",
+        *([""] * 5),
+        "⬅ 向左滑动返回增长量榜单",
+        *([""] * 3),
+    ])
     sheet.append(["按增长量降序", *([""] * 11), "按增长率降序"])
     amount_headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率", "风险"]
     ratio_headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率"]
@@ -728,8 +738,8 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
     _merge_title_row(sheet, 1, 1, 11)
     if sheet.cell(row=1, column=13).value:
         _merge_title_row(sheet, 1, 13, 22)
-    # 第 2 行：左侧放置「周期初始容量说明」，右侧放置「向右滑动查看增长率榜单 ➡」
-    _merge_title_row(sheet, 2, 1, 9, align="left")
+    # 第 2 行：左侧放置「周期初始容量说明」（第 1..6 列 A~F，宽度 137.8），右侧放置「向右滑动查看增长率榜单 ➡」（第 7..11 列 G~K，宽度 78.0）
+    _merge_title_row(sheet, 2, 1, 6, align="left")
     sheet.cell(row=2, column=1).font = Font(name=XLSX_FONT_NAME, size=10, color="64748B")
 
     # 统一滑动提示卡片样式（与集群专属 Sheet 完全一致的底纹、边框与配色）
@@ -741,31 +751,31 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
         top=card_border_side,
         bottom=card_border_side,
     )
-    card_font = Font(name=XLSX_FONT_NAME, size=13, bold=True, color="1D4ED8")
+    card_font = Font(name=XLSX_FONT_NAME, size=12, bold=True, color="1D4ED8")
     card_align = Alignment(horizontal="center", vertical="center")
 
-    sheet.cell(row=2, column=10).value = "向右滑动查看增长率榜单 ➡"
-    _merge_title_row(sheet, 2, 10, 11, align="center")
-    for c_idx in (10, 11):
+    sheet.cell(row=2, column=7).value = "向右滑动查看增长率榜单 ➡"
+    _merge_title_row(sheet, 2, 7, 11, align="center")
+    for c_idx in range(7, 12):
         cell_item = sheet.cell(row=2, column=c_idx)
         cell_item.fill = card_fill
         cell_item.border = card_border
-    sheet.cell(row=2, column=10).font = card_font
-    sheet.cell(row=2, column=10).alignment = card_align
+    sheet.cell(row=2, column=7).font = card_font
+    sheet.cell(row=2, column=7).alignment = card_align
 
-    # 右侧第 13..20 列放置「周期初始容量说明」，第 21..22 列放置「⬅ 向左滑动返回增长量榜单」
+    # 右侧第 13..18 列（M~R，宽度 137.8）放置「周期初始容量说明」，第 19..22 列（S~V，宽度 68.0）放置「⬅ 向左滑动返回增长量榜单」
     sheet.cell(row=2, column=13).value = "* 注：周期初始容量指统计周期起始时虚拟机的物理占用容量；若机器在周期内新建，则为建机首次采样容量。"
-    _merge_title_row(sheet, 2, 13, 20, align="left")
+    _merge_title_row(sheet, 2, 13, 18, align="left")
     sheet.cell(row=2, column=13).font = Font(name=XLSX_FONT_NAME, size=10, color="64748B")
 
-    sheet.cell(row=2, column=21).value = "⬅ 向左滑动返回增长量榜单"
-    _merge_title_row(sheet, 2, 21, 22, align="center")
-    for c_idx in (21, 22):
+    sheet.cell(row=2, column=19).value = "⬅ 向左滑动返回增长量榜单"
+    _merge_title_row(sheet, 2, 19, 22, align="center")
+    for c_idx in range(19, 23):
         cell_item = sheet.cell(row=2, column=c_idx)
         cell_item.fill = card_fill
         cell_item.border = card_border
-    sheet.cell(row=2, column=21).font = card_font
-    sheet.cell(row=2, column=21).alignment = card_align
+    sheet.cell(row=2, column=19).font = card_font
+    sheet.cell(row=2, column=19).alignment = card_align
 
     sheet.row_dimensions[2].height = 28
     if sheet.cell(row=3, column=1).value:
@@ -975,17 +985,17 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
         sheet.cell(row=3, column=idx).value = d_val
         sheet.cell(row=3, column=idx + 10).value = d_val
 
-    # 第 4 行：样本说明（左右对称，左 1..7，右 11..17）
+    # 第 4 行：样本说明（左右对称，整行展示，左 1..10，右 11..20）
     sheet.cell(row=4, column=1).value = notice_text
     sheet.cell(row=4, column=11).value = notice_text
 
-    # 第 5 行：周期初始容量口径说明（左右对称，左 1..7，右 11..17）
+    # 第 5 行：周期初始容量口径说明（左 1..5，右 11..15）
     sheet.cell(row=5, column=1).value = note_text
     sheet.cell(row=5, column=11).value = note_text
 
-    # 滑动提示大卡片（对应已分配容量/使用率/预计耗尽天数下方，左 8..10 列，右 18..20 列）
-    sheet.cell(row=4, column=8).value = "向右滑动查看增长率榜单 ➡"
-    sheet.cell(row=4, column=18).value = "⬅ 向左滑动返回增长量榜单"
+    # 滑动提示卡片（第 5 行单行胶囊卡片，左 6..9 列 F~I 宽 80.0，右 16..19 列 P~S 宽 80.0）
+    sheet.cell(row=5, column=6).value = "向右滑动查看增长率榜单 ➡"
+    sheet.cell(row=5, column=16).value = "⬅ 向左滑动返回增长量榜单"
 
     # 第 6 行：榜单子标题
     sheet.cell(row=6, column=1).value = left_sub_title
@@ -1056,8 +1066,8 @@ def _apply_cluster_sheet_layout(sheet, *, end_row: int) -> None:
     sheet.row_dimensions[1].height = 32
     sheet.row_dimensions[2].height = 24
     sheet.row_dimensions[3].height = 24
-    sheet.row_dimensions[4].height = 32
-    sheet.row_dimensions[5].height = 24
+    sheet.row_dimensions[4].height = 24
+    sheet.row_dimensions[5].height = 28
     sheet.row_dimensions[6].height = 30
     sheet.row_dimensions[7].height = 24
     for r in range(8, end_row + 1):
@@ -1065,12 +1075,14 @@ def _apply_cluster_sheet_layout(sheet, *, end_row: int) -> None:
 
     _merge_title_row(sheet, 1, 1, 9)
     _merge_title_row(sheet, 1, 11, 19)
-    _merge_title_row(sheet, 4, 1, 7, align="left")
-    _merge_title_row(sheet, 4, 11, 17, align="left")
-    _merge_title_row(sheet, 5, 1, 7, align="left")
-    _merge_title_row(sheet, 5, 11, 17, align="left")
-    sheet.merge_cells(start_row=4, start_column=8, end_row=5, end_column=10)
-    sheet.merge_cells(start_row=4, start_column=18, end_row=5, end_column=20)
+    # 第 4 行：样本说明整行居左展示
+    _merge_title_row(sheet, 4, 1, 10, align="left")
+    _merge_title_row(sheet, 4, 11, 20, align="left")
+    # 第 5 行：左侧 1..5（A~E 宽 155.5）说明，右侧 6..9（F~I 宽 80.0）滑动卡片
+    _merge_title_row(sheet, 5, 1, 5, align="left")
+    _merge_title_row(sheet, 5, 11, 15, align="left")
+    _merge_title_row(sheet, 5, 6, 9, align="center")
+    _merge_title_row(sheet, 5, 16, 19, align="center")
     _merge_title_row(sheet, 6, 1, 9, align="left")
     _merge_title_row(sheet, 6, 11, 19, align="left")
 
@@ -1114,7 +1126,7 @@ def _apply_cluster_sheet_layout(sheet, *, end_row: int) -> None:
 
     for start_c in [1, 11]:
         c4 = sheet.cell(row=4, column=start_c)
-        c4.font = Font(name=XLSX_FONT_NAME, size=11, color="555555")
+        c4.font = Font(name=XLSX_FONT_NAME, size=10, color="64748B")
         c4.alignment = Alignment(vertical="center", wrap_text=True)
         c5 = sheet.cell(row=5, column=start_c)
         c5.font = Font(name=XLSX_FONT_NAME, size=10, color="64748B")
@@ -1128,19 +1140,18 @@ def _apply_cluster_sheet_layout(sheet, *, end_row: int) -> None:
         top=card_border_side,
         bottom=card_border_side,
     )
-    card_font = Font(name=XLSX_FONT_NAME, size=14, bold=True, color="1D4ED8")
+    card_font = Font(name=XLSX_FONT_NAME, size=12, bold=True, color="1D4ED8")
     card_align = Alignment(horizontal="center", vertical="center")
 
-    for start_col, hint_text in [(8, "向右滑动查看增长率榜单 ➡"), (18, "⬅ 向左滑动返回增长量榜单")]:
-        top_cell = sheet.cell(row=4, column=start_col)
+    for start_col, end_col, hint_text in [(6, 9, "向右滑动查看增长率榜单 ➡"), (16, 19, "⬅ 向左滑动返回增长量榜单")]:
+        top_cell = sheet.cell(row=5, column=start_col)
         top_cell.value = hint_text
         top_cell.font = card_font
         top_cell.alignment = card_align
-        for r_idx in (4, 5):
-            for c_idx in range(start_col, start_col + 3):
-                cell_item = sheet.cell(row=r_idx, column=c_idx)
-                cell_item.fill = card_fill
-                cell_item.border = card_border
+        for c_idx in range(start_col, end_col + 1):
+            cell_item = sheet.cell(row=5, column=c_idx)
+            cell_item.fill = card_fill
+            cell_item.border = card_border
 
     for start_c in [1, 11]:
         c6 = sheet.cell(row=6, column=start_c)
