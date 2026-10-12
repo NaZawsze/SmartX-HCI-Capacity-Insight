@@ -938,7 +938,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
         self.assertEqual(trend.freeze_panes, "A4")
         self.assertEqual(trend.column_dimensions["A"].width, 14)
         self.assertEqual(trend.column_dimensions["B"].width, 16)
-        self.assertEqual(trend.column_dimensions["C"].width, 18)
+        self.assertEqual(trend.column_dimensions["C"].width, 21)  # 含筛选按钮留位
         self.assertEqual(trend.row_dimensions[2].height, 42)
         self.assertEqual(trend.row_dimensions[4].height, 26)
 

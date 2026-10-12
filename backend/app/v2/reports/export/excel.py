@@ -47,6 +47,8 @@ XLSX_VM_CAPACITY_UNIT = "GiB"
 XLSX_VM_CAPACITY_DIVISOR = 1024 ** 3
 XLSX_CLUSTER_CAPACITY_UNIT = "TiB"
 XLSX_CLUSTER_CAPACITY_DIVISOR = 1024 ** 4
+# 自动筛选按钮固定在表头单元格右上角，会遮住约 2.5 个字符宽，列宽需为它留位
+XLSX_FILTER_BUTTON_WIDTH = 2.5
 XLSX_CAPACITY_FORMAT = "#,##0.00"
 XLSX_SIGNED_CAPACITY_FORMAT = "+#,##0.00;-#,##0.00;0.00"
 XLSX_PERCENT_FORMAT = "0.00%"
@@ -453,6 +455,7 @@ def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: 
         "K": 10,   # 风险状态
     }.items():
         sheet.column_dimensions[column].width = width
+    _apply_filter_button_clearance(sheet, 3, list(range(1, len(headers) + 1)))
     sheet.row_dimensions[1].height = 32
     sheet.row_dimensions[2].height = 42
     sheet.row_dimensions[3].height = 36  # 表头带单位后缀后折 2 行
@@ -724,6 +727,7 @@ def _write_xlsx_template_growth_detail(
         "M": 8,
     }.items():
         sheet.column_dimensions[column].width = width
+    _apply_filter_button_clearance(sheet, 3, list(range(1, len(headers) + 1)))
     _apply_shrink_to_fit(sheet, [2, 3, 4, 5, 6], 4, sheet.max_row)  # 名称/所有者/虚拟机组/Tower/集群
     sheet.row_dimensions[1].height = 30
     sheet.row_dimensions[2].height = 24
@@ -953,6 +957,19 @@ def _xlsx_days_cell(value: Any) -> Any:
     return "未触发" if numeric is None else numeric
 
 
+def _apply_filter_button_clearance(sheet, header_row: int, columns: list[int], *, font_size: float = 12.0) -> None:
+    """带自动筛选的列表头为筛选按钮留位，避免按钮压住表头文字（必要时才加宽）。"""
+    for column in columns:
+        header = sheet.cell(row=header_row, column=column).value
+        if header in (None, ""):
+            continue
+        needed = _xlsx_display_width(header) * font_size / 11.0 + XLSX_FILTER_BUTTON_WIDTH
+        letter = get_column_letter(column)
+        current = float(sheet.column_dimensions[letter].width or 0)
+        if needed > current:
+            sheet.column_dimensions[letter].width = round(needed, 1)
+
+
 def _apply_shrink_to_fit(sheet, columns: list[int], start_row: int, end_row: int) -> None:
     """长名称列启用「缩小字体填充」：既保持窄列（打印缩放更大），又不截断超长名称。"""
     if end_row < start_row:
@@ -1127,6 +1144,7 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
         widths["K"] = 11   # 增长率
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
+    _apply_filter_button_clearance(sheet, 2, list(range(1, len(headers) + 1)))
     _apply_shrink_to_fit(sheet, [1, 2, 3, 4, 5], 3, sheet.max_row)  # Tower/集群/VM/所有者/虚拟机组
     sheet.row_dimensions[1].height = 24
     sheet.row_dimensions[2].height = 36  # 表头带单位后缀后折 2 行
