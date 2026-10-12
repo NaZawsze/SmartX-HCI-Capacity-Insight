@@ -3,7 +3,8 @@
 - 关联设计：[docs/superpowers/specs/2026-10-12-report-export-readability-design.md](../../superpowers/specs/2026-10-12-report-export-readability-design.md)
 - 关联 Phase：Phase 79（task_plan.md）
 - 基线标记：`beforeworkbuddydf41f`
-- 状态：**实施中**
+- 状态：**已按用户要求全部还原（2026-10-12）** —— 步骤 1~5 曾实施并提交，用户评估后决定 Word 不做这些改动，
+  代码已 `git checkout beforeworkbuddydf41f --` 还原；步骤 6（`.3` 真机验证）与 7（收尾）随之取消。
 
 ## 1. 目标
 
