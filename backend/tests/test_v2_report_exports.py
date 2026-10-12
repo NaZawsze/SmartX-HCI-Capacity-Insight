@@ -325,6 +325,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("容量安全边际", word_xml)
             usage_section = word_xml.split("2.3  容量使用率可视化", 1)[1].split("三  集群虚拟机增长分析", 1)[0]
             # Phase 79：使用率条由 █/░ 字符画改为表格化比例条（1×20 无边框表格，按比例填色）
+            # 本用例最高使用率仅 12%（<70%）→ 保持默认色；阈值配色见 test_phase79_usage_bar_threshold_colors
             self.assertNotIn("█", usage_section)
             self.assertNotIn("░", usage_section)
             self.assertIn("w:tbl", usage_section)
@@ -1484,6 +1485,44 @@ class V2ReportExportDocumentTest(unittest.TestCase):
         self.assertEqual(_risk_word_color("正常"), "27AE60")
         self.assertEqual(_risk_word_color("低"), "27AE60")
         self.assertEqual(_risk_word_color(""), "333333")
+
+    def test_phase79_usage_bar_threshold_colors(self) -> None:
+        """Phase 79: 使用率条按占用率配色（≥80% 红、≥70% 黄、否则默认蓝）。"""
+        from app.v2.config import V2Settings
+        from app.v2.reports.export import build_report_docx
+
+        def render_usage_section(current_bytes: float, forecast_bytes: float) -> str:
+            clusters = [
+                {
+                    "labels": {"tower_id": "1", "tower": "Tower A", "cluster_id": "cluster-a", "cluster": "Cluster A"},
+                    "forecast": {"status": "ok", "slope_per_day": 1, "current": current_bytes, "forecast_90d": forecast_bytes},
+                    "points": [[1764547200, current_bytes]],
+                    "total": 1000 * 1024**3,
+                    "allocated": 400 * 1024**3,
+                }
+            ]
+            report = FakeReportService(clusters=clusters).latest_report(period_days=30)
+            with tempfile.TemporaryDirectory() as tmpdir:
+                settings = V2Settings(data_root=Path(tmpdir), secret_key="phase79-threshold-secret")
+                content, _, _, _ = build_report_docx(report, settings, period_days=30)
+                word_xml, _ = _docx_xml(content)
+            return word_xml.split("2.3  容量使用率可视化", 1)[1].split("三  集群虚拟机增长分析", 1)[0]
+
+        low = render_usage_section(300 * 1024**3, 320 * 1024**3)    # 30% / 32%
+        warn = render_usage_section(750 * 1024**3, 760 * 1024**3)   # 75% / 76%
+        crit = render_usage_section(850 * 1024**3, 860 * 1024**3)   # 85% / 86%
+
+        # 低占用：默认色（当前深蓝 1A3C6E / 预测亮蓝 007ACC）
+        self.assertIn('w:fill="1A3C6E"', low)
+        self.assertIn('w:fill="007ACC"', low)
+        # ≥70%：黄（两条均超阈值）
+        self.assertIn('w:fill="E67E22"', warn)
+        self.assertNotIn('w:fill="DC3535"', warn)
+        # ≥80%：红
+        self.assertIn('w:fill="DC3535"', crit)
+        # 空槽位始终浅灰
+        for section in (low, warn, crit):
+            self.assertIn('w:fill="E8EEF7"', section)
 
 
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies are not installed.")

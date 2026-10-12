@@ -24,6 +24,7 @@ from .common import (
     _vm_sample_window_label, _vms_by_cluster, ACCENT, ACCENT_DARK, ACCENT_LIGHT, ACCENT_SOFT, BORDER, DOCX_FONT_ASCII,
     DOCX_FONT_EAST_ASIA, EMPTY_MONTH_VM_TEXT, GROWTH_BLUE, RATIO_ORANGE, RATIO_RED, REPORT_COVER_SUBTITLE, REPORT_COVER_TITLE, REPORT_PRODUCT_NAME,
     EMPHASIS, NOTE_TEXT, TABLE_BORDER, TEXT_DARK, VM_ALERT_FILL, WORD_BODY_SIZE, WORD_H1_SIZE,
+    USAGE_CRITICAL_RATIO, USAGE_WARNING_RATIO,
     WORD_H2_SIZE, WORD_H3_SIZE, WORD_KPI_VALUE_SIZE, WORD_MICRO_SIZE, WORD_NOTE_SIZE, WORD_TABLE_SIZE,
 )
 
@@ -764,9 +765,18 @@ def _customer_usage_bars(document: Document, clusters: list[dict[str, Any]]) -> 
     future_ratio = (future if future is not None else current or 0) / total
     threshold = _float_or_none(cluster.get("warning")) or total
     _customer_table_note(document, f"展示对象：{_cluster_full_name(cluster)}。多集群范围下默认展示当前使用率最高的集群。")
-    _customer_usage_bar(document, "当前使用率", current_ratio, ACCENT_DARK, threshold)
-    _customer_usage_bar(document, "90 天预测使用率", future_ratio, GROWTH_BLUE, threshold)
+    _customer_usage_bar(document, "当前使用率", current_ratio, _usage_ratio_color(current_ratio, ACCENT_DARK), threshold)
+    _customer_usage_bar(document, "90 天预测使用率", future_ratio, _usage_ratio_color(future_ratio, GROWTH_BLUE), threshold)
     _customer_table_note(document, _customer_usage_summary(cluster, current_ratio, future_ratio))
+
+
+def _usage_ratio_color(ratio: float, default: str) -> str:
+    """占用率配色：≥80% 红、≥70% 黄、否则用默认色（Phase 79，与 VM「使用率」列同口径）。"""
+    if ratio >= USAGE_CRITICAL_RATIO:
+        return RATIO_RED
+    if ratio >= USAGE_WARNING_RATIO:
+        return RATIO_ORANGE
+    return default
 
 
 def _customer_usage_bar(document: Document, label: str, ratio: float, color: str, threshold: float) -> None:
@@ -880,9 +890,9 @@ def _customer_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode:
         if index % 2 == 0:
             _docx_shade_row(row, ACCENT_SOFT)
         _docx_set_cell_text_style(row[0], NOTE_TEXT, align=WD_ALIGN_PARAGRAPH.CENTER)
-        if used_ratio_num >= 0.85:
+        if used_ratio_num >= USAGE_CRITICAL_RATIO:
             _docx_set_cell_text_style(row[6], RATIO_RED, align=WD_ALIGN_PARAGRAPH.CENTER)
-        elif used_ratio_num >= 0.70:
+        elif used_ratio_num >= USAGE_WARNING_RATIO:
             _docx_set_cell_text_style(row[6], RATIO_ORANGE, align=WD_ALIGN_PARAGRAPH.CENTER)
         else:
             _docx_set_cell_text_style(row[6], TEXT_DARK, align=WD_ALIGN_PARAGRAPH.CENTER)

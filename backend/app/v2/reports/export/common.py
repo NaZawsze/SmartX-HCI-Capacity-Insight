@@ -44,6 +44,9 @@ TEXT_MUTED = "999999"
 GROWTH_BLUE = "007ACC"
 RATIO_ORANGE = "E67E22"
 RATIO_RED = "DC3535"
+# Phase 79：占用率配色阈值（使用率条与 VM「使用率」列统一口径）
+USAGE_WARNING_RATIO = 0.70   # 占用率 ≥70% → 黄
+USAGE_CRITICAL_RATIO = 0.80  # 占用率 ≥80% → 红
 # Phase 79 排版规范（Word 导出可读性）：字号与颜色 token
 NOTE_TEXT = "475569"        # 说明/注记文字色（白底对比度 ≈7.6:1；替代 #999999 的 2.85:1）
 TABLE_BORDER = "BFDBFE"     # 表格细线（替代黑色网格）
