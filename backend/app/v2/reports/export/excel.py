@@ -436,23 +436,24 @@ def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: 
     _merge_title_row(sheet, 2, 1, len(headers))
     sheet.freeze_panes = "A4"
     sheet.auto_filter.ref = f"A3:{get_column_letter(len(headers))}{sheet.max_row}"
+    # Phase 79：列宽收紧（表头已带单位，按表头宽度取值）
     for column, width in {
-        "A": 28,
-        "B": 26,
-        "C": 22,
-        "D": 25,
-        "E": 22,
-        "F": 20,
-        "G": 22,
-        "H": 18,
-        "I": 16,
-        "J": 20,
-        "K": 16,
+        "A": 14,   # Tower
+        "B": 16,   # 集群
+        "C": 18,   # 当前已用容量(TiB)
+        "D": 24,   # 近 N 天样本增长(TiB)
+        "E": 21,   # 90 天预测容量(TiB)
+        "F": 14,   # 总容量(TiB)
+        "G": 18,   # 已分配容量(TiB)
+        "H": 10,   # 已分配率
+        "I": 9,    # 使用率
+        "J": 13,   # 预计耗尽天数
+        "K": 10,   # 风险状态
     }.items():
         sheet.column_dimensions[column].width = width
     sheet.row_dimensions[1].height = 32
     sheet.row_dimensions[2].height = 42
-    sheet.row_dimensions[3].height = 30
+    sheet.row_dimensions[3].height = 36  # 表头带单位后缀后折 2 行
     for row_index in range(4, sheet.max_row + 1):
         sheet.row_dimensions[row_index].height = 26
 
@@ -632,14 +633,8 @@ def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dic
         for column, value in enumerate(_xlsx_vm_display_row(vm, row_index - 4, include_risk=False), start=RIGHT_START):
             sheet.cell(row=row_index, column=column).value = value
     _style_customer_xlsx_table(sheet, title_rows={1, 2, 3}, header_rows={4})
-    _apply_vm_top100_layout(
-        sheet,
-        left_header_row=4,
-        right_header_row=4,
-        name_width=_xlsx_name_column_width(
-            [(vm.get("labels") or {}).get("vm") for vm in vms], min_width=50
-        ),
-    )
+    _apply_vm_top100_layout(sheet, left_header_row=4, right_header_row=4)
+    _apply_shrink_to_fit(sheet, [2, 3, 4, 14, 15, 16], 5, sheet.max_row)  # 名称/所有者/虚拟机组
     _apply_number_formats(
         sheet,
         {5: XLSX_CAPACITY_FORMAT, 6: XLSX_CAPACITY_FORMAT, 7: XLSX_PERCENT_FORMAT,
@@ -703,29 +698,27 @@ def _write_xlsx_template_growth_detail(
     )
     sheet.freeze_panes = "A4"
     sheet.auto_filter.ref = f"A3:{get_column_letter(len(headers))}{sheet.max_row}"
+    # Phase 79：列宽收紧（长名称列靠 shrinkToFit 保证完整显示）
     for column, width in {
-        "A": 12,
-        "B": 50,
-        "C": 16,
-        "D": 20,
-        "E": 20,
-        "F": 22,
-        "G": 18,
-        "H": 18,
-        "I": 14,
-        "J": 18,
-        "K": 24,
-        "L": 16,
-        "M": 14,
+        "A": 7,
+        "B": 38,
+        "C": 13,
+        "D": 13,
+        "E": 12,
+        "F": 14,
+        "G": 14,
+        "H": 14,
+        "I": 10,
+        "J": 19,
+        "K": 13,
+        "L": 11,
+        "M": 8,
     }.items():
         sheet.column_dimensions[column].width = width
-    # B 列（虚拟机名称）按最长名称自适应，避免长名称被右侧单元格截断
-    sheet.column_dimensions["B"].width = _xlsx_name_column_width(
-        [(vm.get("labels") or {}).get("vm") for vm in vms], min_width=50
-    )
+    _apply_shrink_to_fit(sheet, [2, 3, 4, 5, 6], 4, sheet.max_row)  # 名称/所有者/虚拟机组/Tower/集群
     sheet.row_dimensions[1].height = 30
     sheet.row_dimensions[2].height = 24
-    sheet.row_dimensions[3].height = 24
+    sheet.row_dimensions[3].height = 36  # 表头带单位后缀后折 2 行
     for row_index in range(4, sheet.max_row + 1):
         sheet.row_dimensions[row_index].height = 22
     _setup_xlsx_print_layout(sheet)
@@ -809,29 +802,30 @@ def _apply_vm_top100_layout(
     right_header_row: int | None = None,
     name_width: float | None = None,
 ) -> None:
+    # Phase 79：列宽收紧（配合打印区域分段，打印缩放更大）；长名称列靠「缩小字体填充」保证完整显示
     widths = {
-        "A": 15.83203125,   # 排名
-        "B": 50,            # 虚拟机名称
-        "C": 16,            # 所有者（Phase 69）
-        "D": 20,            # 虚拟机组（Phase 69）
-        "E": 18,            # 分配空间（Phase 74）
-        "F": 18,            # 当前容量
-        "G": 14,            # 使用率（Phase 74）
-        "H": 18,            # 周期初始容量
-        "I": 22,            # 增长量
-        "J": 14,            # 增长率
-        "K": 10,            # 风险
-        "L": 10,            # 分隔列
-        "M": 15.83203125,
-        "N": 50,
-        "O": 16,
-        "P": 20,
-        "Q": 18,
-        "R": 18,
-        "S": 14,
-        "T": 18,
-        "U": 22,
-        "V": 14,
+        "A": 7,             # 排名
+        "B": 38,            # 虚拟机名称（shrinkToFit）
+        "C": 13,            # 所有者
+        "D": 13,            # 虚拟机组
+        "E": 14,            # 分配空间(GiB)
+        "F": 14,            # 当前容量(GiB)
+        "G": 10,            # 使用率
+        "H": 19,            # 周期初始容量(GiB)
+        "I": 13,            # 增长量(GiB)
+        "J": 11,            # 增长率
+        "K": 8,             # 风险
+        "L": 6,             # 分隔列
+        "M": 7,
+        "N": 38,
+        "O": 13,
+        "P": 13,
+        "Q": 14,
+        "R": 14,
+        "S": 10,
+        "T": 19,
+        "U": 13,
+        "V": 11,
     }
     if name_width is not None:
         widths["B"] = name_width
@@ -842,11 +836,11 @@ def _apply_vm_top100_layout(
         if row_index == 1:
             sheet.row_dimensions[row_index].height = 34
         elif row_index == 2:
-            sheet.row_dimensions[row_index].height = 24
+            sheet.row_dimensions[row_index].height = 36  # 注记较长（合并区变窄后折 2 行）
         elif row_index == 3:
             sheet.row_dimensions[row_index].height = 34
         elif row_index in {left_header_row, right_header_row}:
-            sheet.row_dimensions[row_index].height = 28
+            sheet.row_dimensions[row_index].height = 36  # 表头带单位后缀后折 2 行
             for c_idx in range(1, 23):
                 cell = sheet.cell(row=row_index, column=c_idx)
                 if c_idx == 12:
@@ -921,7 +915,7 @@ def _apply_vm_top100_layout(
     sheet.cell(row=2, column=19).font = card_font
     sheet.cell(row=2, column=19).alignment = card_align
 
-    sheet.row_dimensions[2].height = 28
+    sheet.row_dimensions[2].height = 36  # 注记较长（合并区变窄后折 2 行）
     if sheet.cell(row=3, column=1).value:
         _merge_title_row(sheet, 3, 1, 11)
     if sheet.cell(row=3, column=13).value:
@@ -931,7 +925,7 @@ def _apply_vm_top100_layout(
         separator = sheet.cell(row=1, column=12)
         separator.value = None
         separator.fill = PatternFill(fill_type=None)
-        sheet.column_dimensions["L"].width = 10
+        sheet.column_dimensions["L"].width = 6
 
 
 def _xlsx_capacity_cell(value: Any, divisor: float) -> Any:
@@ -948,6 +942,21 @@ def _xlsx_ratio_cell(value: Any) -> Any:
 def _xlsx_days_cell(value: Any) -> Any:
     numeric = _float_or_none(value)
     return "未触发" if numeric is None else numeric
+
+
+def _apply_shrink_to_fit(sheet, columns: list[int], start_row: int, end_row: int) -> None:
+    """长名称列启用「缩小字体填充」：既保持窄列（打印缩放更大），又不截断超长名称。"""
+    if end_row < start_row:
+        return
+    for column in columns:
+        for row_index in range(start_row, end_row + 1):
+            cell = sheet.cell(row=row_index, column=column)
+            if isinstance(cell, MergedCell):
+                continue
+            alignment = copy(cell.alignment)
+            alignment.shrinkToFit = True
+            alignment.wrapText = False
+            cell.alignment = alignment
 
 
 def _apply_number_formats(sheet, columns: dict[int, str], start_row: int, end_row: int) -> None:
@@ -1090,26 +1099,28 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
     _apply_number_formats(sheet, number_formats, 3, sheet.max_row)
     sheet.freeze_panes = "A3"
     sheet.auto_filter.ref = f"A2:{get_column_letter(len(headers))}{sheet.max_row}"
+    # Phase 79：列宽收紧
     widths = {
-        "A": 18,
-        "B": 20,
-        "C": 48,
-        "D": 16,
-        "E": 20,
-        "F": 18,
-        "G": 18,
-        "H": 14,
+        "A": 12,   # Tower
+        "B": 14,   # 集群
+        "C": 38,   # VM（shrinkToFit）
+        "D": 13,   # 所有者
+        "E": 13,   # 虚拟机组
+        "F": 14,   # 分配空间(GiB)
+        "G": 14,   # 当前容量(GiB)
+        "H": 10,   # 使用率
     }
     if not include_growth:
-        widths["I"] = 24
+        widths["I"] = 22   # 首次出现时间（yyyy-mm-dd hh:mm:ss 需 19 个半角宽）
     else:
-        widths["I"] = 18
-        widths["J"] = 22
-        widths["K"] = 14
+        widths["I"] = 19   # 周期初始容量(GiB)
+        widths["J"] = 13   # 增长量(GiB)
+        widths["K"] = 11   # 增长率
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
+    _apply_shrink_to_fit(sheet, [1, 2, 3, 4, 5], 3, sheet.max_row)  # Tower/集群/VM/所有者/虚拟机组
     sheet.row_dimensions[1].height = 24
-    sheet.row_dimensions[2].height = 20
+    sheet.row_dimensions[2].height = 36  # 表头带单位后缀后折 2 行
     for row_index in range(3, sheet.max_row + 1):
         sheet.row_dimensions[row_index].height = 20
     _setup_xlsx_print_layout(sheet)
@@ -1210,13 +1221,9 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
                     sheet.cell(row=r, column=c_idx + 10).value = val
         end_row = 7 + total_rows
 
-    _apply_cluster_sheet_layout(
-        sheet,
-        end_row=end_row,
-        name_width=_xlsx_name_column_width(
-            [(vm.get("labels") or {}).get("vm") for vm in vms], min_width=52
-        ),
-    )
+    _apply_cluster_sheet_layout(sheet, end_row=end_row)
+    _apply_shrink_to_fit(sheet, [1, 2, 3, 11, 12, 13], 8, end_row)  # 名称/所有者/虚拟机组
+    _apply_shrink_to_fit(sheet, list(range(1, 11)) + list(range(11, 21)), 3, 3)  # 概览行文字列
     _apply_number_formats(
         sheet,
         {3: XLSX_CAPACITY_FORMAT, 4: XLSX_SIGNED_CAPACITY_FORMAT, 6: XLSX_CAPACITY_FORMAT, 7: XLSX_CAPACITY_FORMAT,
@@ -1243,27 +1250,28 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
 
 
 def _apply_cluster_sheet_layout(sheet, *, end_row: int, name_width: float | None = None) -> None:
+    # Phase 79：列宽收紧（左 A..J / 右 K..T），长名称列靠 shrinkToFit 保证完整显示
     widths = {
-        "A": 52,
-        "B": 39.5,
-        "C": 24,
-        "D": 20,
-        "E": 20,
-        "F": 22,
-        "G": 20,
-        "H": 22,
-        "I": 16,
-        "J": 18,
-        "K": 52,
-        "L": 39.5,
-        "M": 24,
-        "N": 20,
-        "O": 20,
-        "P": 22,
-        "Q": 20,
-        "R": 22,
-        "S": 16,
-        "T": 18,
+        "A": 38,
+        "B": 13,
+        "C": 13,
+        "D": 14,
+        "E": 14,
+        "F": 10,
+        "G": 19,
+        "H": 13,
+        "I": 11,
+        "J": 11,   # 概览行「预计耗尽天数」
+        "K": 38,
+        "L": 13,
+        "M": 13,
+        "N": 14,
+        "O": 14,
+        "P": 10,
+        "Q": 19,
+        "R": 13,
+        "S": 11,
+        "T": 11,
     }
     if name_width is not None:
         widths["A"] = name_width
@@ -1277,12 +1285,12 @@ def _apply_cluster_sheet_layout(sheet, *, end_row: int, name_width: float | None
         sheet.views.sheetView[0].showGridLines = False
 
     sheet.row_dimensions[1].height = 36  # 23pt 集群大标题需更大行高
-    sheet.row_dimensions[2].height = 24
+    sheet.row_dimensions[2].height = 36  # 概览表头带单位后缀，折 2 行
     sheet.row_dimensions[3].height = 24
     sheet.row_dimensions[4].height = 24
-    sheet.row_dimensions[5].height = 28
+    sheet.row_dimensions[5].height = 36  # 口径说明合并区变窄后折 2 行
     sheet.row_dimensions[6].height = 30
-    sheet.row_dimensions[7].height = 24
+    sheet.row_dimensions[7].height = 36  # VM 表头带单位后缀，折 2 行
     for r in range(8, end_row + 1):
         sheet.row_dimensions[r].height = 22
 

@@ -797,11 +797,11 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             # Phase 74：右侧标题列随每侧 +2 列后移（11 → 13）
             self.assertIn("全部虚拟机", str(top_sheet["M1"].value))
             self.assertGreaterEqual(top_sheet.column_dimensions["B"].width, 36)
-            self.assertGreaterEqual(top_sheet.column_dimensions["C"].width, 14)
-            self.assertEqual(top_sheet.column_dimensions["E"].width, 18)
+            self.assertGreaterEqual(top_sheet.column_dimensions["C"].width, 13)
+            self.assertEqual(top_sheet.column_dimensions["E"].width, 14)
             self.assertIn(f"L1:L{top_sheet.max_row}", {str(item) for item in top_sheet.merged_cells.ranges})
             self.assertIsNone(top_sheet["L1"].fill.fill_type)
-            self.assertEqual(top_sheet.column_dimensions["H"].width, 18)
+            self.assertEqual(top_sheet.column_dimensions["H"].width, 19)
 
             cluster_sheet = workbook["集群-Cluster A"]
             cluster_values = [cell for row in cluster_sheet.iter_rows(values_only=True) for cell in row if cell is not None]
@@ -814,8 +814,8 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("增长量全部虚拟机", cluster_text)
             self.assertIn("增长率全部虚拟机", cluster_text)
             self.assertGreaterEqual(cluster_sheet.column_dimensions["A"].width, 36)
-            self.assertGreaterEqual(cluster_sheet.column_dimensions["B"].width, 16)
-            self.assertGreaterEqual(cluster_sheet.column_dimensions["D"].width, 16)
+            self.assertGreaterEqual(cluster_sheet.column_dimensions["B"].width, 13)
+            self.assertGreaterEqual(cluster_sheet.column_dimensions["D"].width, 13)
             self.assertEqual(
                 [cluster_sheet.cell(row=2, column=column).value for column in range(1, 11)],
                 ["Tower", "集群", "当前容量(TiB)", "近 14 天样本增长(TiB)", "风险", "90 天预测容量(TiB)", "总容量(TiB)",
@@ -929,16 +929,16 @@ class V2ReportExportDocumentTest(unittest.TestCase):
 
         day_new = workbook["本日新建VM"]
         month_new = workbook["本月新建VM"]
-        self.assertEqual(day_new.column_dimensions["I"].width, 24)
-        self.assertEqual(month_new.column_dimensions["I"].width, 24)
-        self.assertEqual(day_new.column_dimensions["E"].width, 20)
-        self.assertEqual(month_new.column_dimensions["E"].width, 20)
+        self.assertEqual(day_new.column_dimensions["I"].width, 22)
+        self.assertEqual(month_new.column_dimensions["I"].width, 22)
+        self.assertEqual(day_new.column_dimensions["E"].width, 13)
+        self.assertEqual(month_new.column_dimensions["E"].width, 13)
 
         trend = workbook["容量趋势"]
         self.assertEqual(trend.freeze_panes, "A4")
-        self.assertEqual(trend.column_dimensions["A"].width, 28)
-        self.assertEqual(trend.column_dimensions["B"].width, 26)
-        self.assertEqual(trend.column_dimensions["C"].width, 22)
+        self.assertEqual(trend.column_dimensions["A"].width, 14)
+        self.assertEqual(trend.column_dimensions["B"].width, 16)
+        self.assertEqual(trend.column_dimensions["C"].width, 18)
         self.assertEqual(trend.row_dimensions[2].height, 42)
         self.assertEqual(trend.row_dimensions[4].height, 26)
 
@@ -948,43 +948,43 @@ class V2ReportExportDocumentTest(unittest.TestCase):
         self.assertEqual(top.sheet_view.selection[0].activeCell, "A5")
         self.assertEqual(top.sheet_view.selection[0].sqref, "A5")
         # Phase 74：每侧 +2 列（分配空间/使用率）——左侧 1..11、分隔列 L、右侧 13..22
-        self.assertAlmostEqual(top.column_dimensions["A"].width, 15.83203125)
-        self.assertEqual(top.column_dimensions["B"].width, 50)
-        self.assertEqual(top.column_dimensions["L"].width, 10)
-        self.assertAlmostEqual(top.column_dimensions["M"].width, 15.83203125)
-        self.assertEqual(top.column_dimensions["N"].width, 50)
+        self.assertEqual(top.column_dimensions["A"].width, 7)
+        self.assertEqual(top.column_dimensions["B"].width, 38)
+        self.assertEqual(top.column_dimensions["L"].width, 6)
+        self.assertEqual(top.column_dimensions["M"].width, 7)
+        self.assertEqual(top.column_dimensions["N"].width, 38)
         self.assertEqual(top.row_dimensions[1].height, 34)
         self.assertEqual(top.row_dimensions[3].height, 34)
-        self.assertEqual(top.row_dimensions[4].height, 28)
+        self.assertEqual(top.row_dimensions[4].height, 36)
         self.assertIn(f"L1:L{top.max_row}", {str(item) for item in top.merged_cells.ranges})
         self.assertEqual(top["A4"].font.sz, 12)
         self.assertEqual(top["A5"].font.sz, 12)
 
         day_growth = workbook["日增长详情"]
-        self.assertEqual(day_growth.column_dimensions["A"].width, 12)
-        self.assertEqual(day_growth.column_dimensions["B"].width, 50)
+        self.assertEqual(day_growth.column_dimensions["A"].width, 7)
+        self.assertEqual(day_growth.column_dimensions["B"].width, 38)
         # Phase 69：C 为「所有者」，原 Tower 列后移到 E
-        self.assertEqual(day_growth.column_dimensions["C"].width, 16)
-        self.assertEqual(day_growth.column_dimensions["E"].width, 20)
+        self.assertEqual(day_growth.column_dimensions["C"].width, 13)
+        self.assertEqual(day_growth.column_dimensions["E"].width, 12)
         self.assertEqual(day_growth.row_dimensions[4].height, 22)
 
         day_new = workbook["本日新建VM"]
-        self.assertEqual(day_new.column_dimensions["A"].width, 18)
-        self.assertEqual(day_new.column_dimensions["B"].width, 20)
-        self.assertEqual(day_new.column_dimensions["C"].width, 48)
+        self.assertEqual(day_new.column_dimensions["A"].width, 12)
+        self.assertEqual(day_new.column_dimensions["B"].width, 14)
+        self.assertEqual(day_new.column_dimensions["C"].width, 38)
         self.assertEqual(day_new.row_dimensions[1].height, 24)
 
         cluster = workbook["集群-Cluster A"]
-        self.assertEqual(cluster.column_dimensions["A"].width, 52)
-        self.assertEqual(cluster.column_dimensions["B"].width, 39.5)
-        self.assertEqual(cluster.column_dimensions["C"].width, 24)
-        self.assertEqual(cluster.column_dimensions["D"].width, 20)
-        self.assertEqual(cluster.column_dimensions["E"].width, 20)
+        self.assertEqual(cluster.column_dimensions["A"].width, 38)
+        self.assertEqual(cluster.column_dimensions["B"].width, 13)
+        self.assertEqual(cluster.column_dimensions["C"].width, 13)
+        self.assertEqual(cluster.column_dimensions["D"].width, 14)
+        self.assertEqual(cluster.column_dimensions["E"].width, 14)
         self.assertEqual(cluster.row_dimensions[1].height, 36)
-        self.assertEqual(cluster.row_dimensions[2].height, 24)
+        self.assertEqual(cluster.row_dimensions[2].height, 36)
         self.assertEqual(cluster.row_dimensions[3].height, 24)
         self.assertEqual(cluster.row_dimensions[4].height, 24)
-        self.assertEqual(cluster.row_dimensions[5].height, 28)
+        self.assertEqual(cluster.row_dimensions[5].height, 36)
         self.assertEqual(cluster["A1"].font.sz, 23)
         self.assertEqual(cluster["A3"].font.sz, 12)
         self.assertEqual(cluster["A6"].font.sz, 14)
@@ -1575,8 +1575,8 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertLessEqual(quality.row_dimensions[4].height, 30)
 
 
-    def test_excel_long_text_widens_columns_to_avoid_truncation(self) -> None:
-        """Excel：超长虚拟机名称自动加宽名称列（短名称保持模板原宽度）。"""
+    def test_excel_long_vm_names_use_shrink_to_fit(self) -> None:
+        """Excel：名称列保持窄宽（利于打印缩放），超长名称靠「缩小字体填充」完整显示。"""
         from openpyxl import load_workbook
         from app.v2.config import V2Settings
         from app.v2.reports.export import build_report_xlsx
@@ -1613,20 +1613,19 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             content, _, _, _ = build_report_xlsx(report, settings, period_days=30)
             wb = load_workbook(io.BytesIO(content))
 
-            # 名称列加宽到能容纳 54 个半角字符（≥ 54×12/11）
-            self.assertGreaterEqual(wb["VM增长TOP100"].column_dimensions["B"].width, 60)
-            self.assertGreaterEqual(wb["月增长详情"].column_dimensions["B"].width, 60)
-            for name in [n for n in wb.sheetnames if n.startswith("集群")]:
-                self.assertGreaterEqual(wb[name].column_dimensions["A"].width, 60, name)
-            # 数据质量说明 A 列需容纳「Prometheus 当前集群 series 数」（29 个半角宽）
+            # 名称列保持窄宽（利于打印缩放），靠 shrinkToFit 完整显示超长名称
+            self.assertEqual(wb["VM增长TOP100"].column_dimensions["B"].width, 38)
+            self.assertEqual(wb["月增长详情"].column_dimensions["B"].width, 38)
+            cluster_sheets = [n for n in wb.sheetnames if n.startswith("集群")]
+            self.assertTrue(cluster_sheets)
+            for name in cluster_sheets:
+                self.assertEqual(wb[name].column_dimensions["A"].width, 38, name)
+            self.assertTrue(wb["VM增长TOP100"]["B5"].alignment.shrinkToFit)
+            self.assertTrue(wb["月增长详情"]["B4"].alignment.shrinkToFit)
+            for name in cluster_sheets:
+                self.assertTrue(wb[name]["A8"].alignment.shrinkToFit, name)
+            # 数据质量说明 A 列不是名称列，仍按最长指标名自适应
             self.assertGreaterEqual(wb["数据质量说明"].column_dimensions["A"].width, 31)
-
-        # 短名称场景：保持模板原宽度（不无谓加宽）
-        with tempfile.TemporaryDirectory() as tmpdir:
-            settings = V2Settings(data_root=Path(tmpdir), secret_key="excel-width-short-secret")
-            content, _, _, _ = build_report_xlsx(FakeReportService().latest_report(period_days=30), settings, period_days=30)
-            wb = load_workbook(io.BytesIO(content))
-            self.assertEqual(wb["VM增长TOP100"].column_dimensions["B"].width, 50)
 
 
     def test_excel_dual_track_sheets_use_two_print_areas(self) -> None:
