@@ -24,7 +24,7 @@ from .common import (
     _vm_sample_window_label, _vms_by_cluster, ACCENT, ACCENT_DARK, ACCENT_LIGHT, ACCENT_SOFT, BORDER, DOCX_FONT_ASCII,
     DOCX_FONT_EAST_ASIA, EMPTY_MONTH_VM_TEXT, GROWTH_BLUE, RATIO_ORANGE, RATIO_RED, REPORT_COVER_SUBTITLE, REPORT_COVER_TITLE, REPORT_PRODUCT_NAME,
     EMPHASIS, NOTE_TEXT, TABLE_BORDER, TEXT_DARK, VM_ALERT_FILL, WORD_BODY_SIZE, WORD_H1_SIZE,
-    WORD_H2_SIZE, WORD_H3_SIZE, WORD_MICRO_SIZE, WORD_NOTE_SIZE,
+    WORD_H2_SIZE, WORD_H3_SIZE, WORD_KPI_VALUE_SIZE, WORD_MICRO_SIZE, WORD_NOTE_SIZE, WORD_TABLE_SIZE,
 )
 
 # Phase 79：使用率条改为表格化比例条（跨字体稳定，不依赖 █/░ 方块字形）
@@ -166,12 +166,12 @@ def _customer_add_cover(document: Document, context: dict[str, Any], settings: V
         paragraph.paragraph_format.space_after = Pt(10)
         label_run = paragraph.add_run(f"{label}：")
         _docx_apply_run_font(label_run)
-        label_run.font.size = Pt(11)
+        label_run.font.size = Pt(WORD_BODY_SIZE)
         label_run.font.color.rgb = RGBColor.from_string(NOTE_TEXT)
         value_run = paragraph.add_run(value)
         _docx_apply_run_font(value_run)
         value_run.bold = True
-        value_run.font.size = Pt(11)
+        value_run.font.size = Pt(WORD_BODY_SIZE)
         value_run.font.color.rgb = RGBColor.from_string(TEXT_DARK)
     for _ in range(2):
         document.add_paragraph()
@@ -293,7 +293,7 @@ def _customer_add_executive_summary(document: Document, context: dict[str, Any],
     summary = _customer_summary_text(context, clusters)
     paragraph = document.add_paragraph()
     paragraph.paragraph_format.space_after = Pt(18)
-    _customer_add_emphasis_text(paragraph, summary, base_size=11)
+    _customer_add_emphasis_text(paragraph, summary, base_size=WORD_BODY_SIZE)
 
     _customer_kpi_strip(document, context, clusters)
     _customer_table_note(document, context["profile"].focus_note)
@@ -381,7 +381,7 @@ def _customer_add_risk_and_advice(document: Document, context: dict[str, Any], c
             body = document.add_paragraph()
             body.paragraph_format.left_indent = Inches(0.24)
             body.paragraph_format.space_after = Pt(5)
-            _customer_add_emphasis_text(body, item, base_size=10)
+            _customer_add_emphasis_text(body, item)
     _customer_table_note(document, "声明：本报告基于平台采集容量数据自动生成，预测结果基于历史增长趋势推算，预测值可能会有偏差，仅供参考，请以实际使用情况为准。")
 
 
@@ -398,8 +398,8 @@ def _customer_add_data_quality_summary(document: Document, report: dict[str, Any
     _customer_set_blue_headers(table.rows[0].cells, ["项目", "说明"])
     for index, (label, value) in enumerate(rows, start=1):
         row = table.add_row().cells
-        _docx_set_cell(row[0], label, fill=ACCENT_LIGHT, color=ACCENT_DARK, bold=True, font_size=9)
-        _docx_set_cell(row[1], value, color=TEXT_DARK, font_size=9)
+        _docx_set_cell(row[0], label, fill=ACCENT_LIGHT, color=ACCENT_DARK, bold=True, font_size=WORD_TABLE_SIZE)
+        _docx_set_cell(row[1], value, color=TEXT_DARK, font_size=WORD_TABLE_SIZE)
         if index % 2 == 0:
             _docx_shade_row(row, ACCENT_SOFT)
         _prevent_row_split(table.rows[-1])
@@ -425,7 +425,7 @@ def _customer_add_growth_rate_method(document: Document, report: dict[str, Any])
         paragraph.paragraph_format.space_after = Pt(5)
         run = paragraph.add_run(line)
         _docx_apply_run_font(run)
-        run.font.size = Pt(10)
+        run.font.size = Pt(WORD_NOTE_SIZE)
         run.font.color.rgb = RGBColor.from_string(TEXT_DARK)
 
 
@@ -439,7 +439,7 @@ def _customer_advice_title(document: Document, title: str) -> None:
     run = paragraph.add_run(f"· {title}")
     _docx_apply_run_font(run)
     run.bold = True
-    run.font.size = Pt(11)
+    run.font.size = Pt(WORD_BODY_SIZE)
     run.font.color.rgb = RGBColor.from_string(GROWTH_BLUE)
 
 
@@ -518,6 +518,21 @@ def _customer_subtitle(document: Document, text: str, *, level: int = 2) -> None
     run.bold = True
     run.font.size = Pt(WORD_H3_SIZE if level >= 3 else WORD_H2_SIZE)
     run.font.color.rgb = RGBColor.from_string(ACCENT_DARK)
+    if level < 3:
+        # Phase 79：二级标题补浅色下分隔线，强化章节层级（三级标题不加）
+        p_pr = paragraph._p.get_or_add_pPr()
+        border = p_pr.find(qn("w:pBdr"))
+        if border is None:
+            border = OxmlElement("w:pBdr")
+            p_pr.append(border)
+        bottom = border.find(qn("w:bottom"))
+        if bottom is None:
+            bottom = OxmlElement("w:bottom")
+            border.append(bottom)
+        bottom.set(qn("w:val"), "single")
+        bottom.set(qn("w:sz"), "6")
+        bottom.set(qn("w:space"), "4")
+        bottom.set(qn("w:color"), BORDER)
 
 
 def _customer_cover_meta(context: dict[str, Any], settings: V2Settings) -> list[tuple[str, str]]:
@@ -566,7 +581,7 @@ def _customer_kpi_strip(document: Document, context: dict[str, Any], clusters: l
         run = title.add_run(_cluster_full_name(cluster))
         _docx_apply_run_font(run)
         run.bold = True
-        run.font.size = Pt(11)
+        run.font.size = Pt(WORD_NOTE_SIZE + 1)
         run.font.color.rgb = RGBColor.from_string(TEXT_DARK)
         _customer_kpi_table(document, context, [cluster])
 
@@ -611,7 +626,7 @@ def _customer_kpi_table(document: Document, context: dict[str, Any], clusters: l
         value_run = paragraph.add_run(value)
         _docx_apply_run_font(value_run)
         value_run.bold = True
-        value_run.font.size = Pt(18)
+        value_run.font.size = Pt(WORD_KPI_VALUE_SIZE)
         value_run.font.color.rgb = RGBColor.from_string(_risk_word_color(risk_label) if label == "风险状态" else ACCENT_DARK)
         if note:
             note_run = paragraph.add_run("\n" + note)
@@ -654,8 +669,8 @@ def _customer_cluster_info_table(
     _docx_set_table_width(table, [3900, 4300])
     _docx_set_table_borders(table, TABLE_BORDER)
     for table_row, (label, value) in zip(table.rows, rows):
-        _docx_set_cell(table_row.cells[0], label, fill=ACCENT_LIGHT, color=ACCENT_DARK, bold=True, font_size=10)
-        _docx_set_cell(table_row.cells[1], value, color=_risk_word_color(str(value)) if label == "风险状态" else TEXT_DARK, bold=label == "风险状态", font_size=10)
+        _docx_set_cell(table_row.cells[0], label, fill=ACCENT_LIGHT, color=ACCENT_DARK, bold=True, font_size=WORD_NOTE_SIZE)
+        _docx_set_cell(table_row.cells[1], value, color=_risk_word_color(str(value)) if label == "风险状态" else TEXT_DARK, bold=label == "风险状态", font_size=WORD_NOTE_SIZE)
 
 
 def _cluster_allocated_ratio_label(cluster: dict[str, Any]) -> str:
@@ -762,7 +777,7 @@ def _customer_usage_bar(document: Document, label: str, ratio: float, color: str
     run = paragraph.add_run(f"{label}   {_percent_label(ratio)}")
     _docx_apply_run_font(run)
     run.bold = True
-    run.font.size = Pt(13)
+    run.font.size = Pt(WORD_BODY_SIZE + 2)
     run.font.color.rgb = RGBColor.from_string(TEXT_DARK)
 
     normalized = max(0.0, min(ratio, 1.0))
@@ -880,7 +895,7 @@ def _customer_vm_table(document: Document, vms: list[dict[str, Any]], sort_mode:
 
 def _customer_set_blue_headers(cells: Any, headers: list[str]) -> None:
     for cell, header in zip(cells, headers):
-        _docx_set_cell(cell, header, fill=ACCENT, color="FFFFFF", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, font_size=9)
+        _docx_set_cell(cell, header, fill=ACCENT, color="FFFFFF", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, font_size=WORD_TABLE_SIZE)
         for paragraph in cell.paragraphs:
             paragraph.paragraph_format.keep_with_next = True
 
@@ -894,7 +909,7 @@ def _customer_table_note(document: Document, text: str) -> None:
         run.font.color.rgb = RGBColor.from_string(NOTE_TEXT)
 
 
-def _customer_add_emphasis_text(paragraph: Any, text: str, *, base_size: float = 10.5) -> None:
+def _customer_add_emphasis_text(paragraph: Any, text: str, *, base_size: float = WORD_BODY_SIZE) -> None:
     for segment, highlight in _customer_emphasis_segments(text):
         run = paragraph.add_run(_customer_emphasis_text(segment, highlight))
         _docx_apply_run_font(run)
@@ -977,7 +992,7 @@ def _customer_add_figure(document: Document, image: BytesIO, caption: str, width
     run = paragraph.add_run(caption)
     _docx_apply_run_font(run)
     run.bold = True
-    run.font.size = Pt(10)
+    run.font.size = Pt(WORD_NOTE_SIZE)
     run.font.color.rgb = RGBColor.from_string(ACCENT_DARK)
     picture = document.add_paragraph()
     picture.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -1081,7 +1096,7 @@ def _docx_set_cell(
     color: str = TEXT_DARK,
     bold: bool = False,
     align: int | None = None,
-    font_size: int = 8,
+    font_size: float = WORD_TABLE_SIZE,
 ) -> None:
     cell.text = ""
     cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER

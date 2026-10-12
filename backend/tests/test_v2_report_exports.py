@@ -664,7 +664,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn('<w:t>Cluster A</w:t>', word_xml)
             self.assertNotIn('<w:t xml:space="preserve">  20.00 GiB  </w:t>', word_xml)
             self.assertIn('w:b/>', word_xml)
-            self.assertIn('w:sz w:val="23"', word_xml)
+            self.assertIn('w:sz w:val="26"', word_xml)
             self.assertIn("全集群汇总报告", word_xml)
             self.assertIn("容量风险评估矩阵", word_xml)
             self.assertNotIn("单 VM 容量异常", word_xml)
@@ -1440,15 +1440,15 @@ class V2ReportExportDocumentTest(unittest.TestCase):
 
             # 1. 标题层级：二级 14pt(=28)、三级 12pt(=24)，不再同为 13pt(=26)
             h2 = _docx_paragraph_containing(word_xml, "2.1  范围基本信息")
-            self.assertIn('w:sz w:val="28"', h2)
-            self.assertNotIn('w:sz w:val="26"', h2)
+            self.assertIn('w:sz w:val="34"', h2)
+            self.assertNotIn('w:sz w:val="28"', h2)
             h3 = _docx_paragraph_containing(word_xml, "（增长量 Top 20）")
-            self.assertIn('w:sz w:val="24"', h3)
-            self.assertNotIn('w:sz w:val="28"', h3)
+            self.assertIn('w:sz w:val="28"', h3)
+            self.assertNotIn('w:sz w:val="34"', h3)
 
             # 2. 注记文字：10pt(=20) + 深灰 475569（替代 999999）
             note = _docx_paragraph_containing(word_xml, "说明：近 14/30/90 天样本增长")
-            self.assertIn('w:sz w:val="20"', note)
+            self.assertIn('w:sz w:val="22"', note)
             self.assertIn('w:color w:val="475569"', note)
             self.assertNotIn('w:color w:val="999999"', word_xml)
 
