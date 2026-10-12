@@ -6289,3 +6289,21 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
     - `VM增长TOP100` S2: `◀ 向左滑动返回增长量榜单`, sz=13, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center；
     - 集群专属 Sheet F5: `向右滑动查看增长率榜单 ▶`, sz=13, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center；
     - 集群专属 Sheet P5: `◀ 向左滑动返回增长量榜单`, sz=13, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center。
+
+### 2026-10-12 Phase 78 口径注记排版打磨：字号放大至 12pt、升级 Slate-700 高对比度深灰
+- **背景与问题定位**：
+  - 用户审阅报表指出注记视觉问题：“这个*注小了点”，“字太小了不容易看清”；
+  - 根因分析：原本设置字号为 10pt，颜色为淡灰色 `#64748B`，在 100% 缩放下纤细轻淡、对比度较低，视觉可读性欠佳。
+- **重构方案**：
+  - 将 `VM增长TOP100`（A2 与 M2）、各集群专属 Sheet（Row 4 样本说明与 Row 5 周期初始容量注记）、`日增长详情` 与 `月增长详情`（A2）的说明文字字号由原先的 **10pt 放大至 12pt**；
+  - 颜色由原浅淡灰色 `#64748B` 调整为高可读性深炭灰 **`#334155`**（Slate-700），对比度显著增强，行高 28pt / 24pt 下垂直居中，字迹清晰锐利且不产生折行。
+- **10.20.11.3 远端真机验证**：
+  - 容器内全量测试绿灯通过；
+  - 真实接口端到端导出与校验通过；
+  - 桌面报表文件已刷新覆盖：
+    - `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx`
+    - `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.docx`
+  - 桌面 Excel 结构核验：
+    - `VM增长TOP100` A2/M2: sz=12, color=#334155；
+    - `日增长详情` / `月增长详情` A2: sz=12, color=#334155；
+    - 集群专属 Sheet A4/A5: sz=12, color=#334155。

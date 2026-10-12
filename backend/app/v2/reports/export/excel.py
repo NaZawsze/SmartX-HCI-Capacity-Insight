@@ -571,7 +571,7 @@ def _write_xlsx_template_growth_detail(
     _merge_title_row(sheet, 1, 1, 13)
     _merge_title_row(sheet, 2, 1, 13, align="left")
     sheet["A1"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    sheet["A2"].font = Font(name=XLSX_FONT_NAME, size=10, color="64748B")
+    sheet["A2"].font = Font(name=XLSX_FONT_NAME, size=12, color="334155")
     sheet["A2"].alignment = Alignment(horizontal="left", vertical="center")
     sheet.freeze_panes = "A4"
     sheet.auto_filter.ref = f"A3:{get_column_letter(len(headers))}{sheet.max_row}"
@@ -740,7 +740,7 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
         _merge_title_row(sheet, 1, 13, 22)
     # 第 2 行：左侧放置「周期初始容量说明」（第 1..6 列 A~F，宽度 137.8），右侧放置「向右滑动查看增长率榜单 ➡」（第 7..11 列 G~K，宽度 78.0）
     _merge_title_row(sheet, 2, 1, 6, align="left")
-    sheet.cell(row=2, column=1).font = Font(name=XLSX_FONT_NAME, size=10, color="64748B")
+    sheet.cell(row=2, column=1).font = Font(name=XLSX_FONT_NAME, size=12, color="334155")
 
     # 统一滑动提示卡片样式（与集群专属 Sheet 完全一致的底纹、边框与配色）
     card_fill = PatternFill(fill_type="solid", fgColor="EFF6FF")
@@ -766,7 +766,7 @@ def _apply_vm_top100_layout(sheet, *, left_header_row: int, right_header_row: in
     # 右侧第 13..18 列（M~R，宽度 137.8）放置「周期初始容量说明」，第 19..22 列（S~V，宽度 68.0）放置「◀ 向左滑动返回增长量榜单」
     sheet.cell(row=2, column=13).value = "* 注：周期初始容量指统计周期起始时虚拟机的物理占用容量；若机器在周期内新建，则为建机首次采样容量。"
     _merge_title_row(sheet, 2, 13, 18, align="left")
-    sheet.cell(row=2, column=13).font = Font(name=XLSX_FONT_NAME, size=10, color="64748B")
+    sheet.cell(row=2, column=13).font = Font(name=XLSX_FONT_NAME, size=12, color="334155")
 
     sheet.cell(row=2, column=19).value = "◀ 向左滑动返回增长量榜单"
     _merge_title_row(sheet, 2, 19, 22, align="center")
@@ -1126,10 +1126,10 @@ def _apply_cluster_sheet_layout(sheet, *, end_row: int) -> None:
 
     for start_c in [1, 11]:
         c4 = sheet.cell(row=4, column=start_c)
-        c4.font = Font(name=XLSX_FONT_NAME, size=10, color="64748B")
+        c4.font = Font(name=XLSX_FONT_NAME, size=12, color="334155")
         c4.alignment = Alignment(vertical="center", wrap_text=True)
         c5 = sheet.cell(row=5, column=start_c)
-        c5.font = Font(name=XLSX_FONT_NAME, size=10, color="64748B")
+        c5.font = Font(name=XLSX_FONT_NAME, size=12, color="334155")
         c5.alignment = Alignment(vertical="center", wrap_text=True)
 
     card_fill = PatternFill(fill_type="solid", fgColor="EFF6FF")
