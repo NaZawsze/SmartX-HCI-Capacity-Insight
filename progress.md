@@ -6216,3 +6216,30 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
   - 桌面文件刷新覆盖：
     - `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx`
     - `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.docx`
+
+### 2026-10-12 Phase 78 增量打磨：滑动提示卡片全表风格统一、粗实心大箭头升级与字号放大
+- **背景与反馈**：
+  - 用户审阅导出的 Excel 报表后指出：“风格不统一，一个有底纹一个没有，然后还需要你字体放大一点，箭头也大一点，更醒目一点”；
+  - 对比截图发现：`VM增长TOP100` Sheet 第 2 行的向右/向左滑动提示为无底纹纯白背景，而集群专属 Sheet 的滑动卡片具有淡蓝底纹（`#EFF6FF`）和浅蓝边框（`#BFDBFE`）；同时单线箭头 `➔`（U+2794）在很多字体下纤细矮小，不够抓眼。
+- **改动范围**：
+  - `backend/app/v2/reports/export/excel.py`：
+    - **全表卡片风格统一**：在 `_apply_vm_top100_layout` 中为 J2:K2（向右滑动）与 U2:V2（向左返回）赋予与集群专属 Sheet 完全一致的浅蓝底纹 `PatternFill(fill_type="solid", fgColor="EFF6FF")`、细边框 `Side(border_style="thin", color="BFDBFE")`、深蓝文字 `#1D4ED8` 粗体与水平垂直居中对齐；
+    - **单行行高优化**：设置 `sheet.row_dimensions[2].height = 28`，让 TOP100 的卡片具有充裕的上下呼吸间距，视觉效果呈现高质感的胶囊卡片；
+    - **大号粗实心箭头升级**：全表滑动提示将细箭头 `➔`（U+2794）统一升级为大号粗实心黑箭头 `➡`（U+27A1），与反向提示 `⬅`（U+2B05）构成完美的左右对称大实心粗箭头对；
+    - **字号全面放大**：`VM增长TOP100` 滑动卡片字号由 11pt 放大至 13pt；集群专属 Sheet 大卡片字号由 13pt 放大至 14pt；
+  - `backend/tests/test_v2_report_exports.py`：
+    - 断言 cluster_sheet["H4"] 包含 `➡`，断言 top_sheet["J2"] 和 top_sheet["U2"] 包含 `00EFF6FF` 浅蓝底纹；
+  - `scripts/verify_remote_exported_reports.py`：
+    - 端到端脚本新增断言 TOP100 J2 和 U2 的底纹为 `00EFF6FF`，集群 H4 为 `向右滑动查看增长率榜单 ➡`。
+- **10.20.11.3 远端真机验证**：
+  - 容器内全量测试：在 `smartx-hci-capacity-insight-web-api-1` 容器内运行 `tests.test_v2_report_exports`：**Ran 29 tests in 94.481s, OK** 100% 绿灯全部通过；
+  - 真实接口端到端导出与校验：运行 `scripts/verify_remote_exported_reports.py http://10.20.11.3:8000`，全表断言 100% 通过；
+  - 桌面报表文件刷新覆盖：
+    - `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx`
+    - `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.docx`
+  - 桌面 Excel 结构核验：
+    - `VM增长TOP100` J2: `向右滑动查看增长率榜单 ➡`, sz=13, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center；
+    - `VM增长TOP100` U2: `⬅ 向左滑动返回增长量榜单`, sz=13, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center；
+    - `VM增长TOP100` Row 2 行高=28；
+    - 集群专属 Sheet H4: `向右滑动查看增长率榜单 ➡`, sz=14, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center；
+    - 集群专属 Sheet R4: `⬅ 向左滑动返回增长量榜单`, sz=14, bold=True, color=#1D4ED8, fill=#EFF6FF, align=center。
