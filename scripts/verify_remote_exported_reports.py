@@ -118,9 +118,16 @@ def main():
                 vm_headers = [cs.cell(row=r, column=col).value for col in range(1, 10)]
                 break
         if vm_headers:
-            print(f" [Excel 集群 {c_name}] VM 表头 9 列: {vm_headers}")
+            print(f" [Excel 集群 {c_name}] 左侧 VM 表头 9 列: {vm_headers}")
             assert "分配空间" in vm_headers, f"集群 {c_name} VM 表头缺失「分配空间」！"
             assert "使用率" in vm_headers, f"集群 {c_name} VM 表头缺失「使用率」！"
+        # 验证右侧对称集群信息与右侧 VM 表头
+        right_head2 = [cs.cell(row=2, column=col).value for col in range(11, 21)]
+        assert "已分配容量" in right_head2, f"集群 {c_name} 右侧头部缺失「已分配容量」！"
+        right_vm_headers = [cs.cell(row=7, column=col).value for col in range(11, 20)]
+        assert "分配空间" in right_vm_headers and "使用率" in right_vm_headers, f"集群 {c_name} 右侧 VM 表头缺失「分配空间」或「使用率」！"
+        print(f" [Excel 集群 {c_name}] 右侧头部第 2 行: {right_head2}")
+        print(f" [Excel 集群 {c_name}] 右侧 VM 表头 9 列: {right_vm_headers}")
 
     # 4. 覆盖桌面文件
     desktop_xlsx = "/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx"

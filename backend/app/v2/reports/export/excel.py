@@ -877,61 +877,86 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
     forecast = cluster.get("forecast") or {}
     risk, _ = _risk_level(cluster)
     labels = cluster.get("labels") or {}
-    sheet.append([_cluster_full_name(cluster)])
-    sheet.append(["Tower", "集群", "当前容量", profile.window_growth_label, "风险", "90 天预测容量", "总容量", "已分配容量", "使用率", "预计耗尽天数"])
-    sheet.append(
-        [
-            labels.get("tower") or labels.get("tower_id") or "",
-            labels.get("cluster") or labels.get("cluster_id") or "",
-            _xlsx_bytes_label(forecast.get("current")),
-            _xlsx_signed_bytes_label(_cluster_period_growth(cluster, profile.days)),
-            risk,
-            _xlsx_bytes_label(forecast.get("forecast_90d")),
-            _xlsx_bytes_label(cluster.get("total")),
-            _xlsx_bytes_label(cluster.get("allocated")),
-            _percent_label(_cluster_used_ratio(cluster)),
-            _days_label(forecast.get("exhaustion_days")),
-        ]
-    )
-    sheet.append([_profile_sample_notice(report, profile)])
-    sheet.append([])
-    headers = ["VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率"]
+    cluster_title = _cluster_full_name(cluster)
+    cluster_overview_headers = ["Tower", "集群", "当前容量", profile.window_growth_label, "风险", "90 天预测容量", "总容量", "已分配容量", "使用率", "预计耗尽天数"]
+    cluster_overview_values = [
+        labels.get("tower") or labels.get("tower_id") or "",
+        labels.get("cluster") or labels.get("cluster_id") or "",
+        _xlsx_bytes_label(forecast.get("current")),
+        _xlsx_signed_bytes_label(_cluster_period_growth(cluster, profile.days)),
+        risk,
+        _xlsx_bytes_label(forecast.get("forecast_90d")),
+        _xlsx_bytes_label(cluster.get("total")),
+        _xlsx_bytes_label(cluster.get("allocated")),
+        _percent_label(_cluster_used_ratio(cluster)),
+        _days_label(forecast.get("exhaustion_days")),
+    ]
+    notice_text = _profile_sample_notice(report, profile)
+    note_text = "* 注：周期初始容量指统计周期起始时虚拟机的物理占用容量；若机器在周期内新建，则为建机首次采样容量。"
     window_label = _vm_sample_window_label(vms, report)
-    sheet.append([f"{profile.vm_growth_title} 增长量全部虚拟机（按增长量降序，统计窗口：{window_label}）"])
-    sheet.append(headers)
-    amount_start = sheet.max_row + 1
-    if not vms:
-        sheet.append([profile.vm_empty_text])
+    left_sub_title = f"{profile.vm_growth_title} 增长量全部虚拟机（按增长量降序，统计窗口：{window_label}）"
+    right_sub_title = f"{profile.vm_growth_title} 增长率全部虚拟机（按增长率降序，统计窗口：{window_label}）"
+    headers = ["VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率"]
+
+    # 第 1 行：集群全称大标题（左右对称各 10 列）
+    sheet.cell(row=1, column=1).value = cluster_title
+    sheet.cell(row=1, column=11).value = cluster_title
+
+    # 第 2 行：集群概览指标表头（左右对称各 10 列）
+    for idx, h_val in enumerate(cluster_overview_headers, start=1):
+        sheet.cell(row=2, column=idx).value = h_val
+        sheet.cell(row=2, column=idx + 10).value = h_val
+
+    # 第 3 行：集群概览数据（左右对称各 10 列）
+    for idx, d_val in enumerate(cluster_overview_values, start=1):
+        sheet.cell(row=3, column=idx).value = d_val
+        sheet.cell(row=3, column=idx + 10).value = d_val
+
+    # 第 4 行：样本说明（左右对称）
+    sheet.cell(row=4, column=1).value = notice_text
+    sheet.cell(row=4, column=11).value = notice_text
+
+    # 第 5 行：周期初始容量口径说明，及中间向右滑动提示
+    sheet.cell(row=5, column=1).value = note_text
+    sheet.cell(row=5, column=10).value = "向右滑动查看增长率榜单 ➔"
+    sheet.cell(row=5, column=11).value = note_text
+
+    # 第 6 行：榜单子标题
+    sheet.cell(row=6, column=1).value = left_sub_title
+    sheet.cell(row=6, column=11).value = right_sub_title
+
+    # 第 7 行：VM 表格表头（左 9 列，右 9 列）
+    for idx, h_val in enumerate(headers, start=1):
+        sheet.cell(row=7, column=idx).value = h_val
+        sheet.cell(row=7, column=idx + 10).value = h_val
+
+    # 第 8 行起：左右双轨虚拟机数据
+    amount_vms = _top_vms(vms, "amount")
+    ratio_vms = _top_vms(vms, "ratio")
+    total_rows = max(len(amount_vms), len(ratio_vms))
+
+    if total_rows == 0:
+        sheet.cell(row=8, column=1).value = profile.vm_empty_text
+        sheet.cell(row=8, column=11).value = profile.vm_empty_text
+        end_row = 8
     else:
-        for vm in _top_vms(vms, "amount"):
-            sheet.append(_vm_xlsx_row(vm, include_cluster=False))
-    amount_end = sheet.max_row
-    sheet.append([])
-    sheet.append([f"{profile.vm_growth_title} 增长率全部虚拟机（按增长率降序，统计窗口：{window_label}）"])
-    ratio_title_row = sheet.max_row
-    sheet.append(headers)
-    ratio_header_row = sheet.max_row
-    ratio_start = sheet.max_row + 1
-    if not vms:
-        sheet.append([profile.vm_empty_text])
-    else:
-        for vm in _top_vms(vms, "ratio"):
-            sheet.append(_vm_xlsx_row(vm, include_cluster=False))
-    ratio_end = sheet.max_row
-    _style_customer_xlsx_table(sheet, title_rows={1, 4, 6, ratio_title_row}, header_rows={2, 7, ratio_header_row})
-    _style_vm_rows(sheet, amount_start, amount_end, len(headers))
-    _style_vm_rows(sheet, ratio_start, ratio_end, len(headers))
-    _merge_title_row(sheet, 1, 1, 10)
-    _merge_title_row(sheet, 4, 1, 10)
-    _merge_title_row(sheet, 6, 1, len(headers))
-    _merge_title_row(sheet, ratio_title_row, 1, len(headers))
-    _apply_cluster_sheet_layout(sheet, amount_header_row=7, ratio_header_row=ratio_header_row)
-    sheet.freeze_panes = "A7"
-    _add_excel_table(sheet, _table_safe_name(sheet.title, "Amount"), 7, amount_end, len(headers))
-    _add_excel_table(sheet, _table_safe_name(sheet.title, "Ratio"), ratio_header_row, ratio_end, len(headers))
+        for i in range(total_rows):
+            r = 8 + i
+            if i < len(amount_vms):
+                left_row = _vm_xlsx_row(amount_vms[i], include_cluster=False)
+                for c_idx, val in enumerate(left_row, start=1):
+                    sheet.cell(row=r, column=c_idx).value = val
+            if i < len(ratio_vms):
+                right_row = _vm_xlsx_row(ratio_vms[i], include_cluster=False)
+                for c_idx, val in enumerate(right_row, start=1):
+                    sheet.cell(row=r, column=c_idx + 10).value = val
+        end_row = 7 + total_rows
+
+    _apply_cluster_sheet_layout(sheet, end_row=end_row)
+    sheet.freeze_panes = "A8"
 
 
-def _apply_cluster_sheet_layout(sheet, *, amount_header_row: int, ratio_header_row: int) -> None:
+def _apply_cluster_sheet_layout(sheet, *, end_row: int) -> None:
     widths = {
         "A": 52,
         "B": 39.5,
@@ -943,107 +968,127 @@ def _apply_cluster_sheet_layout(sheet, *, amount_header_row: int, ratio_header_r
         "H": 22,
         "I": 16,
         "J": 18,
+        "K": 52,
+        "L": 39.5,
+        "M": 24,
+        "N": 20,
+        "O": 20,
+        "P": 22,
+        "Q": 20,
+        "R": 22,
+        "S": 16,
+        "T": 18,
     }
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
 
-    amount_start = amount_header_row + 1
-    amount_end = ratio_header_row - 2
-    ratio_start = ratio_header_row + 1
+    if hasattr(sheet, "sheet_view"):
+        sheet.sheet_view.showGridLines = False
+    if getattr(sheet, "views", None) and sheet.views.sheetView:
+        sheet.views.sheetView[0].showGridLines = False
+
     sheet.row_dimensions[1].height = 32
     sheet.row_dimensions[2].height = 24
     sheet.row_dimensions[3].height = 24
     sheet.row_dimensions[4].height = 32
-    sheet.row_dimensions[6].height = 32
-    sheet.row_dimensions[amount_header_row].height = 24
-    sheet.row_dimensions[ratio_header_row - 1].height = 32
-    sheet.row_dimensions[ratio_header_row].height = 24
-    for row_index in range(amount_start, amount_end + 1):
-        sheet.row_dimensions[row_index].height = 22
-    for row_index in range(ratio_start, sheet.max_row + 1):
-        sheet.row_dimensions[row_index].height = 22
+    sheet.row_dimensions[5].height = 24
+    sheet.row_dimensions[6].height = 30
+    sheet.row_dimensions[7].height = 24
+    for r in range(8, end_row + 1):
+        sheet.row_dimensions[r].height = 22
 
-    for cell in sheet[1]:
-        if not isinstance(cell, MergedCell):
-            cell.font = Font(name=XLSX_FONT_NAME, size=23, bold=True, color=ACCENT_DARK)
-            cell.alignment = Alignment(vertical="center", wrap_text=True)
+    _merge_title_row(sheet, 1, 1, 10)
+    _merge_title_row(sheet, 1, 11, 20)
+    _merge_title_row(sheet, 4, 1, 10, align="left")
+    _merge_title_row(sheet, 4, 11, 20, align="left")
+    _merge_title_row(sheet, 5, 1, 9, align="left")
+    _merge_title_row(sheet, 5, 11, 20, align="left")
+    _merge_title_row(sheet, 6, 1, 9, align="left")
+    _merge_title_row(sheet, 6, 11, 19, align="left")
 
-    # 头部第 2 行表头边框与对齐
-    for col_idx in range(1, 11):
-        h_cell = sheet.cell(row=2, column=col_idx)
-        if not isinstance(h_cell, MergedCell):
-            h_cell.border = HEADER_BORDER
-            if col_idx in {3, 4, 6, 7, 8, 9}:
-                h_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
-            elif col_idx in {5, 10}:
-                h_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    for start_c in [1, 11]:
+        c_node = sheet.cell(row=1, column=start_c)
+        c_node.font = Font(name=XLSX_FONT_NAME, size=23, bold=True, color=ACCENT_DARK)
+        c_node.alignment = Alignment(vertical="center", wrap_text=True)
+
+    for offset in [0, 10]:
+        for col in range(1, 11):
+            c_node = sheet.cell(row=2, column=col + offset)
+            c_node.font = Font(name=XLSX_FONT_NAME, size=12, bold=True, color="FFFFFF")
+            c_node.fill = PatternFill(fill_type="solid", fgColor=ACCENT_DARK)
+            c_node.border = HEADER_BORDER
+            c_node.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    for offset in [0, 10]:
+        for col in range(1, 11):
+            c_node = sheet.cell(row=3, column=col + offset)
+            c_node.font = Font(name=XLSX_FONT_NAME, size=12, color="0F172A")
+            c_node.border = DATA_BORDER
+            s_val = str(c_node.value or "").strip()
+            if s_val in RISK_BADGES:
+                c_node.fill = RISK_BADGES[s_val]["fill"]
+                c_node.font = RISK_BADGES[s_val]["font"]
             else:
-                h_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-
-    # 头部第 3 行数据行
-    for col_idx in range(1, 11):
-        d_cell = sheet.cell(row=3, column=col_idx)
-        if not isinstance(d_cell, MergedCell):
-            d_cell.font = Font(name=XLSX_FONT_NAME, size=12, color="0F172A")
-            d_cell.border = DATA_BORDER
-            d_val = str(d_cell.value or "").strip()
-            if d_val in RISK_BADGES:
-                d_cell.fill = RISK_BADGES[d_val]["fill"]
-                d_cell.font = RISK_BADGES[d_val]["font"]
+                c_node.fill = PatternFill(fill_type="solid", fgColor=ACCENT_LIGHT)
+            if col in {3, 4, 6, 7, 8}:
+                c_node.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            elif col in {5, 9, 10}:
+                c_node.alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
             else:
-                d_cell.fill = PatternFill(fill_type="solid", fgColor=ACCENT_LIGHT)
+                c_node.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
 
-            if col_idx in {3, 4, 6, 7, 8, 9}:
-                d_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-            elif col_idx in {5, 10}:
-                d_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
-            else:
-                d_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
+    for start_c in [1, 11]:
+        c4 = sheet.cell(row=4, column=start_c)
+        c4.font = Font(name=XLSX_FONT_NAME, size=11, color="555555")
+        c4.alignment = Alignment(vertical="center", wrap_text=True)
+        c5 = sheet.cell(row=5, column=start_c)
+        c5.font = Font(name=XLSX_FONT_NAME, size=10, color="64748B")
+        c5.alignment = Alignment(vertical="center", wrap_text=True)
 
-    for cell in sheet[4]:
-        if not isinstance(cell, MergedCell):
-            cell.font = Font(name=XLSX_FONT_NAME, size=11, color="555555")
-            cell.alignment = Alignment(vertical="center", wrap_text=True)
+    hint_cell = sheet.cell(row=5, column=10)
+    hint_cell.font = Font(name=XLSX_FONT_NAME, size=11, bold=True, color="2563EB")
+    hint_cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    for row_index in [6, ratio_header_row - 1]:
-        for cell in sheet[row_index]:
-            if not isinstance(cell, MergedCell):
-                cell.font = Font(name=XLSX_FONT_NAME, size=14, bold=True, color=ACCENT_DARK)
-                cell.alignment = Alignment(vertical="center", wrap_text=True)
+    for start_c in [1, 11]:
+        c6 = sheet.cell(row=6, column=start_c)
+        c6.font = Font(name=XLSX_FONT_NAME, size=14, bold=True, color=ACCENT_DARK)
+        c6.alignment = Alignment(vertical="center", wrap_text=True)
 
-    for h_row in [amount_header_row, ratio_header_row]:
-        for col_idx in range(1, 10):
-            cell = sheet.cell(row=h_row, column=col_idx)
-            cell.border = HEADER_BORDER
-            if col_idx in {4, 5, 6, 7, 8, 9}:
-                cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
-            else:
-                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    for offset in [0, 10]:
+        for col in range(1, 10):
+            c_node = sheet.cell(row=7, column=col + offset)
+            c_node.font = Font(name=XLSX_FONT_NAME, size=12, bold=True, color="FFFFFF")
+            c_node.fill = PatternFill(fill_type="solid", fgColor=ACCENT_DARK)
+            c_node.border = HEADER_BORDER
+            c_node.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    for row_index in [*range(amount_start, amount_end + 1), *range(ratio_start, sheet.max_row + 1)]:
-        first_cell = sheet.cell(row=row_index, column=1)
-        is_alert = (
-            first_cell.fill
-            and first_cell.fill.fill_type
-            and getattr(first_cell.fill.fgColor, "rgb", "") in {f"00{VM_ALERT_FILL}", VM_ALERT_FILL}
-        )
-        for col_idx in range(1, 10):
-            cell = sheet.cell(row=row_index, column=col_idx)
-            if isinstance(cell, MergedCell):
+    for r in range(8, end_row + 1):
+        for offset in [0, 10]:
+            first_c = sheet.cell(row=r, column=1 + offset)
+            if first_c.value is None or first_c.value == "":
                 continue
-            cell.font = Font(name=XLSX_FONT_NAME, size=12, color="0F172A")
-            cell.border = DATA_BORDER
-            if is_alert:
-                cell.fill = PatternFill(fill_type="solid", fgColor=VM_ALERT_FILL)
-            elif row_index % 2 == 0:
-                cell.fill = PatternFill(fill_type="solid", fgColor=ACCENT_SOFT)
-            else:
-                cell.fill = PatternFill(fill_type="solid", fgColor="FFFFFF")
+            amt_val = sheet.cell(row=r, column=8 + offset).value
+            ratio_val = sheet.cell(row=r, column=9 + offset).value
+            amt = _parse_xlsx_bytes_label(amt_val)
+            rat = _parse_percent_label(ratio_val)
+            is_alert = _is_alert_vm({"growth_amount": amt, "growth_ratio": rat})
+            for col in range(1, 10):
+                c_node = sheet.cell(row=r, column=col + offset)
+                if isinstance(c_node, MergedCell):
+                    continue
+                c_node.font = Font(name=XLSX_FONT_NAME, size=12, color="0F172A")
+                c_node.border = DATA_BORDER
+                if is_alert:
+                    c_node.fill = PatternFill(fill_type="solid", fgColor=VM_ALERT_FILL)
+                elif r % 2 == 0:
+                    c_node.fill = PatternFill(fill_type="solid", fgColor=ACCENT_SOFT)
+                else:
+                    c_node.fill = PatternFill(fill_type="solid", fgColor="FFFFFF")
 
-            if col_idx in {4, 5, 6, 7, 8, 9}:
-                cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
-            else:
-                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
+                if col in {4, 5, 6, 7, 8, 9}:
+                    c_node.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                else:
+                    c_node.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
 
 
 def _normalize_xlsx_fonts(workbook: Workbook) -> None:

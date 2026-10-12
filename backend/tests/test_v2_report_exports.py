@@ -823,7 +823,14 @@ class V2ReportExportDocumentTest(unittest.TestCase):
                 if cluster_sheet.cell(row=row_index, column=1).value == "VM"
                 and cluster_sheet.cell(row=row_index, column=5).value == "当前容量"
             ]
-            self.assertEqual(len(vm_header_rows), 2)
+            self.assertEqual(len(vm_header_rows), 1)
+            right_vm_header_rows = [
+                row_index
+                for row_index in range(1, cluster_sheet.max_row + 1)
+                if cluster_sheet.cell(row=row_index, column=11).value == "VM"
+                and cluster_sheet.cell(row=row_index, column=15).value == "当前容量"
+            ]
+            self.assertEqual(len(right_vm_header_rows), 1)
             for header_row in vm_header_rows:
                 self.assertNotEqual(cluster_sheet.cell(row=header_row + 1, column=1).value, "VM")
 

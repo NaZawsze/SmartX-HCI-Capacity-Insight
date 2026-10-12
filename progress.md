@@ -6150,3 +6150,34 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
     - 左右两侧表头 11 列与 10 列全部居中对齐，筛选箭头零遮挡；
     - 周期初始容量列宽适中，数值与单位展示规整无异常。
 
+## 2026-10-12 Phase 77 - 集群 Sheet VM 增长排版重构：左右双轨对称并排与冻结窗格遮挡消除
+
+- **背景与目标**：
+  - 用户审阅 Excel 报表发现集群 Sheet（如 `集群-SMARTX-TT-WW`、`集群-SMTX_Test`）存在排版严重缺陷：原上下堆叠排版由于设置了 `freeze_panes = "A7"`，向下滚动浏览按增长率排序的 VM 时，上半区的「按增长量降序」第 6 行标题一直吸顶遮挡，不仅遮挡下半区表头，更造成口径严重混淆；
+  - 用户建议参考 `VM增长TOP100` Sheet 方案，将按增长率排序表格移至右侧并排陈列，且要求右侧上方也对称镜像完整的集群概况指标信息（防止向右横向滑动后上方一片空白）。
+- **改动范围**：
+  - `backend/app/v2/reports/export/excel.py`：
+    - 重构 `_write_cluster_vm_sheet` 与 `_apply_cluster_sheet_layout`：
+    - 左侧区域（A~J 列，共 10 列）：A~I 列为按增长量降序的全部虚拟机表格，J 列作为间距列并于 J5 设置粗体蓝色 `向右滑动查看增长率榜单 ➔`；
+    - 右侧区域（K~T 列，共 10 列）：K~S 列为按增长率降序的全部虚拟机表格，顶部对称镜像完整的集群概况指标（Row 1 集群标题、Row 2:3 集群指标表头及数值、Row 4 样本说明、Row 5 周期初始容量口径说明）；
+    - Row 6 放置各自榜单的子标题；
+    - Row 7 放置各自的 VM 表头，统一采用居中对齐彻底消除 Excel 筛选按钮遮挡文字的问题；
+    - Row 8 起左右双轨并行写入 VM 数据行，使用 `_is_alert_vm` 动态识别告警机器并填充 `VM_ALERT_FILL`（`#F4CCCC` 浅红底色）；
+    - 冻结窗格调整为 `freeze_panes = "A8"`，向下滚动时双侧表头始终吸顶、双侧数据无缝同步滚动，彻底消除任何标题遮挡。
+  - `backend/tests/test_v2_report_exports.py`：
+    - 更新针对集群 Sheet 中 `vm_header_rows` 的断言，改为断言左侧第 1 列与右侧第 11 列均在第 7 行出现表头。
+  - `scripts/verify_remote_exported_reports.py`：
+    - 扩充针对远端真实导出的断言，涵盖右侧镜像集群概况（K2:T2）及右侧 VM 表头（K7:S7）核验。
+- **10.20.11.3 远端真机验证**：
+  - 源码与容器同步：同步修改代码至 `.3`，更新容器内 `/app` 与挂载卷代码，重启 web-api 容器；
+  - 容器内全量测试：在 `smartx-hci-capacity-insight-web-api-1` 容器内运行 `tests.test_v2_report_exports`：**Ran 29 tests in 93.823s, OK** 100% 绿灯全部通过；
+  - 真实接口端到端导出：运行 `scripts/verify_remote_exported_reports.py http://10.20.11.3:8000`，Word 与 Excel 导出全量断言通过；
+  - 桌面报表文件刷新覆盖：
+    - `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.xlsx`
+    - `/Users/nazawsze/Desktop/SmartX_存储容量分析报告_20261010.docx`
+  - 桌面 Excel 结构核验：
+    - `freeze_panes` 为 `A8`；
+    - Row 1~5 左右两侧对称镜像（左侧 A1~J5，右侧 K1~T5），右侧包含完整的集群容量指标；
+    - J5 包含粗体蓝色 `向右滑动查看增长率榜单 ➔`；
+    - Row 7 表头居中对齐，筛选下拉框零遮挡；
+    - 向下滚动数据时左右两侧无遮挡且表头吸顶。
