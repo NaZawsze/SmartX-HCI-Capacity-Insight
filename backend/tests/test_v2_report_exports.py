@@ -773,9 +773,16 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertIn("差异比例", workbook_text)
             self.assertIn("2026-06-02", workbook_text)
             self.assertIn("prometheus_cluster_sample_missing", workbook_text)
-            self.assertIn("810.00 GiB", workbook_text)
-            self.assertIn("1.06 TiB", workbook_text)
-            self.assertIn("64 天", workbook_text)
+            # Phase 79：容量/百分比列改为「真数值 + 表头带单位」，客户可直接排序/筛选/透视
+            trend_sheet = workbook["容量趋势"]
+            self.assertEqual(trend_sheet.cell(row=3, column=3).value, "当前已用容量(TiB)")
+            self.assertEqual(trend_sheet.cell(row=3, column=6).value, "总容量(TiB)")
+            self.assertIsInstance(trend_sheet.cell(row=4, column=6).value, (int, float))
+            self.assertEqual(trend_sheet.cell(row=4, column=6).number_format, "#,##0.00")
+            self.assertEqual(trend_sheet.cell(row=4, column=8).number_format, "0.00%")
+            self.assertEqual(trend_sheet.cell(row=4, column=10).number_format, '#,##0" 天"')
+            self.assertIn("当前容量(GiB)", workbook_text)
+            self.assertIn("增长量(GiB)", workbook_text)
             self.assertNotIn("SmartX 超融合平台", workbook_text)
             self.assertNotIn("CHINATOWER", workbook_text)
             self.assertNotIn("SMARTX-TT-WW", workbook_text)
@@ -801,9 +808,9 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             cluster_text = "\n".join(str(value) for value in cluster_values)
             self.assertIn("Tower", cluster_text)
             self.assertIn("Cluster A", cluster_text)
-            self.assertIn("810.00 GiB", cluster_text)
-            self.assertIn("+30.00 GiB", cluster_text)
-            self.assertIn("64 天", cluster_text)
+            # Phase 79：容量列为真数值，单位体现在表头
+            self.assertIn("当前容量(TiB)", cluster_text)
+            self.assertIn("增长量(GiB)", cluster_text)
             self.assertIn("增长量全部虚拟机", cluster_text)
             self.assertIn("增长率全部虚拟机", cluster_text)
             self.assertGreaterEqual(cluster_sheet.column_dimensions["A"].width, 36)
@@ -811,24 +818,27 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             self.assertGreaterEqual(cluster_sheet.column_dimensions["D"].width, 16)
             self.assertEqual(
                 [cluster_sheet.cell(row=2, column=column).value for column in range(1, 11)],
-                ["Tower", "集群", "当前容量", "近 14 天样本增长", "风险", "90 天预测容量", "总容量", "已分配容量", "使用率", "预计耗尽天数"],
+                ["Tower", "集群", "当前容量(TiB)", "近 14 天样本增长(TiB)", "风险", "90 天预测容量(TiB)", "总容量(TiB)",
+                 "已分配容量(TiB)", "使用率", "预计耗尽天数"],
             )
             self.assertEqual(cluster_sheet["A3"].value, "Tower A")
             self.assertEqual(cluster_sheet["B3"].value, "Cluster A")
-            self.assertEqual(cluster_sheet["C3"].value, "810.00 GiB")
-            self.assertEqual(cluster_sheet["J3"].value, "64 天")
+            self.assertAlmostEqual(cluster_sheet["C3"].value, 810 * 1024**3 / 1024**4, places=6)
+            # Phase 79：预计耗尽天数为真数值 + 「天」数字格式
+            self.assertAlmostEqual(cluster_sheet["J3"].value, 64, places=6)
+            self.assertEqual(cluster_sheet["J3"].number_format, '#,##0" 天"')
             vm_header_rows = [
                 row_index
                 for row_index in range(1, cluster_sheet.max_row + 1)
                 if cluster_sheet.cell(row=row_index, column=1).value == "VM"
-                and cluster_sheet.cell(row=row_index, column=5).value == "当前容量"
+                and cluster_sheet.cell(row=row_index, column=5).value == "当前容量(GiB)"
             ]
             self.assertEqual(len(vm_header_rows), 1)
             right_vm_header_rows = [
                 row_index
                 for row_index in range(1, cluster_sheet.max_row + 1)
                 if cluster_sheet.cell(row=row_index, column=11).value == "VM"
-                and cluster_sheet.cell(row=row_index, column=15).value == "当前容量"
+                and cluster_sheet.cell(row=row_index, column=15).value == "当前容量(GiB)"
             ]
             self.assertEqual(len(right_vm_header_rows), 1)
             for header_row in vm_header_rows:
@@ -1029,10 +1039,10 @@ class V2ReportExportDocumentTest(unittest.TestCase):
         self.assertEqual(month_sheet["D3"].value, "虚拟机组")
         self.assertEqual(month_sheet["E3"].value, "Tower")
         self.assertEqual(month_sheet["F3"].value, "集群")
-        self.assertEqual(month_sheet["G3"].value, "分配空间")
-        self.assertEqual(month_sheet["H3"].value, "当前容量")
+        self.assertEqual(month_sheet["G3"].value, "分配空间(GiB)")
+        self.assertEqual(month_sheet["H3"].value, "当前容量(GiB)")
         self.assertEqual(month_sheet["I3"].value, "使用率")
-        self.assertEqual(month_sheet["K3"].value, "月增长量")
+        self.assertEqual(month_sheet["K3"].value, "月增长量(GiB)")
         month_text = "\n".join(
             str(cell)
             for row in month_sheet.iter_rows(values_only=True)
@@ -1184,22 +1194,24 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             headers = [trend.cell(row=3, column=col).value for col in range(1, 12)]
             self.assertEqual(
                 headers,
-                ["Tower", "集群", "当前已用容量", "近 30 天样本增长", "90 天预测容量", "总容量", "已分配容量", "已分配率", "使用率", "预计耗尽天数", "风险状态"],
+                ["Tower", "集群", "当前已用容量(TiB)", "近 30 天样本增长(TiB)", "90 天预测容量(TiB)", "总容量(TiB)",
+                 "已分配容量(TiB)", "已分配率", "使用率", "预计耗尽天数", "风险状态"],
             )
-            # 检查 Cluster A 行数值
-            self.assertEqual(trend.cell(row=4, column=6).value, "1000.00 GiB")  # 总容量
-            self.assertEqual(trend.cell(row=4, column=7).value, "250.00 GiB")   # 已分配容量
-            self.assertEqual(trend.cell(row=4, column=8).value, "25.00%")       # 已分配率
+            # 检查 Cluster A 行数值（Phase 79：真数值，集群级单位 TiB）
+            self.assertAlmostEqual(trend.cell(row=4, column=6).value, 1000 * 1024**3 / 1024**4, places=6)  # 总容量
+            self.assertAlmostEqual(trend.cell(row=4, column=7).value, 250 * 1024**3 / 1024**4, places=6)   # 已分配容量
+            self.assertAlmostEqual(trend.cell(row=4, column=8).value, 0.25, places=6)                      # 已分配率
+            self.assertEqual(trend.cell(row=4, column=6).number_format, "#,##0.00")
 
             # 2.3 本日新建 VM：9 列含所有者/虚拟机组/分配空间/当前容量/使用率，空值显示 -
             day_new = wb["本日新建VM"]
             new_headers = [day_new.cell(row=2, column=col).value for col in range(1, 10)]
-            self.assertEqual(new_headers, ["Tower", "集群", "VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "首次出现时间"])
+            self.assertEqual(new_headers, ["Tower", "集群", "VM", "所有者", "虚拟机组", "分配空间(GiB)", "当前容量(GiB)", "使用率", "首次出现时间"])
             # 第 1 台 VM 有 owner 和 folder_name
             self.assertEqual(day_new["C3"].value, "NewVM-1")
             self.assertEqual(day_new["D3"].value, "alice")
             self.assertEqual(day_new["E3"].value, "核心业务组")
-            self.assertEqual(day_new["G3"].value, "50.00 GiB")
+            self.assertAlmostEqual(day_new["G3"].value, 50, places=6)  # 当前容量 50 GiB（真数值）
             # 第 2 台 VM 无 owner 和 folder_name，显示 -
             self.assertEqual(day_new["C4"].value, "NewVM-2")
             self.assertEqual(day_new["D4"].value, "-")
@@ -1210,13 +1222,14 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             head_row2 = [cluster_sheet.cell(row=2, column=col).value for col in range(1, 11)]
             self.assertEqual(
                 head_row2,
-                ["Tower", "集群", "当前容量", "近 30 天样本增长", "风险", "90 天预测容量", "总容量", "已分配容量", "使用率", "预计耗尽天数"],
+                ["Tower", "集群", "当前容量(TiB)", "近 30 天样本增长(TiB)", "风险", "90 天预测容量(TiB)", "总容量(TiB)",
+                 "已分配容量(TiB)", "使用率", "预计耗尽天数"],
             )
-            self.assertEqual(cluster_sheet["H3"].value, "250.00 GiB")
+            self.assertAlmostEqual(cluster_sheet["H3"].value, 250 * 1024**3 / 1024**4, places=6)
 
             # VM 增长量段表头（第 7 行）
             vm_headers = [cluster_sheet.cell(row=7, column=col).value for col in range(1, 10)]
-            self.assertEqual(vm_headers, ["VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率"])
+            self.assertEqual(vm_headers, ["VM", "所有者", "虚拟机组", "分配空间(GiB)", "当前容量(GiB)", "使用率", "周期初始容量(GiB)", "增长量(GiB)", "增长率"])
             self.assertEqual(cluster_sheet["A8"].value, "MonthVM-1")
             self.assertEqual(cluster_sheet["B8"].value, "bob")
             self.assertEqual(cluster_sheet["C8"].value, "基础架构组")
@@ -1348,11 +1361,15 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             top_headers_left = [top_sheet.cell(row=4, column=col).value for col in range(1, 12)]
             self.assertEqual(
                 top_headers_left,
-                ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率", "风险"],
+                ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间(GiB)", "当前容量(GiB)", "使用率",
+                 "周期初始容量(GiB)", "增长量(GiB)", "增长率", "风险"],
             )
-            self.assertEqual(top_sheet["E5"].value, "400.00 GiB")
-            self.assertEqual(top_sheet["F5"].value, "300.00 GiB")
-            self.assertEqual(top_sheet["G5"].value, "75.00%")
+            # Phase 79：容量/百分比为真数值（可直接排序/筛选）
+            self.assertAlmostEqual(top_sheet["E5"].value, 400, places=6)
+            self.assertAlmostEqual(top_sheet["F5"].value, 300, places=6)
+            self.assertAlmostEqual(top_sheet["G5"].value, 0.75, places=6)
+            self.assertEqual(top_sheet["E5"].number_format, "#,##0.00")
+            self.assertEqual(top_sheet["G5"].number_format, "0.00%")
             self.assertEqual(top_sheet["E6"].value, "-")
             self.assertEqual(top_sheet["G6"].value, "-")
 
@@ -1362,7 +1379,8 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             day_headers = [day_sheet.cell(row=3, column=col).value for col in range(1, 14)]
             self.assertEqual(
                 day_headers,
-                ["排名", "虚拟机名称", "所有者", "虚拟机组", "Tower", "集群", "分配空间", "当前容量", "使用率", "周期初始容量", "日增长量", "增长率", "风险"],
+                ["排名", "虚拟机名称", "所有者", "虚拟机组", "Tower", "集群", "分配空间(GiB)", "当前容量(GiB)", "使用率",
+                 "周期初始容量(GiB)", "日增长量(GiB)", "增长率", "风险"],
             )
 
             # 2.4 本日新建 VM 表
@@ -1370,22 +1388,22 @@ class V2ReportExportDocumentTest(unittest.TestCase):
             new_headers = [new_sheet.cell(row=2, column=col).value for col in range(1, 10)]
             self.assertEqual(
                 new_headers,
-                ["Tower", "集群", "VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "首次出现时间"],
+                ["Tower", "集群", "VM", "所有者", "虚拟机组", "分配空间(GiB)", "当前容量(GiB)", "使用率", "首次出现时间"],
             )
-            self.assertEqual(new_sheet["F3"].value, "100.00 GiB")
-            self.assertEqual(new_sheet["G3"].value, "20.00 GiB")
-            self.assertEqual(new_sheet["H3"].value, "20.00%")
+            self.assertAlmostEqual(new_sheet["F3"].value, 100, places=6)
+            self.assertAlmostEqual(new_sheet["G3"].value, 20, places=6)
+            self.assertAlmostEqual(new_sheet["H3"].value, 0.20, places=6)
 
             # 2.5 集群专属 Sheet VM 表
             cluster_sheet = wb["集群-Cluster A"]
             c_vm_headers = [cluster_sheet.cell(row=7, column=col).value for col in range(1, 10)]
             self.assertEqual(
                 c_vm_headers,
-                ["VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率"],
+                ["VM", "所有者", "虚拟机组", "分配空间(GiB)", "当前容量(GiB)", "使用率", "周期初始容量(GiB)", "增长量(GiB)", "增长率"],
             )
-            self.assertEqual(cluster_sheet["D8"].value, "400.00 GiB")
-            self.assertEqual(cluster_sheet["E8"].value, "300.00 GiB")
-            self.assertEqual(cluster_sheet["F8"].value, "75.00%")
+            self.assertAlmostEqual(cluster_sheet["D8"].value, 400, places=6)
+            self.assertAlmostEqual(cluster_sheet["E8"].value, 300, places=6)
+            self.assertAlmostEqual(cluster_sheet["F8"].value, 0.75, places=6)
             self.assertEqual(cluster_sheet["F5"].value, "向右滑动查看增长率榜单 ▶")
             self.assertEqual(cluster_sheet["P5"].value, "◀ 向左滑动返回增长量榜单")
             cluster_merged = {str(m) for m in cluster_sheet.merged_cells.ranges}
@@ -1452,7 +1470,7 @@ class V2ReportExportDocumentTest(unittest.TestCase):
 
             # 2. 容量趋势「使用率」列（第 9 列）：集群 85% → 红
             trend = wb["容量趋势"]
-            self.assertEqual(trend.cell(row=4, column=9).value, "85.00%")
+            self.assertAlmostEqual(trend.cell(row=4, column=9).value, 0.85, places=6)
             self.assertEqual(str(trend.cell(row=4, column=9).font.color.rgb), "FFDC3535")
 
             # 3. 日增长详情「使用率」列（第 9 列）：90% 红 / 75% 黄 / 30% 不染色

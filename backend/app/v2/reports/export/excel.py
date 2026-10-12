@@ -41,6 +41,17 @@ HEADER_BORDER = Border(
     bottom=BORDER_HEADER_DARK,
 )
 
+# Phase 79：容量/百分比列改为「真数值 + 表头带单位」，客户可直接排序/筛选/透视。
+# 注意：同一列必须统一单位（混用 GiB/TiB 会导致数值排序错误），故 VM 级统一 GiB、集群级统一 TiB。
+XLSX_VM_CAPACITY_UNIT = "GiB"
+XLSX_VM_CAPACITY_DIVISOR = 1024 ** 3
+XLSX_CLUSTER_CAPACITY_UNIT = "TiB"
+XLSX_CLUSTER_CAPACITY_DIVISOR = 1024 ** 4
+XLSX_CAPACITY_FORMAT = "#,##0.00"
+XLSX_SIGNED_CAPACITY_FORMAT = "+#,##0.00;-#,##0.00;0.00"
+XLSX_PERCENT_FORMAT = "0.00%"
+XLSX_DAYS_FORMAT = '#,##0" 天"'
+
 RISK_BADGES = {
     "高": {
         "fill": PatternFill(fill_type="solid", fgColor="FDE8E8"),
@@ -385,7 +396,12 @@ def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: 
     _reset_xlsx_sheet_rows(sheet)
     sheet.append(["二、集群容量趋势"])
     sheet.append([f"统计窗口：{_period_window_label(report)}；{_profile_sample_notice(report, profile)}"])
-    headers = ["Tower", "集群", "当前已用容量", profile.window_growth_label, "90 天预测容量", "总容量", "已分配容量", "已分配率", "使用率", "预计耗尽天数", "风险状态"]
+    unit = XLSX_CLUSTER_CAPACITY_UNIT
+    headers = [
+        "Tower", "集群", f"当前已用容量({unit})", f"{profile.window_growth_label}({unit})",
+        f"90 天预测容量({unit})", f"总容量({unit})", f"已分配容量({unit})",
+        "已分配率", "使用率", "预计耗尽天数", "风险状态",
+    ]
     sheet.append(headers)
     if not clusters:
         sheet.append(["当前范围暂无集群容量数据"] + [""] * (len(headers) - 1))
@@ -400,18 +416,21 @@ def _write_xlsx_template_capacity_trend(sheet, report: dict[str, Any], context: 
             [
                 labels.get("tower") or labels.get("tower_id") or "",
                 labels.get("cluster") or labels.get("cluster_id") or "",
-                _xlsx_bytes_label(forecast.get("current")),
-                _xlsx_signed_bytes_label(_cluster_period_growth(cluster, profile.days)),
-                _xlsx_bytes_label(forecast.get("forecast_90d")),
-                _xlsx_bytes_label(cluster.get("total")),
-                _xlsx_bytes_label(allocated),
-                _percent_label(allocated_ratio),
-                _percent_label(_cluster_used_ratio(cluster)),
-                _days_label(forecast.get("exhaustion_days")),
+                _xlsx_capacity_cell(forecast.get("current"), XLSX_CLUSTER_CAPACITY_DIVISOR),
+                _xlsx_capacity_cell(_cluster_period_growth(cluster, profile.days), XLSX_CLUSTER_CAPACITY_DIVISOR),
+                _xlsx_capacity_cell(forecast.get("forecast_90d"), XLSX_CLUSTER_CAPACITY_DIVISOR),
+                _xlsx_capacity_cell(cluster.get("total"), XLSX_CLUSTER_CAPACITY_DIVISOR),
+                _xlsx_capacity_cell(allocated, XLSX_CLUSTER_CAPACITY_DIVISOR),
+                allocated_ratio if total else "-",
+                _cluster_used_ratio(cluster),
+                _xlsx_days_cell(forecast.get("exhaustion_days")),
                 risk,
             ]
         )
     _style_customer_xlsx_table(sheet, title_rows={1, 2}, header_rows={3})
+    _apply_number_formats(sheet, {3: XLSX_CAPACITY_FORMAT, 4: XLSX_SIGNED_CAPACITY_FORMAT, 5: XLSX_CAPACITY_FORMAT,
+                                  6: XLSX_CAPACITY_FORMAT, 7: XLSX_CAPACITY_FORMAT, 8: XLSX_PERCENT_FORMAT,
+                                  9: XLSX_PERCENT_FORMAT, 10: XLSX_DAYS_FORMAT}, 4, sheet.max_row)
     _apply_usage_ratio_colors(sheet, [9], 4, sheet.max_row)
     _merge_title_row(sheet, 1, 1, len(headers))
     _merge_title_row(sheet, 2, 1, len(headers))
@@ -592,8 +611,12 @@ def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dic
         *([""] * 3),
     ])
     sheet.append(["按增长量降序", *([""] * 11), "按增长率降序"])
-    amount_headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率", "风险"]
-    ratio_headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率"]
+    unit = XLSX_VM_CAPACITY_UNIT
+    amount_headers = [
+        "排名", "虚拟机名称", "所有者", "虚拟机组", f"分配空间({unit})", f"当前容量({unit})", "使用率",
+        f"周期初始容量({unit})", f"增长量({unit})", "增长率", "风险",
+    ]
+    ratio_headers = amount_headers[:-1]
     for index, value in enumerate(amount_headers, start=1):
         sheet.cell(row=4, column=index).value = value
     for index, value in enumerate(ratio_headers, start=RIGHT_START):
@@ -616,6 +639,15 @@ def _write_xlsx_template_vm_top100(sheet, vms: list[dict[str, Any]], report: dic
         name_width=_xlsx_name_column_width(
             [(vm.get("labels") or {}).get("vm") for vm in vms], min_width=50
         ),
+    )
+    _apply_number_formats(
+        sheet,
+        {5: XLSX_CAPACITY_FORMAT, 6: XLSX_CAPACITY_FORMAT, 7: XLSX_PERCENT_FORMAT,
+         8: XLSX_CAPACITY_FORMAT, 9: XLSX_SIGNED_CAPACITY_FORMAT, 10: XLSX_PERCENT_FORMAT,
+         17: XLSX_CAPACITY_FORMAT, 18: XLSX_CAPACITY_FORMAT, 19: XLSX_PERCENT_FORMAT,
+         20: XLSX_CAPACITY_FORMAT, 21: XLSX_SIGNED_CAPACITY_FORMAT, 22: XLSX_PERCENT_FORMAT},
+        5,
+        sheet.max_row,
     )
     _apply_usage_ratio_colors(sheet, [7, 19], 5, sheet.max_row)
     # 打印区域分两段：左（增长量）/ 右（增长率）各成一页
@@ -642,7 +674,12 @@ def _write_xlsx_template_growth_detail(
     sheet.append([f"{title}（{_period_window_label(report)}）"])
     sheet.append(["* 注：周期初始容量指统计周期起始时虚拟机的物理占用容量；若机器在周期内新建，则为建机首次采样容量。"])
     # Phase 74：加入「分配空间」「使用率」两列（11→13）
-    headers = ["排名", "虚拟机名称", "所有者", "虚拟机组", "Tower", "集群", "分配空间", "当前容量", "使用率", "周期初始容量", growth_header, "增长率", "风险"]
+    unit = XLSX_VM_CAPACITY_UNIT
+    headers = [
+        "排名", "虚拟机名称", "所有者", "虚拟机组", "Tower", "集群",
+        f"分配空间({unit})", f"当前容量({unit})", "使用率", f"周期初始容量({unit})",
+        f"{growth_header}({unit})", "增长率", "风险",
+    ]
     sheet.append(headers)
     if not vms:
         sheet.append(["暂无日增长 VM 数据"])
@@ -657,6 +694,13 @@ def _write_xlsx_template_growth_detail(
     sheet["A2"].font = Font(name=XLSX_FONT_NAME, size=12, color="334155")
     sheet["A2"].alignment = Alignment(horizontal="left", vertical="center")
     _apply_usage_ratio_colors(sheet, [9], 4, sheet.max_row)
+    _apply_number_formats(
+        sheet,
+        {7: XLSX_CAPACITY_FORMAT, 8: XLSX_CAPACITY_FORMAT, 9: XLSX_PERCENT_FORMAT,
+         10: XLSX_CAPACITY_FORMAT, 11: XLSX_SIGNED_CAPACITY_FORMAT, 12: XLSX_PERCENT_FORMAT},
+        4,
+        sheet.max_row,
+    )
     sheet.freeze_panes = "A4"
     sheet.auto_filter.ref = f"A3:{get_column_letter(len(headers))}{sheet.max_row}"
     for column, width in {
@@ -890,6 +934,33 @@ def _apply_vm_top100_layout(
         sheet.column_dimensions["L"].width = 10
 
 
+def _xlsx_capacity_cell(value: Any, divisor: float) -> Any:
+    """字节值 → 指定单位下的真数值；缺失时占位 '-'（保持可排序的数值列）。"""
+    numeric = _float_or_none(value)
+    return "-" if numeric is None else numeric / divisor
+
+
+def _xlsx_ratio_cell(value: Any) -> Any:
+    numeric = _float_or_none(value)
+    return "-" if numeric is None else numeric
+
+
+def _xlsx_days_cell(value: Any) -> Any:
+    numeric = _float_or_none(value)
+    return "未触发" if numeric is None else numeric
+
+
+def _apply_number_formats(sheet, columns: dict[int, str], start_row: int, end_row: int) -> None:
+    """给数值列套显示格式（值本身是真数值，客户可直接排序/筛选/透视）。"""
+    if end_row < start_row:
+        return
+    for column, number_format in columns.items():
+        for row_index in range(start_row, end_row + 1):
+            cell = sheet.cell(row=row_index, column=column)
+            if isinstance(cell.value, (int, float)):
+                cell.number_format = number_format
+
+
 def _xlsx_vm_display_row(vm: dict[str, Any], rank: int, *, include_risk: bool) -> list[Any]:
     labels = vm.get("labels") or {}
     forecast = vm.get("forecast") or {}
@@ -904,23 +975,21 @@ def _xlsx_vm_display_row(vm: dict[str, Any], rank: int, *, include_risk: bool) -
     except (TypeError, ValueError):
         allocated_num = None
 
-    if current_num is not None and allocated_num and allocated_num > 0:
-        used_ratio_label = _percent_label(current_num / allocated_num)
-    else:
-        used_ratio_label = "-"
+    used_ratio = current_num / allocated_num if (current_num is not None and allocated_num and allocated_num > 0) else None
 
     # Phase 74：名称后插入「所有者」「虚拟机组」「分配空间」「当前容量」「使用率」
+    # Phase 79：容量/百分比改为真数值（单位见表头），客户可直接排序/筛选/透视
     values: list[Any] = [
         rank,
         labels.get("vm") or labels.get("vm_name") or labels.get("vm_id") or "",
         labels.get("owner") or "-",
         labels.get("folder_name") or "-",
-        _xlsx_bytes_label(allocated) if (allocated_num and allocated_num > 0) else "-",
-        _xlsx_bytes_label(current),
-        used_ratio_label,
-        _xlsx_bytes_label(vm.get("previous_value")),
-        _xlsx_signed_bytes_label(vm.get("growth_amount")),
-        _percent_label(vm.get("growth_ratio")),
+        _xlsx_capacity_cell(allocated, XLSX_VM_CAPACITY_DIVISOR) if (allocated_num and allocated_num > 0) else "-",
+        _xlsx_capacity_cell(current, XLSX_VM_CAPACITY_DIVISOR),
+        used_ratio if used_ratio is not None else "-",
+        _xlsx_capacity_cell(vm.get("previous_value"), XLSX_VM_CAPACITY_DIVISOR),
+        _xlsx_capacity_cell(vm.get("growth_amount"), XLSX_VM_CAPACITY_DIVISOR),
+        _xlsx_ratio_cell(vm.get("growth_ratio")),
     ]
     if include_risk:
         values.append(_vm_risk_label(vm))
@@ -967,9 +1036,10 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
     _clear_xlsx_sheet(sheet)
     _clear_xlsx_tables(sheet)
     # Phase 74：加入「分配空间」「当前容量」「使用率」
-    headers = ["Tower", "集群", "VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率"]
+    unit = XLSX_VM_CAPACITY_UNIT
+    headers = ["Tower", "集群", "VM", "所有者", "虚拟机组", f"分配空间({unit})", f"当前容量({unit})", "使用率"]
     if include_growth:
-        headers.extend(["周期初始容量", "增长量", "增长率"])
+        headers.extend([f"周期初始容量({unit})", f"增长量({unit})", "增长率"])
     else:
         headers.append("首次出现时间")
     sheet.cell(row=1, column=1).value = sheet.title
@@ -989,10 +1059,7 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
             allocated_num = float(allocated) if allocated is not None else None
         except (TypeError, ValueError):
             allocated_num = None
-        if current_num is not None and allocated_num and allocated_num > 0:
-            used_ratio_label = _percent_label(current_num / allocated_num)
-        else:
-            used_ratio_label = "-"
+        used_ratio = current_num / allocated_num if (current_num is not None and allocated_num and allocated_num > 0) else None
 
         row = [
             labels.get("tower") or labels.get("tower_id") or "",
@@ -1000,15 +1067,15 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
             labels.get("vm") or labels.get("vm_id") or "",
             labels.get("owner") or "-",
             labels.get("folder_name") or "-",
-            _xlsx_bytes_label(allocated) if (allocated_num and allocated_num > 0) else "-",
-            _xlsx_bytes_label(current),
-            used_ratio_label,
+            _xlsx_capacity_cell(allocated, XLSX_VM_CAPACITY_DIVISOR) if (allocated_num and allocated_num > 0) else "-",
+            _xlsx_capacity_cell(current, XLSX_VM_CAPACITY_DIVISOR),
+            used_ratio if used_ratio is not None else "-",
         ]
         if include_growth:
             row.extend([
-                _xlsx_bytes_label(vm.get("previous_value")),
-                _xlsx_signed_bytes_label(vm.get("growth_amount")),
-                _percent_label(vm.get("growth_ratio")),
+                _xlsx_capacity_cell(vm.get("previous_value"), XLSX_VM_CAPACITY_DIVISOR),
+                _xlsx_capacity_cell(vm.get("growth_amount"), XLSX_VM_CAPACITY_DIVISOR),
+                _xlsx_ratio_cell(vm.get("growth_ratio")),
             ])
         else:
             row.append(_format_first_seen_time(vm.get("first_seen_at")))
@@ -1017,6 +1084,10 @@ def _write_simple_vm_sheet(sheet, vms: list[dict[str, Any]], empty_text: str, *,
     _style_customer_xlsx_table(sheet, title_rows={1}, header_rows={2})
     _merge_title_row(sheet, 1, 1, len(headers))
     _apply_usage_ratio_colors(sheet, [8], 3, sheet.max_row)
+    number_formats = {6: XLSX_CAPACITY_FORMAT, 7: XLSX_CAPACITY_FORMAT, 8: XLSX_PERCENT_FORMAT}
+    if include_growth:
+        number_formats.update({9: XLSX_CAPACITY_FORMAT, 10: XLSX_SIGNED_CAPACITY_FORMAT, 11: XLSX_PERCENT_FORMAT})
+    _apply_number_formats(sheet, number_formats, 3, sheet.max_row)
     sheet.freeze_panes = "A3"
     sheet.auto_filter.ref = f"A2:{get_column_letter(len(headers))}{sheet.max_row}"
     widths = {
@@ -1051,25 +1122,34 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
     risk, _ = _risk_level(cluster)
     labels = cluster.get("labels") or {}
     cluster_title = _cluster_full_name(cluster)
-    cluster_overview_headers = ["Tower", "集群", "当前容量", profile.window_growth_label, "风险", "90 天预测容量", "总容量", "已分配容量", "使用率", "预计耗尽天数"]
+    overview_unit = XLSX_CLUSTER_CAPACITY_UNIT
+    cluster_overview_headers = [
+        "Tower", "集群", f"当前容量({overview_unit})", f"{profile.window_growth_label}({overview_unit})", "风险",
+        f"90 天预测容量({overview_unit})", f"总容量({overview_unit})", f"已分配容量({overview_unit})",
+        "使用率", "预计耗尽天数",
+    ]
     cluster_overview_values = [
         labels.get("tower") or labels.get("tower_id") or "",
         labels.get("cluster") or labels.get("cluster_id") or "",
-        _xlsx_bytes_label(forecast.get("current")),
-        _xlsx_signed_bytes_label(_cluster_period_growth(cluster, profile.days)),
+        _xlsx_capacity_cell(forecast.get("current"), XLSX_CLUSTER_CAPACITY_DIVISOR),
+        _xlsx_capacity_cell(_cluster_period_growth(cluster, profile.days), XLSX_CLUSTER_CAPACITY_DIVISOR),
         risk,
-        _xlsx_bytes_label(forecast.get("forecast_90d")),
-        _xlsx_bytes_label(cluster.get("total")),
-        _xlsx_bytes_label(cluster.get("allocated")),
-        _percent_label(_cluster_used_ratio(cluster)),
-        _days_label(forecast.get("exhaustion_days")),
+        _xlsx_capacity_cell(forecast.get("forecast_90d"), XLSX_CLUSTER_CAPACITY_DIVISOR),
+        _xlsx_capacity_cell(cluster.get("total"), XLSX_CLUSTER_CAPACITY_DIVISOR),
+        _xlsx_capacity_cell(cluster.get("allocated"), XLSX_CLUSTER_CAPACITY_DIVISOR),
+        _cluster_used_ratio(cluster),
+        _xlsx_days_cell(forecast.get("exhaustion_days")),
     ]
     notice_text = _profile_sample_notice(report, profile)
     note_text = "* 注：周期初始容量指统计周期起始时虚拟机的物理占用容量；若机器在周期内新建，则为建机首次采样容量。"
     window_label = _vm_sample_window_label(vms, report)
     left_sub_title = f"{profile.vm_growth_title} 增长量全部虚拟机（按增长量降序，统计窗口：{window_label}）"
     right_sub_title = f"{profile.vm_growth_title} 增长率全部虚拟机（按增长率降序，统计窗口：{window_label}）"
-    headers = ["VM", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率"]
+    vm_unit = XLSX_VM_CAPACITY_UNIT
+    headers = [
+        "VM", "所有者", "虚拟机组", f"分配空间({vm_unit})", f"当前容量({vm_unit})", "使用率",
+        f"周期初始容量({vm_unit})", f"增长量({vm_unit})", "增长率",
+    ]
 
     # 第 1 行：集群全称大标题（左 1..9，右 11..19）及返回执行摘要链接（J1 与 T1）
     sheet.cell(row=1, column=1).value = cluster_title
@@ -1136,6 +1216,24 @@ def _write_cluster_vm_sheet(sheet, cluster: dict[str, Any], vms: list[dict[str, 
         name_width=_xlsx_name_column_width(
             [(vm.get("labels") or {}).get("vm") for vm in vms], min_width=52
         ),
+    )
+    _apply_number_formats(
+        sheet,
+        {3: XLSX_CAPACITY_FORMAT, 4: XLSX_SIGNED_CAPACITY_FORMAT, 6: XLSX_CAPACITY_FORMAT, 7: XLSX_CAPACITY_FORMAT,
+         8: XLSX_CAPACITY_FORMAT, 9: XLSX_PERCENT_FORMAT, 10: XLSX_DAYS_FORMAT,
+         13: XLSX_CAPACITY_FORMAT, 14: XLSX_SIGNED_CAPACITY_FORMAT, 16: XLSX_CAPACITY_FORMAT,
+         17: XLSX_CAPACITY_FORMAT, 18: XLSX_CAPACITY_FORMAT, 19: XLSX_PERCENT_FORMAT, 20: XLSX_DAYS_FORMAT},
+        3,
+        3,
+    )
+    _apply_number_formats(
+        sheet,
+        {4: XLSX_CAPACITY_FORMAT, 5: XLSX_CAPACITY_FORMAT, 6: XLSX_PERCENT_FORMAT, 7: XLSX_CAPACITY_FORMAT,
+         8: XLSX_SIGNED_CAPACITY_FORMAT, 9: XLSX_PERCENT_FORMAT,
+         14: XLSX_CAPACITY_FORMAT, 15: XLSX_CAPACITY_FORMAT, 16: XLSX_PERCENT_FORMAT, 17: XLSX_CAPACITY_FORMAT,
+         18: XLSX_SIGNED_CAPACITY_FORMAT, 19: XLSX_PERCENT_FORMAT},
+        8,
+        end_row,
     )
     _apply_usage_ratio_colors(sheet, [9, 19], 3, 3)      # 集群概览行「使用率」
     _apply_usage_ratio_colors(sheet, [6, 16], 8, end_row)  # 左右双轨 VM 表「使用率」
@@ -1279,11 +1377,10 @@ def _apply_cluster_sheet_layout(sheet, *, end_row: int, name_width: float | None
             first_c = sheet.cell(row=r, column=1 + offset)
             if first_c.value is None or first_c.value == "":
                 continue
-            amt_val = sheet.cell(row=r, column=8 + offset).value
-            ratio_val = sheet.cell(row=r, column=9 + offset).value
-            amt = _parse_xlsx_bytes_label(amt_val)
-            rat = _parse_percent_label(ratio_val)
-            is_alert = _is_alert_vm({"growth_amount": amt, "growth_ratio": rat})
+            # 增长量为 GiB 真数值、增长率为比值真数值（Phase 79），换算回字节后判断
+            amt = _float_or_none(sheet.cell(row=r, column=8 + offset).value) or 0.0
+            rat = _float_or_none(sheet.cell(row=r, column=9 + offset).value) or 0.0
+            is_alert = _is_alert_vm({"growth_amount": amt * XLSX_VM_CAPACITY_DIVISOR, "growth_ratio": rat})
             for col in range(1, 10):
                 c_node = sheet.cell(row=r, column=col + offset)
                 if isinstance(c_node, MergedCell):
@@ -1366,24 +1463,22 @@ def _vm_xlsx_row(vm: dict[str, Any], *, include_cluster: bool) -> list[Any]:
         allocated_num = float(allocated) if allocated is not None else None
     except (TypeError, ValueError):
         allocated_num = None
-    if current_num is not None and allocated_num and allocated_num > 0:
-        used_ratio_label = _percent_label(current_num / allocated_num)
-    else:
-        used_ratio_label = "-"
+    used_ratio = current_num / allocated_num if (current_num is not None and allocated_num and allocated_num > 0) else None
 
     row: list[Any] = []
     if include_cluster:
         row.extend([labels.get("tower") or labels.get("tower_id") or "", labels.get("cluster") or labels.get("cluster_id") or ""])
+    # Phase 79：容量/百分比改为真数值（单位见表头）
     row.extend([
         labels.get("vm") or labels.get("vm_name") or labels.get("vm_id") or "",
         labels.get("owner") or "-",
         labels.get("folder_name") or "-",
-        _xlsx_bytes_label(allocated) if (allocated_num and allocated_num > 0) else "-",
-        _xlsx_bytes_label(current),
-        used_ratio_label,
-        _xlsx_bytes_label(vm.get("previous_value")),
-        _xlsx_signed_bytes_label(vm.get("growth_amount")),
-        _percent_label(vm.get("growth_ratio")),
+        _xlsx_capacity_cell(allocated, XLSX_VM_CAPACITY_DIVISOR) if (allocated_num and allocated_num > 0) else "-",
+        _xlsx_capacity_cell(current, XLSX_VM_CAPACITY_DIVISOR),
+        used_ratio if used_ratio is not None else "-",
+        _xlsx_capacity_cell(vm.get("previous_value"), XLSX_VM_CAPACITY_DIVISOR),
+        _xlsx_capacity_cell(vm.get("growth_amount"), XLSX_VM_CAPACITY_DIVISOR),
+        _xlsx_ratio_cell(vm.get("growth_ratio")),
     ])
     return row
 
@@ -1394,8 +1489,9 @@ def _style_vm_rows(sheet, start_row: int, end_row: int, column_count: int) -> No
     fill = PatternFill(fill_type="solid", fgColor=VM_ALERT_FILL)
     for row_index in range(start_row, end_row + 1):
         values = [sheet.cell(row=row_index, column=column).value for column in range(1, column_count + 1)]
-        amount = _parse_xlsx_bytes_label(values[-2]) if len(values) >= 2 else 0
-        ratio = _parse_percent_label(values[-1]) if values else 0
+        # 增长量为 GiB 真数值、增长率为比值真数值（Phase 79），换算回字节后判断
+        amount = (_float_or_none(values[-2]) or 0.0) * XLSX_VM_CAPACITY_DIVISOR if len(values) >= 2 else 0.0
+        ratio = (_float_or_none(values[-1]) or 0.0) if values else 0.0
         if _is_alert_vm({"growth_amount": amount, "growth_ratio": ratio}):
             for column in range(1, column_count + 1):
                 sheet.cell(row=row_index, column=column).fill = fill

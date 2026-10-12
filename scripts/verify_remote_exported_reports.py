@@ -8,6 +8,18 @@ from openpyxl import load_workbook
 import os
 BASE_URL = os.environ.get("SMARTX_API_URL") or (sys.argv[1] if len(sys.argv) > 1 else "http://10.20.11.3:8000")
 
+
+def _has(headers, name: str) -> bool:
+    """表头可能带单位后缀（如「分配空间(GiB)」），故按包含关系判断。"""
+    return any(name in str(item) for item in headers)
+
+
+def _index_of(headers, name: str) -> int:
+    for index, item in enumerate(headers):
+        if name in str(item):
+            return index
+    raise AssertionError(f"表头缺失「{name}」: {headers}")
+
 def main():
     print("1. 正在登录平台...")
     login_data = json.dumps({"username": "admin", "password": "password"}).encode("utf-8")
@@ -65,12 +77,12 @@ def main():
     trend = wb["容量趋势"]
     headers_trend = [trend.cell(row=3, column=col).value for col in range(1, 12)]
     print(f" [Excel 容量趋势] 表头 11 列: {headers_trend}")
-    assert "总容量" in headers_trend, "容量趋势缺失总容量！"
-    assert "已分配容量" in headers_trend, "容量趋势缺失已分配容量！"
-    assert "已分配率" in headers_trend, "容量趋势缺失已分配率！"
-    col_total = headers_trend.index("总容量") + 1
-    col_alloc = headers_trend.index("已分配容量") + 1
-    col_alloc_ratio = headers_trend.index("已分配率") + 1
+    assert _has(headers_trend, "总容量"), "容量趋势缺失总容量！"
+    assert _has(headers_trend, "已分配容量"), "容量趋势缺失已分配容量！"
+    assert _has(headers_trend, "已分配率"), "容量趋势缺失已分配率！"
+    col_total = _index_of(headers_trend, "总容量") + 1
+    col_alloc = _index_of(headers_trend, "已分配容量") + 1
+    col_alloc_ratio = _index_of(headers_trend, "已分配率") + 1
     assert col_alloc == col_total + 1, "已分配容量应紧随总容量之后！"
     assert col_alloc_ratio == col_alloc + 1, "已分配率应紧随已分配容量之后！"
     # 验证容量趋势集群名称为纯文本（无多余跳转）
@@ -82,10 +94,10 @@ def main():
     top_sheet = wb["VM增长TOP100"]
     top_headers_left = [top_sheet.cell(row=4, column=col).value for col in range(1, 12)]
     print(f" [Excel VM增长TOP100] 左表头 11 列: {top_headers_left}")
-    assert top_headers_left == ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率", "风险"], f"TOP100 左表头不匹配: {top_headers_left}"
+    assert top_headers_left == ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间(GiB)", "当前容量(GiB)", "使用率", "周期初始容量(GiB)", "增长量(GiB)", "增长率", "风险"], f"TOP100 左表头不匹配: {top_headers_left}"
     top_headers_right = [top_sheet.cell(row=4, column=col).value for col in range(13, 23)]
     print(f" [Excel VM增长TOP100] 右表头 10 列: {top_headers_right}")
-    assert top_headers_right == ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间", "当前容量", "使用率", "周期初始容量", "增长量", "增长率"], f"TOP100 右表头不匹配: {top_headers_right}"
+    assert top_headers_right == ["排名", "虚拟机名称", "所有者", "虚拟机组", "分配空间(GiB)", "当前容量(GiB)", "使用率", "周期初始容量(GiB)", "增长量(GiB)", "增长率"], f"TOP100 右表头不匹配: {top_headers_right}"
     # 验证第 2 行的说明与向右滑动引导提示
     assert "周期初始容量" in str(top_sheet["A2"].value or ""), "TOP100 第2行缺失「周期初始容量说明」！"
     assert top_sheet["G2"].value == "向右滑动查看增长率榜单 ▶", f"TOP100 第2行 G2 预期为 '向右滑动查看增长率榜单 ▶'，实际为 '{top_sheet['G2'].value}'"
@@ -104,7 +116,7 @@ def main():
             assert "周期初始容量" in str(detail_sheet["A2"].value or ""), f"{s_name} 第2行缺失「周期初始容量」说明！"
             detail_headers = [detail_sheet.cell(row=3, column=col).value for col in range(1, 14)]
             print(f" [Excel {s_name}] 表头 13 列: {detail_headers}")
-            assert "分配空间" in detail_headers and "使用率" in detail_headers and "周期初始容量" in detail_headers, f"{s_name} 缺失关键列！"
+            assert _has(detail_headers, "分配空间") and _has(detail_headers, "使用率") and _has(detail_headers, "周期初始容量"), f"{s_name} 缺失关键列！"
             print(f" [Excel {s_name} 第一台 VM] 名称: {detail_sheet['B4'].value}, 分配空间: {detail_sheet['G4'].value}, 当前容量: {detail_sheet['H4'].value}, 使用率: {detail_sheet['I4'].value}")
 
     # 3.5 新建 VM Sheet
@@ -113,9 +125,9 @@ def main():
             sheet = wb[sheet_name]
             headers_new = [sheet.cell(row=2, column=col).value for col in range(1, 10)]
             print(f" [Excel {sheet_name}] 表头 9 列: {headers_new}")
-            assert "分配空间" in headers_new, f"{sheet_name} 缺失「分配空间」！"
-            assert "当前容量" in headers_new, f"{sheet_name} 缺失「当前容量」！"
-            assert "使用率" in headers_new, f"{sheet_name} 缺失「使用率」！"
+            assert _has(headers_new, "分配空间"), f"{sheet_name} 缺失「分配空间」！"
+            assert _has(headers_new, "当前容量"), f"{sheet_name} 缺失「当前容量」！"
+            assert _has(headers_new, "使用率"), f"{sheet_name} 缺失「使用率」！"
             time_val = sheet.cell(row=3, column=9).value
             if time_val:
                 assert "T" not in str(time_val) and "+00:00" not in str(time_val), f"{sheet_name} 首次出现时间未正确格式化: {time_val}"
@@ -128,7 +140,7 @@ def main():
         cs = wb[c_name]
         head2 = [cs.cell(row=2, column=col).value for col in range(1, 11)]
         print(f" [Excel 集群 {c_name}] 头部第 2 行: {head2}")
-        assert "已分配容量" in head2, f"集群 {c_name} 头部缺失「已分配容量」！"
+        assert _has(head2, "已分配容量"), f"集群 {c_name} 头部缺失「已分配容量」！"
         # 查找 VM 表头
         vm_headers = None
         for r in range(5, cs.max_row + 1):
@@ -137,13 +149,13 @@ def main():
                 break
         if vm_headers:
             print(f" [Excel 集群 {c_name}] 左侧 VM 表头 9 列: {vm_headers}")
-            assert "分配空间" in vm_headers, f"集群 {c_name} VM 表头缺失「分配空间」！"
-            assert "使用率" in vm_headers, f"集群 {c_name} VM 表头缺失「使用率」！"
+            assert _has(vm_headers, "分配空间"), f"集群 {c_name} VM 表头缺失「分配空间」！"
+            assert _has(vm_headers, "使用率"), f"集群 {c_name} VM 表头缺失「使用率」！"
         # 验证右侧对称集群信息与右侧 VM 表头
         right_head2 = [cs.cell(row=2, column=col).value for col in range(11, 21)]
-        assert "已分配容量" in right_head2, f"集群 {c_name} 右侧头部缺失「已分配容量」！"
+        assert _has(right_head2, "已分配容量"), f"集群 {c_name} 右侧头部缺失「已分配容量」！"
         right_vm_headers = [cs.cell(row=7, column=col).value for col in range(11, 20)]
-        assert "分配空间" in right_vm_headers and "使用率" in right_vm_headers, f"集群 {c_name} 右侧 VM 表头缺失「分配空间」或「使用率」！"
+        assert _has(right_vm_headers, "分配空间") and _has(right_vm_headers, "使用率"), f"集群 {c_name} 右侧 VM 表头缺失「分配空间」或「使用率」！"
         print(f" [Excel 集群 {c_name}] 右侧头部第 2 行: {right_head2}")
         print(f" [Excel 集群 {c_name}] 右侧 VM 表头 9 列: {right_vm_headers}")
 
