@@ -6620,3 +6620,29 @@ Prometheus 组件升级演练）；task_plan 新增 **Phase 81**（立项，设�
 **动作（本轮）**：findings.md 三处修订（②归因 + ③证据/叙事 + ④挂靠）；pending-tasks.md 新增 **#88**（P0：DockerHub tag 发布前决策）与 **#89**（P1：任务终态收敛竞态合并立项）；task_plan.md 新增 **Phase 80**（#89 立项、设计待写）与对照表行。产品代码未动（CLI/清理服务修法待 Phase 80 设计批准后实施）。发现时工作树另有上午会话未提交的 .12/.14 台账与 Phase 79 收尾记录，一并归档提交。
 
 **证据索引**：findings.md 2026-10-13/14 两节；docs/upgrade-package-ledger.md 2026-10-14 两节；registry API 直查（token→manifest→config blob）；git tag 比对（v0.5.1u2/v0.5.2/v0.5.3）。
+
+---
+
+## 2026-10-14（续七）#87 采集接口异步化实施完成（提交 `131ebc9`）
+
+**改动（7 文件）**：
+- `backend/app/v2/config.py`：新增 `collection_run_async`（env `SMARTX_COLLECTION_RUN_ASYNC`，默认异步；`0` 回退同步）。
+- `backend/app/v2/collection/service.py`：`run_manual_collection` 拆成「建 run + `_execute_collection`」；
+  新增 `submit_manual_collection`（单飞：已有 `running` 记录 → **409，不排队**）+ 后台线程
+  `_execute_collection_async`（任何未捕获异常必须落 `failed` 终态，**不允许线程静默死掉**）+
+  `_running_run_id` / `_default_max_attempts`。
+- `backend/app/v2/api/collection.py`：`POST /api/collection/run` 默认异步 → **202** + `status=running`
+  + `run_id`；同步回退分支保留 200 终态。
+- `frontend/src/services/api.ts`：新增 `collectionRun(runId)`（轮询**既有** `GET /api/collection/runs/{id}`）。
+- `frontend/src/pages/DashboardPage.tsx`：提交后若 `status=running` → 3s 轮询（上限 240s）；
+  **后台仍在跑时不谎报失败**（诚实兜底文案）。
+- `frontend/src/pages/DashboardPage.test.tsx`：mock 补 `collectionRun` + 假定时器轮询用例 1 例。
+- 新增 `backend/tests/test_v2_collection_async.py`（3 例）。
+
+**测试**：后端 `test_v2_collection_async` **3/3**（提交 <5s 返回 202+running / 后台收敛到 success 且
+写 finished_at / 并发提交 409 且不产生新记录 / env=0 回退同步）；采集相关 44 tests（唯一失败 =
+`test_v2_dashboard_vm…`，**今日已定性的存量失败**，本地与 `.3` 容器双对照确认与本次无关）；
+前端 `tsc -b` exit 0 + **vitest 13 文件 / 127 passed**。
+
+**与设计的偏差**：无。轮询端点已存在使改动面比原估更小。
+**仅剩**：`.3` 真机复验（点「立即采集」→ 即时返回 → 任务中心/采集状态显示终态，无 30s 超时误报）。
