@@ -11,7 +11,8 @@ vi.mock("../services/api", async () => ({
       clusters: [],
       towers: []
     }),
-    runCollection: vi.fn()
+    runCollection: vi.fn(),
+    collectionRun: vi.fn()
   },
   formatBytes: (value: number) => `${value} B`
 }));
@@ -503,6 +504,61 @@ describe("DashboardPage", () => {
         })
       );
     });
+  });
+
+  it("polls the submitted collection run until it settles (#87 async)", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(api.runCollection).mockResolvedValueOnce({
+        run_id: 42,
+        status: "running",
+        message: "采集已提交，正在后台执行；请在采集状态或任务中心查看结果。"
+      });
+      vi.mocked(api.collectionRun)
+        .mockResolvedValueOnce({ id: 42, status: "running", message: "采集中", finished_at: null })
+        .mockResolvedValueOnce({ id: 42, status: "success", message: "采集完成：2 个集群，10 台虚拟机。", finished_at: "2026-10-14T12:00:00Z" });
+      const addTask = vi.fn();
+      const updateTask = vi.fn();
+      render(
+        <DashboardPage
+          summary={{
+            kpis: { tower_count: 1, cluster_count: 1, vm_count: 0, used_bytes: 0, total_bytes: 0, used_ratio: 0 },
+            top_vms: [],
+            clusters: [],
+            towers: []
+          }}
+          scope={{ type: "all" }}
+          onSummary={vi.fn()}
+          onSelectVm={vi.fn()}
+          addTask={addTask}
+          updateTask={updateTask}
+        />
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /立即采集/ }));
+
+      // 第一轮：后台仍在跑 → 任务保持 running（不谎报）
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(api.collectionRun).toHaveBeenCalledWith(42);
+      expect(updateTask).not.toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ status: "succeeded" })
+      );
+
+      // 第二轮：终态到达 → 用终态 message 收尾（假定时器下不用 waitFor，直接断言 + 冲刷微任务）
+      await vi.advanceTimersByTimeAsync(3_000);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(updateTask).toHaveBeenCalledWith(
+        expect.stringMatching(/^collection-run-local-/),
+        expect.objectContaining({
+          status: "succeeded",
+          progress: 100,
+          detail: "采集完成：2 个集群，10 台虚拟机。"
+        })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows last successful collection time and stale data notice when collection is stale", () => {

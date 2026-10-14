@@ -336,6 +336,10 @@ export const api = {
       timeoutMessage: COLLECTION_TIMEOUT_MESSAGE
     });
   },
+  // #87：提交后 run 状态为 running，前端轮询本端点直到终态（success/partial_failed/failed）。
+  async collectionRun(runId: number): Promise<{ id: number; status: string; message: string; finished_at: string | null }> {
+    return request<{ id: number; status: string; message: string; finished_at: string | null }>(`/api/collection/runs/${runId}`);
+  },
   async vms(scope?: DashboardScope): Promise<MetricItem[]> {
     const params = scopedParams(scope);
     const query = params.toString();

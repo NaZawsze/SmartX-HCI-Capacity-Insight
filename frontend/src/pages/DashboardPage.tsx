@@ -19,6 +19,11 @@ interface DashboardPageProps {
   updateTask?: (id: string, patch: Partial<Omit<AppTask, "id" | "createdAt">>) => void;
 }
 
+// #87：异步采集的轮询节奏——3s 一次、上限 240s（同步超时同口径）。
+// 轮询的是既有 GET /api/collection/runs/{run_id}；后台仍在跑时不谎报失败。
+const COLLECTION_POLL_INTERVAL_MS = 3_000;
+const COLLECTION_POLL_TIMEOUT_MS = 240_000;
+
 export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRiskReport, onOpenRiskVms, addTask, updateTask }: DashboardPageProps) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -55,15 +60,37 @@ export function DashboardPage({ summary, scope, onSummary, onSelectVm, onOpenRis
     });
     try {
       const result = await api.runCollection(localTaskId);
-      setMessage(result.message);
+      // #87：异步提交（返回 status=running）→ 轮询既有 /collection/runs/{run_id} 直到终态；
+      // 同步回退（SMARTX_COLLECTION_RUN_ASYNC=0）时 result.status 已是终态，不轮询。
+      let finalStatus = result.status;
+      let finalMessage = result.message;
+      if (finalStatus === "running") {
+        updateTask?.(localTaskId, { progress: 20, logs: ["采集已提交，后台执行中"] });
+        const deadline = Date.now() + COLLECTION_POLL_TIMEOUT_MS;
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => window.setTimeout(resolve, COLLECTION_POLL_INTERVAL_MS));
+          const detail = await api.collectionRun(result.run_id);
+          if (detail.status !== "running") {
+            finalStatus = detail.status;
+            finalMessage = detail.message;
+            break;
+          }
+        }
+        if (finalStatus === "running") {
+          // 诚实兜底：后台仍在跑，不谎报失败（与旧「请求超时」误报的区别就在这）
+          finalMessage = "采集仍在后台执行（等待超时），请稍后在采集状态或任务中心查看结果。";
+        }
+      }
+      const succeeded = finalStatus === "success";
+      setMessage(finalMessage);
       updateTask?.(localTaskId, {
-        status: result.status === "success" ? "succeeded" : "failed",
+        status: succeeded ? "succeeded" : "failed",
         progress: 100,
-        detail: result.message,
-        severity: result.status === "success" ? "info" : "warning",
-        unhandled: result.status !== "success",
+        detail: finalMessage,
+        severity: succeeded ? "info" : "warning",
+        unhandled: !succeeded,
         clearable: true,
-        logs: [result.message]
+        logs: [finalMessage]
       });
       onSummary(await api.summary(scope));
     } catch (exc) {

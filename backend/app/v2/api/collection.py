@@ -103,11 +103,24 @@ bearer = HTTPBearer(auto_error=False)
 
 @router.post("/api/collection/run", response_model=CollectionRunResponse)
 def run_collection(
+    response: Response,
     _: Annotated[CurrentUser, Depends(require_user)],
     collection: Annotated[CollectionService, Depends(get_collection_service)],
     payload: Annotated[Optional[CollectionRunRequest], Body()] = None,
 ) -> CollectionRunResponse:
     task_id = payload.task_id if payload else None
+    # #87：默认**异步**——提交即返回 run_id（202），前端轮询 `GET /api/collection/runs/{run_id}`。
+    # 同步长请求 80–111s 必然撞前端超时误报（后端其实继续跑完），故异步为默认。
+    # `SMARTX_COLLECTION_RUN_ASYNC=0` 回退同步（排障/老客户端兼容）。
+    if collection.settings.collection_run_async:
+        run_id = collection.submit_manual_collection(task_id=task_id)
+        response.status_code = 202
+        return CollectionRunResponse(
+            run_id=run_id,
+            status="running",
+            message="采集已提交，正在后台执行；请在采集状态或任务中心查看结果。",
+            task_id=task_id or f"collection-run-{run_id}",
+        )
     result = collection.run_manual_collection(task_id=task_id)
     return CollectionRunResponse(run_id=result.run_id, status=result.status, message=result.message, task_id=task_id or f"collection-run-{result.run_id}")
 

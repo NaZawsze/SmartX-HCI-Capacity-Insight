@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
+import threading
 import uuid
 from dataclasses import dataclass
 from typing import Protocol
+
+from fastapi import HTTPException
 
 from app.v2.config import V2Settings
 from app.v2.database import V2Database, row_to_dict
@@ -12,6 +16,8 @@ from app.v2.inventory.service import InventoryService
 from app.v2.metrics.formatter import ClusterCapacitySample, VmCapacitySample, merge_metrics_text, render_capacity_metrics
 from app.v2.tasks.models import TaskStatus, TaskType
 from app.v2.tasks.service import TaskService
+
+logger = logging.getLogger(__name__)
 
 
 class CloudTowerCollector(Protocol):
@@ -55,9 +61,104 @@ class CollectionService:
         target_filter: set[tuple[int, str]] | None = None,
         task_id: str | None = None,
     ) -> CollectionResult:
+        """**同步**执行一轮采集（调度/worker、升级后采集与回退路径用）。
+
+        API 手动采集默认走异步（`submit_manual_collection`，#87）；
+        `SMARTX_COLLECTION_RUN_ASYNC=0` 时 API 才回退到本方法。
+        """
+        cycle_id = cycle_id or f"collection-{uuid.uuid4().hex[:12]}"
+        if max_attempts is None:
+            max_attempts = self._default_max_attempts()
+        run_id = self._start_run(trigger=trigger, cycle_id=cycle_id, attempt=attempt, max_attempts=max_attempts)
+        return self._execute_collection(
+            run_id,
+            trigger=trigger,
+            cycle_id=cycle_id,
+            attempt=attempt,
+            max_attempts=max_attempts,
+            target_filter=target_filter,
+            task_id=task_id,
+        )
+
+    def submit_manual_collection(self, *, task_id: str | None = None) -> int:
+        """#87 异步化：提交后**立即返回 run_id**，采集在后台线程执行（前端轮询既有 `/runs/{id}`）。
+
+        单飞：已有 `running` 采集记录时拒绝（409）——语义与升级单飞一致，**不排队**。
+        """
+        running = self._running_run_id()
+        if running is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"已有采集任务在执行中（采集记录 #{running}），请等待其完成后再试。",
+            )
+        cycle_id = f"collection-{uuid.uuid4().hex[:12]}"
+        run_id = self._start_run(
+            trigger="manual",
+            cycle_id=cycle_id,
+            attempt=0,
+            max_attempts=self._default_max_attempts(),
+        )
+        threading.Thread(
+            target=self._execute_collection_async,
+            args=(run_id, cycle_id, task_id),
+            name=f"collection-run-{run_id}",
+            daemon=True,
+        ).start()
+        return run_id
+
+    def _execute_collection_async(self, run_id: int, cycle_id: str, task_id: str | None) -> None:
+        """后台执行一轮采集；任何未捕获异常都必须落 `failed` 终态（不允许线程静默死掉）。"""
+        try:
+            self._execute_collection(
+                run_id,
+                trigger="manual",
+                cycle_id=cycle_id,
+                attempt=0,
+                max_attempts=None,
+                target_filter=None,
+                task_id=task_id,
+            )
+        except Exception as exc:  # noqa: BLE001 - 后台线程异常必须落终态，否则前端永远等不到结果
+            logger.exception("collection: 后台执行异常（run=%s）", run_id)
+            message = f"采集异常：后台执行失败：{type(exc).__name__}: {exc}"
+            try:
+                self._finish_run(
+                    run_id,
+                    "failed",
+                    message,
+                    success_targets=[],
+                    failed_targets=[],
+                    published_targets=[],
+                )
+            except Exception:  # noqa: BLE001 - 落终态再失败只能记录
+                logger.exception("collection: 后台终态落库失败（run=%s）", run_id)
+
+    def _default_max_attempts(self) -> int:
         towers = [tower for tower in self.inventory.list_towers() if tower.enabled]
-        max_attempts = max_attempts if max_attempts is not None else max((tower.collection_retry_max_attempts for tower in towers), default=0)
-        run_id = self._start_run(trigger=trigger, cycle_id=cycle_id or f"collection-{uuid.uuid4().hex[:12]}", attempt=attempt, max_attempts=max_attempts)
+        return max((tower.collection_retry_max_attempts for tower in towers), default=0)
+
+    def _running_run_id(self) -> int | None:
+        """最近一条仍在执行的采集记录（单飞判据）。"""
+        with self.database.connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM collection_runs WHERE status = 'running' ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        return int(row["id"]) if row else None
+
+    def _execute_collection(
+        self,
+        run_id: int,
+        *,
+        trigger: str,
+        cycle_id: str,
+        attempt: int,
+        max_attempts: int | None,
+        target_filter: set[tuple[int, str]] | None,
+        task_id: str | None,
+    ) -> CollectionResult:
+        towers = [tower for tower in self.inventory.list_towers() if tower.enabled]
+        if max_attempts is None:
+            max_attempts = max((tower.collection_retry_max_attempts for tower in towers), default=0)
         task_id = self._start_task(run_id, trigger=trigger, task_id=task_id)
         # 采集前抓旧快照：落库时合并（49-37），失败/被过滤目标沿用最后已知样本，
         # 否则 API 手动采集路径会整体替换快照，把历史样本抹空导致看板归零。

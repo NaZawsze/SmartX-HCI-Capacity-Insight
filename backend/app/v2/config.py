@@ -126,6 +126,21 @@ class V2Settings:
         return self.exports_dir / "migrations"
 
     @property
+    def collection_run_async(self) -> bool:
+        """#87：手动采集接口异步化开关（默认开）。
+
+        `SMARTX_COLLECTION_RUN_ASYNC=0` 回退同步（排障/老客户端兼容）。
+        同步模式长请求 80–111s 会撞前端超时误报，故默认异步：
+        提交即返回 run_id，前端轮询 `GET /api/collection/runs/{run_id}`。
+        """
+        return os.environ.get("SMARTX_COLLECTION_RUN_ASYNC", "1").strip().lower() not in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }
+
+    @property
     def imports_dir(self) -> Path:
         return self.exports_dir / "imports"
 
