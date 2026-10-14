@@ -6570,6 +6570,32 @@ Prometheus 组件升级演练）；task_plan 新增 **Phase 81**（立项，设�
 
 ---
 
+## 2026-10-14（续六）组件目录「执行者」口径修正（显示层）
+
+**来源**：用户追问「Prometheus 在哪升级、也是 runner 吗」时核查组件目录，发现 runner 那项的
+`executor` 仍写 `web-api`，与 v0.5.4「runner 自换」（web-api 只收包/验 SHA/触发）口径不符
+——前端「执行者」行会照实显示 web-api。
+
+**改动（3 文件，纯显示层）**：
+- `backend/app/v2/upgrade/service/intake.py`：runner 组件目录项
+  `executor: "web-api"` → `"upgrade-runner"`；`status_message` → 「runner 自换（web-api 收包、
+  校验并触发），不修改业务库和历史指标。」（prometheus 那项本就写 upgrade-runner，不动）
+- `frontend/src/components/service/shared.tsx`：`defaultComponentInfos` 兜底数据同步。
+- `frontend/src/pages/ServicePage.test.tsx`：两处组件目录夹具 executor 同步；并把
+  `getByText("upgrade-runner")` 改为按 `role+aria-label` 断言卡片（改后「执行者」行也显示
+  upgrade-runner，getByText 会命中多元素而抛错——已在注释里写明原因）。
+
+**验证**：后端 `test_v2_upgrade` + `test_upgrade_protocol` + `test_runner_presence_during_execution`
+**80 tests OK**；前端完整门禁 **tsc exit 0、vitest 13 文件 / 126 tests passed**（本地 node 22.22.2）。
+
+**顺带核实（离线组件包）**：`scripts/build_prometheus_component_package.py` 默认只声明
+`{"service","image"}`（不含镜像文件），加 `--offline-image` 才 `docker save` 出
+`images/prometheus.tar` 并写入 manifest 的 `archive`+`sha256`；offline 变体的 prometheus 服务
+是 `pull_policy: never`（不许拉）→ **离线现场升级到新版本必须 `--offline-image`**，否则本地没有
+该镜像且不许拉 ⇒ 容器起不来、升级失败（失败安全、可回退）；online 变体无 `never` 限制，可按需拉。
+
+---
+
 ## 2026-10-14（续二）四条「产品缺口」核查：status-404 归因修正 + DockerHub registry 独立复核 + 立项 #88/#89
 
 背景：用户质询 findings.md 2026-10-13/14 节四条缺口「是真的吗」，逐条做代码/registry 级核查。结论：**①属实、②现象属实但归因写错、③属实且已独立复核、④仅现象记录根因未证实（本就是「待查」）**。

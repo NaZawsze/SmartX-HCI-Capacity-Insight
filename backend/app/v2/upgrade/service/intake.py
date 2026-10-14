@@ -216,9 +216,9 @@ class IntakeMixin:
                     "capabilities": runner_capabilities,
                     "heartbeat_at": runner_state.get("heartbeat_at") if runner_state else None,
                     "compatible": compatible,
-                    "executor": "web-api",
+                    "executor": "upgrade-runner",
                     "upgradeable": True,
-                    "status_message": "由 web-api 执行自升级，不修改业务库和历史指标。",
+                    "status_message": "runner 自换（web-api 收包、校验并触发），不修改业务库和历史指标。",
                 },
                 {
                     "type": "observability",

@@ -87,7 +87,7 @@ function mockServicePageBootstrap() {
         display_name: "升级中心组件",
         service: "upgrade-runner",
         version: "v0.3.0",
-        executor: "web-api",
+        executor: "upgrade-runner",
         upgradeable: true,
         capabilities: ["backup.create", "image.load", "files.sync", "compose.override", "compose.apply", "health.http", "rollback.restore"]
       },
@@ -679,7 +679,11 @@ describe("ServicePage upgrade center", () => {
     fireEvent.click(screen.getByRole("button", { name: "组件升级" }));
 
     expect(await screen.findByText("升级中心组件")).toBeInTheDocument();
-    expect(screen.getByText("upgrade-runner")).toBeInTheDocument();
+    // 用 role+aria-label 断言卡片本身：2026-10-14 起「执行者」行也显示 upgrade-runner，
+    // getByText("upgrade-runner") 会命中两处（卡片 service 文本 + 执行者行）而抛多元素错误。
+    expect(
+      screen.getByRole("button", { name: /升级中心组件.*upgrade-runner/s })
+    ).toBeInTheDocument();
     expect(screen.getByText("观测组件")).toBeInTheDocument();
     expect(screen.getByText("prometheus")).toBeInTheDocument();
     expect(screen.getAllByText("v0.3.0").length).toBeGreaterThanOrEqual(1);
@@ -974,7 +978,7 @@ describe("ServicePage upgrade center", () => {
       display_name: "升级中心组件",
       service: "upgrade-runner",
       version: "v0.3.0",
-      executor: "web-api",
+      executor: "upgrade-runner",
       upgradeable: true,
       compatible: true
     };
