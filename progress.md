@@ -6351,3 +6351,123 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
     - 底部 Tab 色彩体系化呈现；
     - 页眉页脚配置完成；
     - TOP3 排名加粗深蓝。
+
+---
+
+### 2026-10-12 Phase 79 收尾：Word 还原 + Excel 可读性优化（12 轮，已提交 dev2）
+
+**决策（2026-10-12）**：用户审阅 Phase 79 初期 Word 改造后决定 **Word 不做改造（全部还原）**，优化重心转到 **Excel 排版与配色**。
+
+**Word 还原（提交 `0043415`）**：`git checkout beforeworkbuddydf41f -- word.py common.py test_v2_report_exports.py`；Word 导出代码回到改造前状态（字号/行距/边框/使用率条/单位均为原样），测试回到 **29 项全绿**。设计/计划文档保留备查（问题清单与取值口径仍有参考价值）。
+
+**Excel 优化（12 轮，提交链 `95fe096` → `a3a99f7`，均入 dev2，未推 origin）**：
+- `95fe096` 使用率列按 70%/80% 上色 + Tab 颜色规范化（alpha 00→FF）；
+- `8b43f5c` 执行摘要观感优化 + 占用率阈值统一 **80%**（最终全平台统一 **70% 黄 / 80% 红**）；
+- `e94eda5` / `abb2382` 执行摘要字号与行高对齐（容纳 12pt 折行，修复文字被压住）；
+- `8ea47d3` 合并区行高按内容自适应（关键认知：Excel 合并单元格**不**自动适应折行高度，必须显式算高）；
+- `3126b6a` 逐 Sheet 审计修复（长文本列宽自适应 + 打印布局补齐）；
+- `9b4c7aa` 双轨 Sheet 改用两段打印区域（不拆表，打印左右各自成页）；
+- `ac62fc9` 容量/百分比列改为**真数值 + 表头带单位**（可排序/筛选/透视；约束：同列须统一单位才能正确排序）；
+- `4b9c091` 列宽收紧 + 长文本「缩小字体填充」，打印缩放提升；
+- `21aaca1` 封面补打印区域 + 小节标题字号统一 14pt；
+- `a3a99f7`（HEAD）带筛选的列表头为筛选按钮留位，按钮不再压住表头文字。
+- 测试由 29 项逐步增至 **34 项全绿**（新增 usage-ratio 配色、Tab alpha、执行摘要布局/风险色、数据质量行自适应、长文本防截断、双轨打印区等断言）。
+
+**验收（2026-10-12，`.3` 真机）**：容器内全量测试绿；`scripts/verify_remote_exported_reports.py` 端到端导出断言通过；桌面 `SmartX_存储容量分析报告_20261010.xlsx` 刷新覆盖。
+
+**已知未改（待用户定）**：封面 `客户名称：` 留空（payload 无客户名来源，Word 侧同为空格，留客户手填）；Word 侧 VM 列 85/70 阈值与 Excel 80/70 差异未再动（Word 已还原）。
+
+**状态**：Word 还原 + Excel 优化均已完成并提交 dev2，未推 origin。对照表（task_plan.md:111）状态已更新为「Word 已还原；Excel 已优化 12 轮」。
+
+---
+
+### 2026-10-13 v0.5.4 候选 CLI 升级链验证（.14，v0.5.1u2 基线）
+
+**候选**：平台包 `1e50d7ef59a6cf6cdfa0a538395e013d66654b3ba4226f263ba495d8b95c473c`（v0.5.4，含 Phase 79 报表优化 + upgrade_runner/ 改动），runner 组件 `v0.3.2`（US-40）。dev2 tree 全程 clean，未推 origin、未发布。
+
+**约束**：用户要求「只测试、不动代码、不发布」。经 `.3` 中继操作 `.14`（本机 IP 被 `.14` sshd 限流）。
+
+**基线重建（关键纠偏）**：首轮 v0.5.1u2 全新安装时 reset DB 写错路径（`/data/smartx-capacity-insight-data/app` 而非容器 `/data` 实际挂载的 `/data/smartx-storage-forecast/app`），导致运行中库未清、原 v0.5.4 老 admin 哈希（CREATED 2026-10-09）残留 → 升级后 `admin/password` 一度登录失败（**假象**）。改用正确路径 reset 后，干净 v0.5.1u2 安装 `admin/password` 直接登录成功，users.CREATED=当天。
+
+**升级链（US-40 先组件后平台）**：
+- J1 `v0.5.1u2 → v0.5.2`：health REACHED v0.5.2，runner v0.3.1 在跑，admin OK。
+- J2 `v0.5.2 → v0.5.3`：health REACHED v0.5.3，runner v0.3.1，admin OK。
+- J3 先组件 `v0.3.1 → v0.3.2`（US-40）：任务 `upgrade-805b0741f33d20c5` succeeded，runner 轮询到 v0.3.2、容器 running，admin OK。
+- J3 后平台 `v0.5.3 → v0.5.4`：health REACHED v0.5.4，runner v0.3.2 在跑，admin OK。
+- **FINAL**：`{"ok":true,"version":"v0.5.4","runner_version":"v0.3.2","checks":{"directories":true,"database":true,"prometheus":true}}`，5 容器均 v0.5.4，包 SHA `1e50d7ef…` 一致，admin OK。
+
+**结论**：v0.5.4 候选整条 CLI 升级链（含 US-40 先 runner 后平台）**验证通过**，admin 口令全程可用（产品 `_ensure_admin` 幂等不改口令，已证实无产品 bug）。
+
+**发现但未修（记 findings.md，待立项）**：
+1. **upgrade.sh 状态轮询误报（工具 bug）**：候选 `upgrade.sh` 在老升级中心（<v0.5.4）轮询 `GET /api/admin/upgrade/status/<task>` 返回 **404**，导致脚本误报「超时失败」——产品其实升级成功（用 `/api/system/health` 可验证）。验证时改轮询 health 绕过。
+2. **runner SIGKILL（137）（待根因）**：`.14` 上升级序列中 runner 容器 `Exited (137)`，宿主 RAM 充足、无 OOM，是升级/组件自换过程的 compose 操作所杀；以 runner 看门狗（掉了按目标版本拉回）保活后平台升级通过。需根因。
+
+**撤回前误判**：早期「admin 升级后锁死=发布阻断」结论已撤回——系错误 DB 路径造成的污染基线假象，非产品 bug。
+
+**证据**：`/tmp/release_test_evidence.md`（完整）；本机 dev2 tree clean。
+
+---
+
+### 2026-10-14 `.12`/`.14` CLI 升级链路重跑（用户约束：只测不改码；v0.5.4 之前全部网上下载；仅 v0.5.4 用 .3 候选包）
+
+**背景**：用户要求按项目升级链路测试要求，在 `.12`/`.14` 用「本次提交」重跑 CLI 升级链路。本地 dev2 HEAD=`a3a99f7`（VERSION=v0.5.4、RUNNER_VERSION=v0.3.2）。git 复核确认 Phase 79（8d110e5..a3a99f7）未碰 `upgrade_runner/`（最后一次 runner 变更是 v0.5.4 线的 US-40 `2bfb003`，已并入 v0.3.2），runner v0.3.2 从未发布（DockerHub 仅 v0.3.0/v0.3.1），随 v0.5.4 批次交付。
+
+**.3 打包（HEAD 源码 git archive 同步 + `build_release_delivery.sh --reuse-images`）**：
+- 平台包 v0.5.4 sha256 `ce58d060ade2ba1726eafc80415de7c8d84aeb2f26157bf3bf19e9e083935332`
+- runner 包 v0.3.2 sha256 `5e661abf1f63ee1f72c64be3d00563c00101cb82993e8203883daa365ced0bc1`
+- 三门禁全 PASS（版本/平台包身份/runner 交付一致性；包内镜像 actions.py md5 与仓库一致）
+
+**pre-v0.5.4 资产（网上下载 + SHA 校验）**：DockerHub v0.5.1u2/v0.3.1 安装镜像（.12 直连拉取；.14 连不上 DockerHub，需经 .3/.12 中转）+ GitHub Releases 官方 v0.5.2（`692aca8b…`）/v0.5.3（`ef3fab9f…`）升级包。
+
+**.12 链路（US-40 先组件后平台，全部成功）**：
+1. v0.5.1u2 全新安装（基线镜像用 GitHub Release v0.5.1u2 包内原始镜像 load——DockerHub 现 tag 已漂移自报 v0.5.2，见 findings）
+2. v0.5.1u2→v0.5.2（官方包）
+3. v0.5.2→v0.5.3（官方包，任务 `upgrade-d1f04583a31852c0` 11 步 succeeded、post-cleanup 6/6）
+4. **先组件** runner v0.3.1→v0.3.2（任务 `upgrade-b8c4954398e3e4e2` succeeded，产品组件升级流）
+5. **后平台** v0.5.3→v0.5.4（任务 `upgrade-0608974493276108` succeeded）
+
+**.12 8 项验收全过**：health ok v0.5.4/v0.3.2 三 checks true；5 容器（三件套 v0.5.4 + runner v0.3.2 + prometheus v2.55.1）；UI 200；DB integrity ok + `schema_migrations`=4（v0.5.4 迁移落库）；runner 未被降级（US-26）；admin/password 全程免 recover；legacy 清理到位。
+
+**过程中的环境事件与产品观察（均已绕过或修复，详见 findings.md 新增节）**：
+- `.12` 旧部署 DB 按演练基线重置（移走保留，未删）；磁盘从 8.8G 一路被升级产物吃到 0（100%），runner 因无法写状态反复 flap；最终用产品空间清理流程（cleanup-images 22.78GB + 逐任务 delete_package 1.975GB）恢复到 3.2G+ 完成末跳
+- `upgrade-6eabea06cf38f895`（v0.5.1u2→v0.5.2 成功但 CLI status-404 误报超时那跳）在 `tasks` 表留 running 孤儿行、task.json 已丢失 → 产品 cancel/recovery-fail/delete 均无法收敛 → `cleanup_artifacts` 被挡 6 小时（GHOST_TASK_STALE_SECONDS）；新升级不受影响（单飞守卫按租约判定）
+- .14 尚未开跑（.14 连不上 DockerHub，需镜像中转 + 同样的磁盘管理）
+
+**证据**：`.3` 构建日志 `/data/build-a3a99f7/build.log`；`.12` 链路日志 `/data/upgrade-test/{install12,chain12c,chain12final}.log`；包 SHA 登记见 `docs/upgrade-package-ledger.md`。dev2 tree 仅文档改动未提交（findings/progress/task_plan），未推 origin。
+
+## 2026-10-14（续）`.14` CLI 升级链路重跑完成（同候选 `ce58d060`/`5e661abf`）
+
+**.14 与 .12 的差异处理**：.14 不能直连 DockerHub → 全部 pre-v0.5.4 资产经 `.12`/`.3` 中转（v0.5.1u2 镜像用 GitHub Release 包内嵌原始镜像，避开 DockerHub tag 漂移；官方升级包经 gh→.3→.14，SHA 复核一致）；磁盘同样紧张 → 走产品 `cleanup-images`（释放 15.13GB）+ 清理自有脚手架。
+
+**链路结果（.14，US-40 先组件后平台，全部产品流）**：v0.5.1u2 新装 → v0.5.2 → v0.5.3（`e031c587` succeeded）→ runner v0.3.1→v0.3.2（`598caacc`，组件升级流）→ v0.5.4 平台（`3fb4c1c8` succeeded）。8 项验收全过（health ok v0.5.4/v0.3.2、5 容器、UI 200、integrity ok、schema_migrations=4、runner 未降级、admin 免 recover、legacy 已清）。
+
+**重要过程教训（已入 findings）**：首轮 chain14b 的自动化看门狗越界——runner 轮询未达时 `sed compose + full reset` 强切版本（非产品流），平台升级镜像刚到 v0.5.4 又立刻 reset 把版本打回 v0.5.3。**纪律修正：升级流程期间零 reset 零 sed**；升级后到镜像 tag 不算完，继续等任务终态收敛。修正后（chain14c）全链一次通过。另：.14 JUMP3b 后出现幽灵 running 任务 `99996849a33c05af`（task.json 被 post-cleanup 删除、任务行残留），cancel/recovery 均返回「任务不存在」——**与 .12 `6eabea06` 同款，跨机复现坐实**（挡 cleanup 6h，不影响新升级）。
+
+**结论**：v0.5.4 候选（HEAD `a3a99f7` 构建 `ce58d060`）在 .12、.14 两台机器上完成 CLI 升级链路全验证（US-40 顺序、数据完整、admin 口令全程可用），附产品缺口清单（ghost running 任务、status-404 误报、DockerHub tag 漂移）待立项。未发布、未推 origin。
+
+---
+
+## 2026-10-14（续二）四条「产品缺口」核查：status-404 归因修正 + DockerHub registry 独立复核 + 立项 #88/#89
+
+背景：用户质询 findings.md 2026-10-13/14 节四条缺口「是真的吗」，逐条做代码/registry 级核查。结论：**①属实、②现象属实但归因写错、③属实且已独立复核、④仅现象记录根因未证实（本就是「待查」）**。
+
+**① 幽灵 running 任务行（.12 `6eabea06` / .14 `99996849`）——属实**，代码机制逐条对上：
+- `cleanup/service.py:189` `GHOST_TASK_STALE_SECONDS=6*3600`，221 行 `stale_seconds` 超阈才放行 → 挡清理 6h；
+- task.json 丢失后 `cancel`（只放 pending，`execution.py`）/`recovery/fail`（`_set_recovery_command` 首行 `_read_task_file`）/`status()` 均 404「升级任务不存在。」（`taskfile.py:113/250-253`）；
+- 单飞按租约（`task_lease_is_alive`，`execution.py:213`）→ 新升级不受影响的记录也准确。
+
+**② status-404 误报——现象属实（2026-10-13/14 两节有记录：候选 upgrade.sh 轮询 404 空转 1800s 误报，绕道 `/api/system/health` 验证升级实际成功），但 findings 归因「该端点旧中心未实现」与代码不符**：
+- 逐 tag 核查：`GET /api/admin/upgrade/status/{task_id}` 自 `019a3f6`（2026-05-26）即注册；v0.5.1u2（`backend/app/v2/api.py:934`）、v0.5.2、v0.5.3 均有；
+- 真实 404 = 老中心 `status()` 直读 task.json（v0.5.3 `execution.py:152` → `taskfile.py:250-253`），post-cleanup 删文件后抛 404；CLI sed 取不到 `status` 字段记 `unknown` 空转至 1800s（`delivery/upgrade/upgrade.sh:359-372/403`）；
+- **即与①同一根因家族**（post-cleanup 删 task.json 与任务行终态收敛的竞态），findings 原归因已修正并合并立项。
+
+**③ DockerHub v0.5.1u2 tag——属实，今日从 registry 独立复核**：
+- 当前 tag → amd64 config `sha256:556f69e4b981…`（与 findings 记录镜像 ID 一致）；config blob：`created 2026-07-09T05:03Z`、`revision=baaffcd`（= v0.5.1u2 git tag 提交）；
+- `git show v0.5.1u2:VERSION` = **`v0.5.2`** → 该构建镜像 `/app/VERSION` 自报 v0.5.2（OCI label 仍 v0.5.1u2，构建参数覆盖）；
+- 叙事修正：**非「后来被重推」**，tag 自 07-09 CI 构建起即指向自报 v0.5.2 的镜像；Release 包内 `b5018a3c…` 才是原始镜像；后果链（基线被判 v0.5.2 → v0.5.2 官方包被 `precheck.py:214` 拦）与 .12 实测一致。
+
+**④ CLI 新旧版任务回报差异**：仅现象（.12 HEAD 版 CLI 任务 `0608974493276108` 正常 succeeded vs .14 旧版留 running 行），findings 原记「待查」不变；疑与②同根因，无代码级定论。
+
+**动作（本轮）**：findings.md 三处修订（②归因 + ③证据/叙事 + ④挂靠）；pending-tasks.md 新增 **#88**（P0：DockerHub tag 发布前决策）与 **#89**（P1：任务终态收敛竞态合并立项）；task_plan.md 新增 **Phase 80**（#89 立项、设计待写）与对照表行。产品代码未动（CLI/清理服务修法待 Phase 80 设计批准后实施）。发现时工作树另有上午会话未提交的 .12/.14 台账与 Phase 79 收尾记录，一并归档提交。
+
+**证据索引**：findings.md 2026-10-13/14 两节；docs/upgrade-package-ledger.md 2026-10-14 两节；registry API 直查（token→manifest→config blob）；git tag 比对（v0.5.1u2/v0.5.2/v0.5.3）。

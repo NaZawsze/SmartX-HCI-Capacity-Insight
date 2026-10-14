@@ -1110,3 +1110,50 @@ SQLite integrity ok + **`schema_migrations`=4 全部落库** + 新列在场；Pr
   `3518402b…`，install compose 全部变体 runner tag=v0.3.2、镜像为 r35 构建）；
   双包/5 镜像 SHA 全 OK。`.14` 已用该目录完成链 A/链 B（见上）。
   旧目录（r30+r33、pre-readme-fix）已在 `.3`/`.14` 改名归档后按需清理。
+
+---
+
+## 2026-10-14 `.12` CLI 升级链路重跑（Phase 79 后 HEAD `a3a99f7` = v0.5.4 + runner v0.3.2）
+
+**约束（用户 2026-10-14）**：只测试不改码；**v0.5.4 之前所有版本只从网上下载**（DockerHub/GitHub Releases），禁止本地包；仅 v0.5.4 用 .3 打的当前候选包。
+
+**打包（.3，HEAD `a3a99f7` 源码 git archive 同步 + `build_release_delivery.sh --reuse-images` 全门禁）**：
+- 平台包 `smartx-capacity-insight-upgrade-v0.5.4.tar.gz` sha256 **`ce58d060ade2ba1726eafc80415de7c8d84aeb2f26157bf3bf19e9e083935332`**（248,456,588 B）
+- runner 组件包 `smartx-upgrade-runner-v0.3.2.tar.gz` sha256 **`5e661abf1f63ee1f72c64be3d00563c00101cb82993e8203883daa365ced0bc1`**（81,343,344 B）
+- 版本门禁 / 平台包身份门禁 / runner 交付一致性门禁全 PASS（包内镜像 `/app/RUNNER_VERSION=v0.3.2`、actions.py md5 与仓库一致 = 含 US-40）
+
+**pre-v0.5.4 资产（全部网上下载 + SHA 校验）**：
+- 安装镜像：DockerHub `nazawsze/smartx-hci-capacity-insight-{web-api,frontend,collector-worker}:v0.5.1u2` + runner `:v0.3.1`（.12 直连 DockerHub 拉取）⚠️ DockerHub v0.5.1u2 tag 内容已漂移（见 findings），基线用 GitHub Release v0.5.1u2 包内嵌原始镜像 load
+- v0.5.2 升级包 `692aca8b…`（GitHub Release v0.5.2）、v0.5.3 升级包 `ef3fab9f…`（GitHub Release v0.5.3），均 sha256 校验通过
+
+**链路（.12，US-40 先组件后平台）**：
+1. v0.5.1u2 全新安装（官方镜像，admin/password，全新库）
+2. v0.5.1u2→v0.5.2（官方包）
+3. v0.5.2→v0.5.3（官方包，任务 `upgrade-d1f04583a31852c0` 11 步全 succeeded、post-cleanup 6/6）
+4. **先组件** runner v0.3.1→v0.3.2（.3 候选包，产品组件升级流，任务 `upgrade-b8c4954398e3e4e2` succeeded）
+5. **后平台** v0.5.3→v0.5.4（.3 候选包，任务 `upgrade-0608974493276108` succeeded）
+
+**8 项验收（.12 终态）**：health `{"ok":true,"version":"v0.5.4","runner_version":"v0.3.2","checks":{"directories":true,"database":true,"prometheus":true}}`；5 容器（三件套 v0.5.4 + runner v0.3.2 + prometheus v2.55.1）；UI HTTP 200；SQLite integrity ok + `schema_migrations`=4（v0.5.4 expand-only 迁移落库）；runner 未被平台降级（US-26 判别）；admin/password 全程免 recover；legacy 清理到位（宿主旧布局目录已清）。测试包体经产品「删除升级包」API 清理（kept_record=true）。
+
+---
+
+## 2026-10-14 `.14` CLI 升级链路重跑（与 `.12` 同候选，镜像经 `.12→.3→.14` 中转）
+
+**打包资产复用 `.3` 构建（同 `a3a99f7` 产物，SHA 与 .12 完全一致）**：平台包 `ce58d060ade2…`、runner 组件包 `5e661abf1f63…`（.14 上落盘后 sha256 复核一致）。
+
+**pre-v0.5.4 资产（.14 不能直连 DockerHub，全部经 .12 中转）**：
+- v0.5.1u2 镜像：`.12` 从 **GitHub Release v0.5.1u2 包内嵌 images/*.tar** load（非 DockerHub——DockerHub tag 已漂移，见 findings），再 `docker save | .3 | docker load` 到 `.14`
+- v0.5.2/v0.5.3 官方升级包（`692aca8b…` / `ef3fab9f…）+ v0.5.1u2 官方包（`d5f27716…`）：本机 gh 下载 → .3 中转 → .14
+
+**链路（.14，US-40 先组件后平台）**：
+1. v0.5.1u2 全新安装（官方镜像，admin/password 免 recover）
+2. v0.5.1u2→v0.5.2（官方包）
+3. v0.5.2→v0.5.3（官方包，任务 `upgrade-e031c587…` succeeded）
+4. **先组件** runner v0.3.1→v0.3.2（.3 候选包，产品组件升级流，任务 `upgrade-598caacc722bf3e3` uploaded→prechecked→started，镜像自然轮询到 v0.3.2、心跳零等待恢复）
+5. **后平台** v0.5.3→v0.5.4（.3 候选包，任务 `upgrade-3fb4c1c8a8ef2b57` **succeeded**）
+
+**8 项验收（.14 终态）**：health ok v0.5.4/v0.3.2 三 checks true；5 容器（三件套 v0.5.4 + runner v0.3.2）；UI HTTP 200；SQLite integrity ok + `schema_migrations`=4；runner 未被平台降级；admin/password 全程免 recover；legacy 目录（`/opt/smartx-storage-forecast`、`/data/upgrades`）已清（验收项 #5 通过）。
+
+**过程纪律修正（重要）**：首轮 chain14b 的看门狗在 runner 轮询未达时 `sed compose + full reset` 强切 runner（非产品流），且平台升级镜像刚到 v0.5.4 就触发 reset 把版本打回 v0.5.3。重做链 chain14c 改为：**升级流程期间零 reset 零 sed**（唯一一次 reset 发生在任何升级开始前的 US-40 前置态恢复），升级后轮询到镜像 tag 仍继续等待任务终态收敛。修正后全链一次通过。
+
+**证据**：`.14` 链路日志 `/data/upgrade-test/{install14,chain14,chain14b,chain14c}.log`；镜像中转经 `.12` `docker save` → `.3` → `.14` `docker load`。

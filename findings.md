@@ -1055,3 +1055,34 @@ https://code-site.smartx.com/specs/<version>-swagger.json
 **同类审计（未超 30s，本次不改）**：`/api/admin/system/restart`（compose up ≈ 秒级）、
 SQLite vacuum（本地快）、迁移导入/导出（已走异步任务）均未观察到 >30s；如后续出现同类症状，
 按同一手法（专用超时 + 诚实文案）处理。
+
+---
+
+## 2026-10-12 报表导出（Phase 79）稳定结论
+
+- **Excel 合并单元格不自动适应折行高度**：合并且设置了高度的行 Excel 会尊重设定值；未合并且未设高的行才自动适应。合并区（执行摘要、数据质量说明等）长文本必须按内容显式算高（`_estimate_wrapped_row_height`），否则放大字号后必然压行。已落到 `excel.py`。
+- **占用率阈值口径统一**：全平台 **70% 黄 / 80% 红**（`USAGE_WARNING_RATIO=0.70` / `USAGE_CRITICAL_RATIO=0.80`，common.py）。Excel 使用率列按此上色；Word 原 VM 表 85% 红线在第五轮拉到 80% 与 Excel 对齐，最终统一。集群级风险等级/风险状态口径未动。
+- **单位标签双实现**：`word.py:_bytes_label`（十进制名 `KB/MB/GB/TB` 但按 1024 换算）会把 TiB 标成 TB；`excel.py:_xlsx_bytes_label`（二进制名 `KiB/…/TiB`）正确。Word 已还原至原样（保留该差异）；根治需两处统一为二进制名。
+- **Excel 数字-as-text 限制**：导出单元格原多为文本，客户无法排序/筛选/透视。改为「表头带单位 + 纯数值」（`ac62fc9`）后可排序；硬约束：**同一列必须统一单位**才能正确数值比较（否则 `500 GiB`/`1.2 TiB` 混排导致比较错误）。
+- **Tab 颜色 alpha**：`_apply_xlsx_tab_colors` 原写 `00RRGGBB`（alpha=00），部分渲染器可能当透明；已规范化为 `FF`。
+
+## 2026-10-13 升级链验证发现的工具/运行时问题（待立项修复）
+
+- **upgrade.sh 状态轮询 404 误报「超时未收敛」（工具 bug；2026-10-14 代码核查后修正归因）**：候选 `upgrade.sh` 以 1800s 轮询 `GET /api/admin/upgrade/status/<task>`（`delivery/upgrade/upgrade.sh:359-372`），响应体无 `status` 字段时记 `unknown` 继续空转，跑满后报「升级未成功（终态：超时未收敛）」——而产品升级实际成功（绕道 `/api/system/health` 可验证，progress.md 2026-10-13/14 两节）。**归因修正**：本条早期所记「该端点旧中心未实现」**不成立**——逐 tag 核查，该端点自 `019a3f6`（2026-05-26）即注册，v0.5.1u2（`backend/app/v2/api.py:934`）、v0.5.2、v0.5.3 均有此路由。真实 404 来源：老中心 `status()` 直读 task.json（v0.5.3 `execution.py:152` → `taskfile.py:250-253`），**post-cleanup 删掉 task.json 后**抛「升级任务不存在。」；CLI 恰在 succeeded 快照之后才（每轮）轮询，于是每轮都 404、空转至超时。**与 2026-10-14（续）节「幽灵 running 任务行」同一根因家族**（post-cleanup 删 task.json 与任务行终态收敛之间的竞态/顺序缺陷），已合并立项为 pending #89（task_plan Phase 80）。CLI 侧先行修法：识别 404/无 `status` 响应为「任务已终态或被清理」，降级转 `/api/system/health` 轮询确认版本后按成功收敛。
+- **升级序列中 runner 被 SIGKILL（137）（待根因）**：`.14` 上组件/平台升级过程中 runner 容器偶发 `Exited (137)`；宿主 RAM 7.4G 可用 6.7G、无 OOM 记录，排除内存爆，疑为升级 compose 操作（自换/restart）杀掉自身进程。暂以 runner 看门狗（每步后按目标版本 `up -d upgrade-runner` 保活）绕过，平台升级得以通过。需根因（compose 重启时序 / 自换 handoff 竞态）。
+- **撤回：admin 升级后登录锁死非产品 bug**：早期「v0.5.1u2→v0.5.2 升级后 admin 登录锁死=发布阻断」结论已撤回。根因是测试基线重置写错 DB 路径（容器 `/data` 实际挂宿主 `/data/smartx-storage-forecast/app`，却 reset 了另一目录），原 v0.5.4 老 admin 哈希残留、其口令非 `password`。干净基线（清对路径）下 `admin/password` 全程可用；产品 `_ensure_admin` 幂等（admin 存在即 return，从不 UPDATE 口令），runner `_migrate_env_file` 为 `preserve_existing` 只清 image tag、保留 `SMARTX_ADMIN_PASSWORD=password`。**无产品 bug**。
+
+## 2026-10-14 `.12` 链路重跑新发现（ Release 前待办）
+
+- **DockerHub `v0.5.1u2` tag 指向自报 v0.5.2 的构建（2026-10-14 registry 独立复核，修正「被重推」叙事）**：当前 DockerHub `nazawsze/smartx-hci-capacity-insight-web-api:v0.5.1u2` → amd64 config `sha256:556f69e4b981…`（`created 2026-07-09T05:03Z`、`revision=baaffcd`，即 v0.5.1u2 git tag 的提交）；而 `git show v0.5.1u2:VERSION` = **`v0.5.2`**——该提交的 VERSION 文件已写成 v0.5.2 → 镜像 `/app/VERSION` 自报 v0.5.2（OCI label 仍为 `v0.5.1u2`，系构建参数覆盖）。**叙事修正**：并非「镜像被后来重推覆盖」；该 DockerHub tag 自 2026-07-09 CI 构建起就指向这个自报 v0.5.2 的镜像。GitHub Release v0.5.1u2 包内嵌镜像（`b5018a3c…`，.3 上留样三个月）`/app/VERSION=v0.5.1u2` 才是原始镜像。**同一版本号、两种内容**。后果（`.12` 2026-10-14 实测复现）：直接拉 DockerHub v0.5.1u2 做基线 → 升级中心读 `/app/VERSION` 判为 v0.5.2 → 上传 v0.5.2 官方包被**源兼容/同版本检查**拦下（`precheck.py:214` 范围判定 + `settings.app_version` 取自 `/app/VERSION`）。规避（本次 .12/.14 链路已验证）：v0.5.1u2 基线镜像从 **GitHub Release v0.5.1u2 包内 `images/*.tar` load**。发布前需决策（pending #88）：DockerHub v0.5.1u2 tag 是否重推校正，或在安装/交付文档注明 v0.5.1u2 基线镜像只从 GitHub Release 包获取。
+- **孤儿 running 任务行阻塞产品空间清理 6 小时（产品缺口）**：`upgrade.sh` status-404 误报超时那跳（`upgrade-6eabea06…`），其 `tasks` 表行停在 `running`、task.json 已丢失（升级过程目录被清）→ 产品 `cancel`（只认 pending + 文件存储）、`recovery/fail`（只认 task.json）、`DELETE /api/tasks/{id}`（只收终态）**都无法收敛**；`cleanup_artifacts` 的僵尸判定要 `updated_at` 超 6h（`GHOST_TASK_STALE_SECONDS=6*3600`）才放行，期间一直拒绝清理。新升级不受影响（单飞守卫按**租约**判定，过期租约放行——v0.5.3/组件升级均正常执行）。建议：清理服务对「目录不存在 + 无租约」的 running 行也按僵尸处理，或提供管理员强制收敛端点。
+- **平台升级预检的磁盘配额 = 包内容 + 2GiB 固定预留**：`.12`（54G 盘）在连跑多跳后可用空间被打到 0，runner 因无法写状态反复退出（本次 runner flap 的真因是**磁盘满**，非此前怀疑的 OOM/137——容器 `Exited` 均伴随 `df` 100%）。产品侧合规恢复路径：`POST /api/admin/system/cleanup-images`（本次释放 22.78GB）、`DELETE /api/admin/upgrade/package/{task_id}`（逐任务删包体留记录，本次释放 1.975GB）。**建议发布验收文档注明：升级预检需要 ≥ 包内容+2GiB 可用，演练机须预留 ≥4GiB**。
+- **组件/平台升级后 runner 交接（cutover）偶发失败**：平台升级 compose apply 时 runner 自换报 `endpoint with name ...upgrade-runner-1 already exists in network` / `No such container: smartx-runner-cutover-*`（.12/.14 均复现），表现为 runner 容器在跑但无心跳 → 后续平台预检报「未检测到 upgrade-runner 心跳」。恢复：从**真实项目目录**（升级后已迁移到 `/data/smartx-storage-forecast/project`）做全量 `docker compose down && up -d`（勿单服务 `up -d upgrade-runner`——触发网络重建冲突会带停 prometheus）。与 2026-10-13「runner SIGKILL 137」为同一族问题的不同表现，共性 = **升级compose操作对 runner 自身重组的竞态**，待根因立项。
+- **项目目录随升级迁移，看门狗脚本须跟踪真实路径**：v0.5.1u2→v0.5.2 升级后项目目录从安装目录迁到 `/data/smartx-storage-forecast/project`（单根目录迁移），此后对该目录的 compose 操作（sed/up -d）必须用新路径，否则改的是不生效的旧副本。
+- **升级后 legacy 清理会删掉旧布局 bind 源目录**：宿主 `/data/upgrades`、`/data/smartx-capacity-insight-data` 在链路升级后被清（与 CLI 验收项 #5「/data/upgrades 应不存在」一致，属预期）；运行中容器因持有 inode 不受影响，但宿主路径随即消失——排障时勿误判为「目录被误删」。
+
+## 2026-10-14（续）`.14` 链路新发现（跨机复现 + 测试纪律）
+
+- **幽灵 running 任务行缺陷跨机复现（.14 `upgrade-99996849a33c05af`）**：.14 平台升级 v0.5.4 apply 成功后（任务 `3fb4c1c8` succeeded、产物全生效），另有一行 `99996849` 停在 `running「执行系统升级/准备运行目录」`，其 task.json 已随 post-cleanup 删除 → `POST /api/admin/upgrade/cancel/{id}` 与 `POST /api/admin/upgrade/recovery/{id}/fail` 均返回「升级任务不存在。」——与 .12 `6eabea06` **完全同款、跨机坐实**。仍挡 `cleanup_artifacts` 6h（不影响新升级：单飞按租约判定）。结论：这不是 .12 偶发，是**稳定产品缺口**（post-cleanup 删 task.json 与 tasks 表 running 行之间存在竞态/顺序缺陷），建议随发布立项：清理服务对「目录不存在 + 无租约」按僵尸处理，或提供管理员强制收敛端点。
+- **`upgrade.sh` CLI 新旧版行为差异（待查）**：.12 用 HEAD 同步版 CLI（`/data/upgrade-test/cli/delivery/upgrade/`），平台升级任务 `0608974493276108` 正常落到 succeeded；.14 用旧版 `/data/delivery-v054/upgrade/`，平台升级 apply 成功但留了一条 running 行在任务表（真实 apply 任务 `3fb4c1c8` 仍 succeeded）。差异未定位到确切代码路径，疑与 status-404 同根因（CLI/后端任务状态回报断——status-404 归因已于 2026-10-14 修正为「post-cleanup 删 task.json → 404」，见同节首条与 pending #89）。**发布前应把 CLI 工具版本与后端升级中心的兼容矩阵写进交付文档**。
+- **测试纪律（自我纠错，方法论）**：自动化看门狗在升级流程期间 `sed compose + full reset` 属越界操作——曾把 .14 已升级的 v0.5.4 打回 v0.5.3、把 runner 强切成非产品流版本。正确纪律：升级期间只轮询观测（镜像 tag / health / 任务），任何 compose 干预只允许在**升级开始前**的状态恢复，且完成后必须等任务终态收敛再判成败。

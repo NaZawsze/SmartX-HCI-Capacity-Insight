@@ -108,7 +108,8 @@ docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
 | 31 | 报表页容量增长速率算法优化 | 已完成 | 无专项设计文档；实施口径记录在本文件 |
 | 32~48 | 升级链路专项（fix9~fix18、UPG-031~033、Phase 45/46 镜像版本与基线验证） | 全部完成 | [docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md) 对应章节；执行记录见 [docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)；fix10 并入 Phase 32，无独立 Phase 33 |
 | 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md)；49-18/19 见 [docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md)；49-20 见 [docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md](docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md)；49-21 见 [docs/superpowers/specs/2026-09-19-forecast-band-design.md](docs/superpowers/specs/2026-09-19-forecast-band-design.md)；49-22 见 [docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md](docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md)；49-23 见 [docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md](docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md)；49-3 收尾见 [docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md](docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md)；49-36（已分配容量，已实施并部署 .3）见本文件 Phase 49 第 36 条与 [docs/superpowers/specs/2026-09-25-allocated-capacity-bar-design.md](docs/superpowers/specs/2026-09-25-allocated-capacity-bar-design.md)；49-37（手动采集清空快照修复 + 看板过期标注）见 [docs/superpowers/specs/2026-09-25-collection-snapshot-merge-and-stale-annotation-design.md](docs/superpowers/specs/2026-09-25-collection-snapshot-merge-and-stale-annotation-design.md)；49-39（报表容量增长率窗口口径 + 不足项「-/单位」与标题黄色「数据不足」）见 [docs/superpowers/specs/2026-09-26-reports-growth-window-requires-successful-collection-design.md](docs/superpowers/specs/2026-09-26-reports-growth-window-requires-successful-collection-design.md) ；49-49/49-50（runner 能力对齐方案 A/B，**已实施并验收；v0.3.2 交付动作（tag/镜像/资产）待用户决策**）见 [docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md](docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md)；49-52（US-05/US-23 发布阻塞项修复，**`.12` MVP 验收待授权**）见 [docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md](docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md)；49-53（文档一致性与发布口径修复）无专项设计文档，口径记录于本文件第 53 条；49-54（runner 交付一致性硬门禁，#47②/US-02）见 [docs/superpowers/specs/2026-09-27-runner-delivery-consistency-gate-design.md](docs/superpowers/specs/2026-09-27-runner-delivery-consistency-gate-design.md)；49-55（升级预检查磁盘空间硬校验，US-07/S1-1）见 [docs/superpowers/specs/2026-09-27-upgrade-disk-space-precheck-design.md](docs/superpowers/specs/2026-09-27-upgrade-disk-space-precheck-design.md)；49-56（升级任务产物自动清理，US-09/S1-2）见 [docs/superpowers/specs/2026-09-27-upgrade-artifact-housekeeping-design.md](docs/superpowers/specs/2026-09-27-upgrade-artifact-housekeeping-design.md)；49-57（执行期间 runner 在场判定，US-08/S1-3）见 [docs/superpowers/specs/2026-09-27-runner-presence-during-execution-design.md](docs/superpowers/specs/2026-09-27-runner-presence-during-execution-design.md)；剩余问题执行顺序见 [docs/superpowers/plans/2026-09-27-remaining-work-sequence.md](docs/superpowers/plans/2026-09-27-remaining-work-sequence.md) |
-| 79 | 报表导出可读性改造（Word 格式/配色 + 导出层口径统一） | **已还原（用户 2026-10-12 决定 Word 不改）** | [docs/superpowers/specs/2026-10-12-report-export-readability-design.md](docs/superpowers/specs/2026-10-12-report-export-readability-design.md)、[docs/superpowers/plans/2026-10-12-report-export-readability-plan.md](docs/superpowers/plans/2026-10-12-report-export-readability-plan.md) |
+| 79 | 报表导出可读性改造（Word 还原 + Excel 排版配色优化） | **Word 已还原；Excel 已优化 12 轮（34 测试绿，已提交 dev2，未推 origin）** | [docs/superpowers/specs/2026-10-12-report-export-readability-design.md](docs/superpowers/specs/2026-10-12-report-export-readability-design.md)、[docs/superpowers/plans/2026-10-12-report-export-readability-plan.md](docs/superpowers/plans/2026-10-12-report-export-readability-plan.md) |
+| 80 | 任务终态收敛竞态治理（#89：幽灵 running 任务行 + status-404 误报，同根因家族） | 已立项，**设计待写** | 设计待写（批准后落 `docs/superpowers/specs/`）；根因证据链见 findings.md 2026-10-13/14 两节 |
 
 升级后自动采集与 verification 历史查询的专项计划/设计：
 
@@ -2589,8 +2590,47 @@ Phase 69 只给 Word/Excel 的 VM 增长类表格加了两列；真实导出样�
 
 **回滚**：纯展示层单提交，`git revert <commit>` 即可；无数据/接口/存储变更。
 
-**状态**：**已按用户要求全部还原（2026-10-12）**。Phase 79 的 Word 改动（字号放大/行距/表格边框/使用率条/单位标签）
-曾实施并提交（`8d110e5`、`1d23355`、`6515171`、`cdfc096`），用户评估后决定 Word 不做这些改动，代码已用
-`git checkout beforeworkbuddydf41f --` 还原 `word.py`/`common.py`/`test_v2_report_exports.py` 至改造前状态
-（测试回到 29 项全绿）。设计与计划文档保留备查（问题清单与取值口径仍有参考价值）。
-**后续方向（2026-10-12 用户定）**：Word 保持原样；优化重心转到 **Excel 排版与配色**（另立任务）。
+**状态**：**Word 已还原（2026-10-12）；Excel 排版与配色已优化完成（12 轮，2026-10-12~13，已提交 dev2）**。
+- Word 改动（`8d110e5`、`1d23355`、`6515171`、`cdfc096`）经用户评估后决定不做，已用
+  `git checkout beforeworkbuddydf41f -- word.py common.py test_v2_report_exports.py` 还原（提交 `0043415`），
+  测试回到 29 项全绿；设计/计划文档保留备查。
+- Excel 优化自 `95fe096` 起共 12 轮（含 HEAD `a3a99f7`），覆盖使用率 70/80% 配色、Tab 颜色规范化、
+  执行摘要布局/字号/行高、合并区行高自适应、逐 Sheet 审计、双轨打印区、容量/百分比列转真数值、列宽收紧、
+  封面打印区；测试由 29 项增至 **34 项全绿**。`.3` 真机 `verify_remote_exported_reports.py` 端到端通过。
+- dev2 全程未推 origin（按 AGENTS.md 需用户明确发布指令）。
+- 收尾证据见 progress.md「2026-10-12 Phase 79 收尾」节与 findings.md「报表导出（Phase 79）稳定结论」。
+
+## Phase 80 - 任务终态收敛竞态治理（#89：幽灵 running 任务行 + status-404 误报，同根因家族）
+
+来源：2026-10-13/14 `.12`/`.14` CLI 升级链验证暴露 + 2026-10-14 用户质询后代码/registry 级核查
+（核查结论已落 findings.md 同日两节、progress.md 2026-10-14 核查节）。
+
+**根因（已定案）**：post-cleanup 删除 task.json 与 tasks 表 running 行/终态回报之间存在竞态/顺序缺陷——
+升级 apply 成功后任务目录被清，但 tasks 表行停在 `running`，且所有收敛路径都依赖 task.json 存在：
+- `cancel`：只放 `pending` + 文件存储（`execution.py`，v0.5.3 同构）
+- `recovery/fail`：只认 task.json（`_set_recovery_command` 首行 `_read_task_file`）
+- `DELETE /api/tasks/{id}`：只收终态
+- `status()`：直读 task.json，文件被删后抛 404「升级任务不存在。」（`taskfile.py:250-253`）
+- `cleanup_artifacts` 僵尸判定要 `updated_at` 超 6h（`GHOST_TASK_STALE_SECONDS=6*3600`，`cleanup/service.py:189`）
+  才放行——孤儿行挡空间清理 6 小时
+
+**跨机坐实**：`.12` `upgrade-6eabea06…` 与 `.14` `upgrade-99996849…` 完全同款；新升级不受影响
+（单飞守卫按**租约**判定，`execution.py:213` `task_lease_is_alive`）。
+
+**两个症状面**：
+1. **产品缺口**：孤儿 running 行无法人工收敛，挡 `cleanup_artifacts` 6h；
+2. **CLI 误报**：`upgrade.sh` 轮询 status 拿不到 `status` 字段（404 detail）→ 记 `unknown` 空转
+   1800s 报「超时未收敛」，而升级实际成功（`delivery/upgrade/upgrade.sh:359-372`）。
+   早前「端点旧中心未实现」归因已否决：该端点自 `019a3f6`（2026-05-26）即注册，
+   v0.5.1u2/v0.5.2/v0.5.3 均有。
+
+**目标**（设计待批准后展开）：
+① 清理服务对「目录不存在 + 无租约」的 running 行按僵尸处理，或提供管理员强制收敛端点；
+② `upgrade.sh` 对 404/无 `status` 响应降级转 `/api/system/health` 轮询确认版本后按成功收敛；
+③ 消除 post-cleanup 与 tasks 行终态写回的竞态（顺序/收尾责任归属）。
+
+**无专项设计文档，理由**：立项阶段；根因、机制与证据链已在 findings.md 2026-10-13/14 两节 +
+pending #89 写全，设计文档待批准后落 `docs/superpowers/specs/2026-10-14-*`。
+
+**验收（草案，设计时定稿）**：.12/.14 复现两类症状 → 修复后孤儿行可产品化收敛（或 6h 等待消除）、
+CLI 不再误报、全量后端/CLI 测试无新增失败；不动 runner 能力与版本号（CLI 修法随交付脚本走）。
