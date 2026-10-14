@@ -6505,6 +6505,37 @@ Grep 工具 30s 超时；子代理复现同样症状），Read/Edit/Write 不受
 
 ---
 
+## 2026-10-14（续四）#88/#89 提交与 `.3` 真机验证（本地测试 + 容器内对照）
+
+**本地测试（venv python3.13）**：3 个新测试文件 **32/32 全过**；契约+相关回归 **70/70 全过**；
+全量 1188 tests 的 2F+1E 全部定性为非本轮回归——`test_v2_dashboard_vm` 与
+`test_v2_inventory_metrics` 经 `git stash` 掉本轮应用改动后**结果完全相同**（存量）；
+`test_ops_toolkit.test_wrappers_do_not_modify_delivery` 只因改了 `delivery/` 未提交
+（该测试断言 `git status --porcelain delivery/` 为空），**提交后复跑 46 OK** 证实。
+期间修掉 3 处测试自身缺陷（stub curl 的 stderr 被函数内 `2>/dev/null` 吞掉 → 改写入文件；
+dockerhub 两处按字符串下标判定被 usage/注释干扰 → 改按行判定）。
+
+**提交**：`ea715e9`（16 files changed, +1168/-26），dev2 本地提交，未推 origin。
+
+**`.3` 真机验证（10.20.11.3，镜像 `17966b2da1d5`，不触碰运行实例——`docker run --rm`
+挂载源码到 `/src`，`-w /src/backend` 跑测试）**：
+- 源码同步：`git archive HEAD` → `/tmp/wb89`（验证后已清理，`/tmp/wb89*` 归零）。
+- 新增+契约 **37/37 全过**（`test_ghost_task_convergence` 12 + `test_upgrade_status_404_fallback` 11
+  + `test_dockerhub_tag_remediation` 9 + `test_corrupt_file_read` 5）。
+- **容器内全量 1191 tests / 2F / 7 skipped**；两项失败经**父提交 `f1514c3` 同容器对照坐实为存量**：
+  ① `test_v2_dashboard_vm...day_new_vms_share_first_seen_and_recycle_rules`（本地亦失败）；
+  ② `test_v2_upgrade...test_start_can_submit_task_for_runner_and_runner_executes_it`
+  （pending #77 已登记的既有环境限制）。父提交跑同两项文件：`Ran 68 tests / FAILED (failures=2)`，
+  失败项完全相同。
+- 说明：容器内无 `.git`，`test_ops_toolkit` 的 delivery 树断言按设计 skip（7 skipped 之一）；
+  `test_v2_inventory_metrics` 在容器内依赖齐备、正常加载（本地 1E 为本地缺依赖，非代码问题）。
+
+**结论**：#89（幽灵行识别/收敛 + status DB 回落 + CLI health 兜底）与 #88（修复脚本 + 文档规则）
+本地与 `.3` 容器内验证完成，无本轮引入的失败。剩余：`.3` 上的**部署级**验证（如需把本提交
+同步进运行实例）不在本轮范围；#88 真机推送待用户凭据。
+
+---
+
 ## 2026-10-14（续二）四条「产品缺口」核查：status-404 归因修正 + DockerHub registry 独立复核 + 立项 #88/#89
 
 背景：用户质询 findings.md 2026-10-13/14 节四条缺口「是真的吗」，逐条做代码/registry 级核查。结论：**①属实、②现象属实但归因写错、③属实且已独立复核、④仅现象记录根因未证实（本就是「待查」）**。

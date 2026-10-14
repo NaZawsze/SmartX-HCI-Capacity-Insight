@@ -2605,9 +2605,13 @@ Phase 69 只给 Word/Excel 的 VM 增长类表格加了两列；真实导出样�
 来源：2026-10-13/14 `.12`/`.14` CLI 升级链验证暴露 + 2026-10-14 用户质询后代码/registry 级核查
 （核查结论已落 findings.md 同日两节、progress.md 2026-10-14 核查节）。
 
-**状态：设计已批准（用户 2026-10-14「修复 88、89，写设计文档」）并实施；本地测试全过，
-待 .3 真机验证。** 设计文档：
-[docs/superpowers/specs/2026-10-14-task-terminal-convergence-race-design.md](docs/superpowers/specs/2026-10-14-task-terminal-convergence-race-design.md)。
+**状态：已实施 + 已验证（本地 + `.3` 容器内），提交 `ea715e9`（dev2 本地，未推 origin）。**
+设计文档：[docs/superpowers/specs/2026-10-14-task-terminal-convergence-race-design.md](docs/superpowers/specs/2026-10-14-task-terminal-convergence-race-design.md)。
+验证证据（2026-10-14）：本地 3 个新测试文件 32/32、契约+相关回归 70/70、全量 1188 的 2F+1E
+三项均定性为非本轮回归（两项 stash 对照为存量、一项为未提交 delivery 树断言，提交后 46 OK）；
+`.3` 容器内（`docker run --rm` 挂载本提交源码到 `/src`）新增+契约 37/37、全量 1191 tests/2F
+且两项经父提交 `f1514c3` 同容器对照坐实为存量（`test_v2_dashboard_vm`、`test_v2_upgrade...runner_executes_it`）。
+详见 progress.md 2026-10-14 续三/续四节。
 
 **根因（已定案）**：post-cleanup 删除 task.json 与 tasks 表 running 行/终态回报之间存在竞态/顺序缺陷——
 升级 apply 成功后任务目录被清，但 tasks 表行停在 `running`，且所有收敛路径都依赖 task.json 存在：
