@@ -22,6 +22,7 @@ from app.v2.vms.growth import (
     series_tail_items,
 )
 from app.v2.vms.new_vm import collect_vm_first_seen, is_recycled_vm_name, period_bounds
+from app.v2.vms.recycle import recycled_vm_keys
 
 
 CLUSTER_USED_METRIC = "smartx_cluster_storage_used_bytes"
@@ -458,11 +459,13 @@ class DashboardService:
         window = DAY_GROWTH if days <= DAY_GROWTH.days else MONTH_GROWTH
         series_list = self._vm_series(days=window.days, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, step=window.step)
         latest_label_by_vm = {key: {"vm": name, "vm_name": name} for key, name in self._latest_vm_names().items()}
+        # #36/#37 ②：回收站过滤统一走权威标记（in_recycle_bin），名字前缀仅兜底
+        recycled_keys = recycled_vm_keys(self.database)
         latest_items = merge_latest_items(
-            latest_vm_items(self.prometheus, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope),
-            series_tail_items(series_list),
+            latest_vm_items(self.prometheus, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, recycled_keys=recycled_keys),
+            series_tail_items(series_list, recycled_keys),
         )
-        records = compute_growth_vms(series_list=series_list, latest_items=latest_items, latest_label_by_vm=latest_label_by_vm)
+        records = compute_growth_vms(series_list=series_list, latest_items=latest_items, latest_label_by_vm=latest_label_by_vm, recycled_keys=recycled_keys)
         result = []
         for record in records[:limit]:
             vm_name = record["vm_name"]

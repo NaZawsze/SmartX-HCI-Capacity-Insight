@@ -6672,3 +6672,38 @@ Prometheus 组件升级演练）；task_plan 新增 **Phase 81**（立项，设�
 ③`_limit_new_vms` 首版直接吃原始参数（可能是 `all` 字符串）→ `TypeError`，改为先归一化。
 
 **仅剩**：`.3` 真机 A/B（payload 体积降幅 ≥50%、导出内容零变化）。
+
+---
+
+## 2026-10-14（续九）#36/#37 ②③ 实施完成（权威回收站标记 + 详情页回收前名）
+
+**② series 路径统一权威标记（Q1 采纳 A 案）**：
+- 新增 `backend/app/v2/vms/recycle.py`——回收站判据**单一来源**：`is_recycled_row`（`in_recycle_bin`
+  标记优先 + `in-recycle-bin-` 前缀兜底）、`recycled_vm_keys`（一次查询取 `(tower_id, cluster_id,
+  vm_id)` 键集；DB 异常返回空集不报错，各调用点退化为不过滤=旧行为）、`is_recycled_key`。
+- `vms/growth.py`：`latest_vm_items` / `series_tail_items` / `compute_growth_vms` 增可选
+  `recycled_keys`——提供时按三元组判（权威），未提供退回前缀判定（兼容旧调用）。
+- 接线：`dashboard/service.py::_period_fastest_growing_vms` 与 `reports/service.py`
+  （`_latest_report` 内一次取键集 → `_latest_vm_items` / `series_tail_items` /
+  `_growth_reports_from_series`×3 传入）；`_growth_reports_from_series` 签名透传。
+- `vms/service.py::_recycled_vm_keys` 收编为对 `recycle.py` 的委托（原来它自带一份实现——
+  正是要收掉的"两套判据"之一；既有 `test_recycle_bin_display_filter` 5 例不变全过）。
+
+**③ 落点与原设计不同（重要核实）**：#79 已让回收站 VM 在**所有**列表/两处卷查询/增长与新建
+series 不展示——原设想的"列表展示 original_name"**没有落点**；唯一露原始前缀名的面是
+`VmService.detail()`（深链直达，文档化于 test_recycle_bin_display_filter 头注）。故 ③ 落为：
+`detail()` 查询补 `in_recycle_bin`/`original_name` → 回收站 VM 的 `vm_name` 用
+`original_name`（缺失回落 `name`）+ 新增 `in_recycle_bin` 布尔字段；身份名（vm_id/库内 name）
+不动，过滤不受影响 → Q2"身份名/显示名分离"自然满足。
+
+**测试**：新增 `backend/tests/test_v2_recycle_marker.py` **9 例全过**（判据单元 3 / series
+标记过滤 3——核心用例为"**标记=1 但名字正常**"的 VM：旧实现抓不到、新实现必须排除 /
+detail 显示名 3）。回归：`test_recycle_bin_display_filter` + `test_v2_vms_new_vm` +
+`test_v2_reports` + `test_v2_report_new_vm_limit` = **41/41 OK**；dashboard 17 例
+（唯一失败 = 当日已定性存量 `…share_first_seen_and_recycle_rules`）；全量 1203 tests 中
+另发现 `test_v2_reports_api` 的 `FakeReportService` 漏改 `new_vm_limit` 入参（**#28 遗漏，
+本轮已修**）——修正后该文件恢复通过。
+
+**文档**：设计文档补 §7 实施记录（含 ③ 落点核实）；pending #36/#37 状态更新（仅剩 ①）。
+
+**仅剩**：①（Tower `local_created_at`）待端点恢复跑探针；②③ 的 `.3` 部署级复验随下版。

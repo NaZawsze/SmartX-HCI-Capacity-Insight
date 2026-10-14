@@ -2,7 +2,7 @@
 
 - 日期：2026-10-14
 - 来源：pending-tasks #36 / #37（49-40/49-42 折中口径的遗留）；探针 `scripts/probe_tower_vm_created_at.py`
-- 状态：**设计（待确认两处口径 + Tower 探针恢复后实施 ①）**
+- 状态：**②③ 已实施（2026-10-14，见 §7）；① 等 Tower 恢复跑探针后实施**
 
 ## 1. 背景与现状
 
@@ -79,3 +79,31 @@
 2. 概览与报表「本日/本月新建 VM」两页数字一致（延续 49-43）。
 3. 回收站 VM 不出现在新建/增长列表（标记与前缀故意不一致时**以标记为准**）。
 4. 后端全量无新增失败；前端零改动（本任务无 UI 结构变更）。
+
+## 7. 实施记录（2026-10-14）
+
+**② 已实施（Q1 采纳 A 案）**：
+- 新增 `backend/app/v2/vms/recycle.py`——**回收站判据单一来源**：`is_recycled_row`（标记优先 +
+  前缀兜底）、`recycled_vm_keys`（一次查询取三元组键集，DB 异常返回空集不报错）、`is_recycled_key`。
+- `vms/growth.py` 的 `latest_vm_items` / `series_tail_items` / `compute_growth_vms` 增可选
+  `recycled_keys` 参数：提供了键集按三元组判（权威），未提供退回名字前缀（兼容旧调用/旧测试）。
+- `dashboard/service.py::_period_fastest_growing_vms` 与 `reports/service.py::_latest_report` /
+  `_growth_reports_from_series`：每请求取一次 `recycled_vm_keys(self.database)` 传入全部调用点。
+- `vms/service.py::_recycled_vm_keys` 收编为对 `recycle.py` 的委托（原来它自己有一份实现——
+  正是本次要收掉的"两套判据"之一）。
+
+**③ 已实施，但落点与原设计不同**：核实发现 **#79 已让回收站 VM 在所有列表/报表/卷视图不展示**
+（列表、两处卷查询、增长/新建 series 全部排除），原设想的"列表展示 original_name"没有落点。
+唯一会露出原始前缀名的面是 `VmService.detail()`（深链直达）。故 ③ 落为：
+`detail()` 查询补 `in_recycle_bin`/`original_name` 列 → 回收站 VM 的 `vm_name` 用
+`original_name`（缺失回落 `name`），并新增 `in_recycle_bin` 布尔字段；身份名（vm_id/库内 name）
+不动，过滤不受影响。Q2 的"身份名/显示名分离"由此自然满足。
+
+**测试**：新增 `backend/tests/test_v2_recycle_marker.py` **9 例**（判据单元 3 / series 标记过滤 3 /
+detail 显示名 3）——核心用例是"**标记=1 但名字正常**"的 VM：旧实现（仅前缀）抓不到，
+新实现必须排除。相关回归：回收站展示过滤既有 5 例 + vms/reports 共 41 例 OK、
+dashboard 17 例（唯一失败为当日已定性存量 `…share_first_seen_and_recycle_rules`）；
+全量 1203 tests 中仅存 1F+2E（dashboard_vm 存量、inventory_metrics 本地缺依赖、
+reports_api 桩漏改 `new_vm_limit`——已修，见 progress 续九）。
+
+**剩余**：①（Tower `local_created_at`）待端点恢复后跑探针确认字段，再按 §4 的 ①-a~①-d 实施。

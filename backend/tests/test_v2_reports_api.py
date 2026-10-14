@@ -16,7 +16,7 @@ class V2ReportsApiTest(unittest.TestCase):
         from app.v2.main import create_app
 
         class FakeReportService:
-            def latest_report(self, tower_id=None, cluster_id=None, period_days=30, chart_days=365):
+            def latest_report(self, tower_id=None, cluster_id=None, period_days=30, chart_days=365, new_vm_limit=None):
                 return {
                     "scope": {"tower_id": tower_id, "cluster_id": cluster_id},
                     "clusters": [],

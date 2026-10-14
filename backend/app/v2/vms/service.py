@@ -9,6 +9,7 @@ from app.v2.scope import in_enabled_scope
 from app.v2.database import V2Database
 from app.v2.metrics.prometheus import PrometheusService
 from app.v2.metrics.series import labels_match, metric_value, range_values, scoped_query, vm_key
+from app.v2.vms.recycle import is_recycled_row, recycled_vm_keys
 
 
 VM_USED_METRIC = "smartx_vm_storage_used_bytes"
@@ -32,25 +33,12 @@ class VmService:
     # ── 回收站展示过滤（2026-10-04，pending #79）──────────────────────────
     # 用户口径：**统计侧全量**（已使用/已分配/容量预测都含回收站，见 #75/#77），
     # 但**页面不显示回收站里的 VM 及其卷**。故过滤只做在展示层，不动任何统计口径。
-    # 判据用 vm_latest.in_recycle_bin（采集侧 49-47 已写入），并叠加名字前缀
-    # `in-recycle-bin-<uuid>` 作兜底——Tower 侧约定，前缀判定见 cloudtower/client.py。
     def _recycled_vm_keys(self) -> set[tuple[int, str, str]]:
-        """(tower_id, cluster_id, vm_id) 三元组集合，标记当前处于回收站的 VM。"""
-        try:
-            with self.database.connection() as conn:
-                rows = conn.execute(
-                    "SELECT tower_id, cluster_id, vm_id, name, in_recycle_bin FROM vm_latest"
-                ).fetchall()
-        except Exception:  # noqa: BLE001 - 展示过滤不应因探测失败而让列表报错
-            return set()
-        keys: set[tuple[int, str, str]] = set()
-        for row in rows:
-            recycled = bool(int(row["in_recycle_bin"] or 0))
-            if not recycled and str(row["name"] or "").startswith(RECYCLE_BIN_VM_PREFIX):
-                recycled = True
-            if recycled:
-                keys.add((int(row["tower_id"]), str(row["cluster_id"]), str(row["vm_id"])))
-        return keys
+        """(tower_id, cluster_id, vm_id) 三元组集合，标记当前处于回收站的 VM。
+
+        #36/#37 ②：判据统一收口到 `vms/recycle.py`（权威标记优先 + 名字前缀兜底）。
+        """
+        return recycled_vm_keys(self.database)
 
     def list_vms(self, tower_id: int | None = None, cluster_id: str | None = None) -> list[dict[str, Any]]:
         latest_info = self._latest_vm_info()
@@ -121,7 +109,7 @@ class VmService:
     def detail(self, *, vm_id: str, tower_id: int, cluster_id: str) -> dict[str, Any]:
         with self.database.connection() as conn:
             row = conn.execute(
-                "SELECT tower_id, cluster_id, vm_id, name, used_bytes, owner, folder_name, updated_at FROM vm_latest WHERE tower_id = ? AND cluster_id = ? AND vm_id = ?",
+                "SELECT tower_id, cluster_id, vm_id, name, used_bytes, owner, folder_name, updated_at, in_recycle_bin, original_name FROM vm_latest WHERE tower_id = ? AND cluster_id = ? AND vm_id = ?",
                 (tower_id, cluster_id, vm_id),
             ).fetchone()
         if row is None:
@@ -134,16 +122,24 @@ class VmService:
                 "owner": None,
                 "folder_name": None,
                 "updated_at": None,
+                "in_recycle_bin": False,
             }
+        in_recycle_bin = is_recycled_row(row["name"], row["in_recycle_bin"])
+        # #36/#37 ③：回收站 VM 对外展示回收前名字（original_name），
+        # 身份名（vm_id 与库内 name）不动——过滤仍按三元组/原名，不受显示名影响。
+        vm_name = str(row["name"])
+        if in_recycle_bin:
+            vm_name = str(row["original_name"] or vm_name)
         return {
             "tower_id": int(row["tower_id"]),
             "cluster_id": str(row["cluster_id"]),
             "vm_id": str(row["vm_id"]),
-            "vm_name": str(row["name"]),
+            "vm_name": vm_name,
             "used_bytes": int(row["used_bytes"]),
             "owner": row["owner"],
             "folder_name": row["folder_name"],
             "updated_at": row["updated_at"],
+            "in_recycle_bin": in_recycle_bin,
         }
 
     def volumes(self, *, vm_id: str, tower_id: int, cluster_id: str) -> list[dict[str, Any]]:

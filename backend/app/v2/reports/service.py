@@ -25,6 +25,7 @@ from app.v2.vms.growth import (
     series_tail_items,
 )
 from app.v2.vms.new_vm import collect_vm_first_seen, is_recycled_vm_name, period_bounds, vm_display_name
+from app.v2.vms.recycle import recycled_vm_keys
 
 
 SECONDS_PER_DAY = 86_400
@@ -180,10 +181,12 @@ class ReportService:
         # 日/月增长窗口与概览共用同一定义（49-45），保证两页结果一致
         day_vm_series = self._vm_series(days=DAY_GROWTH.days, tower_id=tower_id, cluster_id=cluster_id, step=DAY_GROWTH.step, enabled_scope=enabled_scope)
         vm_month_series = self._vm_series(days=MONTH_GROWTH.days, tower_id=tower_id, cluster_id=cluster_id, step=MONTH_GROWTH.step, enabled_scope=enabled_scope)
-        latest_vms = merge_latest_items(latest_vms, series_tail_items(vm_series))
+        # #36/#37 ②：回收站过滤统一走权威标记（in_recycle_bin），名字前缀仅兜底
+        recycled_keys = recycled_vm_keys(self.database)
+        latest_vms = merge_latest_items(latest_vms, series_tail_items(vm_series, recycled_keys))
         latest_label_by_vm = self._latest_vm_labels()
-        window_vms = _growth_reports_from_series(latest_vms, window_vm_series, period_days=window_days, limit=None, latest_label_by_vm=latest_label_by_vm)
-        day_vms = _growth_reports_from_series(latest_vms, day_vm_series, period_days=1, limit=None, latest_label_by_vm=latest_label_by_vm)
+        window_vms = _growth_reports_from_series(latest_vms, window_vm_series, period_days=window_days, limit=None, latest_label_by_vm=latest_label_by_vm, recycled_keys=recycled_keys)
+        day_vms = _growth_reports_from_series(latest_vms, day_vm_series, period_days=1, limit=None, latest_label_by_vm=latest_label_by_vm, recycled_keys=recycled_keys)
         month_vms = _growth_reports_from_series(
             latest_vms,
             vm_month_series,
@@ -192,6 +195,7 @@ class ReportService:
             latest_label_by_vm=latest_label_by_vm,
             min_sample_days=0,
             max_sample_days=window_days,
+            recycled_keys=recycled_keys,
         )
         vm_first_seen = collect_vm_first_seen(self.prometheus, now_ts=self.now_ts, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
         day_new_vms = _new_vm_reports_from_series(vm_series, *period_bounds(self.now_ts, "day", self.settings.timezone), None, latest_label_by_vm, _latest_vm_value_map(latest_vms), first_seen_by_vm=vm_first_seen)
@@ -310,8 +314,15 @@ class ReportService:
                 totals[key] = points[-1][1]
         return totals
 
-    def _latest_vm_items(self, *, tower_id: int | None, cluster_id: str | None, enabled_scope: set[tuple[int, str]]) -> list[dict[str, Any]]:
-        return latest_vm_items(self.prometheus, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+    def _latest_vm_items(
+        self,
+        *,
+        tower_id: int | None,
+        cluster_id: str | None,
+        enabled_scope: set[tuple[int, str]],
+        recycled_keys: set[tuple[int, str, str]] | None = None,
+    ) -> list[dict[str, Any]]:
+        return latest_vm_items(self.prometheus, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, recycled_keys=recycled_keys)
 
     def _cluster_names(self) -> dict[tuple[int, str], str]:
         with self.database.connection() as conn:
@@ -467,6 +478,7 @@ def _growth_reports_from_series(
     min_sample_days: int | None = None,
     max_sample_days: int | None = None,
     alive_only: bool = True,
+    recycled_keys: set[tuple[int, str, str]] | None = None,
     tower_names: dict[int, str] | None = None,
     cluster_names: dict[tuple[int, str], str] | None = None,
 ) -> list[dict[str, Any]]:
@@ -474,12 +486,14 @@ def _growth_reports_from_series(
 
     - Phase 75：若开启 alive_only，仅保留在当前活跃元数据表中存活的虚拟机，已彻底删除机器全程排除。
     - min/max_sample_days 是报表侧的样本跨度过滤（月列表按所选周期截断），概览无此参数。
+    - #36/#37 ②：recycled_keys 为权威回收站键集（None 时 compute_growth_vms 内退回名字前缀兜底）。
     """
     records = compute_growth_vms(
         series_list=series_list,
         latest_items=latest_items,
         latest_label_by_vm=latest_label_by_vm,
         alive_only=alive_only,
+        recycled_keys=recycled_keys,
     )
     mapped = []
     for record in records:

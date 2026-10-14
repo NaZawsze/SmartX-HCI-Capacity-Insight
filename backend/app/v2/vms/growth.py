@@ -6,6 +6,7 @@ from typing import Any
 from app.v2.metrics.series import cluster_key, labels_match, metric_value, range_values, scoped_query, vm_key
 from app.v2.scope import in_enabled_scope
 from app.v2.vms.new_vm import is_recycled_vm_name, vm_display_name
+from app.v2.vms.recycle import is_recycled_key
 
 VM_USED_METRIC = "smartx_vm_storage_used_bytes"
 SECONDS_PER_DAY = 86_400
@@ -25,12 +26,20 @@ DAY_GROWTH = GrowthWindow(days=2, step="1h")
 MONTH_GROWTH = GrowthWindow(days=30, step="6h")
 
 
+def _is_recycled(metric: dict[str, Any], recycled_keys: set[tuple[int, str, str]] | None) -> bool:
+    """回收站判据（#36/#37 ②）：提供了权威键集则按三元组判，否则退回名字前缀兜底。"""
+    if recycled_keys is not None:
+        return is_recycled_key(vm_key(metric), recycled_keys)
+    return is_recycled_vm_name(vm_display_name(metric))
+
+
 def latest_vm_items(
     prometheus: Any,
     *,
     tower_id: int | None = None,
     cluster_id: str | None = None,
     enabled_scope: set[tuple[int, str]],
+    recycled_keys: set[tuple[int, str, str]] | None = None,
 ) -> list[dict[str, Any]]:
     """当前值来源之一：Prometheus instant 查询（过滤启用范围与回收站 VM）。"""
     items: list[dict[str, Any]] = []
@@ -40,18 +49,21 @@ def latest_vm_items(
             continue
         if not in_enabled_scope(cluster_key(metric), enabled_scope):
             continue
-        if is_recycled_vm_name(vm_display_name(metric)):
+        if _is_recycled(metric, recycled_keys):
             continue
         items.append(row)
     return items
 
 
-def series_tail_items(series_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def series_tail_items(
+    series_list: list[dict[str, Any]],
+    recycled_keys: set[tuple[int, str, str]] | None = None,
+) -> list[dict[str, Any]]:
     """当前值来源之二：序列最新点兜底（instant 为空时使用），同样排除回收站 VM。"""
     items: list[dict[str, Any]] = []
     for series in series_list:
         metric = series.get("metric", {})
-        if is_recycled_vm_name(vm_display_name(metric)):
+        if _is_recycled(metric, recycled_keys):
             continue
         points = sorted(range_values(series))
         if not points:
@@ -109,6 +121,7 @@ def compute_growth_vms(
     latest_items: list[dict[str, Any]],
     latest_label_by_vm: dict[tuple[int, str, str], dict[str, str]],
     alive_only: bool = True,
+    recycled_keys: set[tuple[int, str, str]] | None = None,
 ) -> list[dict[str, Any]]:
     """增长最快 VM 的唯一计算口径（49-45），概览与报表共用。
 
@@ -116,7 +129,8 @@ def compute_growth_vms(
     - growth = current - baseline，仅保留 > 0；
     - sample_span_days = (latest_ts - baseline_ts) / 86400，供前端样本跨度过滤；
     - Phase 75：若开启 alive_only，仅保留在当前活跃元数据表中存活的虚拟机，已彻底删除机器全程排除；
-    - 回收站 VM 全程排除；排序 growth 降序、次键 vm_name。
+    - 回收站 VM 全程排除（#36/#37 ②：提供 recycled_keys 时按权威标记判，否则名字前缀兜底）；
+      排序 growth 降序、次键 vm_name。
     """
     points_by_key = points_by_vm(series_list)
     mapped: list[dict[str, Any]] = []
@@ -134,7 +148,7 @@ def compute_growth_vms(
         if latest_ts is None:
             continue
         labels_latest = labels_with_latest_name(labels, latest_label_by_vm)
-        if is_recycled_vm_name(vm_display_name(labels_latest)):
+        if _is_recycled(labels_latest, recycled_keys):
             continue
         current = metric_value(item)
         growth_amount = max(0.0, current - baseline_value)
