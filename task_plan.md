@@ -109,7 +109,8 @@ docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
 | 32~48 | 升级链路专项（fix9~fix18、UPG-031~033、Phase 45/46 镜像版本与基线验证） | 全部完成 | [docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-task-findings.md) 对应章节；执行记录见 [docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md)；fix10 并入 Phase 32，无独立 Phase 33 |
 | 49 | v0.5.2 后续治理与风险待办 | 部分完成 | [docs/version-governance.md](docs/version-governance.md)；UPG-041~048 见 [worklog](docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md) 和 [docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md](docs/superpowers/plans/2026-07-15-upg045-released-u2-auto-collection-compatibility.md)；49-18/19 见 [docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md](docs/superpowers/specs/2026-09-19-vm-scale-and-chart-window-design.md)；49-20 见 [docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md](docs/superpowers/specs/2026-09-19-collection-freshness-probe-design.md)；49-21 见 [docs/superpowers/specs/2026-09-19-forecast-band-design.md](docs/superpowers/specs/2026-09-19-forecast-band-design.md)；49-22 见 [docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md](docs/superpowers/specs/2026-09-19-v053-repackage-and-v052-regression-upgrade-test-design.md)；49-23 见 [docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md](docs/superpowers/specs/2026-09-20-upg050-carrier-lock-and-prepare-skeleton-design.md)；49-3 收尾见 [docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md](docs/superpowers/specs/2026-09-20-source-compose-literal-tags-design.md)；49-36（已分配容量，已实施并部署 .3）见本文件 Phase 49 第 36 条与 [docs/superpowers/specs/2026-09-25-allocated-capacity-bar-design.md](docs/superpowers/specs/2026-09-25-allocated-capacity-bar-design.md)；49-37（手动采集清空快照修复 + 看板过期标注）见 [docs/superpowers/specs/2026-09-25-collection-snapshot-merge-and-stale-annotation-design.md](docs/superpowers/specs/2026-09-25-collection-snapshot-merge-and-stale-annotation-design.md)；49-39（报表容量增长率窗口口径 + 不足项「-/单位」与标题黄色「数据不足」）见 [docs/superpowers/specs/2026-09-26-reports-growth-window-requires-successful-collection-design.md](docs/superpowers/specs/2026-09-26-reports-growth-window-requires-successful-collection-design.md) ；49-49/49-50（runner 能力对齐方案 A/B，**已实施并验收；v0.3.2 交付动作（tag/镜像/资产）待用户决策**）见 [docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md](docs/superpowers/plans/2026-09-27-runner-capability-alignment-plan.md)；49-52（US-05/US-23 发布阻塞项修复，**`.12` MVP 验收待授权**）见 [docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md](docs/superpowers/specs/2026-09-27-us05-us23-release-blocking-fix-design.md)；49-53（文档一致性与发布口径修复）无专项设计文档，口径记录于本文件第 53 条；49-54（runner 交付一致性硬门禁，#47②/US-02）见 [docs/superpowers/specs/2026-09-27-runner-delivery-consistency-gate-design.md](docs/superpowers/specs/2026-09-27-runner-delivery-consistency-gate-design.md)；49-55（升级预检查磁盘空间硬校验，US-07/S1-1）见 [docs/superpowers/specs/2026-09-27-upgrade-disk-space-precheck-design.md](docs/superpowers/specs/2026-09-27-upgrade-disk-space-precheck-design.md)；49-56（升级任务产物自动清理，US-09/S1-2）见 [docs/superpowers/specs/2026-09-27-upgrade-artifact-housekeeping-design.md](docs/superpowers/specs/2026-09-27-upgrade-artifact-housekeeping-design.md)；49-57（执行期间 runner 在场判定，US-08/S1-3）见 [docs/superpowers/specs/2026-09-27-runner-presence-during-execution-design.md](docs/superpowers/specs/2026-09-27-runner-presence-during-execution-design.md)；剩余问题执行顺序见 [docs/superpowers/plans/2026-09-27-remaining-work-sequence.md](docs/superpowers/plans/2026-09-27-remaining-work-sequence.md) |
 | 79 | 报表导出可读性改造（Word 还原 + Excel 排版配色优化） | **Word 已还原；Excel 已优化 12 轮（34 测试绿，已提交 dev2，未推 origin）** | [docs/superpowers/specs/2026-10-12-report-export-readability-design.md](docs/superpowers/specs/2026-10-12-report-export-readability-design.md)、[docs/superpowers/plans/2026-10-12-report-export-readability-plan.md](docs/superpowers/plans/2026-10-12-report-export-readability-plan.md) |
-| 80 | 任务终态收敛竞态治理（#89：幽灵 running 任务行 + status-404 误报，同根因家族） | **后端 + CLI 已实施，待 .3 真机验证** | [docs/superpowers/specs/2026-10-14-task-terminal-convergence-race-design.md](docs/superpowers/specs/2026-10-14-task-terminal-convergence-race-design.md) |
+| 80 | 任务终态收敛竞态治理（#89：幽灵 running 任务行 + status-404 误报，同根因家族） | **已实施 + 已验证（本地 + `.3` 容器内），提交 `ea715e9`** | [docs/superpowers/specs/2026-10-14-task-terminal-convergence-race-design.md](docs/superpowers/specs/2026-10-14-task-terminal-convergence-race-design.md) |
+| 81 | 升级路径「设计意图 vs 实现」差距与零覆盖盘点（#90 迁移执行者解耦 → v0.5.5；#91 Prometheus 等路径补验证） | 已立项，**设计待写** | 设计待写（批准后落 `docs/superpowers/specs/`）；发现过程见 progress.md 2026-10-14 续五节 |
 
 升级后自动采集与 verification 历史查询的专项计划/设计：
 
@@ -2650,3 +2651,24 @@ test_us27_us29_fail_cleanup / 新文件二）。
 **验收（待办）**：`.3` 真机——容器内跑上述测试文件 + 后端全量无新增失败；CLI 行为测试在 .3
 （bash 环境）复跑。`delivery/upgrade/upgrade.sh` 的改动随下一版交付包生效（当前 .3 的 CLI
 为旧版，仅锁测试）。
+
+## Phase 81 - 升级路径「设计意图 vs 实现」差距与零覆盖盘点（#90 / #91）
+
+来源：2026-10-14 用户连续追问「以后能不能不升 runner 就升平台」「那之后升级 Prometheus 呢」，
+核查后暴露两类系统性问题（均**未登记过**）：
+
+**#90 迁移执行者解耦（目标版本 v0.5.5）**：v2 设计说平台升级是七步常量流程、迁移由**新 web-api
+启动时自跑**；实现却把迁移做成 **runner 动作**（`script.run_sandboxed`）→ 迁移由当前 runner 执行
+→ 老 runner 撞 US-40 必失败 → v0.5.4 必须先组件后平台。目标：迁移执行者搬回平台侧（基础已有：
+`database.py` 的 `schema_migrations` 记账表 + `upgrade/migrations/registry.json`），**不改 runner、
+不 bump 版本**（AGENTS §6），收益 = 以后升平台不必先升 runner。
+
+**#91 零覆盖路径盘点**：已识别三条「代码/设计有、真机零覆盖」的升级路径——①迁移沙箱（已炸
+US-40、已修已验）②存量站点守卫投递（US-39/#83）③**Prometheus / observability 组件升级**（打包
+工具 `scripts/build_prometheus_component_package.py` + 编译器生成的
+`image.load → compose.override → compose.apply → health.prometheus` 全齐、`health.prometheus` 在
+v0.3.1 能力表内 ⇒ 执行不需升 runner；但 **progress/ledger 无任何真机执行记录**）。要求：此类路径
+上客户前先在 `.14` 演练留证。
+
+**状态：已立项，设计待写。** 条目明细见 pending-tasks #90 / #91（本文件只留立项与口径）。
+设计获批后落 `docs/superpowers/specs/`。发现过程见 progress.md 2026-10-14 续五节。

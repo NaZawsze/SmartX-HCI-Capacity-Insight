@@ -6536,6 +6536,40 @@ dockerhub 两处按字符串下标判定被 usage/注释干扰 → 改按行判�
 
 ---
 
+## 2026-10-14（续五）口径澄清与两条新立项（#90 / #91，Phase 81）
+
+**触发**：用户连续追问——①「不是说要重构升级链路吗？算已重构了吗」②「现在到底还有哪些任务没完成」
+③「以后能不能不升 runner 就升平台」④「那之后升级 Prometheus 版本呢」。
+
+**澄清一：升级链路重构 = Phase 68，已完成（「已重构、未发布」）**。它落地的就是
+`upgrade-architecture-options.md` 的方案 A（声明式收敛）+ C（Expand–Contract），对治
+`upgrade-strategy-issues.md` §C2 三类根因：①执行者即被升级对象→runner 自换；②状态归属不唯一→
+状态出库+单写者；③执行期共享可变资源→lease/heartbeat 出库。**我此前把 pending `#56`/`#62`
+（2026-09-28/10-01 的旧条目）当成"待重构"单列，属**误报**——这两条的范围已被 Phase 68 执行，
+只是条目文字未更新。**教训：pending 是快照式索引会滞后，报状态必须与最新 Phase/CHANGELOG 交叉核对。**
+
+**澄清二（新发现，已立项 #90）**：设计说「平台升级七步常量流程、schema 迁移由**新 web-api 启动时
+自跑**」（design-v2 §2.1），实现却把迁移做成 **runner 动作**（impl-spec:261 `script.run_sandboxed`；
+r34 包 `database_migration=true`、9 动作含 `run-migration`）→ 老 runner（< r35）执行必失败（US-40）
+→ v0.5.4 必须先组件后平台。**修法属平台侧（迁移执行者搬回平台）⇒ 不改 runner ⇒ 不需要 v0.3.3**；
+目标 v0.5.5；做到后「升平台不必先升 runner」。
+
+**澄清三（新发现，已立项 #91）**：Prometheus 升级通道**存在且工具齐备**——打包
+`scripts/build_prometheus_component_package.py`（PRODUCT=smartx-prometheus，默认 v2.55.1）、走
+「组件升级」（intake 组件目录已列 prometheus/type=observability）、编译器生成
+`image.load → compose.override → compose.apply → health.prometheus`（探 `/-/healthy`，30×2s）；
+`health.prometheus` 在 v0.3.1 能力表内 ⇒ **执行不需升 runner**；TSDB 在宿主
+`/data/smartx-storage-forecast/prometheus` 绑定挂载（容器 `/prometheus`），换镜像不动数据 ⇒
+历史指标保留（保留策略 `--storage.tsdb.retention.time=400d`）。**但 progress/ledger 中无任何真机
+执行记录** → 与 US-40 同型的「从没跑过的路径」风险；已在 #91 要求上客户前先在 `.14` 演练，并
+顺带核实跨大版本的 flag/配置/TSDB 兼容性。
+
+**登记**：pending-tasks 新增 **#90**（迁移执行者解耦，v0.5.5）与 **#91**（零覆盖路径盘点，含
+Prometheus 组件升级演练）；task_plan 新增 **Phase 81**（立项，设计待写）+ 对照表行。
+**未改任何代码**（本两轮均为核查/文档）。
+
+---
+
 ## 2026-10-14（续二）四条「产品缺口」核查：status-404 归因修正 + DockerHub registry 独立复核 + 立项 #88/#89
 
 背景：用户质询 findings.md 2026-10-13/14 节四条缺口「是真的吗」，逐条做代码/registry 级核查。结论：**①属实、②现象属实但归因写错、③属实且已独立复核、④仅现象记录根因未证实（本就是「待查」）**。
