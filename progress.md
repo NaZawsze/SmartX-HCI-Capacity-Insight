@@ -6646,3 +6646,29 @@ Prometheus 组件升级演练）；task_plan 新增 **Phase 81**（立项，设�
 
 **与设计的偏差**：无。轮询端点已存在使改动面比原估更小。
 **仅剩**：`.3` 真机复验（点「立即采集」→ 即时返回 → 任务中心/采集状态显示终态，无 30s 超时误报）。
+
+---
+
+## 2026-10-14（续八）#28 报表 payload 瘦身实施完成（提交 `792a2cd`）
+
+**改动（6 文件）**：
+- `backend/app/v2/reports/service.py`：新增 `DEFAULT_NEW_VM_LIMIT=50` + `_normalize_new_vm_limit`
+  （None→默认 50；`all`/`0`/负值→全量；非法→默认）+ `_limit_new_vms`；`latest_report`/`_latest_report`
+  增 `new_vm_limit`；payload 的 `day_new_vms`/`month_new_vms` 按上限裁剪，**新增全量计数**
+  `day_new_vm_count`/`month_new_vm_count`。
+- `backend/app/v2/api/reports.py`：`GET /api/reports/latest` 增 `new_vm_limit`（默认 50）；
+  **三个导出端点显式传 `new_vm_limit="all"`**（Word/Excel/bundle 必须全量明细）。
+- `frontend/src/types.ts` + `ReportsPage.tsx`：补计数字段；两张卡副标题改用全量计数
+  （顺带修掉「计数最多显示 20」的既有显示缺陷——原来用被 slice(0,20) 的列表长度当计数）。
+- `docs/api.md` 补参数块；新增 `backend/tests/test_v2_report_new_vm_limit.py`（3 例）。
+
+**测试**：新增 3 例（归一化矩阵 / 默认裁剪 50 且计数全量 / `all`·0·负值=全量且裁剪顺序稳定）；
+报表相关回归 `test_v2_reports` + `test_v2_report_exports` + 新文件 = **59/59 OK**（导出测试的
+`FakeReportService` 已补 `new_vm_limit` 入参）；`verify_api_docs` OK（82 条一致）；
+前端 `tsc -b` exit 0 + **vitest 127 passed**。
+
+**踩坑记录**：①fixture 的「今日首见」样本必须落在**业务时区的今日 0 点之后**，否则不算今日新建；
+②新建 VM 还必须在 `vm_latest` 活跃列表里（Phase 75 过滤非活跃虚机）——两处都是首版用例踩到的；
+③`_limit_new_vms` 首版直接吃原始参数（可能是 `all` 字符串）→ `TypeError`，改为先归一化。
+
+**仅剩**：`.3` 真机 A/B（payload 体积降幅 ≥50%、导出内容零变化）。
