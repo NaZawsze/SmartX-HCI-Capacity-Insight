@@ -18,7 +18,7 @@ from ._compat import HTTPException, UploadFile
 
 from .fs import _now
 from .precheck import _runner_bootstrap, _runner_compose_project_name, _runner_only, _task_images, _task_services, _version_from_image
-from .taskfile import _completed_runner_task_view, _parse_datetime, _read_task_file, _replace_step, _save_task_file, _step
+from .taskfile import _completed_runner_task_view, _parse_datetime, _public_status, _read_task_file, _replace_step, _save_task_file, _step
 
 from .constants import RUNNER_NOT_DETECTED
 from ..projection import project_if_newer
@@ -173,13 +173,56 @@ class ExecutionMixin:
 
     def status(self, task_id: str) -> dict[str, Any]:
         task_dir = self.settings.upgrades_dir / task_id
-        task = self._normalize_completed_runner_task(task_dir, _read_task_file(task_dir))
+        try:
+            task = self._normalize_completed_runner_task(task_dir, _read_task_file(task_dir))
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            # #89：仅当 task.json **不存在**（产物被 post-cleanup/删除包回收）时才回落
+            # DB 记录，让滞留任务行在升级中心可见、可操作（US-25 的「标记失败」入口
+            # 点得到），而不是整个任务详情 404 空打死。
+            # 文件在但读不了（损坏）必须保留原来的「已损坏」干净 404——
+            # test_corrupt_file_read 钉住的契约：如实报损坏，不用 DB 视图掩盖。
+            if (task_dir / "task.json").is_file():
+                raise
+            return self._db_task_view(task_id)
         # W2：状态查询是 web-api 独占写 tasks 表的时机——执行期事实源是 task.json，
         # 客户端轮询 status 就是「把最新事实投影到任务中心」的触发点。
         # 放在 `_public_task` **之前**：视图要读库里刚写入的行，否则本次响应仍是旧进度
         # （用户会看到进度条停在上一格，下一次轮询才动——观感上就是"卡住"）。
         self._project_runner_task(task)
         return self._public_task(task)
+
+    def _db_task_view(self, task_id: str) -> dict[str, Any]:
+        """按 tasks 表记录合成任务视图（task.json 缺失时的回落，#89）。"""
+        record = self.tasks.get_task(task_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="升级任务不存在。")
+        db_status = str(record.get("status") or "")
+        view = {
+            "task_id": task_id,
+            "status": _public_status(db_status),
+            "target_version": record.get("message") or "",
+            "components": ["platform"],
+            "checks": [],
+            "steps": [],
+            "logs": [record.get("message") or ""],
+            "has_package": False,
+            "artifacts_missing": True,
+        }
+        if db_status == TaskStatus.RUNNING.value:
+            # US-25 语义对齐：无活租约的滞留执行中行也要暴露「标记失败」入口
+            try:
+                from .runner_presence import read_state_file, task_lease_is_alive
+
+                if not task_lease_is_alive(
+                    self.tasks.database, task_id, state_file=read_state_file(self.settings)
+                ):
+                    view["runner_lost"] = True
+                    view["available_recovery_actions"] = ["fail"]
+            except Exception:  # noqa: BLE001 - 视图不应因判定失败而报错
+                pass
+        return view
 
 
     def cancel(self, task_id: str) -> dict[str, Any]:
@@ -275,7 +318,18 @@ class ExecutionMixin:
 
     def recovery_fail(self, task_id: str) -> dict[str, Any]:
         task_dir = self.settings.upgrades_dir / task_id
-        task = _read_task_file(task_dir)
+        try:
+            task = _read_task_file(task_dir)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            # #89：幽灵行（task.json 被 post-cleanup/删除包回收、任务行滞留
+            # running）——DB 有记录且无 runner 持有时允许管理员直接收敛 DB 行，
+            # 不必等 6 小时僵尸规则，也不必人去数据库里改状态。
+            # 文件在但读不了（损坏）保留原「已损坏」404：如实报损坏，不用 DB 掩盖。
+            if (task_dir / "task.json").is_file():
+                raise
+            return self._converge_orphan_task_row(task_id)
         status = str(task.get("status") or "")
         # US-25：卡在 running 且没有任何 runner 持有租约（runner 崩了/被杀了/卡住了）时，
         # 必须给管理员一条产品化出路，否则 US-23 的单飞守卫会把环境永久锁死。
@@ -309,6 +363,41 @@ class ExecutionMixin:
         _save_task_file(task_dir, task)
         self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message=task["error"])
         return self._public_task(task)
+
+    def _converge_orphan_task_row(self, task_id: str) -> dict[str, Any]:
+        """收敛「task.json 已丢失」的孤儿任务行（#89）。
+
+        管理员显式调用 recovery/fail 且任务已无 runner 持有（租约判定，与单飞
+        守卫同源）时，直接把 DB 行标记失败。产物已被 post-cleanup/删除包回收，
+        无法也不该再写 task.json（重建目录只会招来新的残留）。
+
+        边界：有活租约 → 400（任务仍在执行，先处理 runner）；无 DB 记录 → 404；
+        非 running 状态 → 400（已终态或从未执行，幂等拒绝）。
+        """
+        record = self.tasks.get_task(task_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="升级任务不存在。")
+        if str(record.get("status") or "") != TaskStatus.RUNNING.value:
+            raise HTTPException(
+                status_code=400,
+                detail="该任务的执行记录已不存在或已是终态，无需标记失败。",
+            )
+        if self.task_has_live_runner(task_id):
+            raise HTTPException(
+                status_code=400,
+                detail="该任务仍被 upgrade-runner 持有（租约存活），不能标记失败；请先确认 runner 状态。",
+            )
+        message = (
+            "管理员已将任务标记失败：任务产物已被回收（升级后清理或删除升级包），任务行停留"
+            "在执行中且无 runner 持有。实际升级结果请以 /api/system/health 的版本号为准；"
+            "若版本已到达目标版本，可忽略本条记录。"
+        )
+        self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message=message)
+        view = self._db_task_view(task_id)
+        view["status"] = "failed"
+        view["logs"] = [message]
+        view["orphan_converged"] = True
+        return view
 
 
     def _set_recovery_command(self, task_id: str, command: str, message: str) -> dict[str, Any]:

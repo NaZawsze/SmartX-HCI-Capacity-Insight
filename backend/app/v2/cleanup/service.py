@@ -188,6 +188,41 @@ class CleanupService:
     #: 又远小于「永远卡住」的实际表现（`.12` 两个僵尸滞留 82~86 天）。
     GHOST_TASK_STALE_SECONDS = 6 * 3600
 
+    def _runner_executed_and_released(self, task_id: str) -> bool:
+        """runner 是否**执行过**该任务且已释放（#89 幽灵行的正面证据）。
+
+        判定 = runner 状态文件 `rollback_anchors` 持久段存在该 task_id 条目
+        （`save_rollback_anchor` 明确设计为跨 `release_lease` 存活，见
+        `statefile.py` 注释；保留最近 10 条）**且** 无活租约
+        （`task_lease_is_alive`，与单飞守卫同一判定）。
+
+        为什么需要这个信号：`.12` `upgrade-6eabea06` / `.14` `upgrade-99996849`
+        实测——升级 apply 成功后产物被 post-cleanup/删除包回收，任务行停在
+        `running`，按原 6h 陈旧规则要挡空间清理 6 小时。但只按「目录不存在 +
+        无租约」判定会误伤「刚创建、目录尚未落盘」的新任务窗口
+        （`test_fresh_running_task_without_dir_still_blocks` 锁定的产品决策），
+        故必须要有「runner 真的执行过」这个正面证据。
+
+        读不到状态文件/无锚点一律 False——保守回落 6h 陈旧规则（覆盖无锚点的
+        任务类型与锚点被历史淘汰的老行）。
+        """
+        try:
+            from app.upgrade_runner.statefile import state_file_path
+
+            path = state_file_path(self.settings.sqlite_path)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - 读不到=无证据，回落陈旧规则
+            return False
+        anchors = payload.get("rollback_anchors") if isinstance(payload, dict) else None
+        if not isinstance(anchors, dict) or task_id not in anchors:
+            return False
+        from app.v2.upgrade.service.runner_presence import task_lease_is_alive
+
+        try:
+            return not task_lease_is_alive(self.tasks.database, task_id)
+        except Exception:  # noqa: BLE001 - 判定失败保守当作仍有持有
+            return False
+
     def _active_upgrade_tasks(self) -> list[dict[str, Any]]:
         """当前真正占用 `upgrades/` 的升级任务（会阻塞清理）。
 
@@ -201,6 +236,10 @@ class CleanupService:
         - 只看「目录不存在」会误放行**刚创建、目录尚未落盘**的真任务
           （实测：`create_task` 与目录创建之间存在窗口）；
         - 只看「陈旧」会误放行目录尚在但已卡死的真任务，那仍需人工介入。
+
+        #89（2026-10-14）追加**正面证据通道**：runner 执行过且已释放
+        （`_runner_executed_and_released`）的目录缺失行=产物被回收的幽灵行，
+        立即放行，不再等 6h；无证据时维持上面的陈旧规则不变。
         """
         try:
             tasks = self.tasks.list_tasks(limit=200)
@@ -216,6 +255,12 @@ class CleanupService:
                 continue
             task_id = str(task.get("id") or "")
             if task_id and not (upgrades_dir / task_id).is_dir():
+                if self._runner_executed_and_released(task_id):
+                    logger.info(
+                        "cleanup: 忽略幽灵升级任务 %s（status=%s、runner 已执行且释放、目录已不存在）",
+                        task_id, task.get("status"),
+                    )
+                    continue
                 stamp = str(task.get("updated_at") or task.get("created_at") or "")
                 stale_seconds = self._seconds_since(stamp, now)
                 if stale_seconds is not None and stale_seconds > self.GHOST_TASK_STALE_SECONDS:

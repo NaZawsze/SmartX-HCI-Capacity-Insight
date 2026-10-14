@@ -115,6 +115,8 @@ prom/prometheus:v2.55.1
 
 > **部署前必读（2026-09-28）**：上面清单里的 `upgrade-runner` tag 是**源码/开发线口径**；本次发布**不交付 runner 组件**（用户 2026-09-28 决定，随下一版一起发），因此**交付物（含 OVA/全新部署）的 compose 必须落已发布 `upgrade-runner:v0.3.1`**（平台升级的 runner 基线就是 v0.3.1，见下节「升级顺序」）。开发线的 tag 目前没有对应 DockerHub 镜像，直接拿去部署会拉不到。
 
+> **镜像来源注意（2026-10-14，pending #88）**：DockerHub `nazawsze/smartx-hci-capacity-insight-web-api:v0.5.1u2` tag 的内容与当初 GitHub Release 不一致——该 tag（自 2026-07-09 CI 构建起）指向的 web-api 镜像内 `/app/VERSION` 自报 `v0.5.2`（其构建提交 `baaffcd` 即 v0.5.1u2 tag，该提交的 VERSION 文件已写成 v0.5.2），而 GitHub Release v0.5.1u2 包内嵌镜像才是 v0.5.1u2。**以此为基线在线安装会被升级中心误判为 v0.5.2**，导致 v0.5.2 官方升级包被源兼容/同版本检查拦下（`.12` 2026-10-14 实测复现）。规则：**v0.5.1u2 及更早版本的安装镜像只从 GitHub Releases 对应发布包内的 `images/*.tar` 获取**。修复脚本（用 Release 原始镜像重打 tag，默认干跑、`--push` 才推）见 `scripts/fix_dockerhub_v051u2_tag.sh`；设计与证据见 docs/superpowers/specs/2026-10-14-dockerhub-v051u2-tag-remediation-design.md。
+
 If you export GitHub Actions images as tar files, load them first:
 
 ```bash

@@ -351,10 +351,25 @@ case "$START_BODY" in
 esac
 ok "升级已启动"
 
+# ── #89 兜底：任务终态快照缺失时以 health 版本到达判定 ──
+# 2026-10-14 `.12`/`.14` 实测：升级实际成功，但 post-cleanup 回收任务目录后
+# `GET /api/admin/upgrade/status/<id>` 返回 404「升级任务不存在。」——响应体没有
+# status 字段，轮询记 unknown 空转到 1800s，误报「超时未收敛」（产品其实成功了）。
+# 兜底：无 status 快照时查 `/api/system/health`，版本已到达 TARGET_VERSION 即判成功。
+health_reports_target_version() {
+  # TARGET_VERSION 为空/unknown 时无法比较：放弃兜底（返回 1 = 未收敛）
+  [ -n "${TARGET_VERSION:-}" ] && [ "$TARGET_VERSION" != "unknown" ] || return 1
+  local _hb _hv
+  _hb="$(curl -s --max-time 10 "${HEALTH_URL:-http://127.0.0.1:8000/api/system/health}" 2>/dev/null || true)"
+  _hv="$(printf '%s' "$_hb" | sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')"
+  [ -n "$_hv" ] && [ "$_hv" = "$TARGET_VERSION" ]
+}
+
 # ── 轮询 ──
 printf '\n  升级进行中'
 ELAPSED=0
 FINAL_STATUS=""
+CONVERGED_VIA_HEALTH=0
 while [ "$ELAPSED" -lt "$POLL_TIMEOUT" ]; do
   STATUS_BODY="$(curl -s --max-time 20 "$BASE_URL/api/admin/upgrade/status/$TASK_ID" "${AUTH[@]}" 2>/dev/null || true)"
   STATUS="$(printf '%s' "$STATUS_BODY" | sed -nE 's/.*"status"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')"
@@ -362,15 +377,28 @@ while [ "$ELAPSED" -lt "$POLL_TIMEOUT" ]; do
   printf '.'
   case "$STATUS" in
     succeeded|success)  FINAL_STATUS="$STATUS"; break ;;
-    failed|rolled_back|rollback_failed|recovery_required|runner_restarting)
+    failed|rolled_back|rollback_failed|recovery_required|    runner_restarting)
       # runner_restarting 是组件升级的正常中间态；平台升级遇到则继续等
       if [ "$STATUS" = "runner_restarting" ]; then FINAL_STATUS=""; else FINAL_STATUS="$STATUS"; break; fi
       ;;
   esac
+  # #89：无 status 快照（404/字段缺失）时兜底查 health——版本已到达目标即判成功，
+  # 不再空转到 1800s 误报。health 暂不可达（升级中 web-api 重启）则继续轮询。
+  if [ "$STATUS" = "unknown" ] && health_reports_target_version; then
+    CONVERGED_VIA_HEALTH=1
+    FINAL_STATUS="succeeded"
+    break
+  fi
   sleep "$POLL_INTERVAL"
   ELAPSED=$((ELAPSED + POLL_INTERVAL))
 done
 printf '\n\n'
+
+# #89：超时前的最后一线——全程快照缺失（产物被回收）但 health 已到达目标版本
+if [ -z "$FINAL_STATUS" ] && health_reports_target_version; then
+  CONVERGED_VIA_HEALTH=1
+  FINAL_STATUS="succeeded"
+fi
 
 # ── 结果 ──
 if [ "$FINAL_STATUS" = "succeeded" ] || [ "$FINAL_STATUS" = "success" ]; then
@@ -378,6 +406,9 @@ if [ "$FINAL_STATUS" = "succeeded" ] || [ "$FINAL_STATUS" = "success" ]; then
   NEW_VERSION="$(printf '%s' "$NEW_HEALTH" | sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')"
   NEW_RUNNER="$(printf '%s' "$NEW_HEALTH" | sed -nE 's/.*"runner_version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')"
   CLEANUP_ID="$(printf '%s' "$STATUS_BODY" | sed -nE 's/.*"post_upgrade_cleanup_task_id"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')"
+  if [ "$CONVERGED_VIA_HEALTH" -eq 1 ]; then
+    printf '  说明：任务终态快照缺失（产物已被升级后清理回收），已以 health 版本到达 %s 判定升级成功。\n' "${NEW_VERSION:-$TARGET_VERSION}"
+  fi
   c_green "════════════════════════════════════════════════"
   c_green " 升级成功"
   c_green "════════════════════════════════════════════════"
@@ -442,8 +473,18 @@ if [ -n "$RUNNER_PACKAGE" ]; then
     # 原因：单飞守卫（US-23）会拒绝"还有任务在跑"时发起的新任务。平台升级返回 succeeded 时，
     # post-cleanup 往往刚被创建、仍在 pending/running，此时直接升级 runner 必然 400。
     printf '  ── 等待升级后清理（post-cleanup）收敛 ──\n'
-    CLEANUP_WAITED=0
-    while [ "$CLEANUP_WAITED" -lt "$POLL_TIMEOUT" ]; do
+    SKIP_CLEANUP_WAIT=0
+    if [ "$CONVERGED_VIA_HEALTH" -eq 1 ] && [ -z "$CLEANUP_ID" ]; then
+      # #89：经 health 兜底判成功时任务快照已缺失，拿不到 post-cleanup 任务 ID，
+      # 等下去只会空转到超时；如实说明并继续（被单飞守卫拒绝时按既有指引重试）。
+      # CLEANUP_WAITED=-1 = 「已收敛/跳过」哨兵，避免下面误报「未在时限内收敛」。
+      info "任务快照已被回收，无法观察升级后清理任务，跳过等待"
+      SKIP_CLEANUP_WAIT=1
+      CLEANUP_WAITED=-1
+    else
+      CLEANUP_WAITED=0
+    fi
+    while [ "$SKIP_CLEANUP_WAIT" -eq 0 ] && [ "$CLEANUP_WAITED" -lt "$POLL_TIMEOUT" ]; do
       PC_BODY="$(curl -s --max-time 20 "$BASE_URL/api/admin/upgrade/post-cleanup/$TASK_ID" "${AUTH[@]}" 2>/dev/null || true)"
       PC_STATUS="$(printf '%s' "$PC_BODY" | sed -nE 's/.*"status"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')"
       [ -n "$PC_STATUS" ] || PC_STATUS="unknown"

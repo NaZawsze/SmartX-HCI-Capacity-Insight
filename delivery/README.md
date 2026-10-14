@@ -274,6 +274,18 @@ docker exec <web-api 容器名> python -c "import sqlite3;c=sqlite3.connect('/da
 | 终态 `rolled_back` / `rollback_failed` | 平台已尝试自动回滚，查任务日志确认结果 |
 | 升级成功但旧目录还在 | **再跑一次完整升级**，由升级后清理收尾 |
 
+### 6.3 旧版本安装镜像的来源注意（v0.5.1u2 及更早）
+
+- **安装本交付包（v0.5.4）不涉及本条**——镜像全部随包提供，不访问外网（见 §1「网络」一行）。
+- 只有**在线安装旧版本**（例如按历史文档从 DockerHub 拉
+  `nazawsze/smartx-hci-capacity-insight-*:v0.5.1u2`）时才需注意：DockerHub 的
+  `v0.5.1u2` tag 内容与当初 GitHub Release 不一致（该 tag 下的 web-api 镜像内
+  `/app/VERSION` 自报 `v0.5.2`）。以此为基线安装后，升级中心会把现场判成 v0.5.2，
+  上传 v0.5.2 官方升级包会被「同版本」检查拦下。
+- **规则：v0.5.1u2 及更早版本的安装镜像，只从 GitHub Releases 对应发布包内的
+  `images/*.tar` 获取，不要从 DockerHub 拉旧版本 tag。** 安装成功后按 §4 的
+  两步顺序（先组件、后平台）继续升级即可。
+
 ---
 
 ## 7. 卸载

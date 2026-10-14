@@ -21,6 +21,10 @@
 > （此前只存在于开发线）。**既有环境升级顺序 = 先组件升级（本批次 v0.3.2 组件包）、后平台升级**
 > （US-40 顺序约束，2026-10-08 定案；v0.5.2 源端经 v0.5.3 两步到达；详见「已知问题」与
 > docs/upgrade-chain.md §7.4）。
+>
+> ⚠️ **2026-10-14 修复不在 r34/r35 包内**：#89（幽灵 running 行 + status-404 误报）与 #88
+> （DockerHub v0.5.1u2 tag 修复脚本与文档规则）提交于 r34/r35 之后，**发布前必须重建候选包
+> 并重走验证**（见「修复」节对应条目）。
 
 ### 更新摘要
 
@@ -135,6 +139,20 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   succeeded 且 `run-migration` succeeded（该代码路径首次真机执行）→ 8 项验收全过、
   `schema_migrations` 4 条落库、升级后自动采集已分配 320.00 GiB 稳定。
   详见 [upgrade-issues](../upgrade-strategy-issues.md) US-40 与 progress.md 2026-10-08 节。
+- **幽灵 running 任务行 + status-404 误报（#89 / Phase 80，2026-10-14 修复；随下一版候选包交付，
+  当前 r34/r35 包不含本修复）**：升级 apply 成功后 post-cleanup 回收任务目录与 tasks 表 running
+  行终态写回之间存在竞态（`.12` `upgrade-6eabea06` / `.14` `upgrade-99996849` 跨机坐实）——
+  任务行滞留 `running`、task.json 丢失，cancel/recovery/delete 全部 404「升级任务不存在。」，
+  `cleanup_artifacts` 被挡 6 小时；同时 `upgrade.sh` 轮询 status 拿不到快照记 `unknown` 空转
+  1800s 误报「超时未收敛」（升级实际成功）。修复：①清理服务按「runner 回滚锚点持久段 + 无活
+  租约」正面证据识别幽灵行立即放行（无证据维持原 6h 陈旧规则；有活租约仍阻塞）；②
+  `recovery/fail` 可收敛无 task.json 的 DB 行（有租约 400 / 无记录 404 / 终态行 400）；
+  ③`status()` 在 task.json **不存在**时回落 DB 记录视图（文件在但损坏仍如实报「已损坏」）；
+  ④`upgrade.sh` 对 404/无 `status` 响应降级轮询 `/api/system/health`，版本到达目标即判成功
+  并附说明，`--with-runner` 的清理等待在快照缺失时跳过。测试：`test_ghost_task_convergence`
+  12 例 + `test_upgrade_status_404_fallback` 11 例（本地回归 43/43）。设计：
+  docs/superpowers/specs/2026-10-14-task-terminal-convergence-race-design.md。
+  **不动 runner 代码/版本号**（AGENTS §6）。
 
 ### 工程与运维
 
@@ -166,6 +184,14 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   供 v0.5.3 及更早包编译出的计划继续使用。
 - 新增矩阵执行清单 `docs/superpowers/plans/2026-10-06-upgrade-matrix-runbook.md`
   与一键取证脚本 `ops/evidence.sh`（只读、容器只按显式名字枚举、离线可用）。
+- **DockerHub `v0.5.1u2` tag 修复与基线镜像来源规则（#88，2026-10-14）**：新增
+  `scripts/fix_dockerhub_v051u2_tag.sh`——加载 GitHub Release v0.5.1u2 包内原始镜像 →
+  校验 web-api `/app/VERSION=v0.5.1u2`（不符即拒推）→ 重打 DockerHub tag；**默认干跑**、
+  `--push` 才推、推送后 digest 回读校验、凭据只走环境变量/`docker login` 会话不落盘。
+  `delivery/README.md` §6.3 与 `docs/deployment.md` 注明「v0.5.1u2 及更早版本的安装镜像
+  只从 GitHub Release 包内 `images/*.tar` 获取」（该 DockerHub tag 自 2026-07-09 CI 构建起
+  指向自报 v0.5.2 的镜像，根因与证据见 findings.md 2026-10-14 节）。真机推送（T3）待用户
+  在 `.3` 提供 DockerHub 凭据后执行 `--push`。
 
 ### 验证说明
 

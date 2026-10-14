@@ -6447,6 +6447,64 @@ online=在线安装（docker.io 前缀）· upgrade=升级专用）。
 
 ---
 
+## 2026-10-14（续三）#88/#89 修复实施（用户指令「修复 88，89，写设计文档」）
+
+**设计（两份，均落 docs/superpowers/specs/）**：
+- `2026-10-14-task-terminal-convergence-race-design.md`（#89）：清理幽灵识别的正面证据
+  （rollback_anchors 持久段 + 无活租约）、recovery/fail DB-only 收敛、status() DB 回落、
+  CLI health 兜底；不动 runner 代码/版本号（AGENTS §6）。
+- `2026-10-14-dockerhub-v051u2-tag-remediation-design.md`（#88）：DockerHub tag 重推校正
+  为首选 + 文档固化为必备；修复脚本默认干跑、推送前校验 /app/VERSION。
+
+**#89 实施（后端 2 文件 + CLI 1 文件）**：
+- `backend/app/v2/cleanup/service.py`：新增 `_runner_executed_and_released()`；`_active_upgrade_tasks`
+  对「目录不存在 + 锚点在 + 无活租约」的 running 行立即按僵尸放行（新日志区分幽灵/陈旧）；
+  无锚点维持 6h 陈旧规则；有活租约仍阻塞。
+- `backend/app/v2/upgrade/service/execution.py`：①`recovery_fail` 增加 DB-only 收敛路径
+  （`_converge_orphan_task_row`：task.json 不存在 + DB running + 无活租约 → 收敛 failed；
+  有租约 400 / 无记录 404 / 终态 400）；②`status()` task.json 不存在时回落 `_db_task_view`
+  （`artifacts_missing` + US-25 语义 `runner_lost`/`available_recovery_actions=["fail"]`）；
+  ③两处均加护栏：**文件在但损坏**时保留原「已损坏」404（test_corrupt_file_read 契约，
+  不被 DB 回落掩盖——本轮首次全量跑时该测试失败暴露了此点，已修）。
+- `delivery/upgrade/upgrade.sh`：新增 `health_reports_target_version()`；轮询段、超时宣判前
+  两处 health 兜底（`CONVERGED_VIA_HEALTH`）；成功输出附说明；`--with-runner` 清理等待在
+  快照缺失且无 CLEANUP_ID 时跳过（SKIP_CLEANUP_WAIT）。
+
+**#88 实施**：`scripts/fix_dockerhub_v051u2_tag.sh`（解包 Release 包 → docker load →
+  校验 web-api `/app/VERSION=v0.5.1u2` → 重打 tag → 默认干跑/`--push` 才推 → digest 回读）；
+  `delivery/README.md` §6.3 与 `docs/deployment.md` 补基线镜像来源规则。
+
+**测试（本地，venv python3.13 + fastapi/httpx/python-multipart 补齐后）**：
+- 新增 `backend/tests/test_ghost_task_convergence.py` **12 例全过**（幽灵立即放行/有租约阻塞/
+  无锚点阻塞/陈旧无锚点放行/DB-only 收敛/有租约拒绝/未知 404/终态拒绝/status 回落/status 未知
+  404/损坏文件契约 2 例）；
+- 新增 `backend/tests/test_upgrade_status_404_fallback.py` **11 例**（静态锁 6 + stub curl
+  行为 5：版本到达判收敛/未到达/不可达/目标 unknown 短路/自定义 HEALTH_URL）；
+- 新增 `backend/tests/test_dockerhub_tag_remediation.py`（静态锁：默认干跑/--push 门/
+  /app/VERSION 校验先行/凭据不落码/bash -n 语法）；
+- 回归：`test_v2_cleanup` + `test_stuck_running_recovery` + `test_us27_us29_fail_cleanup` +
+  新测试文件 = **43/43 全过**；全量 discover 1166 tests，FAILED 2+ERROR 1 中：
+  `test_corrupt_task_json_status_is_clean_error`（本次引入，已修——见上）、
+  `test_v2_dashboard_vm` 一条、`test_v2_inventory_metrics` 加载失败（本地缺依赖），
+  后两项**未能用 stash 对照确认是否存量**（shell 执行通道当日中途故障，SIGTERM 137，
+  复核命令未能执行——待 shell 恢复后补对照，见下方待办）。
+
+**文档**：task_plan Phase 80 实施状态、pending #88/#89 状态翻转、CHANGELOG v0.5.4 修复/工程
+条目 + 发布门槛注记（r34/r35 不含 10-14 修复、发布前需重建候选包）、doc-map 登记两份设计。
+
+**环境事件（记录备查）**：本轮中途 Bash 执行通道整体故障（所有命令含 `echo` 均 SIGTERM 137、
+Grep 工具 30s 超时；子代理复现同样症状），Read/Edit/Write 不受影响；git stash 对照因此中断
+一次（已确认改动均在工作树，stash 已弹回、无残留风险——以文件内容复核为准：execution.py 含
+`_converge_orphan_task_row`、cleanup/service.py 含 `_runner_executed_and_released`）。
+
+**待办**：①shell 恢复后：本地重跑两个新测试文件 + 全量 FAILED 对照（确认 dashboard/inventory
+两项为存量）、`git diff --check`、提交 dev2（本地，不推 origin）；②`.3` 真机：容器内跑
+`test_ghost_task_convergence`/`test_upgrade_status_404_fallback` + 后端全量无新增失败；
+③#88 真机推送：用户在 `.3` 提供 DockerHub 凭据后执行 `scripts/fix_dockerhub_v051u2_tag.sh
+--package <Release 包> --push`；④v0.5.4 发布前重建候选包（含 #89 CLI/后端修复）。
+
+---
+
 ## 2026-10-14（续二）四条「产品缺口」核查：status-404 归因修正 + DockerHub registry 独立复核 + 立项 #88/#89
 
 背景：用户质询 findings.md 2026-10-13/14 节四条缺口「是真的吗」，逐条做代码/registry 级核查。结论：**①属实、②现象属实但归因写错、③属实且已独立复核、④仅现象记录根因未证实（本就是「待查」）**。
