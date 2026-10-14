@@ -32,6 +32,12 @@ CLUSTER_USED_METRIC = "smartx_cluster_storage_used_bytes"
 CLUSTER_TOTAL_METRIC = "smartx_cluster_storage_total_bytes"
 CLUSTER_ALLOCATED_METRIC = "smartx_cluster_storage_allocated_bytes"
 VM_USED_METRIC = "smartx_vm_storage_used_bytes"
+
+# #28：页面路径的「新建 VM」明细列表默认只返回前 N 条——该列表曾是 payload 的最大块
+# （.3 实测 `month_new_vms` 277KB ≈ 整体 63%），而前端只展示前 20 条。
+# 计数另走 `*_new_vm_count`（**全量口径**）；导出/API 可用 `new_vm_limit=all` 取全量。
+DEFAULT_NEW_VM_LIMIT = 50
+FULL_NEW_VM_LIMIT_TOKENS = {"all", "full", "none"}
 # 增长窗口内成功采集的最小覆盖比例（相对窗口长度）：需覆盖两端，避免跨期跳变被当成增长。
 GROWTH_WINDOW_COVERAGE_RATIO = 0.5
 
@@ -93,17 +99,17 @@ class ReportService:
         self.prometheus = prometheus or PrometheusService(settings.prometheus_url)
         self.now_ts = int(now_ts) if now_ts is not None else int(time.time())
 
-    def latest_report(self, tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, chart_days: int = 365) -> dict[str, Any]:
+    def latest_report(self, tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, chart_days: int = 365, new_vm_limit: int | str = DEFAULT_NEW_VM_LIMIT) -> dict[str, Any]:
         # ReportService 为请求级实例；包一层请求内去重，DataQualityService 通过
         # prometheus=self.prometheus 共享同一 memo。
         original_prometheus = self.prometheus
         self.prometheus = _MemoPrometheus(original_prometheus)
         try:
-            return self._latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days, chart_days=chart_days)
+            return self._latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days, chart_days=chart_days, new_vm_limit=new_vm_limit)
         finally:
             self.prometheus = original_prometheus
 
-    def _latest_report(self, tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, chart_days: int = 365) -> dict[str, Any]:
+    def _latest_report(self, tower_id: int | None = None, cluster_id: str | None = None, period_days: int = 30, chart_days: int = 365, new_vm_limit: int | str = DEFAULT_NEW_VM_LIMIT) -> dict[str, Any]:
         window_days = _normalize_period_days(period_days)
         chart_window_days = _normalize_chart_days(chart_days)
         # 增长速率：窗口长度固定 日 1 / 月 30 / 季度 90 天，锚定在最后一次成功采集上
@@ -202,8 +208,11 @@ class ReportService:
             "fastest_growing_vms": day_vms,
             "day_fastest_growing_vms": day_vms,
             "month_fastest_growing_vms": month_vms,
-            "day_new_vms": day_new_vms,
-            "month_new_vms": month_new_vms,
+            "day_new_vms": _limit_new_vms(day_new_vms, _normalize_new_vm_limit(new_vm_limit)),
+            "month_new_vms": _limit_new_vms(month_new_vms, _normalize_new_vm_limit(new_vm_limit)),
+            # #28：计数是**全量口径**——瘦身只裁剪明细列表（页面只展示前 20 条）。
+            "day_new_vm_count": len(day_new_vms),
+            "month_new_vm_count": len(month_new_vms),
             "cluster_growth_rate_per_day": cluster_growth_rate["per_day"],
             "cluster_growth_rate": cluster_growth_rate,
             "window_days": window_days,
@@ -514,6 +523,34 @@ def _growth_reports_from_series(
             }
         )
     return mapped[:limit] if limit is not None else mapped
+
+
+def _normalize_new_vm_limit(value: int | str | None) -> int | None:
+    """#28：`new_vm_limit` 归一化 —— None/`all`/`0`/负值 ⇒ 全量；正整数 ⇒ 截断；其他 ⇒ 默认 50。
+
+    计数口径不受影响（payload 的 `*_new_vm_count` 始终全量）。
+    """
+    if value is None:
+        return DEFAULT_NEW_VM_LIMIT
+    if isinstance(value, str):
+        token = value.strip().lower()
+        if token in FULL_NEW_VM_LIMIT_TOKENS:
+            return None
+        if token == "":
+            return DEFAULT_NEW_VM_LIMIT
+        try:
+            value = int(token)
+        except ValueError:
+            return DEFAULT_NEW_VM_LIMIT
+    try:
+        numeric = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_NEW_VM_LIMIT
+    return numeric if numeric > 0 else None
+
+
+def _limit_new_vms(items: list[dict[str, Any]], limit: int | None) -> list[dict[str, Any]]:
+    return items if limit is None else items[:limit]
 
 
 def _new_vm_reports_from_series(

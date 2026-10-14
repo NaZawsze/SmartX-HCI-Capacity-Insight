@@ -25,7 +25,9 @@ class FakeReportService:
         self.window_vms = window_vms
         self.clusters = clusters
 
-    def latest_report(self, tower_id=None, cluster_id=None, period_days=30, chart_days=365):
+    def latest_report(self, tower_id=None, cluster_id=None, period_days=30, chart_days=365, new_vm_limit="all"):
+        # #28：导出端点显式传 new_vm_limit="all"（全量明细）；fake 记录该入参供断言。
+        self.last_new_vm_limit = new_vm_limit
         return {
             "scope": {"tower_id": tower_id, "cluster_id": cluster_id},
             "clusters": self.clusters

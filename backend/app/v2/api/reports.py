@@ -111,10 +111,17 @@ def latest_report(
     cluster_id: Optional[str] = None,
     period_days: int = 30,
     chart_days: int = 365,
+    new_vm_limit: int | str = 50,
 ) -> dict:
     if cluster_id and tower_id is None:
         raise HTTPException(status_code=400, detail="cluster_id requires tower_id.")
-    return reports.latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days, chart_days=chart_days)
+    return reports.latest_report(
+        tower_id=tower_id,
+        cluster_id=cluster_id,
+        period_days=period_days,
+        chart_days=chart_days,
+        new_vm_limit=new_vm_limit,
+    )
 
 
 
@@ -130,7 +137,7 @@ def export_report_word(
 ) -> Response:
     if cluster_id and tower_id is None:
         raise HTTPException(status_code=400, detail="cluster_id requires tower_id.")
-    report = reports.latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days)
+    report = reports.latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days, new_vm_limit="all")  # #28：导出必须拿全量明细
     content, filename, path, download_url = build_report_docx(report, settings, period_days=period_days)
     record_export_task(tasks, filename, path, download_url, "Word")
     return download_response(content, filename, DOCX_MEDIA_TYPE, path=path, download_url=download_url)
@@ -149,7 +156,7 @@ def export_report_excel(
 ) -> Response:
     if cluster_id and tower_id is None:
         raise HTTPException(status_code=400, detail="cluster_id requires tower_id.")
-    report = reports.latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days)
+    report = reports.latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days, new_vm_limit="all")  # #28：导出必须拿全量明细
     content, filename, path, download_url = build_report_xlsx(report, settings, period_days=period_days)
     record_export_task(tasks, filename, path, download_url, "Excel")
     return download_response(content, filename, XLSX_MEDIA_TYPE, path=path, download_url=download_url)
@@ -169,7 +176,7 @@ def export_report_bundle(
 ) -> dict:
     if cluster_id and tower_id is None:
         raise HTTPException(status_code=400, detail="cluster_id requires tower_id.")
-    report = reports.latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days)
+    report = reports.latest_report(tower_id=tower_id, cluster_id=cluster_id, period_days=period_days, new_vm_limit="all")  # #28：导出必须拿全量明细
     _, word_filename, word_path, word_url = build_report_docx(report, settings, period_days=period_days)
     _, excel_filename, excel_path, excel_url = build_report_xlsx(report, settings, period_days=period_days)
     files = [

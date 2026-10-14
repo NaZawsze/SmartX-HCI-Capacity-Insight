@@ -393,7 +393,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
 
         <VmListCard
           title="本日新建 VM"
-          subtitle={`${dayNewVms.length || 0} 台本日新建`}
+          subtitle={`${report?.day_new_vm_count ?? dayNewVms.length ?? 0} 台本日新建`}
           items={dayNewVms}
           emptyText="暂无本日新建 VM"
           renderValue={(item) => formatBytes(item.forecast.current)}
@@ -402,7 +402,7 @@ export function ReportsPage({ summary, scope, refreshKey = 0, onSelectVm, addTas
 
         <VmListCard
           title="本月新建 VM"
-          subtitle={`${monthNewVms.length || 0} 台本月新建`}
+          subtitle={`${report?.month_new_vm_count ?? monthNewVms.length ?? 0} 台本月新建`}
           items={monthNewVms}
           emptyText="暂无本月新建 VM"
           renderValue={(item) => formatBytes(item.forecast.current)}

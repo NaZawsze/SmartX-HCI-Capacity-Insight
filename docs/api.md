@@ -363,7 +363,12 @@ Optional query parameters:
 ```text
 tower_id=<id>
 cluster_id=<cluster-id>
+period_days=<n>          # default 30
+chart_days=<n>           # default 365
+new_vm_limit=<n|all>     # default 50; `all`/`0`/negative = full list
 ```
+
+`new_vm_limit` caps the `day_new_vms` / `month_new_vms` detail lists (the largest payload block: measured 277KB ≈ 63% of the response on `.3`), while the counts `day_new_vm_count` / `month_new_vm_count` are **always full**. Exports (Word/Excel/bundle) request `all` so customer reports keep every row.
 
 Returns cluster forecast reports, daily top-growing VM reports, monthly top-growing VM reports, cluster total growth rate per day, and forecast window metadata.
 

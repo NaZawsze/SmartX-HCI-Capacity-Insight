@@ -254,6 +254,9 @@ export interface ForecastPayload {
   month_fastest_growing_vms?: GrowthVmReport[];
   day_new_vms?: GrowthVmReport[];
   month_new_vms?: GrowthVmReport[];
+  // #28：新建 VM 明细列表按 new_vm_limit 瘦身，计数是全量口径（页面副标题用）。
+  day_new_vm_count?: number;
+  month_new_vm_count?: number;
   cluster_growth_rate_per_day?: number | null;
   cluster_growth_rate?: {
     per_day?: number | null;
