@@ -1121,3 +1121,32 @@ SQLite vacuum（本地快）、迁移导入/导出（已走异步任务）均未
   释放 8.22GB ⇒ 升级随即通过。**结论**：#89 的严重度应从「挡清理 6h」上调为
   **「可连锁阻断现场的空间清理与版本升级」**，且**需要一条不依赖「先升级」的收敛路径**
   （产品化强制收敛端点 / 或让清理与升级预检查把「无 task.json 且无活租约的 running 行」直接判为幽灵）。
+
+## 2026-10-15（续）v0.5.4 全链路重测发现：老布局转型把 `.env` 变成**目录**，后续升级必失败
+
+**现象（`.12`/`.14` 两台机一致复现）**：基线 v0.5.1u2（老布局 `/opt/smartx-storage-forecast`）逐跳升到
+v0.5.3（单根目录布局 `/data/smartx-storage-forecast/project`）之后，`project/.env` 是一个**空目录**
+（`drw-------`，0 项）而不是文件；连带 web-api 容器内 `/run/smartx-runtime.env`（compose 把该 `.env`
+bind-mount 进去的位置）也是目录。
+
+**后果链（实测）**：
+1. `docker compose -f docker-compose.release.yml config` 直接失败：
+   `failed to read /data/smartx-storage-forecast/project/.env: read .../.env: is a directory`；
+2. ⇒ r37 平台升级 `restart` 步骤 `docker compose ... up -d` **退出码 14**，升级 **failed**
+   （失败安全生效：自动回滚、数据无损、平台健康返回 v0.5.3）；
+3. ⇒ `docker cp/exec` 进 web-api 容器也报 `openat run/smartx-runtime.env: is a directory`
+   （自动化验收工具被同一缺陷绊倒——本次全链测试中我的指纹脚本就是这样发现的线索）。
+
+**恢复与复验（从运行实例 env 重建，保留密钥/Tower 凭据配对）**：恢复后 r37 跳两台机均
+**succeeded**（`.14` `upgrade-934bb0d0c553104a`、`.12` `upgrade-3e3a9d9acea660d6`），
+前后数据指纹逐表一致（120 VM / 240 卷 / 1 塔 / 1 集群，`integrity=ok`）。
+
+**根因归属（待补定位）**：v0.5.3 的 runner `_write_env_file`（`backend/app/upgrade_runner/actions.py`）
+实现正确（`parent.mkdir` + `write_text`），官方包 `project/` 载荷也不含 `.env` 条目
+——所以是 transition 路径里**另一处**把目标本身 mkdir 了（疑点在老布局→新布局的文件同步/复制动作），
+尚需用源码级定位补齐。**不管具体哪一处**，`升级预检查` 与 `cleanup` 都应当把「`.env` 是目录 /
+`/run/smartx-runtime.env` 是目录」识别为**坏状态**并明确拒绝或自愈，而不是让它在两个月后以
+「重启失败退出码 14」的形式爆出来。
+
+**影响面**：所有 **v0.5.1u2 老布局 → v0.5.3 → v0.5.4 升级路径**上的现场（两台机实证一致复现）；
+v0.5.5 起若修复转型路径，需补「转型后 .env 校验」的验收格。
