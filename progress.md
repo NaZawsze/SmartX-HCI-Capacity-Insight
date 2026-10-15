@@ -6855,3 +6855,22 @@ v0.5.1u2→v0.5.3 老布局转型后 `project/.env` 变成**空目录** →
 经 v0.5.3 升 v0.5.4 的现场。
 
 **CLI 路径链**：已启动（两台机后台，`/data/chain-cli-*.log`），结果待收齐后补记。
+
+### CLI 路径链结果（`upgrade.sh`，2026-10-16 01:40~）
+
+**`.12`：全链完全成功** ✅ —— v0.5.1u2 → v0.5.2（CLI）→ v0.5.3（CLI）→ 组件 v0.3.2（API）→
+**r37（CLI）succeeded**，终态 `{"ok":true,"version":"v0.5.4","runner_version":"v0.3.2"}`，
+**每一跳数据指纹全部一致**（120 VM / 240 卷 / 1 塔 / 1 集群）。
+
+**`.14`：hop1 成功、hop2 被心跳预检查拦下**（同一 harness、同一时刻，与 `.12` 结果不同）——
+即 CLI 路径本身可用（`.12` 已证），`.14` 的差异是 **`runner_protocol` 心跳预检查的时序敏感**
+（平台升级会重启 runner，重启窗口内预检查判定不稳定；重试 90s 仍不够）。已续跑复验。
+
+**环境准备要点（CLI 路径特有）**：
+1. CLI（`upgrade.sh`）**要求 health 全绿**（`ok=true`）才升级；老布局基线的 `/prometheus-data`
+   由 docker 以 root:root 创建、prometheus 以 nobody 运行 ⇒ 崩溃循环（`queries.active: permission denied`）
+   ⇒ CLI 直接报「平台不可达或健康检查失败」。**修属主（65534）后 health 转绿**（已写进 harness）。
+2. 交付 README 的 **v0.5.2 禁做组件升级**是硬约束（本次实证会 SIGKILL runner 并留 handoff 死循环，
+   见 findings）；harness 已加「平台 < v0.5.3 时跳过组件跳」守卫。
+3. `upgrade.sh` 的正确调用是 `cd <delivery>/upgrade && bash upgrade.sh --package ...`
+   （脚本就在该目录内，不是 `upgrade/upgrade.sh`）。
