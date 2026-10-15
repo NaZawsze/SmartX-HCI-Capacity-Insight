@@ -6781,7 +6781,7 @@ web 200。**磁盘前置**：`.3` 根盘曾 98%（剩 2.7G）→ 清 `/data/buil
 
 ## 2026-10-15（续）长期升级架构方向纳入计划（Phase 83 / #92）
 
-按用户要求，把长期候选方向登记到 `task_plan.md` Phase 83 与 `docs/pending-tasks.md` #92，并在 `docs/upgrade-architecture-options.md` §5 写明边界与评估顺序、在 `docs/doc-map.md` 建索引。范围为声明式收敛深化、N-2 支持窗口策略、Appliance/A-B 原子切换可行性；明确这是待产品决策的评估项，不阻塞当前 v0.5.4/v0.5.5，也不构成版本承诺。无代码修改；`git diff --check` 待收尾验证。
+按用户要求，把长期候选方向登记到 `task_plan.md` Phase 83 与 `docs/pending-tasks.md` #92，并在 `docs/upgrade-architecture-options.md` §5 写明边界与评估顺序、在 `docs/doc-map.md` 建索引。范围为声明式收敛深化、N-2 支持窗口策略、Appliance/A-B 原子切换可行性；明确这是待产品决策的评估项，不阻塞当前 v0.5.4/v0.5.5，也不构成版本承诺。无代码修改；`git diff --check` 通过。
 
 ---
 
