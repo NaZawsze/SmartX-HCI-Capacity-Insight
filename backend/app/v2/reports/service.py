@@ -24,7 +24,7 @@ from app.v2.vms.growth import (
     points_by_vm,
     series_tail_items,
 )
-from app.v2.vms.new_vm import collect_vm_first_seen, is_recycled_vm_name, period_bounds, vm_display_name
+from app.v2.vms.new_vm import collect_vm_first_seen, is_recycled_vm_name, merge_tower_created_at, period_bounds, tower_created_at_map, vm_display_name
 from app.v2.vms.recycle import recycled_vm_keys
 
 
@@ -197,7 +197,11 @@ class ReportService:
             max_sample_days=window_days,
             recycled_keys=recycled_keys,
         )
-        vm_first_seen = collect_vm_first_seen(self.prometheus, now_ts=self.now_ts, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        # #36/#37 ①：Tower 真实创建时间（local_created_at）优先，缺失回落首见口径
+        vm_first_seen = merge_tower_created_at(
+            collect_vm_first_seen(self.prometheus, now_ts=self.now_ts, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope),
+            tower_created_at_map(self.database),
+        )
         day_new_vms = _new_vm_reports_from_series(vm_series, *period_bounds(self.now_ts, "day", self.settings.timezone), None, latest_label_by_vm, _latest_vm_value_map(latest_vms), first_seen_by_vm=vm_first_seen)
         month_new_vms = _new_vm_reports_from_series(vm_series, *period_bounds(self.now_ts, "month", self.settings.timezone), None, latest_label_by_vm, _latest_vm_value_map(latest_vms), first_seen_by_vm=vm_first_seen)
         cluster_growth_rate = _cluster_growth_rates(

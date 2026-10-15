@@ -107,3 +107,32 @@ dashboard 17 例（唯一失败为当日已定性存量 `…share_first_seen_and
 reports_api 桩漏改 `new_vm_limit`——已修，见 progress 续九）。
 
 **剩余**：①（Tower `local_created_at`）待端点恢复后跑探针确认字段，再按 §4 的 ①-a~①-d 实施。
+
+## 8. ① 实施记录（2026-10-15，探针已确认字段）
+
+**探针实测（`SMTX_TEST` 10.20.11.101，`CHINATOWER` 仍不可达）**：
+`local_created_at` 存在、格式 `"2026-10-07T13:05:20.000Z"`（ISO-8601 UTC + 毫秒 + `Z`）、
+非空 4/4；`in_recycle_bin`/`original_name`/`deleted_at` 齐备；服务端 `where(in_recycle_bin)` 可用。
+
+**实施（①-a~①-d）**：
+- ①-a `cloudtower/client.py::_normalize_vm`：新增 `local_created_at`（**回收站 VM 也保留**——
+  创建事实不随删除失效）。
+- ①-b `v2/database.py`：`vm_latest` 增列 `local_created_at TEXT`（`CREATE TABLE` + `_ensure_column`，
+  **expand-only**）。**未写入 `upgrade/migrations/registry.json`**：启动期 `_ensure_column` 已覆盖
+  新旧库（与 #90 的「迁移由新版 web-api 启动自跑」同向），不必再让包声明迁移动作 ⇒ 不给现场加
+  「必须先升 runner」的顺序约束。
+- ①-c `metrics/formatter.py::VmCapacitySample` 增字段 + `collection/service.py` 的样本构造与
+  `_upsert_latest_vm`（INSERT/ON CONFLICT SET）落库。
+- ①-d `vms/new_vm.py` 新增 `parse_iso_timestamp` / `tower_created_at_map(database)` /
+  `merge_tower_created_at(first_seen, created_by_vm)`——**Tower 时间优先、缺失回落首见**；
+  概览 `_day_new_vms` 与报表 `_latest_report` 两处接线（延续 49-43 同源纪律）。
+  只替换时间戳、保留原 `first_value`（`previous_value`/`growth_amount` 语义不变）。
+
+**测试**：新增 `backend/tests/test_v2_vm_created_at_caliber.py` **10 例**——解析（含非法值）、
+键集（NULL/不可解析跳过、DB 故障返回空）、合并（Tower 优先 + 缺失回落 + 空表短路）、
+**集成四组合**（断档期创建 ⇒ 不误判；序列很老但今天创建 ⇒ 计入；字段缺失 ⇒ 回落；两边都老 ⇒ 不计入）、
+采集侧落库。相关回归 83 例（唯一失败为当日已定性存量
+`test_dashboard_and_report_day_new_vms_share_first_seen_and_recycle_rules`，已 stash 对照）；
+全量 1214 tests 仍为 1F+1E（存量），无新增回归。
+
+**剩余**：`.3` 部署级复验（列落库 + 真实新建口径）。

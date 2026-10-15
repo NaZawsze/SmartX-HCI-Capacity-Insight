@@ -249,6 +249,7 @@ class CollectionService:
                             deleted_at=vm.get("deleted_at"),
                             owner=vm.get("owner"),
                             folder_name=vm.get("folder_name"),
+                            local_created_at=vm.get("local_created_at"),
                         )
                         vm_samples.append(sample)
                         self._upsert_latest_vm(sample)
@@ -398,8 +399,8 @@ class CollectionService:
         with self.database.connection() as conn:
             conn.execute(
                 """
-                INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes, in_recycle_bin, original_name, deleted_at, owner, folder_name)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO vm_latest (tower_id, cluster_id, vm_id, name, used_bytes, in_recycle_bin, original_name, deleted_at, owner, folder_name, local_created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(tower_id, cluster_id, vm_id) DO UPDATE SET
                     name = excluded.name,
                     used_bytes = excluded.used_bytes,
@@ -408,6 +409,7 @@ class CollectionService:
                     deleted_at = excluded.deleted_at,
                     owner = excluded.owner,
                     folder_name = excluded.folder_name,
+                    local_created_at = excluded.local_created_at,
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (
@@ -421,6 +423,7 @@ class CollectionService:
                     sample.deleted_at,
                     sample.owner,
                     sample.folder_name,
+                    sample.local_created_at,
                 ),
             )
 

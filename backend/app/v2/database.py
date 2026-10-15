@@ -136,6 +136,7 @@ class V2Database:
                     deleted_at TEXT,
                     owner TEXT,
                     folder_name TEXT,
+                    local_created_at TEXT,
                     PRIMARY KEY (tower_id, cluster_id, vm_id)
                 );
 
@@ -246,6 +247,8 @@ class V2Database:
             # Phase 69：所有者与虚拟机组（expand-only；旧版本读写无感）
             _ensure_column(conn, "vm_latest", "owner", "TEXT")
             _ensure_column(conn, "vm_latest", "folder_name", "TEXT")
+            # #36/#37 ①（2026-10-15）：Tower 真实创建时间（expand-only；旧版本读写无感）
+            _ensure_column(conn, "vm_latest", "local_created_at", "TEXT")
             # 2026-10-07：Tower 平台版本 + 各集群 SMTX OS 版本（设置页展示；后续按版本选择 API 的依据）
             _ensure_column(conn, "towers", "tower_version", "TEXT")
             _ensure_column(conn, "clusters", "os_version", "TEXT")

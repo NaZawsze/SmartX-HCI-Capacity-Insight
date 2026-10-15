@@ -299,6 +299,8 @@ def _normalize_vm(raw: dict[str, Any]) -> dict[str, Any] | None:
     供"后台记录哪台被删、叫什么"以及后续核对彻底删除。展示侧仍按名称/标记排除。
 
     Phase 69（2026-10-07）：增加 `owner`（labels 系统标签）与 `folder_name`（虚拟机组）。
+    #36/#37 ①（2026-10-15）：增加 `local_created_at`（Tower 真实创建时间，
+    探针实测格式 `2026-10-07T13:05:20.000Z`、非空 4/4）——「新建 VM」判定优先用它。
     """
     vm_id = str(raw.get("id") or raw.get("vm_id") or "")
     if not vm_id:
@@ -313,6 +315,8 @@ def _normalize_vm(raw: dict[str, Any]) -> dict[str, Any] | None:
         # 仅回收站状态下保留删除前名称与删除时间；恢复后清空标记
         "original_name": (str(raw.get("original_name") or "") or None) if in_recycle_bin else None,
         "deleted_at": (str(raw.get("deleted_at") or "") or None) if in_recycle_bin else None,
+        # #36/#37 ①：Tower 真实创建时间（回收站 VM 也保留——它记的是创建事实，不随删除失效）
+        "local_created_at": str(raw.get("local_created_at") or "") or None,
         # Phase 69：所有者与虚拟机组（与 VM 列表同一次 get-vms 返回，零新增 API 依赖）
         "owner": _owner_from_labels(raw.get("labels")),
         "folder_name": _folder_name(raw.get("folder")),

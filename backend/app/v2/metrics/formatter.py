@@ -26,6 +26,9 @@ class VmCapacitySample:
     # Phase 69：所有者与虚拟机组（仅落库/展示，不参与 metrics 渲染）
     owner: str | None = None
     folder_name: str | None = None
+    # #36/#37 ①：Tower 真实创建时间（ISO-8601 UTC，如 `2026-10-07T13:05:20.000Z`），
+    # 「新建 VM」判定优先用它；缺失回落 Prometheus 全历史首见口径。不参与 metrics 渲染。
+    local_created_at: str | None = None
 
 
 def render_capacity_metrics(*, clusters: list[ClusterCapacitySample], vms: list[VmCapacitySample]) -> str:

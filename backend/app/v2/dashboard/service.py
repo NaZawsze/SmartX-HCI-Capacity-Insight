@@ -21,7 +21,7 @@ from app.v2.vms.growth import (
     merge_latest_items,
     series_tail_items,
 )
-from app.v2.vms.new_vm import collect_vm_first_seen, is_recycled_vm_name, period_bounds
+from app.v2.vms.new_vm import collect_vm_first_seen, is_recycled_vm_name, merge_tower_created_at, period_bounds, tower_created_at_map
 from app.v2.vms.recycle import recycled_vm_keys
 
 
@@ -501,7 +501,11 @@ class DashboardService:
         start, end = period_bounds(self.now_ts, "day", self.settings.timezone)
         # 「新建 VM」口径与报表一致（49-43）：按 vm_id 全历史最早样本 + 排除回收站 VM，
         # 否则概览与报表会给出不同的本日新建数（旧实现在采集断档后会把老 VM 判成新建）。
-        first_seen = collect_vm_first_seen(self.prometheus, now_ts=self.now_ts, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope)
+        # #36/#37 ①：Tower 真实创建时间（local_created_at）优先，缺失回落首见口径。
+        first_seen = merge_tower_created_at(
+            collect_vm_first_seen(self.prometheus, now_ts=self.now_ts, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope),
+            tower_created_at_map(self.database),
+        )
         series_list = self._vm_series(days=30, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, step="6h")
         new_vms = []
         for series in series_list:

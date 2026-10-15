@@ -85,3 +85,58 @@ def collect_vm_first_seen(
         if previous is None or timestamp < previous[0]:
             first[key] = (int(timestamp), float(value))
     return first
+
+
+def parse_iso_timestamp(value: Any) -> int | None:
+    """ISO-8601 时间串 → epoch 秒（支持 Tower 的 `2026-10-07T13:05:20.000Z`）。
+
+    解析不了返回 None（调用方回落首见口径，**不猜、不填假值**）。
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return int(parsed.timestamp())
+
+
+def tower_created_at_map(database: Any) -> dict[VmKey, int]:
+    """`vm_latest.local_created_at`（Tower 真实创建时间）→ epoch 秒（#36/#37 ①）。
+
+    为空/不可解析的行跳过；DB 探测失败返回空字典（此时判定整体回落首见口径，行为与旧版一致）。
+    """
+    try:
+        with database.connection() as conn:
+            rows = conn.execute(
+                "SELECT tower_id, cluster_id, vm_id, local_created_at FROM vm_latest"
+                " WHERE COALESCE(local_created_at, '') <> ''"
+            ).fetchall()
+    except Exception:  # noqa: BLE001 - 探测失败不应让「新建 VM」整体报错
+        return {}
+    created: dict[VmKey, int] = {}
+    for row in rows:
+        timestamp = parse_iso_timestamp(row["local_created_at"])
+        if timestamp is None:
+            continue
+        created[(int(row["tower_id"]), str(row["cluster_id"]), str(row["vm_id"]))] = timestamp
+    return created
+
+
+def merge_tower_created_at(first_seen: VmFirstSeen, created_by_vm: dict[VmKey, int]) -> VmFirstSeen:
+    """把 Tower 真实创建时间并入「首见」表：**Tower 值优先**，缺失的 VM 保留首见值（#36/#37 ①）。
+
+    只替换时间戳，保留该 VM 原 `first_value`（首见样本值）——概览/报表的「新建」列表用它算
+    `previous_value`/`growth_amount`，语义不变。效果：采集断档期创建的 VM 不再被整批判成新建，
+    而真正在窗口内创建的 VM 能按 Tower 真实创建日归位。
+    """
+    if not created_by_vm:
+        return first_seen
+    merged = dict(first_seen)
+    for key, timestamp in created_by_vm.items():
+        previous = merged.get(key)
+        merged[key] = (int(timestamp), previous[1] if previous else 0.0)
+    return merged
