@@ -6707,3 +6707,51 @@ detail 显示名 3）。回归：`test_recycle_bin_display_filter` + `test_v2_vm
 **文档**：设计文档补 §7 实施记录（含 ③ 落点核实）；pending #36/#37 状态更新（仅剩 ①）。
 
 **仅剩**：①（Tower `local_created_at`）待端点恢复跑探针；②③ 的 `.3` 部署级复验随下版。
+
+---
+
+## 2026-10-15 阶段 A `.3` 部署级复验（#87 / #28 / #36#37 ②③）+ 守卫加固 + Tower 探针
+
+**部署方式**（`.3` 开发机，正常产品流程）：`git archive HEAD` 同步源码到
+`/data/smartx-storage-forecast/project`（`--no-same-owner`，`.env` 不在包内不受影响）→ 重建
+`web-api`/`collector-worker`（同一 `backend/Dockerfile`，同镜像 id）/`frontend` 镜像（tag 仍 v0.5.4）
+→ `docker compose -f docker-compose.offline.yml up -d --no-deps web-api collector-worker frontend`。
+镜像内代码校验：新前端 bundle 含 `day_new_vm_count` + `collection/runs`；新后端含
+`_converge_stale_runs`/`STALE_RUNNING_SECONDS`。健康：5 容器 Up、`/api/system/health` ok、
+web 200。**磁盘前置**：`.3` 根盘曾 98%（剩 2.7G）→ 清 `/data/build-a3a99f7`（10-14 构建树 1.9G）、
+`/data/delivery-v054-r34r35-stale`（1.4G）、`/data/tmp`（7 月 v0.5.1 时代 2.4G）→ 8.2G 可用；
+`docker builder prune` **刻意未执行**（build cache 正是增量重建秒级完成的原因）。
+回滚基线已记录：`web-api:v0.5.4=590f632fa901`、`frontend:v0.5.4=16c741973d5b`、
+`collector-worker:v0.5.4=b5d60535783d`。
+
+**#87 采集异步化 —— 通过（并暴露一个我引入的回归）**：
+- 首轮 POST 返回 **409**（非预期）→ 追查发现 `collection_runs.id=86`（10-03 起）**卡 running 12 天**，
+  而 #87 新增守卫 `_running_run_id()` 无陈旧判定 ⇒ 手动采集**永久 409**。已修（`c49d229`：
+  `STALE_RUNNING_SECONDS=3600` + SQL 侧时间比较 + `_converge_stale_runs()`，守卫与 `_start_run` 两处调用）。
+- 修复后复验：`POST /api/collection/run` → **HTTP 202 / 0.11s / status=running / run_id=589**（①通过）；
+  并发提交 → **409**（②通过）；后台 **45s** 收敛为 `partial_failed`
+  「采集异常：成功 1 个集群，失败 1 个集群。失败目标：CHINATOWER / SMARTX-TT-WW。
+  最后错误：[Errno 104] Connection reset by peer」（③通过——如实报告，SMTX_TEST 侧成功 4 台 VM）。
+  陈旧记录 86 已被自动收敛为 failed（含 `finished_at`）。
+- 本地测试：`test_v2_collection_async` 4 例（新增「陈旧 running 被收敛 + 新采集放行」；原单飞用例
+  改用 `CURRENT_TIMESTAMP` 造「真在跑」记录）；采集相关 29/29 OK。
+
+**#28 报表 payload 瘦身 —— 通过**：默认/all/`limit=2` 三档对比——计数 `(0,10)` 三档一致（①全量口径
+与 limit 无关）；`limit=2` 明细被裁到 ≤2（②契约生效）；导出 Word 200/202150B、Excel 200/116736B
+（③显式全量未被裁）。体积：默认 576906B = 全量 576906B（**`.3` 当前新建 VM 数 < 50，故两档相同属预期**，
+真实降幅需在新建 VM 多的现场测——已如实记录，不夸大为"降幅达标"）。
+
+**#36/#37 ②③ 回收站口径 —— 通过**：`.3` 库 `vm_latest=203` 行、回收站 3 台
+（`cmjkqyfpiu80v09588lrvxqb5` / `cmukl7lmabpch09587x9j20ge` / `cmukllaqtbsyx095801qfi77a`）——
+概览接口与报表接口（含 `new_vm_limit=all`）中**出现 0 次**（②通过）；详情深链回收站 VM
+`cmjkqyfpiu80v09588lrvxqb5` → HTTP 200、`vm_name='内部软件测试机1-推广组'`（= 库 `original_name`）、
+`in_recycle_bin=True`（③通过）。
+
+**Tower 探针 —— 成功，① 解除阻塞**：`CHINATOWER`（10.20.11.7:4433）仍不可达，但 `.3` 另一台
+`SMTX_TEST`（10.20.11.101）**可达（200/0.02s）**，定时采集靠它成功。探针（只读）实测：
+`local_created_at` 存在、格式 `2026-10-07T13:05:20.000Z`（ISO-UTC+毫秒）、非空 4/4；
+`in_recycle_bin`/`original_name`/`deleted_at` 齐备；服务端 `where(in_recycle_bin)` 过滤可用。
+详见 findings.md 2026-10-15 节。
+
+**结论**：阶段 A 三项（#87/#28/②③）**部署级复验全部通过**（#28 体积降幅因 `.3` 数据规模不足未能量化，
+其余判定项全绿）；`#87` 的守卫回归已修并复验；`#36/#37 ①` 可进入实施。

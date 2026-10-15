@@ -1086,3 +1086,24 @@ SQLite vacuum（本地快）、迁移导入/导出（已走异步任务）均未
 - **幽灵 running 任务行缺陷跨机复现（.14 `upgrade-99996849a33c05af`）**：.14 平台升级 v0.5.4 apply 成功后（任务 `3fb4c1c8` succeeded、产物全生效），另有一行 `99996849` 停在 `running「执行系统升级/准备运行目录」`，其 task.json 已随 post-cleanup 删除 → `POST /api/admin/upgrade/cancel/{id}` 与 `POST /api/admin/upgrade/recovery/{id}/fail` 均返回「升级任务不存在。」——与 .12 `6eabea06` **完全同款、跨机坐实**。仍挡 `cleanup_artifacts` 6h（不影响新升级：单飞按租约判定）。结论：这不是 .12 偶发，是**稳定产品缺口**（post-cleanup 删 task.json 与 tasks 表 running 行之间存在竞态/顺序缺陷），建议随发布立项：清理服务对「目录不存在 + 无租约」按僵尸处理，或提供管理员强制收敛端点。
 - **`upgrade.sh` CLI 新旧版行为差异（待查）**：.12 用 HEAD 同步版 CLI（`/data/upgrade-test/cli/delivery/upgrade/`），平台升级任务 `0608974493276108` 正常落到 succeeded；.14 用旧版 `/data/delivery-v054/upgrade/`，平台升级 apply 成功但留了一条 running 行在任务表（真实 apply 任务 `3fb4c1c8` 仍 succeeded）。差异未定位到确切代码路径，疑与 status-404 同根因（CLI/后端任务状态回报断——status-404 归因已于 2026-10-14 修正为「post-cleanup 删 task.json → 404」，见同节首条与 pending #89）。**发布前应把 CLI 工具版本与后端升级中心的兼容矩阵写进交付文档**。
 - **测试纪律（自我纠错，方法论）**：自动化看门狗在升级流程期间 `sed compose + full reset` 属越界操作——曾把 .14 已升级的 v0.5.4 打回 v0.5.3、把 runner 强切成非产品流版本。正确纪律：升级期间只轮询观测（镜像 tag / health / 任务），任何 compose 干预只允许在**升级开始前**的状态恢复，且完成后必须等任务终态收敛再判成败。
+
+## 2026-10-15 阶段 A `.3` 部署级复验新发现
+
+- **采集单飞守卫缺陈旧判定 ⇒ 中断残留的 `running` 记录永久挡住手动采集（已修）**：
+  `.3` 库内存在 `collection_runs.id=86`（`trigger=post_upgrade`、`started_at=2026-10-03 05:00:50`）
+  **卡在 `running` 12 天**——服务重装/重启时进程被杀留下的脏状态。而 #87 新增的单飞守卫
+  `_running_run_id()` **只看状态不看时间** ⇒ `POST /api/collection/run` 自 10-03 起**永久 409**
+  （用户点「立即采集」永远失败）。这是我 #87 引入的**回归风险**（改动前手动采集无守卫、照常执行），
+  在 `.3` 部署级复验时暴露。修法（与 #89 幽灵升级任务同思路）：`STALE_RUNNING_SECONDS=3600`
+  （真实一轮采集 ≤ ~2 分钟、定时间隔 60 分钟）+ `_stale_running_run_ids()`（时间比较放 SQL，
+  与写入方 `CURRENT_TIMESTAMP` 同为 UTC 字符串）+ `_converge_stale_runs()`（收敛为 failed 并写
+  `finished_at`、如实 message，幂等），在守卫与 `_start_run`（覆盖定时路径）两处调用 ⇒ 脏状态自愈。
+  **教训**：任何「单飞/占用」类守卫都必须带陈旧判定，否则一条脏状态永久锁死功能（与 #89 同族）。
+- **Tower 字段探针成功（`SMTX_TEST` 10.20.11.101，2026-10-15）**：`CHINATOWER`（10.20.11.7:4433）
+  仍不可达（宿主 `curl` 8s 超时 000；`[Errno 104] Connection reset by peer`），但 `.3` 上另一台
+  **`SMTX_TEST` 可达（HTTP 200 / 0.02s）**，定时采集一直靠它成功（4 台 VM）。探针实测（只读）：
+  - 单台 VM 顶层 **66 个字段**；创建时间字段命中 **`local_created_at`**，
+    格式 `"2026-10-07T13:05:20.000Z"`（ISO-8601 UTC + 毫秒 + `Z`），**非空 4/4**、去重后 4 个不同值；
+  - 回收站字段 `in_recycle_bin` / `original_name` / `deleted_at` 齐备（该集群当前 0 台回收站）；
+  - **服务端 `where` 过滤可用**：`in_recycle_bin=true` → 0 台、`=false` → 4 台。
+  ⇒ **#36/#37 ① 解除阻塞**（字段名/格式/过滤能力全部确认，可进入实施）。
