@@ -112,6 +112,7 @@ docs/v0.5.1-to-v0.5.2-upgrade-chain-worklog.md
 | 80 | 任务终态收敛竞态治理（#89：幽灵 running 任务行 + status-404 误报，同根因家族） | **已实施 + 已验证（本地 + `.3` 容器内），提交 `ea715e9`** | [docs/superpowers/specs/2026-10-14-task-terminal-convergence-race-design.md](docs/superpowers/specs/2026-10-14-task-terminal-convergence-race-design.md) |
 | 81 | 升级路径「设计意图 vs 实现」差距与零覆盖盘点（#90 迁移执行者解耦 → v0.5.5；#91 Prometheus 等路径补验证） | 设计已成文，**待实施** | [specs/2026-10-14-migration-executor-decoupling-design.md](docs/superpowers/specs/2026-10-14-migration-executor-decoupling-design.md)、[specs/2026-10-14-uncovered-upgrade-paths-verification-design.md](docs/superpowers/specs/2026-10-14-uncovered-upgrade-paths-verification-design.md) |
 | 82 | 剩余产品项批次（#36/#37 新建 VM 口径、#87 采集异步化、#28 报表瘦身） | 设计已成文，**待实施**（#36/#37 ① 待 Tower 恢复） | [specs/2026-10-14-new-vm-creation-time-caliber-design.md](docs/superpowers/specs/2026-10-14-new-vm-creation-time-caliber-design.md)、[specs/2026-10-14-collection-api-async-design.md](docs/superpowers/specs/2026-10-14-collection-api-async-design.md)、[specs/2026-10-14-report-payload-slimming-design.md](docs/superpowers/specs/2026-10-14-report-payload-slimming-design.md)、[plans/2026-10-14-remaining-tasks-batch-plan.md](docs/superpowers/plans/2026-10-14-remaining-tasks-batch-plan.md) |
+| 83 | 长期升级架构演进评估（声明式收敛深化 / N-2 支持窗口 / Appliance A-B 原子切换） | **长期候选，待产品决策；不阻塞 v0.5.4/v0.5.5，不代表版本承诺** | [docs/upgrade-architecture-options.md](docs/upgrade-architecture-options.md) §5（沿用既有评估文档；仅做策略评估，不启动实现）｜pending-tasks #92 |
 
 升级后自动采集与 verification 历史查询的专项计划/设计：
 
@@ -2689,4 +2690,21 @@ v0.3.1 能力表内 ⇒ 执行不需升 runner；但 **progress/ledger 无任何
 
 **状态：设计已成文，待实施。** 阻塞项：#36/#37 的 ① 需 Tower 端点恢复后跑探针
 （`scripts/probe_tower_vm_created_at.py`，当前连接被重置）；②③ 与 #87/#28 不依赖 Tower，可立即开工。
-**交付版本**：随 v0.5.5（不塞进 v0.5.4 重建，避免作废 r34/r35 三级验收）。
+**交付版本：随 `v0.5.4`**（2026-10-15 用户令：本批已实施项进 v0.5.4 ⇒ 候选包重建 + `.12`/`.14` 重走验收）。
+**状态（2026-10-15）**：#87（含守卫加固）、#28、#36/#37 ①②③ **均已实施并提交**（`131ebc9`/`c49d229`/`792a2cd`/`fa78893`/`31190d3`）；本地测试全绿（唯一失败/错误为既有存量）。**待做**：重建 v0.5.4 候选包 + 在 `.12`/`.14` 验证（`.3` 仅开发与构建，其部署结果不作证据）。
+
+## Phase 83 - 长期升级架构演进评估（#92）
+
+来源：2026-10-15 用户要求将长期架构考虑纳入长期计划。
+
+**状态：长期候选，待产品决策；不阻塞 v0.5.4/v0.5.5，不构成任何版本交付承诺。**
+本阶段是评估与决策，不是代码实施；沿用 [docs/upgrade-architecture-options.md](docs/upgrade-architecture-options.md) 作为设计依据，
+无需为尚未立项的架构方向预先编写实施级设计。正式实施前仍须分别补充实现设计、兼容矩阵、测试计划和回滚方案。
+
+**候选方向与边界**：
+1. **声明式收敛深化（优先评估）**：Phase 68 已做 Compose diff 收敛；只评估现有固定动作计划是否还有可证明的漂移、重试或部分失败缺口。不得重复造轮子；若无额外收益则维持现状。
+2. **N-2 支持窗口（政策评估）**：研究是否承诺平台最近两个版本可直升，并共同定义 `source_compatibility`、runner 协议/能力、schema Expand–Contract 兼容窗口与真机测试矩阵。测试和维护成本不可持续时，不承诺 N-2。
+3. **Appliance / A-B 原子切换（可行性评估，较低优先级）**：评估双槽/双项目、健康后切换及失败回切。先验证 OVA/整机交付目标、双份磁盘预算、SQLite/Prometheus 持久数据跨槽策略、停机时间和现场救援路径；约束不满足就不立项。
+
+**建议顺序**：先收完 v0.5.4 发布与 v0.5.5 的 #90/#91；随后评估声明式深化和 N-2 政策；A/B 只在客户需求及资源边界明确后评估。
+Phase 83 的完成标准是形成含收益、维护/测试成本、兼容范围、风险和 go/no-go 决策的书面结论，不要求代码落地。
