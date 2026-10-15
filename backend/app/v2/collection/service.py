@@ -7,8 +7,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Protocol
 
-from fastapi import HTTPException
-
+from app.v2.collection._compat import HTTPException
 from app.v2.config import V2Settings
 from app.v2.database import V2Database, row_to_dict
 from app.v2.inventory.models import ClusterRecord, TowerRecord
