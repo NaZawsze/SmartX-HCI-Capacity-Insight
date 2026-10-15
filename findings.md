@@ -1177,3 +1177,19 @@ v0.5.5 起若修复转型路径，需补「转型后 .env 校验」的验收格�
 ⇒ 平台升级会重启 runner，重启后的一段时间内预检查判定不稳定。自动化验收/CI 必须：
 ① 预检查失败后重试足够久（实测 90s 不够）；② 或先等待「心跳稳定」再发起。
 建议预检查把心跳窗口放宽，或在失败文案里明确「runner 刚重启，请等待 N 秒后重试」。
+
+### 3. 平台升级（v0.5.1u2→v0.5.2）中的 runner cutover 失败会让 runner **心跳循环静默死亡**
+
+**实证（`.14`）**：hop1 平台升级后 runner 容器仍在 `Up`，但 `upgrade_runner_state.heartbeat_at`
+**停在 01:42:30 不再更新**（检查时已滞后 18 分钟）；runner 日志最后两行是：
+```
+Error response from daemon: No such container: smartx-runner-cutover-upgrade-9cc67e9ae94b4ab2
+<镜像 sha>
+```
+⇒ runner 主循环在 cutover 失败后**没有恢复**，心跳循环死掉；平台侧唯一症状是
+`runner_protocol: 未检测到 upgrade-runner 心跳` 的预检查失败（**判定本身是正确的**，但现场
+很难据此知道「runner 进程活着、心跳却停了」）。同轮 `.12` 的同类步骤正常（心跳持续新鲜）⇒ **竞态/非确定性**。
+
+**建议**：① runner 在 cutover 失败后应回退到「继续心跳」而不是停摆（或容器级 healthcheck 直接
+标记不健康）；② 平台对「runner 容器在但心跳陈旧」应给出可区分的运维提示（现在与「runner 不存在」
+同一文案）；③ 预检查失败文案补上「心跳最后时间 / 期望窗口」，便于现场自助定位。
