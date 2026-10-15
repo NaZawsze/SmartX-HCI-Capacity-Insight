@@ -1107,3 +1107,17 @@ SQLite vacuum（本地快）、迁移导入/导出（已走异步任务）均未
   - 回收站字段 `in_recycle_bin` / `original_name` / `deleted_at` 齐备（该集群当前 0 台回收站）；
   - **服务端 `where` 过滤可用**：`in_recycle_bin=true` → 0 台、`=false` → 4 台。
   ⇒ **#36/#37 ① 解除阻塞**（字段名/格式/过滤能力全部确认，可进入实施）。
+
+- **幽灵 running 任务行会**连锁**挡住「产品空间清理」→ 升级被 disk_space 预检查拒绝（`.12` 2026-10-15 实测）**：
+  2026-10-14 记录的那条幽灵行（`upgrade-6eabea06cf38f895`，apply 成功后卡 `running`、`task.json` 已被
+  post-cleanup 删除）在 `.12` 上**至今仍在**，其影响不止「挡 `cleanup_artifacts` 6 小时」：
+  `POST /api/admin/system/cleanup-artifacts` 直接**拒绝执行**并返回
+  「存在正在执行的升级任务（upgrade-6eabea06cf38f895），已拒绝清理运行产物」——于是
+  `/data/upgrades` 累积的 **8.22GB**（43 项历次演练残留）无法释放 ⇒ 平台升级的 **`disk_space`
+  预检查失败**（可用 2.04 GiB < 需要 2.58 GiB）⇒ **升级无法进行**。
+  更糟的是**修复（#89 的幽灵识别，已随 r37 交付）装不上去——因为升级正被它挡住**（鸡生蛋死锁）。
+  现场绕行（本次采用，**全程产品流程**）：`GET /api/admin/upgrade/history` + 逐任务
+  `DELETE /api/admin/upgrade/package/{task_id}`（按任务删包，保留 `task.json` 记录）⇒ 42 条成功、
+  释放 8.22GB ⇒ 升级随即通过。**结论**：#89 的严重度应从「挡清理 6h」上调为
+  **「可连锁阻断现场的空间清理与版本升级」**，且**需要一条不依赖「先升级」的收敛路径**
+  （产品化强制收敛端点 / 或让清理与升级预检查把「无 task.json 且无活租约的 running 行」直接判为幽灵）。

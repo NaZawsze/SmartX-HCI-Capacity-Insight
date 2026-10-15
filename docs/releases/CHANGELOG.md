@@ -4,8 +4,9 @@
 
 ## v0.5.4（候选，未发布）
 
-状态：**候选，未发布**。当前候选对 = **平台 r34 + runner r35**（见
-[upgrade-package-ledger.md](upgrade-package-ledger.md)）。**发布门槛：用户明确「发布」指令**
+状态：**候选，未发布**。**当前候选对 = 平台 r37 + runner 组件包（2026-10-15 重建，含 10-14/10-15 全部修复与新增）**
+（见 [upgrade-package-ledger.md](upgrade-package-ledger.md) 2026-10-15 节）——**r34/r35 已被 r37 取代**（其验收结论
+对最终发布物不再适用）。**发布门槛：用户明确「发布」指令**
 （批次 C 矩阵 C1–C4 + M1–M7 已逐格回填，最终候选 r34+r35 的 `.3`/`.12`/`.14` 重走验收
 已于 2026-10-08 全部通过，见「验证说明」末三行）；指令前不发布、不推 tag、不推 origin。
 
@@ -244,6 +245,10 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
 | **`.14` 最终候选 r34+r35 重走**（新装 + v0.5.3 源端客户升级路径，C1 格最终候选，2026-10-08） | ✅ 已通过：**链 A** 全清 → 新 delivery-v054（r34+r35、新 README）全新安装 EXIT=0 → 8 项验收全过（runner 镜像与 `.12` r35 逐位一致，install 直接落 r35）；**链 B** 全清 → delivery-v053 安装（v0.5.3+已发布 v0.3.1 真客户基线）→ 第 1 步组件升级 r35（`upgrade-b73eeddd5f1adc0e` succeeded，US-11 守卫、web-api 未重启）→ 第 2 步 `upgrade.sh` 平台升级 r34（`upgrade-a19d579a69020239` succeeded，预检查 9 项逐项 OK，`run-migration` 由 r35 执行成功）→ 8 项验收全过（`schema_migrations`=4 全部落库、runner 未被 recreate（US-26 判别）、`.env` 未覆盖、legacy 全清、UI 200）。详见 ledger 2026-10-08 节 |
 | 兼容矩阵 M1–M7 | ✅ 逐格证据就位：M2/M3/M6/M7 真机通过（M7 见上行 C3、M2/M3 见 C1/C2、M6=.12 v0.5.4+v0.3.2 全特性）；M1 走已发布路径回归；M4/M5 presence 兼容在对应轮次覆盖；M3-08/M3-10 按用户 2026-09-28 口径 **N/A**（runner-first 非受支持链路）。详见 impl-spec §10 与各轮 progress |
 | `post_upgrade` 触发面 | 单测覆盖（2026-10-06 决议：与已实测的 apply 触发回滚走同一代码路径，不强制沙箱复现） |
+| **r37 `.14` 链 A：全清 + 全新安装（2026-10-15）** | ✅ 通过：`install.sh --yes` EXIT=0；health v0.5.4/v0.3.2、**5 容器全 Up**（`collector-worker` 稳定无 Traceback）、UI 200、legacy 目录不存在、integrity ok、**`vm_latest.local_created_at` 列就位**。日志 `.14:/data/chainA-r37.log` |
+| **r37 `.14` 链 B：老交付（v0.5.3+runner v0.3.1）→ 组件升级 → 平台升级（2026-10-15）** | ✅ 通过：组件升级任务 `upgrade-58b348fb4b0f9cba` succeeded → 平台升级 v0.5.3→v0.5.4 succeeded（预检查 9 项逐项 OK）→ 8 项自检全过（含 `schema_migrations`=4、`local_created_at` 列就位）。日志 `.14:/data/chainB-r37.log` |
+| **r37 `.12` 同版本重装升级（2026-10-15）** | ✅ 通过（首跑被产品 `disk_space` 预检查拒绝——幽灵 running 行挡住清理 API，见 findings；用**产品「按任务删包」**释放 8.22GB 后重试成功）：health ok、5 容器 Up、integrity ok、`local_created_at` 列就位 |
+| **r37 契约级功能验证（`.12` 真实部署）** | ✅ 通过：#87 `POST /api/collection/run` → 202 / 0.05s / running、并发 409、后台收敛 success（如实报 0 集群）；#28 计数与 limit 无关 + `limit=2` 生效 + 导出 Word 200。**限制**：`.12`/`.14` 无 Tower 配置 ⇒ ① 的真实创建时间归属与 ②③ 的真实数据过滤由单测覆盖（10 例 / 9 例），端到端待有塔环境补 |
 
 ### 已知问题与未解决事项
 

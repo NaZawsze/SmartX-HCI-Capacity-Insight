@@ -6778,3 +6778,53 @@ web 200。**磁盘前置**：`.3` 根盘曾 98%（剩 2.7G）→ 清 `/data/buil
 
 **下一步**：`.3` 构建重建后的 v0.5.4 候选包（平台 + runner 组件）→ `.14` 干净机安装/升级链验证 →
 `.12` 升级演练验证 → 文档与台账登记。
+
+## 2026-10-15（续）长期升级架构方向纳入计划（Phase 83 / #92）
+
+按用户要求，把长期候选方向登记到 `task_plan.md` Phase 83 与 `docs/pending-tasks.md` #92，并在 `docs/upgrade-architecture-options.md` §5 写明边界与评估顺序、在 `docs/doc-map.md` 建索引。范围为声明式收敛深化、N-2 支持窗口策略、Appliance/A-B 原子切换可行性；明确这是待产品决策的评估项，不阻塞当前 v0.5.4/v0.5.5，也不构成版本承诺。无代码修改；`git diff --check` 待收尾验证。
+
+---
+
+## 2026-10-15（续二）候选重建 r36→r37 + `.14` 链 A/B + `.12` 同版本重装（验证机器口径：`.3` 只开发与构建）
+
+**背景（用户 2026-10-15 令）**：①`10.20.11.3` 只做开发与构建，**部署结果不作验证证据**；验证在
+`10.20.11.12`/`10.20.11.14`（我此前在 `.3` 做的「部署级复验」不作数，已在本文档更正向标注）；
+②本批已实施项**随 v0.5.4 交付**（原计划 v0.5.5）⇒ 重建候选包并在 `.12`/`.14` 重走验收。
+
+**构建（`.3`）**：`build_release_delivery.sh --output-root /data/r3X-out --runner-baseline v0.3.2`（不加
+`--reuse-images`——代码变了必须重建镜像）。r36（`7350220`）平台包 `beab1071e6c0…`；**r37（`ddd50e4`）**
+平台包 `330d77da92cd7e4af0a8425683f7185b8f9268896ddcfdf895e54a9e0fb99b22`、runner 包
+`a17ce210818334d82e7e5ae36395ac0349436e164ff0e301533afc2fbffb8dc6`，四道门禁全过。
+`.3` 磁盘前置：98%→清 5.7G 过期脚手架（**刻意不 prune build cache**，增量重建才秒级）。
+
+**🔴 r36 作废：链 A 抓到生产级回归（已修）**：`.14` 用 r36 全新安装后 **`collector-worker` 崩溃重启**——
+`ModuleNotFoundError: No module named 'fastapi'`。根因：#87 的 `submit_manual_collection` 直接
+`from fastapi import HTTPException`，而 worker 与 web-api 用**不同依赖集**构建
+（`requirements-worker.txt` 不含 fastapi）⇒ **任何全新安装都会有一个重启循环的采集 worker**（生产同命中）。
+修复 `ddd50e4`：新增 `app/v2/collection/_compat.py`（同 `upgrade/service/_compat.py` 模式）+
+守卫测试 `tests/test_worker_import_guard.py`（屏蔽 fastapi 后 import worker 链必须成功；
+**变异验证**：改回硬依赖时 2 例 FAIL，确认能抓住）。**为什么 `.3` 没抓到**：本地两镜像用同一
+Dockerfile/依赖集构建，交付镜像按服务分开 ⇒ 只有真实交付物能暴露（正是「`.3` 只开发、`.12`/`.14` 验证」的价值）。
+
+**`.14` 链 A（r37 全新安装）**：`install.sh --yes` EXIT=0；health ok v0.5.4/v0.3.2；**5 容器全 Up**（worker
+日志无 Traceback、scheduler 正常）；UI 200；legacy 目录不存在；integrity ok；**`local_created_at` 列就位**。
+
+**`.14` 链 B（r37 真客户路径）**：老交付 `delivery-v053`（v0.5.3 + 已发布 runner v0.3.1）安装 →
+**组件升级** runner→v0.3.2（产品 API，任务 `upgrade-58b348fb4b0f9cba` uploaded→prechecked→**succeeded**，
+runner 镜像轮询到 v0.3.2）→ **平台升级** v0.5.3→v0.5.4（`upgrade.sh`，预检查 9 项 OK，**成功**）→
+**8 项自检全过**（含 `schema_migrations`=4、`local_created_at` 列就位、worker 无 Traceback）。
+
+**🔴 `.12` 首跑被拒 + 幽灵行连锁影响（新 finding）**：升级被**产品自身 `disk_space` 预检查**拒绝
+（可用 2.04 GiB < 需要 2.58 GiB，**未调用 start、环境未变**）。根因：`/data/upgrades` 累积 8.22GB 残留包，
+而**产品清理 API 被幽灵 running 任务行 `upgrade-6eabea06cf38f895` 拒绝**（「存在正在执行的升级任务」）——
+即 #89 的幽灵行**可连锁阻断现场的空间清理与升级**，且**修复（r37）装不上去因为升级被它挡住**（鸡生蛋死锁）。
+现场绕行（**全程产品流程、未做宿主手工变更**，遵守 `.12` 纪律）：`GET /api/admin/upgrade/history` +
+逐任务 `DELETE /api/admin/upgrade/package/{task_id}` → **42 条成功、释放 8.22GB**（1.22GB→9.44GB）→
+重试升级**成功**（同版本重装）→ 自检全过（health/5 容器/integrity/`local_created_at` 列）。
+
+**契约级功能验证（`.12`，r37）**：#87 → **202 / 0.05s / running / run_id=5**、并发 409、后台收敛 success
+（无塔 ⇒ 如实报「采集完成：0 个集群」）；#28 计数与 limit 无关、`limit=2` 生效、导出 Word 200；概览 200。
+**限制（如实记录）**：`.12`/`.14` 均无 Tower 配置（`.12` 库为空 towers=0/vm_latest=0）⇒ ① 的真实创建时间归属
+与 ②③ 的真实数据过滤只能由单测覆盖（10 例 / 9 例），端到端待有塔环境补；`.3` 的真实数据自测**不作证据**。
+
+**结论**：**r37 = 当前 v0.5.4 候选**，`.14` 链 A + 链 B + `.12` 同版本重装三项验证通过；r36 作废。

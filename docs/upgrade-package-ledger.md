@@ -1157,3 +1157,57 @@ SQLite integrity ok + **`schema_migrations`=4 全部落库** + 新列在场；Pr
 **过程纪律修正（重要）**：首轮 chain14b 的看门狗在 runner 轮询未达时 `sed compose + full reset` 强切 runner（非产品流），且平台升级镜像刚到 v0.5.4 就触发 reset 把版本打回 v0.5.3。重做链 chain14c 改为：**升级流程期间零 reset 零 sed**（唯一一次 reset 发生在任何升级开始前的 US-40 前置态恢复），升级后轮询到镜像 tag 仍继续等待任务终态收敛。修正后全链一次通过。
 
 **证据**：`.14` 链路日志 `/data/upgrade-test/{install14,chain14,chain14b,chain14c}.log`；镜像中转经 `.12` `docker save` → `.3` → `.14` `docker load`。
+
+---
+
+## 2026-10-15 v0.5.4 候选重建（r36 作废 → r37）+ `.14` 链 A/B + `.12` 同版本重装
+
+**口径变更（用户 2026-10-15 令）**：本批已实施项随 **v0.5.4** 交付（原计划 v0.5.5）⇒ 重建候选包并**重走验收**；
+`10.20.11.3` 只做开发与构建，**其部署结果不作验证证据**（验证在 `.12`/`.14`）。
+
+**构建（`.3`，开发/构建机）**：
+- **r36**（源码 `7350220`）：平台包 `beab1071e6c10c0834b8085b3148096de16db93b9804e6542a940d0bcb103eb5`、
+  runner 包 `242e1f586108c5d26cb34a094591212d725f312fe86e4fa6e34ae287ed0d5e3c` —— **作废**（见下）。
+- **r37**（源码 `ddd50e4`，含修复）：平台包
+  `330d77da92cd7e4af0a8425683f7185b8f9268896ddcfdf895e54a9e0fb99b22`、runner 包
+  `a17ce210818334d82e7e5ae36395ac0349436e164ff0e301533afc2fbffb8dc6`；交付目录
+  `/data/r37-out/smartx-capacity-insight-v0.5.4-offline`（1.4G）。命令
+  `build_release_delivery.sh --output-root /data/r37-out --runner-baseline v0.3.2`；**四道门禁全过**
+  （含 runner 源码树指纹 `c520e6b1…`、30 动作）。
+- **链 A 抓到的生产级回归（r36 作废原因）**：全新安装后 `collector-worker` 崩溃重启
+  （`ModuleNotFoundError: No module named 'fastapi'`）——#87 在 `collection/service.py` 直接 import fastapi，
+  而 worker 镜像依赖集不含 fastapi（`requirements-worker.txt`）。**修复 `ddd50e4`**：新增
+  `app/v2/collection/_compat.py`（同 `upgrade/service/_compat.py` 模式）+ 守卫测试
+  `test_worker_import_guard.py`（屏蔽 fastapi 后 import worker 链必须成功；**变异验证可抓住**）。
+
+**`.14` 链 A（全新安装，r37）**：全清 → `install/install.sh --yes` **EXIT=0** → health ok v0.5.4/v0.3.2、
+**5 容器全 Up**（worker 稳定、日志无 Traceback）、UI 200、legacy 目录不存在、SQLite integrity ok、
+**`vm_latest.local_created_at` 列存在**（① 的 expand-only 列在全新安装即就位）。
+日志 `.14:/data/chainA-r37.log`。
+
+**`.14` 链 B（真客户升级路径，r37）**：全清 → 老交付 `delivery-v053` 安装（v0.5.3 + **已发布 runner v0.3.1**）
+→ **第 1 步组件升级** runner→v0.3.2（产品 API：uploaded→prechecked→started，任务
+`upgrade-58b348fb4b0f9cba` **succeeded**，runner 镜像轮询到 v0.3.2）→ **第 2 步平台升级**
+v0.5.3→v0.5.4（`upgrade.sh`，预检查 9 项逐项 OK，**升级成功**）→ **8 项自检全过**（health、5 容器、
+UI 200、legacy 已清、integrity ok、`schema_migrations`=4、`local_created_at` 列 True、worker 无 Traceback）。
+日志 `.14:/data/chainB-r37.log`。
+
+**`.12` 同版本重装升级（r37）**：首跑被**产品自身 disk_space 预检查**拒绝
+（`可用 2.04 GiB < 需要 2.58 GiB`，**未调用 start、环境未被改动**——失败安全生效）。根因：`/data/upgrades`
+累积 8.22GB 历次演练残留包，而**产品清理 API 被幽灵 running 任务行 `upgrade-6eabea06cf38f895` 拒绝**
+（「存在正在执行的升级任务，已拒绝清理运行产物」）——见 findings.md 2026-10-15 条目。
+绕行（**全程产品流程，未做宿主手工变更**）：遍历 `GET /api/admin/upgrade/history` 逐任务
+`DELETE /api/admin/upgrade/package/{task_id}` → **42 个任务包删除成功、释放 8.22GB**（1.22GB → 9.44GB）
+→ 重试升级**成功**（同版本重装 v0.5.4→v0.5.4）→ 自检：health ok、5 容器 Up、integrity ok、
+**`local_created_at` 列 True**、磁盘 8.7GB 可用。
+
+**契约级功能验证（`.12`，r37 真实部署）**：#87 `POST /api/collection/run` → **202 / 0.05s / running / run_id=5**、
+并发提交 409、后台收敛 `success`（无塔配置 ⇒「采集完成：0 个集群，0 台虚拟机。」如实）；
+#28 计数口径与 limit 无关 + `limit=2` 生效 + 导出 Word 200；概览接口 200 不报错。
+**限制（如实记录）**：`.12`/`.14` 当前**均无 Tower 配置**（`.12` 库为空：towers=0/vm_latest=0），
+故「Tower 真实创建时间归属」（① 的口径）与「真实数据下的回收站过滤」（②③）只能由单测/集成测试覆盖
+（`test_v2_vm_created_at_caliber` 10 例、`test_v2_recycle_marker` 9 例）；`.3` 上的真实数据自测
+**按用户令不作为验收证据**。
+
+**结论**：**r37 = 当前 v0.5.4 候选**，通过 `.14` 链 A + 链 B + `.12` 同版本重装三项验证，
+8 项自检与契约级功能验证全过。r36 作废（其 SHA 仅留档）。
