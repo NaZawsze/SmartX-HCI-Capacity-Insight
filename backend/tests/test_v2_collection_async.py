@@ -80,9 +80,10 @@ class CollectionAsyncApiTest(unittest.TestCase):
             app, database = self._app(tmpdir)
             try:
                 with database.connection() as conn:
+                    # 用 CURRENT_TIMESTAMP 造「真在跑」的记录：陈旧阈值（1h）之内的 running 才该拦
                     conn.execute(
                         "INSERT INTO collection_runs (status, message, started_at)"
-                        " VALUES ('running', '采集中', '2026-10-14T00:00:00Z')"
+                        " VALUES ('running', '采集中', CURRENT_TIMESTAMP)"
                     )
                 with TestClient(app) as client:
                     headers = self._login(client)
@@ -92,6 +93,42 @@ class CollectionAsyncApiTest(unittest.TestCase):
                     with database.connection() as conn:
                         count = conn.execute("SELECT COUNT(*) FROM collection_runs").fetchone()[0]
                     self.assertEqual(count, 1, "被拒绝时不得产生新的采集记录")
+            finally:
+                for key in ("SMARTX_DATA_ROOT", "SMARTX_SECRET_KEY", "SMARTX_ADMIN_PASSWORD"):
+                    os.environ.pop(key, None)
+
+    def test_stale_running_row_is_converged_and_new_run_allowed(self) -> None:
+        """中断残留（超阈值仍 running）不得永久挡住手动采集——收敛为 failed 后放行。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app, database = self._app(tmpdir)
+            try:
+                with database.connection() as conn:
+                    conn.execute(
+                        "INSERT INTO collection_runs (status, message, started_at)"
+                        " VALUES ('running', '采集中', datetime('now', '-12 days'))"
+                    )
+                    stale_id = conn.execute("SELECT id FROM collection_runs ORDER BY id DESC LIMIT 1").fetchone()[0]
+                with TestClient(app) as client:
+                    headers = self._login(client)
+                    submitted = client.post("/api/collection/run", headers=headers)
+                    self.assertEqual(submitted.status_code, 202, submitted.text)
+                    self.assertNotEqual(submitted.json()["run_id"], stale_id)
+                    with database.connection() as conn:
+                        row = conn.execute(
+                            "SELECT status, finished_at, message FROM collection_runs WHERE id = ?", (stale_id,)
+                        ).fetchone()
+                    self.assertEqual(row[0], "failed", "残留 running 记录必须被收敛为 failed")
+                    self.assertIsNotNone(row[1], "收敛必须写 finished_at")
+                    self.assertIn("中断残留", row[2])
+
+                    # 等后台采集收敛，避免临时目录在写库中被清理
+                    run_id = submitted.json()["run_id"]
+                    deadline = time.monotonic() + 20
+                    while time.monotonic() < deadline:
+                        state = client.get(f"/api/collection/runs/{run_id}", headers=headers).json()["status"]
+                        if state != "running":
+                            break
+                        time.sleep(0.2)
             finally:
                 for key in ("SMARTX_DATA_ROOT", "SMARTX_SECRET_KEY", "SMARTX_ADMIN_PASSWORD"):
                     os.environ.pop(key, None)

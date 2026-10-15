@@ -44,6 +44,13 @@ class CollectionResult:
 
 
 class CollectionService:
+    #: 单飞守卫的陈旧阈值（#87 加固）：`running` 记录超过该秒数即判定为**中断残留**
+    #: （服务重启/进程被杀留下的脏状态），允许新采集并把它收敛为 `failed`。
+    #: 依据：真实一轮采集 ≤ ~2 分钟（`.3` 实测 22~111s）、定时间隔 60 分钟 ⇒
+    #: 1 小时足以区分「真在跑」与「卡死」。`.3` 曾有一条 2026-10-03 起卡 12 天的
+    #: `post_upgrade` running 记录，令手动采集**永久** 409（2026-10-15 部署级复验发现）。
+    STALE_RUNNING_SECONDS = 3600
+
     def __init__(self, database: V2Database, settings: V2Settings, cloudtower_client: CloudTowerCollector, tasks: TaskService | None = None) -> None:
         self.database = database
         self.settings = settings
@@ -84,7 +91,10 @@ class CollectionService:
         """#87 异步化：提交后**立即返回 run_id**，采集在后台线程执行（前端轮询既有 `/runs/{id}`）。
 
         单飞：已有 `running` 采集记录时拒绝（409）——语义与升级单飞一致，**不排队**。
+        中断残留（超过 `STALE_RUNNING_SECONDS` 仍为 running）先收敛为 failed 再放行，
+        否则一条卡死的记录会让手动采集**永久** 409。
         """
+        self._converge_stale_runs()
         running = self._running_run_id()
         if running is not None:
             raise HTTPException(
@@ -144,6 +154,47 @@ class CollectionService:
                 "SELECT id FROM collection_runs WHERE status = 'running' ORDER BY id DESC LIMIT 1"
             ).fetchone()
         return int(row["id"]) if row else None
+
+    def _stale_running_run_ids(self) -> list[int]:
+        """超过陈旧阈值仍为 `running` 的采集记录 id（中断残留）。
+
+        时间比较放在 SQL 里做（`started_at` 与 `CURRENT_TIMESTAMP` 同为 UTC 字符串），
+        避免 Python 侧时区解析口径分歧。
+        """
+        with self.database.connection() as conn:
+            rows = conn.execute(
+                "SELECT id FROM collection_runs"
+                " WHERE status = 'running' AND started_at < datetime('now', ?)",
+                (f"-{int(self.STALE_RUNNING_SECONDS)} seconds",),
+            ).fetchall()
+        return [int(row["id"]) for row in rows]
+
+    def _converge_stale_runs(self) -> list[int]:
+        """把中断残留的 running 记录收敛为 failed（连同其任务行），返回收敛的 id 列表。
+
+        幂等：无残留时空操作。守卫（手动路径）与 `_start_run`（覆盖定时路径）都会调用——
+        后者让脏状态在下一轮采集自愈，而不是只在用户点「立即采集」时才被清理。
+        """
+        run_ids = self._stale_running_run_ids()
+        for run_id in run_ids:
+            self._finish_run(
+                run_id,
+                "failed",
+                f"采集记录超过 {self.STALE_RUNNING_SECONDS // 60} 分钟仍为执行中，"
+                "判定为中断残留（服务重启或进程异常退出），已自动标记失败。",
+            )
+            if self.tasks is not None:
+                try:
+                    self.tasks.update_task(
+                        f"collection-run-{run_id}",
+                        status=TaskStatus.FAILED,
+                        progress=100,
+                        message="采集中断（服务重启或异常退出），已标记失败",
+                    )
+                except Exception:  # noqa: BLE001 - 定时采集无任务行 / 任务行已被清理
+                    logger.debug("collection: 收敛残留 run 时未更新任务行（run=%s）", run_id)
+            logger.warning("collection: 收敛中断残留的 running 采集记录 #%s", run_id)
+        return run_ids
 
     def _execute_collection(
         self,
@@ -303,6 +354,8 @@ class CollectionService:
         return _run_row(row) if row else None
 
     def _start_run(self, *, trigger: str, cycle_id: str, attempt: int, max_attempts: int) -> int:
+        # 任何一轮采集开始前先收敛中断残留（定时路径也走这里 ⇒ 脏状态自愈，不依赖用户点击）
+        self._converge_stale_runs()
         with self.database.connection() as conn:
             cursor = conn.execute(
                 """
