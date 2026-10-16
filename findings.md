@@ -1193,3 +1193,38 @@ Error response from daemon: No such container: smartx-runner-cutover-upgrade-9cc
 **建议**：① runner 在 cutover 失败后应回退到「继续心跳」而不是停摆（或容器级 healthcheck 直接
 标记不健康）；② 平台对「runner 容器在但心跳陈旧」应给出可区分的运维提示（现在与「runner 不存在」
 同一文案）；③ 预检查失败文案补上「心跳最后时间 / 期望窗口」，便于现场自助定位。
+
+### 判定实验（2026-10-16，`.14`）：`.env` 变目录是**正常升级**造成的，与回退/清理无关
+
+**用户质疑**：「`.env` 为空是不是回退 v0.5.1u2 时清理掉的？正常升级也会清空吗？」→ 做了受控实验
+（全清 → 装 v0.5.1u2 → 逐跳正常升级，**全程不回退、不重跑同一跳**，每步记录 `.env` 类型与 sha）：
+
+| 步骤 | `/opt/smartx-storage-forecast/.env`（老布局） | `/data/smartx-storage-forecast/project/.env`（新布局） | 平台 |
+| --- | --- | --- | --- |
+| step0 全清 | absent | absent | — |
+| step1 装 v0.5.1u2 | **file**（12 行，sha `57f188d0…`） | **absent** | v0.5.1u2 |
+| **step2 升级 → v0.5.2（成功、无回退）** | file（**未变**） | **directory（0 项）** ← **就是这一步产生** | v0.5.2 |
+| step3 / step4 | file（未变） | directory | 仍 v0.5.2（后续升级被挡） |
+
+**结论**：**正常升级即会产生**，且触发点是 **v0.5.1u2 → v0.5.2 那一跳**（不是 v0.5.3 的布局转型）。
+
+**精确机制（一行 compose 引起）**：v0.5.2 起的 `docker-compose.release.yml` 同时有两处 `.env` 引用，
+**一处相对、一处绝对**：
+
+```yaml
+services:
+  web-api:
+    env_file: [.env]                                                    # 相对 compose 文件（老布局下 = /opt/.../.env，存在 ✓）
+    volumes:
+      - /data/smartx-storage-forecast/project/.env:/run/smartx-runtime.env   # 绝对路径（老布局下不存在 ✗）
+```
+
+`up -d` 时该绝对路径不存在 ⇒ **Docker 按惯例把 bind 源自动建成空目录**（并把容器内 `chmod 600`
+作用到这个目录上，得到实测的 `drw-------`）。此后新布局路径被污染：v0.5.3 的布局转型/后续升级
+需要在该目录里跑 compose，于是 `failed to read …/.env: is a directory` ⇒ `restart` 退出码 14。
+
+**影响面修正**：不止「v0.5.1u2 老布局升 v0.5.4」——**任何工程目录不在
+`/data/smartx-storage-forecast/project` 的环境**，只要运行 v0.5.2 及以上的 compose，就会在新布局
+路径留下这个空目录（v0.5.1u2/v0.5.2 现场均命中）。**修复首选改 compose**：bind 源改为**相对路径**
+（`./.env:/run/smartx-runtime.env`，与 `env_file` 同源），或干脆去掉该 bind（应用 env 已由
+`env_file` 注入）；其余防御层（自愈/守卫/预检查）见设计文档 §1。

@@ -15,7 +15,12 @@
 
 ---
 
-## 1. 问题 1：老布局转型把 `.env` 变成目录（阻断后续升级）
+## 1. 问题 1：v0.5.2 的 compose 在老布局环境里把**新布局 `.env` 建成空目录**（阻断后续升级）
+
+> **2026-10-16 更正（受控实验）**：原描述「v0.5.1u2→v0.5.3 转型时产生」不够精确。判定实验
+> （`.14`，全程无回退/无重跑）证明：**在 v0.5.1u2 → v0.5.2 这一跳就产生**（该跳成功完成，
+> 老布局 `.env` 全程完好、新布局路径出现空目录）。精确机制见 §1.2 的「相对 vs 绝对」不一致。
+> 实验记录见 `findings.md` 2026-10-16 判定实验节。
 
 ### 1.1 现象（实测，两台机一致）
 
@@ -63,7 +68,27 @@ failed to read /data/smartx-storage-forecast/project/.env: ... is a directory
 4. 一旦成为目录：`_write_env_file` 的 `path.write_text()` 会抛 `IsADirectoryError`（env 迁移无法自愈），
    而 `docker compose` 读 `env_file` 直接失败 ⇒ **此后该环境的任何 compose 操作都不可用**。
 
+### 1.2.1 潜伏期：**产生**在 v0.5.2 跳，**发作**在布局转型之后
+
+实验 + 全链实测合起来给出完整时间线：
+
+| 时点 | 现象 | 说明 |
+| --- | --- | --- |
+| 老布局跑 v0.5.2 的 `up -d` | 新布局路径 `.env` 被 Docker 建为**空目录** | 此时**无任何症状**（老布局 `.env` 仍是文件，compose 用的是工程目录里那份） |
+| v0.5.2 → v0.5.3 升级 | **仍能成功**（实测两台机 web 路径均通过） | 该跳的 compose 操作仍以老工程目录为 cwd，读的是 `/opt/.../.env`（文件） |
+| v0.5.3 转型完成 | 平台记录的工程目录切到 `/data/smartx-storage-forecast/project` | 从此刻起 compose 的 cwd = 被污染目录 |
+| **v0.5.3 → v0.5.4（r37）** | `restart` 步骤 `docker compose up -d` **退出码 14**、升级失败回滚 | `failed to read …/.env: is a directory` —— **这就是「发作」点** |
+
+⇒ 现场观感是「升级到某一版之后突然再也升不动」，而不是「升级当下就报错」——**潜伏期**让问题更难定位。
+修复必须同时覆盖「不再产生」（A0 改 compose）与「发作时能自愈/说清楚」（A/B/C）。
+
 ### 1.3 修复方案（分四层，前两层可进 v0.5.4）
+
+**A0. 首选：修 compose 的路径不一致（治本）** — `docker-compose*.yml` 里两处 `.env` 引用
+**一处相对一处绝对**（`env_file: [.env]` vs `- /data/smartx-storage-forecast/project/.env:/run/smartx-runtime.env`）。
+把 bind 源改成**相对路径**（`- ./.env:/run/smartx-runtime.env`，与 `env_file` 同源），或直接去掉该 bind
+（应用 env 已由 `env_file` 注入；若 `/run/smartx-runtime.env` 确被 runner 沙箱使用，则改为相对挂载）。
+这样「bind 源 = compose 读的那份 env」，不会再出现「A 处读到文件、B 处建出目录」的分叉。
 
 **A. 迁移动作自愈（最小、最关键）** — `backend/app/upgrade_runner/actions.py::_write_env_file`：
 
@@ -95,6 +120,10 @@ if env_path.is_dir() and not env_path.is_symlink():
 `env_file_migration` 的 `target` 与 compose 的 bind 源用**同一个来源**计算（杜绝再次分叉）。
 
 ### 1.4 验证（修复后必须重跑）
+
+- **判定实验复用**：`.14` 跑 `/data/env_verdict.sh`（全清 → 装 v0.5.1u2 → 逐跳升级，每步记录 `.env` 类型）
+  ⇒ 修复后要求 **step2 起新布局 `.env` 始终为 file**、`docker compose config` 始终通过。
+- **反向用例**：人为把 `project/.env` 建成目录 ⇒ 预检查精确报错、`ensure_env_file` 能自愈。
 
 - 单测：`_write_env_file` 对「目标是目录」的自愈；`ensure_env_file` 的三条分支（文件/目录可恢复/目录不可恢复）。
 - 真机（`.14`）：全链重跑 v0.5.1u2 → v0.5.3 → 组件 → r37，**每跳后断言 `project/.env` 是常规文件**
