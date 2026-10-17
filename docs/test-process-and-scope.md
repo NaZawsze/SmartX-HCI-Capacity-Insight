@@ -64,7 +64,8 @@ L2–L6 一律在 `.14`/`.12`，且 `.12` 的宿主**不允许任何手工运维
 - 全清 → `install/install.sh --yes`。
 - **判定（8 项，缺一不可）**：①`health.ok=true` 且 `version/runner_version` 符合预期；
   ②5 容器全 `Up`（`upgrade-runner` 需 `(healthy)`）；③UI 200；④legacy 目录不存在；
-  ⑤SQLite `integrity_check=ok`；⑥`project/.env` 是**常规文件**且键数 ≥ 15；
+  ⑤SQLite `integrity_check=ok` + `foreign_key_check` 为空（用 `verify_data_integrity.py snapshot` 留 T0 基线）；
+  ⑥`project/.env` 是**常规文件**且键数 ≥ 15、两枚密钥非空；
   ⑦`docker compose config --quiet` 通过；⑧升级前数据计数为 0 或符合预期。
 - **证据**：health JSON、`docker ps` 全量、`.env` 类型与行数、compose config 退出码。
 
@@ -75,8 +76,9 @@ L2–L6 一律在 `.14`/`.12`，且 `.12` 的宿主**不允许任何手工运维
   - 老布局：`v0.5.1u2 → v0.5.2 → v0.5.3 → 组件 → 平台`（每一步都要留指纹）。
 - **两条驱动路径都要测**：**Web 接口**（upload→precheck→start→poll）与 **CLI**（`upgrade.sh`）。
   两者对 `.env`/健康检查的处理不同，只测一条会漏。
-- **判定**：每跳 `succeeded`；每跳后 **数据指纹完全一致**；健康 8 项全过；
-  `.env` 在每跳后仍是常规文件。
+- **判定**：每跳 `succeeded`；每跳后**用 `verify_data_integrity.py` 采样并 `compare` 全 PASS**
+  （§4：业务表零变化 + 可增长表旧行不变 + 引用完整性 0 孤儿 + `.env` 密钥未变 + Prometheus 历史不丢）；
+  健康 8 项全过；`.env` 在每跳后仍是常规文件。
 - **证据**：每跳 task_id + 终态、每跳指纹、日志路径。
 
 > 已知坑（写进规范，避免重复踩）：
@@ -103,7 +105,8 @@ L2–L6 一律在 `.14`/`.12`，且 `.12` 的宿主**不允许任何手工运维
 ### L5 回滚（`.12`）
 
 - 场景 B（apply 阶段失败）与场景 C（post_upgrade 失败）各一次；数据计数与内容逐位恢复。
-- **判定**：`rolled_back` + 数据指纹回到升级前 + 服务健康。
+- **判定**：`rolled_back` + **回滚后采样（Tr）与 T0 `compare` 全 PASS** + 服务健康；
+  备份包可解包且含 `app/smartx.db`。
 - **证据**：任务终态、回滚步骤日志、前后指纹。
 
 ### L6 发布验收（`.12` + `.14`）
@@ -112,24 +115,124 @@ L2–L6 一律在 `.14`/`.12`，且 `.12` 的宿主**不允许任何手工运维
 - **判定**：矩阵无空格、无"沿用旧结论"（重建候选即作废旧结论）。
 - **证据**：矩阵表 + 每格指向的日志/SHA。
 
-## 4. 数据完整性口径（所有层统一）
+## 4. 数据完整性检验（所有层统一）
 
-**指纹 = 稳定列的行内容哈希**，不是 `SELECT *`（升级会加列，`SELECT *` 会假报不一致）：
+> 只比 4 张表的行数**不够**：一次升级会同时动 SQLite 业务数据、加密凭据、Prometheus 时序、
+> `.env`/compose/备份等文件资产。本节按「**资产清单 → 检验方法 → 采样时点 → 允许差异白名单 →
+> 判定**」定义口径，配套脚本 `scripts/verify_data_integrity.py`（`snapshot` / `compare`）。
 
-| 表 | 参与列 |
+### 4.1 数据资产清单与责任层
+
+| # | 资产 | 位置 | 升级时的正常变化 | 必检层 |
+| --- | --- | --- | --- | --- |
+| 1 | **业务表**：`towers`、`clusters`、`vm_latest`、`vm_volumes`、`users` | SQLite | **零变化**（含加密凭据列、口令哈希） | L2/L3/L5/L6 |
+| 2 | **运行表**：`tasks`、`collection_runs`、`metric_snapshots` | SQLite | 允许**新增行**；升级前已有行不得变化 | L3 |
+| 3 | **迁移表**：`schema_migrations` | SQLite | **只增**（记录已应用迁移）；不得减少或改写 | L3/L6 |
+| 4 | **runner 表**：`upgrade_runner_state`、`upgrade_task_leases` | SQLite | 任意变化（心跳/租约，运行时数据） | 不作判据 |
+| 5 | **Prometheus 时序** | `/prometheus-data` + HTTP API | 历史样本**不得丢**；升级窗口可短暂缺采 | L3/L6 |
+| 6 | **`.env`** | `project/.env` | 键集合与密钥**不变**（值不回显，只比 key 与 sha） | L2/L3 |
+| 7 | **compose / 项目文件** | `project/` | 与升级包内容一致（包内 `checksums.sha256`） | L2/L3 |
+| 8 | **备份包** | `backups/*.tar.gz` | 可解包、内含 `app/smartx.db` + `project/`、sha256 与记录一致 | L5/L6 |
+| 9 | **导出物** | `exports/`（Word/Excel） | 接口 200、文件非空、可打开 | L3/L6 |
+| 10 | **迁移包**（如涉及） | `exports/migration-*` | 可导入且业务表计数/指纹与源一致 | 专项 |
+
+### 4.2 检验方法（六类，缺一不可）
+
+**(1) 内容指纹（稳定列）** — 禁止 `SELECT *`（升级会加列 → 假报不一致）：
+
+| 表 | 稳定列 |
 | --- | --- |
-| `towers` | `id, name` |
+| `towers` | `id, name, url, username, password_encrypted, api_token_encrypted`（凭据列**必须**参与，否则"凭据被清空"测不出来） |
 | `clusters` | `tower_id, cluster_id, name` |
-| `vm_latest` | `tower_id, cluster_id, vm_id, name`（需要时加 `used_bytes`） |
-| `vm_volumes` | `tower_id, cluster_id, vm_id, volume_id, name` |
+| `vm_latest` | `tower_id, cluster_id, vm_id, name, used_bytes` |
+| `vm_volumes` | `tower_id, cluster_id, vm_id, volume_id, name, used_bytes` |
+| `users` | `id, username, password_hash`（只比哈希，不比明文） |
 
-- 每张表输出 `{count, digest}`，digest = `sha256(repr(sorted(rows)))[:16]`。
-- 采样时点：**升级前**（注入数据后）、**每跳升级成功后**、**最终态**。
-- 允许的差异：**无**。任何 digest 变化都必须定性（列集合变化不算变化，行内容变化必须解释）。
-- 同时记录 `PRAGMA integrity_check`，必须为 `ok`。
-- 读取一律**宿主直读 DB**（容器内 `/run/smartx-runtime.env` 可能异常，`docker cp` 会挂）；
-  DB 路径按布局探测：`/data/smartx-storage-forecast/app/smartx.db` →
-  `/data/smartx-capacity-insight-data/app/smartx.db` → `/data/smartx.db`。
+- 输出 `{count, digest}`，`digest = sha256(repr(sorted(rows)))[:16]`。
+- **可增长表**（`tasks`/`collection_runs`/`metric_snapshots`）：用 `count_before ≤ count_after`
+  且「升级前已有主键集合的行内容不变」判定，不能要求 count 相等。
+
+**(2) 语义计数（接口 vs DB）** — 数据"在"不等于"对"：
+- 概览/报表接口的 VM 总数、容量合计，与 DB 聚合（`COUNT(*)`、`SUM(used_bytes)`）一致（容差 0）；
+- 「本日/本月新建 VM」计数与 `local_created_at`（缺失时回落首见）口径一致（#36/#37）；
+- 回收站 VM 在概览与报表接口出现 **0 次**，详情深链返回 `original_name` + `in_recycle_bin=true`（②③）。
+
+**(3) 引用完整性（孤儿行）**：
+- `vm_latest.cluster_id` ∈ `clusters.cluster_id`；`vm_volumes.vm_id` ∈ `vm_latest.vm_id`；
+- `clusters.tower_id` ∈ `towers.id`；`vm_latest.tower_id` ∈ `towers.id`；
+- 每条查询必须返回 0 行孤儿。
+
+**(4) 加密可用性（最容易漏、后果最重）**：
+- **Tower 凭据可解密**：用 `.env` 的 `SMARTX_CREDENTIAL_KEY` 解密 `towers` 中的凭据列，
+  解密失败 = `.env` 与 DB 不配对（迁移把密钥换了/丢了）；有塔时再做一次连接测试；
+- **用户可登录**：用升级前的管理员口令调用 `/api/auth/login` 必须 200（`SECRET_KEY` 未变）。
+
+**(5) 时序连续性（Prometheus）**：
+- 升级前记录：series 数量、最近样本时间戳、指定时间窗内的样本数；
+- 升级后：**升级前的历史窗口样本数与值必须完全一致**（`/api/v1/query_range` 比对）；
+- 升级窗口内允许缺采，但**恢复采集后**必须继续有样本（`smartx_cluster_storage_used_bytes` 等）；
+- 关键指标：`smartx_cluster_storage_used_bytes`、`_total_bytes`、`_allocated_bytes`、
+  `smartx_vm_storage_used_bytes`。
+- **前置条件**：升级前必须至少完成一次采集（基线窗口内 points > 0），否则时序检查是"空过"，
+  脚本按 `WARN` 记（**不算通过**）。
+
+**(6) 文件资产**：
+- `.env`：键集合（≥ 15）与 `SMARTX_SECRET_KEY`/`SMARTX_CREDENTIAL_KEY` 非空；**只记录 key 与
+  sha256，绝不回显值**；升级前后按 key 比较，值应一致（重排不算变化）；
+- `project/docker-compose.offline.yml` 的 sha256 与包内 `checksums.sha256` 一致；
+- 备份包 `tar -tzf` 可列出且含 `app/smartx.db`；导出文件大小 > 0。
+
+### 4.3 采样时点（少一个都不算通过）
+
+| 时点 | 何时 | 用途 |
+| --- | --- | --- |
+| **T0** | 安装完成 / 注入测试数据后、升级开始前 | 基线 |
+| **T1…Tn** | **每跳升级成功后**（含组件升级） | 定位是哪一跳破坏了数据 |
+| **Tf** | 终态（post-cleanup 收敛后 + 至少一次采集后） | 最终判定 |
+| **Tr** | 失败/回滚后 | 与 T0 比对，确认回滚真的恢复 |
+
+- 一律**宿主直读 DB**（容器内 `/run/smartx-runtime.env` 可能异常，`docker cp` 会挂）；
+- DB 路径按布局探测：`/data/smartx-storage-forecast/app/smartx.db` →
+  `/data/smartx-capacity-insight-data/app/smartx.db` → `/data/smartx.db`；
+- 同时记录 `PRAGMA integrity_check`（必须 `ok`）与 `PRAGMA foreign_key_check`（必须为空）。
+
+### 4.4 允许差异白名单（白名单之外一律 FAIL）
+
+| 允许 | 禁止 |
+| --- | --- |
+| `tasks`/`collection_runs`/`metric_snapshots` **新增行** | 上述表**已有行内容变化**或行数减少 |
+| `schema_migrations` **新增行** | `schema_migrations` 行减少/改写 |
+| 新增**列**（expand-only） | 已有列被删除/改名/类型变化 |
+| `upgrade_runner_state`/`upgrade_task_leases` 任意变化 | — |
+| `updated_at`/`last_seen` 类字段在**允许变化的表**里更新 | 业务表任何字段变化 |
+| 升级窗口内 Prometheus **缺采** | 升级前历史样本丢失或值变化 |
+| `.env` 行顺序变化 | `.env` 键缺失、密钥变化、文件变成目录 |
+
+### 4.5 判定与证据
+
+- **判定**：业务表指纹逐表一致 + 可增长表"旧行不变" + 引用完整性 0 孤儿 + 加密可用 +
+  Prometheus 历史一致 + 文件资产一致；任一项不满足即 **FAIL**，并**不得**用"数据看起来还在"代替。
+- **证据**：T0/T1…/Tf 的 `snapshot.json` + `compare` 输出（逐项 PASS/FAIL）写入
+  `progress.md`；失败项必须给出**具体表名/列名/行主键**，不接受"数量对得上"。
+
+### 4.6 用法（脚本，所有层复用）
+
+```bash
+# 升级前（T0）
+python3 scripts/verify_data_integrity.py snapshot --prom http://127.0.0.1:9090 --label t0 --out /data/diag/t0.json
+# 每跳成功后（T1…Tn）
+python3 scripts/verify_data_integrity.py snapshot --prom http://127.0.0.1:9090 --label t1 --out /data/diag/t1.json
+python3 scripts/verify_data_integrity.py compare --before /data/diag/t0.json --after /data/diag/t1.json
+# 终态（post-cleanup 收敛 + 至少一次采集后）
+python3 scripts/verify_data_integrity.py snapshot --prom http://127.0.0.1:9090 --label final --out /data/diag/final.json
+python3 scripts/verify_data_integrity.py compare --before /data/diag/t0.json --after /data/diag/final.json
+```
+
+- 退出码：`0 = PASS`、`1 = FAIL`；输出逐项 `PASS/FAIL/WARN`，失败项带**表名/列名/计数**。
+- `WARN` 不是通过：Prometheus 不可达会记为 WARN，必须在报告里显式说明"时序未验证"，
+  不能当 PASS 计入。
+- 脚本自身逻辑由 `backend/tests/test_verify_data_integrity.py`（8 例）锁定：业务行改动、
+  凭据被清空、可增长表旧行被改、孤儿行、`.env` 缺键、`.env` 重排不算变化。
 
 ## 5. 环境与执行纪律
 
