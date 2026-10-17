@@ -6930,3 +6930,27 @@ runner 包 `cfa6570a08967b063332a131146bbe33c852bdc499948dc4f6a1713245a5ee39`；
 - 已单独验证的关键结论不受影响：**缺陷态 → 自动重建 → 升级成功**（见上节受控反向验证），
   以及 r39 全新安装/门禁/单测。**待补**：从 v0.5.3 起点的「组件 v0.3.3 → 平台 r39」两步链
   （等价于客户主路径）在 `.12` 或 `.14` 上再跑一遍（预计 ~10 分钟）。
+
+---
+
+## 2026-10-17（续）#96 / #94-B 修复实施 + r40 候选（按用户令未做真机验证）
+
+**用户令**：先把剩余问题修完，**修完暂不测试**。
+
+**#96 runner 心跳静默死亡不可判定**（`.14` 2026-10-15 实证：容器 Up、心跳滞后 18 分钟，
+日志是 `No such container: smartx-runner-cutover-…`）：
+- `upgrade_runner/main.py`：实例心跳改为**独立守护线程每 5s 刷新**，与任务执行解耦。
+  此前只在 `run_pending_once` 开头刷一次，进程卡在某一轮时心跳会一路变旧。
+- 三份 compose 的 `upgrade-runner` 增 `healthcheck`：状态文件超 90s 未更新即 `(unhealthy)`
+  （与 `RUNNER_HEARTBEAT_STALE_SECONDS` 同量级），`docker ps` 直接可见。
+- 预检查失败文案补容器实际状态：区分「未发现容器」与「容器在而心跳陈旧（查 cutover/handoff）」。
+
+**#94-B 组件包声明最低平台版本**（覆盖 Web 路径；CLI 已由 `upgrade.sh` 硬拦截）：
+- `scripts/build_runner_component_package.py`：manifest 增 `minimum_platform_version = v0.5.3`。
+- 预检查新增 `component_platform` 项：平台低于该值**收包阶段即拒绝**并提示先升平台。
+- **遗留（如实记录）**：v0.5.2 旧平台的 Web 界面仍无法拦截（旧镜像不含该检查），只能靠交付
+  README 的书面约束。
+
+**测试与构建**：新增 `tests/test_upgrade_resilience.py`（9 例）；全量 **1240 tests，1F+1E 均为存量**
+（在用户「暂不测试」指令之前已完成）。**r40 候选**已构建（`302422d`）：平台包 `89bc10be…`、
+runner 包 `1d056aa9…`，四道门禁全过。**按用户令，r40 未做任何真机验证**。

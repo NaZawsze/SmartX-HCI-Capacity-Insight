@@ -1235,3 +1235,29 @@ compose config OK、health/容器/DB/UI 全绿。⇒ A0/B/C 与版本单一来�
 **C 的阻断分支**由 r38 那次运行留下真机证据（`[FAIL] env_file: … 当前执行器 v0.3.2 不会自动修复`）。
 
 **结论**：**r39 = 当前 v0.5.4 候选**；r38 作废（SHA 仅留档）。
+
+---
+
+## 2026-10-17（续）#96 / #94-B 修复后重建：**r40 = 当前候选**（未做真机验证）
+
+**背景**：用户要求先修完剩余问题（#96 runner 心跳静默死亡、#94-B 组件包声明最低平台版本），
+修完**暂不测试**。
+
+**代码（`302422d`）**：
+- #96：`upgrade_runner/main.py` 增**实例心跳看门狗**（独立守护线程每 5s 刷新，与任务执行解耦）；
+  三份 compose 的 `upgrade-runner` 增 `healthcheck`（状态文件超 90s 未更新 → `(unhealthy)`）；
+  预检查失败文案补**容器实际状态**（`_runner_container_hint`），区分「runner 不在」与
+  「容器在但心跳停了」。
+- #94-B：组件包 manifest 增 `minimum_platform_version = v0.5.3`；平台预检查新增
+  `component_platform` 项，低于该值**收包阶段即拒绝**（唯一能覆盖 Web 界面路径的落点）。
+
+**构建（`.3`，开发/构建机）**：`build_release_delivery.sh --output-root /data/r40-out --runner-baseline v0.3.3`
+- 平台包 `89bc10be6015d0633b6fe150c7d35acb07231cb48c0aa12572165b05fdeebd87`
+- runner 包 `1d056aa93164c028c12223953a328a805109c9228690c66152baa8392ec3deb6`
+- 交付目录 `/data/r40-out/smartx-capacity-insight-v0.5.4-offline`（1.4G）；**四道门禁全过**
+- 单元测试（修复提交前已跑）：**1240 tests，1F+1E 均为既有存量**
+
+**状态**：**未做真机验证**（按用户 2026-10-17 14:41 令「修完后先不进行测试」）。
+`r39` 的受控反向验证结论（`.env` 目录 → 自动重建 → 升级成功）仍然有效，但其包已被 r40 取代；
+**r40 的验证清单**：①全新安装（看 healthcheck 是否 `(healthy)`、心跳是否持续刷新）；
+②组件包预检查 `component_platform` 通过；③pause runner → `(unhealthy)`；④`.env` 目录反向用例。
