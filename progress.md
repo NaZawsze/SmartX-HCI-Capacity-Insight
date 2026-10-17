@@ -7037,3 +7037,22 @@ runner v0.3.4（自愈键集合补全 + 守卫测试）；平台包/runner 包 S
 L3-a 与 L3-b 均执行了「全清 → v0.5.3 官方交付重装 → 注入标准数据集 → 新 T0 快照」，
 L4 制造的 `.env` 目录缺陷未进入 L3 的基线（每轮受控起点独立），隔离性成立。
 已在测试规范 §3.0 增加「顺序即依赖」硬约束：L3 必须先于 L4/L4.5；跳序需留痕 + 证明隔离性。
+
+### L3-c 受阻记录（2026-10-17 16:47，待下一轮定性）
+
+**现象**：v0.5.1u2 → v0.5.2 ✅（`.env` 目录缺陷被 r41 自愈，16 键、compose OK、数据一致）。
+之后 v0.5.2 → v0.5.3 的**平台升级预检查 5/5 全失败**，唯一失败项
+`runner_protocol: 未检测到 upgrade-runner 心跳`——但直接读 DB
+`/data/smartx-capacity-insight-data/app/smartx.db` 的 `upgrade_runner_state.heartbeat_at`
+**是新鲜的**（空闲时约 12s 一写）。
+
+**过程中的两个自身错误（已识别）**：
+1. 我在链里先跑了组件升级（v0.5.2 平台上）——违反「v0.5.2 必须先平台后组件」铁律，
+   产生 `No such container: smartx-runner-cutover-…`，runner 未换成（health 仍 v0.3.1）；
+2. 修正顺序后仍 5/5 失败，说明不是顺序问题。
+
+**下一轮定性要点**：
+① 平台侧 presence 判定到底读哪份状态（DB 行 / 容器标签 / 新旧 project 两个 runner 同时在写）；
+② 旧 runner（v0.3.1）写心跳的周期实测 12s（旧代码约 3s）——是否被 DB 写锁拖慢；
+③ 恢复手段：把 `.14` 重装到 v0.5.3 干净起点，或把 runner 容器重启后再试一跳。
+**证据**：`/data/p3/L3c.log`、`/data/p3/L3c-final.out`、`/data/p3/L3c-correct.log`。
