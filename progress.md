@@ -6874,3 +6874,45 @@ v0.5.1u2→v0.5.3 老布局转型后 `project/.env` 变成**空目录** →
    见 findings）；harness 已加「平台 < v0.5.3 时跳过组件跳」守卫。
 3. `upgrade.sh` 的正确调用是 `cd <delivery>/upgrade && bash upgrade.sh --package ...`
    （脚本就在该目录内，不是 `upgrade/upgrade.sh`）。
+
+---
+
+## 2026-10-17 #93/#95 修复实施 + 候选重建（r38 作废 → r39）+ 受控反向验证通过
+
+**用户令**：继续实施修复方案（A0 compose + A 自愈 + B 守卫 + C 预检查），重打候选包并验证。
+
+**代码（`d5ddc63` + `a4b3a4b`，runner bump 到 v0.3.3）**：
+- A0：三份 compose 的 `.env` bind 源 `绝对路径` → `./.env`（与 `env_file` 同源，不再产生目录）。
+- A：`_write_env_file` 遇目录先 `rmtree` 再写（env 迁移可自愈）。
+- B：新增 `ensure_env_file()`，`compose.apply` / `rollback.restore` 的**每次 compose 前**执行；
+  目录 → 从运行中 web-api 的 `docker inspect .Config.Env` 回填 `.env.example` 键 + `SMARTX_TOWER_*`，
+  缺密钥对则明确失败；缺失不阻断（交给 compose）。
+- C：预检查新增 `env_file` 项，按执行器能力（runner ≥ v0.3.3）放行并提示 / 否则阻断并给指引。
+- #95：心跳窗口 30s → 90s（可 `SMARTX_RUNNER_HEARTBEAT_STALE_SECONDS` 覆盖）+ 文案带最后心跳时间。
+- #94-A：`upgrade.sh` 对平台 < v0.5.3 的组件升级硬拦截。
+- 新增 `tests/test_env_file_guard.py`（15 例，含版本同源）。
+
+**r38（`d5ddc63`）→ 作废**：`.14` 全新安装后 `env_file` 预检查**阻断**，原因是 runner 镜像
+`/app/RUNNER_VERSION` 是 v0.3.3 但状态文件/health 报 **v0.3.2**——`upgrade_runner/main.py` 把
+`"v0.3.2"` 写死两处（第二处版本来源）。修复 `a4b3a4b`：`resolve_runner_version()` 文件优先，
+兜底常量由单测锁死。**r38 的 SHA 仅留档。**
+
+**r39（`a4b3a4b`）**：平台包 `608f2affe312c8fd347f133bf27fa242e1d73aef4724580f33bfafcfbcc6fa52`、
+runner 包 `cfa6570a08967b063332a131146bbe33c852bdc499948dc4f6a1713245a5ee39`；
+四道门禁全过（含 runner 交付一致性：源码树指纹与 30 动作）。
+
+**受控反向验证（`.14`，`/data/verify-r39-clean.sh`，日志 `/data/verify-r39-clean.out`）**：
+1. 全清 → r39 全新安装：`.env` 生成为 **file（15 键，含 2 个密钥）**、compose config OK、
+   health `ok=true / v0.5.4 / runner v0.3.3`、5 容器 Up —— **A0 生效（不再产生目录）**。
+2. **人为制造缺陷**：`rm .env && mkdir .env`（mode 600）→ `docker compose config` 立刻
+   `failed to read .../.env: is a directory`（**缺陷复现**）。
+3. 同版本重装升级（`--allow-same-version`，CLI）→ **升级成功**。
+4. 终态断言：`.env` = **file(15 行, mode 600)**（密钥对 2）、**compose config OK**、
+   health `ok=true / v0.5.4 / runner v0.3.3`、5 容器 Up、DB integrity ok、UI 200。
+   ⇒ **B（前置守卫自愈）+ C（能力判定）+ 版本单一来源** 三项在真机同时验证通过。
+
+**另**：r38 那次运行的 `env_file` 阻断输出（`[FAIL] env_file: ... 当前执行器 v0.3.2 不会自动修复，
+请先…`）正好是 **C 的阻断分支真机证据**（日志 `/data/verify-r38-clean.out`）。
+
+**进行中**：`.14` 全链路（v0.5.1u2 → v0.5.2 → v0.5.3 → 组件 v0.3.3 → r39，web 路径，注入
+120 VM/240 卷基线），日志 `/data/chain-web-r39.log`；结果待收齐补记。

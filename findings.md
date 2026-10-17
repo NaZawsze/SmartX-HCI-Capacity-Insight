@@ -1228,3 +1228,25 @@ services:
 路径留下这个空目录（v0.5.1u2/v0.5.2 现场均命中）。**修复首选改 compose**：bind 源改为**相对路径**
 （`./.env:/run/smartx-runtime.env`，与 `env_file` 同源），或干脆去掉该 bind（应用 env 已由
 `env_file` 注入）；其余防御层（自愈/守卫/预检查）见设计文档 §1。
+
+## 2026-10-17（续）runner 自报版本有第二处硬编码：镜像 v0.3.3 却报 v0.3.2
+
+**现象（`.14` r38 全新安装实测）**：容器是 `upgrade-runner:v0.3.3`、
+`docker exec cat /app/RUNNER_VERSION` 也是 `v0.3.3`，但
+`/data/smartx-storage-forecast/app/upgrade-runner-state.json` 与 `/api/system/health`
+都报 **v0.3.2**。
+
+**根因**：`backend/app/upgrade_runner/main.py` 把 `"v0.3.2"` 写死两处——
+`RunnerSettings` 的 dataclass 默认值与 `from_environment()` 的
+`os.environ.get("SMARTX_RUNNER_VERSION", "v0.3.2")`。镜像内版本文件根本没被读。
+
+**后果（比"显示不对"严重）**：版本号是能力判定输入。`env_file` 预检查看到 v0.3.2 就判定
+「执行器不会自愈 `.env`」并**阻断升级**，而实际执行器（v0.3.3）完全能自愈——修复被自己的
+版本号挡住，现场表现是「按文档做了组件升级，平台升级仍被拒」。
+
+**修复**：`resolve_runner_version()` = 镜像内 `/app/RUNNER_VERSION` → `SMARTX_RUNNER_VERSION`
+→ `FALLBACK_RUNNER_VERSION`；兜底常量与仓库 `RUNNER_VERSION` 由单测
+`test_fallback_matches_repo_runner_version` 锁死（下次 bump 漏改会直接失败）。
+
+**教训**：AGENTS §8 说「版本号是能力的唯一标识」，但只有"镜像 tag / 版本文件 / 常量"三处
+同源还不够——**运行期代码里也不能有第二份字面量**。同类风险点应统一走一个解析函数。

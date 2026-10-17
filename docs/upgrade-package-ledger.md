@@ -1211,3 +1211,27 @@ UI 200、legacy 已清、integrity ok、`schema_migrations`=4、`local_created_a
 
 **结论**：**r37 = 当前 v0.5.4 候选**，通过 `.14` 链 A + 链 B + `.12` 同版本重装三项验证，
 8 项自检与契约级功能验证全过。r36 作废（其 SHA 仅留档）。
+
+---
+
+## 2026-10-17 v0.5.4 候选重建（r38 作废 → r39）：#93 `.env` 目录防护 + runner 版本单一来源
+
+**背景**：全链路重测抓到「v0.5.2 的 compose 把 `project/.env` 建成目录 → 后续升级 restart 退出码 14」
+（pending #93）与心跳窗口过紧（#95）。按用户令实施修复并重建候选。
+
+**构建（`.3`，开发/构建机）**：`build_release_delivery.sh --output-root /data/r3X-out --runner-baseline v0.3.3`
+- **r38**（源码 `d5ddc63`）：平台包 `f52cc9f2…`、runner 包 `0a686ab8…` —— **作废**：`.14` 全新安装后
+  `env_file` 预检查阻断，根因是 runner 镜像 `/app/RUNNER_VERSION`=v0.3.3 但**状态文件/health 报 v0.3.2**
+  （`upgrade_runner/main.py` 写死 `"v0.3.2"` 两处）。修复见 `a4b3a4b`。
+- **r39**（源码 `a4b3a4b`）：平台包
+  `608f2affe312c8fd347f133bf27fa242e1d73aef4724580f33bfafcfbcc6fa52`、runner 包
+  `cfa6570a08967b063332a131146bbe33c852bdc499948dc4f6a1713245a5ee39`；交付目录
+  `/data/r39-out/smartx-capacity-insight-v0.5.4-offline`（1.4G）。**四道门禁全过**。
+
+**`.14` 受控反向验证（`/data/verify-r39-clean.sh`）**：全新安装（`.env`=file/15 键、compose config OK、
+health v0.5.4 + runner v0.3.3、5 容器 Up）→ **人为把 `.env` 建成目录**（compose config 立刻
+`is a directory`）→ 同版本重装升级 **succeeded** → `.env` 被自动重建为 **file(15 行, 600)**、
+compose config OK、health/容器/DB/UI 全绿。⇒ A0/B/C 与版本单一来源在真机验证通过。
+**C 的阻断分支**由 r38 那次运行留下真机证据（`[FAIL] env_file: … 当前执行器 v0.3.2 不会自动修复`）。
+
+**结论**：**r39 = 当前 v0.5.4 候选**；r38 作废（SHA 仅留档）。

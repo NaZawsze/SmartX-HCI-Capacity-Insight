@@ -98,6 +98,29 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
 
 ### 修复
 
+- **`.env` 被 Docker 建成目录 → 升级 `restart` 退出码 14（pending #93，阻断老现场）**：
+  v0.5.2 起的 compose **一处相对一处绝对**地引用同一个 `.env`（`env_file: [.env]` vs
+  `volumes: - /data/smartx-storage-forecast/project/.env:/run/smartx-runtime.env`）——工程目录不在
+  默认新布局的现场跑 `up -d` 时，绝对路径不存在，**Docker 会把宿主路径建成空目录**；此后
+  `docker compose` 读 env_file 直接失败（`is a directory`），下一次平台升级的 `restart` 步骤
+  退出码 14（受控实验：**v0.5.1u2 → v0.5.2 一跳即产生**，v0.5.2→v0.5.3 仍能成功，转型后 cwd
+  切到被污染目录才发作）。四层修复：①三份 compose 的 bind 源改**相对路径**（与 `env_file` 同源，
+  不再产生）；②env 迁移 `_write_env_file` 遇目录先清后写；③新增 `ensure_env_file()` 在
+  `compose.apply`/`rollback.restore` 的**每次 compose 之前**自愈（从运行中 web-api 的
+  `docker inspect .Config.Env` 回填 `.env.example` 的键 + `SMARTX_TOWER_*`，缺密钥对则明确失败，
+  不造无密钥假环境）；④升级预检查新增 `env_file` 项，按执行器能力放行或阻断并给出可执行指引。
+- **runner 版本号第二处硬编码（`.14` 真机实测）**：`upgrade_runner/main.py` 把 `"v0.3.2"` 写死在
+  dataclass 默认值与 `from_environment()` 里——v0.3.3 的镜像 `/app/RUNNER_VERSION` 是 v0.3.3，
+  但状态文件与 `/api/system/health` 报 v0.3.2，导致能力判定按旧版本走（`env_file` 预检查把能自愈的
+  执行器判成不能）。改为 `resolve_runner_version()`：镜像内文件 → 环境变量 → 兜底常量，
+  并由单测锁死兜底常量与仓库 `RUNNER_VERSION` 一致。
+- **心跳预检查窗口 30s 偏紧（pending #95）**：平台升级会重启 runner，重启窗口内两条心跳通道都可能
+  不新鲜（同脚本同时刻 `.12` 过、`.14` 连续两次失败，重试 90s 仍不过）。窗口改为 **90s**，支持
+  `SMARTX_RUNNER_HEARTBEAT_STALE_SECONDS` 覆盖；失败文案补「最后心跳时间 / 距今秒数 / 窗口」，
+  区分「刚重启等一会」与「心跳真的停了」。
+- **v0.5.2 平台做组件升级的救援死路（pending #94-A）**：`upgrade.sh` 在发起 runner 组件升级前检查
+  平台版本，**v0.5.2 及更早直接拒绝**并给指引（旧平台 web-api 会无条件 stop 掉刚启动的新 runner →
+  SIGKILL + handoff 死循环 → 之后所有平台升级被心跳预检查拒绝，`docker start` 也救不回来）。
 - **US-26（平台升级静默降级 runner）**：平台升级不再按包内基线 tag 重建现场更高的 runner。
 - **US-28 / #82（升级期数据库锁）**：runner 心跳与执行状态不再与 web-api 抢业务库写锁。
 - **场景 B/C 回滚可用性端点在 v0.5.4 每次调用都 500**（`.14` C1 真机实测发现，发布阻断）：
