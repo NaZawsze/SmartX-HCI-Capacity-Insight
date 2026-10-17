@@ -222,7 +222,14 @@ def snapshot(args: argparse.Namespace) -> int:
                     payload["db"]["tables"][table] = {**digest_table(conn, table, columns), "kind": "strict"}
             for table, columns in GROWABLE_TABLES.items():
                 if table in tables:
-                    payload["db"]["tables"][table] = {**digest_table(conn, table, columns), "kind": "growable"}
+                    entry = digest_table(conn, table, columns)
+                    pk_name = entry.get("pk")
+                    if pk_name:
+                        # 同时记录快照时的 id 集合：compare 按集合界定"旧行"（见 _digest_at_ids）
+                        entry["ids"] = [
+                            r[0] for r in conn.execute(f"SELECT {pk_name} FROM {table}")
+                        ]
+                    payload["db"]["tables"][table] = {**entry, "kind": "growable"}
             for table, columns in APPEND_ONLY_TABLES.items():
                 if table in tables:
                     payload["db"]["tables"][table] = {**digest_table(conn, table, columns), "kind": "append_only"}
@@ -346,15 +353,28 @@ def compare(args: argparse.Namespace) -> int:
         elif kind == "growable":
             max_pk = spec.get("max_pk")
             pk = spec.get("pk")
-            if pk and max_pk is not None:
-                # 用「升级前主键边界内」的指纹重算：新增行不影响，旧行变化会被抓到
+            ids = spec.get("ids")
+            if pk and ids:
+                # 首选：按 T0 id 集合界定旧行（字符串主键无单调性，边界法会把
+                # "字典序更小的新行"误算成旧行变化，2026-10-17 实测）
+                db_path = after.get("db", {}).get("path")
+                digest_now = _digest_at_ids(db_path, table, spec.get("columns") or [], pk, ids)
+                method = "id集合"
+            elif pk and max_pk is not None:
+                # 回退：旧快照无 ids 字段时用字典序边界法（已知局限：新行 id 小于
+                # max_pk 时会误报，需人工按 created_at 复核）
                 db_path = after.get("db", {}).get("path")
                 digest_now = _digest_at_boundary(db_path, table, spec.get("columns") or [], pk, max_pk)
+                method = "边界法(旧快照)"
+            else:
+                digest_now = None
+                method = "无主键"
+            if digest_now is not None:
                 same = digest_now == spec.get("digest")
                 report.add(
                     "PASS" if same else "FAIL",
                     f"table.{table}",
-                    f"旧行指纹 {spec.get('digest')}->{digest_now}（count {spec.get('count')}->{current.get('count')}）",
+                    f"旧行指纹({method}) {spec.get('digest')}->{digest_now}（count {spec.get('count')}->{current.get('count')}）",
                 )
             else:
                 grew = int(current.get("count") or 0) >= int(spec.get("count") or 0)
@@ -436,6 +456,32 @@ def compare(args: argparse.Namespace) -> int:
             )
 
     return report.emit()
+
+
+
+def _digest_at_ids(db_path: str | None, table: str, columns: list[str], pk: str, ids: list[Any]) -> str | None:
+    """按 **id 集合**（而非字典序边界）算旧行指纹。
+
+    2026-10-17 P3 实测：`upgrade-5b25…`/`post-upgrade-…` 等新行的 id 字典序小于 T0 的
+    `max_pk`（`upgrade-fdb5…`），被 `pk <= max_pk` 误判成"旧行指纹变化"——而旧行其实
+    逐位未变（人工按 T0 id 集合重算 digest 完全一致）。字符串主键没有单调性，
+    "旧行"只能用**快照时的 id 集合**界定。
+    """
+    if not db_path or not Path(db_path).is_file() or not ids:
+        return None
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        rows: list[tuple] = []
+        for start in range(0, len(ids), 400):
+            chunk = ids[start : start + 400]
+            marks = ",".join("?" * len(chunk))
+            sql = f"SELECT {', '.join(columns)} FROM {table} WHERE {pk} IN ({marks})"
+            rows.extend(tuple(r) for r in conn.execute(sql, tuple(chunk)))
+        return sha16(rows)
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
 
 
 def _digest_at_boundary(db_path: str | None, table: str, columns: list[str], pk: str, max_pk: Any) -> str | None:

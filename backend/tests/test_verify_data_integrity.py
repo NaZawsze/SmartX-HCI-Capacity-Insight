@@ -156,11 +156,15 @@ class DataIntegrityScriptTest(unittest.TestCase):
         self.assertIn("table.tasks", output)
 
     def test_old_growable_row_change_fails(self) -> None:
-        """新增行允许，但升级前已有的行被改必须 FAIL（边界内指纹）。"""
+        """新增行允许，但升级前已有的行被改必须 FAIL（id 集合指纹）。
+
+        注意稳定列口径：`tasks.status` 不在稳定列里（升级中 running→succeeded 是正常
+        业务语义，2026-10-17 修正），所以这里改 `type` 这种稳定列才算"内容被改"。
+        """
         before = self._snapshot("t0")
         conn = sqlite3.connect(self.db)
         conn.execute("INSERT INTO tasks VALUES ('upgrade-2', 'upgrade', 'running', '2026-10-17T01:00:00')")
-        conn.execute("UPDATE tasks SET status='failed' WHERE id='upgrade-1'")
+        conn.execute("UPDATE tasks SET type='collection' WHERE id='upgrade-1'")
         conn.commit()
         conn.close()
         after = self._snapshot("t1")
@@ -195,6 +199,37 @@ class DataIntegrityScriptTest(unittest.TestCase):
         code, output = self._compare(before, after)
         self.assertEqual(code, 1, output)
         self._assert_fail(output, "refs.vm_volumes.vm_id->vm_latest.vm_id")
+
+    def test_new_row_with_smaller_id_is_not_mistaken_for_old_row_change(self) -> None:
+        """新行 id 字典序小于 T0 max_pk 时，不得误报"旧行指纹变化"。
+
+        2026-10-17 P3 实测：升级产生的新任务 id（`upgrade-5b25…`）字典序小于 T0 的
+        `max_pk`（`upgrade-fdb5…`），边界法把它算进旧行 → 假 FAIL；按 id 集合界定后通过。
+        """
+        before = self._snapshot("t0")
+        conn = sqlite3.connect(self.db)
+        # 新行 id 刻意取字典序更小的值（模拟 upgrade-5b25… < upgrade-fdb5…）
+        conn.execute(
+            "INSERT INTO tasks VALUES ('upgrade-0new', 'upgrade', 'succeeded', '2026-10-17T01:00:00')"
+        )
+        conn.commit()
+        conn.close()
+        after = self._snapshot("t1")
+        code, output = self._compare(before, after)
+        self.assertEqual(code, 0, output)
+        self.assertIn("PASS  table.tasks", output)
+
+    def test_old_row_change_still_fails_with_id_set(self) -> None:
+        """同一把尺子的另一面：T0 集合里的旧行真被改，必须 FAIL。"""
+        before = self._snapshot("t0")
+        conn = sqlite3.connect(self.db)
+        conn.execute("UPDATE tasks SET created_at='2026-10-18T00:00:00' WHERE id='upgrade-1'")
+        conn.commit()
+        conn.close()
+        after = self._snapshot("t1")
+        code, output = self._compare(before, after)
+        self.assertEqual(code, 1, output)
+        self._assert_fail(output, "table.tasks")
 
 
 if __name__ == "__main__":
