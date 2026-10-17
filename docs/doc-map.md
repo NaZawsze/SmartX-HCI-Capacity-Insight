@@ -177,6 +177,7 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | --- | --- |
 | [pending-tasks.md](pending-tasks.md) | 全项目未完成任务清单（按 P0~P3 优先级），快照式索引；逐项口径以 task_plan.md 各 Phase 为准。 |
 | [ai-handoff-guide.md](ai-handoff-guide.md) | AI 交接执行手册：.3 操作、提交策略、测试基线、陷阱清单、待实施设计索引。交接实施前必读。 |
+| [test-architecture.md](test-architecture.md) | **测试架构总纲（2026-10-17 首版）**：套餐 P0–P4（提交冒烟/功能验证/链路验证/定稿/热修）+ **不可裁剪核心** + 变更类型→套餐触发表 + 候选轮次演进（探索轮跑 P2、定稿轮才跑 P3）+ 标准测试数据集画像 + 基线管理。**所有版本共用一套**；先读它定套餐，再按 test-process-and-scope 执行。 | task_plan Phase 84 |
 | [test-process-and-scope.md](test-process-and-scope.md) | **测试流程与范围规范（2026-10-17 首版）**：分层 L0–L6、按改动类型的范围矩阵、每层判定标准与证据要求、数据完整性指纹口径（稳定列而非 `SELECT *`）、环境纪律、失败处置、本轮 r40 执行清单。**要跑任何验证前先看本文决定跑哪些层**；数据检验配套脚本 `scripts/verify_data_integrity.py`（snapshot/compare，逐表指纹 + 引用完整性 + `.env` 密钥 + Prometheus 历史窗口）。 | task_plan Phase 84 |
 | [development-verification-process.md](development-verification-process.md) | 开发/打包/功能测试验证标准流程：环境机器、开发流程、打包流程、后端/前端测试、部署健康检查、升级链路验证。AI 实施前必读。 |
 | [version-skew-matrix.md](version-skew-matrix.md) | 版本偏斜支持矩阵：源端→目标各组合的支持状态与实测证据、偏斜三条硬规则、加固该放在构建期/runner/web-api 哪一侧的指引。判断升级兼容性与排加固位置前必读。 |
