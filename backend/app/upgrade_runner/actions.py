@@ -928,6 +928,13 @@ ENV_FILE_RECOVERABLE_KEYS = (
     "SMARTX_TOWER_URL",
     "SMARTX_TOWER_USER",
     "SMARTX_TOWER_PASSWORD",
+    # 宿主 `.env` 专属的**守卫标记**（compose 注入容器后同样出现在 Config.Env，可回填）：
+    # · SMARTX_COMPOSE_FILE_ACTIVE —— US-37 compose 变体标记，compose-guard.sh / runner 用它
+    #   判定"当前实例用的哪份 compose"；丢了会让混用变体守卫失去依据。
+    # · SMARTX_ENV_FILE_SHA256 —— env 变更重建守卫的基线哈希。
+    # 2026-10-17 P3 实测抓到：早期版本漏了这两个键，自愈后 .env 从 16 键变 15 键（数据检验 FAIL）。
+    "SMARTX_COMPOSE_FILE_ACTIVE",
+    "SMARTX_ENV_FILE_SHA256",
 )
 
 

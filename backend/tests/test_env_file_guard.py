@@ -239,5 +239,32 @@ class RunnerVersionSingleSourceTests(unittest.TestCase):
                     os.environ["SMARTX_RUNNER_VERSION"] = original_env
 
 
+class EnvFileKeyCoverageTests(unittest.TestCase):
+    """自愈回填的键集合必须覆盖宿主 `.env` 的**全部**键。
+
+    2026-10-17 P3 实测：`.env` 目录被自愈后从 16 键变 15 键，丢的是
+    `SMARTX_COMPOSE_FILE_ACTIVE`（US-37 compose 变体标记）。这类"少一个键"不会让升级失败，
+    却会让守卫失去依据——只有数据检验的 `env.keys` 能抓到。
+    """
+
+    def test_recoverable_keys_cover_host_only_markers(self) -> None:
+        from app.upgrade_runner.actions import ENV_FILE_RECOVERABLE_KEYS
+
+        for key in ("SMARTX_COMPOSE_FILE_ACTIVE", "SMARTX_ENV_FILE_SHA256"):
+            self.assertIn(key, ENV_FILE_RECOVERABLE_KEYS, key)
+
+    def test_recoverable_keys_cover_env_example(self) -> None:
+        from app.upgrade_runner.actions import ENV_FILE_RECOVERABLE_KEYS
+
+        root = Path(__file__).resolve().parents[2]
+        keys = [
+            line.split("=", 1)[0].strip()
+            for line in (root / ".env.example").read_text(encoding="utf-8").splitlines()
+            if "=" in line and not line.strip().startswith("#")
+        ]
+        missing = [key for key in keys if key not in ENV_FILE_RECOVERABLE_KEYS]
+        self.assertEqual(missing, [], f"自愈会丢掉 .env.example 的键：{missing}")
+
+
 if __name__ == "__main__":
     unittest.main()

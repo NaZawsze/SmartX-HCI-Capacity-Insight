@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 #: runner 镜像内版本文件（Dockerfile 把仓库根 `RUNNER_VERSION` 拷到这里）。
 RUNNER_VERSION_FILE = Path("/app/RUNNER_VERSION")
 #: 兜底版本：与仓库根 `RUNNER_VERSION` 同源（`test_runner_version_single_source` 断言一致）。
-FALLBACK_RUNNER_VERSION = "v0.3.3"
+FALLBACK_RUNNER_VERSION = "v0.3.4"
 
 
 def resolve_runner_version() -> str:

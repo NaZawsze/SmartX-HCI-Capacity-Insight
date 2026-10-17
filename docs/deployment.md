@@ -109,7 +109,7 @@ The Compose files define `name: smartx-hci-capacity-insight`, so the normal `doc
 nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3
 nazawsze/smartx-hci-capacity-insight-collector-worker:v0.5.3
 nazawsze/smartx-hci-capacity-insight-frontend:v0.5.3
-nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.3
+nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.4
 prom/prometheus:v2.55.1
 ```
 
