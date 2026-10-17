@@ -1261,3 +1261,28 @@ compose config OK、health/容器/DB/UI 全绿。⇒ A0/B/C 与版本单一来�
 `r39` 的受控反向验证结论（`.env` 目录 → 自动重建 → 升级成功）仍然有效，但其包已被 r40 取代；
 **r40 的验证清单**：①全新安装（看 healthcheck 是否 `(healthy)`、心跳是否持续刷新）；
 ②组件包预检查 `component_platform` 通过；③pause runner → `(unhealthy)`；④`.env` 目录反向用例。
+
+---
+
+## 2026-10-17（P3 实测）r40 作废 → **r41 = 当前候选**（runner v0.3.4）
+
+**作废原因（P3 / L4 反向用例抓到）**：`.env` 目录自愈后键数 16 → 15，丢了
+`SMARTX_COMPOSE_FILE_ACTIVE`（US-37 compose 变体标记）与 `SMARTX_ENV_FILE_SHA256`
+（env 变更重建守卫基线）。修 `5587166`：白名单补两键 + 2 例守卫测试 + **runner bump v0.3.4**。
+
+**r41（`5587166`）**：平台包
+`0c2dbb1ac0389350f860dfc1c79a5cef8e0b5dcac456911516234c84ebea26f1`、runner 包
+`7fd05543512f0d8582be60f63a6fa729a443fa2aa4e77f424afab49845310f22`；交付目录
+`/data/r41-out/smartx-capacity-insight-v0.5.4-offline`（1.4G）；四道门禁全过。
+
+**P3 已完成的层（`.14`）**：
+- **L2 全新安装**：8 项全过（health v0.5.4 / runner **v0.3.4**、5 容器 Up 且 runner `(healthy)`、
+  UI 200、legacy 0、integrity ok / fk 0、`.env` 16 键 2 密钥、compose config OK）；
+  看门狗：空闲心跳每 ~5s 刷新（实测 8s 内推进）。
+- **L4 反向用例**：`.env` 目录 → 升级成功 → 恢复 **16 键**（修复生效）；`pause` runner 110s →
+  `(unhealthy)`（healthcheck 生效）。
+- **L4.5 并发探针（部分）**：升级窗口内 登录 200、报表 200、手动采集 202（#87 异步语义）；
+  **概览端点用错（404）与二次 start 取任务 id 逻辑未适配**（探针脚本问题，待修后补跑）。
+
+**进行中**：L3-a（CLI，v0.5.3 → 组件 v0.3.4 → r41）；**待跑**：L3-b（Web）、L3-c（老布局）、
+L5（回滚，`.12`）、L6（`.12` 同版本重装 + 矩阵回填）。

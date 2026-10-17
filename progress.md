@@ -6986,3 +6986,46 @@ runner 包 `1d056aa9…`，四道门禁全过。**按用户令，r40 未做任�
   数据不进 repo。
 - **基线管理**：上一轮 P3 定稿候选 = 下一轮 known-good 基线；单测失败基线随全量记录滚动。
 - 与执行规范的分工：**架构定套餐与轮次，执行规范定每层怎么跑**；冲突以架构为准。
+
+---
+
+## 2026-10-17 P3 定稿轮（r40 → 发现缺陷 → r41）
+
+**按测试架构执行**（`docs/test-architecture.md`）：P3 = 全层。执行中在 L4 抓到真缺陷，
+按规范**停止并重建候选**（r40 作废 → r41）。
+
+### L0 单元（1254 tests，1F+1E 存量）
+
+- **偏离记录**：规范要求 L0 在 `.3` 执行，但 `.3` **无 pip/venv**（`python3 -m pip` 不存在，
+  `apt-get install python3-venv` 因镜像 404 失败），系统 Python 缺 `docx/openpyxl` →
+  首跑 64 errors 全是缺依赖（非产品问题）。**改在本地执行**（代码 = git HEAD，依赖 = 同
+  `requirements-api.txt`）。**工具缺口**：需在 `.3` 提供可用的 Python 测试环境。
+- 结果：`Ran 1254 tests / failures=1 / errors=1`，两项均为既有存量
+  （`test_v2_dashboard_vm` 首见口径、`test_v2_inventory_metrics` 导入）。
+
+### L1 构建门禁（r40）
+
+四道门禁全过；平台包 `89bc10be…`、runner 包 `1d056aa9…`（**后因 L4 缺陷作废**）。
+
+### L2 全新安装（`.14`，r40）✅
+
+8 项全过：health `ok/v0.5.4/runner v0.3.3`、5 容器 Up（**runner `(healthy)`**）、UI 200、
+legacy 0、`integrity=ok fk=0`、`.env` file 16 键/2 密钥、compose config OK、数据基线 0。
+看门狗：状态文件心跳每 ~5s 刷新（**v0.3.3**，版本单一来源生效）。
+> 过程记录：首版脚本查了错误宿主路径（`/data/upgrade-runner-state.json`）导致误报 FAIL，
+> 更正为 `/data/smartx-storage-forecast/app/upgrade-runner-state.json` 后复验通过（脚本问题分账）。
+
+### L4 反向用例 + L4.5 并发干扰（`.14`，r40）
+
+- **L4.1 `.env` 目录**：制造目录 → `compose config` 报 `is a directory` → 同版本重装升级**成功**
+  → `.env` 恢复为 file/15 键/2 密钥、compose config OK、health 与 5 容器正常。
+- **L4.2 healthcheck**：`docker pause` runner → **unhealthy**；unpause 40s → **healthy**。
+- **L4.3 组件预检查**：脚本未推到机器（脚本问题），待 r41 重跑。
+- **L4.5 并发探针**：探针首版把响应截断后再 `json.loads` 导致异常（脚本问题），待 r41 重跑。
+- **数据比对**：`env.values` FAIL → **定位为真缺陷**（见 findings：自愈丢
+  `SMARTX_COMPOSE_FILE_ACTIVE`），已修（`5587166`，runner v0.3.4）。
+
+### r41（`5587166`）
+
+runner v0.3.4（自愈键集合补全 + 守卫测试）；平台包/runner 包 SHA 待构建完成登记。
+**L2/L3/L4 需在 r41 上重跑**（r40 结论作废）。

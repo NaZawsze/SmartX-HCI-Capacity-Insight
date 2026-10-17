@@ -173,6 +173,8 @@ P3 其余项（v1 死代码移除、helper 收敛、静默吞错清理、CORS �
 | **96** | **🟠 平台升级中的 runner cutover 失败 → 心跳循环静默死亡（容器 Up、心跳停）** | 全链路重测 `.14` 实证：`No such container: smartx-runner-cutover-upgrade-…` 后 `heartbeat_at` 滞后 18 分钟不再更新 | runner 的 cutover/handoff 失败路径**没有回退到继续心跳**，主循环停摆；平台侧唯一症状与「runner 完全不在」同文案，现场无法自助区分。**修复**：runner 失败路径回退为「继续运行 + 继续心跳」（**需 bump `RUNNER_VERSION` 到 v0.3.3**，AGENTS §6：改 runner 三件事一起做）；upgrade-runner 容器加 `healthcheck`；平台文案区分「容器在但心跳陈旧」。见设计 §4。**2026-10-17 已实施**（随 r40）：①runner `main()` 增**实例心跳看门狗**（独立守护线程每 5s 刷心跳，与任务执行解耦——进程活着心跳就新鲜，心跳停即进程死，语义重新可判定）；②`upgrade-runner` 容器加 `healthcheck`（状态文件超 90s 未更新 → `(unhealthy)`）；③预检查失败文案带**容器实际状态**，区分「runner 不在」与「容器在但心跳停了」。**注**：cutover 失败后 runner 仍可能停在旧逻辑，但心跳不再静默死亡，现场与监控都能立刻看到 |
 
 
+| **97** | **🟡 `.3` 无法执行 L0（缺 pip/venv，apt 镜像 404）** | 2026-10-17 P3 实测：`python3 -m pip` 不存在、`python3-venv` 装不上、系统 Python 缺 `docx/openpyxl` | 测试架构规定 L0 在 `.3` 执行，但该机无可用 Python 测试环境；本轮临时改在本地执行（已记录偏离）。**修复方向**：离线 wheel 包 / 复用容器镜像跑 L0 / 修复 apt 源。**影响**：仅工具链，不阻塞发布 |
+
 ## 已完成（2026-09-12，备查）## 已完成（2026-09-12，备查）
 
 - SQLite 治理：WAL + busy_timeout 5s + `tasks.updated_at`/`collection_runs.started_at/finished_at` 索引（.3 实库验证）。
