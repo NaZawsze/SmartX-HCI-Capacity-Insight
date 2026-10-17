@@ -957,12 +957,19 @@ def _recover_env_text_from_runtime(context: ActionContext) -> str | None:
     values: dict[str, str] = {}
     for line in output.splitlines():
         key, separator, value = line.partition("=")
-        if separator and key in ENV_FILE_RECOVERABLE_KEYS and key not in values:
+        # 2026-10-18 L4 实测（findings 2026-10-17 P3 实测五）：按 ENV_FILE_RECOVERABLE_KEYS
+        # 白名单过滤会丢 **legacy 键**——SMARTX_COMPOSE_FILE / SMARTX_COMPOSE_PROJECT_NAME /
+        # SMARTX_PROJECT_PATH / SMARTX_PROMETHEUS_DATA_PATH 由 v0.5.1u2 时代 install.sh
+        # 随模板写进 .env，如今已不在 .env.example（白名单来源）里，自愈后 15 键变 11 键。
+        # Config.Env = env_file(.env) 与 compose environment: 的并集，是 .env 的超集；
+        # 只认 SMARTX_* 前缀（install.sh 从不写非 SMARTX_* 键），宁多勿少：多出的键在
+        # 容器内被 compose environment: 以相同值覆盖，运行时行为不变。
+        if separator and key.startswith("SMARTX_") and key not in values:
             values[key] = value
     # 密钥对是硬门槛：缺了它 Tower 凭据解不开，等于换个坏状态继续。
     if not values.get("SMARTX_SECRET_KEY") or not values.get("SMARTX_CREDENTIAL_KEY"):
         return None
-    return "".join(f"{key}={values[key]}\n" for key in ENV_FILE_RECOVERABLE_KEYS if key in values)
+    return "".join(f"{key}={values[key]}\n" for key in sorted(values))
 
 
 def ensure_env_file(context: ActionContext) -> dict[str, Any] | None:
@@ -2224,6 +2231,15 @@ def _write_runner_runtime_compose(context: ActionContext, params: dict[str, Any]
     networks:
       - smartx-net
     restart: unless-stopped
+    healthcheck:
+      # #101：自换运行时 compose 必须带 healthcheck——此前只加进三份交付 compose，
+      # 平台升级后 runner 由本文件重建，会**永久失去 (unhealthy) 可见性**
+      # （2026-10-18 L4.2 实测：pause 后 inspect 无 Health 条目）。
+      test: ["CMD-SHELL", "test $(( $(date +%s) - $(stat -c %Y /data/upgrade-runner-state.json) )) -lt 90"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
 networks:
 {_runner_network_block(network_name, subnet).rstrip()}

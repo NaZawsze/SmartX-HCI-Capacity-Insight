@@ -1325,3 +1325,37 @@ running 2h45m：任务文件 10:30 后不再更新，但租约一直被活 runne
 清 cutover 残留 → `POST /api/admin/upgrade/recovery/{id}/fail` 收敛为 failed
 （⚠️ 该接口对"无活 runner 的 running 任务"可用，正是 #89 的收敛路径，本次真实走通）→
 compose 重建 runner（心跳 1s 恢复）→ 重新上传启动 v0.5.3→r41 → **succeeded，health 全绿**。
+
+## 2026-10-18（L4 实测五）`.env` 自愈丢 legacy 布局键：15 键 → 11 键（白名单口径缺陷）
+
+**现象**：L4.1 把 `project/.env` 造成目录后，同版本重装升级成功、`.env` 被重建为**文件**，
+但只剩 **11 个键**（原 15）。数据检验 `env.keys` FAIL。丢失的 4 个键：
+`SMARTX_COMPOSE_FILE`、`SMARTX_COMPOSE_PROJECT_NAME`、`SMARTX_PROJECT_PATH`、
+`SMARTX_PROMETHEUS_DATA_PATH`。
+
+**根因**：自愈只回填 `ENV_FILE_RECOVERABLE_KEYS` 白名单，而白名单来源于**当前**
+`.env.example`。这 4 个键是 v0.5.1u2 时代 install.sh 随模板写进 .env 的，后来它们改由
+compose `environment:` 注入（权威源迁移），于是从 .env.example 消失——老现场 .env 里却仍在。
+**白名单永远追不上"已从 example 下线但现场仍在"的键**。
+
+**值对比证据**：原 .env 的 `SMARTX_COMPOSE_FILE=docker-compose.release.yml`（陈旧变体名），
+compose 现值 `docker-compose.offline.yml`——即 .env 副本本就是遗留物，容器行为以 compose 为准。
+
+**修复**（runner v0.3.5）：自愈改为回填 web-api `Config.Env` 的**全部 `SMARTX_*` 键**
+（Config.Env = env_file(.env) ∪ compose environment:，是 .env 的超集；非 SMARTX_* 的
+TZ/PATH 等不污染 .env）。校验器同步改为**必需键语义**：白名单键一个不能少、值一个不能变；
+非必需的 legacy 副本键允许被清掉/更新（`shed_optional` 只记录不判定），
+`REQUIRED_ENV_KEYS` 与 runner 白名单由单测锁同源。
+
+## 2026-10-18（L4 实测六）运行时 compose 没有 healthcheck：平台升级后 runner 永久失去不健康可见性（#101）
+
+**现象**：L4.2 `docker pause` runner 后 `docker inspect {{.State.Health.Status}}` 直接报
+`map has no entry for key "Health"`——该容器**没有 healthcheck**（日志里 pause 测试无法判定）。
+
+**根因**：#96 的 healthcheck 只加进了三份**交付** compose；而平台升级后 runner 是由
+`_write_runner_runtime_compose` **生成**的运行时 compose 重建的（cutover/force-recreate），
+生成器里没有 healthcheck → 每次平台升级后 runner 都失去它。改 compose 必须同步改生成器
+（与 #93 的 A0「一处相对一处绝对」同源的单一来源问题）。
+
+**修复**（runner v0.3.5）：生成器补同一段 healthcheck（状态文件 90s 未更新即不健康），
+单测锁死生成文件必含 `healthcheck:`/`upgrade-runner-state.json`/`-lt 90`。

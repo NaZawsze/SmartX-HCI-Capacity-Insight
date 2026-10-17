@@ -130,6 +130,17 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   cutover/handoff 重试里时心跳会一路变旧，平台只报「未检测到心跳」；`upgrade-runner` 容器新增
   `healthcheck`（状态文件超 90s 未更新即 `(unhealthy)`）；预检查失败文案补**容器实际状态**，
   区分「runner 不在」与「容器在但心跳停了」。
+- **`.env` 自愈丢 legacy 布局键（L4 实测，15 键 → 11 键）**：自愈此前只回填
+  `ENV_FILE_RECOVERABLE_KEYS` 白名单（来源为**当前** `.env.example`），v0.5.1u2 时代写入 .env、
+  后来改由 compose `environment:` 注入的 4 个布局键（`SMARTX_COMPOSE_FILE` /
+  `SMARTX_COMPOSE_PROJECT_NAME` / `SMARTX_PROJECT_PATH` / `SMARTX_PROMETHEUS_DATA_PATH`）
+  被静默丢弃。改为回填运行中 web-api `Config.Env` 的**全部 `SMARTX_*` 键**（超集，容器内仍以
+  compose 为准）；数据校验同步改**必需键语义**：白名单键一个不能少、值一个不能变，
+  legacy 副本键允许被清理/更新（只记录不判定），两侧白名单由单测锁同源。
+- **runner 自换的运行时 compose 缺 healthcheck（L4 实测，#101）**：#96 的 healthcheck 只加进了
+  三份交付 compose，而平台升级后 runner 由 `_write_runner_runtime_compose` **生成**的运行时
+  compose 重建 → 每次平台升级后 runner 永久失去 `(unhealthy)` 可见性（`docker pause` 都测不出）。
+  生成器已补同一段 healthcheck，单测锁死。
 - **US-26（平台升级静默降级 runner）**：平台升级不再按包内基线 tag 重建现场更高的 runner。
 - **US-28 / #82（升级期数据库锁）**：runner 心跳与执行状态不再与 web-api 抢业务库写锁。
 - **场景 B/C 回滚可用性端点在 v0.5.4 每次调用都 500**（`.14` C1 真机实测发现，发布阻断）：

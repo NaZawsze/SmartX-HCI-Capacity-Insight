@@ -231,6 +231,62 @@ class DataIntegrityScriptTest(unittest.TestCase):
         self.assertEqual(code, 1, output)
         self._assert_fail(output, "table.tasks")
 
+    def test_required_env_keys_mirror_runner_whitelist(self) -> None:
+        """校验器的必需键集合必须与 runner 自愈白名单同源（防止两边漂移）。"""
+        from app.upgrade_runner.actions import ENV_FILE_RECOVERABLE_KEYS
+
+        self.assertEqual(set(self.module.REQUIRED_ENV_KEYS), set(ENV_FILE_RECOVERABLE_KEYS))
+
+    def test_optional_key_shed_by_heal_is_tolerated(self) -> None:
+        """legacy 副本键（非必需）被自愈清掉：env.keys 必须 PASS（只记录）。"""
+        before = self._snapshot("t0")
+        # T0 的 .env 追加一个非必需键（模拟 v0.5.1u2 遗留副本）
+        self.env.write_text(self.env.read_text(encoding="utf-8") + "SMARTX_COMPOSE_FILE=docker-compose.release.yml\n", encoding="utf-8")
+        before = self._snapshot("t0b")
+        # 自愈后该键消失（按新规则其实会恢复；这里直接验判定语义：非必需键可失）
+        self.env.write_text(
+            "\n".join(
+                line
+                for line in self.env.read_text(encoding="utf-8").splitlines()
+                if not line.startswith("SMARTX_COMPOSE_FILE=")
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        after = self._snapshot("t1")
+        code, output = self._compare(before, after)
+        self.assertEqual(code, 0, output)
+        self.assertIn("PASS  env.keys", output)
+
+    def test_required_key_dropped_fails(self) -> None:
+        """必需键丢失：env.keys 必须 FAIL。"""
+        before = self._snapshot("t0")
+        self.env.write_text(
+            "\n".join(
+                line
+                for line in self.env.read_text(encoding="utf-8").splitlines()
+                if not line.startswith("SMARTX_ADMIN_USER=")
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        after = self._snapshot("t1")
+        code, output = self._compare(before, after)
+        self.assertEqual(code, 1, output)
+        self._assert_fail(output, "env.keys")
+
+    def test_required_key_value_change_fails(self) -> None:
+        """必需键的值变化（密钥轮换/被改）：env.values 必须 FAIL。"""
+        before = self._snapshot("t0")
+        self.env.write_text(
+            self.env.read_text(encoding="utf-8").replace("SMARTX_ADMIN_USER=admin", "SMARTX_ADMIN_USER=root"),
+            encoding="utf-8",
+        )
+        after = self._snapshot("t1")
+        code, output = self._compare(before, after)
+        self.assertEqual(code, 1, output)
+        self._assert_fail(output, "env.values")
+
 
 if __name__ == "__main__":
     unittest.main()

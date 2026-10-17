@@ -35,8 +35,12 @@ RUNTIME_ENV = "\n".join(
         "SMARTX_ADMIN_USER=admin",
         "SMARTX_ADMIN_PASSWORD=password",
         "SMARTX_DB_PATH=/data/smartx.db",
+        # legacy 布局键：v0.5.1u2 时代 install.sh 写进 .env，如今已不在 .env.example
+        # （2026-10-18 L4 实测：按白名单过滤会丢这几个键 → 自愈后 15 键变 11 键）
         "SMARTX_PROJECT_PATH=/data/smartx-storage-forecast/project",
-        "SMARTX_HOST_PROJECT_PATH=/data/smartx-storage-forecast/project",
+        "SMARTX_COMPOSE_FILE=docker-compose.offline.yml",
+        "SMARTX_COMPOSE_PROJECT_NAME=smartx-hci-capacity-insight",
+        "SMARTX_PROMETHEUS_DATA_PATH=/prometheus-data",
     ]
 )
 
@@ -106,9 +110,16 @@ class EnsureEnvFileTests(unittest.TestCase):
             # 密钥必须回填（否则 Tower 凭据解不开）
             self.assertIn("SMARTX_SECRET_KEY=secret-from-runtime", text)
             self.assertIn("SMARTX_CREDENTIAL_KEY=credential-from-runtime", text)
-            # compose `environment:` 注入的键**不得**写进 .env（否则「谁说了算」再次分叉）
-            self.assertNotIn("SMARTX_PROJECT_PATH", text)
-            self.assertNotIn("SMARTX_HOST_PROJECT_PATH", text)
+            # 2026-10-18 起：**全部 SMARTX_* 键**都回填（Config.Env 是 .env 的超集）。
+            # legacy 布局键必须回来——丢它们等于丢 #99 撕裂态判定的依据（L4 实测 15→11 键）。
+            self.assertIn("SMARTX_PROJECT_PATH=/data/smartx-storage-forecast/project", text)
+            self.assertIn("SMARTX_COMPOSE_FILE=docker-compose.offline.yml", text)
+            self.assertIn("SMARTX_COMPOSE_PROJECT_NAME=smartx-hci-capacity-insight", text)
+            self.assertIn("SMARTX_PROMETHEUS_DATA_PATH=/prometheus-data", text)
+            # 非 SMARTX_* 前缀的容器环境变量（TZ/PATH 等）不得污染 .env（按行首判断）
+            lines = text.splitlines()
+            self.assertFalse(any(line.startswith("TZ=") for line in lines))
+            self.assertFalse(any(line.startswith("PATH=") for line in lines))
             self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o600)
 
     def test_directory_without_runtime_source_fails_loudly(self) -> None:
@@ -237,6 +248,33 @@ class RunnerVersionSingleSourceTests(unittest.TestCase):
                     os.environ.pop("SMARTX_RUNNER_VERSION", None)
                 else:
                     os.environ["SMARTX_RUNNER_VERSION"] = original_env
+
+
+class RunnerRuntimeComposeHealthcheckTests(unittest.TestCase):
+    """runner 自换的运行时 compose 必须带 healthcheck（pending #101）。
+
+    2026-10-18 L4.2 实测：healthcheck 只加进了三份**交付** compose，没加
+    `_write_runner_runtime_compose` 生成器 → 平台升级后 runner 由运行时 compose 重建，
+    **永久失去 (unhealthy) 可见性**（`docker inspect` 无 Health 条目，pause 也测不出来）。
+    """
+
+    def test_generated_runtime_compose_has_healthcheck(self) -> None:
+        from app.upgrade_runner.actions import _write_runner_runtime_compose
+
+        with tempfile.TemporaryDirectory() as tmp:
+            context = ActionContext.minimal(Path(tmp), executor=FakeExecutor())
+            result = _write_runner_runtime_compose(
+                context,
+                {"image": "registry/upgrade-runner:v0.3.5", "compose_project": "smartx-hci-capacity-insight"},
+            )
+            compose_file = Path(result["compose_file"])
+            self.assertTrue(compose_file.is_file())
+            content = compose_file.read_text(encoding="utf-8")
+            self.assertIn("healthcheck:", content)
+            # 判定口径与交付 compose 一致：状态文件超 90s 未更新即不健康
+            self.assertIn("upgrade-runner-state.json", content)
+            self.assertIn("-lt 90", content)
+            self.assertIn("interval: 30s", content)
 
 
 class EnvFileKeyCoverageTests(unittest.TestCase):

@@ -54,6 +54,36 @@ STRICT_TABLES: dict[str, list[str]] = {
     "users": ["id", "username", "password_hash"],
 }
 #: 运行表：允许新增，已有行不得变化（用主键边界判定）。
+#: `.env` 的**必需键**（= upgrade_runner.actions.ENV_FILE_RECOVERABLE_KEYS 的镜像）。
+#: 语义（2026-10-18 L4 实测修正）：自愈可能清掉/更新 .env 里的 **legacy 副本键**
+#: （如 v0.5.1u2 时代写入、如今已归 compose environment: 所有的 SMARTX_COMPOSE_FILE），
+#: 这类键不参与判定；但**必需键一个不能少、值一个不能变**（密钥轮换/丢键都算 FAIL）。
+#: 同源由 backend/tests/test_verify_data_integrity.py 的镜像断言锁定。
+REQUIRED_ENV_KEYS = frozenset(
+    {
+        "SMARTX_SECRET_KEY",
+        "SMARTX_CREDENTIAL_KEY",
+        "SMARTX_ADMIN_USER",
+        "SMARTX_ADMIN_PASSWORD",
+        "SMARTX_DB_PATH",
+        "SMARTX_PROMETHEUS_URL",
+        "SMARTX_COLLECTION_TIMEZONE",
+        "SMARTX_COLLECTION_HOUR",
+        "SMARTX_COLLECTION_MINUTE",
+        "SMARTX_COLLECTION_INTERVAL_MINUTES",
+        "SMARTX_FRESHNESS_STALE_MINUTES",
+        "SMARTX_CAPACITY_ALERT_WARNING_RATIO",
+        "SMARTX_CAPACITY_ALERT_CRITICAL_RATIO",
+        "SMARTX_CAPACITY_ALERT_MIN_FREE_BYTES",
+        "SMARTX_CORS_ORIGINS",
+        "SMARTX_TOWER_URL",
+        "SMARTX_TOWER_USER",
+        "SMARTX_TOWER_PASSWORD",
+        "SMARTX_COMPOSE_FILE_ACTIVE",
+        "SMARTX_ENV_FILE_SHA256",
+    }
+)
+
 #: 注意：稳定列只选**升级过程中不会变**的字段。
 #: `tasks` 的 `status` / `updated_at` 会随任务推进而变化（running→succeeded 是正常业务语义），
 #: 纳入稳定列会把正常状态推进误报成"数据被改"（2026-10-18 L3-c 实测踩到）。
@@ -138,12 +168,14 @@ def env_snapshot(path: Path | None) -> dict[str, Any]:
         # 只对"键=值"做哈希（值不回显）；按 key 排序 → 行顺序变化不算变化
         pairs.append(f"{key}={value}")
     normalized = "\n".join(sorted(pairs))
+    required_normalized = "\n".join(sorted(p for p in pairs if p.split("=", 1)[0] in REQUIRED_ENV_KEYS))
     return {
         "path": str(path),
         "exists": True,
         "keys": sorted(keys),
         "key_count": len(keys),
         "sha256": hashlib.sha256(normalized.encode()).hexdigest(),
+        "required_sha256": hashlib.sha256(required_normalized.encode()).hexdigest(),
         "secret_present": bool(next((p for p in pairs if p.startswith("SMARTX_SECRET_KEY=") and len(p) > 20), "")),
         "credential_present": bool(
             next((p for p in pairs if p.startswith("SMARTX_CREDENTIAL_KEY=") and len(p) > 20), "")
@@ -411,13 +443,30 @@ def compare(args: argparse.Namespace) -> int:
     before_env = before.get("env") or {}
     after_env = after.get("env") or {}
     if before_env.get("exists"):
-        missing = sorted(set(before_env.get("keys") or []) - set(after_env.get("keys") or []))
-        report.add("PASS" if not missing else "FAIL", "env.keys", f"missing={missing}")
+        # 必需键：一个不能少。非必需键（legacy 副本）允许被自愈清掉/更新，只记录不判定。
+        before_keys = set(before_env.get("keys") or [])
+        after_keys = set(after_env.get("keys") or [])
+        required_missing = sorted((before_keys & REQUIRED_ENV_KEYS) - after_keys)
+        shed_optional = sorted(before_keys - after_keys - REQUIRED_ENV_KEYS)
         report.add(
-            "PASS" if before_env.get("sha256") == after_env.get("sha256") else "FAIL",
-            "env.values",
-            "密钥/配置值未变" if before_env.get("sha256") == after_env.get("sha256") else "值发生变化（可能是密钥被换）",
+            "PASS" if not required_missing else "FAIL",
+            "env.keys",
+            f"required_missing={required_missing} shed_optional={shed_optional}",
         )
+        before_required = before_env.get("required_sha256")
+        after_required = after_env.get("required_sha256")
+        if before_required is not None and after_required is not None:
+            same_values = before_required == after_required
+            values_detail = "必需键值未变" if same_values else "必需键值变化（可能是密钥被换）"
+        else:
+            # 旧快照无 required_sha256 → 回退全量口径（legacy 副本键的变化会算变化）
+            same_values = before_env.get("sha256") == after_env.get("sha256")
+            values_detail = (
+                "密钥/配置值未变（旧快照全量口径）"
+                if same_values
+                else "值发生变化（可能是密钥被换）"
+            )
+        report.add("PASS" if same_values else "FAIL", "env.values", values_detail)
         report.add(
             "PASS" if after_env.get("secret_present") and after_env.get("credential_present") else "FAIL",
             "env.secret_pair",
