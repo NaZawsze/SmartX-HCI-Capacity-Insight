@@ -202,5 +202,42 @@ class UpgradeScriptComponentGuardTests(unittest.TestCase):
             self.assertIn(version, text)
 
 
+class RunnerVersionSingleSourceTests(unittest.TestCase):
+    """runner 自报版本必须与仓库 `RUNNER_VERSION` 同源。
+
+    2026-10-17 `.14` 实测：v0.3.3 的 runner 镜像 `/app/RUNNER_VERSION` 是 v0.3.3，
+    但状态文件与 `/api/system/health` 报 v0.3.2——因为 `main.py` 里把 `"v0.3.2"` 写死了。
+    后果是「执行器能力判定」按旧版本走：预检查把**能自愈 `.env` 的 runner 判成不能**。
+    """
+
+    def test_fallback_matches_repo_runner_version(self) -> None:
+        from app.upgrade_runner.main import FALLBACK_RUNNER_VERSION
+
+        root = Path(__file__).resolve().parents[2]
+        repo_version = (root / "RUNNER_VERSION").read_text(encoding="utf-8").strip()
+        self.assertEqual(FALLBACK_RUNNER_VERSION, repo_version)
+
+    def test_version_file_wins_over_environment(self) -> None:
+        import tempfile as _tempfile
+
+        from app.upgrade_runner import main as runner_main
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            version_file = Path(tmp) / "RUNNER_VERSION"
+            version_file.write_text("v9.9.9\n", encoding="utf-8")
+            original_file = runner_main.RUNNER_VERSION_FILE
+            original_env = os.environ.get("SMARTX_RUNNER_VERSION")
+            runner_main.RUNNER_VERSION_FILE = version_file
+            os.environ["SMARTX_RUNNER_VERSION"] = "v0.0.1"
+            try:
+                self.assertEqual(runner_main.resolve_runner_version(), "v9.9.9")
+            finally:
+                runner_main.RUNNER_VERSION_FILE = original_file
+                if original_env is None:
+                    os.environ.pop("SMARTX_RUNNER_VERSION", None)
+                else:
+                    os.environ["SMARTX_RUNNER_VERSION"] = original_env
+
+
 if __name__ == "__main__":
     unittest.main()

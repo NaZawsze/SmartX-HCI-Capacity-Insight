@@ -8,7 +8,7 @@ import sqlite3
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,6 +19,30 @@ from app.upgrade_runner.lease import LeaseManager
 from app.upgrade_runner.store import TaskStore
 
 logger = logging.getLogger(__name__)
+
+
+#: runner 镜像内版本文件（Dockerfile 把仓库根 `RUNNER_VERSION` 拷到这里）。
+RUNNER_VERSION_FILE = Path("/app/RUNNER_VERSION")
+#: 兜底版本：与仓库根 `RUNNER_VERSION` 同源（`test_runner_version_single_source` 断言一致）。
+FALLBACK_RUNNER_VERSION = "v0.3.3"
+
+
+def resolve_runner_version() -> str:
+    """runner 自报版本：**镜像内文件优先** → 环境变量 → 兜底常量。
+
+    这里曾把 `"v0.3.2"` 写死在 dataclass 默认值与 `from_environment` 里，结果 v0.3.3 的镜像
+    仍自报 v0.3.2（`.14` 2026-10-17 实测：`/app/RUNNER_VERSION` 是 v0.3.3，状态文件与
+    `/api/system/health` 却报 v0.3.2）——「执行器能力判定」于是按旧版本走，预检查把
+    **能自愈 `.env` 的 runner 判成不能**。版本号是能力的唯一标识（AGENTS §8），
+    不允许第二处硬编码。
+    """
+    try:
+        version = RUNNER_VERSION_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        version = ""
+    if version:
+        return version
+    return os.environ.get("SMARTX_RUNNER_VERSION", FALLBACK_RUNNER_VERSION).strip() or FALLBACK_RUNNER_VERSION
 
 
 @dataclass
@@ -33,7 +57,7 @@ class RunnerSettings:
     project_path: Path
     compose_file: str
     compose_project: str
-    runner_version: str = "v0.3.2"
+    runner_version: str = field(default_factory=resolve_runner_version)
     host_data_path: Path | None = None
     host_upgrades_path: Path | None = None
     host_backups_path: Path | None = None
@@ -57,7 +81,7 @@ class RunnerSettings:
             project_path=project_path,
             compose_file=os.environ.get("SMARTX_COMPOSE_FILE", "docker-compose.offline.yml"),
             compose_project=os.environ.get("SMARTX_COMPOSE_PROJECT_NAME", "smartx-hci-capacity-insight"),
-            runner_version=os.environ.get("SMARTX_RUNNER_VERSION", "v0.3.2"),
+            runner_version=resolve_runner_version(),
             host_data_path=Path(os.environ.get("SMARTX_HOST_DATA_PATH", "/data/smartx-storage-forecast/app")),
             host_upgrades_path=Path(os.environ.get("SMARTX_HOST_UPGRADES_PATH", "/data/smartx-storage-forecast/upgrades")),
             host_backups_path=Path(os.environ.get("SMARTX_HOST_BACKUPS_PATH", "/data/smartx-storage-forecast/backups")),
