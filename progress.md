@@ -7084,3 +7084,49 @@ premetheus 因磁盘满 tsdb 损坏 → 重建数据目录后仍 Restarting（�
 
 **下一轮入口**：① 查 `/data/p3/L3c-run4.log` 头部确认 r41 跳终态（失败则回滚是正常的失败安全）；
 ② prometheus Restarting 根因；③ 修完后按序 L4 → L4.5 → `.12` L5/L6。
+
+---
+
+## r42 复验（2026-10-17，RUNNER_VERSION 治理回退 v0.3.5→v0.3.2）
+
+**变更性质**：r42 是**版本号治理回退**的重建候选。相对上一候选（r41/v0.3.4→v0.3.5）**仅版本字符串变化**
+（全部活动引用回退到 **v0.3.2**），#101 修复代码本身未变（仅 `ENV_FILE_SELF_HEAL_RUNNER_VERSION`
+阈值随版本号由 (0,3,3) 改回 (0,3,2)）。平台基线 runner = 已发布 **v0.3.1**（受
+`_expected_web_api_runner_baseline` 对 v0.5.2+ 硬编码约束）。已发布 runner 最新仍是 v0.3.1；
+v0.3.2 为 v0.5.4 开发线候选、未发布。
+
+**源码提交**：`cf775ab`（dev2，未推送 origin——按约定需用户明确授权）。
+
+**候选产物（构建于 .3）**：
+- 平台包 `smartx-capacity-insight-upgrade-v0.5.4.tar.gz` SHA `10efa9cd…514af22c`
+- runner 组件包 `smartx-upgrade-runner-v0.3.2.tar.gz` SHA `e461738…88fcd9b`
+
+**L0（`.14`，源码跑）**：后端全量 `python -m unittest` **32 测试 OK**（含 `test_env_file_guard.py`
+的 #101-A 阈值与 `test_generated_runtime_compose_has_healthcheck` #101-B 单测）。
+
+**L4 数据完整性复验（`.14`，当前态 v0.5.4 + runner v0.3.2）**：
+- 当前态快照 `/data/diag/t0-r42.json`（已归档 `/data/archive/r42-l4-20261017.tar.gz`）。
+- 结论：`integrity_check=ok`、`foreign_key_check` 0 孤儿、业务表（towers/clusters/vm_latest/
+  vm_volumes/users）均 strict 且 digest 稳定、`data.present` PASS（vm_count=120>0）、`.env` 为常规
+  文件（600）且 `SMARTX_SECRET_KEY`/`SMARTX_CREDENTIAL_KEY` 均在。
+- ⚠️ **Prometheus 时序未验证**：`prometheus series=0`（无 smartx_* 样本），脚本按 WARN 记，
+  **不计入 PASS**；待 `.14` 采集恢复后补时序比对。
+- ⚠️ **`.env` 仅 11 个键**（含全部必需键），低于 L2 文档"≥15"口径；脚本 `REQUIRED_ENV_KEYS`(20)
+  仅用于 before/after 一致性判定（同快照 `required_missing=[]`→PASS），不构成回归。根因：产品当前
+  实际写入 11 键，脚本镜像列表偏宽，属文档/脚本漂移，非 r42 缺陷。
+
+**#101-B healthcheck 复验**：
+- 静态交付 compose（v0.5.4，`.14` 当前 `docker-compose.offline.yml`）的 `upgrade-runner` 服务
+  **已带 healthcheck**（`test ... stat -c %Y /data/upgrade-runner-state.json ... -lt 90`，#96 文案带容器状态）。
+- 执行器运行时 compose 生成函数（`backend/app/upgrade_runner/actions.py:2234`）**已注入 healthcheck**
+  （注释确认修复 2026-10-18 L4.2 实测「pause 后 inspect 无 Health 条目」）。
+- 单测 `test_generated_runtime_compose_has_healthcheck`（`test_env_file_guard.py:261`）覆盖。
+- 当前运行容器（v0.3.2）`docker inspect` 无 `.State.Health` 条目 → 因其由**升级前的运行时 compose**
+  拉起；触发 r42 自换才会重写运行时 compose 带 healthcheck。为避免同版本自换留 handoff 脏态
+  （test-process §3 已知坑#④），未强制 live 触发，以「静态 compose + 执行器源码 + 单测」三重证据覆盖。
+
+**遗留（下一轮）**：
+- L5（`.12` 回滚 B/C 场景）、L6（`.12` 同版本重装 + 矩阵回填）——`.12` 当前已 v0.5.4 + runner v0.3.2
+  （含一个遗留旧布局 `smartx-storage-forecast-upgrade-runner-1` v0.3.1，属 legacy，按宿主禁改约定不动）。
+- 时序比对补验（待 `.14` 采集恢复）。
+- 推送 origin（待用户授权）。

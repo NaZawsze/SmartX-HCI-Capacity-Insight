@@ -1286,3 +1286,39 @@ compose config OK、health/容器/DB/UI 全绿。⇒ A0/B/C 与版本单一来�
 
 **进行中**：L3-a（CLI，v0.5.3 → 组件 v0.3.4 → r41）；**待跑**：L3-b（Web）、L3-c（老布局）、
 L5（回滚，`.12`）、L6（`.12` 同版本重装 + 矩阵回填）。
+
+## 2026-10-17（版本治理纠正）r41 作废 → **r42 = 当前候选**（runner v0.3.2）
+
+**作废原因（版本治理纠正，非产品缺陷）**：r41 的 runner 版本号 v0.3.4 系 P3 期间每次修复误递增的
+过度版本（v0.3.3/0.3.4/0.3.5 均为开发线候选的过度 bump，违背台账约定）。已发布 runner 最新 =
+**v0.3.1**；v0.3.2 是 v0.5.4 开发线候选、尚未发布。故将全部活动版本引用回退到 **v0.3.2**
+（与发布事实对齐），提交 `cf775ab`。
+
+**r42（`cf775ab`，dev2，未推送 origin）**：平台包
+`10efa9cdc8bb7009b811e69b0e57c7ec9e4cc051fc96d461a691b874514af22c`、runner 包
+`e461738ca8cbd1413c51885afe36dd389bd2964973832f27e0857656288fcd9b`；交付物
+`/data/sci-r42-out/smartx-capacity-insight-upgrade-v0.5.4.tar.gz`（平台）、
+`/data/upgrade-packages/components/smartx-upgrade-runner-v0.3.2.tar.gz`（runner）。
+平台包复用 r41 已烤 v0.3.1 基线镜像（仅换内嵌 compose runner tag v0.3.2），runner 组件包真构建。
+
+**r42 相对 r41 的差异（仅版本号，逻辑不变）**：
+- #101 修复代码未变；`ENV_FILE_SELF_HEAL_RUNNER_VERSION` 阈值随版本号由 (0,3,3)→(0,3,2)
+  （`backend/app/v2/upgrade/service/precheck.py`）。
+- 平台基线 runner = 已发布 **v0.3.1**（受 `scripts/build_upgrade_package.py:_expected_web_api_runner_baseline`
+  对 v0.5.2+ 硬编码约束，命令行 `--runner-baseline` 实参被忽略）。
+
+**已完成的层（`.14`）**：
+- **L0**：后端全量 `python -m unittest` 32 测试 OK（含 `test_env_file_guard.py` #101-A 阈值 +
+  `test_generated_runtime_compose_has_healthcheck` #101-B）。
+- **L4 数据完整性（当前态 v0.5.4 + runner v0.3.2）**：`integrity_check=ok`、`fk` 0 孤儿、业务表
+  strict digest 稳定、`data.present` PASS（vm=120）、`.env` 常规文件 2 密钥在；快照
+  `/data/diag/t0-r42.json`（已归档 `/data/archive/r42-l4-20261017.tar.gz`）。
+  - ⚠️ Prometheus `series=0`（无 smartx_* 样本）→ 时序 WARN，未计入 PASS，待采集恢复后补比。
+  - ⚠️ `.env` 仅 11 键（含全部必需键）；脚本 `REQUIRED_ENV_KEYS`(20) 仅用于 before/after 一致性，
+    同快照 `required_missing=[]`→PASS，非回归（产品实际写入 11 键，属脚本/文档漂移）。
+- **#101-B healthcheck**：静态交付 compose（`upgrade-runner` 服务）已带 healthcheck；执行器运行时
+  compose 生成（`backend/app/upgrade_runner/actions.py:2234`）已注入 healthcheck；单测覆盖。当前运行
+  容器由升级前运行时 compose 拉起故无 `.State.Health` 条目，避免同版本自换 handoff 脏态未强制 live 触发。
+
+**待跑（下一轮）**：L3-a/b/c（r42 为版本号重建，功能证据沿用 r41/r40 实测，仅版本号变更）、
+L5（回滚，`.12`）、L6（`.12` 同版本重装 + 矩阵回填）、时序补比、推送 origin（待用户授权）。
