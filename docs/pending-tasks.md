@@ -179,7 +179,7 @@ P3 其余项（v1 死代码移除、helper 收敛、静默吞错清理、CORS �
 | **99** | **🔴 v0.5.2 老布局升级后「撕裂态」：数据在旧库、容器挂新库，平台读到空库** | 2026-10-17 P3 L3-c 实证：v0.5.1u2→v0.5.2 成功后容器挂载变新布局、数据仍在旧布局，健康检查 false 且后续升级被卡 | **2026-10-17 已实施 C 方案**：交付 README 硬约束「必须连续升到 v0.5.3，禁止在 v0.5.2 停留」+ 救援脚本 `ops/repair-layout-migration.sh`（干跑默认）；**B 方案（代码按实际挂载解析 data_root）留 v0.5.5**。设计文档见 specs/2026-10-17-v052-layout-tearing-remediation-design.md |
 
 | **100** | **🟠 runner handoff 步骤无幂等护栏：进程重启后重复调度 → 自换死循环 + 单飞锁死** | 2026-10-17 P3 实证：handoff 只写运行时 compose 不写步骤状态，runner 进程重启（崩溃/手工重建）后 重新领任务 → 再次调度 handoff → 无限循环，cutover 容器增生，后续升级全被单飞守卫拒绝 | handoff 前持久化「已调度」标记（步骤状态/哨兵文件），重启后跳过；v0.5.4 发布阻塞项 |
-| **101** | **🟡 运行时 compose 缺 healthcheck + 自愈丢 legacy 键（均已修，待 r42 真机复验）** | 2026-10-18 L4 实测：①`_write_runner_runtime_compose` 生成的 compose 无 healthcheck → 平台升级后 runner 永久失去 `(unhealthy)` 可见性（只加进了三份交付 compose，漏了生成器）；②自愈按白名单回填丢 legacy 布局键（15→11） | 两处均已修（runner v0.3.5：生成器补 healthcheck、回填改全量 `SMARTX_*`；校验器改必需键语义）。**待 r42 在 `.14` 复验**：pause→unhealthy 恢复判定 + 自愈后 15 键且 env.keys/values PASS |
+| **101** | **🟡 运行时 compose 缺 healthcheck + 自愈丢 legacy 键（均已修，待 r42 真机复验）** | 2026-10-18 L4 实测：①`_write_runner_runtime_compose` 生成的 compose 无 healthcheck → 平台升级后 runner 永久失去 `(unhealthy)` 可见性（只加进了三份交付 compose，漏了生成器）；②自愈按白名单回填丢 legacy 布局键（15→11） | 两处均已修（runner v0.3.2：生成器补 healthcheck、回填改全量 `SMARTX_*`；校验器改必需键语义）。**待 r42 在 `.14` 复验**：pause→unhealthy 恢复判定 + 自愈后 15 键且 env.keys/values PASS |
 ## 已完成（2026-09-12，备查）## 已完成（2026-09-12，备查）
 
 - SQLite 治理：WAL + busy_timeout 5s + `tasks.updated_at`/`collection_runs.started_at/finished_at` 索引（.3 实库验证）。

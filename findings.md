@@ -1341,7 +1341,7 @@ compose `environment:` 注入（权威源迁移），于是从 .env.example 消�
 **值对比证据**：原 .env 的 `SMARTX_COMPOSE_FILE=docker-compose.release.yml`（陈旧变体名），
 compose 现值 `docker-compose.offline.yml`——即 .env 副本本就是遗留物，容器行为以 compose 为准。
 
-**修复**（runner v0.3.5）：自愈改为回填 web-api `Config.Env` 的**全部 `SMARTX_*` 键**
+**修复**（runner v0.3.2）：自愈改为回填 web-api `Config.Env` 的**全部 `SMARTX_*` 键**
 （Config.Env = env_file(.env) ∪ compose environment:，是 .env 的超集；非 SMARTX_* 的
 TZ/PATH 等不污染 .env）。校验器同步改为**必需键语义**：白名单键一个不能少、值一个不能变；
 非必需的 legacy 副本键允许被清掉/更新（`shed_optional` 只记录不判定），
@@ -1357,5 +1357,5 @@ TZ/PATH 等不污染 .env）。校验器同步改为**必需键语义**：白名
 生成器里没有 healthcheck → 每次平台升级后 runner 都失去它。改 compose 必须同步改生成器
 （与 #93 的 A0「一处相对一处绝对」同源的单一来源问题）。
 
-**修复**（runner v0.3.5）：生成器补同一段 healthcheck（状态文件 90s 未更新即不健康），
+**修复**（runner v0.3.2）：生成器补同一段 healthcheck（状态文件 90s 未更新即不健康），
 单测锁死生成文件必含 `healthcheck:`/`upgrade-runner-state.json`/`-lt 90`。

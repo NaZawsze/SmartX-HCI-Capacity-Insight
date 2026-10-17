@@ -506,8 +506,8 @@ def _check_project_files(package_path: Path, manifest: dict[str, Any]) -> dict[s
 
 
 
-#: 首个带「compose 前置 .env 自愈」的 runner 版本（RUNNER_VERSION v0.3.3）。
-ENV_FILE_SELF_HEAL_RUNNER_VERSION = (0, 3, 3)
+#: 首个带「compose 前置 .env 自愈」的 runner 版本（RUNNER_VERSION v0.3.2）。
+ENV_FILE_SELF_HEAL_RUNNER_VERSION = (0, 3, 2)
 
 
 def _check_env_file(settings: Any, runner_version: str) -> dict[str, Any]:
@@ -520,7 +520,7 @@ def _check_env_file(settings: Any, runner_version: str) -> dict[str, Any]:
     步骤退出码 14——现场只看到「升级失败」，看不出根因。
 
     平台侧 project 目录是**只读挂载**，只能判定不能修：真正修复在执行器（runner
-    ≥ v0.3.3 的 compose 前置检查，会在 `compose up` 前从运行中实例回填）。所以这里
+    ≥ v0.3.2 的 compose 前置检查，会在 `compose up` 前从运行中实例回填）。所以这里
     按**执行器能力**决定「放行并提示」还是「阻断并给可执行指引」——不能一边说要修
     一边把唯一能修的路径堵死。
     """
@@ -540,7 +540,7 @@ def _check_env_file(settings: Any, runner_version: str) -> dict[str, Any]:
     detail = {
         "path": str(path),
         "runner_version": runner_version or None,
-        "self_heal_runner_version": "v0.3.3",
+        "self_heal_runner_version": "v0.3.2",
     }
     if _version_tuple(runner_version) >= ENV_FILE_SELF_HEAL_RUNNER_VERSION:
         return {
@@ -558,7 +558,7 @@ def _check_env_file(settings: Any, runner_version: str) -> dict[str, Any]:
         "message": (
             f"{path} 是目录（历史 compose 的绝对路径 bind 被 Docker 建成了目录），"
             f"当前执行器 {runner_version or '(未检测到)'} 不会自动修复。"
-            "请先在升级中心把 upgrade-runner 组件升级到 v0.3.3 后重试；"
+            "请先在升级中心把 upgrade-runner 组件升级到 v0.3.2 后重试；"
             "或从升级前备份恢复该 .env 文件。"
         ),
         "detail": detail,

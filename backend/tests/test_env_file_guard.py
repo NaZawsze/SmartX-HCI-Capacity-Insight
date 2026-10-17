@@ -169,7 +169,7 @@ class PrecheckEnvFileTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / ".env"
             path.mkdir()
-            check = _check_env_file(self._settings(path), "v0.3.3")
+            check = _check_env_file(self._settings(path), "v0.3.2")
             self.assertTrue(check["ok"], check["message"])
             self.assertIn("目录", check["message"])
 
@@ -179,9 +179,9 @@ class PrecheckEnvFileTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / ".env"
             path.mkdir()
-            check = _check_env_file(self._settings(path), "v0.3.2")
+            check = _check_env_file(self._settings(path), "v0.3.1")
             self.assertFalse(check["ok"])
-            self.assertIn("v0.3.3", check["message"])
+            self.assertIn("v0.3.2", check["message"])
             self.assertIn("备份", check["message"])
 
     def test_missing_env_does_not_block(self) -> None:
@@ -189,7 +189,7 @@ class PrecheckEnvFileTests(unittest.TestCase):
         from app.v2.upgrade.service.precheck import _check_env_file
 
         with tempfile.TemporaryDirectory() as tmp:
-            check = _check_env_file(self._settings(Path(tmp) / ".env"), "v0.3.3")
+            check = _check_env_file(self._settings(Path(tmp) / ".env"), "v0.3.2")
             self.assertTrue(check["ok"])
 
 
@@ -265,7 +265,7 @@ class RunnerRuntimeComposeHealthcheckTests(unittest.TestCase):
             context = ActionContext.minimal(Path(tmp), executor=FakeExecutor())
             result = _write_runner_runtime_compose(
                 context,
-                {"image": "registry/upgrade-runner:v0.3.5", "compose_project": "smartx-hci-capacity-insight"},
+                {"image": "registry/upgrade-runner:v0.3.2", "compose_project": "smartx-hci-capacity-insight"},
             )
             compose_file = Path(result["compose_file"])
             self.assertTrue(compose_file.is_file())
