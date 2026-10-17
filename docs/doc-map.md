@@ -41,6 +41,7 @@
 | 文档 | 说明 |
 | --- | --- |
 | [test-architecture.md](test-architecture.md) | **测试架构总纲**：套餐 P0–P4（决定一次改动跑多少）+ **不可裁剪核心** + 变更类型→套餐触发表 + 候选轮次演进（探索轮 P2 / 定稿轮 P3）+ 标准测试数据集 + 基线管理。所有版本共用一套；**先读它定套餐，再按执行规范跑**。 |
+| [superpowers/specs/2026-10-17-v052-layout-tearing-remediation-design.md](superpowers/specs/2026-10-17-v052-layout-tearing-remediation-design.md) | **#99 设计**：v0.5.2 老布局升级后「数据在旧库、容器挂新库」撕裂态——现象/根因/三方案对比，推荐 C（README 硬约束 + 救援脚本 `ops/repair-layout-migration.sh`）+ v0.5.5 做 B 收口。 | pending #99 |
 | [test-process-and-scope.md](test-process-and-scope.md) | **测试执行规范**：L0–L6 每层怎么跑/判定/证据，数据完整性七类检验（含允许差异白名单），已知坑与失败处置，本轮执行清单。 |
 | [../scripts/verify_data_integrity.py](../scripts/verify_data_integrity.py) | 数据完整性快照/比对工具（`snapshot`/`compare`，逐表指纹 + 引用完整性 + `.env` 密钥 + Prometheus 历史窗口），升级前后各采一次并比对。 |
 
