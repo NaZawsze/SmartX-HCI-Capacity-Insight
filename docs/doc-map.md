@@ -35,6 +35,15 @@
 
 留在主文件的稳定结论不得迁走：`findings.md` 的 UPG-050 定案等（`scripts/bind-mount-recover.sh` 运行时输出按「findings.md UPG-050」指向）、`task_plan.md` 的「Phase 与任务设计文档对照」（本文件 §8 引用）。
 
+
+## 1a. 测试体系（所有版本共用；**开工第一步：定套餐**）
+
+| 文档 | 说明 |
+| --- | --- |
+| [test-architecture.md](test-architecture.md) | **测试架构总纲**：套餐 P0–P4（决定一次改动跑多少）+ **不可裁剪核心** + 变更类型→套餐触发表 + 候选轮次演进（探索轮 P2 / 定稿轮 P3）+ 标准测试数据集 + 基线管理。所有版本共用一套；**先读它定套餐，再按执行规范跑**。 |
+| [test-process-and-scope.md](test-process-and-scope.md) | **测试执行规范**：L0–L6 每层怎么跑/判定/证据，数据完整性七类检验（含允许差异白名单），已知坑与失败处置，本轮执行清单。 |
+| [../scripts/verify_data_integrity.py](../scripts/verify_data_integrity.py) | 数据完整性快照/比对工具（`snapshot`/`compare`，逐表指纹 + 引用完整性 + `.env` 密钥 + Prometheus 历史窗口），升级前后各采一次并比对。 |
+
 ## 2. 项目说明与架构
 
 | 文档 | 说明 | 关联任务 |
@@ -177,8 +186,6 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | --- | --- |
 | [pending-tasks.md](pending-tasks.md) | 全项目未完成任务清单（按 P0~P3 优先级），快照式索引；逐项口径以 task_plan.md 各 Phase 为准。 |
 | [ai-handoff-guide.md](ai-handoff-guide.md) | AI 交接执行手册：.3 操作、提交策略、测试基线、陷阱清单、待实施设计索引。交接实施前必读。 |
-| [test-architecture.md](test-architecture.md) | **测试架构总纲（2026-10-17 首版）**：套餐 P0–P4（提交冒烟/功能验证/链路验证/定稿/热修）+ **不可裁剪核心** + 变更类型→套餐触发表 + 候选轮次演进（探索轮跑 P2、定稿轮才跑 P3）+ 标准测试数据集画像 + 基线管理。**所有版本共用一套**；先读它定套餐，再按 test-process-and-scope 执行。 | task_plan Phase 84 |
-| [test-process-and-scope.md](test-process-and-scope.md) | **测试流程与范围规范（2026-10-17 首版）**：分层 L0–L6、按改动类型的范围矩阵、每层判定标准与证据要求、数据完整性指纹口径（稳定列而非 `SELECT *`）、环境纪律、失败处置、本轮 r40 执行清单。**要跑任何验证前先看本文决定跑哪些层**；数据检验配套脚本 `scripts/verify_data_integrity.py`（snapshot/compare，逐表指纹 + 引用完整性 + `.env` 密钥 + Prometheus 历史窗口）。 | task_plan Phase 84 |
 | [development-verification-process.md](development-verification-process.md) | 开发/打包/功能测试验证标准流程：环境机器、开发流程、打包流程、后端/前端测试、部署健康检查、升级链路验证。AI 实施前必读。 |
 | [version-skew-matrix.md](version-skew-matrix.md) | 版本偏斜支持矩阵：源端→目标各组合的支持状态与实测证据、偏斜三条硬规则、加固该放在构建期/runner/web-api 哪一侧的指引。判断升级兼容性与排加固位置前必读。 |
 | [release-build-guide.md](release-build-guide.md) | 发版构建手册：从源码到可交付物的一条命令（`scripts/build_release_delivery.sh`）、版本号同步清单、门禁含义与常见失败。要打升级包/离线交付目录前必读。 |
