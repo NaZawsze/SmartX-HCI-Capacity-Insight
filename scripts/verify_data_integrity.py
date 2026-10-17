@@ -305,6 +305,15 @@ def compare(args: argparse.Namespace) -> int:
     fk = after.get("db", {}).get("foreign_key_violations")
     report.add("PASS" if fk == 0 else "FAIL", "db.foreign_key_check", f"violations={fk}")
 
+    # 1.5) 数据前置：空库上的"数据检验"是空过，必须判 FAIL（2026-10-17 用户令）
+    before_agg_probe = (before.get("db", {}).get("aggregates") or {})
+    vm_count_t0 = int(before_agg_probe.get("vm_count") or 0)
+    report.add(
+        "PASS" if vm_count_t0 > 0 else "FAIL",
+        "data.present",
+        f"T0 vm_count={vm_count_t0}" + ("" if vm_count_t0 > 0 else "（空库，数据检验无效：先注入标准数据集）"),
+    )
+
     # 2) 表级比对
     before_tables = before.get("db", {}).get("tables", {})
     after_tables = after.get("db", {}).get("tables", {})
