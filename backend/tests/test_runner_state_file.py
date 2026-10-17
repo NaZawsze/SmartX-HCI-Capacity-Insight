@@ -622,8 +622,9 @@ class PresenceFileFirstTests(unittest.TestCase):
         state_file = self._write_state_file(
             {
                 "schema": 1,
-                "heartbeat_at": _iso(-90),
-                "leases": {"t1": {"lease_owner": "x", "lease_expires_at": _iso(-60), "heartbeat_at": _iso(-60)}},
+                # 窗口是 RUNNER_HEARTBEAT_STALE_SECONDS（90s）；样本必须**超出**窗口才算过期
+                "heartbeat_at": _iso(-300),
+                "leases": {"t1": {"lease_owner": "x", "lease_expires_at": _iso(-240), "heartbeat_at": _iso(-240)}},
             }
         )
         self.assertFalse(file_task_lease_is_fresh(state_file))

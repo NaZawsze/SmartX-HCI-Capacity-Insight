@@ -469,6 +469,20 @@ if [ -n "$RUNNER_PACKAGE" ]; then
   if [ ! -f "$RUNNER_PACKAGE" ]; then
     warn "runner 组件包不存在，跳过：$RUNNER_PACKAGE"
   else
+    # US-04 硬拦截（pending #94）：平台 < v0.5.3 时做 runner 组件升级会**停掉刚启动的新 runner**
+    # （实测 SIGKILL exit=137 → handoff 死循环 → 心跳停摆 → 之后所有平台升级被心跳预检查拒绝，
+    # 且 docker start 救不回来）。交付 README 早有警告，但只有警告 = 现场照样踩；这里改成可执行拦截。
+    # 正常路径（先升平台、再 --with-runner）此时平台已是新版本，不受影响。
+    PLATFORM_NOW="$(curl -s --max-time 10 "${HEALTH_URL:-$BASE_URL/api/system/health}" 2>/dev/null \
+      | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+    case "$PLATFORM_NOW" in
+      v0.5.0|v0.5.1|v0.5.1u1|v0.5.1u2|v0.5.2)
+        fail "当前平台 $PLATFORM_NOW 不支持先做 runner 组件升级。"
+        info "旧平台的 web-api 会无条件 stop 掉刚启动的新 runner（实测 SIGKILL、心跳停摆，"
+        info "之后所有平台升级都会被「未检测到 upgrade-runner 心跳」拒绝）。"
+        info "请先把平台升到 v0.5.3 及以上（本脚本默认只升平台），再单独执行组件升级。"
+        exit 1 ;;
+    esac
     # 等平台升级后的清理任务（post-cleanup）收敛，再发起 runner 组件升级。
     # 原因：单飞守卫（US-23）会拒绝"还有任务在跑"时发起的新任务。平台升级返回 succeeded 时，
     # post-cleanup 往往刚被创建、仍在 pending/running，此时直接升级 runner 必然 400。

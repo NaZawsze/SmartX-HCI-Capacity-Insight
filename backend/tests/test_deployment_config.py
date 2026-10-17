@@ -198,7 +198,11 @@ class TestDeploymentConfig(unittest.TestCase):
                 '&& exec uvicorn app.v2.main:app --host 0.0.0.0 --port 8000"]',
                 web_api_section,
             )
-            self.assertIn("/data/smartx-storage-forecast/project/.env:/run/smartx-runtime.env", web_api_section)
+            # bind 源必须与 `env_file: [.env]` **同源**（相对 compose 文件）：写成绝对路径时，
+            # 工程目录不在默认新布局的现场会让 Docker 把该路径建成**空目录**，此后 compose 读
+            # env_file 直接失败（v0.5.1u2→v0.5.2 一跳即产生，见 findings 2026-10-16 判定实验）。
+            self.assertIn("./.env:/run/smartx-runtime.env", web_api_section)
+            self.assertNotIn("/data/smartx-storage-forecast/project/.env:/run/smartx-runtime.env", web_api_section)
             self.assertIn("/data/smartx-storage-forecast/project:/data/smartx-storage-forecast/project:ro", web_api_section)
 
     def test_v052_compose_uses_target_project_network_and_subnet(self) -> None:

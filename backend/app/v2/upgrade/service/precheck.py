@@ -72,6 +72,7 @@ class PrecheckMixin:
                 )
             )
         checks.extend([_check_images_with_executor(package_path, manifest, self.executor), _check_project_files(package_path, manifest)])
+        checks.append(_check_env_file(self.settings, self._active_runner_version()))
         if _observability_services(manifest):
             checks.append(_check_prometheus_permissions(self.settings.prometheus_data_dir))
         task["checks"] = checks
@@ -469,6 +470,65 @@ def _check_project_files(package_path: Path, manifest: dict[str, Any]) -> dict[s
     ok = project_dir.is_dir() and (project_dir / "docker-compose.offline.yml").is_file()
     return {"name": "project_files", "ok": ok, "message": "项目文件同步包完整" if ok else "project 文件包缺少 docker-compose.offline.yml"}
 
+
+
+#: 首个带「compose 前置 .env 自愈」的 runner 版本（RUNNER_VERSION v0.3.3）。
+ENV_FILE_SELF_HEAL_RUNNER_VERSION = (0, 3, 3)
+
+
+def _check_env_file(settings: Any, runner_version: str) -> dict[str, Any]:
+    """`project/.env` 必须是常规文件。
+
+    v0.5.2 起的 compose 把 `.env` 同时当 `env_file`（相对）和**绝对路径 bind 源**：
+    工程目录不在默认新布局时，bind 源不存在 ⇒ Docker 把宿主路径建成**空目录**
+    （v0.5.1u2 → v0.5.2 一跳即产生，见 findings 2026-10-16 判定实验）。此后
+    `docker compose` 读 env_file 直接失败（`is a directory`），平台升级的 restart
+    步骤退出码 14——现场只看到「升级失败」，看不出根因。
+
+    平台侧 project 目录是**只读挂载**，只能判定不能修：真正修复在执行器（runner
+    ≥ v0.3.3 的 compose 前置检查，会在 `compose up` 前从运行中实例回填）。所以这里
+    按**执行器能力**决定「放行并提示」还是「阻断并给可执行指引」——不能一边说要修
+    一边把唯一能修的路径堵死。
+    """
+    name = "env_file"
+    try:
+        path = Path(str(settings.env_file_path))
+    except Exception as exc:  # noqa: BLE001 - 预检查必须给可读原因
+        return {"name": name, "ok": False, "message": f"无法定位 .env 路径：{exc}"}
+    if path.is_file():
+        return {"name": name, "ok": True, "message": ".env 为常规文件"}
+    if not path.exists():
+        # 运行中的平台必然有 .env（compose `env_file` 是硬依赖）；这里缺失只可能是合成环境，
+        # 不因此阻断——本次要防的是「被建成目录」，缺失交给 compose 自己报。
+        return {"name": name, "ok": True, "message": f"未检测到 {path}，跳过 .env 类型检查"}
+    if not path.is_dir():
+        return {"name": name, "ok": False, "message": f"{path} 既不是常规文件也不是目录，请人工确认。"}
+    detail = {
+        "path": str(path),
+        "runner_version": runner_version or None,
+        "self_heal_runner_version": "v0.3.3",
+    }
+    if _version_tuple(runner_version) >= ENV_FILE_SELF_HEAL_RUNNER_VERSION:
+        return {
+            "name": name,
+            "ok": True,
+            "message": (
+                f"{path} 当前是目录（历史 compose 的绝对路径 bind 被 Docker 建成）；"
+                f"执行器 {runner_version} 会在重启前从运行中实例回填并重建为文件"
+            ),
+            "detail": detail,
+        }
+    return {
+        "name": name,
+        "ok": False,
+        "message": (
+            f"{path} 是目录（历史 compose 的绝对路径 bind 被 Docker 建成了目录），"
+            f"当前执行器 {runner_version or '(未检测到)'} 不会自动修复。"
+            "请先在升级中心把 upgrade-runner 组件升级到 v0.3.3 后重试；"
+            "或从升级前备份恢复该 .env 文件。"
+        ),
+        "detail": detail,
+    }
 
 
 def _platform_images(manifest: dict[str, Any]) -> list[dict[str, Any]]:

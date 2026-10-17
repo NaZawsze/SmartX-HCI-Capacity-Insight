@@ -280,7 +280,12 @@ class V2UpgradeServiceTest(unittest.TestCase):
             precheck = service.precheck(task["task_id"])
             self.assertTrue(precheck["ok"])
             self.assertEqual(precheck["package_sha256"], expected_package_sha256)
-            self.assertEqual([check["name"] for check in precheck["checks"]], ["manifest", "paths", "images", "project_files"])
+            # env_file（pending #93）：`.env` 必须是常规文件——历史 compose 的绝对路径 bind 会把
+            # 它建成目录，之后 compose 读 env_file 直接失败（升级 restart 退出码 14）。
+            self.assertEqual(
+                [check["name"] for check in precheck["checks"]],
+                ["manifest", "paths", "images", "project_files", "env_file"],
+            )
             self.assertTrue(all(check["ok"] for check in precheck["checks"]))
 
             started = service.start(task["task_id"])

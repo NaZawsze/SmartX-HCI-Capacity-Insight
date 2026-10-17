@@ -197,6 +197,16 @@ sudo bash upgrade/upgrade.sh --allow-same-version --yes
 - 顺序做反了（先平台）的后果：升级在迁移步骤失败，环境仍停留在旧版本（升级前
   备份已生成、数据未动）；补做组件升级后重新执行平台升级即可成功。
 
+> **`.env` 类型检查（pending #93，本批次起）**：v0.5.2/v0.5.3 的 compose 把
+> `project/.env` 当**绝对路径 bind 源**，工程目录不在默认新布局时会由 Docker 建成
+> **空目录**；此后 `docker compose` 读 `env_file` 直接失败，平台升级的 restart 步骤
+> 报退出码 14（历史升级链路上的已知缺陷，两台验证机一致复现）。
+> 本批次起：① 新 compose 的 bind 源改为相对路径（不再产生）；② 升级预检查新增
+> `env_file` 项，是目录时给出可执行原因；③ **runner v0.3.3 会在每次 compose 重启前
+> 自动从运行中实例回填并重建 `.env`**（密钥与 Tower 凭据配对关系保留）。
+> 因此遇到 `env_file` 预检查失败时，**先把组件升级到 v0.3.3，再重跑平台升级**即可，
+> 不需要手工改文件；手工恢复（从升级前备份取回 `.env`）也有效。
+
 ### 4.4 升级脚本选项
 
 | 选项 | 默认值 | 说明 |
@@ -273,6 +283,7 @@ docker exec <web-api 容器名> python -c "import sqlite3;c=sqlite3.connect('/da
 | 终态 `recovery_required` | 需要人工确认。到 Web 界面选「继续执行」或「标记失败」 |
 | 终态 `rolled_back` / `rollback_failed` | 平台已尝试自动回滚，查任务日志确认结果 |
 | 升级成功但旧目录还在 | **再跑一次完整升级**，由升级后清理收尾 |
+| 升级失败、日志里 `restart` 退出码 14 / `.env: is a directory` | 历史 compose 把 `project/.env` 建成了目录（pending #93）。**先做组件升级到 v0.3.3**（执行器会自动重建 `.env`），再重跑平台升级；或从升级前备份恢复 `.env` |
 
 ### 6.3 旧版本安装镜像的来源注意（v0.5.1u2 及更早）
 

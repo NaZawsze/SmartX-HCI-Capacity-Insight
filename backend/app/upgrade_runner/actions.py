@@ -892,6 +892,11 @@ def _sanitize_env_text(text: str, *, sanitize_image_tags: bool) -> str:
 
 
 def _write_env_file(path: Path, text: str) -> None:
+    # 目标是**目录**时必须先清掉：v0.5.2 起的 compose 把 `project/.env` 当绝对路径 bind 源，
+    # 源不存在时 Docker 会把宿主路径建成空目录（v0.5.1u2 → v0.5.2 一跳即产生，见 findings
+    # 2026-10-16 判定实验）。不清掉它 `write_text` 会抛 IsADirectoryError，env 迁移永远无法自愈。
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     path.chmod(0o600)
@@ -899,6 +904,95 @@ def _write_env_file(path: Path, text: str) -> None:
         os.chown(path, 0, 0)
     except (PermissionError, AttributeError):
         pass
+
+
+#: `.env` 的权威键集合（= 仓库根 `.env.example`；安装脚本另会追加 `SMARTX_TOWER_*`）。
+#: 自愈时只回填这些键：compose `environment:` 段注入的键（`SMARTX_PROJECT_PATH`、
+#: `SMARTX_HOST_*` 等）**不属于** `.env`，写进去会让「compose 与 .env 谁说了算」再次分叉。
+ENV_FILE_RECOVERABLE_KEYS = (
+    "SMARTX_SECRET_KEY",
+    "SMARTX_CREDENTIAL_KEY",
+    "SMARTX_ADMIN_USER",
+    "SMARTX_ADMIN_PASSWORD",
+    "SMARTX_DB_PATH",
+    "SMARTX_PROMETHEUS_URL",
+    "SMARTX_COLLECTION_TIMEZONE",
+    "SMARTX_COLLECTION_HOUR",
+    "SMARTX_COLLECTION_MINUTE",
+    "SMARTX_COLLECTION_INTERVAL_MINUTES",
+    "SMARTX_FRESHNESS_STALE_MINUTES",
+    "SMARTX_CAPACITY_ALERT_WARNING_RATIO",
+    "SMARTX_CAPACITY_ALERT_CRITICAL_RATIO",
+    "SMARTX_CAPACITY_ALERT_MIN_FREE_BYTES",
+    "SMARTX_CORS_ORIGINS",
+    "SMARTX_TOWER_URL",
+    "SMARTX_TOWER_USER",
+    "SMARTX_TOWER_PASSWORD",
+)
+
+
+def _recover_env_text_from_runtime(context: ActionContext) -> str | None:
+    """从运行中的 web-api 容器回填 `.env` 文本（保留密钥与 Tower 凭据的配对关系）。
+
+    用 `docker inspect .Config.Env` 而不是 `docker exec env`：容器正在重启/无 shell 时
+    inspect 仍然可读，而 `exec` 会失败——升级窗口里前者才是稳的那条。
+    """
+    facts = _service_container_facts(context.executor, context.compose_project, "web-api")
+    container = str(facts.get("container_id") or "")
+    if not container:
+        return None
+    try:
+        output = context.executor.output(
+            ["docker", "inspect", container, "--format", "{{range .Config.Env}}{{println .}}{{end}}"]
+        )
+    except Exception:  # noqa: BLE001 - 取不到就交给调用方明确失败，不猜
+        return None
+    values: dict[str, str] = {}
+    for line in output.splitlines():
+        key, separator, value = line.partition("=")
+        if separator and key in ENV_FILE_RECOVERABLE_KEYS and key not in values:
+            values[key] = value
+    # 密钥对是硬门槛：缺了它 Tower 凭据解不开，等于换个坏状态继续。
+    if not values.get("SMARTX_SECRET_KEY") or not values.get("SMARTX_CREDENTIAL_KEY"):
+        return None
+    return "".join(f"{key}={values[key]}\n" for key in ENV_FILE_RECOVERABLE_KEYS if key in values)
+
+
+def ensure_env_file(context: ActionContext) -> dict[str, Any] | None:
+    """compose 前置检查：`project/.env` 必须是**常规文件**，是目录就地自愈。
+
+    为什么必须有：`.env` 一旦是目录，`docker compose` 读 `env_file` 直接失败
+    （`failed to read .../.env: is a directory`），平台升级的 restart 步骤退出码 14、
+    整单失败回滚；现场只看到「升级失败」，看不出根因（findings 2026-10-15/16）。
+
+    返回 `None` 表示无需处理；返回 dict 表示**已修复**（调用方应记进任务日志）。
+    修不了就抛错——绝不带病继续（那只会把失败推迟到 compose，丢掉可读原因）。
+    """
+    path = context.project_path / ".env"
+    if path.is_file() or path.is_symlink():
+        return None
+    if not path.exists():
+        # 缺失不是本次要修的缺陷（本缺陷是「被建成目录」）。凭空造 .env 会造出无密钥的假环境，
+        # 所以不猜；compose 自己的 `env file not found` 已经是可读错误。
+        logging.getLogger(__name__).warning("compose 前置检查：%s 不存在，交由 compose 报告", path)
+        return None
+    if not path.is_dir():
+        raise RuntimeError(f"compose 前置检查失败：{path} 既不是常规文件也不是目录。")
+    text = _recover_env_text_from_runtime(context)
+    if text is None:
+        raise RuntimeError(
+            f"compose 前置检查失败：{path} 是目录（历史 compose 的绝对路径 bind 被 Docker 建成了目录），"
+            "且无法从运行中的 web-api 容器回填密钥。请从升级前备份恢复 .env 后重试。"
+        )
+    shutil.rmtree(path)
+    _write_env_file(path, text)
+    repaired = {"repaired": True, "path": str(path), "keys": text.count("\n")}
+    logging.getLogger(__name__).warning(
+        "compose 前置检查：%s 原为目录（历史 bind 污染），已从运行中实例回填 %d 个键并重建为常规文件",
+        path,
+        repaired["keys"],
+    )
+    return repaired
 
 
 def _encrypted_tower_credential_count(database_path: Path) -> int:
@@ -1744,6 +1838,9 @@ def compose_apply(action: dict[str, Any], context_payload: dict[str, Any]) -> di
        apply 的作用域内，出现变化就是"执行者被自己动了"，宁可判失败也不静默降级。
     """
     context = _context(context_payload)
+    # compose 前置检查：`.env` 是目录就地自愈（历史 bind 污染），修不了就明确失败。
+    # 必须在任何 `docker compose up` 之前——否则失败会落在 compose 的退出码里，丢掉可读原因。
+    env_repair = ensure_env_file(context)
     override = context.compose_runtime_path / f"docker-compose.{context.task_id}.yml"
     requested = [str(item) for item in action.get("params", {}).get("services") or []]
 
@@ -1830,6 +1927,7 @@ def compose_apply(action: dict[str, Any], context_payload: dict[str, Any]) -> di
     result = {
         "services": services,
         "rejected_services": forbidden,
+        "env_file_repair": env_repair,
         "connected_networks": connected_networks,
         "diff": {
             "will_rebuild": will_rebuild,
@@ -3396,6 +3494,9 @@ def checkpoint_write(action: dict[str, Any], context_payload: dict[str, Any]) ->
 
 def rollback_restore(action: dict[str, Any], context_payload: dict[str, Any]) -> dict[str, Any]:
     context = _context(context_payload)
+    # 回滚必须能跑：`.env` 是目录时 compose stop/up 都会失败，回滚就无从执行（升级会卡在
+    # failed 而环境回不去）。这里先自愈，恢复备份后再检查一次（备份可能覆盖了 .env）。
+    ensure_env_file(context)
     params = action.get("params", {})
     services = [str(item) for item in params.get("services") or [] if item]
     if services:
@@ -3471,6 +3572,8 @@ def rollback_restore(action: dict[str, Any], context_payload: dict[str, Any]) ->
     override = Path(str(params.get("override_path") or ""))
     if override.is_file():
         override.unlink()
+    # 备份恢复可能又把 .env 覆盖回目录（历史备份里存的就是目录），再检查一次。
+    ensure_env_file(context)
     if services:
         context.executor.run(
             [

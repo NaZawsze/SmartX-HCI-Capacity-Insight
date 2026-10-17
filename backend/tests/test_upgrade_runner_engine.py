@@ -2554,6 +2554,8 @@ with sqlite3.connect("/fixture/smartx.db") as connection:
             (project / "existing.conf").write_text("old-existing", encoding="utf-8")
             executor = FakeExecutor()
             context = ActionContext.minimal(root, executor=executor, package_path=package, project_path=project)
+            # 回滚同样要过 compose 前置检查（.env 缺失会明确失败）
+            (context.project_path / ".env").write_text("SMARTX_ADMIN_USER=admin\n", encoding="utf-8")
             (context.data_path / "smartx.db").write_text("new-database", encoding="utf-8")
             (context.prometheus_path / "block-1").mkdir(parents=True)
             (context.prometheus_path / "block-1" / "meta.json").write_text("new-prometheus", encoding="utf-8")
@@ -2692,6 +2694,8 @@ with sqlite3.connect("/fixture/smartx.db") as connection:
             root = Path(tmpdir)
             executor = Executor()
             context = ActionContext.minimal(root, executor=executor)
+            # compose 前置检查要求 project/.env 是常规文件（缺失即明确失败，见 pending #93）
+            (context.project_path / ".env").write_text("SMARTX_ADMIN_USER=admin\n", encoding="utf-8")
             context.task_id = "upgrade-apply"
             context.compose_project = "smartx-hci-capacity-insight"
             override = context.compose_runtime_path / "docker-compose.upgrade-apply.yml"
@@ -2922,6 +2926,8 @@ with sqlite3.connect("/fixture/smartx.db") as connection:
             executor = Executor()
             context = ActionContext.minimal(root, executor=executor)
             context.current_container_id = "runner123"
+            # compose 前置检查要求 project/.env 是常规文件（见 pending #93）
+            (context.project_path / ".env").write_text("SMARTX_ADMIN_USER=admin\n", encoding="utf-8")
             (context.compose_runtime_path / "docker-compose.upgrade-task.yml").write_text("services: {}\n", encoding="utf-8")
 
             result = compose_apply({"params": {"services": ["web-api", "frontend"]}}, context.as_dict())

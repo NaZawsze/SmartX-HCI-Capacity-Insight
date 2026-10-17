@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from app.v2.tasks.models import TaskStatus, TaskType
@@ -20,13 +20,14 @@ from .fs import _now
 from .precheck import _runner_bootstrap, _runner_compose_project_name, _runner_only, _task_images, _task_services, _version_from_image
 from .taskfile import _completed_runner_task_view, _parse_datetime, _public_status, _read_task_file, _replace_step, _save_task_file, _step
 
-from .constants import RUNNER_NOT_DETECTED
+from .constants import RUNNER_HEARTBEAT_STALE_SECONDS, RUNNER_NOT_DETECTED
 from ..projection import project_if_newer
 from .runner_presence import (
     RUNNER_PRESENCE_SOURCES,
     active_task_lease_is_fresh,
     file_task_lease_is_fresh,
     instance_heartbeat_is_fresh,
+    parse_heartbeat,
     presence_source,
     read_state_file,
     state_file_instance_state,
@@ -34,6 +35,27 @@ from .runner_presence import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _heartbeat_hint(settings: Any) -> str:
+    """把「最后一次心跳」写进失败文案。
+
+    没有这段时，「runner 容器不在」与「runner 在但心跳循环停了」是**同一句**文案，
+    现场只能看到「未检测到心跳」而无从自助定位（2026-10-15 `.14` 实证：容器 Up、
+    heartbeat_at 滞后 18 分钟，日志里是 cutover 失败）。带上时间与窗口后，
+    「刚重启等一会」与「心跳真的停了」可以一眼区分。
+    """
+    state = read_state_file(settings)
+    heartbeat = parse_heartbeat((state or {}).get("heartbeat_at"))
+    if heartbeat is None:
+        return ""
+    age = int((datetime.now(timezone.utc) - heartbeat).total_seconds())
+    local = heartbeat.astimezone(timezone(timedelta(hours=8))).strftime("%m-%d %H:%M:%S")
+    return (
+        f"（最后心跳 {local}，距今 {age}s；判定窗口 {RUNNER_HEARTBEAT_STALE_SECONDS}s。"
+        "平台升级会重启 runner，刚重启时可能短暂不新鲜，稍后重试即可；"
+        "若持续超过窗口，请查 upgrade-runner 日志里的 cutover/handoff 失败）"
+    )
 
 
 def _should_stop_previous_runner(bootstrap: Any, current_project: str) -> bool:
@@ -535,9 +557,12 @@ class ExecutionMixin:
                 "name": "runner_protocol",
                 "ok": False,
                 "message": (
-                    f"未检测到 upgrade-runner 心跳，无法确认升级执行器能力。请先升级 upgrade-runner 到 {minimum_runner_version}。"
-                    if minimum_runner_version
-                    else "未检测到 upgrade-runner 心跳，无法确认升级执行器能力。"
+                    (
+                        f"未检测到 upgrade-runner 心跳，无法确认升级执行器能力。请先升级 upgrade-runner 到 {minimum_runner_version}。"
+                        if minimum_runner_version
+                        else "未检测到 upgrade-runner 心跳，无法确认升级执行器能力。"
+                    )
+                    + _heartbeat_hint(self.settings)
                 ),
                 "detail": {
                     "required_capabilities": list(manifest.get("required_capabilities") or []),
