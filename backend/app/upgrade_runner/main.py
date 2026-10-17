@@ -952,15 +952,42 @@ def main() -> None:
 
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
-    while not stop:
-        try:
-            run_pending_once(settings, owner=owner)
-        except Exception:  # noqa: BLE001 - 单轮失败不得让 runner 退出
-            # 最后一道防线：此前任何未捕获异常（如心跳撞库锁）都会终止进程，
-            # 靠 restart 策略拉起，升级中途反复重启有拖慢/卡住风险。
-            # 这里改为记录后继续下一轮（3 秒后），runner 保持存活。
-            logger.exception("runner 本轮执行异常，继续下一轮")
-        time.sleep(3)
+
+    # ── 实例心跳看门狗（#96）─────────────────────────────────────────────
+    # 此前实例心跳只在 `run_pending_once` 开头刷一次：进程活着但卡在某一轮里（例如
+    # cutover/handoff 失败后反复重试、或长时间阻塞在 docker 调用）时，`heartbeat_at`
+    # 会一路变旧，平台侧唯一症状是「未检测到 upgrade-runner 心跳」——**容器明明 Up**，
+    # 现场无法区分「runner 不在」与「runner 在但心跳停了」（`.14` 2026-10-15 实证：
+    # 容器 Up、心跳滞后 18 分钟，日志里是 `No such container: smartx-runner-cutover-…`）。
+    # 现在用独立守护线程每 5s 刷一次实例心跳，**与任务执行解耦**：只要进程活着，心跳就新鲜；
+    # 心跳真的停了就说明进程死了——语义重新变得可判定。
+    lease = LeaseManager(settings.database_path, owner)
+    stop_heartbeat = threading.Event()
+
+    def instance_heartbeat_loop() -> None:
+        while not stop_heartbeat.wait(5):
+            try:
+                lease.update_runner_state(settings.runner_version)
+            except Exception:  # noqa: BLE001 - 心跳线程绝不能死；失败下一轮继续
+                logger.warning("实例心跳刷新失败（下一轮继续）", exc_info=True)
+
+    heartbeat_thread = threading.Thread(
+        target=instance_heartbeat_loop, name="runner-instance-heartbeat", daemon=True
+    )
+    heartbeat_thread.start()
+    try:
+        while not stop:
+            try:
+                run_pending_once(settings, owner=owner)
+            except Exception:  # noqa: BLE001 - 单轮失败不得让 runner 退出
+                # 最后一道防线：此前任何未捕获异常（如心跳撞库锁）都会终止进程，
+                # 靠 restart 策略拉起，升级中途反复重启有拖慢/卡住风险。
+                # 这里改为记录后继续下一轮（3 秒后），runner 保持存活。
+                logger.exception("runner 本轮执行异常，继续下一轮")
+            time.sleep(3)
+    finally:
+        stop_heartbeat.set()
+        heartbeat_thread.join(timeout=2)
 
 
 if __name__ == "__main__":

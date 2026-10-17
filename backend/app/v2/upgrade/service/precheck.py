@@ -63,6 +63,9 @@ class PrecheckMixin:
                 # 新 runner（.12 两轮实测：启动后 10s SIGKILL / exit=137 / 心跳过期）。
                 # 源端镜像改不到，**只能拦截**：在预检查阶段明确告知正确顺序并阻断。
                 checks.append(_check_runner_first_order(manifest, self.settings))
+                checks.append(
+                    _check_component_platform(manifest, str(getattr(self.settings, "app_version", "") or ""))
+                )
             checks.append(_check_package_checksums(package_path))
             checks.append(
                 _check_disk_space(
@@ -201,6 +204,37 @@ def _check_runner_first_order(manifest: dict[str, Any], settings: Any) -> dict[s
             "后续升级预检查失败）。该源端镜像无法修改，**请先升级平台再升级 runner**"
             "（顺序铁律：默认先平台、后 runner）"
         ),
+    }
+
+
+def _check_component_platform(manifest: dict[str, Any], current_version: str) -> dict[str, Any]:
+    """#94-B：组件包声明的最低平台版本必须满足。
+
+    为什么需要：v0.5.2 及更早的 web-api 在**原地**做组件升级时会无条件 stop 掉刚启动的
+    新 runner（同 project 守卫只存在于 v0.5.3+），结果是 SIGKILL + handoff 死循环、
+    之后所有平台升级都被心跳预检查拒绝（`.14` 实证）。旧平台镜像改不到，所以让**组件包**
+    声明下限，由 v0.5.4+ 的平台在收包阶段拦截——这是唯一能覆盖 Web 界面路径的落点
+    （`upgrade.sh` 的硬拦截只覆盖 CLI）。
+    """
+    name = "component_platform"
+    minimum = str(manifest.get("minimum_platform_version") or "").strip()
+    if not minimum:
+        return {"name": name, "ok": True, "message": "组件包未声明最低平台版本（按旧行为放行）"}
+    if _version_tuple(current_version) >= _version_tuple(minimum):
+        return {
+            "name": name,
+            "ok": True,
+            "message": f"平台 {current_version} 满足组件包要求（≥ {minimum}）",
+        }
+    return {
+        "name": name,
+        "ok": False,
+        "message": (
+            f"组件包要求平台 ≥ {minimum}（当前 {current_version}）。"
+            "旧平台在原地做组件升级时会停掉刚启动的新 runner（实测 SIGKILL、心跳停摆，"
+            "之后所有平台升级都会被拒）。**请先升级平台**，再回来做组件升级。"
+        ),
+        "detail": {"minimum_platform_version": minimum, "current_version": current_version},
     }
 
 

@@ -487,6 +487,37 @@ class ExecutionMixin:
         return self._active_runner_state_from_docker()
 
 
+    def _runner_container_hint(self) -> str:
+        """runner 容器在但心跳陈旧时给出可区分线索（#96）。
+
+        此前「runner 容器不存在」与「容器在、心跳循环停了」是同一句文案，现场只能看到
+        「未检测到心跳」而无从自助定位（`.14` 实证：容器 Up、心跳滞后 18 分钟，
+        日志里是 cutover 失败）。这里补上容器实际状态，让两种情形一眼可分。
+        """
+        try:
+            output = self.executor.output(
+                [
+                    "docker",
+                    "ps",
+                    "-a",
+                    "--filter",
+                    "name=upgrade-runner",
+                    "--format",
+                    "{{.Names}}|{{.Status}}",
+                ]
+            )
+        except Exception:  # noqa: BLE001 - 探测失败不得让预检查抛错
+            return ""
+        lines = [line.strip() for line in str(output or "").splitlines() if line.strip()]
+        if not lines:
+            return "（未发现 upgrade-runner 容器）"
+        return (
+            "（runner 容器存在："
+            + "；".join(lines[:2])
+            + "——容器在而心跳陈旧，通常意味着 runner 进程卡住或心跳循环已停，"
+            "请查容器日志里的 cutover/handoff 失败）"
+        )
+
     def _active_runner_state_from_docker(self) -> dict[str, Any] | None:
         try:
             output = self.executor.output(
@@ -563,6 +594,7 @@ class ExecutionMixin:
                         else "未检测到 upgrade-runner 心跳，无法确认升级执行器能力。"
                     )
                     + _heartbeat_hint(self.settings)
+                    + self._runner_container_hint()
                 ),
                 "detail": {
                     "required_capabilities": list(manifest.get("required_capabilities") or []),

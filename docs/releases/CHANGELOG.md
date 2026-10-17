@@ -121,6 +121,15 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
 - **v0.5.2 平台做组件升级的救援死路（pending #94-A）**：`upgrade.sh` 在发起 runner 组件升级前检查
   平台版本，**v0.5.2 及更早直接拒绝**并给指引（旧平台 web-api 会无条件 stop 掉刚启动的新 runner →
   SIGKILL + handoff 死循环 → 之后所有平台升级被心跳预检查拒绝，`docker start` 也救不回来）。
+- **v0.5.2 上做组件升级的 Web 路径无拦截（pending #94-B）**：组件包 manifest 新增
+  `minimum_platform_version: v0.5.3`，平台预检查新增 `component_platform` 项——平台低于该值时
+  **在收包阶段就拒绝**并提示「先升级平台」。旧平台镜像改不到（`upgrade.sh` 的硬拦截只覆盖 CLI），
+  这是唯一能覆盖 Web 界面路径的落点。
+- **runner 心跳静默死亡不可判定（pending #96）**：`upgrade_runner/main.py` 增**实例心跳看门狗**
+  （独立守护线程每 5s 刷新，与任务执行解耦）——此前实例心跳只在每轮开头刷一次，进程活着但卡在
+  cutover/handoff 重试里时心跳会一路变旧，平台只报「未检测到心跳」；`upgrade-runner` 容器新增
+  `healthcheck`（状态文件超 90s 未更新即 `(unhealthy)`）；预检查失败文案补**容器实际状态**，
+  区分「runner 不在」与「容器在但心跳停了」。
 - **US-26（平台升级静默降级 runner）**：平台升级不再按包内基线 tag 重建现场更高的 runner。
 - **US-28 / #82（升级期数据库锁）**：runner 心跳与执行状态不再与 web-api 抢业务库写锁。
 - **场景 B/C 回滚可用性端点在 v0.5.4 每次调用都 500**（`.14` C1 真机实测发现，发布阻断）：

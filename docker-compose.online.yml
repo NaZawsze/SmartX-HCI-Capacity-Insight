@@ -97,6 +97,14 @@ services:
       - smartx-net
     restart: unless-stopped
 
+    healthcheck:
+      # #96：容器 Up 不等于 runner 活着。心跳文件（状态文件）超过 90s 未更新即判不健康，
+      # 这样 `docker ps` 能直接看到 `(unhealthy)`，而不是只能靠平台报「未检测到心跳」。
+      test: ["CMD-SHELL", "test $(( $$(date +%s) - $$(stat -c %Y /data/upgrade-runner-state.json) )) -lt 90"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
   prometheus:
     image: prom/prometheus:v2.55.1
     command:

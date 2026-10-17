@@ -132,6 +132,9 @@ if env_path.is_dir() and not env_path.is_symlink():
 
 ---
 
+> **实施状态（2026-10-17）**：A（`upgrade.sh` 硬拦截）与 **B（组件包 `minimum_platform_version` + 预检查 `component_platform`）** 均已实施；C 为文档指引。
+> 旧平台（≤ v0.5.2）在 Web 界面仍无法拦截——旧镜像不含该检查，只能靠交付 README 约束。
+
 ## 2. 问题 2：v0.5.2 平台上做组件升级会把自己卡死
 
 ### 2.1 现象（实测 `.14`）

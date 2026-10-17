@@ -26,6 +26,15 @@ def run(command: list[str], cwd: Path = ROOT) -> str:
     return completed.stdout
 
 
+MINIMUM_PLATFORM_VERSION = 'v0.5.3'
+"""组件包要求的最低平台版本（#94-B）。
+
+v0.5.2 及更早的 web-api 在**原地**做组件升级时会无条件 stop 掉刚启动的新 runner
+（同 project 守卫只存在于 v0.5.3+，US-04，`.14` 实证 SIGKILL exit=137 + handoff 死循环，
+之后所有平台升级都被心跳预检查拒绝）。旧平台镜像改不到，因此组件包**显式声明下限**，
+v0.5.4+ 的预检查据此在收包阶段就拦截。
+"""
+
 def normalize_version(value: str) -> str:
     version = value.strip()
     if not version.startswith('v'):
@@ -205,6 +214,7 @@ def build_package(version: str, min_version: str, output_dir: Path, build_image:
         'component': COMPONENT,
         'version': version,
         'min_version': min_version,
+        'minimum_platform_version': MINIMUM_PLATFORM_VERSION,
         'package_type': 'component',
         'bootstrap_runner': {
             'enabled': True,
