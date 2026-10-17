@@ -1308,3 +1308,20 @@ v0.5.3 目录迁移之后才生效的路径**，因此在老布局现场升 v0.5
 先做目录迁移再 apply compose；方案 B：web-api 启动时按**实际挂载**（而非默认路径）解析
 data_root，避免读到空库；方案 C：v0.5.2/v0.5.3 的交付 README 明确「升到 v0.5.2 后必须连续升到
 v0.5.3，不要在 v0.5.2 停留」。**在方案落地前，L3-c 只能验证到 v0.5.2 这一跳。**
+
+## 2026-10-17（P3 实测四）runner 自换死循环：handoff 步骤无幂等护栏，runner 重启后重复调度
+
+**现象（`.14`，L3-c 末跳前）**：幽灵任务 `upgrade-37a038971c8661c4`（run4 遗留，v0.5.2→v0.5.3）
+running 2h45m：任务文件 10:30 后不再更新，但租约一直被活 runner 续期；runner 容器 Up 3 小时
+（**容器本身没重启**）——handoff 后进程在容器内被入口重启 → 重新领到任务 →
+**再次执行 `schedule-target-runtime-handoff`**（该步骤"立即停止且不写状态"，无持久化标记）→
+无限循环，cutover 辅助容器每分钟级增生（每个都等父任务 success 后 force-recreate runner）。
+
+**诱因与缺陷的边界**：直接诱因是我上一轮做环境手术时删过 runner 容器，任务执行上下文丢失；
+但"重启后重复调度 handoff"本身是产品缺陷——handoff 只写运行时 compose、不写任务步骤状态，
+任何 runner 进程重启（崩溃/手工重建/OOM）都会落入同一循环，且**单飞守卫会因此锁死后续所有升级**。
+
+**恢复过程（全部走产品流程）**：`docker stop` runner（手动停不被 unless-stopped 拉起）→
+清 cutover 残留 → `POST /api/admin/upgrade/recovery/{id}/fail` 收敛为 failed
+（⚠️ 该接口对"无活 runner 的 running 任务"可用，正是 #89 的收敛路径，本次真实走通）→
+compose 重建 runner（心跳 1s 恢复）→ 重新上传启动 v0.5.3→r41 → **succeeded，health 全绿**。

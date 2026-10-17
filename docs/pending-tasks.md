@@ -178,6 +178,7 @@ P3 其余项（v1 死代码移除、helper 收敛、静默吞错清理、CORS �
 | **98** | **🟠 runner 被 SIGKILL 后不自动拉起 + 容器缺失时文案不可区分（#96 家族补强）** | 2026-10-17 P3 实证：`Exited (137)` 55 分钟未恢复（策略是 unless-stopped），平台升级全被心跳预检查锁死；r41 只覆盖「容器在但心跳停」，未覆盖「容器没了」 | 预检查直报容器缺失；README 补救援步骤（compose up -d --no-deps upgrade-runner）；v0.5.4 发布阻塞项，需设计文档 |
 | **99** | **🔴 v0.5.2 老布局升级后「撕裂态」：数据在旧库、容器挂新库，平台读到空库** | 2026-10-17 P3 L3-c 实证：v0.5.1u2→v0.5.2 成功后容器挂载变新布局、数据仍在旧布局，健康检查 false 且后续升级被卡 | **2026-10-17 已实施 C 方案**：交付 README 硬约束「必须连续升到 v0.5.3，禁止在 v0.5.2 停留」+ 救援脚本 `ops/repair-layout-migration.sh`（干跑默认）；**B 方案（代码按实际挂载解析 data_root）留 v0.5.5**。设计文档见 specs/2026-10-17-v052-layout-tearing-remediation-design.md |
 
+| **100** | **🟠 runner handoff 步骤无幂等护栏：进程重启后重复调度 → 自换死循环 + 单飞锁死** | 2026-10-17 P3 实证：handoff 只写运行时 compose 不写步骤状态，runner 进程重启（崩溃/手工重建）后 重新领任务 → 再次调度 handoff → 无限循环，cutover 容器增生，后续升级全被单飞守卫拒绝 | handoff 前持久化「已调度」标记（步骤状态/哨兵文件），重启后跳过；v0.5.4 发布阻塞项 |
 ## 已完成（2026-09-12，备查）## 已完成（2026-09-12，备查）
 
 - SQLite 治理：WAL + busy_timeout 5s + `tasks.updated_at`/`collection_runs.started_at/finished_at` 索引（.3 实库验证）。
