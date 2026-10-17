@@ -1263,3 +1263,27 @@ services:
 
 **修复**（`5587166`）：白名单补这两个键；新增两例守卫测试——必须覆盖宿主专属标记、
 必须覆盖 `.env.example` 全部键（防"新增配置项忘记加白名单"复发）。runner bump v0.3.4。
+
+## 2026-10-17（P3 实测二）#96 家族：runner 被 SIGKILL 后 `restart: unless-stopped` 未拉起，升级链路被自己的执行器锁死
+
+**现象（`.14`，v0.5.2 平台 + 误序组件升级触发）**：runner 换上 v0.3.4 后**只写了一次心跳**，
+容器 `Exited (137)`，此后 **55 分钟未恢复**，尽管 `HostConfig.RestartPolicy.Name = unless-stopped`。
+平台侧连续 5/5 报 `runner_protocol: 未检测到 upgrade-runner 心跳`，**所有平台升级被拒**——
+现场只能手工 `docker compose up -d upgrade-runner` 救回。
+
+**为什么难查**：同时存在第二个 runner 容器挂在**旧布局数据目录**上，在往另一个库写心跳；
+直接读那个库会看到「心跳新鲜」，极易误判成「平台读错库」。
+**判定口径：必须读平台容器 `SMARTX_DB_PATH` 实际对应的那份库**（用 `docker inspect` 的 Mounts 反推）。
+
+**修复（已执行，环境侧）**：删除两个异常 runner 容器 → 用产品 compose 重建 → 心跳恢复
+（1s 内新、持续推进）。
+
+**产品侧待办（下一轮，需设计文档）**：
+① 容器不存在 / Exited 时，平台预检查应直接报「upgrade-runner 容器缺失」而非笼统的「未检测到心跳」
+（r41 的 `_runner_container_hint` 已覆盖「容器在但心跳停」，未覆盖「容器没了」）；
+② 交付 README 补救援步骤：runner 一死 → `cd project && docker compose up -d --no-deps upgrade-runner`；
+③ healthcheck 只对运行中容器有效，需配合平台侧容器探测。
+
+**另一条环境侧教训（同次记录）**：harness 的「老布局基线」用了交付包的新布局 compose 跑
+v0.5.1u2 镜像 → 混合布局 → `directories:false, prometheus:false`、两个库 split-brain。
+**老布局基线必须用该版本包自带的 compose**，不能用当代交付包的 compose。

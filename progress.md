@@ -7056,3 +7056,12 @@ L4 制造的 `.env` 目录缺陷未进入 L3 的基线（每轮受控起点独�
 ② 旧 runner（v0.3.1）写心跳的周期实测 12s（旧代码约 3s）——是否被 DB 写锁拖慢；
 ③ 恢复手段：把 `.14` 重装到 v0.5.3 干净起点，或把 runner 容器重启后再试一跳。
 **证据**：`/data/p3/L3c.log`、`/data/p3/L3c-final.out`、`/data/p3/L3c-correct.log`。
+
+### L3-c 第二轮受阻与定性结论（2026-10-17 18:00）
+
+- 停掉空转驱动（10 分钟无进展）；`.14` 处于 v0.5.2、health `ok:false / directories=false / prometheus=false`
+  —— 根因是**基线搭建错误**：harness 用新布局 compose 跑旧镜像，混合布局导致健康检查失败 +
+  两个 DB split-brain（详见 findings 2026-10-17 二）。
+- **结论：L3-c 需要用正确方式重搭老布局基线**（用 v0.5.1u2 包自带 compose），
+  再按「先平台后组件」顺序跑 v0.5.2 → v0.5.3 → 组件 v0.3.4 → r41。
+- L3-a / L3-b（v0.5.3 正确起点）的 36 PASS / 0 FAIL 结论不受影响。

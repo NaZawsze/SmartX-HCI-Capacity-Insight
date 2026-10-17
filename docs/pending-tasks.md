@@ -175,6 +175,8 @@ P3 其余项（v1 死代码移除、helper 收敛、静默吞错清理、CORS �
 
 | **97** | **🟡 `.3` 无法执行 L0（缺 pip/venv，apt 镜像 404）** | 2026-10-17 P3 实测：`python3 -m pip` 不存在、`python3-venv` 装不上、系统 Python 缺 `docx/openpyxl` | 测试架构规定 L0 在 `.3` 执行，但该机无可用 Python 测试环境；本轮临时改在本地执行（已记录偏离）。**修复方向**：离线 wheel 包 / 复用容器镜像跑 L0 / 修复 apt 源。**影响**：仅工具链，不阻塞发布 |
 
+| **98** | **🟠 runner 被 SIGKILL 后不自动拉起 + 容器缺失时文案不可区分（#96 家族补强）** | 2026-10-17 P3 实证：`Exited (137)` 55 分钟未恢复（策略是 unless-stopped），平台升级全被心跳预检查锁死；r41 只覆盖「容器在但心跳停」，未覆盖「容器没了」 | 预检查直报容器缺失；README 补救援步骤（compose up -d --no-deps upgrade-runner）；v0.5.4 发布阻塞项，需设计文档 |
+
 ## 已完成（2026-09-12，备查）## 已完成（2026-09-12，备查）
 
 - SQLite 治理：WAL + busy_timeout 5s + `tasks.updated_at`/`collection_runs.started_at/finished_at` 索引（.3 实库验证）。
