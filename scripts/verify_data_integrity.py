@@ -54,9 +54,12 @@ STRICT_TABLES: dict[str, list[str]] = {
     "users": ["id", "username", "password_hash"],
 }
 #: 运行表：允许新增，已有行不得变化（用主键边界判定）。
+#: 注意：稳定列只选**升级过程中不会变**的字段。
+#: `tasks` 的 `status` / `updated_at` 会随任务推进而变化（running→succeeded 是正常业务语义），
+#: 纳入稳定列会把正常状态推进误报成"数据被改"（2026-10-18 L3-c 实测踩到）。
 GROWABLE_TABLES: dict[str, list[str]] = {
-    "tasks": ["id", "type", "status", "created_at"],
-    "collection_runs": ["id", "status", "started_at"],
+    "tasks": ["id", "type", "created_at"],
+    "collection_runs": ["id", "started_at"],
     "metric_snapshots": ["id", "tower_id", "collected_at"],
 }
 #: 迁移表：只增。
