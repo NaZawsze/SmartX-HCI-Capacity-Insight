@@ -162,6 +162,44 @@ class RunnerHealthcheckReconcileTest(unittest.TestCase):
 
             self.assertEqual(result.get("skipped"), "disabled")
 
+    def test_override_used_when_legacy_compose_lacks_healthcheck(self) -> None:
+        """遗留布局仍指向老变体（如 release.yml）时，用覆盖文件补 healthcheck 而不是放弃。"""
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from app.v2.database import V2Database
+        from app.v2.upgrade.settlement import HEALTHCHECK_OVERRIDE_NAME, reconcile_runner_healthcheck_once
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = self._settings(tmpdir)
+            database = V2Database(settings)
+            database.initialize()
+            legacy = Path(settings.project_path) / "docker-compose.release.yml"
+            legacy.write_text("services:\n  upgrade-runner:\n    image: x\n", encoding="utf-8")
+            # 模拟遗留布局：.env 里仍是老变体名
+            object.__setattr__(settings, "compose_file", "docker-compose.release.yml")
+
+            calls: list[list[str]] = []
+
+            def fake_run(argv, **kwargs):
+                calls.append(list(argv))
+                if argv[1] == "inspect":
+                    return SimpleNamespace(returncode=0, stdout="0\n", stderr="")
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            with patch("app.v2.upgrade.settlement.subprocess.run", side_effect=fake_run):
+                result = reconcile_runner_healthcheck_once(settings, database)
+
+            self.assertEqual(result, {"recreated": True})
+            compose_call = next(call for call in calls if call[1] == "compose")
+            self.assertIn(HEALTHCHECK_OVERRIDE_NAME, " ".join(compose_call))
+            self.assertIn("docker-compose.release.yml", compose_call)
+            # 覆盖文件路径 = 第二个 -f 之后的那一项（写到哪个候选目录应以实际命令为准）
+            override_args = [compose_call[i + 1] for i, a in enumerate(compose_call) if a == "-f"]
+            self.assertTrue(any(HEALTHCHECK_OVERRIDE_NAME in p for p in override_args))
+            written = [p for p in override_args if HEALTHCHECK_OVERRIDE_NAME in p]
+            self.assertTrue(written and Path(written[0]).is_file(), f"覆盖文件必须被写出：{written}")
+
 
 if __name__ == "__main__":
     unittest.main()

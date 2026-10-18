@@ -34,6 +34,56 @@ INTERVAL_ENV = "SMARTX_UPGRADE_SETTLEMENT_INTERVAL_SECONDS"
 #: runner 容器 healthcheck 补齐的开关（默认开启；设 0 关闭）。
 HEALTHCHECK_RECONCILE_ENV = "SMARTX_RUNNER_HEALTHCHECK_RECONCILE"
 
+#: 补齐用的覆盖文件名（只含 upgrade-runner 的 healthcheck，不动其他配置）。
+HEALTHCHECK_OVERRIDE_NAME = "docker-compose.healthcheck-reconcile.yml"
+
+#: 与交付 compose 保持一致的判据：状态文件不存在视为健康（基线 runner 没有看门狗），
+#: 存在但超过 90s 未更新才判不健康（#96 语义）。
+_HEALTHCHECK_TEST = (
+    "f=/data/upgrade-runner-state.json; "
+    "[ ! -f $$f ] || test $(( $$(date +%s) - $$(stat -c %Y $$f) )) -lt 90"
+)
+
+
+def _healthcheck_override_candidates(settings: Any) -> list[Path]:
+    """可写目录候选：容器内 compose-runtime 挂载点 → data_root 下的 compose-runtime → 项目目录。"""
+    candidates = [Path("/data/compose-runtime")]
+    data_root = getattr(settings, "data_root", None)
+    if data_root:
+        candidates.append(Path(data_root) / "compose-runtime")
+    project_path = getattr(settings, "project_path", None)
+    if project_path:
+        candidates.append(Path(project_path))
+    return candidates
+
+
+def _write_healthcheck_override(settings: Any) -> Path | None:
+    """写一份只含 runner healthcheck 的 compose 覆盖文件，返回路径（失败返回 None）。
+
+    为什么不直接改项目 compose：项目目录在 web-api 里是**只读挂载**，且遗留布局可能
+    仍在用 `docker-compose.release.yml` 这类不含 healthcheck 的老变体（`.12` 实测）。
+    用 `-f <现有变体> -f <覆盖>` 叠加，既补上 healthcheck，又不动该变体的其他配置。
+    """
+    content = (
+        "services:\n"
+        "  upgrade-runner:\n"
+        "    healthcheck:\n"
+        f"      test: [\"CMD-SHELL\", \"{_HEALTHCHECK_TEST}\"]\n"
+        "      interval: 30s\n"
+        "      timeout: 5s\n"
+        "      retries: 3\n"
+        "      start_period: 60s\n"
+    )
+    for directory in _healthcheck_override_candidates(settings):
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            path = directory / HEALTHCHECK_OVERRIDE_NAME
+            path.write_text(content, encoding="utf-8")
+            return path
+        except OSError:
+            continue
+    return None
+
 # 只有「执行成功」才兜底建清理任务；failed/rolled_back/rollback_failed 属取证链，不动。
 SETTLED_STATUSES = frozenset({"success", "succeeded"})
 
@@ -133,19 +183,28 @@ def reconcile_runner_healthcheck_once(settings: Any, database: Any) -> dict[str,
         return {"skipped": "already_healthy"}
 
     project_path = Path(getattr(settings, "project_path"))
-    compose_file = project_path / str(getattr(settings, "compose_file", "docker-compose.offline.yml"))
+    compose_name = str(getattr(settings, "compose_file", "docker-compose.offline.yml"))
+    compose_file = project_path / compose_name
+    command = [
+        "docker", "compose",
+        "-p", str(getattr(settings, "compose_project_name", "smartx-hci-capacity-insight")),
+        "-f", compose_name,
+    ]
     try:
-        if "healthcheck" not in compose_file.read_text(encoding="utf-8"):
-            return {"skipped": "compose_without_healthcheck"}
+        has_healthcheck = "healthcheck" in compose_file.read_text(encoding="utf-8")
     except OSError as exc:
         return {"skipped": f"compose_unreadable: {exc}"}
+    if not has_healthcheck:
+        # 遗留布局可能仍指向不含 healthcheck 的老变体（`.12` 实测：docker-compose.release.yml）
+        override = _write_healthcheck_override(settings)
+        if override is None:
+            return {"skipped": "compose_without_healthcheck"}
+        command += ["-f", str(override)]
+    command += ["up", "-d", "--no-deps", "upgrade-runner"]
 
     try:
         result = subprocess.run(
-            [
-                "docker", "compose", "-p", str(getattr(settings, "compose_project_name", "smartx-hci-capacity-insight")),
-                "-f", compose_file.name, "up", "-d", "--no-deps", "upgrade-runner",
-            ],
+            command,
             cwd=str(project_path), capture_output=True, text=True, timeout=180,
         )
     except Exception as exc:  # noqa: BLE001
