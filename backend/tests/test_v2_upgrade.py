@@ -199,7 +199,10 @@ class V2UpgradeServiceTest(unittest.TestCase):
                     """,
                     (
                         "runner-a",
-                        "v0.3.0",
+                        # v0.3.1 = manifest.minimum_runner_version：必须**通过**版本门禁，
+                        # 让本用例真正走到「能力缺失」拒绝路径（版本路径由
+                        # test_runner_presence_during_execution 覆盖，46fe0a6 起）。
+                        "v0.3.1",
                         1,
                         json.dumps(
                             [
@@ -224,7 +227,7 @@ class V2UpgradeServiceTest(unittest.TestCase):
             self.assertFalse(protocol_check["ok"])
             self.assertIn("compose.project_migrate.v1", protocol_check["message"])
             self.assertIn("请先升级 upgrade-runner 到 v0.3.1", protocol_check["message"])
-            self.assertEqual(protocol_check["detail"]["runner_version"], "v0.3.0")
+            self.assertEqual(protocol_check["detail"]["runner_version"], "v0.3.1")
             self.assertEqual(protocol_check["detail"]["minimum_runner_version"], "v0.3.1")
 
     def test_upload_parses_components_and_precheck_validates_archives_sha_and_project_files(self) -> None:
