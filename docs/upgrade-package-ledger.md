@@ -1355,3 +1355,30 @@ L5（回滚，`.12`）、L6（`.12` 同版本重装 + 矩阵回填）、时序�
 - L4.5：单飞守卫二次 start → **400**；升级窗口内 dashboard/reports/login 全 200、采集 202、**0 个 500**。
 
 **旧 r42 包（`10efa9cd…`）作废，不得再用于验收或发布。**
+
+## 2026-10-18（r42 二次重建）修复 #89 幽灵行 + #96 healthcheck 滞后
+
+**代码修复（提交 `a886a1d`）**：
+- **#89 自动化**：`UpgradeService.converge_orphan_running_tasks()` +
+  `settlement` 守护线程调用。收敛条件四项同时成立：类型 upgrade、状态 running/pending、
+  `upgrades/<id>/task.json` 不存在、无活租约且 `updated_at` 超 6h。
+  实测 `.12` 有任务自 2026-10-15 起停留 running 3 天（目录空、租约过期）从未收敛。
+- **#96 收尾**：`reconcile_runner_healthcheck_once()`。runner 自换的 bootstrap compose 由
+  **旧 runner** 写入（v0.3.1 模板无 healthcheck），导致 v0.3.1→v0.3.2 后容器永久失去
+  `(healthy)`/`(unhealthy)`。平台在**空闲时**用项目 compose 重建 runner 服务补齐；
+  开关 `SMARTX_RUNNER_HEALTHCHECK_RECONCILE=0`。
+- 测试：`backend/tests/test_upgrade_ghost_task_convergence.py`（7 例），
+  本地 7/7 OK，`.14` web-api 容器内 7/7 OK。
+
+**产物（`.3` 用 HEAD 重建）**：平台包 sha256
+**`74ce3006ddd347f3929b8f185051a9f18e87e94ff1661d2d4b77f7c0f612dd53`**，
+镜像 `web-api:v0.5.4` = `139578559e61`（包内校验 `ORPHAN_RUNNING_STALE_SECONDS=21600`、
+`converge_orphan_running_tasks`、`reconcile_runner_healthcheck_once` 均存在）；
+runner 组件包仍为 `e461738c…`。交付清单 `/data/upgrade-packages/SHA256SUMS-20261018185519`。
+
+**交付物活体验证（`.14`）**：全新安装 `INSTALL_EXIT=0`、运行镜像 `sha256:139578559e61…`；
+组件升级后 runner 先是 `NO-HEALTHCHECK`（滞后一跳复现）→ 守护线程重建后
+`Up 35 seconds (healthy)`；合成孤儿行 40s 内自动置 `failed`；八项全过
+（health ok、5 容器 Up、UI 200、legacy ABSENT、integrity ok/fk 0、120/240、.env 600/16 键、compose OK）。
+
+**作废**：`3d38cd23…`（首轮重建，缺上述两修复）不得再用于验收。
