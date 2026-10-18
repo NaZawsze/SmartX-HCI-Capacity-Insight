@@ -1500,3 +1500,13 @@ compose 项目名 `smartx-storage-forecast`、runner v0.3.0）装出 v0.5.1u2，
 
 **遗留（v0.5.2 包未声明 legacy_cleanup 所致，非 r42）**：老布局目录 `/opt/smartx-storage-forecast`、
 `/data/upgrades`、`/data/smartx-capacity-insight-data` 与旧 runner v0.3.0 容器不会被 post-cleanup 回收。
+
+## 2026-10-18（终态确认）
+
+- `.14`：干净安装终版 3（平台包 `24ef4a21…`），v0.5.4 + runner v0.3.1 基线，runner `(healthy)`，
+  八项全过。
+- `.12`：同版本重装到终版 3（镜像 `601329fc…`），v0.5.4 + runner v0.3.2 `(healthy)`，
+  `T0→T4` **36 PASS / 0 FAIL**，八项全过，`.env` 600/17 键、compose OK、UI 200、data 120/240，
+  幽灵任务保持 failed。
+- 过程中遇到一次上传被 SQLite 写锁挡下（提示 runner 组件升级后短暂持锁），稍后重试即成功——
+  该提示与重试指引符合预期，非缺陷。
