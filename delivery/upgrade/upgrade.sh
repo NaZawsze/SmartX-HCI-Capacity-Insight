@@ -253,19 +253,37 @@ _version_ge() {
   [ -n "$a" ] && [ -n "$b" ] || return 0
   [ "$(printf '%s\n%s\n' "$b" "$a" | sort -V | head -n1)" = "$b" ]
 }
+_runner_version_fresh() {
+  # 实时重读 health 的 runner 版本（带短重试）。
+  # 为什么必须重读：组件升级刚结束时状态文件虽已刷新，但 health 的在场判定可能仍短暂返回旧值
+  # （实测：runner v0.3.1→v0.3.2 完成后 10s 内 health 仍报 v0.3.1）。直接拿脚本开头的旧读数做
+  # 拦截决策，会把「刷新滞后」误判成「版本不足」——拦截必须建立在事实上，不能建立在过期缓存上。
+  local body value attempt
+  for attempt in 1 2 3 4 5; do
+    body="$(curl -s --max-time 10 "$HEALTH_URL" 2>/dev/null || true)"
+    value="$(printf '%s' "$body" | sed -nE 's/.*"runner_version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')"
+    if [ -n "$value" ]; then
+      printf '%s' "$value"
+      return 0
+    fi
+    sleep 4
+  done
+  printf '%s' "${1:-}"
+}
 if [ -n "$CURRENT_RUNNER" ] && [ -f "$PACKAGE" ]; then
+  RUNNER_NOW="$(_runner_version_fresh "$CURRENT_RUNNER")"
   MIN_RUNNER="$(tar xzOf "$PACKAGE" manifest.json 2>/dev/null \
     | sed -nE 's/.*"minimum_runner_version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -n1)"
-  if [ -n "$MIN_RUNNER" ] && ! _version_ge "$CURRENT_RUNNER" "$MIN_RUNNER"; then
-    DIE_HINT="  当前 upgrade-runner 为 ${CURRENT_RUNNER}，本平台包要求 ≥ ${MIN_RUNNER} 才能执行升级计划。
+  if [ -n "$MIN_RUNNER" ] && ! _version_ge "$RUNNER_NOW" "$MIN_RUNNER"; then
+    DIE_HINT="  当前 upgrade-runner 为 ${RUNNER_NOW}，本平台包要求 ≥ ${MIN_RUNNER} 才能执行升级计划。
   低于该版本的 runner 沙箱无法在 v0.5.2 之后的新布局下挂载包内迁移脚本，会在
   image.load 之后、compose.apply 之前失败，把环境留在半迁移态（L3-c 实测）。
   **正确顺序：先把 upgrade-runner 组件升到 ${MIN_RUNNER}**（Web 升级中心 → 组件升级，
   或对组件包调用 /api/admin/upgrade 的 component 上传与启动），再执行本次平台升级。
   **尚未发起任何升级**，环境未被改动。"
-    die "当前 upgrade-runner 低于升级包执行门槛（${CURRENT_RUNNER} < ${MIN_RUNNER}）" "$DIE_HINT"
+    die "当前 upgrade-runner 低于升级包执行门槛（${RUNNER_NOW} < ${MIN_RUNNER}）" "$DIE_HINT"
   fi
-  [ -n "$MIN_RUNNER" ] && info "runner 执行门槛：≥ ${MIN_RUNNER}（当前 ${CURRENT_RUNNER}）"
+  [ -n "$MIN_RUNNER" ] && info "runner 执行门槛：≥ ${MIN_RUNNER}（当前 ${RUNNER_NOW}）"
 fi
 
 # ── 登录取 token ──
