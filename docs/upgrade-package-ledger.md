@@ -1382,3 +1382,37 @@ runner 组件包仍为 `e461738c…`。交付清单 `/data/upgrade-packages/SHA2
 （health ok、5 容器 Up、UI 200、legacy ABSENT、integrity ok/fk 0、120/240、.env 600/16 键、compose OK）。
 
 **作废**：`3d38cd23…`（首轮重建，缺上述两修复）不得再用于验收。
+
+## 2026-10-18（r42 终版）L0–L6 全流程复跑与三项缺陷修复
+
+**本轮修复（提交 `151d28b`、`8f08e99`）**：
+- **49-43/49-45**：概览与报表的「本日新建/增长最快 VM」口径统一。Phase 75 旧实现是
+  「不在 `vm_latest` 就排除」，采集刚恢复、快照未落库时会把在用的新 VM 当已删除丢掉
+  （L0 实测：概览有 vm-new、报表为空）。新增 `with_series_only_labels()`/`db_vm_keys()`：
+  **库里存在但已删除/回收站 → 排除；库里完全没有 → 按未知保留**，两处共用同一份标签表。
+- **#96（安装态误报）**：交付安装 compose 钉已发布基线 runner v0.3.1，而 v0.3.1 没有
+  statefile 看门狗 → 全新安装 `docker ps` 永久 `(unhealthy)`。healthcheck 改为
+  `[ ! -f 状态文件 ] || test 距今 < 90s`：**文件不存在视为健康，存在但陈旧仍判不健康**。
+- 测试用例修正：`test_exports_retention` 6 个产物 mtime 全相同却断言顺序，改为递增 age。
+
+**最终产物**：
+- 平台包 `98d2851e5e38f08fc7cc1a9bafd9f2c8afae7870230a15c07033fe204442f4ed`
+- runner 包 `e461738ca8cbd1413c51885afe36dd389bd2964973832f27e0857656288fcd9b`
+- install 镜像：web-api `6ca2d716db10`、runner `0aca32511008`（v0.3.1 基线）
+- 交付清单 `/data/upgrade-packages/SHA256SUMS-20261018194706`
+
+**分层结果（`.14` / `.12`）**：
+| 层 | 结果 |
+| --- | --- |
+| L0 | 真实镜像内全量 **1273 项 OK（跳过 7）** |
+| L1 | 包身份 / runner 一致性 / 迁移 expand-only / 计划词汇 **四门禁全 PASS**（2 条已记录 WARN） |
+| L2 | 全新安装 8 项全过，runner **`(healthy)`**（修复前恒 unhealthy） |
+| L3-a | CLI 链 v0.5.3→组件→r42：两跳 succeeded，两段比对各 **36 PASS / 0 FAIL** |
+| L3-b | Web/API 链：两跳 succeeded，两段比对各 **36 PASS / 0 FAIL** |
+| L3-c | **未闭环**：老布局首跳 v0.5.1u2→v0.5.2 迁移缺陷（任务目录/DB 未同步、cutover 读不到 task.json），且 runner v0.3.0 产物已不存在（用 v0.3.1 夹具），属 v0.5.2 时代问题，非 r42 |
+| L4 | #93 `.env` 目录 → 预检查放行 + 自动重建（600/20 键，两枚密钥逐键一致）；#95 pause→unhealthy→unpause→healthy；#96 升级后 `NO-HEALTHCHECK` 由守护线程重建为 healthy |
+| L4.5 | 单飞守卫 **400**；升级窗口 dashboard/reports/login 全 200、采集 **202**、**0 个 500** |
+| L5 | `.12` 场景 B 应用回滚：`manual-rollback-20261018120627` succeeded，v0.5.4→v0.5.3，**Tr vs T0 = 36 PASS / 0 FAIL**（不动数据），随后升回 v0.5.4 |
+| L6 | `.12` 同版本重装 + 8 项全过；**幽灵任务 `upgrade-2ed73fd789f3ebc1` 自动 running→failed**（#89 修复生效） |
+
+**未跑**：L5 场景 C（整备回滚需可控的失败注入与对应时点快照）、L4 #94-A/B 负向用例（需 v0.5.2 平台）。
