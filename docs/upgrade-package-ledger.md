@@ -1460,3 +1460,43 @@ upgrade-runner healthcheck** 的覆盖文件，用 `-f <现有变体> -f <覆盖
 
 **产物汇总**：平台包 `10b6b731…`、runner 包 `e461738c…`、web-api 镜像 `4810e274…`、
 清单 `/data/upgrade-packages/SHA256SUMS-20261018202811`；本地提交 `b560e4b`、`1a7ea08`（未推送）。
+
+## 2026-10-18（L3-c 闭环）v0.5.1u2 → v0.5.2 → v0.5.4 全链路：两个真缺陷 + 一个修复
+
+**现场**：用**真实产物**（`/data/rel-*-v0.5.1u2|v0.5.2|v0.5.3.tar.gz`、`/data/rel-smartx-upgrade-runner-v0.3.1.tar.gz`）
+按旧布局（project=`/opt/smartx-storage-forecast`、数据=`/data/smartx-capacity-insight-data/app`、
+compose 项目名 `smartx-storage-forecast`、runner v0.3.0）装出 v0.5.1u2，再逐跳升级。
+
+**缺陷 1（v0.5.2 时代）：首跳后 runner 未替换、任务态跨库分裂**
+- v0.5.1u2 → v0.5.2 预检全过、升级**确实生效**（web-api 变 v0.5.2、项目改名、库迁到新布局），但：
+  - runner 容器仍是 `smartx-storage-forecast-upgrade-runner-1:v0.3.0`，新项目里**没有** runner 容器；
+  - 旧库任务 `success`，新库同一任务 `running` + 一条已复制过来的**租约**，而 `upgrades/<id>/` 目录为空；
+  - 轮询因 cutover 期间 API 不可达而超时（新 web-api 实际已起来）。
+
+**缺陷 2（候选可修）：v0.5.2 直连 v0.5.4 会在半迁移态失败**
+- 从 v0.5.2 装 runner 组件 v0.3.1 后，平台升 v0.5.4 的预检**放行**（runner_protocol 通过），
+  但执行到 `script.run_sandboxed` 报
+  `can't find '__main__' module in '/upgrade/run_migrations.py'`。
+- 根因：runner v0.3.1 的沙箱把**容器内**包路径原样 `-v` 给 docker（旧布局下容器路径=宿主路径所以能跑）；
+  v0.5.2 布局迁移后容器内 `/data/upgrades/...` 与宿主 `/data/smartx-storage-forecast/upgrades/...` 不再一致，
+  挂载源在宿主上不存在。失败发生在 image.load 之后、compose.apply 之前。
+- 本质是「能力集同名同数、实现不同」的 runner，能力级校验拦不住。
+
+**修复（提交 `0e1f2c9` 之后的 r42 线）**
+1. 平台包 manifest 区分「安装基线」与「**执行门槛**」：`minimum_runner_version` 对 v0.5.4 = **v0.3.2**
+   （`source_compatibility.min_version` 仍为 v0.5.2，两者分离；干净机仍可按已发布 v0.3.1 离线安装）。
+2. 预检查 `_check_runner_protocol` **真正比较版本号**（此前 `minimum_runner_version` 只出现在报错文案里）。
+3. `upgrade/upgrade.sh` 增加宿主侧硬拦截：读包 manifest 的 `minimum_runner_version` 与
+   `/api/system/health` 上报的 runner 版本比对，低于门槛即拒绝并给出「先组件、后平台」的正确顺序
+   ——覆盖跑着 v0.5.2 等旧平台、其预检查还没有版本门禁时 Web 拦不住的场景。
+
+**复验结果**
+- 旧顺序（v0.5.2 + runner v0.3.1 直连 v0.5.4）：CLI **被硬拦截**，环境未动（health 仍 v0.5.2/v0.3.1）。
+- 正确顺序（v0.5.2 → runner v0.3.2 → 平台 v0.5.4）：`upgrade-2ab10bdf784fbc24` **success**，
+  终态 v0.5.4 + runner v0.3.2、5 容器全新镜像、`integrity ok / fk 0`、UI 200，
+  `T1→终态 33 PASS / 0 FAIL`（33 而非 36：种子脚本与 v0.5.2 schema 不匹配，VM 计数类条目无数据，非失败）。
+- #89 修复在该真实遗留现场的条件全部满足（无 task.json、租约已过期），只是 `updated_at` 2.36h < 6h 阈值，
+  按保守设计将在到期后自动收敛为 failed。
+
+**遗留（v0.5.2 包未声明 legacy_cleanup 所致，非 r42）**：老布局目录 `/opt/smartx-storage-forecast`、
+`/data/upgrades`、`/data/smartx-capacity-insight-data` 与旧 runner v0.3.0 容器不会被 post-cleanup 回收。
