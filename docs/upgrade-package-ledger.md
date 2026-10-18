@@ -1322,3 +1322,36 @@ L5（回滚，`.12`）、L6（`.12` 同版本重装 + 矩阵回填）。
 
 **待跑（下一轮）**：L3-a/b/c（r42 为版本号重建，功能证据沿用 r41/r40 实测，仅版本号变更）、
 L5（回滚，`.12`）、L6（`.12` 同版本重装 + 矩阵回填）、时序补比、推送 origin（待用户授权）。
+
+## 2026-10-18（r42 重建）镜像与源码不一致 → 重建平台镜像并重组交付
+
+**触发**：L4 #93 实测发现 `web-api:v0.5.4` 镜像内 `ENV_FILE_SELF_HEAL_RUNNER_VERSION = (0, 3, 3)`，
+而源码（`cf775ab` 起）为 `(0, 3, 2)`。镜像构建于 **2026-10-17 22:09:40**，早于版本回退提交
+**22:57:53** 48 分钟；`install/images/web-api.tar` 与 `upgrade/packages/…/images/web-api.tar`
+的 config digest 同为 `7e76b28f8500…`（旧镜像）。即**版本回退只改了源码与包内 project 文件（23:07），
+没重建镜像**，形成「项目文件新、镜像旧」的混合交付。
+
+**影响**：runner 已是 v0.3.2，但镜像按 `(0,3,3)` 判断 → 预检查永远阻断 `.env` 自愈，且提示用户
+「升级到 v0.3.3」（该版本已回退、不存在）。#93 自动修复路径在旧交付上不可达。
+
+**重建（`.3`，HEAD `b45a08e`）**：
+- `python3 scripts/build_upgrade_package.py --output-dir …`（脚本临时把 `RUNNER_VERSION` 盖成
+  已发布基线 v0.3.1 再构建，构建后还原源码）。
+- 平台包 sha256 **`3d38cd23f5bc60801a149c4df3c2f1e912c71eca08dde54d70310e74e62ce027`**
+  （248597509 字节）；包内 `web-api` config digest **`162d71063943e041…`**。
+- 镜像内校验：`SELF_HEAL=(0,3,2)`、`RUNNER_VERSION_FILE=v0.3.1`、`VERSION_FILE=v0.5.4`；
+  `verify_upgrade_package_identity.py` → **EXIT 0**。
+- runner 组件包不变：`e461738ca8cbd1413c51885afe36dd389bd2964973832f27e0857656288fcd9b`。
+- 交付目录 `/data/upgrade-packages/smartx-capacity-insight-v0.5.4-offline`（1.4G），
+  清单 `/data/upgrade-packages/SHA256SUMS-20261018150240`。
+
+**重建后复验（`.14`）**：
+- L2 全新安装 8 项全过（运行中 web-api `sha256:162d7106…`）。
+- L3-a 复跑（v0.5.3 → 组件 v0.3.2 → 平台 v0.5.4）：两跳 `succeeded`，
+  `T0e→T1e` 与 `T1e→T2e` 均 **36 PASS / 0 FAIL**（4 条 prom WARN 为合成环境无 Prism 目标所致）。
+- L4 #93 由 **FAIL → PASS**：预检查放行并说明「执行器 v0.3.2 会在重启前回填并重建」，
+  `.env` 恢复为常规文件 mode 600、**20 键**（16→20，新增 4 个 `SMARTX_*`），
+  **两枚密钥逐键哈希一致**，同版本重装成功，数据 120/240 未变。
+- L4.5：单飞守卫二次 start → **400**；升级窗口内 dashboard/reports/login 全 200、采集 202、**0 个 500**。
+
+**旧 r42 包（`10efa9cd…`）作废，不得再用于验收或发布。**
