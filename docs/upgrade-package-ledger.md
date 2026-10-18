@@ -1439,3 +1439,24 @@ upgrade-runner healthcheck** 的覆盖文件，用 `-f <现有变体> -f <覆盖
 - `.12`（遗留 release 变体）升级后 runner `Up About a minute (healthy)`，
   healthcheck 正确附着；health `ok:true` v0.5.4/v0.3.2、UI 200、数据 120/240、
   integrity ok/fk 0；幽灵任务保持 failed。
+
+## 2026-10-18（终版 2 全流程复跑）L0–L6 完整回归
+
+按"修完重跑全流程"要求，在**终版 2 产物**（平台包 `10b6b731…`，web-api 镜像 `4810e274…`）
+上完整重跑：
+
+| 层 | 结果 |
+| --- | --- |
+| L0 | 真实镜像内全量 **1274 项 OK（跳过 7）**，EXIT=0（较上版 +1 例：新增覆盖文件用例） |
+| L1 | 身份 / runner 一致性 / 迁移 expand-only / 计划词汇 **四门禁全 PASS** |
+| L2 | `.14` 干净安装 `INSTALL_EXIT=0`，八项全过，runner **`(healthy)`**，镜像 `sha256:4810e274…` |
+| L3-a | CLI 链 v0.5.3 → 组件 v0.3.2 → 平台 v0.5.4：两跳 succeeded，`T0→T1`、`T1→T2` 各 **36 PASS / 0 FAIL** |
+| L3-b | Web/API 链：两跳 succeeded，两段比对各 **36 PASS / 0 FAIL** |
+| L3-c | **未闭环**：老布局首跳 v0.5.1u2→v0.5.2 迁移缺陷；runner v0.3.0 产物不存在（用 v0.3.1 夹具，有混淆因素），属 v0.5.2 时代问题 |
+| L4 | #93 `.env` 目录 → 预检查放行「执行器 v0.3.2 会在重启前回填」 → 同版本重装成功，`.env` 恢复为 600 常规文件、20 键，两枚密钥逐键 **SAME**；#95 pause 150s → `unhealthy`（平台报「未检测到 runner」）→ unpause 75s → `healthy`；#96 守护线程补齐后 `(healthy)` |
+| L4.5 | 单飞守卫 **400**；升级窗口 dashboard/reports/login 各 6 次全 200、采集 **202**、**0 个 500** |
+| L5 | （前版产物）`.12` 场景 B 回滚成功，Tr vs T0 **36 PASS / 0 FAIL** |
+| L6 | `.12` 同版本重装 + 八项全过、`T0→T3` **36 PASS / 0 FAIL**、镜像 `4810e274…`、runner `(healthy)`；**幽灵任务自动 running→failed** |
+
+**产物汇总**：平台包 `10b6b731…`、runner 包 `e461738c…`、web-api 镜像 `4810e274…`、
+清单 `/data/upgrade-packages/SHA256SUMS-20261018202811`；本地提交 `b560e4b`、`1a7ea08`（未推送）。
