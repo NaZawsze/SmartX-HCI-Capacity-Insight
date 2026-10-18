@@ -238,6 +238,36 @@ else
   warn "未找到 SHA256SUMS，跳过本地校验（建议交付包带上校验文件）"
 fi
 
+# ── L3-c 硬拦截：平台包声明的 runner 执行门槛 ──
+# 为什么要在这里也拦（而不只靠平台预检查）：跑着 v0.5.2 及更早平台时，它的预检查**还没有**
+# 版本门禁（r42 才加），Web 路径拦不住；CLI 是那条时间线上唯一能提前拦住的地方。
+# 实测根因：runner v0.3.1 的能力集与 v0.3.2 同名同数，能力级校验放行；但它的沙箱把**容器内**包路径
+# 原样挂给 docker（旧布局下容器路径=宿主路径所以能跑），v0.5.2 布局迁移后挂载源不存在 →
+# `can't find '__main__' module in '/upgrade/run_migrations.py'`，失败落在 image.load 之后、
+# compose.apply 之前，环境半迁移。故 v0.5.4 平台包要求 runner ≥ v0.3.2（先组件、后平台）。
+_version_ge() {
+  # $1 >= $2 ？（语义化版本，忽略 v 前缀；无法解析时返回"满足"以免误拦）
+  local a b
+  a="$(printf '%s' "$1" | sed 's/^[vV]//')"
+  b="$(printf '%s' "$2" | sed 's/^[vV]//')"
+  [ -n "$a" ] && [ -n "$b" ] || return 0
+  [ "$(printf '%s\n%s\n' "$b" "$a" | sort -V | head -n1)" = "$b" ]
+}
+if [ -n "$CURRENT_RUNNER" ] && [ -f "$PACKAGE" ]; then
+  MIN_RUNNER="$(tar xzOf "$PACKAGE" manifest.json 2>/dev/null \
+    | sed -nE 's/.*"minimum_runner_version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -n1)"
+  if [ -n "$MIN_RUNNER" ] && ! _version_ge "$CURRENT_RUNNER" "$MIN_RUNNER"; then
+    DIE_HINT="  当前 upgrade-runner 为 ${CURRENT_RUNNER}，本平台包要求 ≥ ${MIN_RUNNER} 才能执行升级计划。
+  低于该版本的 runner 沙箱无法在 v0.5.2 之后的新布局下挂载包内迁移脚本，会在
+  image.load 之后、compose.apply 之前失败，把环境留在半迁移态（L3-c 实测）。
+  **正确顺序：先把 upgrade-runner 组件升到 ${MIN_RUNNER}**（Web 升级中心 → 组件升级，
+  或对组件包调用 /api/admin/upgrade 的 component 上传与启动），再执行本次平台升级。
+  **尚未发起任何升级**，环境未被改动。"
+    die "当前 upgrade-runner 低于升级包执行门槛（${CURRENT_RUNNER} < ${MIN_RUNNER}）" "$DIE_HINT"
+  fi
+  [ -n "$MIN_RUNNER" ] && info "runner 执行门槛：≥ ${MIN_RUNNER}（当前 ${CURRENT_RUNNER}）"
+fi
+
 # ── 登录取 token ──
 LOGIN_BODY="$(curl -s --max-time 20 -X POST "$BASE_URL/api/auth/login" \
   -H 'Content-Type: application/json' \
