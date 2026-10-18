@@ -36,6 +36,11 @@ from .runner_presence import (
 
 logger = logging.getLogger(__name__)
 
+#: 孤儿任务行自动收敛阈值（秒）：task.json 已丢失、无 runner 持有、且停留超过该时长。
+#: 取 6 小时与既有僵尸规则（`cleanup/service.py` 的 6 小时）对齐，远大于任何正常升级耗时，
+#: 不会误伤「升级中 web-api 重启导致 status 暂时不可达」这类短窗口。
+ORPHAN_RUNNING_STALE_SECONDS = 6 * 3600
+
 
 def _heartbeat_hint(settings: Any) -> str:
     """把「最后一次心跳」写进失败文案。
@@ -420,6 +425,60 @@ class ExecutionMixin:
         view["logs"] = [message]
         view["orphan_converged"] = True
         return view
+
+    def converge_orphan_running_tasks(self, *, stale_seconds: int = ORPHAN_RUNNING_STALE_SECONDS) -> list[str]:
+        """后台自动收敛「产物已回收、任务行却停在执行中」的升级任务（#89 自动化）。
+
+        `_converge_orphan_task_row()` 只能由管理员显式调用 recovery/fail。实测（`.12`，
+        2026-10-18）：任务 `upgrade-2ed73fd789f3ebc1` 自 2026-10-15 起一直 `running`，
+        新布局 `upgrades/<id>/` 目录**空**、租约 3 天前已过期，任务中心永久显示「执行中」。
+        既有僵尸规则（`cleanup/service.py`）只在空间清理时**跳过**这类行，从不收敛状态。
+
+        只收敛同时满足四个条件的行，避免误伤真正在跑的任务：
+
+        1. 类型是 `upgrade`；
+        2. 状态是 `running` / `pending`；
+        3. `upgrades/<id>/task.json` 不存在（产物已被 post-cleanup 或删包回收）；
+        4. 无存活租约（与单飞守卫同源），且 `updated_at` 早于阈值。
+
+        收敛只改 DB 行，**不重建 task.json**（重建目录只会招来新的残留），也不做任何
+        清理/回滚——与 `_converge_orphan_task_row` 的边界保持一致。
+        """
+        converged: list[str] = []
+        cutoff = _now() - timedelta(seconds=max(int(stale_seconds), 0))
+        try:
+            with self.tasks.database.connection() as conn:
+                rows = conn.execute(
+                    "SELECT id, updated_at FROM tasks WHERE type = ? AND status IN (?, ?)",
+                    (TaskType.UPGRADE.value, TaskStatus.RUNNING.value, TaskStatus.PENDING.value),
+                ).fetchall()
+        except Exception as exc:  # noqa: BLE001 - 兜底线程不得因查询失败中断
+            logger.warning("orphan running sweep query failed: %s", exc)
+            return converged
+        for row in rows:
+            task_id = str(row["id"])
+            if (self.settings.upgrades_dir / task_id / "task.json").is_file():
+                continue
+            if self.task_has_live_runner(task_id):
+                continue
+            updated = _parse_datetime(row["updated_at"])
+            if updated is not None and updated > cutoff:
+                continue
+            message = (
+                "任务已自动收敛为失败：升级产物已被回收（任务目录不存在），且 upgrade-runner "
+                "不再持有该任务，任务行停留执行中已超过阈值。实际升级结果请以 "
+                "/api/system/health 的版本号为准；若版本已到达目标版本，可忽略本条记录。"
+            )
+            try:
+                self.tasks.update_task(task_id, status=TaskStatus.FAILED, progress=100, message=message)
+            except Exception as exc:  # noqa: BLE001 - 单行失败不影响其余
+                logger.warning("orphan running convergence failed for %s: %s", task_id, exc)
+                continue
+            converged.append(task_id)
+        if converged:
+            # 有任务「产物没了却还在显示执行中」属需人工留意的异常，用 warning 才可见
+            logger.warning("orphan running upgrade tasks converged to failed: %s", ", ".join(converged))
+        return converged
 
 
     def _set_recovery_command(self, task_id: str, command: str, message: str) -> dict[str, Any]:

@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import subprocess
 import threading
 from pathlib import Path
 from typing import Any
@@ -28,6 +30,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_INTERVAL_SECONDS = 300
 INTERVAL_ENV = "SMARTX_UPGRADE_SETTLEMENT_INTERVAL_SECONDS"
+
+#: runner 容器 healthcheck 补齐的开关（默认开启；设 0 关闭）。
+HEALTHCHECK_RECONCILE_ENV = "SMARTX_RUNNER_HEALTHCHECK_RECONCILE"
 
 # 只有「执行成功」才兜底建清理任务；failed/rolled_back/rollback_failed 属取证链，不动。
 SETTLED_STATUSES = frozenset({"success", "succeeded"})
@@ -81,7 +86,79 @@ def scan_missing_settlement(settings: Any) -> list[tuple[str, dict[str, Any]]]:
     return missing
 
 
-def ensure_settlement_once(settings: Any, database: Any) -> dict[str, list[Any]]:
+def _runner_container_name(settings: Any) -> str:
+    return f"{getattr(settings, 'compose_project_name', 'smartx-hci-capacity-insight')}-upgrade-runner-1"
+
+
+def _has_active_upgrade(database: Any) -> bool:
+    with database.connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE type = 'upgrade' AND status IN ('running','pending')"
+        ).fetchone()
+    return bool(row and row[0])
+
+
+def reconcile_runner_healthcheck_once(settings: Any, database: Any) -> dict[str, Any]:
+    """给 runner 容器补上 #96 healthcheck（升级路径「滞后一跳」的兜底）。
+
+    背景：runner 自换时，`compose-runtime/docker-compose.runner-bootstrap.yml` 由**旧** runner
+    写入。v0.3.1 的模板没有 healthcheck（#101 才加进模板），于是 v0.3.1→v0.3.2 升级后，
+    新 runner 容器继承的是这份无 healthcheck 的 compose —— `docker ps` 永远看不到
+    `(healthy)`/`(unhealthy)`，要等到下一次 runner 跳变才恢复。
+    实测（`.14`，2026-10-18）：组件升级后 `docker inspect .State.Health` 直接无此键。
+
+    修法：平台在**空闲**时（无 running/pending 升级任务）检查 runner 容器是否缺 healthcheck，
+    缺则用**项目 compose**（含 #96 healthcheck）重建该服务。任务已结束，重建不影响执行。
+    任何异常都只记日志、不抛——兜底线程必须存活。
+    """
+    if os.environ.get(HEALTHCHECK_RECONCILE_ENV, "1") == "0":
+        return {"skipped": "disabled"}
+    try:
+        if _has_active_upgrade(database):
+            return {"skipped": "active_upgrade"}
+    except Exception as exc:  # noqa: BLE001
+        return {"skipped": f"db_error: {exc}"}
+
+    container = _runner_container_name(settings)
+    try:
+        probe = subprocess.run(
+            ["docker", "inspect", "--format", "{{if .State.Health}}1{{else}}0{{end}}", container],
+            capture_output=True, text=True, timeout=15,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"skipped": f"inspect_error: {exc}"}
+    if probe.returncode != 0:
+        return {"skipped": "container_absent"}
+    if probe.stdout.strip() == "1":
+        return {"skipped": "already_healthy"}
+
+    project_path = Path(getattr(settings, "project_path"))
+    compose_file = project_path / str(getattr(settings, "compose_file", "docker-compose.offline.yml"))
+    try:
+        if "healthcheck" not in compose_file.read_text(encoding="utf-8"):
+            return {"skipped": "compose_without_healthcheck"}
+    except OSError as exc:
+        return {"skipped": f"compose_unreadable: {exc}"}
+
+    try:
+        result = subprocess.run(
+            [
+                "docker", "compose", "-p", str(getattr(settings, "compose_project_name", "smartx-hci-capacity-insight")),
+                "-f", compose_file.name, "up", "-d", "--no-deps", "upgrade-runner",
+            ],
+            cwd=str(project_path), capture_output=True, text=True, timeout=180,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"skipped": f"compose_error: {exc}"}
+    if result.returncode != 0:
+        error = (result.stderr or result.stdout or "").strip()[:400]
+        logger.warning("runner healthcheck reconcile failed for %s: %s", container, error)
+        return {"recreated": False, "error": error}
+    logger.warning("runner container recreated to attach #96 healthcheck: %s", container)
+    return {"recreated": True}
+
+
+def ensure_settlement_once(settings: Any, database: Any) -> dict[str, Any]:
     """对漏网任务补建升级后清理任务。单个失败不影响其余；整体幂等。
 
     同时**事件驱动**地投递升级后采集（US-06）：过去只能靠 worker 每 5 秒扫 `upgrades/*/`
@@ -120,7 +197,22 @@ def ensure_settlement_once(settings: Any, database: Any) -> dict[str, list[Any]]
             logger.info("post-upgrade collection dispatched: %s", dispatched)
     except Exception as exc:  # noqa: BLE001 - 采集投递失败不得影响清理兜底
         logger.warning("post-upgrade collection dispatch failed: %s", exc)
-    return {"created": created, "failed": failed}
+
+    # #89 自动化：产物已被回收、任务行却停在执行中的升级任务，超时后自动收敛为失败
+    converged: list[str] = []
+    try:
+        from app.v2.tasks.service import TaskService
+        from app.v2.upgrade.service import UpgradeService
+
+        sweep_service = UpgradeService(settings, TaskService(database), project_path=settings.project_path)
+        converged = sweep_service.converge_orphan_running_tasks()
+    except Exception as exc:  # noqa: BLE001 - 兜底线程不得因单个扫描失败而中断
+        logger.warning("orphan running sweep failed: %s", exc)
+
+    # #96 收尾：升级后 runner 容器可能继承「旧 runner 写的、无 healthcheck 的 bootstrap compose」
+    reconcile = reconcile_runner_healthcheck_once(settings, database)
+
+    return {"created": created, "failed": failed, "converged": converged, "healthcheck": reconcile}
 
 
 def _settlement_loop(settings: Any, database: Any, stop_event: threading.Event, interval_seconds: int) -> None:
