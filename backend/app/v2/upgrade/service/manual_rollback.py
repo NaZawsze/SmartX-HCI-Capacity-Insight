@@ -312,7 +312,8 @@ class ManualRollbackMixin:
             "data_loss_window": backup.get("data_loss_window", ""),
             "requires_confirmation": True,
             "note": (
-                "整备回滚会用升级前备份覆盖 SQLite/Prometheus，丢失升级时刻至今的采集数据"
+                "整备回滚会用升级前备份覆盖 SQLite（platform 范围的备份只含 app/smartx.db；"
+                "observability/bundle 范围才含 Prometheus 数据），并丢失升级时刻至今的采集数据"
                 "（v0.5.4 起支持，需本次升级捕获的回滚锚点与升级前备份）"
             ),
         }
