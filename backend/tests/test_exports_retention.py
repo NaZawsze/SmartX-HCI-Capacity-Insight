@@ -107,7 +107,9 @@ class ExportRetentionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             svc = self._service(tmpdir, upgrade_artifact_ttl_days=0)
             settings = svc.settings
-            items = self._seed(settings, "报表导出", 6, [0, 0, 0, 0, 0, 0])
+            # 必须给**递增**的 age，否则 6 个产物 mtime 完全相同，"保留最新的 N 个"无定义，
+            # 断言 items[0] 一定保留就是在赌目录遍历顺序（2026-10-18 L0 实测因此失败）。
+            items = self._seed(settings, "报表导出", 6, [0, 1, 2, 3, 4, 5])
 
             result = svc.cleanup()
 

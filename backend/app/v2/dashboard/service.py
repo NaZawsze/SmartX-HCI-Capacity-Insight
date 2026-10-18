@@ -17,9 +17,11 @@ from app.v2.vms.growth import (
     DAY_GROWTH,
     MONTH_GROWTH,
     compute_growth_vms,
+    db_vm_keys,
     latest_vm_items,
     merge_latest_items,
     series_tail_items,
+    with_series_only_labels,
 )
 from app.v2.vms.new_vm import collect_vm_first_seen, is_recycled_vm_name, merge_tower_created_at, period_bounds, tower_created_at_map
 from app.v2.vms.recycle import recycled_vm_keys
@@ -461,6 +463,14 @@ class DashboardService:
         latest_label_by_vm = {key: {"vm": name, "vm_name": name} for key, name in self._latest_vm_names().items()}
         # #36/#37 ②：回收站过滤统一走权威标记（in_recycle_bin），名字前缀仅兜底
         recycled_keys = recycled_vm_keys(self.database)
+        # 49-43/49-45：与报表共用「活跃 VM」口径——库里已删除的排除，库里完全没有的按未知保留
+        # （采集刚恢复、快照未落库时，序列里已有的 VM 不能被当成"已删除"丢掉）
+        latest_label_by_vm = with_series_only_labels(
+            latest_label_by_vm,
+            series_list,
+            recycled_keys=recycled_keys,
+            known_db_keys=db_vm_keys(self.database),
+        )
         latest_items = merge_latest_items(
             latest_vm_items(self.prometheus, tower_id=tower_id, cluster_id=cluster_id, enabled_scope=enabled_scope, recycled_keys=recycled_keys),
             series_tail_items(series_list, recycled_keys),

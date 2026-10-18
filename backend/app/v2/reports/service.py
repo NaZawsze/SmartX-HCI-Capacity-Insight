@@ -18,11 +18,13 @@ from app.v2.vms.growth import (
     DAY_GROWTH,
     MONTH_GROWTH,
     compute_growth_vms,
+    db_vm_keys,
     labels_with_latest_name,
     latest_vm_items,
     merge_latest_items,
     points_by_vm,
     series_tail_items,
+    with_series_only_labels,
 )
 from app.v2.vms.new_vm import collect_vm_first_seen, is_recycled_vm_name, merge_tower_created_at, period_bounds, tower_created_at_map, vm_display_name
 from app.v2.vms.recycle import recycled_vm_keys
@@ -185,6 +187,13 @@ class ReportService:
         recycled_keys = recycled_vm_keys(self.database)
         latest_vms = merge_latest_items(latest_vms, series_tail_items(vm_series, recycled_keys))
         latest_label_by_vm = self._latest_vm_labels()
+        # 49-43/49-45：与概览共用「活跃 VM」口径——库里已删除的排除，库里完全没有的按未知保留
+        latest_label_by_vm = with_series_only_labels(
+            latest_label_by_vm,
+            vm_series,
+            recycled_keys=recycled_keys,
+            known_db_keys=db_vm_keys(self.database),
+        )
         window_vms = _growth_reports_from_series(latest_vms, window_vm_series, period_days=window_days, limit=None, latest_label_by_vm=latest_label_by_vm, recycled_keys=recycled_keys)
         day_vms = _growth_reports_from_series(latest_vms, day_vm_series, period_days=1, limit=None, latest_label_by_vm=latest_label_by_vm, recycled_keys=recycled_keys)
         month_vms = _growth_reports_from_series(

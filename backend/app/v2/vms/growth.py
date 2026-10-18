@@ -33,6 +33,47 @@ def _is_recycled(metric: dict[str, Any], recycled_keys: set[tuple[int, str, str]
     return is_recycled_vm_name(vm_display_name(metric))
 
 
+def db_vm_keys(database: Any) -> set[tuple[int, str, str]]:
+    """元数据表里出现过的全部 VM 键（含已删除/回收站）。
+
+    用于区分「库里没有、只是快照还没落库」与「库里存在但已删除」两种情况——
+    前者应保留（采集刚恢复时序列已有样本），后者必须排除。
+    """
+    with database.connection() as conn:
+        rows = conn.execute("SELECT tower_id, cluster_id, vm_id FROM vm_latest").fetchall()
+    return {(int(row[0]), str(row[1]), str(row[2])) for row in rows}
+
+
+def with_series_only_labels(
+    labels: dict[tuple[int, str, str], dict[str, str]],
+    series_list: list[dict[str, Any]],
+    *,
+    recycled_keys: set[tuple[int, str, str]] | None = None,
+    known_db_keys: set[tuple[int, str, str]] | None = None,
+) -> dict[tuple[int, str, str], dict[str, str]]:
+    """把「序列里有、活跃元数据表里没有」的 VM 并入标签表（概览与报表共用）。
+
+    Phase 75 的原意是排除**已删除**的 VM，但旧实现写成「不在 `vm_latest` 就排除」。
+    采集刚恢复、快照尚未落库时，Prometheus 里已有的新 VM 会被概览/报表一起丢掉
+    （2026-10-18 L0 实测：概览 `day_new_vms` 有 vm-new、报表为空，违反 49-43 同源）。
+    这里改为：**库里存在但已删除/回收站的仍排除；库里完全没有的按「未知」保留**。
+    """
+    merged = dict(labels)
+    for series in series_list:
+        metric = series.get("metric") or {}
+        key = vm_key(metric)
+        if key in merged:
+            continue
+        if recycled_keys is not None and is_recycled_key(key, recycled_keys):
+            continue
+        if known_db_keys is not None and key in known_db_keys:
+            continue
+        if is_recycled_vm_name(vm_display_name(metric)):
+            continue
+        merged[key] = dict(metric)
+    return merged
+
+
 def latest_vm_items(
     prometheus: Any,
     *,
