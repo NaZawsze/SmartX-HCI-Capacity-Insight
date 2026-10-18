@@ -665,6 +665,32 @@ class ExecutionMixin:
             }
         capabilities = [str(item) for item in runner_state.get("capabilities") or []]
         protocol_version = int(runner_state.get("protocol_version") or 0)
+        # L3-c 实证（v0.5.1u2 → v0.5.2 → v0.5.4 直连）：runner v0.3.1 的能力集与 v0.3.2 同名同数，
+        # 但其沙箱把**容器内**包路径直接挂给 docker（旧布局下两者一致所以能跑），
+        # v0.5.2 布局迁移后挂成空路径 → `can't find '__main__' module in '/upgrade/run_migrations.py'`，
+        # 失败落在 image.load 之后、compose.apply 之前（环境半迁移）。能力级校验拦不住这种
+        # 「同能力不同实现」的 runner，必须比**版本号**：低于 manifest.minimum_runner_version 直接拒绝。
+        runner_version = str(runner_state.get("runner_version") or "").strip()
+        if minimum_runner_version and runner_version:
+            from .precheck import _version_tuple
+
+            if _version_tuple(runner_version) < _version_tuple(minimum_runner_version):
+                return {
+                    "name": "runner_protocol",
+                    "ok": False,
+                    "message": (
+                        f"upgrade-runner {runner_version} 低于升级包要求的 {minimum_runner_version}，"
+                        "无法执行本包的升级计划（实测会死在迁移脚本：沙箱挂载路径在 v0.5.2 之后的新布局下失效）。"
+                        f"**请先升级 upgrade-runner 到 {minimum_runner_version}**，再执行本次平台升级。"
+                    ),
+                    "detail": {
+                        "runner_version": runner_version,
+                        "minimum_runner_version": minimum_runner_version,
+                        "required_capabilities": list(manifest.get("required_capabilities") or []),
+                        "capabilities": capabilities,
+                        "heartbeat_at": runner_state.get("heartbeat_at"),
+                    },
+                }
         try:
             validate_manifest_compatibility(manifest, protocol_version, capabilities)
         except (ProtocolValidationError, TypeError, ValueError) as exc:

@@ -353,6 +353,29 @@ def _expected_web_api_runner_baseline(version: str) -> str:
     return "v0.3.1"
 
 
+#: 平台包**执行**所需的最低 runner 版本（与安装基线分开，见下方说明）。
+#: 只对确实依赖新版 runner 行为的平台包声明；未列出的版本返回 ""（走安装基线语义）。
+PLATFORM_EXECUTION_RUNNER_MINIMUM = {
+    "v0.5.4": "v0.3.2",
+}
+
+
+def _platform_execution_minimum_runner(version: str) -> str:
+    """执行本平台包所需的**最低 runner 版本**（不是安装基线）。
+
+    为什么要和 `_expected_web_api_runner_baseline()` 分开：安装基线按发布事实钉**已发布**版
+    （v0.5.2+ → v0.3.1），保证干净机能离线装起来；但「能装起来」不等于「能执行升级计划」。
+
+    L3-c 实证（v0.5.1u2 → v0.5.2 → 直连 v0.5.4）：runner v0.3.1 的**能力集**与 v0.3.2 同名同数，
+    能力级预检查放行；但 v0.3.1 的沙箱把**容器内**包路径原样挂给 docker（旧布局下容器路径=宿主路径
+    所以能跑），v0.5.2 布局迁移后挂载源不存在 → `can't find '__main__' module in
+    '/upgrade/run_migrations.py'`，失败发生在 image.load 之后、compose.apply 之前，环境半迁移。
+
+    因此这里显式声明执行门槛，让预检查在**收包阶段**就拒绝并给出正确顺序（先组件、后平台）。
+    """
+    return PLATFORM_EXECUTION_RUNNER_MINIMUM.get(str(version or "").strip(), "")
+
+
 def _read_web_api_image_identity(image: str) -> dict[str, Any]:
     script = f"""
 import json
@@ -1202,6 +1225,12 @@ def build_package(
     }
     if is_modern_platform_package:
         manifest["minimum_runner_version"] = _expected_web_api_runner_baseline(version)
+    # 「安装基线」与「执行门槛」是两件事：基线按发布事实钉已发布版（v0.5.2+ → v0.3.1），
+    # 而**执行**本包计划需要能跑 script.run_sandboxed 的 runner——v0.5.4 的计划依赖 v0.3.2 的
+    # 容器路径→宿主路径翻译（L3-c 实证：v0.3.1 在 v0.5.2 布局迁移后把包路径挂空，迁移脚本直接失败）。
+    execution_runner = _platform_execution_minimum_runner(version)
+    if execution_runner:
+        manifest["minimum_runner_version"] = execution_runner
     if _version_tuple(version) >= _version_tuple(TARGET_LAYOUT_FLOOR_VERSION):
         # A5b 触发面开关：compose.apply / post_upgrade.* 失败时自动回滚（opt-in）。
         # health.* 失败本来就无条件回滚（v0.5.3 起既有行为），不受这个键影响。

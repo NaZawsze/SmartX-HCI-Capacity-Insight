@@ -149,6 +149,53 @@ class RunnerPresenceTest(unittest.TestCase):
             check = service._check_runner_protocol(manifest)
         self.assertTrue(check["ok"], check)
 
+    def _set_instance_heartbeat_version(self, runner_version: str, value: str) -> None:
+        with self.database.connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO upgrade_runner_state
+                    (id, instance_id, runner_version, protocol_version, capabilities_json, heartbeat_at, updated_at)
+                VALUES (1, 'runner-a', ?, 1, ?, ?, ?)
+                """,
+                (runner_version, json.dumps(sorted(RUNNER_CAPABILITIES)), value, value),
+            )
+
+    def _platform_manifest(self, minimum_runner_version: str) -> dict:
+        return {
+            "schema_version": "3",
+            "minimum_runner_protocol": 1,
+            "minimum_runner_version": minimum_runner_version,
+            "required_capabilities": sorted(RUNNER_CAPABILITIES),
+            "components": [{"type": "platform", "services": ["web-api"], "images": []}],
+        }
+
+    def test_runner_protocol_rejects_runner_older_than_manifest_minimum(self):
+        """L3-c 实证门禁：能力集相同、版本更低 → 必须在收包阶段拒绝。"""
+        self._set_instance_heartbeat(self.stale)
+        self._add_lease(expires_delta_seconds=25, heartbeat=self.fresh)
+        service = self._service()
+        with mock.patch.object(UpgradeService, "_active_runner_state_from_docker", return_value=None):
+            check = service._check_runner_protocol(self._platform_manifest("v0.3.2"))
+        self.assertFalse(check["ok"], check)
+        self.assertIn("请先升级 upgrade-runner 到 v0.3.2", check["message"])
+        self.assertEqual(check["detail"]["runner_version"], "v0.3.1")
+        self.assertEqual(check["detail"]["minimum_runner_version"], "v0.3.2")
+
+    def test_runner_protocol_accepts_required_runner_version(self):
+        self._set_instance_heartbeat_version("v0.3.2", self.fresh)
+        service = self._service()
+        with mock.patch.object(UpgradeService, "_active_runner_state_from_docker", return_value=None):
+            check = service._check_runner_protocol(self._platform_manifest("v0.3.2"))
+        self.assertTrue(check["ok"], check)
+
+    def test_runner_protocol_without_declared_minimum_keeps_capability_gate(self):
+        self._set_instance_heartbeat(self.stale)
+        self._add_lease(expires_delta_seconds=25, heartbeat=self.fresh)
+        service = self._service()
+        with mock.patch.object(UpgradeService, "_active_runner_state_from_docker", return_value=None):
+            check = service._check_runner_protocol(self._platform_manifest(""))
+        self.assertTrue(check["ok"], check)
+
     def test_component_catalog_is_compatible_with_task_lease_source(self):
         self._set_instance_heartbeat(self.stale)
         self._add_lease(expires_delta_seconds=25, heartbeat=self.fresh)
