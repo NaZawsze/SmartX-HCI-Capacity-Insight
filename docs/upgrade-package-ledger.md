@@ -1416,3 +1416,26 @@ runner 组件包仍为 `e461738c…`。交付清单 `/data/upgrade-packages/SHA2
 | L6 | `.12` 同版本重装 + 8 项全过；**幽灵任务 `upgrade-2ed73fd789f3ebc1` 自动 running→failed**（#89 修复生效） |
 
 **未跑**：L5 场景 C（整备回滚需可控的失败注入与对应时点快照）、L4 #94-A/B 负向用例（需 v0.5.2 平台）。
+
+## 2026-10-18（r42 终版 2）healthcheck 补齐改用 compose 覆盖文件
+
+**发现**：`.14` 修好后，`.12` 的 runner 仍无 healthcheck。根因：`.12` 的 `.env` 仍是
+`SMARTX_COMPOSE_FILE=docker-compose.release.yml`（布局迁移未归一化 compose 变体），
+该老变体不含 healthcheck，原实现直接 `skip` → runner 永远没有 `(healthy)`。
+
+**修复（提交 `b560e4b`）**：当配置的 compose 变体缺 healthcheck 时，生成一份**只含
+upgrade-runner healthcheck** 的覆盖文件，用 `-f <现有变体> -f <覆盖>` 重建 runner；
+既补上判据，又不动该变体的其他配置。覆盖文件优先写 web-api 可写的
+`/data/compose-runtime`（回退项目目录）。新增测试 8/8 OK。
+
+**终版 2 产物**：
+- 平台包 `10b6b731eb4b0e8986cb72db951b3908a7025e3b89d131d1b8b0ad67eadac5e8`
+- runner 包 `e461738ca8cbd1413c51885afe36dd389bd2964973832f27e0857656288fcd9b`
+- web-api 镜像 `4810e2741cd1`（install 与升级两路一致）
+- 交付清单 `/data/upgrade-packages/SHA256SUMS-20261018202811`
+
+**真机验证**：
+- `.14` 同版本重装后 runner `healthy`，healthcheck 已是新判据。
+- `.12`（遗留 release 变体）升级后 runner `Up About a minute (healthy)`，
+  healthcheck 正确附着；health `ok:true` v0.5.4/v0.3.2、UI 200、数据 120/240、
+  integrity ok/fk 0；幽灵任务保持 failed。
