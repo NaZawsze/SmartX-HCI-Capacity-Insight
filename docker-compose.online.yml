@@ -98,9 +98,11 @@ services:
     restart: unless-stopped
 
     healthcheck:
-      # #96：容器 Up 不等于 runner 活着。心跳文件（状态文件）超过 90s 未更新即判不健康，
-      # 这样 `docker ps` 能直接看到 `(unhealthy)`，而不是只能靠平台报「未检测到心跳」。
-      test: ["CMD-SHELL", "test $(( $$(date +%s) - $$(stat -c %Y /data/upgrade-runner-state.json) )) -lt 90"]
+      # #96：容器 Up 不等于 runner 活着；心跳文件超过 90s 未更新即判不健康。
+      # 但「文件从未生成」不能判不健康：交付安装基线是**已发布** runner v0.3.1，
+      # 它没有 statefile 看门狗（v0.3.2 才有），全新安装时该文件本来就不存在。
+      # 否则全新安装的 runner 会永久显示 (unhealthy)，把「基线版本差异」误报成「故障」。
+      test: ["CMD-SHELL", "f=/data/upgrade-runner-state.json; [ ! -f $$f ] || test $(( $$(date +%s) - $$(stat -c %Y $$f) )) -lt 90"]
       interval: 30s
       timeout: 5s
       retries: 3
