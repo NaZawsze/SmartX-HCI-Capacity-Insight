@@ -97,7 +97,11 @@ L3 两轮均全清重装 v0.5.3 + 重新注数 + 新 T0，隔离性成立，故�
   ⑤SQLite `integrity_check=ok` + `foreign_key_check` 为空（用 `verify_data_integrity.py snapshot` 留 T0 基线）；
   ⑥`project/.env` 是**常规文件**且键数 ≥ 15、两枚密钥非空；
   ⑦`docker compose config --quiet` 通过；⑧升级前数据计数为 0 或符合预期。
-- **证据**：health JSON、`docker ps` 全量、`.env` 类型与行数、compose config 退出码。
+- **时间纪律（2026-10-20 加）**：`upgrade-runner` 的状态判定必须**在安装完成 ≥120 秒后再取一次**。
+  健康检查的 interval 是 30s、`start_period` 是 60s，且部分版本的判据依赖「状态文件是否仍在更新」——
+  装完立刻看到的 `(healthy)` 可能只是首帧。2026-10-20 实测：基线 runner v0.3.1 没有心跳看门狗，
+  按旧判据装好 90 秒后必然变 `unhealthy`，而此前各轮都在 90 秒内取值，缺陷一直没暴露。
+- **证据**：health JSON、`docker ps` 全量（**安装后 ≥120s 的那一次**）、`.env` 类型与行数、compose config 退出码。
 
 ### L3 升级链路（`.14` 首选）
 

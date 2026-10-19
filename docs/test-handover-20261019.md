@@ -1,8 +1,11 @@
 # 测试交接文档 · SmartX HCI Capacity Insight r42（v0.5.4 / runner v0.3.2）
 
 > 生成时间：2026-10-19 00:58（GMT+8）
-> 分支：`dev2`（本地已提交，**未推送 origin**，HEAD = `a4555be`）
-> 台账：本文所有结论的原始记录见 `docs/upgrade-package-ledger.md`；逐日流水见 `.workbuddy-ai/memory/2026-10-18.md`
+> **2026-10-20 接手轮已完成**：`a4555be` 已打进镜像并重组交付；L0–L6 + 跨版本兼容全部复跑。
+> 当前有效产物与结论见本文 §2、§3 的「接手轮」标注，以及
+> [upgrade-package-ledger.md](upgrade-package-ledger.md)「2026-10-19 ～ 10-20（接手轮）」节。
+> 分支：`dev2`（本地已提交，**未推送 origin**）
+> 台账：本文所有结论的原始记录见 `docs/upgrade-package-ledger.md`
 
 ---
 
@@ -30,19 +33,22 @@ r42 候选在**最终产物**上完成了 L0–L6 全流程测试：**L0 全量�
 
 ## 2. 当前产物（唯一有效版本）
 
-| 项 | 值 |
-| --- | --- |
-| 平台升级包 sha256 | `24ef4a21d38d7e69507258d14147268ff336e7f01bf7969618710805b054b117` |
-| runner 组件包 sha256 | `e461738ca8cbd1413c51885afe36dd389bd2964973832f27e0857656288fcd9b` |
-| web-api 镜像 id | `601329fc3c6523c811a44656c41ebc7fe0b6089b29f023789a8d9f6c9410b3c2` |
-| 离线交付目录 | `/data/upgrade-packages/smartx-capacity-insight-v0.5.4-offline`（1.4G） |
-| 交付清单 | `/data/upgrade-packages/SHA256SUMS-20261019002027` |
+> **接手轮状态（2026-10-20）**：§2 原表为交接时（不含 `a4555be`）的产物，其中的平台包
+> `24ef4a21…` 与清单 `SHA256SUMS-20261019002027` **已被取代**，不得再用于验收/发布。
 
-**已作废、不得再用于验收/发布的旧包**：`10efa9cd…`（v0.3.3 误判）、`74ce3006…`（缺概览/报表修复）、
+| 项 | 交接时（旧） | **接手轮（当前有效）** |
+| --- | --- | --- |
+| 平台升级包 sha256 | `24ef4a21…`（作废） | **`e7036b71a0b7377ff506da7a21b98796cc9213779edd2fbc9eb8fdd860f70976`** |
+| runner 组件包 sha256 | `e461738c…` | `e461738ca8cbd1413c51885afe36dd389bd2964973832f27e0857656288fcd9b`（未变） |
+| web-api 镜像 id | `601329fc…` | **`c187c727d21c`**（2026-10-19 01:15 构建，含 `a4555be`） |
+| 离线交付目录 | — | `/data/upgrade-packages/smartx-capacity-insight-v0.5.4-offline`（1.4G） |
+| 交付清单 | `SHA256SUMS-20261019002027` | **`/data/upgrade-packages/SHA256SUMS-20261020015125`** |
+
+**已作废、不得再用于验收/发布的旧包**：`24ef4a21…`（缺 `a4555be`，且交付内 `upgrade.sh`
+缺跨版本源版本门禁）、`10efa9cd…`（v0.3.3 误判）、`74ce3006…`（缺概览/报表修复）、
 `5e5b565b…`、`10b6b731…`、`3d38cd23…`、`98d2851e…`（均缺后续修复）。
 
-> ⚠️ **未部署的一次提交**：`a4555be`（整备回滚文案按备份范围表述）已提交但**尚未打进镜像**。
-> 接手后需重打平台包并重组交付（见 §7.3）。
+> ⚠️ 交接时登记的「未部署的一次提交 `a4555be`」**已在接手轮解决**：从 HEAD `2e385f1` 全量重建镜像与平台包。
 
 ---
 
@@ -89,12 +95,16 @@ r42 候选在**最终产物**上完成了 L0–L6 全流程测试：**L0 全量�
 
 ## 5. 未闭环 / 待办（按建议优先级）
 
-| # | 事项 | 阻塞原因 | 建议 |
+> **接手轮更新（2026-10-20）**：原待办 1、2 已完成；3、4 仍需用户决策/授权。新增待办见下表末尾。
+
+| # | 事项 | 状态 | 说明 |
 | --- | --- | --- | --- |
-| 1 | **`a4555be` 未部署**：文案修复还没打进镜像/交付 | 需重打平台包并重组交付 | 见 §7.3，约 6 分钟 |
-| 2 | **L4 #94-A/B 负向用例** | 需要 v0.5.2 平台做反例（#94-B 的拒绝逻辑已有单测覆盖，缺真机负向） | 用 `/data/rel-*-v0.5.2.tar.gz` 搭 v0.5.2 环境复现 |
-| 3 | **`.12` compose 变体归一化** | `.12` 仍跑 `docker-compose.release.yml`，可能缺 v0.5.4 其他 compose 变更；自动切变体有风险，**需产品决策** | 决策后在升级流程里把 `.env` 的 `SMARTX_COMPOSE_FILE` 归一化到本次交付变体 |
-| 4 | **推送 origin** | 需用户明确授权（本地领先 758 提交） | 授权后 `git push origin dev2` |
+| 1 | ~~`a4555be` 未部署~~ | **✅ 已完成** | 从 HEAD 全量重建镜像 + 平台包 `e7036b71…`，重组成交付（清单 `015125`）；`.12` 实升级后接口返回的整备回滚 note 已是新文案 |
+| 2 | ~~L4 #94-A/B 负向用例~~ | **✅ 已完成** | #94-A：v0.5.2 源端 CLI 硬拦截；#94-B：v0.5.4 平台 + 组件包要求 `v9.9.9` → `component_platform` 拒绝（真机）。**不再依赖 v0.5.2 平台**（旧平台根本没这项检查，永远放行——原描述有误） |
+| 3 | `.12` compose 变体归一化 | ⏸ 仍需**产品决策** | `.12` 仍跑 `docker-compose.release.yml`，healthcheck 由覆盖文件补；是否自动切换变体需定策 |
+| 4 | 推送 origin | ⏸ 需用户明确授权 | 本地领先 origin 若干提交 |
+| 5 | **新增**：`.14` 缺外网 → 前端门禁只能在 `.3` 跑 | 记录项 | 本轮已改为在 `.3` 执行：`tsc` EXIT=0、vitest 127 全过 |
+| 6 | **新增**：v0.5.2 源端手搭夹具的 runner 空闲心跳窗口 30s | 记录项 | 走完整跨版本跳时需先恢复 runner；属夹具操作，非产品缺陷 |
 
 **其他已知遗留（非 r42 引入，无需在候选内修）**：
 - v0.5.1u2→v0.5.2 首跳后 runner 未替换、任务态跨库分裂（v0.5.2 时代缺陷，已在 L3-c 记录）。
@@ -167,6 +177,21 @@ docker exec -e PYTHONPATH=/app:/app/repo/backend -w /app/repo/backend/tests <容
    做版本判定前要重读或等待，否则会误判（这就是缺陷 8 的由来）。
 7. **上传偶发 SQLite 写锁**（提示"runner 刚完成组件升级后短暂持有写锁"）：稍后重试即成功，非缺陷。
 8. **Bash 工具偶发整体故障**（所有命令 SIGTERM 137）：属执行环境间歇故障，恢复后重跑即可。
+9. **重组交付的标准动作**（当初 §7.3 的引用指向这里；原文没有 §7.3，属文档缺陷）：
+   ```bash
+   # 1) 打平台包（脚本自己会构建镜像；绝不要用上一次的源码树）
+   ssh .3 'rm -rf /home/user1/codex-build/r42-src && mkdir -p ... && tar xzf <head 归档> -C ... \
+     && grep -c "<本次修复的代码标记>" <该文件>   # 标记必须在场
+     && cd ... && python3 scripts/build_upgrade_package.py --output-dir /home/user1/r42-pkg-final'
+   # 2) 传到验证机，用 build_release_delivery.sh 复用两个包重组交付
+   ssh .14 'cd /data/build-r42n && bash scripts/build_release_delivery.sh \
+     --output-root /data/upgrade-packages --runner-baseline v0.3.1 \
+     --platform-package <新平台包> --runner-package <runner 包> \
+     --prometheus-archive /data/prometheus.tar'
+   ```
+   **前提**：`.14:/data/build-r42n` 必须与 `.3` 构建源码树是同一 commit（§7 第 2 条）。
+10. **`.14` 的 `/tmp` 是小 tmpfs（3.7G）**：反复解包升级包会撑满（本轮实测 `No space left on device`）。
+    解包体积大的包后要 `rm -rf /tmp/<dir>`。
 
 ---
 

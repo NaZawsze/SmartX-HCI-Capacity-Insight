@@ -1510,3 +1510,91 @@ compose 项目名 `smartx-storage-forecast`、runner v0.3.0）装出 v0.5.1u2，
   幽灵任务保持 failed。
 - 过程中遇到一次上传被 SQLite 写锁挡下（提示 runner 组件升级后短暂持锁），稍后重试即成功——
   该提示与重试指引符合预期，非缺陷。
+
+## 2026-10-19 ～ 10-20（接手轮）`a4555be` 打进镜像 + 全流程复跑 + 跨版本兼容实测
+
+**起点**：交接文档 `docs/test-handover-20261019.md`（HEAD `2e385f1`）。其待办 1 要求把
+`a4555be`（整备回滚文案按备份范围表述）打进镜像重组交付；本次从 HEAD 重跑 L0–L6，
+并补做**跨版本升级兼容**实测。
+
+**产物（本轮唯一有效）**：
+- **平台包 `cae31a9ee376f9289818a7cfdba8a85cc81c4c7be8109886c67e98135852d704`**
+  （最终，含 `a4555be` + 跨版本门禁 + healthcheck 版本感知；web-api 镜像 `263671ba…`）
+- runner 组件包 `e461738ca8cbd1413c51885afe36dd389bd2964973832f27e0857656288fcd9b`（未变）
+- **交付清单 `/data/upgrade-packages/SHA256SUMS-20261020020941`**
+- 中间产物（均已作废）：`e7036b71…`（首次重建，缺跨版本门禁修复）、
+  `24ef4a21…`（交接时产物，缺 `a4555be`）
+
+**分层结果（`.14` / `.12`）**：
+
+| 层 | 结果 | 证据 |
+| --- | --- | --- |
+| L0 | **1277 tests OK（skipped=7）**，EXIT=0 | 镜像内全量；两处测试夹具修复见下 |
+| L1 | 四门禁全 PASS（2 条已记录 WARN） | 身份 / runner 一致性 / 迁移 expand-only（4 条新增）/ 计划词汇 |
+| L2 | 全新安装 8 项全过，runner `(healthy)`，注标准数据集 120/240/3 | `/data/l2-r42f.log` |
+| L3-a | CLI 链：组件 `upgrade-73f8418b4654a14f` → 平台 succeeded；`T0→T1` 36 PASS | 同版本防呆也实测（未加 `--allow-same-version` 被拦） |
+| L3-b | API 链两跳 succeeded；`T0n→T1n` 36 PASS；runner 由守护线程补回 `(healthy)` | `/data/l3b-comp-r42f.log` `l3b-plat-r42f.log` |
+| L3-c | **闭环**：v0.5.1u2 → v0.5.2 → 组件 v0.3.2 → v0.5.4；数据 36 PASS、`schema_migrations`=4 | `/data/l3c-hop1.log` `l3c-hop2.log` `l3c-hop3.log` |
+| L4 #93 | `.env` 建成目录 → 预检查放行 + 自动重建（600/20 键、两枚密钥逐键 SAME） | `/data/l4-93.log`，数据 36 PASS |
+| L4 #95 | pause 150s → `unhealthy` + 平台「未检测到 runner」→ unpause 80s → `healthy` | — |
+| L4 #96 | 两次真实组件/平台跳后 runner 均由守护线程重建为 `(healthy)`（约 3–4 分钟） | web-api 日志「runner container recreated to attach #96 healthcheck」 |
+| L4 #94-A | v0.5.2 源端 CLI 硬拦截（runner 门槛），环境不动 | — |
+| L4 #94-B | **真机负向补齐**：把组件包 `minimum_platform_version` 改为 `v9.9.9` 上传到 v0.5.4 → `component_platform` 拒绝、`precheck ok=False`、start 被拒 | 见 §「跨版本」X7 |
+| L4.5 | 单飞二次 start **400**；dashboard/reports/login 各 6/6 = 200；采集 **202**；**0 个 500** | `/data/l45-r42f.log` `l45b-r42f.log` |
+| L5-B | `.12` `manual-rollback-20261019155150` → `rolled_back`，v0.5.4→v0.5.3，数据 36 PASS | — |
+| L5-C | `.12` `manual-full-rollback-20261019155931` → `succeeded`，数据 `Tr vs T0` 36 PASS | 回滚前用新包真实升到 v0.5.4 生成锚点 |
+| L6 | `.12` v0.5.3→v0.5.4 升级 succeeded + 八项全过 + `T0→T1` 36 PASS | 运行镜像 `c187c727…`；`a4555be` 文案已在接口返回中生效 |
+
+**测试与流程修复（本轮新增，非产品缺陷）**：
+1. `backend/tests/test_v2_upgrade.py`：`46fe0a6` 让预检查真正比版本号后，旧的「能力缺失」用例
+   夹具（runner v0.3.0 < 门槛 v0.3.1）先撞版本门禁，报错不含能力名 → 断言失败。夹具抬到 v0.3.1
+   （版本门禁由 `test_runner_presence_during_execution` 覆盖）。提交 `402a7fd`。
+2. `backend/build_tests/test_v2_package_builders.py`：`d5ddc63`（#93 治本）把 `.env` bind 源改成
+   相对 `./.env`，两条断言仍用绝对路径 → build_tests 2 失败。断言改为 `./.env`。提交 `e4d46b8`。
+3. 交接文档引用的 `§7.3`（重组交付步骤）在原文中**不存在**（全文只有 §7 坑位、§8 清单）；
+   本条已在交接文档补写指向真实流程的说明。
+
+**跨版本升级兼容实测（本轮重点）**：
+
+| 格 | 场景 | 结果 |
+| --- | --- | --- |
+| X1 | v0.5.3 + runner v0.3.1 → v0.5.4 | **被 CLI 硬拦截**（`v0.3.1 < v0.3.2`），环境未动 |
+| X2 | v0.5.3 + v0.3.1 → 组件 v0.3.2 → v0.5.4 | **成功**，数据 36 PASS，runner 保持 v0.3.2 |
+| X3 | v0.5.4 + v0.3.2 → v0.5.4（同版本重装） | **成功**，**US-26 判别通过**（runner 未被包基线 v0.3.1 降级） |
+| X4 | v0.5.2 + runner 不满足门槛 → v0.5.4 | **被拒且给正确路径**（先升 v0.5.3）；修复前给的是「先组件后平台」死胡同 |
+| X5 | v0.5.1u2（≤ 支持下限）→ v0.5.4 | **被拒**：`v0.5.1u2 ∉ v0.5.2 ~ v0.5.4` + 透传包内 remediation「先升 v0.5.3」 |
+| X6 | v0.5.2 → v0.5.3 → 组件 → v0.5.4（完整旧源链） | **L3-c 已实证**（hop1 v0.5.2 迁移成功、hop3 v0.5.4 成功、数据 36 PASS） |
+| X7 | v0.5.4 平台 + 组件包要求 `minimum_platform_version=v9.9.9` | **`component_platform` 拒绝**（真机负向，补齐 #94-B） |
+
+**跨版本兼容的两个真缺陷（本轮发现并修复）**：
+- **缺陷 A（`aeb97f9`）**：`upgrade.sh` 只查 runner 执行门槛，不查源版本支持范围。v0.5.1u2 源端
+  于是收到「先把 runner 升到 v0.3.2、再升平台」——但 v0.5.4 的 `source_compatibility` 是
+  v0.5.2~v0.5.4，照做会把客户带进**不受支持**的直升路径。修复：按包 manifest 先判源版本，
+  拒绝时原样透传包内 `remediation`（文案由包描述矩阵，不在脚本写死版本号）。
+- **缺陷 B（`a254fde`）**：v0.5.2 源端（runner 不满足门槛/不可判）得到「先组件后平台」提示，
+  而 v0.5.2 的 web-api 会无条件停掉刚启动的新 runner（US-04，实测 `exit=137`）——那是死胡同。
+  修复：源端 < v0.5.3 且 runner 不足时，直接给「先升平台到 v0.5.3 → 升 runner → 升本包」。
+  同时补 `_version_like`：health 在 runner 不在时返回「未检测到 runner」，
+  `_version_ge` 对不可解析值按满足处理，会让门槛被**静默跳过**。
+- 两个缺陷各配真机复测 + `backend/tests/test_upgrade_script_source_compat.py` 4 例（桩命令跑真脚本）。
+
+**第三个真缺陷（终包复查时发现，`7e3c9c0`）：基线 runner v0.3.1 约 90 秒后必然误报 `unhealthy`**
+- **现象**：全新安装起初 `(healthy)`，约 90 秒后变 `unhealthy`——`RestartCount=0`、容器 Up、
+  `health` API 仍 `ok:true`、`runner_version=v0.3.1`，runner 明明在跑。
+- **根因**：交付安装 compose 按版本治理钉**已发布基线 v0.3.1**，而实例心跳看门狗是
+  **v0.3.2 才有的**（v0.3.1 镜像内 `instance_heartbeat` 计数为 0，状态文件只在启动写一次）；
+  #96 判据「文件存在但超 90s 未更新 → 不健康」于是必然命中。
+- **修复**：healthcheck 先读 `/app/RUNNER_VERSION`，**低于 v0.3.2 直接判健康**；≥ v0.3.2 维持原判据。
+  三份交付 compose 与 `settlement.py` 的覆盖文件生成器同源（#101 教训）；runner 侧
+  `actions.py` 模板不动（它只在 runner 自换时用，那时运行的是 v0.3.2+）。
+- **为什么以前没抓到**：L2/L6 八项都在安装后几十秒内取值。**测试规范已补「≥120 秒后再取一次」**。
+- **真机验证**：基线 v0.3.1 容器重建后 160 秒仍 `(healthy)`、restarts=0；真实镜像三分支
+  （v0.3.1+陈旧=0 / v0.3.2+陈旧=1 / v0.3.2+新鲜=0 / v0.3.2+无文件=0）全对。
+  单测 `test_upgrade_resilience` 11 例 OK（含版本感知与同源断言）
+
+**环境限制（非缺陷，需在下版补齐）**：
+- `.14` 无外网 → 前端门禁改在 `.3` 跑：`tsc` EXIT=0、vitest **127 tests 全过**。
+- 合成数据集无真实 Prism/Tower 目标 → Prometheus 4 条 WARN、采集后台任务 failed（环境所致）。
+- `.12` 遗留容器 `smartx-storage-forecast-upgrade-runner-1`（v0.3.1，老 project）按宿主纪律未动。
+- v0.5.2 源端手搭环境的 runner 空闲心跳窗口仅 30s，走完整跳时需先 `docker start` 恢复；
+  这是手搭夹具的操作细节，不是产品缺陷。
