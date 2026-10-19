@@ -1529,8 +1529,8 @@ compose 项目名 `smartx-storage-forecast`、runner v0.3.0）装出 v0.5.1u2，
 
 | 层 | 结果 | 证据 |
 | --- | --- | --- |
-| L0 | **1277 tests OK（skipped=7）**，EXIT=0 | 镜像内全量；两处测试夹具修复见下 |
-| L1 | 四门禁全 PASS（2 条已记录 WARN） | 身份 / runner 一致性 / 迁移 expand-only（4 条新增）/ 计划词汇 |
+| L0 | **1283 tests OK（skipped=7）**，EXIT=0（终包复跑；首轮 1277，新增 6 例测试后） | 镜像内全量；两处测试夹具修复见下 |
+| L1 | 四门禁全 PASS（终包重跑 G1–G4 全 0；2 条已记录 WARN） | 身份 / runner 一致性 / 迁移 expand-only（4 条新增）/ 计划词汇 |
 | L2 | 全新安装 8 项全过，runner `(healthy)`，注标准数据集 120/240/3 | `/data/l2-r42f.log` |
 | L3-a | CLI 链：组件 `upgrade-73f8418b4654a14f` → 平台 succeeded；`T0→T1` 36 PASS | 同版本防呆也实测（未加 `--allow-same-version` 被拦） |
 | L3-b | API 链两跳 succeeded；`T0n→T1n` 36 PASS；runner 由守护线程补回 `(healthy)` | `/data/l3b-comp-r42f.log` `l3b-plat-r42f.log` |
@@ -1598,3 +1598,14 @@ compose 项目名 `smartx-storage-forecast`、runner v0.3.0）装出 v0.5.1u2，
 - `.12` 遗留容器 `smartx-storage-forecast-upgrade-runner-1`（v0.3.1，老 project）按宿主纪律未动。
 - v0.5.2 源端手搭环境的 runner 空闲心跳窗口仅 30s，走完整跳时需先 `docker start` 恢复；
   这是手搭夹具的操作细节，不是产品缺陷。
+
+**终包复验（更换到 `cae31a9e…` 之后）**：
+- `.14`：全清 → 全新安装 `INSTALL_EXIT=0`；**安装后 160 秒 runner 仍 `(healthy)`、restarts=0**
+  （缺陷 3 修复生效）；八项全过（UI 200、legacy 全无、integrity ok/fk 0、`.env` 600/16 键、
+  compose OK、镜像 `263671ba…`）；注标准数据集 120/240/3 → `f-t0` 36 PASS；
+  组件 v0.3.2 `succeeded` → 平台同版本 CLI `升级成功`（输出含「源版本支持范围 v0.5.2 ~ v0.5.4」
+  与「runner 执行门槛 ≥ v0.3.2」）→ `f-t0→f-t1` **36 PASS**；守护线程把 runner 重建为
+  `(healthy)` 且 healthcheck 为版本感知版。
+- `.12`：同版本重装终包 `升级成功`；八项全过（runner `(healthy)`、`.env` 600/17 键、
+  compose（release 变体）OK、镜像 `263671ba…`）；`ff-t0→ff-t1` **36 PASS**。
+- L1 四门禁在终包上重跑 **G1–G4 全 0**；`build_tests` **54 OK**；后端全量 **1283 OK（skipped=7）**。
