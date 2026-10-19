@@ -257,7 +257,9 @@ class V2PackageBuilderTest(unittest.TestCase):
             web_api_section = compose_text.split("  web-api:\n", 1)[1].split("  collector-worker:\n", 1)[0]
             self.assertIn("chmod 600 /run/smartx-runtime.env", web_api_section)
             self.assertIn("exec uvicorn app.v2.main:app --host 0.0.0.0 --port 8000", web_api_section)
-            self.assertIn("/data/smartx-storage-forecast/project/.env:/run/smartx-runtime.env", web_api_section)
+            # #93 治本（d5ddc63）：bind 源必须是相对 `./.env`，与 env_file 同源。
+            # 绝对路径在目标文件不存在时会被 Docker 建成空目录，导致后续 compose 读 .env 失败。
+            self.assertIn("./.env:/run/smartx-runtime.env", web_api_section)
         self.assertIn("/data/smartx-storage-forecast", release_notes)
         from app.v2.upgrade.compiler import compile_execution_plan
 
@@ -400,7 +402,8 @@ class V2PackageBuilderTest(unittest.TestCase):
             web_api_section = compose_text.split("  web-api:\n", 1)[1].split("  collector-worker:\n", 1)[0]
             self.assertIn("chmod 600 /run/smartx-runtime.env", web_api_section)
             self.assertIn("exec uvicorn app.v2.main:app --host 0.0.0.0 --port 8000", web_api_section)
-            self.assertIn("/opt/smartx-storage-forecast/.env:/run/smartx-runtime.env", web_api_section)
+            # 同上：桥包也必须用相对 bind 源（#93 治本对老布局同样有效）。
+            self.assertIn("./.env:/run/smartx-runtime.env", web_api_section)
             self.assertNotIn("smartx-hci-capacity-insight-net", compose_text)
             self.assertNotIn("/data/smartx-storage-forecast", compose_text)
             self.assertNotIn("10.249.251.0/24", compose_text)
