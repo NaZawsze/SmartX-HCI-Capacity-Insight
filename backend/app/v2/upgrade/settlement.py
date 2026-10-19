@@ -39,10 +39,22 @@ HEALTHCHECK_OVERRIDE_NAME = "docker-compose.healthcheck-reconcile.yml"
 
 #: 与交付 compose 保持一致的判据：状态文件不存在视为健康（基线 runner 没有看门狗），
 #: 存在但超过 90s 未更新才判不健康（#96 语义）。
-_HEALTHCHECK_TEST = (
-    "f=/data/upgrade-runner-state.json; "
-    "[ ! -f $$f ] || test $(( $$(date +%s) - $$(stat -c %Y $$f) )) -lt 90"
+#:
+#: 版本感知（2026-10-20 接手轮实测）：跳动租约/心跳的看门狗是 **v0.3.2 起**才有的；
+#: 交付安装基线钉已发布 v0.3.1，它只在启动时写一次状态文件。若仍按「存在但超 90s」判定，
+#: 全新安装约 90 秒后必然误报 `(unhealthy)`（RestartCount=0、health API 仍 ok）。因此先读
+#: 镜像内 RUNNER_VERSION，低于 v0.3.2 直接判健康。三处生成器（本文件、actions.py 运行时
+#: compose、三份交付 compose）必须同源——这是 #101 的教训。
+#:
+#: 写成多行脚本而不是一行分号串：`if … then … fi` 与 `||` 组合在一行里极易被引号/转义改坏，
+#: 且 block scalar 让交付 compose 与覆盖文件可逐行对齐（同源更可审计）。
+_HEALTHCHECK_SCRIPT_LINES = (
+    'v=$$(cat /app/RUNNER_VERSION 2>/dev/null)',
+    'if [ -n "$$v" ] && [ "$$(printf \'%s\\nv0.3.2\\n\' "$$v" | sort -V | head -n1)" != "v0.3.2" ]; then exit 0; fi',
+    "f=/data/upgrade-runner-state.json",
+    '[ ! -f "$$f" ] || test $(( $$(date +%s) - $$(stat -c %Y "$$f") )) -lt 90',
 )
+_HEALTHCHECK_TEST = "; ".join(_HEALTHCHECK_SCRIPT_LINES)
 
 
 def _healthcheck_override_candidates(settings: Any) -> list[Path]:
@@ -68,8 +80,11 @@ def _write_healthcheck_override(settings: Any) -> Path | None:
         "services:\n"
         "  upgrade-runner:\n"
         "    healthcheck:\n"
-        f"      test: [\"CMD-SHELL\", \"{_HEALTHCHECK_TEST}\"]\n"
-        "      interval: 30s\n"
+        "      test:\n"
+        "        - CMD-SHELL\n"
+        "        - |\n"
+        + "".join(f"          {line}\n" for line in _HEALTHCHECK_SCRIPT_LINES)
+        + "      interval: 30s\n"
         "      timeout: 5s\n"
         "      retries: 3\n"
         "      start_period: 60s\n"

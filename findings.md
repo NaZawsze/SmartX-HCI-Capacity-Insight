@@ -1359,3 +1359,32 @@ TZ/PATH 等不污染 .env）。校验器同步改为**必需键语义**：白名
 
 **修复**（runner v0.3.2）：生成器补同一段 healthcheck（状态文件 90s 未更新即不健康），
 单测锁死生成文件必含 `healthcheck:`/`upgrade-runner-state.json`/`-lt 90`。
+
+## 2026-10-20（接手轮实测）基线 runner v0.3.1 没有心跳看门狗 → 全新安装 90 秒后必然 `unhealthy`
+
+**现象**：`.14` 用最终交付全新安装，`docker ps` 起初显示 `upgrade-runner (healthy)`；
+约 90 秒后变为 `unhealthy`（`RestartCount=0`，容器一直在跑，health API 仍 `ok:true`、
+`runner_version=v0.3.1`）。此前各轮验收都在 90 秒内取值，所以从未暴露。
+
+**根因（两条判据叠加）**：
+1. 交付安装 compose 按版本治理钉**已发布基线 runner v0.3.1**（`--runner-baseline`），
+   而**实例心跳看门狗是 v0.3.2 才有的**（`backend/app/upgrade_runner/main.py` 的
+   `runner-instance-heartbeat` 线程；`docker exec … grep -c instance_heartbeat` 在 v0.3.1
+   镜像里为 **0**）。
+2. #96 的 healthcheck 判据是「状态文件不存在 → 健康；存在但超 90s 未更新 → 不健康」。
+   v0.3.1 启动时会**写一次**状态文件（`heartbeat_at`/`started_at`），于是文件存在、
+   且此后永不更新 → 90 秒后必然判不健康。
+
+**影响**：全新安装（以及任何仍跑基线 v0.3.1 的现场）在 90 秒后持续显示 `(unhealthy)`，
+是**误报**；运维会据此判断服务异常。升级链路本身不受影响（`health` API 仍 ok）。
+
+**为什么之前没抓到**：L2/L6 八项验收都是安装后几十秒内取值；L4 #95 是从 v0.3.2 起做的。
+本轮 L0 全量在 `.14` 上跑了约 9 分钟，期间容器一直运行，才把这条长效状态暴露出来。
+
+**修法（版本感知判据，不改已发布镜像）**：healthcheck 先读容器内 `/app/RUNNER_VERSION`，
+**低于 v0.3.2 的 runner 没有看门狗，健康检查不适用（直接判健康）**；≥ v0.3.2 维持
+「文件不存在→健康 / 存在但超 90s→不健康」。三份交付 compose、`settlement.py` 的
+覆盖文件生成器、`actions.py` 的运行时 compose 生成器三处必须同源（#101 教训）。
+
+**验证方式（以后每次必做）**：全新安装后**等 ≥120 秒**再取 `docker ps` 的 runner 状态，
+而不是装完立刻看——否则判据永远测不到这条。

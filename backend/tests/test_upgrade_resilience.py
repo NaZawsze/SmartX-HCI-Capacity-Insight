@@ -67,6 +67,30 @@ class RunnerHeartbeatWatchdogTests(unittest.TestCase):
             # 90s 与 RUNNER_HEARTBEAT_STALE_SECONDS 同量级：容器 Up 但心跳停 → unhealthy
             self.assertIn("-lt 90", block, name)
 
+    def test_healthcheck_is_version_aware_for_baseline_runner(self) -> None:
+        """交付 compose 的心跳判据必须按 runner 版本区分（2026-10-20 接手轮实测）。
+
+        交付安装基线钉已发布 v0.3.1，它**没有**周期心跳看门狗（`instance_heartbeat_loop`
+        是 v0.3.2 起的），只在启动时写一次状态文件。若仍按「文件存在但超 90s」判定，
+        全新安装约 90 秒后必然误报 `(unhealthy)`（实测 RestartCount=0、health API 仍 ok）。
+        """
+        for name in ("docker-compose.dev.yml", "docker-compose.offline.yml", "docker-compose.online.yml"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            start = text.index("  upgrade-runner:")
+            block = text[start:]
+            self.assertIn("/app/RUNNER_VERSION", block, name)
+            self.assertIn("v0.3.2", block, name)
+            self.assertIn("exit 0", block, name)
+
+    def test_healthcheck_override_matches_delivery_compose(self) -> None:
+        """settlement 的覆盖文件与三份交付 compose 必须同源（#101 的教训）。"""
+        from app.v2.upgrade import settlement
+
+        for name in ("docker-compose.dev.yml", "docker-compose.offline.yml", "docker-compose.online.yml"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            for line in settlement._HEALTHCHECK_SCRIPT_LINES:
+                self.assertIn(line, text, f"{name} 与 settlement 覆盖文件不同源：{line}")
+
 
 class RunnerContainerHintTests(unittest.TestCase):
     def _hint(self, output: str) -> str:
