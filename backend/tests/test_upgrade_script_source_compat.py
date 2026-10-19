@@ -107,6 +107,31 @@ class UpgradeScriptSourceCompatibilityTest(unittest.TestCase):
         self.assertNotIn("不在升级包支持范围内", output)
         self.assertNotIn("低于升级包执行门槛", output, "runner v0.3.2 已满足门槛，不应触发拦截")
 
+    def test_v052_source_without_runner_gets_v053_path(self) -> None:
+        """v0.5.2 源 + runner 不满足门槛：不得给「先组件后平台」这个死胡同。
+
+        US-04：v0.5.2 的 web-api 会无条件停掉刚启动的新 runner，所以那里升不上去。
+        正确指引是先升 v0.5.3（版本偏斜矩阵的 remediation）。
+        """
+        package = _write_package(self.tmp)
+        result = _run_upgrade(self.tmp, package, health={"ok": True, "version": "v0.5.2", "runner_version": "未检测到 runner"})
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("无法先升 runner", output)
+        self.assertIn("先把平台升到 v0.5.3", output)
+        self.assertIn("尚未发起任何升级", output)
+        self.assertNotIn("正确顺序：先把 upgrade-runner 组件升到", output)
+
+    def test_v053_source_with_low_runner_keeps_component_first_hint(self) -> None:
+        """v0.5.3 源 + runner v0.3.1：这里「先组件后平台」是正确顺序，必须保留。"""
+        package = _write_package(self.tmp)
+        result = _run_upgrade(self.tmp, package, health={"ok": True, "version": "v0.5.3", "runner_version": "v0.3.1"})
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("低于升级包执行门槛", output)
+        self.assertIn("先把 upgrade-runner 组件升到 v0.3.2", output)
+        self.assertNotIn("无法先升 runner", output)
+
 
 if __name__ == "__main__":
     unittest.main()

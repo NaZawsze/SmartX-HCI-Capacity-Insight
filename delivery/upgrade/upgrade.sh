@@ -253,6 +253,10 @@ _version_ge() {
   [ -n "$a" ] && [ -n "$b" ] || return 0
   [ "$(printf '%s\n%s\n' "$b" "$a" | sort -V | head -n1)" = "$b" ]
 }
+_version_like() {
+  # 是否是能比较的版本号（health 在 runner 不在时会返回「未检测到 runner」这类文案）
+  printf '%s' "$1" | grep -Eq '^[vV]?[0-9]+(\.[0-9]+)*$'
+}
 _runner_version_fresh() {
   # 实时重读 health 的 runner 版本（带短重试）。
   # 为什么必须重读：组件升级刚结束时状态文件虽已刷新，但 health 的在场判定可能仍短暂返回旧值
@@ -295,8 +299,19 @@ if [ -n "$CURRENT_RUNNER" ] && [ -f "$PACKAGE" ]; then
   RUNNER_NOW="$(_runner_version_fresh "$CURRENT_RUNNER")"
   MIN_RUNNER="$(tar xzOf "$PACKAGE" manifest.json 2>/dev/null \
     | sed -nE 's/.*"minimum_runner_version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -n1)"
-  if [ -n "$MIN_RUNNER" ] && ! _version_ge "$RUNNER_NOW" "$MIN_RUNNER"; then
-    DIE_HINT="  当前 upgrade-runner 为 ${RUNNER_NOW}，本平台包要求 ≥ ${MIN_RUNNER} 才能执行升级计划。
+  if [ -n "$MIN_RUNNER" ] && { ! _version_like "$RUNNER_NOW" || ! _version_ge "$RUNNER_NOW" "$MIN_RUNNER"; }; then
+    if _version_like "$CURRENT_VERSION" && ! _version_ge "$CURRENT_VERSION" "v0.5.3"; then
+      # 源端早于 v0.5.3：runner-first 在这里不可靠（源端 web-api 会无条件 stop 掉刚启动的新
+      # runner，US-04 实测 SIGKILL/exit=137），所以「先组件后平台」是死胡同。正确路径是先升
+      # v0.5.3（已发布包），再组件、再本包——与版本偏斜矩阵的 remediation 一致。
+      DIE_HINT="  当前平台为 ${CURRENT_VERSION}，runner 为 ${RUNNER_NOW:-未检测到}，不满足本包执行门槛 ≥ ${MIN_RUNNER}。
+  **但该源端不能先升 runner**：v0.5.2 及更早的 web-api 在原地做组件升级时会无条件停掉刚启动的
+  新 runner（US-04 实测 SIGKILL/exit=137，之后所有升级都被心跳预检查拒绝）。
+  **正确路径：先把平台升到 v0.5.3（已发布包），再升级 runner 到 ${MIN_RUNNER}，最后升级本包。**
+  **尚未发起任何升级**，环境未被改动。"
+      die "源端 ${CURRENT_VERSION} 无法先升 runner（US-04），且 runner 不满足门槛（${RUNNER_NOW:-未检测到} < ${MIN_RUNNER}）" "$DIE_HINT"
+    fi
+    DIE_HINT="  当前 upgrade-runner 为 ${RUNNER_NOW:-未检测到}，本平台包要求 ≥ ${MIN_RUNNER} 才能执行升级计划。
   低于该版本的 runner 沙箱无法在 v0.5.2 之后的新布局下挂载包内迁移脚本，会在
   image.load 之后、compose.apply 之前失败，把环境留在半迁移态（L3-c 实测）。
   **正确顺序：先把 upgrade-runner 组件升到 ${MIN_RUNNER}**（Web 升级中心 → 组件升级，
