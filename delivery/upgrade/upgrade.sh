@@ -270,6 +270,27 @@ _runner_version_fresh() {
   done
   printf '%s' "${1:-}"
 }
+# ── 跨版本硬拦截：平台包声明的源版本支持范围 ──
+# 为什么 CLI 也要拦：source_compatibility 预检查只存在于**源端**较新版本的 web-api；
+# 跑着 v0.5.1u2 / v0.5.2 时它根本不执行。runner 门槛虽然也会挡住，但给出的
+# 「先组件后平台」指引对 ≤v0.5.1u2 是**错的**——v0.5.4 不支持这些源，正确出路是先升 v0.5.3。
+# 因此按包 manifest 的 source_compatibility 先判源版本，并把包自带的 remediation 原样透传
+# （拒绝必须带出路；文案由包描述支持矩阵，不在脚本里写死版本号）。
+if [ -n "$CURRENT_VERSION" ] && [ -f "$PACKAGE" ]; then
+  SRC_FRAG="$(tar xzOf "$PACKAGE" manifest.json 2>/dev/null \
+    | tr -d '\n' \
+    | sed -E 's/.*"source_compatibility"[[:space:]]*:[[:space:]]*\{//; s/\}.*//')"
+  SRC_MIN="$(printf '%s' "$SRC_FRAG" | sed -nE 's/.*"min_version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -n1)"
+  SRC_MAX="$(printf '%s' "$SRC_FRAG" | sed -nE 's/.*"max_version_inclusive"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -n1)"
+  SRC_REMEDIATION="$(printf '%s' "$SRC_FRAG" | sed -nE 's/.*"remediation"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -n1)"
+  if [ -n "$SRC_MIN" ] && ! { _version_ge "$CURRENT_VERSION" "$SRC_MIN" && _version_ge "$SRC_MAX" "$CURRENT_VERSION"; }; then
+    DIE_HINT="  当前平台为 ${CURRENT_VERSION}，本升级包只支持源版本 ${SRC_MIN} ~ ${SRC_MAX:-?}。
+  ${SRC_REMEDIATION:-请先升级到受支持的源版本，再升级本包。}
+  **尚未发起任何升级**，环境未被改动。"
+    die "当前平台版本不在升级包支持范围内（${CURRENT_VERSION} ∉ ${SRC_MIN} ~ ${SRC_MAX:-?}）" "$DIE_HINT"
+  fi
+  [ -n "$SRC_MIN" ] && info "源版本支持范围：${SRC_MIN} ~ ${SRC_MAX}（当前 ${CURRENT_VERSION}）"
+fi
 if [ -n "$CURRENT_RUNNER" ] && [ -f "$PACKAGE" ]; then
   RUNNER_NOW="$(_runner_version_fresh "$CURRENT_RUNNER")"
   MIN_RUNNER="$(tar xzOf "$PACKAGE" manifest.json 2>/dev/null \
