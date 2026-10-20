@@ -1642,3 +1642,35 @@ compose 项目名 `smartx-storage-forecast`、runner v0.3.0）装出 v0.5.1u2，
 **处置**：把交付 runner 装到 `.12`（能力探针 `grep -c 'def ensure_env_file'` = 1）后同用例 **PASS**。
 **性质**：测试机状态漂移，非候选包缺陷；属 AGENTS §8 版本身份纪律的第二个实例，
 已记入 findings.md 与验证纪律（验证前用能力级探针核对运行中 runner）。
+
+## 2026-10-21 最终交付组装（`.3`）与 `.12` 验收
+
+**组装机**：`.3`（`/home/user1/codex-build/r42-final2`，源码 = `81a70e2`）。
+**交付目录**：`.3:/home/user1/r42-delivery-final/smartx-capacity-insight-v0.5.4-offline`
+（1.4G，5 镜像 tar + SHA256SUMS），清单 `SHA256SUMS-20261021022055`。
+
+| 产物 | SHA256 |
+| --- | --- |
+| 平台包 | `d235f14ca4737b76dec4ac7ff0b42f09fdd0524a8548e067150b48a1b217af34` |
+| runner 包 | `e461738ca8cbd1413c51885afe36dd389bd2964973832f27e0857656288fcd9b` |
+| web-api 镜像 | `a747f565ab9fe187862d6ff5eb990305f624b0a4252262aac341712ea26c90a4` |
+
+**组装时发现并修复一个发布阻断（`81a70e2`）**：G2 runner 交付一致性门禁 FAIL——
+`actions.py` 源码指纹 `ff821d5e…` 与交付镜像内 `ff27e087…` 不一致
+（md5 `a56b01eb…` vs `a6be49ca…`）。根因：`7e3c9c0` 曾给 `actions.py` 的运行时 compose 模板
+加了 3 行**纯注释**（无行为变化），但未重建 runner 镜像。按 AGENTS §8「runner 代码任何变化都要
+bump 版本 + 重建镜像」，本次选择**回退注释**（不改行为、不需要新镜像），恢复逐字节一致。
+修复后 G2 全 PASS。
+
+**`.3` L1 结果**：G1 身份 / **G2 runner 一致性** / G3 迁移 expand-only / G4 计划词汇 /
+发布文档脱敏 **全 PASS**；交付内 `upgrade.sh` 含源版本门禁、安装 compose 含版本感知 healthcheck。
+
+**`.12` 最终交付验收（全新安装路径）**：
+- 全清 → `install.sh --yes` `INSTALL_EXIT=0`；5 容器 Up、runner `(healthy)`、镜像 `a747f565…`
+- **安装后 ~210 秒 runner 仍 `(healthy)`、restarts=0**（缺陷 3 回归通过）
+- 八项全过：health ok / 5 容器 / UI 200 / legacy 全 ABSENT / integrity ok+fk 0 /
+  `.env` 600 常规文件 16 键 / compose OK / 镜像 `a747f565…`
+- 注标准数据集（120 VM / 240 卷 / 2 塔 / 3 集群 / 3 回收站）→ `r43-t0s` 自检 **36 PASS / 0 FAIL**
+  （注数据前空库自检按设计报 `data.present` FAIL，符合规范）
+- 组件升级（API）`succeeded` → 平台升级（CLI，同版本重装）`升级成功`
+  → `r43-t0s → r43-t1` **36 PASS / 0 FAIL**；runner 保持 `(healthy)`
