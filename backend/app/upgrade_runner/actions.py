@@ -2235,9 +2235,6 @@ def _write_runner_runtime_compose(context: ActionContext, params: dict[str, Any]
       # #101：自换运行时 compose 必须带 healthcheck——此前只加进三份交付 compose，
       # 平台升级后 runner 由本文件重建，会**永久失去 (unhealthy) 可见性**
       # （2026-10-18 L4.2 实测：pause 后 inspect 无 Health 条目）。
-      # 注：本模板只在 runner 自换/切换时使用，那一刻运行的 runner 已含心跳看门狗
-      # （v0.3.2+），因此这里保持简单的「超 90s 即不健康」判据即可。
-      # 基线 v0.3.1 的版本感知判据在平台侧（交付 compose + settlement 覆盖文件）。
       test: ["CMD-SHELL", "test $(( $(date +%s) - $(stat -c %Y /data/upgrade-runner-state.json) )) -lt 90"]
       interval: 30s
       timeout: 5s
