@@ -1518,11 +1518,12 @@ compose 项目名 `smartx-storage-forecast`、runner v0.3.0）装出 v0.5.1u2，
 并补做**跨版本升级兼容**实测。
 
 **产物（本轮唯一有效）**：
-- **平台包 `cae31a9ee376f9289818a7cfdba8a85cc81c4c7be8109886c67e98135852d704`**
-  （最终，含 `a4555be` + 跨版本门禁 + healthcheck 版本感知；web-api 镜像 `263671ba…`）
+- **平台包 `d235f14ca4737b76dec4ac7ff0b42f09fdd0524a8548e067150b48a1b217af34`**
+  （最终；含 `a4555be` + 跨版本门禁 + healthcheck 版本感知 + 投影兜底/忙判据同源；
+  web-api 镜像 `a747f565…`）
 - runner 组件包 `e461738ca8cbd1413c51885afe36dd389bd2964973832f27e0857656288fcd9b`（未变）
-- **交付清单 `/data/upgrade-packages/SHA256SUMS-20261020020941`**
-- 中间产物（均已作废）：`e7036b71…`（首次重建，缺跨版本门禁修复）、
+- **交付清单 `/data/upgrade-packages/SHA256SUMS-20261020202304`**
+- 中间产物（均已作废）：`cae31a9e…`（缺投影兜底）、`e7036b71…`（缺跨版本门禁）、
   `24ef4a21…`（交接时产物，缺 `a4555be`）
 
 **分层结果（`.14` / `.12`）**：
@@ -1599,13 +1600,24 @@ compose 项目名 `smartx-storage-forecast`、runner v0.3.0）装出 v0.5.1u2，
 - v0.5.2 源端手搭环境的 runner 空闲心跳窗口仅 30s，走完整跳时需先 `docker start` 恢复；
   这是手搭夹具的操作细节，不是产品缺陷。
 
-**终包复验（更换到 `cae31a9e…` 之后）**：
-- `.14`：全清 → 全新安装 `INSTALL_EXIT=0`；**安装后 160 秒 runner 仍 `(healthy)`、restarts=0**
-  （缺陷 3 修复生效）；八项全过（UI 200、legacy 全无、integrity ok/fk 0、`.env` 600/16 键、
-  compose OK、镜像 `263671ba…`）；注标准数据集 120/240/3 → `f-t0` 36 PASS；
-  组件 v0.3.2 `succeeded` → 平台同版本 CLI `升级成功`（输出含「源版本支持范围 v0.5.2 ~ v0.5.4」
-  与「runner 执行门槛 ≥ v0.3.2」）→ `f-t0→f-t1` **36 PASS**；守护线程把 runner 重建为
-  `(healthy)` 且 healthcheck 为版本感知版。
-- `.12`：同版本重装终包 `升级成功`；八项全过（runner `(healthy)`、`.env` 600/17 键、
-  compose（release 变体）OK、镜像 `263671ba…`）；`ff-t0→ff-t1` **36 PASS**。
-- L1 四门禁在终包上重跑 **G1–G4 全 0**；`build_tests` **54 OK**；后端全量 **1283 OK（skipped=7）**。
+**第四个真缺陷（终包二次复查时发现，`2a0ddb1`）：DB 投影滞后 → 任务中心显示「执行中」，并连带挡住 healthcheck 补齐**
+- **现象**：一次平台升级实际已完成（`task.json` = `success`），`tasks` 表同一行却停在 `running`
+  达 18 分钟以上；连带 `reconcile_runner_healthcheck_once` 用 DB 判「忙」→ 一直
+  `skipped: active_upgrade`，runner 始终没有 healthcheck（`docker ps` 无 `(healthy)`）。
+- **根因（两处）**：① 投影只由 `GET /status` 轮询驱动，任务在最后一次轮询后收尾就永不收敛；
+  ② 「是否忙」有两个来源——单飞守卫读 `task.json`，结算线程读 DB → 必然分裂。
+- **修复**：新增 `project_finished_tasks_once()`（每轮把**已收尾**任务幂等投影进表）；
+  `_has_active_upgrade()` 改读 `task.json`（与守卫同源）。
+- **真机验证（`.14`）**：把一条已收尾任务的 DB 行强改回 `running`，**完全不轮询**
+  （`GET /status` 计数未增），一个 300s 结算周期后自动变 `success` 且补上 `finished_at`；
+  runner 补齐不再被陈旧行阻塞。单测 11 例 OK。
+- **为什么以前没抓到**：CLI 与 Web 升级都会持续轮询，投影随之发生；只有「任务在最后一次
+  轮询后收尾」才暴露。本轮 L5/L3 连跑多次才撞上。
+
+**终包复验（更换到 `d235f14c…` 之后）**：
+- `.14`：升级安装最终镜像 `a747f565…`；**L0 1286 tests OK（skipped=7）**；
+  L1 四门禁 G1–G4 全 0 + 发布文档脱敏 + api 契约门禁均 PASS；
+  `build_tests` 54 OK；前端 `tsc` 0 + vitest **127**；
+  L4 #93 自愈（600/20 键、两密钥 SAME、数据 36 PASS）、#95 pause→unhealthy→unpause→healthy；
+  投影兜底真机验证（见上）。
+- `.12`：同版本重装 `升级成功`，镜像 `a747f565…`、runner `(healthy)`、`fff-t0→fff-t1` **36 PASS**。

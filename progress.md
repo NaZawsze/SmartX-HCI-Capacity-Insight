@@ -7189,3 +7189,39 @@ v0.3.2 为 v0.5.4 开发线候选、未发布。
 - `docs/test-handover-20261019.md`：修正引用不存在的 `§7.3`（补写真实重组流程为 §7 第 9 条）、
   更新产物表与待办状态、标注旧产物作废。
 - `findings.md`：新增缺陷 3 的完整根因与验证纪律。
+
+## 2026-10-20 续：终包补充测试（发布门禁 / #93 / L3-b / L5 / 投影兜底缺陷）
+
+按用户「继续测试，测试完成之后再进行提交」执行。全部在终包上完成，顺序：
+
+1. **发布文档与契约门禁**：`verify_release_docs_safe.py` PASS（脱敏扫描）；
+   `verify_api_docs` → api.md 82 条与后端 81 路由一致。
+2. **L4 #93（终包）**：`.env` 建成目录 → 预检查放行 + 执行器回填 → 恢复 600 常规文件、
+   **20 键**、两枚密钥逐键 SAME；数据 `f-t1→f-t93` **36 PASS**。
+3. **L3-b（终包）**：v0.5.3 基线 → 组件 `upgrade-d27523e8b32c4e0c` → 平台 `upgrade-2322031afb8ecfab`，
+   两跳 succeeded；`l3b2-t0→l3b2-t1` **36 PASS**；镜像 `263671ba…`；
+   `a4555be` 的整备回滚 note 已在接口返回中生效。
+4. **L5 B/C（终包）**：B `manual-rollback-20261020114824` → `rolled_back`（数据 36 PASS）；
+   C `manual-full-rollback-20261020115704` → `succeeded`（数据 36 PASS）；随后升回 v0.5.4。
+
+### 新发现（第四个产品缺陷，`2a0ddb1`）
+
+L5 之后 `.14` 的 runner 一直无 healthcheck。排查发现：
+- 一条升级任务 `task.json=success`，但 `tasks` 表停 `running`（**投影只由轮询驱动**）；
+- `reconcile_runner_healthcheck_once` 用 **DB** 判「是否有升级在跑」→ 一直
+  `skipped: active_upgrade` → runner 永远补不上 healthcheck；
+- 手动打开一次任务详情（触发投影）后，下一结算周期立刻补上 `(healthy)` —— 因果确认。
+
+修复：新增 `project_finished_tasks_once()`（结算线程每轮把已收尾任务幂等投影进表）；
+`_has_active_upgrade()` 改读 `task.json`（与单飞守卫同源）。
+
+**真机验证（`.14`，最终包 `d235f14c…` / 镜像 `a747f565…`）**：
+- 把已收尾任务的 DB 行强改回 `running`，**完全不轮询**（`GET /status` 计数未增），
+  一个 300s 结算周期后自动恢复 `success` + `finished_at`；
+- L0 **1286 tests OK（skipped=7）**；L1 G1–G4 全 0；发布文档 + api 契约 PASS；
+  `build_tests` 54 OK；前端 `tsc` 0 + vitest **127**；
+- L4 #95 在新包上：pause 150s → `unhealthy`（平台「未检测到 runner」）→ unpause → `healthy`。
+
+**最终产物**：平台包 `d235f14c…`、runner 包 `e461738c…`、
+交付清单 `SHA256SUMS-20261020202304`；`.14`/`.12` 均已在最终镜像 `a747f565…` 上，
+`.12` 数据 `fff-t0→fff-t1` **36 PASS**。
