@@ -1388,3 +1388,30 @@ TZ/PATH 等不污染 .env）。校验器同步改为**必需键语义**：白名
 
 **验证方式（以后每次必做）**：全新安装后**等 ≥120 秒**再取 `docker ps` 的 runner 状态，
 而不是装完立刻看——否则判据永远测不到这条。
+
+## 2026-10-20（接手轮补充实测）DB 投影滞后 → 任务中心显示「执行中」+ healthcheck 补齐被无限期挡住
+
+**现象（`.14`，终包）**：一次平台升级实际已完成（`upgrades/<id>/task.json` 的 `status=success`），
+但 `tasks` 表的同一行仍是 `running`。后果有两层：
+1. 任务中心 `/api/v2/tasks` 直接读表 → 用户会看到「执行中」一直不收敛（除非有人打开该任务详情）；
+2. **runner healthcheck 补齐被挡住**：`reconcile_runner_healthcheck_once()` 用
+   `_has_active_upgrade()` 判「是否空闲」，而它读的是 **DB**；DB 说 running 就一直
+   `skipped: active_upgrade`，runner 始终没有 healthcheck（`docker ps` 无 `(healthy)`）。
+   实测：手动调一次 `GET /api/admin/upgrade/status/<id>`（触发投影）后，DB 立刻变 success，
+   下一个结算周期（300s）补齐线程就把 runner 重建为 `(healthy)` —— 因果闭环确认。
+
+**根因（两处）**：
+1. **投影只由轮询驱动**：`ExecutionMixin.status()` 是唯一把 `task.json` 投影进 `tasks` 表的地方
+   （W2 设计：web-api 独占写）。任务在「最后一次轮询之后」收尾，DB 就永远停在旧状态。
+2. **两处「是否忙」判据不同源**：单飞守卫 `_ensure_no_active_upgrade()` 扫 `upgrades/*/task.json`；
+   结算线程的 `_has_active_upgrade()` 查 DB。同一条事实两个来源，必然出现「守卫说空闲、
+   补齐说忙」的分裂。
+
+**修法**：
+- 结算线程每轮扫一遍 `upgrades/*/task.json`，用 `project_if_newer()` 投影（幂等；事实源仍是文件），
+  使 DB 在无人轮询时也能在 ≤1 个周期内收敛到终态。
+- `_has_active_upgrade()` 改为以 **task.json** 为准（与单飞守卫同源）；DB 里无 task.json 的
+  幽灵行不再阻塞补齐——它们由 #89 的 `converge_orphan_running_tasks()` 负责收敛。
+
+**验证纪律**：升级/回滚后若要看 runner 的 `(healthy)`，不要只看一次 `docker ps`；
+先确认 `tasks` 行已是终态（或等一个结算周期）。

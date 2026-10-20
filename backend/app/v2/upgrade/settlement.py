@@ -37,6 +37,16 @@ HEALTHCHECK_RECONCILE_ENV = "SMARTX_RUNNER_HEALTHCHECK_RECONCILE"
 #: 补齐用的覆盖文件名（只含 upgrade-runner 的 healthcheck，不动其他配置）。
 HEALTHCHECK_OVERRIDE_NAME = "docker-compose.healthcheck-reconcile.yml"
 
+#: task.json 里表示「已收尾」的状态集合（与 `execution.py` 的终态集合一致）。
+#: 只有这些状态会被后台投影刷新到 tasks 表——执行中的进度仍由客户端轮询驱动。
+_TERMINAL_TASK_STATUSES = frozenset({
+    "success",
+    "failed",
+    "rolled_back",
+    "rollback_failed",
+    "cancelled",
+})
+
 #: 与交付 compose 保持一致的判据：状态文件不存在视为健康（基线 runner 没有看门狗），
 #: 存在但超过 90s 未更新才判不健康（#96 语义）。
 #:
@@ -155,12 +165,29 @@ def _runner_container_name(settings: Any) -> str:
     return f"{getattr(settings, 'compose_project_name', 'smartx-hci-capacity-insight')}-upgrade-runner-1"
 
 
-def _has_active_upgrade(database: Any) -> bool:
-    with database.connection() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) FROM tasks WHERE type = 'upgrade' AND status IN ('running','pending')"
-        ).fetchone()
-    return bool(row and row[0])
+def _has_active_upgrade(settings: Any) -> bool:
+    """是否存在**真正在跑**的升级任务（事实源是 task.json，与单飞守卫同源）。
+
+    为什么不再查 DB（2026-10-20 `.14` 实测）：投影只在客户端轮询 status 时发生，
+    任务在最后一次轮询之后收尾 → DB 行长期停在 running。用它判「忙」会让
+    runner healthcheck 补齐无限期 `skipped: active_upgrade`（实测：手动轮询一次后
+    下一个周期就补上了）。同一条事实必须只有一个来源。
+    """
+    from .service.execution import _ACTIVE_UPGRADE_STATUSES
+
+    upgrades_dir = Path(getattr(settings, "upgrades_dir"))
+    try:
+        files = sorted(upgrades_dir.glob("*/task.json"))
+    except OSError:
+        return False
+    for task_file in files:
+        try:
+            task = json.loads(task_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if str(task.get("status") or "") in _ACTIVE_UPGRADE_STATUSES:
+            return True
+    return False
 
 
 def reconcile_runner_healthcheck_once(settings: Any, database: Any) -> dict[str, Any]:
@@ -178,11 +205,8 @@ def reconcile_runner_healthcheck_once(settings: Any, database: Any) -> dict[str,
     """
     if os.environ.get(HEALTHCHECK_RECONCILE_ENV, "1") == "0":
         return {"skipped": "disabled"}
-    try:
-        if _has_active_upgrade(database):
-            return {"skipped": "active_upgrade"}
-    except Exception as exc:  # noqa: BLE001
-        return {"skipped": f"db_error: {exc}"}
+    if _has_active_upgrade(settings):
+        return {"skipped": "active_upgrade"}
 
     container = _runner_container_name(settings)
     try:
@@ -230,6 +254,40 @@ def reconcile_runner_healthcheck_once(settings: Any, database: Any) -> dict[str,
         return {"recreated": False, "error": error}
     logger.warning("runner container recreated to attach #96 healthcheck: %s", container)
     return {"recreated": True}
+
+
+def project_finished_tasks_once(settings: Any, database: Any) -> list[str]:
+    """把已收尾的 task.json 投影进 tasks 表（无人轮询时的兜底）。
+
+    为什么需要：`ExecutionMixin.status()` 是唯一正常的投影触发点——任务若在最后
+    一次轮询**之后**收尾，DB 行会长期停在 running，任务中心一直显示「执行中」
+    （2026-10-20 `.14` 实测：升级实际 success，DB running 达 18 分钟以上，直到手动
+    打开一次任务详情才收敛）。这里每轮扫一遍，用 `project_if_newer()` 幂等投影。
+
+    只投影**已收尾**的任务：执行中的进度仍由轮询驱动，避免守护线程与客户端轮询
+    争写同一行（W2 的单写者约定不变，二者都走 project_if_newer 的比较逻辑）。
+    """
+    from ..upgrade.projection import project_if_newer
+
+    finished: list[str] = []
+    upgrades_dir = Path(getattr(settings, "upgrades_dir"))
+    try:
+        files = sorted(upgrades_dir.glob("*/task.json"))
+    except OSError:
+        return finished
+    for task_file in files:
+        try:
+            task = json.loads(task_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if str(task.get("status") or "") not in _TERMINAL_TASK_STATUSES:
+            continue
+        try:
+            if project_if_newer(database, task):
+                finished.append(str(task.get("task_id") or task_file.parent.name))
+        except Exception as exc:  # noqa: BLE001 - 单条失败不影响其余
+            logger.warning("task projection failed for %s: %s", task_file.parent.name, exc)
+    return finished
 
 
 def ensure_settlement_once(settings: Any, database: Any) -> dict[str, Any]:
@@ -283,10 +341,23 @@ def ensure_settlement_once(settings: Any, database: Any) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 - 兜底线程不得因单个扫描失败而中断
         logger.warning("orphan running sweep failed: %s", exc)
 
+    # 投影兜底：把已收尾的 task.json 刷进 tasks 表（无人轮询时 DB 会一直停在 running）
+    projected: list[str] = []
+    try:
+        projected = project_finished_tasks_once(settings, database)
+    except Exception as exc:  # noqa: BLE001 - 兜底线程不得因单个扫描失败而中断
+        logger.warning("finished task projection failed: %s", exc)
+
     # #96 收尾：升级后 runner 容器可能继承「旧 runner 写的、无 healthcheck 的 bootstrap compose」
     reconcile = reconcile_runner_healthcheck_once(settings, database)
 
-    return {"created": created, "failed": failed, "converged": converged, "healthcheck": reconcile}
+    return {
+        "created": created,
+        "failed": failed,
+        "converged": converged,
+        "projected": projected,
+        "healthcheck": reconcile,
+    }
 
 
 def _settlement_loop(settings: Any, database: Any, stop_event: threading.Event, interval_seconds: int) -> None:

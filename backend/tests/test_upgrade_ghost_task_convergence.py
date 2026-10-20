@@ -7,11 +7,13 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 
 class OrphanRunningConvergenceTest(unittest.TestCase):
@@ -127,7 +129,34 @@ class RunnerHealthcheckReconcileTest(unittest.TestCase):
         )
 
     def test_skipped_when_upgrade_active(self) -> None:
-        """有 running/pending 升级时绝不重建 runner（会打断执行）。"""
+        """有真正在执行（task.json 仍是 active）的升级时绝不重建 runner（会打断执行）。"""
+        from app.v2.database import V2Database
+        from app.v2.upgrade.settlement import reconcile_runner_healthcheck_once
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = self._settings(tmpdir)
+            database = V2Database(settings)
+            database.initialize()
+            task_dir = Path(settings.upgrades_dir) / "upgrade-busy"
+            task_dir.mkdir(parents=True, exist_ok=True)
+            (task_dir / "task.json").write_text(
+                json.dumps({"task_id": "upgrade-busy", "status": "running", "updated_at": "2026-10-20T00:00:00+00:00"}),
+                encoding="utf-8",
+            )
+
+            result = reconcile_runner_healthcheck_once(settings, database)
+
+            self.assertEqual(result.get("skipped"), "active_upgrade")
+
+    def test_stale_db_running_row_does_not_block_reconcile(self) -> None:
+        """DB 停在 running 但 task.json 已收尾 → 不得被当成「忙」而无限期挡住补齐。
+
+        2026-10-20 `.14` 实测：投影只由客户端轮询触发，任务在最后一次轮询后收尾 →
+        DB 长期 running，`reconcile_runner_healthcheck_once` 一直 `skipped: active_upgrade`，
+        runner 始终没有 healthcheck。判定必须与单飞守卫同源（读 task.json）。
+        """
+        from unittest.mock import patch
+
         from app.v2.database import V2Database
         from app.v2.tasks.models import TaskStatus, TaskType
         from app.v2.tasks.service import TaskService
@@ -137,14 +166,26 @@ class RunnerHealthcheckReconcileTest(unittest.TestCase):
             settings = self._settings(tmpdir)
             database = V2Database(settings)
             database.initialize()
+            # 陈旧 DB 行：说 running
             TaskService(database).create_task(
-                "upgrade-busy", TaskType.UPGRADE, "执行系统升级",
+                "upgrade-stale", TaskType.UPGRADE, "执行系统升级",
                 status=TaskStatus.RUNNING, progress=10, message="执行中",
             )
+            # 事实源：已 success
+            task_dir = Path(settings.upgrades_dir) / "upgrade-stale"
+            task_dir.mkdir(parents=True, exist_ok=True)
+            (task_dir / "task.json").write_text(
+                json.dumps({"task_id": "upgrade-stale", "status": "success", "updated_at": "2026-10-20T00:00:00+00:00"}),
+                encoding="utf-8",
+            )
 
-            result = reconcile_runner_healthcheck_once(settings, database)
+            with patch(
+                "app.v2.upgrade.settlement.subprocess.run",
+                return_value=SimpleNamespace(returncode=0, stdout="1\n", stderr=""),
+            ):
+                result = reconcile_runner_healthcheck_once(settings, database)
 
-            self.assertEqual(result.get("skipped"), "active_upgrade")
+            self.assertEqual(result.get("skipped"), "already_healthy")
 
     def test_disabled_by_env(self) -> None:
         from app.v2.database import V2Database
@@ -199,6 +240,76 @@ class RunnerHealthcheckReconcileTest(unittest.TestCase):
             self.assertTrue(any(HEALTHCHECK_OVERRIDE_NAME in p for p in override_args))
             written = [p for p in override_args if HEALTHCHECK_OVERRIDE_NAME in p]
             self.assertTrue(written and Path(written[0]).is_file(), f"覆盖文件必须被写出：{written}")
+
+
+class FinishedTaskProjectionTest(unittest.TestCase):
+    """已收尾的 task.json 必须由后台投影刷进 tasks 表（不依赖客户端轮询）。
+
+    2026-10-20 `.14` 实测：升级实际 success，DB 行停在 running 18 分钟以上——
+    投影只在 `GET /status` 时发生，任务在最后一次轮询之后收尾就永远不收敛。
+    """
+
+    def _settings(self, tmpdir: str):
+        from app.v2.config import V2Settings
+
+        project_dir = Path(tmpdir) / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        return V2Settings(
+            data_root=Path(tmpdir),
+            secret_key="proj-secret",
+            app_version="v0.5.4",
+            project_path_override=project_dir,
+        )
+
+    def _write_task(self, settings, task_id: str, status: str) -> None:
+        task_dir = Path(settings.upgrades_dir) / task_id
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            json.dumps(
+                {
+                    "task_id": task_id,
+                    "status": status,
+                    "target_version": "v0.5.4",
+                    "created_at": "2026-10-20T00:00:00+00:00",
+                    "updated_at": "2026-10-20T00:00:05+00:00",
+                    "finished_at": "2026-10-20T00:00:05+00:00",
+                    "logs": ["done"],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def test_finished_task_is_projected_without_polling(self) -> None:
+        from app.v2.database import V2Database
+        from app.v2.upgrade.settlement import project_finished_tasks_once
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = self._settings(tmpdir)
+            database = V2Database(settings)
+            database.initialize()
+            self._write_task(settings, "upgrade-done", "success")
+
+            projected = project_finished_tasks_once(settings, database)
+
+            self.assertIn("upgrade-done", projected)
+            with database.connection() as conn:
+                row = conn.execute("SELECT status FROM tasks WHERE id = ?", ("upgrade-done",)).fetchone()
+            self.assertEqual(row[0], "success")
+
+    def test_running_task_is_not_projected(self) -> None:
+        """执行中的进度仍由轮询驱动，后台不抢写（W2 单写者语义不变）。"""
+        from app.v2.database import V2Database
+        from app.v2.upgrade.settlement import project_finished_tasks_once
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = self._settings(tmpdir)
+            database = V2Database(settings)
+            database.initialize()
+            self._write_task(settings, "upgrade-running", "running")
+
+            projected = project_finished_tasks_once(settings, database)
+
+            self.assertEqual(projected, [])
 
 
 if __name__ == "__main__":
