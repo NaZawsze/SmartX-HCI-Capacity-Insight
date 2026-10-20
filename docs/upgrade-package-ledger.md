@@ -1621,3 +1621,24 @@ compose 项目名 `smartx-storage-forecast`、runner v0.3.0）装出 v0.5.1u2，
   L4 #93 自愈（600/20 键、两密钥 SAME、数据 36 PASS）、#95 pause→unhealthy→unpause→healthy；
   投影兜底真机验证（见上）。
 - `.12`：同版本重装 `升级成功`，镜像 `a747f565…`、runner `(healthy)`、`fff-t0→fff-t1` **36 PASS**。
+
+## 2026-10-21 `.12` 补充复测（`.14` 硬盘故障后改在发布机执行）
+
+**环境事故**：`.14` 硬盘故障（用户手动关机），期间 health/Prometheus 无响应属关机过程，
+**不计入产品缺陷**。所有未完成项改在 `.12` 完成。
+
+| 项 | 结果 |
+| --- | --- |
+| L2 八项（`.12`，最终包 `d235f14c…`） | 全过；镜像 `a747f565…`；数据 120/240 |
+| L4 #95 | pause → `unhealthy` → unpause → `healthy` |
+| L5 B / C | `rolled_back` / `succeeded`，数据各 **36 PASS** |
+| L3-a（v0.5.3 → v0.5.4） | `升级成功`，数据 **36 PASS** |
+| L4 #93 | 首次 **FAIL** → 换交付 runner 后 **PASS** |
+
+**#93 首次失败的定性与处置**：`.12` 上运行的 `upgrade-runner:v0.3.2` 是 9 月 29 日构建、
+**不含 `ensure_env_file`** 的旧镜像（同版本号、不同内容）；交付包内的 runner（`e461738c…`）
+才有该自愈。预检查据版本号放行并承诺自愈 → 执行器无此代码 → `compose up` **退出码 14**
+→ 自动回滚亦失败（`rollback_failed`）。
+**处置**：把交付 runner 装到 `.12`（能力探针 `grep -c 'def ensure_env_file'` = 1）后同用例 **PASS**。
+**性质**：测试机状态漂移，非候选包缺陷；属 AGENTS §8 版本身份纪律的第二个实例，
+已记入 findings.md 与验证纪律（验证前用能力级探针核对运行中 runner）。

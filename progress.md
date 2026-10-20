@@ -7225,3 +7225,34 @@ L5 之后 `.14` 的 runner 一直无 healthcheck。排查发现：
 **最终产物**：平台包 `d235f14c…`、runner 包 `e461738c…`、
 交付清单 `SHA256SUMS-20261020202304`；`.14`/`.12` 均已在最终镜像 `a747f565…` 上，
 `.12` 数据 `fff-t0→fff-t1` **36 PASS**。
+
+## 2026-10-21 `.12` 复测（`.14` 硬盘故障，改在 `.12` 完成）
+
+**环境事故（非产品缺陷）**：`.14` 硬盘故障，用户手动关机。期间观察到的
+`/api/system/health` 20s 超时、Prometheus 9090 无响应均为**关机过程**所致，
+不计入产品缺陷；同一时刻 `.12` 上同版本组件毫秒级响应。
+
+**`.12` 复测结果（最终包 `d235f14c…` / 镜像 `a747f565…`）**：
+
+| 项 | 结果 |
+| --- | --- |
+| L2 八项 | 全过（UI 200、integrity ok/fk 0、`.env` 600/17 键、compose OK、镜像 `a747f565…`）；数据 towers=1/clusters=1/vm_latest=120/vm_volumes=240 |
+| L4 #95 | pause → `unhealthy` → unpause → `healthy` |
+| L5 场景 B | `manual-rollback-20261020164205` → `rolled_back`，数据 **36 PASS** |
+| L5 场景 C | `manual-full-rollback-20261020164902` → `succeeded`，数据 **36 PASS** |
+| L3-a | v0.5.3 → v0.5.4 `升级成功`（源版本门禁/runner 门槛正确显示），数据 **36 PASS** |
+| L4 #93 | **首次失败 → 换交付 runner 后 PASS**（详见下） |
+
+### 关键发现：`.12` 上的 runner 是「同版本号、不同内容」的旧镜像
+
+`.12` 从未装过本批次交付 runner（本地只有 `c7be3cb2…`/`3d99599c…`，交付的是 `e461738c…`）。
+运行中的 `upgrade-runner:v0.3.2` **不含 `ensure_env_file`**（grep 计数 0），
+于是 `.env` 目录用例：预检查放行（承诺执行器会自愈）→ 执行器无此代码 → `compose up` 退出码 14
+→ 自动回滚也失败（`rollback_failed`）。
+
+换成交付 runner（能力探针 `grep -c 'def ensure_env_file'` = 1）后同用例 **PASS**：
+`.env` 恢复 600/17 键、两枚密钥逐键 SAME、升级成功、数据 36 PASS。
+
+**结论**：这不是候选包缺陷，而是**测试机状态漂移**（AGENTS §8 版本身份纪律的第二个实例）。
+已写入 findings.md，并确立验证纪律：验证前必须用**能力级探针**核对运行中 runner 与交付包一致，
+不能只看版本号。
