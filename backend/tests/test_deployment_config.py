@@ -267,6 +267,18 @@ class TestDeploymentConfig(unittest.TestCase):
         self.assertIn('tags:\n      - "runner-v*"', runner)
         self.assertIn("type=raw,value=${{ steps.version.outputs.tag }}", runner)
 
+    def test_platform_workflow_asserts_tag_matches_version_file(self) -> None:
+        """pending #88 根因门禁：发布 tag 名必须与 VERSION 文件一致。
+
+        2026-07 的 CI 只校验「tag 指向 main」，没人核对 tag 名 vs `VERSION`；
+        `v0.5.1u2` 那次 tag 的 VERSION 已是 `v0.5.2`，于是产出的镜像
+        `/app/VERSION` 自报 v0.5.2 —— 同一 tag 名、两种内容，现场据此判版本必然错
+        （`.12` 2026-10-14 实测：v0.5.1u2 基线被当成 v0.5.2，v0.5.2 官方包被同版本检查拦下）。
+        """
+        platform = (ROOT / ".github/workflows/docker-images.yml").read_text(encoding="utf-8")
+        self.assertIn("Verify release tag matches VERSION file", platform)
+        self.assertIn('if [ "${GITHUB_REF_NAME}" != "${version}" ]', platform)
+
 
 if __name__ == "__main__":
     unittest.main()

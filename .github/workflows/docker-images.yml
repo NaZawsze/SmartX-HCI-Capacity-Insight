@@ -52,6 +52,22 @@ jobs:
             exit 1
           fi
 
+      # 2026-10-14（pending #88 根因）：tag 名与 VERSION 文件是两份独立事实，此前无人核对——
+      # v0.5.1u2 那次 tag 的 VERSION 已写成 v0.5.2，CI 照包照建，产出的镜像
+      # /app/VERSION 自报 v0.5.2：同一 tag 名、两种内容，现场据此判版本必然错。
+      # 构建前强制两者一致，不一致就拒绝发布（历史 tag 不受影响，只拦新的）。
+      - name: Verify release tag matches VERSION file
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          echo "tag=${GITHUB_REF_NAME} VERSION=${version}"
+          if [ "${GITHUB_REF_NAME}" != "${version}" ]; then
+            echo "Release tag ${GITHUB_REF_NAME} does not match VERSION file (${version})." >&2
+            echo "Refusing to publish images whose /app/VERSION would misreport the tag." >&2
+            exit 1
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
