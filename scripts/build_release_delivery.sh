@@ -193,7 +193,9 @@ fi
 # ── 5.5 CHANGELOG / 交付文档门禁（2026-10-21 用户要求：不靠人眼，靠机器） ──
 phase "步骤 5.5/6 · 发布文档门禁（CHANGELOG 结构 + 脱敏 + 路径解析）"
 python3 scripts/verify_changelog.py \
-  || { c_red "CHANGELOG 门禁未通过（版本节顺序 / 包 SHA 与 ledger 不一致 / 引用不存在的版本号 / 通过断言缺证据 / 列表被空行切断）"; exit 1; }
+  || { c_red "CHANGELOG 门禁未通过（小节顺序 / 首节出现内部标识 / 引用不存在的版本号 / 列表被空行切断）"; exit 1; }
+python3 scripts/verify_release_verification.py --version "$VERSION" \
+  || { c_red "内部验证记录门禁未通过（release-verification-$VERSION.md：包 SHA 与 ledger 不一致 / 缺任务 ID 或数据比对）"; exit 1; }
 python3 scripts/verify_release_docs_safe.py \
   || { c_red "对外发布文档脱敏扫描未通过"; exit 1; }
 c_green "  [OK] 发布文档门禁通过"

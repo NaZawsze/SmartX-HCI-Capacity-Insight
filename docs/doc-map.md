@@ -175,6 +175,7 @@ v2 重建总任务文档是 [v2-rebuild-task-plan.md](v2-rebuild-task-plan.md)�
 | [release-acceptance.md](release-acceptance.md) | 发布验收门禁：环境矩阵、固定验收用例、反污染规则。 | task_plan Phase 29 |
 | [version-governance.md](version-governance.md) | 版本治理：平台/runner 版本来源、镜像 tag、tag 与 VERSION 一致性规则。 | task_plan Phase 5、Phase 49 |
 | [releases/CHANGELOG.md](releases/CHANGELOG.md) | 发布变更记录。 | — |
+| [releases/release-verification-v0.5.4.md](releases/release-verification-v0.5.4.md) | **v0.5.4 发布验证记录（内部）**：包 SHA、升级任务 ID、`.12`/`.14` 验收明细、数据比对、环境故障诊断。**读者是研发/交付负责人**；客户看的是 CHANGELOG。由 `scripts/verify_release_verification.py` 门禁校验。 | v0.5.4 发布 |
 | [releases/v0.2.md](releases/v0.2.md) | v0.2 历史发布说明。 | — |
 | [ova-delivery.md](ova-delivery.md) | OVA 交付说明：OVA 模板与升级包、迁移包的边界。 | — |
 | [project-progress-2026-08-12.md](project-progress-2026-08-12.md) | 阶段性项目进度摘要（对外可读）。 | — |

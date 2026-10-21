@@ -7377,3 +7377,33 @@ SHA 逐位不变，因此 `.12`/`.14` 的验收结论仍然有效。
 
 **验证**：`verify_changelog.py` 8/8 PASS；门禁单测 9/9 OK；相关夹具回归 115 项 OK（3 skip）；
 脱敏扫描 PASS；`bash -n scripts/build_release_delivery.sh` 语法 OK。
+
+### 2026-10-21 CHANGELOG 改为「纯用户视角」+ 内部记录分离（用户定）
+
+用户原话：「CHANGELOG 不应该只放 修复/功能…这个是给其他用的人看的，自己看的你可以自己写一份」。
+
+**分工固定**：
+
+| 文档 | 读者 | 内容 |
+| --- | --- | --- |
+| `docs/releases/CHANGELOG.md` | **使用者** | 只写 `修复` → `新增` → `优化` → `已知问题` 四节；每条一句话说清"原来什么毛病、现在怎么好了"；**禁内部标识** |
+| `docs/releases/release-verification-v0.5.4.md` | 研发/交付负责人 | 包 SHA、任务 ID、验证机器、门禁明细、数据比对、环境故障诊断 |
+
+**v0.5.4 节重写**：原来 8 节（含状态块/包 SHA/已作废轮次/验证说明表/机器口径）→ 4 节用户视角，
+86 行。内部细节全部搬到 `release-verification-v0.5.4.md`（原样保留，含 `.14` 两处环境故障诊断）。
+重写后扫描：轮次号 0、SHA 0、机器号 0、task ID 0、测试名 0。
+
+**门禁同步改造**：
+
+1. `scripts/verify_changelog.py`：检查项从 8 项改为 7 项——新增
+   **`no_internal_identifiers`**（禁 `rNN` 轮次号 / 40-64 位 SHA / `10.20.11.3|12|14` / `.3|.12|.14` /
+   `upgrade-…` / `test_…` / `INSTALL_EXIT|G1-G4|verify_*.py`）；删除"通过断言带证据"（该约束移至内部记录）。
+2. 新增 `scripts/verify_release_verification.py`：7 项检查——文档存在、**平台包 SHA 与 ledger 最新一致**、
+   runner 包 SHA 存在、任务 ID 存在、数据比对存在、验证机器写明、发布状态写明。
+   （SHA 抽取改为**按行取**——跨行正则会误吃后面无关的 SHA，实测踩到过。）
+3. 两个门禁都接进 `scripts/build_release_delivery.sh` 步骤 5.5；都有单测锁灵敏度
+   （`test_changelog_gate.py` 8 例 / `test_release_verification_gate.py` 7 例，各含定向变异用例）。
+4. `AGENTS.md` §11、`docs/doc-map.md` 同步分工与门禁。
+
+**验证**：两门禁各 7/7 PASS；两个门禁自测 15 例 OK；相关夹具回归 121 项 OK（3 skip）；
+脱敏扫描 PASS；发布脚本 shell 语法 OK。

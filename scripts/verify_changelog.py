@@ -8,11 +8,12 @@
 检查项：
 
 1. **版本节存在且降序**（最新在顶部），每节标题形如 `## vX.Y…`。
-2. **首节（当前候选/最新发布）小节顺序固定**：
-   状态 → 更新摘要 → **修复** → **新增** → 工程与运维 → 验证说明 → 已知问题。
-   修复必须在新增之前（用户 2026-10-21 定）。
-3. **首节引用的包 SHA 必须与 ledger 最新条目的"当前候选/发布"一致**
-   ——这是本门禁最有价值的一条：包换轮次而 CHANGELOG 没跟，会在这里 FAIL。
+2. **首节（当前版本）小节顺序固定**：**修复 → 新增 → 优化 → 已知问题**。
+   修复必须在最前（用户 2026-10-21 定：客户最先关心踩过的坑修了没）。
+3. **首节必须是纯用户视角**：禁止出现内部构建轮次号（rNN）、包/镜像 SHA、
+   内部验证机（`10.20.11.3/12/14`、`.3/.12/.14`）、任务 ID（`upgrade-…`）、
+   测试函数名、内部门禁编号——这些统一写在 `docs/releases/release-verification-<version>.md`。
+   （用户 2026-10-21：「这个是给其他用的人看的，自己看的你可以自己写一份」。）
 4. **首节不得出现"不存在的能力版本号"**：形如 `v0.3.N` 的 runner 版本，
    必须等于仓库 `RUNNER_VERSION`、或存在于 git tag、或存在于 CHANGELOG 历史节。
    （历史节按"只增不删"规则不受此约束。）
@@ -42,7 +43,7 @@ CHANGELOG = ROOT / "docs" / "releases" / "CHANGELOG.md"
 LEDGER = ROOT / "docs" / "upgrade-package-ledger.md"
 RUNNER_VERSION_FILE = ROOT / "RUNNER_VERSION"
 
-SECTION_ORDER_RULES = ("更新摘要", "修复", "新增", "工程与运维", "验证说明", "已知问题")
+SECTION_ORDER_RULES = ("修复", "新增", "优化", "已知问题")
 #: 首节里禁止出现的过期表述
 STALE_PATTERNS = (
     (re.compile(r"当前候选对\s*=\s*[^`\n]*\br\d+\b"), "残留『当前候选对 = … rNN』旧轮次表述"),
@@ -50,6 +51,19 @@ STALE_PATTERNS = (
     (re.compile(r"重建即作废"), "残留『重建即作废』（包已定稿）"),
     (re.compile(r"当前\s*r\d+\s*包不含"), "残留『当前 rNN 包不含…』"),
 )
+#: 首节（面向客户）禁止出现的内部标识。CHANGELOG 是给使用者看的，
+#: 轮次号 / 包 SHA / 验证机编号 / 任务 ID / 测试名 / 门禁编号一律不进正文——
+#: 这些统一放 docs/releases/release-verification-<version>.md（内部记录）。
+INTERNAL_PATTERNS = (
+    (re.compile(r"\br\d{2}\b"), "内部构建轮次号（rNN）"),
+    (re.compile(r"\b[0-9a-f]{40,64}\b"), "包/镜像 SHA"),
+    (re.compile(r"(?<![\w.])(10\.20\.11\.(?:3|12|14))\b"), "内部验证机地址"),
+    (re.compile(r"(?<![\w.])\.[0-9]{1,2}(?![\w.])"), "内部验证机简写（.3/.12/.14）"),
+    (re.compile(r"upgrade-[0-9a-f]{8,}"), "任务 ID"),
+    (re.compile(r"test_[A-Za-z0-9_]+"), "测试函数名"),
+    (re.compile(r"INSTALL_EXIT|\bG[1-4]\b|verify_[a-z_]+\.py"), "内部门禁标识"),
+)
+
 #: 版本号形态（runner 用 v0.3.N 系列）
 RUNNER_VERSION_RE = re.compile(r"\bv0\.3\.(\d+)(?:-[A-Za-z0-9._]+)?\b")
 EVIDENCE_RE = re.compile(
@@ -145,31 +159,27 @@ def check(text: str) -> list[dict]:
             _fail(
                 checks,
                 "top_sections_order",
-                "首节小节顺序不符规范（应为 更新摘要 → 修复 → 新增 → 工程与运维 → 验证说明 → 已知问题）："
+                "首节小节顺序不符规范（应为 修复 → 新增 → 优化 → 已知问题）："
                 f"{ordered_names}",
             )
         else:
             _pass(checks, "top_sections_order", "修复在新增之前")
 
-    # 3) 包 SHA 与 ledger 一致
+    # 3) 首节必须是"纯用户视角"——不得出现内部标识
     top_text = "\n".join(top_body)
-    changelog_sha = None
-    found = re.search(r"平台包[\s\S]{0,200}?`([0-9a-f]{64})`", top_text)
-    if found:
-        changelog_sha = found.group(1)
-    ledger_sha = _latest_ledger_sha()
-    if changelog_sha and ledger_sha and changelog_sha != ledger_sha:
+    leaks = []
+    for pattern, label in INTERNAL_PATTERNS:
+        for match in pattern.finditer(top_text):
+            leaks.append(f"{label}: {match.group(0)}")
+    if leaks:
         _fail(
             checks,
-            "package_sha_matches_ledger",
-            f"首节平台包 SHA {changelog_sha[:12]}… 与 ledger 最新 {ledger_sha[:12]}… 不一致（包换了轮次但 CHANGELOG 没跟）",
-            changelog=changelog_sha,
-            ledger=ledger_sha,
+            "no_internal_identifiers",
+            f"首节出现内部标识（CHANGELOG 只写修复/新增/优化；细节放 release-verification-*.md）：{leaks[:5]}",
+            leaks=leaks,
         )
-    elif changelog_sha:
-        _pass(checks, "package_sha_matches_ledger", f"{changelog_sha[:12]}…")
     else:
-        _fail(checks, "package_sha_matches_ledger", "首节未声明平台包 SHA（候选/发布节必须写）")
+        _pass(checks, "no_internal_identifiers")
 
     # 4) 首节不得引用不存在的 runner 版本号
     runner_version = RUNNER_VERSION_FILE.read_text(encoding="utf-8").strip() if RUNNER_VERSION_FILE.is_file() else ""
@@ -200,25 +210,6 @@ def check(text: str) -> list[dict]:
         _fail(checks, "no_stale_round_wording", "；".join(stale_hits))
     else:
         _pass(checks, "no_stale_round_wording")
-
-    # 6) 验证说明里的断言必须带证据
-    verify_body: list[str] = []
-    in_verify = False
-    for ln in top_body:
-        if ln.startswith("### "):
-            in_verify = "验证说明" in ln
-            continue
-        if in_verify:
-            verify_body.append(ln)
-    claims = [
-        ln for ln in verify_body
-        if re.search(r"✅|已通过|已验证|通过：", ln) and ln.lstrip().startswith(("|", "-"))
-    ]
-    unsupported = [ln.strip()[:60] for ln in claims if not EVIDENCE_RE.search(ln)]
-    if unsupported:
-        _fail(checks, "verification_claims_have_evidence", f"{len(unsupported)} 条通过断言缺少证据：{unsupported[:3]}")
-    else:
-        _pass(checks, "verification_claims_have_evidence", f"{len(claims)} 条断言均有证据")
 
     # 7) 列表块内空行（把列表切成两段）。
     # 判据：空行的**上一个非空行**属于某个列表项（`- ` 开头，或是它的缩进续行），
