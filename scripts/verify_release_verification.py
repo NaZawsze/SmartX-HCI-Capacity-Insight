@@ -93,7 +93,26 @@ def main() -> int:
         checks.append({"name": name, "ok": False, "message": message})
 
     if not doc.is_file():
-        fail("verification_doc_exists", f"缺少内部验证记录：{doc.relative_to(ROOT)}")
+        # 内部验证记录**不随公开仓库分发**（2026-10-21「仓库只放代码」）。
+        # 判据：若 releases 目录下一条内部验证记录都没有，说明这是公开/归档树
+        # （`.3` 用 `git archive` 构建的就是这种形态），门禁无记录可校 → SKIP。
+        # 不能 FAIL——否则发布编排器在任何基于 archive 的构建树上都会中止。
+        # 反之，若存在别的版本记录却缺本期，说明是**该写没写** → FAIL。
+        others = sorted(RELEASES.glob("release-verification-*.md"))
+        if not others:
+            checks.append(
+                {
+                    "name": "verification_doc_exists",
+                    "ok": True,
+                    "skipped": True,
+                    "message": (
+                        "SKIP：本树不含任何内部验证记录（内部记录不随公开仓库分发）；"
+                        "该门禁需在持有内部记录的开发/发布树上运行"
+                    ),
+                }
+            )
+        else:
+            fail("verification_doc_exists", f"缺少本期内部验证记录：{doc.relative_to(ROOT)}")
         text = ""
     else:
         ok("verification_doc_exists", str(doc.relative_to(ROOT)))
@@ -148,7 +167,10 @@ def main() -> int:
         print(json.dumps({"version": version, "checks": checks, "failed": len(failed)}, ensure_ascii=False, indent=2))
     else:
         for item in checks:
-            mark = "PASS" if item["ok"] else "FAIL"
+            if item.get("skipped"):
+                mark = "SKIP"
+            else:
+                mark = "PASS" if item["ok"] else "FAIL"
             detail = f" — {item['message']}" if item.get("message") else ""
             print(f"[{mark}] {item['name']}{detail}")
         print()

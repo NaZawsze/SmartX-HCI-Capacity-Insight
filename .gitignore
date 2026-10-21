@@ -48,6 +48,7 @@ task_plan.md
 docs/ai-handoff-*.md
 docs/test-handover-*.md
 docs/releases/release-verification-*.md
+delivery/README.verified.md
 
 # ── 仓库只放代码：内部开发文档一律不提交（2026-10-21 用户定） ──────────────
 # 判定标准（三条同时满足才算「该提交」）：

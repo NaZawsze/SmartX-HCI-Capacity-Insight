@@ -61,7 +61,6 @@ TRACKED_DOCS: frozenset[str] = frozenset(
         "README.md",
         "README.zh-CN.md",
         "delivery/README.md",
-        "delivery/README.verified.md",
         "docs/deployment.md",
         "docs/usage.md",
         "docs/ova-delivery.md",
@@ -94,7 +93,6 @@ REQUIRED_DOCS: frozenset[str] = frozenset(
         "README.md",  # build_upgrade_package 改写版本号
         "README.zh-CN.md",  # build_upgrade_package 改写版本号
         "delivery/README.md",  # 交付包 README（build_offline_delivery --readme）
-        "delivery/README.verified.md",  # test_offline_delivery_builder 断言存在
         "docs/api.md",  # verify_api_docs.py
         "docs/version-skew-matrix.md",  # test_us01
         "docs/cloudtower-api-version-matrix.md",  # test_cloudtower_api_version_matrix
@@ -110,6 +108,7 @@ INTERNAL_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"^docs/superpowers/", "设计稿与实施计划（docs/superpowers/）"),
     (r"^docs/archive/", "历史归档"),
     (r"^(progress|findings|task_plan)\.md$", "工作日志/发现/计划（根目录）"),
+    (r"^delivery/README\.verified\.md$", "交付命令验证状态清单（内部验证记录）"),
     (r"^docs/pending-tasks\.md$", "待办台账"),
     (r"^docs/doc-map\.md$", "文档总索引（内部导航）"),
     (r"^docs/upgrade-(issues|strategy-issues|audit-matrix|remediation-roadmap|architecture-options)\.md$", "问题台账/矩阵/路线图"),
@@ -137,6 +136,7 @@ GITIGNORE_REQUIRED: tuple[str, ...] = (
     "task_plan.md",
     "docs/pending-tasks.md",
     "docs/doc-map.md",
+    "delivery/README.verified.md",
     "docs/ai-handoff-*.md",
     "docs/test-handover-*.md",
     "docs/releases/release-verification-*.md",
