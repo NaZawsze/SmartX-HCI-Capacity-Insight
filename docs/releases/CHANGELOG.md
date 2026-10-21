@@ -102,7 +102,7 @@
 
 状态：**已发布（2026-10-05）**。tag `v0.5.3`（tag 名与源码 VERSION 一致）；GitHub Release 资产 = 平台包 `smartx-capacity-insight-upgrade-v0.5.3.tar.gz`（SHA256 `ef3fab9f…`）与 `.sha256` 侧车。**runner 不随发**：现场基线保持已发布 `v0.3.1`（Release 资产 `d10e15cf…`、DockerHub tag 在位），`v0.3.2`（含 US-24/#82 修复）随下一版交付（2026-09-28 用户决定，发布时维持）。平台三件套镜像 tag `v0.5.3`：web-api `6747dc1bf418`、collector-worker `8393442f2bd7`、frontend `d4d70803b432`（与 `.12` 链路验收实测镜像一致）。发布验收证据：`.12` 老客户整链路（v0.5.1+v0.3.0 → u2 → runner v0.3.1 → v0.5.2 → v0.5.3，全程 Release 资产，8 项验收全过，2026-10-04）；门禁与前端测试详见下方验证说明与 progress.md 同日记录。
 
-> **发布包（GitHub Release 资产）：第十七轮 r17 `ef3fab9f…`**（平台包源码 dev2 `ebcbeae`）。相对 r16 收编 #78（导出/导入留档自动保留）、#79（页面不展示回收站 VM 及其卷，统计口径仍全量）、#80（损坏包/记录返回可读 400）、#82（runner 心跳遇 SQLite 锁不再退出，随下一版 runner 交付）。r1–r17 全部构建轮次的包 SHA 与验证记录见 [upgrade-package-ledger.md](upgrade-package-ledger.md)。
+> **发布包（GitHub Release 资产）：第十七轮 r17 `ef3fab9f…`**（平台包源码 dev2 `ebcbeae`）。相对 r16 收编 #78（导出/导入留档自动保留）、#79（页面不展示回收站 VM 及其卷，统计口径仍全量）、#80（损坏包/记录返回可读 400）、#82（runner 心跳遇 SQLite 锁不再退出，随下一版 runner 交付）。r1–r17 全部构建轮次的包 SHA 与验证记录见 [upgrade-package-ledger.md](../upgrade-package-ledger.md)。
 
 
 ### 更新摘要

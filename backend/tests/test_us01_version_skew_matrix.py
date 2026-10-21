@@ -118,7 +118,12 @@ class VersionSkewMatrixTest(unittest.TestCase):
         self.assertIn("构建期门禁", self.text)
 
     def test_matrix_is_registered_in_doc_map(self) -> None:
-        doc_map = (REPO_ROOT / "docs" / "doc-map.md").read_text(encoding="utf-8")
+        # doc-map.md 是内部文档索引，2026-10-21 起不入公开仓库（仓库只放代码）；
+        # 本地开发机上仍在时继续校验登记关系，干净 clone 下跳过。
+        doc_map_path = REPO_ROOT / "docs" / "doc-map.md"
+        if not doc_map_path.is_file():
+            self.skipTest("doc-map.md 属内部文档，公开仓库不含")
+        doc_map = doc_map_path.read_text(encoding="utf-8")
         self.assertIn("version-skew-matrix.md", doc_map, "新文档必须登记到 docs/doc-map.md")
 
     def test_matrix_refers_to_issue_and_governance(self) -> None:

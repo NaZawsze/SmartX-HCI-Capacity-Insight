@@ -198,6 +198,8 @@ python3 scripts/verify_release_verification.py --version "$VERSION" \
   || { c_red "内部验证记录门禁未通过（release-verification-$VERSION.md：包 SHA 与 ledger 不一致 / 缺任务 ID 或数据比对）"; exit 1; }
 python3 scripts/verify_release_docs_safe.py \
   || { c_red "对外发布文档脱敏扫描未通过"; exit 1; }
+python3 scripts/verify_repo_doc_scope.py \
+  || { c_red "仓库文档范围门禁未通过（内部开发文档混进版本控制 / 门禁夹具被删 / .gitignore 缺规则）"; exit 1; }
 c_green "  [OK] 发布文档门禁通过"
 
 # ── 6. 产物清单 ──

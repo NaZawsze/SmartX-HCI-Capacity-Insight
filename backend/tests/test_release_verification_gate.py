@@ -29,6 +29,10 @@ def _load_gate():
 class ReleaseVerificationGateTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        # 内部验证记录 2026-10-21 起不入公开仓库（仓库只放代码）；
+        # 本地开发机上仍在时跑完整回归，干净 clone 下跳过。
+        if not DOC.is_file():
+            raise unittest.SkipTest(f"{DOC.name} 属内部记录，公开仓库不含")
         cls.gate = _load_gate()
         cls.original = DOC.read_text(encoding="utf-8")
 

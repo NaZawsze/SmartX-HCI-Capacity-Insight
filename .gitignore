@@ -48,3 +48,37 @@ task_plan.md
 docs/ai-handoff-*.md
 docs/test-handover-*.md
 docs/releases/release-verification-*.md
+
+# ── 仓库只放代码：内部开发文档一律不提交（2026-10-21 用户定） ──────────────
+# 判定标准（三条同时满足才算「该提交」）：
+#   ① 客户会看到（随交付包分发或对外说明）；
+#   ② 构建/打包把它当输入；
+#   ③ 门禁或测试把它当夹具读（缺了 CI/门禁直接断）。
+# 只满足「我们自己看」的（设计稿、计划、工作日志、问题台账、审计矩阵、
+# 路线图、交接文档、内部验证记录）全部只留本地。
+# 保留清单见 scripts/verify_repo_doc_scope.py 的 TRACKED_DOCS。
+docs/superpowers/
+docs/archive/
+docs/pending-tasks.md
+docs/doc-map.md
+docs/project-guide-for-ai.md
+docs/development-verification-process.md
+docs/delivery-handover-guide.md
+docs/release-acceptance.md
+docs/test-architecture.md
+docs/test-process-and-scope.md
+docs/version-governance.md
+docs/upgrade-issues.md
+docs/upgrade-strategy-issues.md
+docs/upgrade-audit-matrix.md
+docs/upgrade-remediation-roadmap.md
+docs/upgrade-architecture-options.md
+docs/functional-modules.md
+docs/module-inventory.md
+docs/task-worker-evaluation.md
+docs/frontend-style-guide.md
+docs/project-progress-*.md
+docs/v0.5.*.md
+docs/v2-implementation-sequence.md
+docs/v2-rebuild-task-plan.md
+docs/releases/version-archives.md

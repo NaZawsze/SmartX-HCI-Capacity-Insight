@@ -116,7 +116,6 @@ sudo bash ops/evidence.sh c1 after --task-id <upgrade-xxxx> --token <access_toke
 
 纪律：**只读**，唯一写路径是它自己的证据目录；容器只按已知服务名拼出的**显式名字**枚举，
 不做过滤扫描（`.3` 两次容器误删事故的形态）；离线可用，root 直登。
-判据表见 [docs/superpowers/plans/2026-10-06-upgrade-matrix-runbook.md](../docs/superpowers/plans/2026-10-06-upgrade-matrix-runbook.md)。
 
 ## 3. 打包（`package.sh`）
 
@@ -155,7 +154,7 @@ ops/packages/
 ### 打包之后：怎么交给客户
 
 > 完整流程（含打给客户前的自检、交付话术、禁发清单、客户怎么用）见
-> **[交付手册 `docs/delivery-handover-guide.md`](../docs/delivery-handover-guide.md)**。
+> **[交付说明 `delivery/README.md`](../delivery/README.md)**。
 
 一句话版：
 
@@ -220,12 +219,9 @@ ops/                     ← 本目录：只放**可执行脚本**，手册一�
 
 | 文档 | 给谁 | 什么时候看 |
 | --- | --- | --- |
-| [**交付手册 `delivery-handover-guide.md`**](../docs/delivery-handover-guide.md) | 交付负责人 | **打包完要交给客户时**——产物在哪、自检、交付话术、禁发清单、客户怎么用 |
+| [**交付说明 `delivery/README.md`**](../delivery/README.md) | 交付负责人 | **打包完要交给客户时**——产物在哪、自检、客户怎么安装与升级 |
 | [排障手册 `troubleshooting.md`](../docs/troubleshooting.md) | 运维 | 脚本报错、服务异常、升级失败时 |
 | [发版构建指南 `release-build-guide.md`](../docs/release-build-guide.md) | 开发者 | 正式发版时的构建与门禁流程 |
 | [部署文档 `deployment.md`](../docs/deployment.md) | 开发者 | 架构、目录布局、升级链路设计 |
+| [升级链路 `upgrade-chain.md`](../docs/upgrade-chain.md) | 开发者 | 平台↔runner 配对、升级顺序铁律 |
 | [交付制品边界 `ova-delivery.md`](../docs/ova-delivery.md) | 开发者 | 交付物该含什么、禁含什么 |
-| [开发验证流程 `development-verification-process.md`](../docs/development-verification-process.md) | 开发者 | 在测试机上跑验证时的标准做法 |
-
-设计文档：[`docs/superpowers/specs/2026-09-30-cli-toolkit-design.md`](../docs/superpowers/specs/2026-09-30-cli-toolkit-design.md)
-（该文档成文时目录名还是 `cli/`，现已改名为 `ops/`，内容与决策仍然有效）

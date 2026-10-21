@@ -294,7 +294,6 @@ The printed `host_path` is the migration package path. The package includes the 
 
 ### Install, upgrade, and delivery
 
-- [**Delivery Handover Guide**](docs/delivery-handover-guide.md) — **start here when packaging output needs to reach a customer**: where the packages land, pre-delivery self-checks, what to send (and what not to), how the customer installs and upgrades
 - [Operations Scripts](ops/README.md) — the `install.sh` / `upgrade.sh` / `package.sh` entry points, plus `evidence.sh` (before/after evidence capture for upgrade matrix verification)
 - **Data migration & recovery key**: used in the web UI under Service Management → Data Migration
   (three export flavors — full backup / data-only / Tower-config-only; see the bundled
@@ -312,7 +311,7 @@ The printed `host_path` is the migration package path. The package includes the 
 - [Backup & Recovery](docs/backup-recovery.md) — backup inventory, the five-step restore procedure, and red lines; read before migration/reinstall
 - [Changelog](docs/releases/CHANGELOG.md) — what each version adds, fixes, and known issues
 - [upgrade-runner Lifecycle and Component Upgrade Policy](docs/upgrade-runner-lifecycle.md)
-- [Version Governance](docs/version-governance.md)
+- [Upgrade Chain and Platform↔Runner Pairing](docs/upgrade-chain.md)
 - [v0.2 Release Notes](docs/releases/v0.2.md)
 
 ## CloudTower Compatibility and Permissions

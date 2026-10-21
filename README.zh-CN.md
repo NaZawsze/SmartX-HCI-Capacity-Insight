@@ -299,8 +299,6 @@ sha256sum "$host_path"
 
 ### 安装、升级与交付
 
-- [**交付手册**](docs/delivery-handover-guide.md) —— **打包产物要交给客户时从这份看起**：产物在哪、交付前自检、
-  该发什么与不该发什么、客户如何安装与升级
 - [运维操作脚本](ops/README.md) —— `install.sh` / `upgrade.sh` / `package.sh` 三个入口，以及 `evidence.sh`（升级矩阵验证的升级前/后一键取证与判定表）
 - **数据迁移与恢复密钥**：在 Web 界面「服务管理 → 数据迁移」使用（完整备份 / 只搬数据 /
   只接 Tower 三种导出，语义见交付包内 `offline-delivery/README.md` §9.0）。
@@ -317,7 +315,7 @@ sha256sum "$host_path"
 - [备份与恢复](docs/backup-recovery.md) —— 备份资产盘点、恢复五步与红线；迁移/重装前必读
 - [版本更新说明](docs/releases/CHANGELOG.md) —— 每个版本的新增、修复与已知问题
 - [upgrade-runner 生命周期与组件升级策略](docs/upgrade-runner-lifecycle.md)
-- [版本治理说明](docs/version-governance.md)
+- [升级链路与平台↔runner 配对](docs/upgrade-chain.md)
 - [v0.2 更新说明](docs/releases/v0.2.md)
 
 ## CloudTower 兼容范围与权限

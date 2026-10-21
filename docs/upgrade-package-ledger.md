@@ -664,7 +664,7 @@ Current execution rule: Python, dependencies, tests, builds and full-chain valid
 > `compose.config-hash` 的算法随 **compose 版本**而变、容器永久携带创建者版本的值，而 apply
 > 用的是 **runner 镜像内置的 compose**（实测宿主 v5.1.4 vs runner 内 v2.26.1-4）。
 > r20 平台包的 `compose.apply.services` 含 prometheus → 跨版本 hash 必然不匹配 → 被重建。
-> 取代者：**r21**（裁掉 prometheus）。详见 [upgrade-issues](upgrade-issues.md) UPG-051。
+> 取代者：**r21**（裁掉 prometheus）。详见 UPG-051（内部问题台账）。
 > **注意**：r20 的 **runner 组件包 `05d8e015…` 仍然有效**，并被 r21 **逐字节继承**。
 
 | 项 | 值 |
