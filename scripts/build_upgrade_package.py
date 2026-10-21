@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import fnmatch
 import hashlib
 import json
 import re
@@ -105,6 +106,77 @@ PROJECT_FILES = [
     "README.zh-CN.md",
 ]
 PROJECT_DIRS = ["docs", "scripts"]
+
+#: **绝不进升级包**的文档（2026-10-21 用户令：本地开发记录不上传）。
+#: 背景：平台包会把整个 `docs/` 打进 `project/docs/` 并随包交付给客户——
+#: 已发布的 v0.5.4 包里就带着 `ai-handoff-2026-10-12.md`，其中含 `.3` 测试机的明文密码。
+#: 这里按**文件名模式**排除；命中后仍会再做一次硬凭据扫描（见 assert_no_secret_in_payload）。
+INTERNAL_DOC_PATTERNS = (
+    "progress.md",
+    "findings.md",
+    "task_plan.md",
+    "ai-handoff*.md",
+    "test-handover*.md",
+    "release-verification-*.md",
+)
+
+#: 硬凭据模式（打包前对**全部入包文件**扫一遍，命中即拒绝打包）
+PACKAGE_SECRET_RES = (
+    (re.compile(r"p@ssw0rd[^\s'\"]*"), "服务器密码"),
+    (re.compile(r"sshpass\s+-p\s+['\"]?\S+"), "sshpass 明文密码"),
+    (re.compile(r"AKIA[0-9A-Z]{16}"), "AWS Access Key"),
+    (re.compile(r"ghp_[0-9a-zA-Z]{36}"), "GitHub Token"),
+    (re.compile(r"dckr_pat_[A-Za-z0-9_-]{20,}"), "DockerHub Token"),
+    (re.compile(r"-----BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----"), "私钥"),
+)
+
+
+def _is_internal_doc(relative: Path) -> bool:
+    """该文件是否属于"本地开发记录"（不进包）。"""
+    name = relative.name
+    for pattern in INTERNAL_DOC_PATTERNS:
+        if fnmatch.fnmatch(name, pattern):
+            return True
+    # 归档的历史流水也属内部记录
+    if "archive" in relative.parts and relative.suffix == ".md":
+        return True
+    return False
+
+
+#: 这些文件里出现密码模式是**扫描规则本身**，不是泄露（否则门禁会拦自己）。
+PACKAGE_SECRET_ALLOWLIST = {
+    "scripts/verify_release_docs_safe.py",
+    "scripts/build_upgrade_package.py",
+}
+
+
+def assert_no_secret_in_payload(files: list[str]) -> None:
+    """对将入包的文件做硬凭据扫描；命中即拒绝打包。
+
+    2026-10-21 事故：v0.5.4 已发布包内 `project/docs/ai-handoff-2026-10-12.md`
+    含 `.3` 测试机明文密码，随 Release 资产分发。此门禁确保同类问题在打包阶段被拦。
+    """
+    hits: list[str] = []
+    for rel in files:
+        if rel in PACKAGE_SECRET_ALLOWLIST:
+            continue
+        path = ROOT / rel
+        if not path.is_file() or path.suffix in {".png", ".jpg", ".jpeg", ".gif", ".ico", ".tar", ".gz", ".zip"}:
+            continue
+        try:
+            text = path.read_text(errors="ignore")
+        except OSError:
+            continue
+        for lineno, line in enumerate(text.splitlines(), 1):
+            for pattern, label in PACKAGE_SECRET_RES:
+                for match in pattern.finditer(line):
+                    hits.append(f"{rel}:{lineno}  {label} {match.group(0)[:12]}…")
+    if hits:
+        raise SystemExit(
+            "升级包内容含硬凭据，拒绝打包：\n  " + "\n  ".join(hits[:10])
+            + "\n\n处置：删除或脱敏这些文件（本地开发记录不应进包，见 INTERNAL_DOC_PATTERNS）。"
+        )
+
 #: A6/US-39：compose 守卫随平台包投放到现场 project 目录（`files.sync` 阶段）。
 #: 来源是 `delivery/compose-guard.sh`——交付脚本与升级包**同一份内容**，
 #: 避免"安装时守、升级后不守"的口径分叉。
@@ -1020,9 +1092,13 @@ def collect_project_files(version: str, *, check_version_metadata: bool = True) 
                 continue
             if path.name.startswith("._") or path.name == ".DS_Store":
                 continue
+            # 本地开发记录不进包（2026-10-21 用户令）
+            if _is_internal_doc(relative):
+                continue
             files.add(relative.as_posix())
     result = sorted(files)
     assert_safe_members([f"project/{item}" for item in result])
+    assert_no_secret_in_payload(result)
     for rel in result:
         source = ROOT / rel if rel != COMPOSE_GUARD_TARGET else ROOT / COMPOSE_GUARD_SOURCE
         if not source.is_file():
