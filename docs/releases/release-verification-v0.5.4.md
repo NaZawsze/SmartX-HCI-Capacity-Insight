@@ -3,7 +3,11 @@
 > **内部文档**：只给研发/交付负责人看。客户看的是 `docs/releases/CHANGELOG.md`。
 > 这里放 CHANGELOG 里刻意不写的技术细节：包 SHA、任务 ID、验证机器、门禁明细、数据比对。
 
-- 状态：**候选，未发布**（等用户明确「发布」指令）
+- 状态：**已发布（2026-10-21）**
+- 发布 tag：`v0.5.4`（平台）、`runner-v0.3.2`（runner 组件）
+- GitHub Release：https://github.com/NaZawsze/SmartX-HCI-Capacity-Insight/releases/tag/v0.5.4
+  （资产：平台包 + `.sha256`、runner 组件包 + `.sha256`，共 4 个）
+- 镜像：DockerHub `web-api` / `collector-worker` / `frontend` 的 `v0.5.4`，`upgrade-runner` 的 `v0.3.2`（均 200）
 - 候选对：平台包 `d235f14c…` + runner 组件包 `e461738c…`（源码 `81a70e2`）
 - 组装：2026-10-21，`.3:/home/user1/r42-delivery-final/smartx-capacity-insight-v0.5.4-offline`
 

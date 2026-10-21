@@ -4,12 +4,12 @@
 
 ## 版本模型
 
-- 平台版本由根目录 `VERSION` 定义。**已正式发布的平台版本为 `v0.5.3`（2026-10-05 发布，tag `v0.5.3`，Release 资产 `ef3fab9f…`；runner 基线=已发布 `v0.3.1`，`v0.3.2` 未交付）**。
-- 当前开发口径为 `v0.5.4`（2026-10-07 启动，`VERSION` 与三份 compose 字面量已同步）：源码版本、README、文档、升级包和常规镜像 tag 必须一致；候选的验收状态以 `docs/releases/CHANGELOG.md` v0.5.4 节为准（**候选，未发布**）。
+- 平台版本由根目录 `VERSION` 定义。**已正式发布的平台版本为 `v0.5.4`（2026-10-21 发布，tag `v0.5.4`；runner 组件同版发布，tag `runner-v0.3.2`；runner 基线=已发布 `v0.3.2`）**。上一发布版本 `v0.5.3`（2026-10-05，Release 资产 `ef3fab9f…`）保留在历史记录中。
+- 当前开发口径为 `v0.5.4`（已发布，2026-10-21；`VERSION` 与三份 compose 字面量保持 v0.5.4）：源码版本、README、文档、升级包和常规镜像 tag 必须一致。下一开发口径为 `v0.5.5`（尚未启动；启动时第一步把 `VERSION` 与三份 compose 字面量同步升到 `v0.5.5`）。
 - 临时测试升级包可以使用不同目标版本验证升级链路，但只作为测试包元数据；不能反向修改 `VERSION`、README 或正式发布口径。
 - 平台服务包括 `web-api`、`collector-worker`、`frontend`。
-- `upgrade-runner` 是独立升级执行组件，版本由根目录 `RUNNER_VERSION` 定义，当前为 **`v0.3.2`**（该版本从未交付/发布，US-24 修复于 2026-09-28 直接并入——`engine._save` 对「与主 store 同一文件」的 mirror 不再双写；已发布线 `v0.3.1` 见 Release 资产 `d10e15cf…`）。
-- **`v0.3.2` 本次不交付（用户 2026-09-28 决定）**：**与下一个版本一起发**（含 US-24 修复；开发线版本号保持 `v0.3.2`，因为该版本从未交付，不需要为并入修复再 bump），本次不补 tag / 镜像 / 组件包资产。因此：①源码三个 compose 里的 `upgrade-runner:v0.3.2` 属**开发线状态**，**发布会话只发平台包**（平台包内渲染的 runner 基线始终是**已发布 `v0.3.1`**，已实测）；②发布材料（CHANGELOG/release notes/OVA 说明）**不得把 v0.3.2 写成本次交付物**；③若本次做 OVA/全新部署，其 compose 必须落在已发布 `v0.3.1`（源码 compose 的 v0.3.2 不能进交付物，否则拉不到镜像）；④US-24 的 runner 修复**已并入 v0.3.2**（2026-09-28），随下一版 runner 一起交付并在 `.12` 复验同版本重装。
+- `upgrade-runner` 是独立升级执行组件，版本由根目录 `RUNNER_VERSION` 定义，当前为 **`v0.3.2`**（**已于 2026-10-21 随 v0.5.4 正式发布**：tag `runner-v0.3.2`、Release 资产、DockerHub `v0.3.2` 均已在位；US-24 修复于 2026-09-28 直接并入——`engine._save` 对「与主 store 同一文件」的 mirror 不再双写；已发布线 `v0.3.1` 见 Release 资产 `d10e15cf…`）。
+- **`v0.3.2` 已随 v0.5.4 发布（2026-10-21）**：该版本此前从未交付，现已补 tag / DockerHub 镜像 / Release 资产三件套。源码 compose 与交付物均落 `v0.3.2`。
 - 后端镜像会同时内置 `/app/VERSION` 和 `/app/RUNNER_VERSION`，运行时优先读取镜像内版本文件，环境变量只作为兜底覆盖。
 - 平台升级包不包含 `upgrade-runner`，也不重启 `upgrade-runner`。
 - `upgrade-runner` 只能通过组件升级包更新。

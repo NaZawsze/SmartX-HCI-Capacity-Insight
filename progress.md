@@ -7407,3 +7407,37 @@ SHA 逐位不变，因此 `.12`/`.14` 的验收结论仍然有效。
 
 **验证**：两门禁各 7/7 PASS；两个门禁自测 15 例 OK；相关夹具回归 121 项 OK（3 skip）；
 脱敏扫描 PASS；发布脚本 shell 语法 OK。
+
+## 2026-10-21 v0.5.4 正式发布（用户指令「提交发布吧，release 也要上传哦」）
+
+### 发布动作链（全部完成）
+
+| 步骤 | 结果 |
+| --- | --- |
+| dev2 推送 | `f78dfba..9ae67cc` → origin/dev2 ✅ |
+| main fast-forward | `f07e581..9ae67cc` → origin/main ✅（推送前 fetch 确认 main 已在 v0.5.3，本地 origin/main 曾过期） |
+| tag | `v0.5.4`（平台）+ `runner-v0.3.2`（runner 组件）已推 ✅ |
+| CI 三次运行 | Docker Images（main push `39606413856`，1m5s）、Docker Images（tag v0.5.4 `39606425653`，1m13s）、Upgrade Runner Image（tag runner-v0.3.2 `39606425572`，39s）**全 success** ✅ |
+| GitHub Release | https://github.com/NaZawsze/SmartX-HCI-Capacity-Insight/releases/tag/v0.5.4，资产 4 个（两包 + 各自 `.sha256`）全部 `uploaded` ✅ |
+| DockerHub | `web-api`/`collector-worker`/`frontend` 的 `v0.5.4`、`upgrade-runner` 的 `v0.3.2` —— 实查全部 **HTTP 200** ✅ |
+
+### 发布资产（与验收包逐字节一致）
+
+| 文件 | SHA256 |
+| --- | --- |
+| `smartx-capacity-insight-upgrade-v0.5.4.tar.gz` | `d235f14ca4737b76dec4ac7ff0b42f09fdd0524a8548e067150b48a1b217af34`（248,625,888 B） |
+| `smartx-upgrade-runner-v0.3.2.tar.gz` | `e461738ca8cbd1413c51885afe36dd389bd2964973832f27e0857656288fcd9b`（81,308,324 B） |
+
+发布前把两个包从 `.3` 拉回本地复核 SHA，与 ledger / CHANGELOG / 内部验证记录的登记值**逐位一致**
+——**发出去的就是验收过的那两个包**。
+
+### 文档收尾
+
+- `CHANGELOG.md`：v0.5.4 节状态翻转为「发布日期：2026-10-21」（保持用户视角，四节结构不变）。
+- `release-verification-v0.5.4.md`：补发布 tag、Release 链接、DockerHub 状态；状态改「已发布」。
+- `docs/version-governance.md`：已发布版本翻转 v0.5.3 → **v0.5.4**；runner 当前版本 `v0.3.2` 标注
+  「已于 2026-10-21 正式发布」；删除已失效的「v0.3.2 本次不交付」整条（改为「已随 v0.5.4 发布」）。
+- `docs/upgrade-package-ledger.md`：终包条目状态改为 **RELEASED**，补三个 CI run ID 与 DockerHub 核对结果。
+- `docs/pending-tasks.md`：**#53（runner v0.3.2 无任何交付物）关闭** —— 三件套已补齐。
+
+两门禁发布后复跑：`verify_changelog.py` 7/7 PASS、`verify_release_verification.py` 7/7 PASS。

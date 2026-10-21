@@ -1643,7 +1643,13 @@ compose 项目名 `smartx-storage-forecast`、runner v0.3.0）装出 v0.5.1u2，
 **性质**：测试机状态漂移，非候选包缺陷；属 AGENTS §8 版本身份纪律的第二个实例，
 已记入 findings.md 与验证纪律（验证前用能力级探针核对运行中 runner）。
 
-## 2026-10-21 最终交付组装（`.3`）与 `.12` 验收
+## 2026-10-21 最终交付组装（`.3`）与 `.12` 验收 —— **RELEASED**
+
+**状态：RELEASED（2026-10-21 发布）**。tag `v0.5.4`（平台）+ `runner-v0.3.2`（runner 组件）；
+GitHub Release 资产 4 个（两包 + 各自 `.sha256`）；DockerHub `web-api`/`collector-worker`/`frontend`
+的 `v0.5.4` 与 `upgrade-runner` 的 `v0.3.2` 均已在位（HTTP 200）。
+CI 三次运行全 success：Docker Images（main push）`39606413856`、Docker Images（tag v0.5.4）
+`39606425653`、Upgrade Runner Image（tag runner-v0.3.2）`39606425572`。
 
 **组装机**：`.3`（`/home/user1/codex-build/r42-final2`，源码 = `81a70e2`）。
 **交付目录**：`.3:/home/user1/r42-delivery-final/smartx-capacity-insight-v0.5.4-offline`
