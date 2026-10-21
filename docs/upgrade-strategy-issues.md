@@ -472,7 +472,8 @@
   首个实际案例）；v0.5.2 源端因 US-04 不能先组件，须经 v0.5.3 两步到达。
   `.12` 实证：先平台（runner=r33）→ `run-migration` 失败（task `upgrade-f7d8ca1e7d644c5c`）；
   改先组件 r35（task `upgrade-ad6d942746adebe7`）再平台 r34（task `upgrade-0b0859ec1df3fc88`）→ 全过。
-- **修复（v0.3.2 开发线，未发布版本，按 #82 先例无需再 bump 版本号）**：
+- **修复（v0.3.2 开发线，该版本**未发布** → 按版本状态规则可直接修改、不必 bump；
+  但**以最后一个构建为准**，见 `docs/release-build-guide.md`「runner 版本状态决定能不能改」）**：
   脚本挂载改走 `context.docker_host_path(script)`（一行）；回归测试补断言
   「脚本挂载必须是宿主路径、且不得出现容器内路径形态」+ 无 host 映射时的回退行为。
   已发布 v0.3.1 组件包不动（发布物不追溯修改）。

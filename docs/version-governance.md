@@ -20,6 +20,10 @@
 - **能力基准以远端仓库为准**：runner 的代码与能力（动作表 `upgrade_runner/actions.py`、能力映射 `upgrade_protocol/constants.py`、组件包 manifest 能力集）以 `origin/dev2` / `origin/main` 为唯一基准。本地工作区、现场测试机、任何 AI 会话都**不得私自修改 runner 能力或代码**，也不得私自重建/替换 runner 镜像或组件包后仍沿用原版本号。
 - **确需修改必须先经用户同意**：没有用户明确同意，不动 runner 一行代码；同意之后才改，改完立刻同步版本号与台账。
 - **改能力必须改版本号**：能力变更必须同时提升根目录 `RUNNER_VERSION`、镜像内 `/app/RUNNER_VERSION`、镜像 tag、组件包文件名与 manifest `version`/`min_version`，并在 `docs/releases/CHANGELOG.md` 记录能力差异。**禁止"同版本号、不同能力"**——`min_runner_version`、动作能力预检查、现场排障都依赖"同版本号 = 同能力"这个前提，一旦破坏，升级会在最坏时机（平台已切换后）失败。
+- **版本状态决定能否原地修改（2026-10-21 用户定稿）**：
+  - **已发布 = 永久冻结**。「已发布」判定三件齐全：① git tag `runner-v<版本>` 存在；② GitHub Release 资产已出；③ DockerHub 对应 tag 可拉取。发布后再动 runner 任何构建内容 → **必须 bump 版本号**并走完整三件套。
+  - **未发布（开发阶段）= 可以继续修改，不必 bump**；此时**以最后一个构建为准**，先前构建一律作废，不得用于验收、交付或充当基线；`docs/upgrade-package-ledger.md` 每次重建都要更新候选条目，**只保留最新一条为有效候选**（其余标「已作废」）。
+  - **为什么写成状态判定而不是给某版本开口子**：早期给「v0.3.2 从未交付」发了豁免，该版本在开发态被重建 **15 次**（15 个不同 SHA 同名），直接导致 US-40 在预检查里隐形、`.12` 验收用旧构建失败。**未发布允许改，但"最后一个构建"必须唯一且可查。**
 - **打包口径**：runner 组件包只能用 `scripts/build_runner_component_package.py` 从远端仓库对应提交构建；产物必须登记 `docs/upgrade-package-ledger.md`（SHA、构建提交、相对上一版的能力变化）。
 - **验收基线**：升级链路回归与任何 v0.5.x 升级验收，runner 基线必须取 `docs/releases/CHANGELOG.md`「当前正式升级包」记录的**已发布** runner 包，禁止用开发期本地重建镜像充当基线（否则验收环境 ≠ 交付环境）。
 - **违规处置**：发现 `RUNNER_VERSION` 未变而能力集已变，先停手并报告用户，由用户决定「补版本号」还是「把能力改回去」。

@@ -7284,3 +7284,12 @@ L5 之后 `.14` 的 runner 一直无 healthcheck。排查发现：
 2. **CLI 升级**：`upgrade.sh` 全流程（含同版本防呆拦截、源版本门禁、runner 门槛显示）通过
 3. **跨版本升级**：X1–X7 七格实测（v0.5.1u2/v0.5.2/v0.5.3 各源端、负向拦截、`component_platform` 真机拒绝），
    其中 `v0.5.1u2 → v0.5.2 → 组件 → v0.5.4` 多跳链闭环
+
+## 2026-10-21 v0.5.5 集中升级架构方向
+
+用户明确目标：尽快解决升级架构，以尽量少的平台版本完成完整架构；v0.5.5 尚未开始实施。
+
+- 核对当前实现后，建议 v0.5.5 作为一个集中架构版本批次：runner 拆到同机独立 Compose project，同时补齐自换、离线救援、能力/镜像内容身份契约、schema migration 单一来源和执行边界。
+- 保留已验收的 v0.5.4 候选为冻结基线，不为架构改造重开其包；不引入 Kubernetes、业务微服务或 Appliance A/B。
+- 初始 #90「新版 web-api 启动时执行迁移」尚未实施，已标为历史方案；其 `v0.5.4 + runner v0.3.1` 验收基线与当前 v0.5.4 批次 runner 配对规则不一致，实施前按最终 ledger 重定。
+- 新增 Phase 85 / pending #102、设计 `docs/superpowers/specs/2026-10-21-v055-upgrade-architecture-redesign.md` 与计划 `docs/superpowers/plans/2026-10-21-v055-upgrade-architecture-plan.md`。本轮仅改设计和项目索引，未改代码、未运行测试、未操作远端环境。
