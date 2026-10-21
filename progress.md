@@ -7293,3 +7293,45 @@ L5 之后 `.14` 的 runner 一直无 healthcheck。排查发现：
 - 保留已验收的 v0.5.4 候选为冻结基线，不为架构改造重开其包；不引入 Kubernetes、业务微服务或 Appliance A/B。
 - 初始 #90「新版 web-api 启动时执行迁移」尚未实施，已标为历史方案；其 `v0.5.4 + runner v0.3.1` 验收基线与当前 v0.5.4 批次 runner 配对规则不一致，实施前按最终 ledger 重定。
 - 新增 Phase 85 / pending #102、设计 `docs/superpowers/specs/2026-10-21-v055-upgrade-architecture-redesign.md` 与计划 `docs/superpowers/plans/2026-10-21-v055-upgrade-architecture-plan.md`。本轮仅改设计和项目索引，未改代码、未运行测试、未操作远端环境。
+
+## 2026-10-21 晚 `.14` 交付物冒烟 + 升级验证（含环境故障诊断）
+
+**目的**：README 从 `v0.3.3` 统一为 `v0.3.2` 后，用**新的交付目录**跑一次安装冒烟 + 完整升级链，
+确认交付物可用且**升级不丢数据**（用户明确要求「测试流程要看数据会不会丢失」）。
+
+### 交付目录状态（`.3:/home/user1/r42-delivery-final/`）
+
+- 只替换 README（`531b3cb2…` → `4633ea57…`，与仓库 HEAD 一致），**其余文件逐字节未动**
+- 两包 SHA 保持验收值：平台 `d235f14c…` / runner `e461738c…`
+- 备份：`/home/user1/r42-delivery-final.backup-202440`
+- 传输到 `.14`：`/data/deliv-final.tgz`（703M，SHA `7513e92c…` 双端一致）
+
+### `.14` 环境故障（两处，均为历史硬盘故障后遗症，非产品缺陷）
+
+1. **Docker overlay2 存储文件损坏**：交付 tar 层内 `/bin/prometheus` 为 `8d2d4281…`（正确），
+   但 `.14` 容器内解出 `fae00478…`（损坏）→ Prometheus `exit 139` 段错误、
+   `--version` 都跑不了。`docker rmi + load` 无效（Docker 认为 blob 已在、跳过解包）。
+   **处置**：`systemctl stop docker` → `rm -rf /var/lib/docker` → 重启 → 重 load。
+   修复后二进制恢复 `8d2d4281…`、Prometheus 正常。
+2. **孤儿桥接接口抢占同网段**：`br-4b1ebcf1e127` / `br-f0952d6c0252` 残留，
+   导致 `10.249.251.0/24` 出现三条路由（两条 `linkdown`）→ 宿主访问 8000 被 reset，
+   而容器内 `health` 正常。**处置**：`ip link delete` 两个孤儿桥接后恢复单一路由、health 正常。
+
+> 教训：`.14` 会因历史故障残留「镜像层损坏 + 孤儿网络」，验证前应先做
+> 「镜像内二进制 SHA 抽检 + `ip route` 重复网段检查」，否则会误判成产品缺陷。
+
+### 冒烟与升级结果（全部通过）
+
+| 阶段 | 结果 |
+| --- | --- |
+| 全新安装 `install.sh --yes` | `EXIT=0`，5 容器 Up、Prometheus 正常、8 项全过（`migrations=0` 全新库口径） |
+| 注入标准数据集 | `towers=2 / clusters=3 / vm_latest=120 / vm_volumes=240 / 回收站 3` |
+| **组件升级 v0.3.1 → v0.3.2** | 预检查 **9 项全过** → task `upgrade-4e75c3a11cb71dfb` **succeeded**（10s、5 步）；runner 探针：`RUNNER_VERSION=v0.3.2`、`docker_host_path(script)`=1、`ensure_env_file`=1、restarts=0 |
+| **平台升级 v0.5.4（同版本重装）** | 预检查 **10 项全过**（`runner_actions: 9 个动作 v0.3.2 全部支持`）→ task `upgrade-b9233ab5f27c8c1b` **succeeded**（40s、7 步，**含「执行数据库迁移脚本」成功**） |
+| **数据完整性 t0 vs t1** | **36 PASS / 0 FAIL / 4 WARN**（WARN×4 = Prometheus 无采集样本，本轮跳过了真实采集） |
+| 升级后终态 | health `ok=true / v0.5.4 / v0.3.2` 三 checks true；5 容器齐；`schema_migrations` 4 条；数据 `2/3/120/240` 逐位不变；UI 200 |
+
+**结论**：
+1. 新交付目录（README 已统一为 v0.3.2）**安装 + 升级全链路可用**；
+2. **升级不丢数据**（36 项数据断言 0 FAIL，含 schema、引用完整性、聚合值、`.env` 密钥配对）；
+3. 交付物 SHA 与验收时一致（只换 README），之前的验收结论仍然成立。
