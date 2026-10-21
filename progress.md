@@ -7441,3 +7441,33 @@ SHA 逐位不变，因此 `.12`/`.14` 的验收结论仍然有效。
 - `docs/pending-tasks.md`：**#53（runner v0.3.2 无任何交付物）关闭** —— 三件套已补齐。
 
 两门禁发布后复跑：`verify_changelog.py` 7/7 PASS、`verify_release_verification.py` 7/7 PASS。
+
+### 发布后发现的三个缺口（已修两个 + 记录一个不可改）
+
+**1. 包内 `docs/CHANGELOG.md` 是候选文案（不可回改，已加门禁防复发）**
+
+解包 Release 资产核对：`project/docs/releases/CHANGELOG.md` 首节是
+「候选，未发布 / 当前候选对 = 平台 r37 + runner 组件包（2026-10-15 重建）」——
+因为平台包构建源码是 `81a70e2`（2026-10-20），当时 CHANGELOG 尚未按新规则重写。
+**包已发布，文案无法回改**（改包 = 换 SHA = 作废验收）。
+
+- **影响评估（低）**：客户使用说明是交付目录的 `README.md`（已修正）；包内 CHANGELOG 只是
+  `docs/` 附带文件，且属历史信息。但客户若翻到会看到过期文案。
+- **门禁**：`build_upgrade_package.py` 新增 `assert_changelog_released(version)`——打包前校验
+  首节版本与 `VERSION` 一致、且不含「未发布/候选」，否则**拒绝打包**（已验证：临时改回候选状态
+  → 拒绝；还原 → 通过）。单测锁在 `test_changelog_gate.py`。
+- **下一版必须**：`CHANGELOG` 状态翻转**在打包之前**（本次顺序错了：先打包、后翻转）。
+
+**2. CI 的 `tag == main` 精确校验会让 tag 工作流事后重跑误报（已修）**
+
+发布后追加文档提交（CHANGELOG 状态翻转 `37e9027`）导致 `main` 前进了 1 个提交，
+而 tag `v0.5.4` 指向 `9ae67cc` —— 旧的精确相等校验在**重跑 tag 工作流**时会报
+「tag must point to origin/main」而失败。改为 `git merge-base --is-ancestor`（tag 必须是
+main 的祖先或相等），既保留「tag 不在 main 上就拒绝」的保护，又允许发布后追加文档提交。
+本次三次 CI 运行都在追加提交之前完成，故均为 success。
+
+**3. tag 内 CHANGELOG 状态为「未发布」（不可改，已记录）**
+
+tag `v0.5.4` 指向 `9ae67cc`（打包提交），其 CHANGELOG 首节是「未发布」；状态翻转在
+`37e9027`（tag 之后）。**tag 不可移动**（移动 tag = 换发布事实）。正确顺序应为：
+先翻转状态 → 再打 tag → 再打包。已写入下一版发布检查单。

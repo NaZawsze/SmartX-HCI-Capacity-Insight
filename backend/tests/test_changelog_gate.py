@@ -57,10 +57,10 @@ class ChangelogGateTest(unittest.TestCase):
         用户 2026-10-21：『这个是给其他用的人看的，自己看的你可以自己写一份』。
         """
         for snippet, expect in (
-            ("状态：**未发布**。", "状态：**未发布**。当前候选包 r42 已验收。"),
-            ("状态：**未发布**。", "状态：**未发布**。平台包 `d235f14ca4737b76dec4ac7ff0b42f09fdd0524a8548e067150b48a1b217af34`"),
-            ("状态：**未发布**。", "状态：**未发布**。已在 .14 上验证。"),
-            ("状态：**未发布**。", "状态：**未发布**。任务 upgrade-b9233ab5f27c8c1b succeeded。"),
+            ("发布日期：2026-10-21。", "发布日期：2026-10-21。当前候选包 r42 已验收。"),
+            ("发布日期：2026-10-21。", "发布日期：2026-10-21。平台包 `d235f14ca4737b76dec4ac7ff0b42f09fdd0524a8548e067150b48a1b217af34`"),
+            ("发布日期：2026-10-21。", "发布日期：2026-10-21。已在 .14 上验证。"),
+            ("发布日期：2026-10-21。", "发布日期：2026-10-21。任务 upgrade-b9233ab5f27c8c1b succeeded。"),
         ):
             mutated = self.original.replace(snippet, expect, 1)
             self.assertNotEqual(mutated, self.original, f"夹具失效：{snippet!r}")
@@ -79,8 +79,8 @@ class ChangelogGateTest(unittest.TestCase):
     def test_detects_stale_round_wording(self) -> None:
         """残留『当前候选对 = … rNN』这类旧轮次表述。"""
         mutated = self.original.replace(
-            "状态：**未发布**。",
-            "状态：**未发布**。当前候选对 = 平台 r37；",
+            "发布日期：2026-10-21。",
+            "发布日期：2026-10-21。当前候选对 = 平台 r37；",
             1,
         )
         self.assertNotEqual(mutated, self.original, "夹具失效")
@@ -111,6 +111,48 @@ class ChangelogGateTest(unittest.TestCase):
         mutated = self.original.replace("### 已知问题", "### 其它", 1)
         self.assertNotEqual(mutated, self.original, "夹具失效")
         self.assertIn("top_sections_present", self._names_failed(mutated))
+
+    def test_detects_status_inconsistent_with_release(self) -> None:
+        """首节同时写「未发布」与「发布日期」→ 自相矛盾。"""
+        mutated = self.original.replace(
+            "发布日期：2026-10-21。",
+            "发布日期：2026-10-21。状态：**未发布**。",
+            1,
+        )
+        self.assertNotEqual(mutated, self.original, "夹具失效")
+        self.assertIn("top_status_consistent", self._names_failed(mutated))
+
+    def test_packaging_gate_rejects_candidate_changelog(self) -> None:
+        """打包门禁：包内 CHANGELOG 仍是候选状态时必须拒绝打包。
+
+        背景（2026-10-21 v0.5.4 实测）：平台包携带 docs/CHANGELOG.md，
+        打包时它还是「候选，未发布 / 候选对 r37」，客户从包里读到的就是错的。
+        """
+        import importlib.util
+        import sys
+
+        spec = importlib.util.spec_from_file_location(
+            "build_upgrade_package", ROOT / "scripts" / "build_upgrade_package.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        old_argv = sys.argv
+        sys.argv = ["build_upgrade_package"]
+        try:
+            spec.loader.exec_module(module)
+        finally:
+            sys.argv = old_argv
+
+        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        CHANGELOG.write_text(
+            self.original.replace(
+                "发布日期：2026-10-21。", "状态：**候选，未发布**。", 1
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaises(SystemExit) as ctx:
+            module.assert_changelog_released(version)
+        self.assertIn("未发布", str(ctx.exception))
 
     def test_gate_is_wired_into_release_script(self) -> None:
         """门禁必须真的接进发布脚本，否则只是一个没人跑的脚本。"""

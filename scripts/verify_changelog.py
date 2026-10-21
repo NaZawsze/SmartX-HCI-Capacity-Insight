@@ -211,6 +211,22 @@ def check(text: str) -> list[dict]:
     else:
         _pass(checks, "no_stale_round_wording")
 
+    # 8) 首节状态必须与「是否已发布」自洽：
+    #    - 声明了发布日期/tag → 不得同时写「未发布」
+    #    - 写「未发布」时不得出现发布日期
+    # 背景（2026-10-21 v0.5.4 发布后实测）：平台包在 docs/ 内携带本文件，若打包时状态仍是
+    # 「候选，未发布」，客户从包里读到的就是错的——包一旦出厂，文案就改不掉了。
+    status_head = "\n".join(top_body[:8])
+    says_unreleased = bool(re.search(r"未发布|候选", status_head))
+    says_released = bool(re.search(r"发布日期\s*[:：]\s*\d{4}-\d{2}-\d{2}", status_head))
+    if says_unreleased and says_released:
+        _fail(checks, "top_status_consistent", "首节同时出现「未发布/候选」与「发布日期」")
+    elif says_unreleased:
+        # 允许（真·候选阶段），但提醒打包前必须翻转
+        _pass(checks, "top_status_consistent", "当前标记为未发布（打包前须翻转为已发布）")
+    else:
+        _pass(checks, "top_status_consistent", "已发布状态")
+
     # 7) 列表块内空行（把列表切成两段）。
     # 判据：空行的**上一个非空行**属于某个列表项（`- ` 开头，或是它的缩进续行），
     # 且空行的**下一个非空行**又是一个列表项 → 这是把一个列表硬切成两段。

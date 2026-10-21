@@ -111,6 +111,31 @@ PROJECT_DIRS = ["docs", "scripts"]
 COMPOSE_GUARD_SOURCE = "delivery/compose-guard.sh"
 COMPOSE_GUARD_TARGET = "compose-guard.sh"
 MIGRATION_REGISTRY = ROOT / "backend/app/v2/upgrade/migrations/registry.json"
+
+#: 平台包会携带 `docs/`（见 PROJECT_DIRS），其中包含 CHANGELOG——客户会从包里读到它。
+#: 打包时必须确认它已是「已发布」状态，否则一次发布就永久固化了错误文案
+#: （2026-10-21 v0.5.4 实测：包内 CHANGELOG 仍是「候选，未发布 / 候选对 r37」）。
+def assert_changelog_released(version: str) -> None:
+    changelog = ROOT / "docs" / "releases" / "CHANGELOG.md"
+    if not changelog.is_file():
+        return
+    lines = changelog.read_text(encoding="utf-8").splitlines()
+    start = next((i for i, line in enumerate(lines) if line.startswith("## v")), None)
+    if start is None:
+        raise SystemExit("CHANGELOG 缺少版本节，无法校验发布状态。")
+    head = "\n".join(lines[start : start + 10])
+    if version.lstrip("v") not in head:
+        raise SystemExit(
+            f"CHANGELOG 首节版本与 VERSION（{version}）不一致，拒绝打包。"
+            f"首节首行：{lines[start]}"
+        )
+    if "未发布" in head or "候选" in head:
+        raise SystemExit(
+            "CHANGELOG 首节仍标记为「未发布/候选」，拒绝打包。\n"
+            "平台包会携带 docs/CHANGELOG.md 并随包交付给客户——发布前必须先把状态翻转为"
+            "「已发布」并写入发布日期，再重新打包。"
+        )
+
 SENSITIVE_PATTERNS = (
     re.compile(r"(^|/)\.env($|[./])", re.I),
     re.compile(r"smartx\.db", re.I),
@@ -1375,6 +1400,7 @@ def main() -> None:
     if args.check_version:
         check_versions(version)
         return
+    assert_changelog_released(version)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     build_package(
         version,

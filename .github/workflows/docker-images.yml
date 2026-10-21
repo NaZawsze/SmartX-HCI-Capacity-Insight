@@ -47,8 +47,12 @@ jobs:
           main_commit="$(git rev-parse origin/main)"
           echo "tag ${GITHUB_REF_NAME} -> ${tag_commit}"
           echo "origin/main -> ${main_commit}"
-          if [ "${tag_commit}" != "${main_commit}" ]; then
-            echo "Release tag ${GITHUB_REF_NAME} must point to origin/main before building images." >&2
+          # 2026-10-21 修订：由「精确相等」放宽为「tag 必须是 main 的祖先或相等」。
+          # 原因：发布后追加文档提交（如 CHANGELOG 状态翻转为已发布）是正常流程，
+          # 精确相等会让 tag 工作流在事后重跑时误报失败（v0.5.4 实测踩到）。
+          if ! git merge-base --is-ancestor "${tag_commit}" "${main_commit}"; then
+            echo "Release tag ${GITHUB_REF_NAME} (${tag_commit}) is not contained in origin/main (${main_commit})." >&2
+            echo "Refusing to build images from a tag that is not on main." >&2
             exit 1
           fi
 
