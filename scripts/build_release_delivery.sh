@@ -190,6 +190,14 @@ else
     || { c_red "交付目录组装失败"; exit 1; }
 fi
 
+# ── 5.5 CHANGELOG / 交付文档门禁（2026-10-21 用户要求：不靠人眼，靠机器） ──
+phase "步骤 5.5/6 · 发布文档门禁（CHANGELOG 结构 + 脱敏 + 路径解析）"
+python3 scripts/verify_changelog.py \
+  || { c_red "CHANGELOG 门禁未通过（版本节顺序 / 包 SHA 与 ledger 不一致 / 引用不存在的版本号 / 通过断言缺证据 / 列表被空行切断）"; exit 1; }
+python3 scripts/verify_release_docs_safe.py \
+  || { c_red "对外发布文档脱敏扫描未通过"; exit 1; }
+c_green "  [OK] 发布文档门禁通过"
+
 # ── 6. 产物清单 ──
 phase "步骤 6/6 · 产物清单与 SHA256"
 SUMMARY="$PKG_DIR/SHA256SUMS-$(date +%Y%m%d%H%M%S)"

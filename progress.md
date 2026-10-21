@@ -7350,3 +7350,30 @@ CHANGELOG 与 `delivery/README.md` 按用户要求修正三处过期表述（提
 
 **只换 README**：diff 确认除 README 外无任何文件变化；平台包 `d235f14c…` / runner 包 `e461738c…`
 SHA 逐位不变，因此 `.12`/`.14` 的验收结论仍然有效。
+
+### 2026-10-21 CHANGELOG 门禁化（用户两次质问「我不看你不检查？」后立规）
+
+**背景**：CHANGELOG 的过期内容连续被用户抓出两轮——候选包轮次停在 r37 而实际终包是
+`d235f14c…`、写了已按规则回退的 runner 版本号 v0.3.3、「全新安装 install 直接落 r35 构建」
+与 `.14` 实测相反、列表被空行切断。**根因不是"忘了改"，而是"改完没人检查"**：
+这类"包变了、文档没跟"的问题靠人眼审查不可靠。
+
+**落地（机器门禁，不依赖人）**：
+
+1. 新增 `scripts/verify_changelog.py`，8 项检查：
+   - 版本节存在且降序（最新在顶）；
+   - 首节小节顺序固定（更新摘要 → **修复 → 新增** → 工程与运维 → 验证说明 → 已知问题）；
+   - **首节平台包 SHA 必须与 ledger 最新候选一致**（包换轮次而文档没跟 → FAIL，这是最有价值的一条）；
+   - 首节不得引用不存在的 runner 版本（须等于 `RUNNER_VERSION` / 有 tag / 历史节出现过）；
+   - 不得残留过期轮次表述（`当前候选对 = … rNN`、`待重建`、`重建即作废`、`当前 rNN 包不含`）；
+   - 「✅ 通过 / 已验证」断言必须带证据（task ID / `N PASS` / `INSTALL_EXIT=` / 门禁编号 / 测试名）；
+   - 列表块内不得有空行（Markdown 会把一个列表切成两段）。
+2. **接入发布脚本**：`scripts/build_release_delivery.sh` 新增「步骤 5.5/6 · 发布文档门禁」，
+   串跑 `verify_changelog.py` + `verify_release_docs_safe.py`，任一 FAIL 即中止打包。
+3. **门禁自身有单测**：`backend/tests/test_changelog_gate.py` 9 例——1 例基线（当前文件必须过）
+   + 7 例定向变异（每例对应一类真实发生过的缺陷，断言门禁必须 FAIL）+ 1 例接线检查
+   （发布脚本必须真的调用它）。做过逐类变异验证：**6 类问题全部拦住**。
+4. `AGENTS.md` §11 增一条：改 CHANGELOG 必须跑门禁，并写明背景与检查项。
+
+**验证**：`verify_changelog.py` 8/8 PASS；门禁单测 9/9 OK；相关夹具回归 115 项 OK（3 skip）；
+脱敏扫描 PASS；`bash -n scripts/build_release_delivery.sh` 语法 OK。
