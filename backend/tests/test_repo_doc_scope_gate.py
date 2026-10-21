@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import shutil
 import subprocess
 import tempfile
@@ -178,6 +179,96 @@ class RepoDocScopeGateTest(unittest.TestCase):
                 }
             ),
         )
+
+
+class RepoDocScopeEnforcementTest(unittest.TestCase):
+    """门禁必须**真的拦住**，不能只是「事后能查出来」（用户 2026-10-21 追问）。
+
+    背景：门禁脚本存在 ≠ 门禁生效。实测过 `git add -f` 内部文档 + `git commit`
+    全程无阻——只有手动跑门禁才报 FAIL。所以这里锁住三道拦截机制本身：
+    ① pre-commit hook 存在且可执行；② staged 模式能识别不该提交的 .md；
+    ③ 打包脚本与 CI 都调用了门禁。
+    """
+
+    def test_precommit_hook_script_exists_and_executable(self) -> None:
+        hook = ROOT / "scripts" / "hooks" / "pre-commit"
+        self.assertTrue(hook.is_file(), "缺少 scripts/hooks/pre-commit（内部文档拦不住）")
+        self.assertTrue(os.access(hook, os.X_OK), "pre-commit hook 必须可执行")
+
+    def test_hook_calls_staged_mode(self) -> None:
+        hook = (ROOT / "scripts" / "hooks" / "pre-commit").read_text(encoding="utf-8")
+        self.assertIn("--staged", hook, "hook 必须用 --staged 模式（只查本次提交）")
+        self.assertIn("SKIP_DOC_SCOPE", hook, "hook 必须提供显式旁路开关")
+
+    def test_installer_exists(self) -> None:
+        installer = ROOT / "scripts" / "install_git_hooks.sh"
+        self.assertTrue(installer.is_file(), "缺少安装脚本（clone 后 hook 不会自动生效）")
+        self.assertTrue(os.access(installer, os.X_OK))
+
+    def test_package_script_runs_gate(self) -> None:
+        text = (ROOT / "ops" / "package.sh").read_text(encoding="utf-8")
+        self.assertIn("verify_repo_doc_scope.py", text, "打包脚本必须跑文档范围门禁")
+
+    def test_ci_workflow_runs_gate(self) -> None:
+        workflow = ROOT / ".github" / "workflows" / "repo-hygiene.yml"
+        self.assertTrue(workflow.is_file(), "缺少 CI 卫生门禁 workflow")
+        text = workflow.read_text(encoding="utf-8")
+        for gate in ("verify_repo_doc_scope.py", "verify_release_docs_safe.py", "verify_changelog.py"):
+            self.assertIn(gate, text, f"CI 必须跑 {gate}")
+
+
+class StagedModeTest(unittest.TestCase):
+    """staged 模式：只拦本次要提交的 .md，不因工作树状态误伤。"""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="staged-"))
+        self.gate = _load_gate()
+        subprocess.run(["git", "init", "-q"], cwd=self.tmp, check=True)
+        self.env = {
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@example.com",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@example.com",
+        }
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _stage(self, rel: str, text: str = "# x\n") -> None:
+        target = self.tmp / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        subprocess.run(["git", "add", "-f", rel], cwd=self.tmp, check=True)
+
+    def _run_staged(self) -> dict:
+        original_root = self.gate.ROOT
+        try:
+            self.gate.ROOT = self.tmp
+            checks = self.gate.check_staged()
+        finally:
+            self.gate.ROOT = original_root
+        return {c["name"]: c for c in checks}
+
+    def test_internal_doc_is_blocked(self) -> None:
+        self._stage("docs/superpowers/specs/secret.md")
+        checks = self._run_staged()
+        self.assertFalse(checks["staged_doc_scope"]["ok"])
+        self.assertIn("secret.md", checks["staged_doc_scope"]["message"])
+
+    def test_root_worklog_is_blocked(self) -> None:
+        self._stage("progress.md")
+        checks = self._run_staged()
+        self.assertFalse(checks["staged_doc_scope"]["ok"])
+
+    def test_customer_doc_is_allowed(self) -> None:
+        self._stage("docs/usage.md")
+        checks = self._run_staged()
+        self.assertTrue(checks["staged_doc_scope"]["ok"], checks["staged_doc_scope"]["message"])
+
+    def test_non_markdown_is_ignored(self) -> None:
+        self._stage("backend/app/whatever.py")
+        checks = self._run_staged()
+        self.assertTrue(checks["staged_doc_scope"]["ok"])
 
 
 if __name__ == "__main__":

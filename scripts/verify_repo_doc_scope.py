@@ -149,13 +149,88 @@ def _sample(items: list[str], limit: int = 6) -> str:
     return ", ".join(items[:limit]) + f" … 等 {len(items)} 个"
 
 
-def _tracked_markdown() -> list[str]:
+def _tracked_markdown() -> list[str] | None:
+    """版本控制里的 .md 清单。非 git 树（`.3` 的 archive 构建树）返回 None。"""
     result = subprocess.run(
         ["git", "ls-files", "*.md"], cwd=ROOT, capture_output=True, text=True, check=False
     )
     if result.returncode != 0:
-        raise SystemExit(f"git ls-files 失败：{result.stderr.strip()}")
+        return None
     return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def _staged_markdown() -> list[str] | None:
+    """暂存区（本次提交将新增/修改）的 .md 清单。pre-commit 用。"""
+    result = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR", "--", "*.md"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def _fs_internal_docs() -> list[str]:
+    """没有 git 时（archive 构建树）兜底：直接扫文件系统里有没有内部文档。"""
+    found: list[str] = []
+    for pattern, label in INTERNAL_PATTERNS:
+        if pattern.startswith("^docs/") and pattern.endswith("/"):
+            base = pattern[1:].rstrip("/")
+            for hit in sorted((ROOT / base).rglob("*.md")):
+                found.append(f"{hit.relative_to(ROOT).as_posix()}（{label}）")
+    for name in ("progress.md", "findings.md", "task_plan.md"):
+        if (ROOT / name).is_file():
+            found.append(f"{name}（工作日志/发现/计划，只留本地）")
+    return found
+
+
+def check_staged() -> list[dict]:
+    """pre-commit 专用：只看**本次提交要加进去的 .md**，不要求全仓夹具齐备。
+
+    为什么单独一条路径：pre-commit 需要在 `git commit` 时跑得又快又准，
+    而且此时工作树里可能还有未暂存的改动（不该被判定）。
+    """
+    checks: list[dict] = []
+    staged = _staged_markdown()
+    if staged is None:
+        checks.append(
+            {
+                "name": "staged_doc_scope",
+                "ok": True,
+                "skipped": True,
+                "message": "SKIP：无法读取暂存区（非 git 环境）",
+            }
+        )
+        return checks
+
+    blocked: list[str] = []
+    for path in staged:
+        reason = None
+        if path not in TRACKED_DOCS:
+            reason = "不在允许提交的 .md 白名单内（内部开发文档应加 .gitignore）"
+        else:
+            for pattern, label in INTERNAL_PATTERNS:
+                if re.search(pattern, path):
+                    reason = f"命中内部文档特征：{label}"
+                    break
+        if reason:
+            blocked.append(f"{path} —— {reason}")
+
+    checks.append(
+        {
+            "name": "staged_doc_scope",
+            "ok": not blocked,
+            "message": (
+                f"{len(staged)} 个待提交 .md 全部是允许的（客户文档 / 门禁夹具）"
+                if not blocked
+                else f"{len(blocked)} 个不该提交的文档被拦下：{_sample(blocked)}"
+            ),
+        }
+    )
+    return checks
 
 
 def check() -> list[dict]:
@@ -171,6 +246,34 @@ def check() -> list[dict]:
     )
 
     tracked = _tracked_markdown()
+    if tracked is None:
+        # 非 git 树（`.3` 用 git archive 构建的形态）：没有索引可查，
+        # 改为扫文件系统里的内部文档——这正是「已提交内容」的镜像。
+        leaked = _fs_internal_docs()
+        checks.append(
+            {
+                "name": "no_internal_docs_tracked",
+                "ok": not leaked,
+                "message": (
+                    "非 git 树：文件系统扫描未见内部开发文档"
+                    if not leaked
+                    else f"build 树里混入了内部文档：{_sample(leaked)}"
+                ),
+            }
+        )
+        checks.append(
+            {
+                "name": "no_unlisted_tracked_docs",
+                "ok": True,
+                "skipped": True,
+                "message": "SKIP：非 git 树无索引可比；白名单校验由 no_internal_docs_tracked 兜底",
+            }
+        )
+        _check_gitignore(checks)
+        _check_dead_links(checks)
+        _check_internal_refs(checks)
+        return checks
+
     unlisted = sorted(set(tracked) - TRACKED_DOCS)
     checks.append(
         {
@@ -202,6 +305,14 @@ def check() -> list[dict]:
         }
     )
 
+    _check_gitignore(checks)
+    _check_dead_links(checks)
+    _check_internal_refs(checks)
+
+    return checks
+
+
+def _check_gitignore(checks: list[dict]) -> None:
     ignore_text = GITIGNORE.read_text(encoding="utf-8") if GITIGNORE.is_file() else ""
     ignore_lines = {line.strip() for line in ignore_text.splitlines() if line.strip()}
     uncovered = [p for p in GITIGNORE_REQUIRED if p not in ignore_lines]
@@ -213,6 +324,8 @@ def check() -> list[dict]:
         }
     )
 
+
+def _check_dead_links(checks: list[dict]) -> None:
     dead: list[str] = []
     for path in sorted(TRACKED_DOCS):
         local = ROOT / path
@@ -237,10 +350,6 @@ def check() -> list[dict]:
             ),
         }
     )
-
-    _check_internal_refs(checks)
-
-    return checks
 
 
 #: 「提到了内部文档路径」的引用形态（Markdown 链接、反引号路径、裸路径都算）。
@@ -319,19 +428,27 @@ def _relative_md_links(path: Path) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="仓库文档范围门禁")
     parser.add_argument("--json", action="store_true", help="机器可读输出")
+    parser.add_argument(
+        "--staged",
+        action="store_true",
+        help="只校验**本次提交要加进去的 .md**（pre-commit 用，快且不受未暂存改动影响）",
+    )
     args = parser.parse_args(argv)
 
-    checks = check()
+    checks = check_staged() if args.staged else check()
     failed = [c for c in checks if not c["ok"]]
     if args.json:
         print(json.dumps({"checks": checks, "failed": len(failed)}, ensure_ascii=False, indent=2))
     else:
         for item in checks:
-            mark = "PASS" if item["ok"] else "FAIL"
+            if item.get("skipped"):
+                mark = "SKIP"
+            else:
+                mark = "PASS" if item["ok"] else "FAIL"
             print(f"[{mark}] {item['name']} — {item['message']}")
         print()
         print(f"汇总：PASS={len(checks) - len(failed)} FAIL={len(failed)}")
-        if not failed:
+        if not failed and not args.staged:
             print(f"仓库文档范围：{len(TRACKED_DOCS)} 个允许提交（客户文档 + 门禁夹具），其余只留本地")
     return 1 if failed else 0
 

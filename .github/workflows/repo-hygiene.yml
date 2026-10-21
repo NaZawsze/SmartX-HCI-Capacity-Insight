@@ -1,0 +1,43 @@
+name: Repo Hygiene
+
+# 仓库卫生门禁（2026-10-21「仓库只放代码」）。
+#
+# 为什么需要：本仓库只放代码，内部开发文档（设计稿/计划/工作日志/台账/交接记录）
+# 一律不提交。此前这条规则只靠人工纪律——实测 `git add -f` 内部文档 + commit
+# 全程无阻，只有事后手动跑门禁才会报错。本 workflow 把检查放到每次推送/PR。
+#
+# 只跑**不需要镜像、不需要数据库**的静态门禁，几十秒完成，不拖慢开发。
+on:
+  push:
+    branches:
+      - dev2
+      - main
+  pull_request:
+    branches:
+      - dev2
+      - main
+
+jobs:
+  doc-scope:
+    name: Docs scope & public-safety
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 仓库只放代码：内部文档不得进版本控制；客户文档不得引用内部路径、不得留死链。
+      - name: Repository doc scope
+        run: python3 scripts/verify_repo_doc_scope.py
+
+      # 对外发布文档脱敏 + 全仓硬凭据扫描（这一关曾拦住过随 Release 外泄的密码）。
+      - name: Public docs safety scan
+        run: python3 scripts/verify_release_docs_safe.py
+
+      # CHANGELOG 结构 / 用户视角 / 引用存在的 runner 版本。
+      - name: CHANGELOG gate
+        run: python3 scripts/verify_changelog.py

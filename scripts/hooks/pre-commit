@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# pre-commit：拦住不该进仓库的内部开发文档（2026-10-21 用户令「仓库只放代码」）。
+#
+# 为什么需要：门禁脚本 `scripts/verify_repo_doc_scope.py` 一直是**事后**检查——
+# 文档一旦 commit 就进了历史，事后跑门禁只能发现问题、不能阻止（实测：`git add -f`
+# 内部文档 + commit 全程无阻，只有手动跑门禁才报 FAIL）。
+#
+# 只查**本次提交要加进去的 .md**（`--staged`），所以：
+#   · 快（不扫全仓）；
+#   · 不受工作树里未暂存改动影响；
+#   · 不含 `required_docs_exist` 那类全仓检查（那是发布门禁的事）。
+#
+# 绕过方式（仅在**确认**要提交客户文档/门禁夹具时使用）：
+#   SKIP_DOC_SCOPE=1 git commit ...
+#
+# 安装：bash scripts/install_git_hooks.sh
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT" || exit 0
+
+if [ "${SKIP_DOC_SCOPE:-0}" = "1" ]; then
+  echo "[pre-commit] SKIP_DOC_SCOPE=1，跳过文档范围检查" >&2
+  exit 0
+fi
+
+# 没有 git 或脚本缺失时不要卡死提交（如 archive 构建树、容器内）
+[ -f scripts/verify_repo_doc_scope.py ] || exit 0
+command -v python3 >/dev/null 2>&1 || exit 0
+
+OUTPUT="$(python3 scripts/verify_repo_doc_scope.py --staged 2>&1)"
+STATUS=$?
+
+if [ "$STATUS" -ne 0 ]; then
+  echo "" >&2
+  echo "✗ 提交被拦下：本次提交里有不该进仓库的内部开发文档。" >&2
+  echo "" >&2
+  echo "$OUTPUT" >&2
+  echo "" >&2
+  echo "  仓库只放代码（2026-10-21 用户令）：内部开发文档（设计稿/计划/工作日志/台账/交接记录）" >&2
+  echo "  只留本地，用 .gitignore 排除，不要提交。" >&2
+  echo "" >&2
+  echo "  处理方式：" >&2
+  echo "    1) 撤出索引：git restore --staged <文件>" >&2
+  echo "    2) 加入忽略：把路径写进 .gitignore" >&2
+  echo "    3) 若确属客户文档或门禁夹具：登记进 scripts/verify_repo_doc_scope.py 的 TRACKED_DOCS" >&2
+  echo "" >&2
+  echo "  确认无误要强行提交：SKIP_DOC_SCOPE=1 git commit ..." >&2
+  exit 1
+fi
+
+exit 0
