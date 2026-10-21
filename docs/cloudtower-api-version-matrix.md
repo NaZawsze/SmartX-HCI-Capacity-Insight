@@ -73,7 +73,7 @@
 | 4.5.0 | ✅ | — | — | — |
 | 4.4.0（支持下限） | — | — | — | — |
 
-**运行时规则**（详见 `docs/superpowers/specs/2026-10-07-tower-api-version-profiles-design.md`）：
+**运行时规则**（实现见 `backend/app/v2/cloudtower/profiles.py`）：
 
 1. 版本可解析 → 用对应画像；
 2. **版本未知**（塔不可达 / 尚未采集 / 字符串不可解析）→ 最新画像 + **能力探测兜底**

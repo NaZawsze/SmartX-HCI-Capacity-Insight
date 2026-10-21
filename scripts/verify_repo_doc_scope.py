@@ -238,7 +238,67 @@ def check() -> list[dict]:
         }
     )
 
+    _check_internal_refs(checks)
+
     return checks
+
+
+#: 「提到了内部文档路径」的引用形态（Markdown 链接、反引号路径、裸路径都算）。
+#: 与 `_relative_md_links` 互补：后者只看合法 Markdown 链接，这里抓纯文本提及。
+_INTERNAL_REF_RE = re.compile(
+    r"(?:docs/(?:superpowers|archive)/[\w./-]+"
+    r"|docs/(?:pending-tasks|doc-map|version-governance|release-acceptance)\.md"
+    r"|docs/upgrade-(?:issues|strategy-issues|audit-matrix|remediation-roadmap|architecture-options)\.md"
+    r"|docs/(?:test-architecture|test-process-and-scope|project-guide-for-ai)\.md"
+    r"|docs/(?:development-verification-process|delivery-handover-guide)\.md"
+    r"|docs/releases/(?:release-verification-[\w.-]+|version-archives)\.md"
+    r"|(?<![\w/])(?:progress|findings|task_plan)\.md)"
+)
+
+#: 允许出现内部引用的受控文档——历史记录类，**只增不删不改写**（用户 2026-10-21 定）。
+_INTERNAL_REF_ALLOWED: frozenset[str] = frozenset(
+    {
+        "docs/releases/CHANGELOG.md",  # 历史版本节只增不删
+        "docs/upgrade-package-ledger.md",  # 包台账是历史审计链
+        "docs/version-skew-matrix.md",  # 被 US-01 门禁解析，改动需同步测试
+    }
+)
+
+
+def _internal_refs(path: Path) -> list[str]:
+    """抽出受控文档里**纯文本**提到的内部文档路径（不含 Markdown 链接，那个由上一条查）。"""
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    hits: list[str] = []
+    for match in _INTERNAL_REF_RE.finditer(text):
+        token = match.group(0)
+        # 跳过本来就是链接目标的（交给 no_dead_doc_links 报更准的错误）
+        if f"]({token}" in text or f"]({token}#" in text:
+            continue
+        hits.append(token)
+    return hits
+
+
+def _check_internal_refs(checks: list[dict]) -> None:
+    leaks: list[str] = []
+    for path in sorted(TRACKED_DOCS):
+        if path in _INTERNAL_REF_ALLOWED:
+            continue
+        local = ROOT / path
+        if not local.is_file():
+            continue
+        for token in _internal_refs(local):
+            leaks.append(f"{path} 提到 {token}")
+    checks.append(
+        {
+            "name": "no_internal_paths_in_public_docs",
+            "ok": not leaks,
+            "message": (
+                f"{len(TRACKED_DOCS - _INTERNAL_REF_ALLOWED)} 个对外文档不再引用内部文档路径"
+                if not leaks
+                else f"{len(leaks)} 处引用了公开仓库不存在的内部路径（客户 clone 后看不到）：{_sample(leaks)}"
+            ),
+        }
+    )
 
 
 _LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+?\.md)(?:#[^)\s]*)?\)")

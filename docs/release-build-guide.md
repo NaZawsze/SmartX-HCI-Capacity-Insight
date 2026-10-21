@@ -30,7 +30,7 @@ scp /tmp/v053-*.tar.gz user1@<构建机>:/home/user1/
 cd /data/smartx-storage-forecast/project && tar -xzf /home/user1/v053-*.tar.gz
 ```
 
-**先提交再 archive**——踩过的坑：回退改动没提交就 archive，打出来的仍是旧树（见 progress.md 第 4 批）。
+**先提交再 archive**——踩过的坑：回退改动没提交就 archive，打出来的仍是旧树。
 
 ---
 
@@ -112,7 +112,7 @@ bash scripts/build_release_delivery.sh --runner-baseline v0.3.1
 - `docker-compose.dev.yml`、`docker-compose.offline.yml`、`docker-compose.online.yml` 里的 runner image tag
 - `backend/app/core/config.py`、`backend/app/v2/config.py` 的 `DEFAULT_RUNNER_VERSION`
 - `backend/app/upgrade_runner/main.py` 的默认值
-- 预检查提示文案、README 示例、`docs/version-governance.md` 等
+- 预检查提示文案、README 示例等
 
 > **runner 版本状态决定能不能改**（2026-10-21 用户定稿，取代原「v0.3.2 未交付所以不再 bump」的写法）：
 >
@@ -135,8 +135,8 @@ bash scripts/build_release_delivery.sh --runner-baseline v0.3.1
 
 ## 5. 发版前的额外动作
 
-编排器只负责**构建与门禁**。发布动作（推 tag、建 Release、推 DockerHub）按
-`docs/version-governance.md` 的"发版检查清单"执行，且**必须由用户明确要求**才做。
+编排器只负责**构建与门禁**。发布动作（推 tag、建 Release、推 DockerHub）
+**必须由用户明确要求**才做。
 
 发版前额外要加的检查：
 
@@ -169,8 +169,6 @@ python3 scripts/verify_api_docs.py
 
 ## 7. 关联
 
-- 离线交付设计：`docs/superpowers/specs/2026-09-28-offline-one-click-install-upgrade-design.md`
-- 实施计划：`docs/superpowers/plans/2026-09-28-offline-one-click-install-upgrade-plan.md`
-- 版本治理：`docs/version-governance.md`
+- 离线交付的实现与参数语义以 `scripts/build_offline_delivery.py`、`delivery/README.md` 为准
 - 包台账：`docs/upgrade-package-ledger.md`
-- 验证流程（验收/演练）：`docs/development-verification-process.md`
+- 部署与升级链路：`docs/deployment.md`、`docs/upgrade-chain.md`

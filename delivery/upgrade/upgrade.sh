@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 离线一键升级：SmartX HCI Capacity Insight
 #
-# 设计：docs/superpowers/specs/2026-09-28-offline-one-click-install-upgrade-design.md §5
+# 设计要点见交付包 README（升级章节）
 #
 # 核心约束：**全程只调本机升级中心 API**，绝不直接改环境。
 # 直接 docker load + compose up 会绕过：

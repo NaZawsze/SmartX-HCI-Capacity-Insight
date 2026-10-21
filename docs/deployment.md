@@ -115,7 +115,7 @@ prom/prometheus:v2.55.1
 
 > **部署前必读（2026-09-28）**：上面清单里的 `upgrade-runner` tag 是**源码/开发线口径**；本次发布**不交付 runner 组件**（用户 2026-09-28 决定，随下一版一起发），因此**交付物（含 OVA/全新部署）的 compose 必须落已发布 `upgrade-runner:v0.3.1`**（平台升级的 runner 基线就是 v0.3.1，见下节「升级顺序」）。开发线的 tag 目前没有对应 DockerHub 镜像，直接拿去部署会拉不到。
 
-> **镜像来源注意（2026-10-14，pending #88）**：DockerHub `nazawsze/smartx-hci-capacity-insight-web-api:v0.5.1u2` tag 的内容与当初 GitHub Release 不一致——该 tag（自 2026-07-09 CI 构建起）指向的 web-api 镜像内 `/app/VERSION` 自报 `v0.5.2`（其构建提交 `baaffcd` 即 v0.5.1u2 tag，该提交的 VERSION 文件已写成 v0.5.2），而 GitHub Release v0.5.1u2 包内嵌镜像才是 v0.5.1u2。**以此为基线在线安装会被升级中心误判为 v0.5.2**，导致 v0.5.2 官方升级包被源兼容/同版本检查拦下（`.12` 2026-10-14 实测复现）。规则：**v0.5.1u2 及更早版本的安装镜像只从 GitHub Releases 对应发布包内的 `images/*.tar` 获取**。修复脚本（用 Release 原始镜像重打 tag，默认干跑、`--push` 才推）见 `scripts/fix_dockerhub_v051u2_tag.sh`；设计与证据见 docs/superpowers/specs/2026-10-14-dockerhub-v051u2-tag-remediation-design.md。
+> **镜像来源注意（2026-10-14，pending #88）**：DockerHub `nazawsze/smartx-hci-capacity-insight-web-api:v0.5.1u2` tag 的内容与当初 GitHub Release 不一致——该 tag（自 2026-07-09 CI 构建起）指向的 web-api 镜像内 `/app/VERSION` 自报 `v0.5.2`（其构建提交 `baaffcd` 即 v0.5.1u2 tag，该提交的 VERSION 文件已写成 v0.5.2），而 GitHub Release v0.5.1u2 包内嵌镜像才是 v0.5.1u2。**以此为基线在线安装会被升级中心误判为 v0.5.2**，导致 v0.5.2 官方升级包被源兼容/同版本检查拦下（`.12` 2026-10-14 实测复现）。规则：**v0.5.1u2 及更早版本的安装镜像只从 GitHub Releases 对应发布包内的 `images/*.tar` 获取**。修复脚本（用 Release 原始镜像重打 tag，默认干跑、`--push` 才推）见 `scripts/fix_dockerhub_v051u2_tag.sh`。
 
 If you export GitHub Actions images as tar files, load them first:
 
@@ -279,7 +279,7 @@ Replace `admin` with the actual platform username when needed. After reset, log 
 - **默认（够用就不动 runner）**：平台包的 `minimum_runner_version` 只表示**最低**要求，现场 runner **≥** 它即可执行本次升级（预检查按「≥」判定，不限精确版本）。既然够用，**runner 就不需要动**——现场 runner 保持原样，平台升级也不应改动它。
 - **例外（平台确需更高 runner）**：当平台新增了旧 runner **无法执行**的能力/动作（平台包的 `minimum_runner_version` 高于现场 runner）时，才**先升 runner、再升平台**；此时平台预检查会明确拒绝并提示所需 runner 版本，不会放行。
 - **v0.5.4 批次例外（2026-10-08，US-40）**：v0.5.4 平台包包含数据库迁移、由**现场正在运行的 runner** 执行；早于本批次组件构建（r35）的 runner——**含已发布 v0.3.1**——在迁移步骤必失败（版本级 `minimum_runner_version` 识别不了这种「同版本号、不同内容」的缺口）。因此**既有环境升级 v0.5.4 必须「先组件、后平台」**：v0.5.3+ 源端直接两步；v0.5.2 源端先升 v0.5.3 再走两步；全新安装无顺序问题。权威说明见 [upgrade-chain.md](upgrade-chain.md) §7.4，客户操作见交付包内 `README.md` §4。
-- **推论（US-26）**：现场 runner 已满足平台包要求时，平台升级**不得按包内基线 tag 重建 runner**（当前实现会，详见 `docs/upgrade-strategy-issues.md` US-26）。
+- **推论（US-26）**：现场 runner 已满足平台包要求时，平台升级**不得按包内基线 tag 重建 runner**（此问题已在本版修复：`compose.apply` 剔除 upgrade-runner 并在 apply 后断言执行者容器 ID 未变）。
 
 1. **为什么必须按这个顺序**：目标布局源端（v0.5.2）的 web-api 在执行 runner 组件升级时会无条件执行 `docker compose --project-name <当前 project> stop upgrade-runner`；目标布局机器上停掉的就是**刚启动的新 runner**（实测约 10s 后 `SIGKILL`、`exit=137`，心跳过期 → 后续升级预检查报「未检测到 upgrade-runner 心跳」）。这个同 project 守卫只在 **v0.5.3 起**的镜像里，旧源端改不到，所以**任何现场都按上述顺序做**。
 2. **现场主路径 = `v0.5.2 → v0.5.3` 一步直升，不带 runner 步骤**：已发布的平台版本是 **v0.5.2**，它配套的 runner 就是**已发布 v0.3.1**；v0.5.3 的升级包支持从 **v0.5.0/v0.5.1/v0.5.1u1/v0.5.1u2/v0.5.2/v0.5.3** 直升（manifest 含 project/network 切换、目录迁移与 legacy cleanup），且平台包的 runner 基线固定为**已发布 v0.3.1**，所以 v0.5.2 现场**不需要、也不能**先动 runner，直接 `v0.5.2 → v0.5.3` 即可。

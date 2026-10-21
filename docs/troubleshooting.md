@@ -39,7 +39,7 @@ health 返回 `checks` 三项的含义：
 
 现象：`/data/smartx-storage-forecast/app/{upgrades,backups,exports,compose-runtime,smartx-storage-forecast}` 目录消失、为空、或出现嵌套畸变副本；升级任务找不到目录、容器内对应挂载点失效。
 
-机制（已定案，详见 findings.md UPG-050）：这些目录是 dockerd 经 app bind 在容器创建时**补建的挂载点载体**（容器内被 `upgrades:/data/upgrades` 等真实 bind 遮蔽）。宿主机 `rm` 会让共享该 bind 的全部容器挂载彻底消失；`mv` 会把挂载搬到新路径。历次"衰减"均为清理操作自伤。
+机制（已定案）：这些目录是 dockerd 经 app bind 在容器创建时**补建的挂载点载体**（容器内被 `upgrades:/data/upgrades` 等真实 bind 遮蔽）。宿主机 `rm` 会让共享该 bind 的全部容器挂载彻底消失；`mv` 会把挂载搬到新路径。历次"衰减"均为清理操作自伤。
 
 处理：
 
@@ -68,7 +68,7 @@ curl -fsS http://localhost:8080/api/system/health
 
 现象：`database is locked`、写入超时、查询慢。
 
-- v2 已配置 WAL + `busy_timeout` 5s，并在 `tasks.updated_at`、`collection_runs.started_at/finished_at` 建索引（见 findings.md 2026-09-12 治理记录）。偶发锁等待先观察，持续报锁再查：
+- v2 已配置 WAL + `busy_timeout` 5s，并在 `tasks.updated_at`、`collection_runs.started_at/finished_at` 建索引（v2 已建索引）。偶发锁等待先观察，持续报锁再查：
 - 检查：是否有异常长连接/手工 sqlite 会话未提交；web-api 与 collector-worker 双进程并发是设计行为。
 - **禁止删除 `-wal`/`-shm` 文件**；不要在业务高峰直接 `VACUUM`（管理页的 SQLite VACUUM 会先扫描再执行）。
 - 完整性核对：`sqlite3 /data/smartx-storage-forecast/app/smartx.db 'PRAGMA integrity_check;'`（应返回 `ok`）。

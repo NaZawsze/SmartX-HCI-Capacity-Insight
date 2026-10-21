@@ -150,6 +150,35 @@ class RepoDocScopeGateTest(unittest.TestCase):
         checks = self._run()
         self.assertTrue(checks["no_dead_doc_links"]["ok"], checks["no_dead_doc_links"]["message"])
 
+    def test_plaintext_internal_path_fails(self) -> None:
+        """纯文本提到内部文档路径（不是链接）也要抓——客户 clone 后看不到该文件。"""
+        self._init_repo(
+            {"README.md": "# t\n\n设计见 docs/superpowers/specs/x-design.md 与 progress.md。\n"}
+        )
+        checks = self._run()
+        self.assertFalse(checks["no_internal_paths_in_public_docs"]["ok"])
+
+    def test_plaintext_tracked_path_passes(self) -> None:
+        self._init_repo({"README.md": "# t\n\n详见 docs/usage.md。\n", "docs/usage.md": "# u\n"})
+        checks = self._run()
+        self.assertTrue(
+            checks["no_internal_paths_in_public_docs"]["ok"],
+            checks["no_internal_paths_in_public_docs"]["message"],
+        )
+
+    def test_history_docs_are_exempt(self) -> None:
+        """CHANGELOG / ledger / 矩阵是历史审计链，只增不删，允许保留内部引用。"""
+        self.assertEqual(
+            self.gate._INTERNAL_REF_ALLOWED,
+            frozenset(
+                {
+                    "docs/releases/CHANGELOG.md",
+                    "docs/upgrade-package-ledger.md",
+                    "docs/version-skew-matrix.md",
+                }
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

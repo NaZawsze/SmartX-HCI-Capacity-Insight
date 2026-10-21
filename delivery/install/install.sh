@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 离线一键安装：SmartX HCI Capacity Insight
 #
-# 设计：docs/superpowers/specs/2026-09-28-offline-one-click-install-upgrade-design.md §4
+# 设计要点见交付包 README（安装章节）
 #
 # 原则（失败即停，不留半成品）：
 #   · 任一步失败 → 打印已完成到哪一步 + 补救命令，**绝不启动半套服务**
