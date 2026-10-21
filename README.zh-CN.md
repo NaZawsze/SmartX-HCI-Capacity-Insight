@@ -299,7 +299,7 @@ sha256sum "$host_path"
 
 ### 安装、升级与交付
 
-- [运维操作脚本](ops/README.md) —— `install.sh` / `upgrade.sh` / `package.sh` 三个入口，以及 `evidence.sh`（升级矩阵验证的升级前/后一键取证与判定表）
+- [运维操作脚本](ops/README.md) —— `install.sh` / `upgrade.sh` / `package.sh` 三个入口
 - **数据迁移与恢复密钥**：在 Web 界面「服务管理 → 数据迁移」使用（完整备份 / 只搬数据 /
   只接 Tower 三种导出，语义见交付包内 `offline-delivery/README.md` §9.0）。
   ⚠️ 迁移包与恢复密钥**必须成对保存**，缺一则 Tower 凭据无法解密

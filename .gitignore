@@ -83,3 +83,20 @@ docs/v0.5.*.md
 docs/v2-implementation-sequence.md
 docs/v2-rebuild-task-plan.md
 docs/releases/version-archives.md
+
+# 开发自用脚本（探针 / 数据集生成 / 链路演练 / 一次性取证补救）——只留本地
+scripts/probe_*.py
+scripts/seed_*.py
+scripts/verify_data_integrity.py
+scripts/verify_full_upgrade_chain.py
+scripts/verify_upgrade_center_v*.py
+scripts/verify_remote_*.py
+scripts/release_smoke_check.py
+scripts/fix_dockerhub_*.sh
+ops/evidence.sh
+
+# 开发自用工具的测试（被测脚本本身已只留本地）
+backend/tests/test_capture_baseline.py
+backend/tests/test_seed_test_dataset.py
+backend/tests/test_verify_data_integrity.py
+backend/tests/test_dockerhub_tag_remediation.py

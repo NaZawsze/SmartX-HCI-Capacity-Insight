@@ -8,8 +8,8 @@
 - 覆盖范围：**CloudTower 4.4.0 及以上**（2026-10-07 用户口径；低于 4.4.0 不在支持面内）
 - 证据来源：官方文档站按版本发布的 OpenAPI 规范
   `https://code-site.smartx.com/specs/<version>-swagger.json`
-- 生成工具：`scripts/probe_cloudtower_api_versions.py --all`
-  （只读抓取 + 结构比对，带缓存；`--json` 输出完整矩阵）
+- 生成方式：按版本抓取上述规范并做结构比对（只读、带缓存；开发期用一次性探针完成，
+  该探针不随仓库分发）
 - 首次实测日期：**2026-10-07**；覆盖版本 4.9.0 / 4.8.1 / 4.8.0 / 4.7.2 / 4.7.0 /
   4.6.0 / 4.5.0 / 4.4.1 / 4.4.0（`4.7.1 / 4.6.2 / 4.6.1 / 4.4.2` 在文档站 `specs/`
   目录下没有规范文件——站点返回 HTML——由相邻版本覆盖断点两侧）
@@ -73,7 +73,7 @@
 | 4.5.0 | ✅ | — | — | — |
 | 4.4.0（支持下限） | — | — | — | — |
 
-**运行时规则**（实现见 `backend/app/v2/cloudtower/profiles.py`）：
+**运行时规则**（实现见 `backend/app/v2/cloudtower/profiles.py`；各版本端点差异曾用一次性探针核对官方 OpenAPI 规范）：
 
 1. 版本可解析 → 用对应画像；
 2. **版本未知**（塔不可达 / 尚未采集 / 字符串不可解析）→ 最新画像 + **能力探测兜底**
@@ -99,8 +99,8 @@ ELF_CP_REPLICA_3_THIN_PROVISION / ELF_CP_REPLICA_3_THICK_PROVISION
 
 ## 5. 更新流程（新版本发布时）
 
-1. 跑探针：`python3 scripts/probe_cloudtower_api_versions.py --all --json /tmp/ct-api-matrix.json`
-   （若文档站出现新版本，先把它加进脚本的 `DEFAULT_SPEC_VERSIONS`）；
+1. 抓取新版本规范：按 `https://code-site.smartx.com/specs/<version>-swagger.json` 逐版本取回，
+   与现有 `profiles.py` 的字段假设做结构比对（开发期一次性动作，无需入库脚本）；
 2. 对照矩阵看 §2 的三类断点是否有新变化（新端点/新字段/字段消失）；
 3. 有变化 → 更新 §3 画像表与 `profiles.py`（**同时**更新 §2 表格）；无变化 → 只把新版本
    加入 §2 每版一行；

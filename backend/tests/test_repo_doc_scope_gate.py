@@ -270,6 +270,32 @@ class StagedModeTest(unittest.TestCase):
         checks = self._run_staged()
         self.assertTrue(checks["staged_doc_scope"]["ok"])
 
+    def test_dev_only_script_is_blocked(self) -> None:
+        """开发自用脚本（探针/数据集/演练/一次性取证）同样不得入库。"""
+        self._stage("scripts/probe_something.py")
+        checks = self._run_staged()
+        self.assertFalse(checks["staged_script_scope"]["ok"])
+
+    def test_evidence_script_is_blocked(self) -> None:
+        self._stage("ops/evidence.sh")
+        checks = self._run_staged()
+        self.assertFalse(checks["staged_script_scope"]["ok"])
+
+    def test_build_script_is_allowed(self) -> None:
+        self._stage("scripts/build_upgrade_package.py")
+        checks = self._run_staged()
+        self.assertTrue(
+            checks["staged_script_scope"]["ok"], checks["staged_script_scope"]["message"]
+        )
+
+    def test_delivery_script_is_allowed(self) -> None:
+        """交付目录里的脚本是交付物本体，必须允许。"""
+        self._stage("delivery/install/install.sh")
+        checks = self._run_staged()
+        self.assertTrue(
+            checks["staged_script_scope"]["ok"], checks["staged_script_scope"]["message"]
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

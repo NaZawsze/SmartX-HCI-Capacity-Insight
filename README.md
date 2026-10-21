@@ -294,7 +294,7 @@ The printed `host_path` is the migration package path. The package includes the 
 
 ### Install, upgrade, and delivery
 
-- [Operations Scripts](ops/README.md) — the `install.sh` / `upgrade.sh` / `package.sh` entry points, plus `evidence.sh` (before/after evidence capture for upgrade matrix verification)
+- [Operations Scripts](ops/README.md) — the `install.sh` / `upgrade.sh` / `package.sh` entry points
 - **Data migration & recovery key**: used in the web UI under Service Management → Data Migration
   (three export flavors — full backup / data-only / Tower-config-only; see the bundled
   `offline-delivery/README.md` §9.0 for semantics). ⚠️ A migration package and its recovery key
