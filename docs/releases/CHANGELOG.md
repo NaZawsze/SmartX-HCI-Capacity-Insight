@@ -163,8 +163,7 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   succeeded 且 `run-migration` succeeded（该代码路径首次真机执行）→ 8 项验收全过、
   `schema_migrations` 4 条落库、升级后自动采集已分配 320.00 GiB 稳定。
   详见 [upgrade-issues](../upgrade-strategy-issues.md) US-40 与 progress.md 2026-10-08 节。
-- **幽灵 running 任务行 + status-404 误报（#89 / Phase 80，2026-10-14 修复；随下一版候选包交付，
-  当前 r34/r35 包不含本修复）**：升级 apply 成功后 post-cleanup 回收任务目录与 tasks 表 running
+- **幽灵 running 任务行 + status-404 误报（#89 / Phase 80，2026-10-14 修复）**：升级 apply 成功后 post-cleanup 回收任务目录与 tasks 表 running
   行终态写回之间存在竞态（`.12` `upgrade-6eabea06` / `.14` `upgrade-99996849` 跨机坐实）——
   任务行滞留 `running`、task.json 丢失，cancel/recovery/delete 全部 404「升级任务不存在。」，
   `cleanup_artifacts` 被挡 6 小时；同时 `upgrade.sh` 轮询 status 拿不到快照记 `unknown` 空转
@@ -329,12 +328,16 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
 - **runner v0.3.2 首次随平台交付**：此前只在开发线；本版起随 Release 一起发
   （v0.5.3 源端上的组件升级走旧编排是最后一次，后续平台升级的 runner 变更走自换）。
   平台升级**不碰** runner（七步常量流程、US-26 不变量；现场 runner ≥ 包基线 v0.3.1 时不动它）。
-  **本批次交付顺序（2026-10-08 修订，US-40 顺序约束，用户过目后生效）**：v0.5.4 平台包**含数据库
-  迁移**，迁移由当前运行的 runner 执行；任何低于本批次组件构建（r35）的 runner（**含已发布 v0.3.1**）
-  执行必失败。因此既有环境**必须先做组件升级（本批次 v0.3.2 组件包）、后做平台升级**
-  （铁律「平台确需更高 runner」例外的首个实际案例，`.12`/`.14` 双机实证，见验证说明末两行与
-  docs/upgrade-chain.md §7.4）；**v0.5.2 源端**因 US-04（无守卫）不能先组件，须经 v0.5.3 两步到达；
-  全新安装无顺序问题（install 直接落 r35 构建）。平台包的 runner 基线仍**保持已发布 v0.3.1**
+  **本批次交付顺序（US-40 顺序约束）**：v0.5.4 平台包**含数据库
+  迁移**，迁移由当前运行的 runner 执行；**任何非本批次交付构建的 runner**（含**已发布 v0.3.1**、
+  以及开发期重建的旧 v0.3.2）执行必失败（`can't find '__main__' module`）——因为版本号检测不出
+  「同版本号、不同内容」的缺口。因此既有环境**必须先做组件升级（本批次 v0.3.2 组件包）、后做平台升级**
+  （铁律「平台确需更高 runner」例外的首个实际案例，`.12`/`.14` 双机实证，见「验证说明」与
+  docs/upgrade-chain.md §7.4）；**v0.5.2 源端**因 US-04（无守卫）不能先组件，须经 v0.5.3 两步到达。
+  **全新安装无顺序问题**：install compose 的 runner 基线是**已发布 v0.3.1**，而全新库的 schema
+  由构建即完整（含全部列、`schema_migrations` 为 0 行），**不需要执行任何迁移**；装完后如需执行
+  后续版本带迁移的升级，再做一次组件升级到本批次 v0.3.2 即可（`.14` 2026-10-21 实测：全新安装
+  落 v0.3.1 → 组件升级 v0.3.2 → 平台升级含迁移成功）。平台包的 runner 基线仍**保持已发布 v0.3.1**
   （按发布事实，不因随发 v0.3.2 而上调）。交付 README §4 已按此固定两步顺序并禁用 `--with-runner`。
 - **迁移 registry 现有 4 条（v0.5.4 起）**：`vm_latest.owner` / `vm_latest.folder_name` /
   `towers.tower_version` / `clusters.os_version`，全部 expand-only（只加列），由平台升级计划中的
