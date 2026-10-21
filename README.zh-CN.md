@@ -129,20 +129,41 @@ Prometheus: http://<server-ip>:9090
 
 OVA 虚拟机模板可用于全新部署或演示环境交付。它与服务管理页的升级中心分开：升级中心只接受下面定义的 `.tar.gz` 升级包格式。
 
-OVA 文件名必须带正式平台版本，例如 `smartx-capacity-insight-v0.5.3.ova`，并同时提供 `.sha256` 校验文件。制品边界和安全检查见 [OVA 交付说明](docs/ova-delivery.md)。
+OVA 文件名必须带正式平台版本，例如 `smartx-capacity-insight-v0.5.4.ova`，并同时提供 `.sha256` 校验文件。制品边界和安全检查见 [OVA 交付说明](docs/ova-delivery.md)。
 
 ## 离线升级包结构
 
 平台支持在服务管理页面上传离线 `.tar.gz` 升级包。升级包用于替换服务镜像，只有 manifest 选中了累计 SQLite 迁移步骤时才执行迁移脚本。升级包不应包含运行数据、`.env`、SQLite 数据库、Prometheus 数据、Tower 账号密码或其他敏感信息。
 
-版本口径：源码版本、文档版本和常规镜像 tag 统一为 `v0.5.3`，该版本是**当前开发候选、尚未发布**；最近一次正式发布的平台版本为 `v0.5.2`。临时测试升级包的目标版本只用于验证升级链路；除非同步更新 `VERSION`、发布说明和对外文档，否则不代表正式平台版本变化。
+版本口径：源码版本、文档版本和常规镜像 tag 统一为 `v0.5.4`。已发布的平台版本为 `v0.5.3`（2026-10-05）与 `v0.5.4`（2026-10-21）。临时测试升级包的目标版本只用于验证升级链路；除非同步更新 `VERSION`、发布说明和对外文档，否则不代表正式平台版本变化。
 
-兼容范围：`v0.5.3` 升级包仅面向 v2 升级流程，不支持从 v1 或 `v0.4.x` 原地升级；这些旧系统通过数据迁移兼容。在 v2 同架构内支持从最低受支持来源版本直升到后续受支持目标版本；同版本应用也允许，例如 `v0.5.3 -> v0.5.3`，用于修复安装、重同步镜像、项目文件和运行时 override。升级包会自动包含来源版本到目标版本之间所有已登记的 SQLite 迁移步骤；迁移选择规则仍为 `source_version < step.version <= target_version`，因此同版本应用不会重复选择迁移步骤。
+兼容范围：升级包仅面向 v2 升级流程，不支持从 v1 或 `v0.4.x` 原地升级；这些旧系统通过数据迁移兼容。在 v2 同架构内，目标包在 `source_compatibility` 里声明支持的来源版本（`v0.5.4` 包接受 `v0.5.2` / `v0.5.3` / `v0.5.4`；更早的现场须先升到 `v0.5.3`）。同版本应用也允许，例如 `v0.5.4 -> v0.5.4`，用于修复安装、重同步镜像、项目文件和运行时 override。升级包会自动包含来源版本到目标版本之间所有已登记的 SQLite 迁移步骤；迁移选择规则仍为 `source_version < step.version <= target_version`，因此同版本应用不会重复选择迁移步骤。
+
+升级链路 —— 每个节点都必须走到，`*` 表示不可跳过的必经节点：
+
+```text
+平台 v0.5.1*  →  平台 v0.5.1u2*  →  runner v0.3.1*  →  平台 v0.5.2*
+    →  平台 v0.5.3*  →  runner v0.3.2*  →  平台 v0.5.4*
+```
+
+按现场当前版本取用：
+
+| 现场当前版本 | 从这里往下走 |
+| --- | --- |
+| `v0.5.1` / `v0.5.1u1` | 平台 `v0.5.1u2*` |
+| `v0.5.1u2` | runner `v0.3.1*` |
+| `v0.5.2` | 平台 `v0.5.3*` |
+| `v0.5.3` | runner `v0.3.2*` → 平台 `v0.5.4*`（先组件、后平台） |
+| 用离线交付包全新安装 | 已直达 `v0.5.4` |
+
+从 `v0.5.3` 起的两步**顺序不能颠倒：先组件升级、后平台升级**
+（`v0.5.4` 平台包含数据库结构迁移，由当前运行的 runner 执行）。
+跳过节点会被预检查拒绝，或在迁移步骤失败。
 
 平台升级包目录结构：
 
 ```text
-smartx-capacity-insight-upgrade-v0.5.3.tar.gz
+smartx-capacity-insight-upgrade-v0.5.4.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md                 # 可选
@@ -154,9 +175,11 @@ smartx-capacity-insight-upgrade-v0.5.3.tar.gz
     ├── docker-compose.dev.yml
     ├── docker-compose.offline.yml
     ├── docker-compose.online.yml
-    ├── prometheus/
-    ├── scripts/
-    └── docs/
+    ├── docker-compose.upgrade.yml
+    ├── prometheus/prometheus.yml
+    ├── pre_install.sh
+    ├── bind-mount-recover.sh
+    └── verify_site_acceptance.sh
 ```
 
 如果来源版本和目标版本之间存在 SQLite schema 变化，升级包会额外包含：
@@ -176,16 +199,16 @@ migrations/
   "minimum_runner_protocol": 1,
   "required_capabilities": ["backup.v1", "image.v1", "files.v1", "compose.v1", "health.v1", "rollback.v1"],
   "product": "smartx-storage-forecast",
-  "package_id": "smartx-capacity-insight-v0.5.3",
-  "version": "v0.5.3",
-  "min_version": "v0.5.0",
+  "package_id": "smartx-capacity-insight-v0.5.4",
+  "version": "v0.5.4",
+  "min_version": "v0.5.2",
   "source_compatibility": {
-    "min_version": "v0.5.0",
-    "max_version_inclusive": "v0.5.3",
-    "target_version": "v0.5.3",
+    "min_version": "v0.5.2",
+    "max_version_inclusive": "v0.5.4",
+    "target_version": "v0.5.4",
     "allow_same_version": true,
-    "supported_versions": ["v0.5.0", "v0.5.1", "v0.5.3"],
-    "message": "支持 v0.5.0 -> v0.5.3、v0.5.1 -> v0.5.3、v0.5.3 -> v0.5.3"
+    "supported_versions": ["v0.5.2", "v0.5.3", "v0.5.4"],
+    "message": "支持 v0.5.2 -> v0.5.4、v0.5.3 -> v0.5.4、v0.5.4 -> v0.5.4"
   },
   "package_type": "platform",
   "project_files": true,
@@ -199,7 +222,7 @@ migrations/
         {
           "service": "web-api",
           "archive": "images/web-api.tar",
-          "image": "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3",
+          "image": "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.4",
           "sha256": "<sha256>"
         }
       ]
@@ -208,7 +231,7 @@ migrations/
 }
 ```
 
-没有选中迁移步骤的升级包，例如当前 `v0.5.3` 包，不包含 `migration`、`migration_steps` 或 `script.sandbox.v1`。如果跨过了未来 schema 变化版本，则包内包含 `migration_steps[]`，并为了兼容 `upgrade-runner v0.3.1` 保留 legacy `migration.script = migrations/run_migrations.py`。Runner 仍只执行一个沙箱脚本，由脚本按版本顺序执行所有命中的迁移步骤并写入 `schema_migrations`。
+没有选中迁移步骤的升级包不包含 `migration`、`migration_steps` 或 `script.sandbox.v1`。如果跨过了 schema 变化版本（`v0.5.4` 包属于此类），则包内包含 `migration_steps[]`，并保留 legacy `migration.script = migrations/run_migrations.py` 以兼容旧执行器。Runner 仍只执行一个沙箱脚本，由脚本按版本顺序执行所有命中的迁移步骤并写入 `schema_migrations`。
 
 普通平台升级包不建议在同一次升级任务中重启 `upgrade-runner`，避免中断正在执行升级的服务。如需替换 `upgrade-runner`，请使用组件升级包。
 
@@ -243,7 +266,7 @@ smartx-prometheus-v2.55.1.tar.gz
 平台和 Prometheus 需要在同一维护窗口升级时，可生成组合包：
 
 ```text
-smartx-capacity-insight-bundle-v0.5.3.tar.gz
+smartx-capacity-insight-bundle-v0.5.4.tar.gz
 ├── manifest.json
 ├── checksums.sha256
 ├── release-notes.md
@@ -257,7 +280,7 @@ smartx-capacity-insight-bundle-v0.5.3.tar.gz
     └── images/                         # 可选，仅离线 Prometheus 镜像包包含
 ```
 
-组合包由 Runner 按“备份、按需加载镜像、同步项目文件、沙箱迁移、分组件 recreate、健康检查”执行。组合包只是当前平台版本的一种交付形态，不改变平台版本号；默认不包含 Runner，也不包含 Prometheus 历史数据。构建命令为 `python scripts/build_bundle_upgrade_package.py --platform-version v0.5.3 --prometheus-version v2.55.1`。
+组合包由 Runner 按“备份、按需加载镜像、同步项目文件、沙箱迁移、分组件 recreate、健康检查”执行。组合包只是当前平台版本的一种交付形态，不改变平台版本号；默认不包含 Runner，也不包含 Prometheus 历史数据。构建命令为 `python scripts/build_bundle_upgrade_package.py --platform-version v0.5.4 --prometheus-version v2.55.1`。
 
 所有升级包都禁止包含 `.env`、`smartx.db`、Prometheus 历史数据目录、备份、导出文件、Tower 凭据、token 或其他现场数据。
 
@@ -321,7 +344,7 @@ sha256sum "$host_path"
 
 ### CloudTower 版本范围
 
-平台通过 CloudTower v2 HTTP API 连接 CloudTower（SMTX OS）。CloudTower/Tower 实例必须提供并支持下列 v2 API 端点。当前 `v0.5.3` 平台已在 CloudTower 实例（`CHINATOWER`）完成采集验证；只要下列 v2 API 端点可用且返回预期结构，不强制要求具体 CloudTower 小版本号。
+平台通过 CloudTower v2 HTTP API 连接 CloudTower（SMTX OS）。CloudTower/Tower 实例必须提供并支持下列 v2 API 端点。当前 `v0.5.4` 平台已在 CloudTower 实例（`CHINATOWER`）完成采集验证；只要下列 v2 API 端点可用且返回预期结构，不强制要求具体 CloudTower 小版本号。
 
 相关 CloudTower API：
 
