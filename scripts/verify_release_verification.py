@@ -56,9 +56,22 @@ def _sha_on_line_containing(text: str, marker: str) -> str | None:
 
 
 def _latest_ledger_platform_sha() -> str | None:
+    """ledger 里"当前有效"的**平台包** SHA。
+
+    取值优先级（2026-10-21 同日重发 v2 时连踩两次）：
+    1. 同时含「当前有效」与「平台包」且带 64 位 hex 的行（台账显式标记有效条目）；
+    2. 否则取最后一次「平台包 … <64hex>」匹配。
+    **注意**：不能只看「当前」——ledger 里 runner 组件包的行也带"当前"/"USE" 字样，
+    会把 runner 包的 SHA 误当成平台包的（实测踩到 `dd096bf2…`）。
+    """
     if not LEDGER.is_file():
         return None
     text = LEDGER.read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if "当前有效" in line and "平台包" in line:
+            found = SHA_RE.search(line)
+            if found:
+                return found.group(1)
     matches = re.findall(r"平台包[\s\S]{0,300}?\b([0-9a-f]{64})\b", text)
     return matches[-1] if matches else None
 

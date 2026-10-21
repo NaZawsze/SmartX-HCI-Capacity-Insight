@@ -1645,6 +1645,34 @@ compose 项目名 `smartx-storage-forecast`、runner v0.3.0）装出 v0.5.1u2，
 
 ## 2026-10-21 最终交付组装（`.3`）与 `.12` 验收 —— **RELEASED**
 
+**状态：RELEASED（2026-10-21 发布；同日重发 v2 = `a7837fab…`）**
+
+> **当前有效的平台包（v2）**：`a7837fab8e3d059df8fde22bdf39a06c5b6fa000a499d3a7a504a48a3fe19b69`（245,189,483 B）
+
+
+### 重发 v2（同日，安全事件驱动）
+
+v1 平台包 `d235f14c…`（248,625,888 B）的 `project/docs/` 携带 **144 个开发文档**，
+其中 `ai-handoff-2026-10-12.md` 含测试机明文密码，随 Release 资产对公众可见。
+
+v2 改动：`PROJECT_DIRS = []`（不再递归整个 docs/scripts）+ 显式 `PROJECT_SCRIPTS`
+（`bind-mount-recover.sh` / `verify_site_acceptance.sh`）+ 移除 `project/README*.md`
+→ **入包 8 个文件、0 个 .md**（包根 `release-notes.md` 除外，属包内说明）。
+新增门禁：打包排除内部记录（`INTERNAL_DOC_PATTERNS`）+ 入包前硬凭据扫描（`assert_no_secret_in_payload`）。
+
+| 项 | v1（作废） | v2（当前） |
+| --- | --- | --- |
+| 平台包 SHA | `d235f14c…`（248,625,888 B） | **`a7837fab8e3d059df8fde22bdf39a06c5b6fa000a499d3a7a504a48a3fe19b69`**（245,189,483 B） |
+| 入包文件 / .md | 182 / 144 | **8 / 0** |
+| runner 组件包 | `e461738c…` | 未变 |
+
+**v2 真机验收（`.14`，2026-10-21）**：全清 → 新交付目录 `r44-delivery` 全新安装 `INSTALL_EXIT=0`
+（5 容器、health v0.5.4/v0.3.1、UI 200、integrity ok、`migrations=0`、**project/ 无 docs 目录**）
+→ 注入 120VM/240卷 → 组件升级 `upgrade-adc0f17a4b027c0b` succeeded（预检查 9/9）
+→ 平台升级 `upgrade-02ffb22627595045` succeeded（预检查 10/10，含数据库迁移）
+→ 数据 `t0 vs t1` **36 PASS / 0 FAIL / 4 WARN**、`schema_migrations` 4 条、数据 2/3/120/240 逐位不变。
+**升级后 project/ 仍无 docs 目录**（`files_sync` 只覆盖/新增不删除，故存量机器不会被动删文档）。
+
 **状态：RELEASED（2026-10-21 发布）**。tag `v0.5.4`（平台）+ `runner-v0.3.2`（runner 组件）；
 GitHub Release 资产 4 个（两包 + 各自 `.sha256`）；DockerHub `web-api`/`collector-worker`/`frontend`
 的 `v0.5.4` 与 `upgrade-runner` 的 `v0.3.2` 均已在位（HTTP 200）。
@@ -1657,7 +1685,7 @@ CI 三次运行全 success：Docker Images（main push）`39606413856`、Docker 
 
 | 产物 | SHA256 |
 | --- | --- |
-| 平台包 | `d235f14ca4737b76dec4ac7ff0b42f09fdd0524a8548e067150b48a1b217af34` |
+| 平台包（v1，**已作废**，被同日重发 v2 取代） | `d235f14ca4737b76dec4ac7ff0b42f09fdd0524a8548e067150b48a1b217af34` |
 | runner 包 | `e461738ca8cbd1413c51885afe36dd389bd2964973832f27e0857656288fcd9b` |
 | web-api 镜像 | `a747f565ab9fe187862d6ff5eb990305f624b0a4252262aac341712ea26c90a4` |
 
