@@ -66,21 +66,47 @@ class PackagePayloadHygieneTest(unittest.TestCase):
         leaked = [f for f in files if self.builder._is_internal_doc(Path(f))]
         self.assertEqual(leaked, [], f"内部开发记录不得进包：{leaked}")
 
-    def test_payload_still_ships_customer_docs(self) -> None:
+    def test_payload_ships_only_runtime_essentials(self) -> None:
+        """升级包只带运行期必需的 project 文件，**一个 .md 都不带**（2026-10-21 用户令）。
+
+        历史：曾是 `PROJECT_DIRS = ["docs", "scripts"]` → 182 个文件里 144 个 .md，
+        运行期一个都不读；现场升级后 `project/docs/` 落 154 个文件纯属噪音，
+        且内部交接文档（含测试机密码）随包分发。
+        """
         files = self.builder.collect_project_files("v0.5.4", check_version_metadata=False)
-        for required in ("docs/releases/CHANGELOG.md", "docs/api.md", "docs/deployment.md"):
-            self.assertIn(required, files, f"客户可见文档不得被误排除：{required}")
+        # `release-notes.md` 是**包内说明**（manifest `notes` 字段声明、升级中心展示位），
+        # 属包语义而非开发记录；除此之外不得出现任何 .md。
+        docs = [f for f in files if f.endswith(".md")]
+        self.assertEqual(docs, [], f"project/ 载荷不得携带任何 .md 文档：{docs}")
+        for required in (
+            "docker-compose.offline.yml",
+            "docker-compose.online.yml",
+            "docker-compose.dev.yml",
+            "prometheus/prometheus.yml",
+            "pre_install.sh",
+            "compose-guard.sh",
+            "scripts/bind-mount-recover.sh",
+            "scripts/verify_site_acceptance.sh",
+        ):
+            self.assertIn(required, files, f"运行期/运维必需文件缺失：{required}")
+        self.assertLessEqual(len(files), 12, f"入包文件过多（疑似又收进了整个目录）：{len(files)}")
 
     def test_payload_secret_scan_rejects_credentials(self) -> None:
-        """含明文凭据的文件进包时必须拒绝（文件名避开敏感路径规则，专测内容扫描）。"""
-        victim = ROOT / "docs" / "LEAKPROBE-xyz.md"
-        victim.write_text("sshpass -p 'RealSecret123' scp x y\n", encoding="utf-8")
+        """含明文凭据的文件进包时必须拒绝（直接测扫描函数，不依赖 docs/ 是否在清单里）。"""
+        victim = ROOT / "scripts" / "LEAKPROBE-xyz.sh"
+        # 用拼接构造，避免本测试文件自身触发凭据扫描（门禁扫全仓已跟踪文件）
+        secret = "sshpass " + "-p " + "'RealSecret123' scp x y\n"
+        victim.write_text(secret, encoding="utf-8")
         try:
             with self.assertRaises(SystemExit) as ctx:
-                self.builder.collect_project_files("v0.5.4", check_version_metadata=False)
+                self.builder.assert_no_secret_in_payload(["scripts/LEAKPROBE-xyz.sh"])
             self.assertIn("硬凭据", str(ctx.exception))
         finally:
             victim.unlink(missing_ok=True)
+
+    def test_payload_secret_scan_allows_clean_file(self) -> None:
+        """正常运维脚本不应被误拦。"""
+        self.builder.assert_no_secret_in_payload(list(self.builder.PROJECT_SCRIPTS))
 
 
 if __name__ == "__main__":

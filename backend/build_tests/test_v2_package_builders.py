@@ -423,11 +423,17 @@ class V2PackageBuilderTest(unittest.TestCase):
             )
 
             with tarfile.open(package, mode="r:gz") as archive:
-                readme = archive.extractfile("project/README.md").read().decode("utf-8")
+                compose = archive.extractfile("project/docker-compose.offline.yml").read().decode("utf-8")
                 manifest = json.loads(archive.extractfile("manifest.json").read().decode("utf-8"))
+                members = archive.getnames()
 
         self.assertEqual(manifest["version"], "v0.5.1u2")
-        self.assertIn("Version: `v0.5.1u2`", readme)
+        # 临时版本元数据必须落到包内 compose 的镜像 tag 上
+        self.assertIn("v0.5.1u2", compose)
+        # 2026-10-21 用户令：project/ 载荷不带任何 .md 文档（客户说明书走交付目录根 README）。
+        # 仅包根的 `release-notes.md` 例外——它是包内说明（manifest `notes` 声明）。
+        payload_md = [m for m in members if m.startswith("project/") and m.endswith(".md")]
+        self.assertEqual(payload_md, [], f"project/ 载荷不得含 .md：{payload_md}")
 
     def test_platform_builder_rejects_no_build_without_explicit_existing_image_allowance(self) -> None:
         builder = _load_script("build_upgrade_package.py")

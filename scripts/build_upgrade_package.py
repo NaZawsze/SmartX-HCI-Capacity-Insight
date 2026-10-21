@@ -96,16 +96,33 @@ MODERN_PLATFORM_CAPABILITIES = [
     "health.v1",
     "rollback.v1",
 ]
+#: 运行期必需的 project 文件（**只列这些**）。
+#: 2026-10-21：移除 `README.md` / `README.zh-CN.md`——运行期不读，
+#: 客户说明书走交付目录根 README（`build_offline_delivery.py --readme`），
+#: 升级包内再带一份只会产生「两个 README 谁为准」的歧义。
 PROJECT_FILES = [
     "docker-compose.offline.yml",
     "docker-compose.online.yml",
     "docker-compose.dev.yml",
     "prometheus/prometheus.yml",
     "pre_install.sh",
-    "README.md",
-    "README.zh-CN.md",
 ]
-PROJECT_DIRS = ["docs", "scripts"]
+#: **升级包只带运行期必需的 project 文件**（2026-10-21 用户令：「升级包也要打包 md 文件？」）。
+#:
+#: 历史：这里曾是 `["docs", "scripts"]`，把**整个 docs/ 与 scripts/ 树**打进包 →
+#: 182 个文件里 144 个是 .md（设计文档/计划/内部台账全在），运行期**一个都不读**；
+#: 现场升级后 `project/docs/` 落 154 个文件、`project/scripts/` 落 25 个，纯属噪音。
+#: 更严重的是内部交接文档随包分发（含测试机明文密码，见 2026-10-21 安全事件）。
+#:
+#: 现在改为**显式清单**：只带运维真正会用到的脚本；文档一律不进包
+#: （客户文档随「离线交付目录」走：install/ 与根 README，不在升级包内）。
+PROJECT_DIRS: list[str] = []
+
+#: 升级包显式携带的运维脚本（`docs/troubleshooting.md` 里让客户直接执行的那几个）。
+PROJECT_SCRIPTS = (
+    "scripts/bind-mount-recover.sh",
+    "scripts/verify_site_acceptance.sh",
+)
 
 #: **绝不进升级包**的文档（2026-10-21 用户令：本地开发记录不上传）。
 #: 背景：平台包会把整个 `docs/` 打进 `project/docs/` 并随包交付给客户——
@@ -1075,6 +1092,10 @@ def assert_safe_members(members: Iterable[str]) -> None:
 
 def collect_project_files(version: str, *, check_version_metadata: bool = True) -> list[str]:
     files: set[str] = set(PROJECT_FILES)
+    for script in PROJECT_SCRIPTS:
+        if not (ROOT / script).is_file():
+            raise SystemExit(f"升级包必需的运维脚本缺失：{script}")
+        files.add(script)
     # A6/US-39：compose 守卫进包清单 → 进 manifest.project_file_list → files.sync 投放到现场。
     guard_source = ROOT / COMPOSE_GUARD_SOURCE
     if not guard_source.is_file():

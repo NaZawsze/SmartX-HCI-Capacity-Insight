@@ -88,8 +88,11 @@ HARD_SECRET_RES = (
     (re.compile(r"-----BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----"), "私钥"),
 )
 #: 允许出现这些模式的文件（门禁脚本自身、以及断言"不该出现"的测试）
+#: 这些文件里出现密码模式是**扫描规则本身**，不是泄露。
 SECRET_SCAN_ALLOWLIST = {
     "scripts/verify_release_docs_safe.py",
+    "scripts/build_upgrade_package.py",
+    "backend/tests/test_dockerhub_tag_remediation.py",
 }
 
 
