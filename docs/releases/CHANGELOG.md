@@ -61,9 +61,9 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   `docker inspect .Config.Env` 回填 `.env.example` 的键 + `SMARTX_TOWER_*`，缺密钥对则明确失败，
   不造无密钥假环境）；④升级预检查新增 `env_file` 项，按执行器能力放行或阻断并给出可执行指引。
 - **runner 版本号第二处硬编码（`.14` 真机实测）**：`upgrade_runner/main.py` 把 `"v0.3.2"` 写死在
-  dataclass 默认值与 `from_environment()` 里——v0.3.3 的镜像 `/app/RUNNER_VERSION` 是 v0.3.3，
-  但状态文件与 `/api/system/health` 报 v0.3.2，导致能力判定按旧版本走（`env_file` 预检查把能自愈的
-  执行器判成不能）。改为 `resolve_runner_version()`：镜像内文件 → 环境变量 → 兜底常量，
+  dataclass 默认值与 `from_environment()` 里——镜像内 `/app/RUNNER_VERSION` 已是新版本，
+  但状态文件与 `/api/system/health` 仍报 `v0.3.2`，导致能力判定按旧版本走（`env_file` 预检查
+  把能自愈的执行器判成不能）。改为 `resolve_runner_version()`：镜像内文件 → 环境变量 → 兜底常量，
   并由单测锁死兜底常量与仓库 `RUNNER_VERSION` 一致。
 - **心跳预检查窗口 30s 偏紧（pending #95）**：平台升级会重启 runner，重启窗口内两条心跳通道都可能
   不新鲜（同脚本同时刻 `.12` 过、`.14` 连续两次失败，重试 90s 仍不过）。窗口改为 **90s**，支持
@@ -131,7 +131,6 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   每次把它们重置回包内基线——实测 docker-compose.yml 已对齐 v0.3.2 而**活动文件** offline.yml
   仍写 v0.3.1，宿主侧 `compose up -d` 照样静默降级 runner。修复：对账覆盖 yml/offline/release
   三变体（逐文件独立幂等）；`.12` 复测：三文件全部对齐 v0.3.2。
-
 - **Test 集群「已分配」恒为 0**（用户实测报障）：新版 Tower（SMTX OS 6.1.1 / CloudTower v4.5.0）
   的 `get-vm-volumes` 只返回策略串 `elf_storage_policy`（如 `REPLICA_2_THIN_PROVISION`），
   没有扁平副本字段 → 「已分配 = Σ 卷容量 × 副本数」恒乘 0。修复：扁平字段缺失时按策略串推导
@@ -157,7 +156,7 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   Python 报 `can't find '__main__' module`。目标布局下容器路径与宿主路径永远不一致，
   所以**任何带迁移的包（v0.5.4 起）在任何标准布局现场必然在同一动作失败**（v0.5.4 之前的
   包从不带迁移脚本，该代码路径从未真机执行过，单测也从未断言脚本挂载本身）。
-  修复（v0.3.2 开发线，组件包 **r35**）：脚本挂载改走 `docker_host_path()`（一行）+
+  修复（v0.3.2 开发线，最终组件包 `e461738c…`）：脚本挂载改走 `docker_host_path()`（一行）+
   回归测试断言实际命令（宿主路径必须在、容器内路径形态必须不在）。`.3` 验证链全过：
   组件升级 `upgrade-926c2f7a3fccf0c1` succeeded → 平台升级二跑 `upgrade-36bbb3312806abdd`
   succeeded 且 `run-migration` succeeded（该代码路径首次真机执行）→ 8 项验收全过、
