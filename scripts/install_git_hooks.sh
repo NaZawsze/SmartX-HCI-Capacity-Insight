@@ -37,9 +37,10 @@ fi
 
 mkdir -p "$ROOT/.git/hooks"
 chmod +x "$SOURCE"
-if ! ln -sf "$SOURCE" "$TARGET" 2>/dev/null; then
+# 用**相对**软链（相对 .git/hooks/ 解析），这样仓库整体移动位置后仍不断。
+if ! ln -sfn "../../scripts/hooks/pre-commit" "$TARGET" 2>/dev/null; then
   cp "$SOURCE" "$TARGET"
 fi
 chmod +x "$TARGET"
-echo "已安装：$TARGET -> $SOURCE"
-echo "作用：git commit 时校验本次提交的 .md 是否属于允许提交的集合（客户文档 / 门禁夹具）。"
+echo "已安装：$TARGET -> ../../scripts/hooks/pre-commit"
+echo "作用：git commit 时拦下内部开发文档与开发自用脚本（只查本次提交）。"

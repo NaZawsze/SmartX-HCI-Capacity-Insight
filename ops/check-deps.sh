@@ -151,6 +151,15 @@ check_repo() {
   root="$(ops_repo_root 2>/dev/null || true)"
   if [ -n "$root" ] && [ -d "$root/.git" ]; then
     ok "git 仓库 $root"
+    # 提交守卫：`.git/hooks/` 不进版本库，clone 后必须装一次，否则提交时的
+    # 文档/脚本范围检查不生效（只剩 CI 那道）。这里只提示，不自动装。
+    if [ -x "$root/.git/hooks/pre-commit" ]; then
+      ok "提交守卫已安装（pre-commit）"
+    else
+      warn "提交守卫未安装：git commit 时不会拦内部开发文档 / 开发自用脚本"
+      dim "  安装：bash scripts/install_git_hooks.sh"
+      dim "  原因：.git/hooks/ 不入版本库，每次 clone 都要装一次。"
+    fi
   else
     MISSING=$((MISSING + 1))
     err "当前目录不是 git 仓库"
