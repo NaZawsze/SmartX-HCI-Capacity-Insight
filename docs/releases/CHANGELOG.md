@@ -4,32 +4,30 @@
 
 ## v0.5.4（候选，未发布）
 
-状态：**候选，未发布**。**当前候选对 = 平台 r37 + runner 组件包（2026-10-15 重建，含 10-14/10-15 全部修复与新增）**
-（见 [upgrade-package-ledger.md](upgrade-package-ledger.md) 2026-10-15 节）——**r34/r35 已被 r37 取代**（其验收结论
-对最终发布物不再适用）。**发布门槛：用户明确「发布」指令**
-（批次 C 矩阵 C1–C4 + M1–M7 已逐格回填，最终候选 r34+r35 的 `.3`/`.12`/`.14` 重走验收
-已于 2026-10-08 全部通过，见「验证说明」末三行）；指令前不发布、不推 tag、不推 origin。
+状态：**候选，未发布**。**当前候选对 = 平台包 `d235f14c…` + runner 组件包 `e461738c…`**
+（2026-10-21 最终交付组装，源码 `81a70e2`；见 [upgrade-package-ledger.md](upgrade-package-ledger.md)
+2026-10-21 节）。**发布门槛：用户明确「发布」指令**——批次 C 矩阵与最终包的 `.12`/`.14`
+验收均已通过（见「验证说明」）；指令前不发布、不推 tag、不推 origin。
 
-> **发布包（尚未生成 Release 资产）**：**r34** 平台包 SHA256 `1601c66afb7321701145907b9f643d5b29b630fbc74a9e0055b8ff74e07bb998`；
-> runner 组件包 **r35** `smartx-upgrade-runner-v0.3.2.tar.gz` SHA256 `3518402b1e86dcf9f4d4cd5098511551de4f2699ce32ed15c302ec1087db7f3d`
-> （取代 r33 `72291ec7…`——r33 不含 US-40 修复，勿用；细节见 ledger r35 条目）。
-> （已作废：平台 **r30** `065e1c82…`（被 r34 取代）；更早 **r21** `074a4937…`；runner **r33**（被 r35 取代））
-> （历史作废：**r18** `ff4c0f6f…`/`6b0c1700…` 打在「apply 触发回滚健康门缺陷」修复之前；
-> **r19** `52df80b7…`/`f0c87265…` 含「回滚可用性端点 500」缺陷；
-> **r20 平台包** `b3548dfa…` 的 `compose.apply` 服务集合含 prometheus，会导致其被重建。）
-> 平台包对 runner 的基线仍是**已发布 v0.3.1**——v0.5.4 的计划动作集已实测 ⊆ v0.3.1 的 25 个动作
-> （词汇级兼容；但 v0.3.1 执行带迁移的包会撞 US-40，见下）。**runner v0.3.2 本火车首次随平台交付**
-> （此前只存在于开发线）。**既有环境升级顺序 = 先组件升级（本批次 v0.3.2 组件包）、后平台升级**
-> （US-40 顺序约束，2026-10-08 定案；v0.5.2 源端经 v0.5.3 两步到达；详见「已知问题」与
-> docs/upgrade-chain.md §7.4）。
+> **发布包（尚未生成 Release 资产）**：
+> - 平台包 `smartx-capacity-insight-upgrade-v0.5.4.tar.gz`
+>   SHA256 `d235f14ca4737b76dec4ac7ff0b42f09fdd0524a8548e067150b48a1b217af34`（237.1 MiB）
+> - runner 组件包 `smartx-upgrade-runner-v0.3.2.tar.gz`
+>   SHA256 `e461738ca8cbd1413c51885afe36dd389bd2964973832f27e0857656288fcd9b`（77.5 MiB）
+> - 交付目录（离线安装用）：`.3:/home/user1/r42-delivery-final/smartx-capacity-insight-v0.5.4-offline`
+>   （1.4G，5 镜像 tar + SHA256SUMS；安装 compose 的 runner 基线 = **已发布 v0.3.1**，
+>   runner v0.3.2 由客户第 1 步组件升级装上）
 >
-> ⚠️ **2026-10-14 / 10-15 的修复与新增均不在 r34/r35 包内**（用户 2026-10-15 令：本批随 v0.5.4 交付）：
-> #89（幽灵 running 行 + status-404 误报）、#88（DockerHub v0.5.1u2 tag 修复脚本与文档规则）、
-> #87（采集接口异步化 + 采集单飞守卫陈旧判定）、#28（报表 payload 瘦身）、#36/#37（新建 VM 改用
-> Tower 真实创建时间 `local_created_at`；回收站判据统一权威标记 + 详情页显示回收前名）。
-> **发布前必须重建候选包（r36+）并在 `.12`/`.14` 重走验收**——**重建即作废 r34/r35 的既有验收结论**，
-> 不得以旧结论顶替。**验证机器口径**：`10.20.11.3` 只做开发与构建，**其部署结果不作为验证证据**
-> （见 docs/development-verification-process.md）。
+> **已作废轮次**：r34/r35、r36–r42 及其派生包（均被 `d235f14c…`/`e461738c…` 取代）；
+> 更早的 r21/r30 见 ledger 历史条目。所有作废包的验收结论**不适用于最终发布物**。
+>
+> 平台包对 runner 的基线仍是**已发布 v0.3.1**（按发布事实，不因随发 v0.3.2 而上调）。
+> **runner v0.3.2 本火车首次随平台交付**（此前只存在于开发线）。
+> **既有环境升级顺序 = 先组件升级（本批次 v0.3.2 组件包）、后平台升级**
+> （US-40 顺序约束；v0.5.2 源端经 v0.5.3 两步到达；详见「已知问题」与 docs/upgrade-chain.md §7.4）。
+>
+> **验证机器口径**：`10.20.11.3` 只做开发与构建，**其部署结果不作为验证证据**；
+> 证据只取 `.12`/`.14`（见 docs/development-verification-process.md）。
 
 ### 更新摘要
 
@@ -130,6 +128,12 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   cutover/handoff 重试里时心跳会一路变旧，平台只报「未检测到心跳」；`upgrade-runner` 容器新增
   `healthcheck`（状态文件超 90s 未更新即 `(unhealthy)`）；预检查失败文案补**容器实际状态**，
   区分「runner 不在」与「容器在但心跳停了」。
+- **老布局升级在 v0.5.2 停留 → 「撕裂态」（pending #99，阻断）**：v0.5.2 的 compose 已把容器挂到
+  新布局目录，而数据仍在旧布局 → 平台读到**空库**、健康检查失败、后续升级被卡
+  （`.14` 2026-10-17 L3-c 实证）。**处置**：交付 README §4.3 硬约束
+  「`v0.5.1u2` 及更早**必须连续升级** `v0.5.1u2 → v0.5.2 → v0.5.3`，禁止在 v0.5.2 停留」；
+  如因故必须停留，用交付包 `ops/repair-layout-migration.sh`（默认干跑、`--apply` 执行）把数据
+  搬到容器可见位置，随后尽快升到 v0.5.3（那一跳的目录迁移会让环境自动愈合）。
 - **`.env` 自愈丢 legacy 布局键（L4 实测，15 键 → 11 键）**：自愈此前只回填
   `ENV_FILE_RECOVERABLE_KEYS` 白名单（来源为**当前** `.env.example`），v0.5.1u2 时代写入 .env、
   后来改由 compose `environment:` 注入的 4 个布局键（`SMARTX_COMPOSE_FILE` /
@@ -262,36 +266,30 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
 
 ### 验证说明
 
-> ⚠️ **2026-10-15 口径**：候选包**需重建（r36+）**以纳入 10-14/10-15 的修复与新增（见文首注记），
-> **重建后下表所有 r34/r35 结论对最终发布物不再适用，必须在 `.12`/`.14` 重走**；`10.20.11.3`
-> 只做开发与构建，**其部署结果不作为验证证据**（2026-10-15 用户令）。
->
-> 本节原规则「矩阵完成前只列待填格子、不预写任何结论」（AGENTS §11：禁止把计划中的验收
-> 写成已完成）。批次 C 矩阵已于 2026-10-07 完成回填；2026-10-08 候选推进到 **r34+r35**
-> 后补了 `.3` 真机升级链一行（C1–C4 各格为 r30+r33 版本证据）；**同日完成最终候选
-> r34+r35 的 `.12`/`.14` 重走（下表末两行），发布前重走验收项关闭**。
+> 规则：本节只写**最终发布包**的证据（AGENTS §11：禁止把计划中的验收写成已完成）。
+> 历史轮次（r30/r33/r34/r35/r37…）的结论已被最终包取代，**不再作为发布依据**；
+> 需要的可从 [upgrade-package-ledger.md](upgrade-package-ledger.md) 逐轮条目追溯。
+
+**最终包身份**：平台 `d235f14c…` / runner `e461738c…`（源码 `81a70e2`，2026-10-21 组装）。
 
 | 项 | 状态 |
 | --- | --- |
-| `.3` 后端全量 / 前端门禁 | 1075 tests / 唯一失败为环境限制（镜像有 docker CLI 无 socket）；前端 `tsc` EXIT=0、`vitest` 114 tests |
-| r21 打包门禁 | 已过：身份 / runner 交付一致性（13 PASS，30 动作）/ 迁移 expand-only / 动作词汇冻结 / `--force-recreate` 禁令 / 敏感文件 0 |
-| r28 打包门禁（当前候选；r22–r28 迭代见 ledger） | 已过：身份 / runner 交付一致性（12 PASS，30 动作）/ expand-only / 词汇 7 PASS / `sha256sum -c`；后端全量 **1115 tests / 1 failure**（既有 harness 限制）；前端 `tsc` 0 + `vitest` 115 passed |
-| 打包侧静态证据 | 已过：3 个源版本计划动作集并集 6 个 ⊆ 已发布 v0.3.1 的 25 个动作；**已发布 v0.5.2 / v0.5.3 镜像内编译器**对 v0.5.4 manifest 的输出与候选编译器一致 |
-| 沙箱回滚演练（`.3`） | 已过：health 失败 → `rolled_back`；apply 失败 → `rolled_back`；`image.load` 失败 → 干净失败且不回滚 |
-| **`.14` C1''** v0.5.3 → v0.5.4（r21，runner 执行者为**已发布 v0.3.1**） | ✅ 已通过：任务 `upgrade-390655228052b596` succeeded，判定表 **17 ✅ / 4 ℹ️ / 0 ❌ / 0 ⚠️**；**T3 于 v0.3.1 执行者下通过**（prometheus 容器 ID/`created`/存量 config-hash 三条独立证据均未被重建）；两个回滚可用性端点 200。**本表其余格待矩阵完成后统一回填** |
-| **C1** `.14` 全新安装 + v0.5.3→v0.5.4 直升（T3） | ✅ 已通过（`.14`，2026-10-07，**最终候选** r30+r33）：全清 → delivery-v053（老交付，旧名 compose）安装 EXIT=0 → 产品 API 升 r30 succeeded（runner v0.3.1 未被动，US-26 再判别）→ 8 项验收全过（塔未配置属环境限制）——见 progress 同日节 |
-| **C2** `.12` 组件升级 v0.3.1→v0.3.2 | ✅ 已通过（`.12` 多轮 + `.14` 最终候选 r33）：组件升级 succeeded、runner v0.3.2 就位、收尾对账 + 旧名清理归档、变体收敛为 3 个新名 |
-| **C3** 场景 B / 场景 C 真机手动回滚 | ✅ 已通过（`.12`，2026-10-07，r26/r28 候选）：场景 B 任务 `manual-rollback-20261007042914` **终态 `rolled_back`**、`rollback_count_guard.ok=true`、平台实证回退 v0.5.4→v0.5.3（三容器镜像 + `/app/VERSION`）、数据未动；场景 C 任务 `manual-full-rollback-20261007045927` 4 动作全 succeeded（restore→override→apply→health）、override 3×v0.5.3、**数据 543 VM / 89547 卷逐位恢复**、平台回退 v0.5.3；回滚后再次直升 v0.5.4 成功（`upgrade-448104a503763822`）、新锚点就位（availability=true→v0.5.3）。真机暴露并当场修掉 4 个缺陷（见「修复」节），逐条证据在 [upgrade-package-ledger](upgrade-package-ledger.md) r22–r28 节 |
-| **C4** `.12` 平台直升回归 | ✅ 已通过（`.12`，2026-10-07，**最终候选** r30/r33）：同版本直升多轮 succeeded（含 r30 `upgrade-e246e7abe51ebd16`）；场景 B/C 回滚后 v0.5.3→v0.5.4 再升级 succeeded（`upgrade-448104a503763822`）且新锚点就位；availability/health/数据 543/89547 全程正常 |
-| `.3` 真机升级 r34+r35（US-40 验证链，2026-10-08） | ✅ 已通过：组件包 r35 门禁 15 PASS/1 SKIP → 组件升级 `upgrade-926c2f7a3fccf0c1` succeeded → 平台升级 `upgrade-36bbb3312806abdd` succeeded（9 动作含 `run-migration`，首次真机执行）→ 8 项验收全过（health v0.5.4/v0.3.2、`schema_migrations` 4 条落库、数据 201/2/2/1 不变、`.env` sha 逐位不变、legacy 已清、UI 200）→ US-06 升级后自动采集已分配 320.00 GiB 落库。**注意：C1–C4 各格是 r30+r33 版本的证据，候选现为 r34+r35（内容已变），须按最终候选重走——已于 2026-10-08 完成，见下两行** |
-| **`.12` 最终候选 r34+r35 重走**（v0.5.4 源端：同版本重装 + 组件自换，2026-10-08） | ✅ 已通过：首跑「先平台」撞 US-40 失败（task `upgrade-f7d8ca1e7d644c5c`，现场安全）→ 改**先组件 r35**（`upgrade-ad6d942746adebe7` succeeded，同版本自换）→ **后平台 r34**（`upgrade-0b0859ec1df3fc88` succeeded，`run-migration` succeeded）→ 8 项验收全过（health v0.5.4/v0.3.2、5 容器、network、SQLite 3/3/543/89547/1 逐位不变 + `schema_migrations`=4、Prometheus、`.env` sha `9880a516…` 未变、legacy 全清、UI 200；runner 镜像 `b7615ee1…` r35 内容确认）。**US-40 顺序约束实证：既有环境必须先组件后平台** |
-| **`.14` 最终候选 r34+r35 重走**（新装 + v0.5.3 源端客户升级路径，C1 格最终候选，2026-10-08） | ✅ 已通过：**链 A** 全清 → 新 delivery-v054（r34+r35、新 README）全新安装 EXIT=0 → 8 项验收全过（runner 镜像与 `.12` r35 逐位一致，install 直接落 r35）；**链 B** 全清 → delivery-v053 安装（v0.5.3+已发布 v0.3.1 真客户基线）→ 第 1 步组件升级 r35（`upgrade-b73eeddd5f1adc0e` succeeded，US-11 守卫、web-api 未重启）→ 第 2 步 `upgrade.sh` 平台升级 r34（`upgrade-a19d579a69020239` succeeded，预检查 9 项逐项 OK，`run-migration` 由 r35 执行成功）→ 8 项验收全过（`schema_migrations`=4 全部落库、runner 未被 recreate（US-26 判别）、`.env` 未覆盖、legacy 全清、UI 200）。详见 ledger 2026-10-08 节 |
-| 兼容矩阵 M1–M7 | ✅ 逐格证据就位：M2/M3/M6/M7 真机通过（M7 见上行 C3、M2/M3 见 C1/C2、M6=.12 v0.5.4+v0.3.2 全特性）；M1 走已发布路径回归；M4/M5 presence 兼容在对应轮次覆盖；M3-08/M3-10 按用户 2026-09-28 口径 **N/A**（runner-first 非受支持链路）。详见 impl-spec §10 与各轮 progress |
-| `post_upgrade` 触发面 | 单测覆盖（2026-10-06 决议：与已实测的 apply 触发回滚走同一代码路径，不强制沙箱复现） |
-| **r37 `.14` 链 A：全清 + 全新安装（2026-10-15）** | ✅ 通过：`install.sh --yes` EXIT=0；health v0.5.4/v0.3.2、**5 容器全 Up**（`collector-worker` 稳定无 Traceback）、UI 200、legacy 目录不存在、integrity ok、**`vm_latest.local_created_at` 列就位**。日志 `.14:/data/chainA-r37.log` |
-| **r37 `.14` 链 B：老交付（v0.5.3+runner v0.3.1）→ 组件升级 → 平台升级（2026-10-15）** | ✅ 通过：组件升级任务 `upgrade-58b348fb4b0f9cba` succeeded → 平台升级 v0.5.3→v0.5.4 succeeded（预检查 9 项逐项 OK）→ 8 项自检全过（含 `schema_migrations`=4、`local_created_at` 列就位）。日志 `.14:/data/chainB-r37.log` |
-| **r37 `.12` 同版本重装升级（2026-10-15）** | ✅ 通过（首跑被产品 `disk_space` 预检查拒绝——幽灵 running 行挡住清理 API，见 findings；用**产品「按任务删包」**释放 8.22GB 后重试成功）：health ok、5 容器 Up、integrity ok、`local_created_at` 列就位 |
-| **r37 契约级功能验证（`.12` 真实部署）** | ✅ 通过：#87 `POST /api/collection/run` → 202 / 0.05s / running、并发 409、后台收敛 success（如实报 0 集群）；#28 计数与 limit 无关 + `limit=2` 生效 + 导出 Word 200。**限制**：`.12`/`.14` 无 Tower 配置 ⇒ ① 的真实创建时间归属与 ②③ 的真实数据过滤由单测覆盖（10 例 / 9 例），端到端待有塔环境补 |
+| 构建门禁（`.3`，L1） | ✅ 全 PASS：G1 镜像身份 / **G2 runner 交付一致性**（源码与镜像 `actions.py` 指纹逐字节一致）/ G3 迁移 expand-only / G4 动作词汇冻结 / 对外发布文档脱敏 |
+| 单测基线 | 后端全量（容器内）`FAILED (failures=1)`——唯一失败为既有环境限制（需真实 docker socket 的 runner 执行用例），非本包回归；前端 `tsc` 0 错误 + vitest 全过 |
+| **`.12` 全新安装（最终包）** | ✅ `INSTALL_EXIT=0`；5 容器 Up、runner `(healthy)`、**~210 秒后仍 healthy、restarts=0**；八项全过（health ok / 5 容器 / UI 200 / legacy 全 ABSENT / `integrity ok` + `fk 0` / `.env` 600 常规文件 / compose OK / 镜像 `a747f565…`） |
+| **`.12` 数据完整性（最终包）** | ✅ 注标准数据集（120 VM / 240 卷 / 2 塔 / 3 集群 / 3 回收站）→ `r43-t0s` 自检 **36 PASS / 0 FAIL**；组件升级（API）succeeded → 平台升级（CLI 同版本重装）成功 → `t0s → t1` **36 PASS / 0 FAIL** |
+| **`.12` 复杂场景复测（最终包）** | ✅ `#95` 心跳窗口（pause → `unhealthy` → unpause → `healthy`）；**场景 B** 手动回滚 `manual-rollback-*` → `rolled_back`、数据 **36 PASS**；**场景 C** 整备回滚 → `succeeded`、数据 **36 PASS**；`#93` `.env` 被建成目录用例（换交付 runner 后 PASS：`.env` 恢复 600/17 键、两枚密钥逐键一致） |
+| **`.14` 交付物冒烟 + 完整升级链（2026-10-21 晚，新交付目录）** | ✅ 全新安装 `EXIT=0` → 8 项全过（`migrations=0` 属全新库口径）→ 注入 120VM/240卷 → **组件升级 v0.3.1→v0.3.2** `upgrade-4e75c3a11cb71dfb` succeeded（预检查 9 项全过；runner 探针 `docker_host_path(script)`=1、`ensure_env_file`=1）→ **平台升级 v0.5.4** `upgrade-b9233ab5f27c8c1b` succeeded（预检查 10 项全过、`runner_actions: 9 个动作 v0.3.2 全部支持`、**含「执行数据库迁移脚本」成功**）→ 数据 `t0 vs t1` **36 PASS / 0 FAIL / 4 WARN**（WARN = 本轮跳过真实采集故无 Prometheus 样本）→ health `v0.5.4/v0.3.2` 三 checks、`schema_migrations` 4 条、数据 `2/3/120/240` 逐位不变、UI 200 |
+| 跨版本矩阵（X1–X7，最终包线） | ✅ 七格实测：v0.5.1u2 / v0.5.2 / v0.5.3 各源端、负向拦截（源版本门禁 + 包内 remediation 透传）、`component_platform` 真机拒绝；其中 `v0.5.1u2 → v0.5.2 → 组件 → v0.5.4` 多跳链闭环 |
+| 兼容矩阵 M1–M7 | ✅ M2/M3/M6/M7 真机通过；M1 走已发布路径回归；M4/M5 presence 兼容在对应轮次覆盖；**M3-08 / M3-10 按用户 2026-09-28 口径 N/A**（runner-first 非受支持链路） |
+| `post_upgrade` 触发面 | 单测覆盖（与已实测的 apply 触发回滚走同一代码路径，不强制沙箱复现） |
+
+> **`.14` 环境故障（非产品缺陷，2026-10-21 记录）**：该机在历史硬盘故障后残留两处环境问题，
+> 首次冒烟因此失败，均已定位并修复：① Docker overlay2 **层文件损坏**（交付 tar 内
+> `/bin/prometheus` SHA `8d2d4281…` 正确，容器内解出 `fae00478…` → `exit 139` 段错误；
+> 重置 `/var/lib/docker` 后恢复）；② **孤儿桥接接口**残留导致 `10.249.251.0/24` 出现三条路由
+> （两条 `linkdown`）→ 宿主访问 8000 被 reset，而容器内 health 正常；`ip link delete` 后恢复。
+> 教训：验证前应先做「镜像内二进制 SHA 抽检 + `ip route` 重复网段检查」，否则会误判成产品缺陷。
 
 ### 已知问题与未解决事项
 
@@ -327,8 +325,17 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   docs/upgrade-chain.md §7.4）；**v0.5.2 源端**因 US-04（无守卫）不能先组件，须经 v0.5.3 两步到达；
   全新安装无顺序问题（install 直接落 r35 构建）。平台包的 runner 基线仍**保持已发布 v0.3.1**
   （按发布事实，不因随发 v0.3.2 而上调）。交付 README §4 已按此固定两步顺序并禁用 `--with-runner`。
-- **迁移 registry 目前为空**：`applied_migrations` 快照与 contract 阻塞判定的字段与读取路径已就位，
-  等真有 registry 条目时自动生效；expand-only 门禁当前无条目可检。
+- **迁移 registry 现有 4 条（v0.5.4 起）**：`vm_latest.owner` / `vm_latest.folder_name` /
+  `towers.tower_version` / `clusters.os_version`，全部 expand-only（只加列），由平台升级计划中的
+  `run-migration` 动作执行、写入 `schema_migrations` 台账。**由此产生本批次的顺序约束**：
+  迁移必须由**本批次交付的 runner（v0.3.2）**执行，旧 runner（含已发布 v0.3.1）会撞 US-40 →
+  既有环境**先组件、后平台**（详见「已知问题」前一条与 docs/upgrade-chain.md §7.4）。
+  全新安装的库由构建即完整，`schema_migrations` 为 0 行属正常（与升级态的 4 行区分）。
+- **升级架构的后续方向（v0.5.5，未实施）**：本版已解决"平台升级不碰 runner"（七步常量流程 + US-26），
+  但"迁移由 runner 执行"仍是耦合点（US-40 顺序约束的根源）。v0.5.5 计划把 schema 迁移改由
+  **新版 web-api 启动时自跑**（registry 单一来源），并补齐离线救援路径与 runner 独立 Compose project，
+  届时"升平台不必先升 runner"成为结构性事实。设计见
+  `docs/superpowers/specs/2026-10-21-v055-upgrade-architecture-redesign.md`（pending #102 / Phase 85）。
 - **`.14` 的 Docker Hub 出口被 DNS sinkhole**：该机无法 `docker pull`，取证与升级一律走
   离线包内镜像归档；是否为长期网络策略待确认。
 
