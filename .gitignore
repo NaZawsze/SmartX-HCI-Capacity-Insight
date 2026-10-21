@@ -40,3 +40,11 @@ AGENTS.md
 
 # CLI 工具链产物（本地留存，不入库）
 cli/packages/
+
+# 内部开发记录（只保留在本地，不随公开仓库上传）——2026-10-21 用户要求
+progress.md
+findings.md
+task_plan.md
+docs/ai-handoff-*.md
+docs/test-handover-*.md
+docs/releases/release-verification-*.md

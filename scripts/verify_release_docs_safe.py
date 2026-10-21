@@ -75,6 +75,57 @@ CREDENTIAL_RE = re.compile(
 )
 
 
+#: 硬凭据模式（**只扫这几类**，不做 IP 检查——内部记录允许写内网地址）。
+#: 2026-10-21 事故：`docs/ai-handoff-2026-10-12.md` 里有 `sshpass -p '<真实测试机密码>'`，
+#: 而本脚本当时只扫 PUBLIC_DOCS 白名单，扫不到内部记录 → 每次「PASS」都是假安全感。
+#: 现在无论文件是否在公开清单里，只要**会被提交**就必须过这一关。
+HARD_SECRET_RES = (
+    (re.compile(r"p@ssw0rd[^\s'\"]*"), "测试机/服务器密码"),
+    (re.compile(r"sshpass\s+-p\s+['\"]?\S+"), "sshpass 明文密码"),
+    (re.compile(r"AKIA[0-9A-Z]{16}"), "AWS Access Key"),
+    (re.compile(r"ghp_[0-9a-zA-Z]{36}"), "GitHub Token"),
+    (re.compile(r"dckr_pat_[A-Za-z0-9_-]{20,}"), "DockerHub Token"),
+    (re.compile(r"-----BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----"), "私钥"),
+)
+#: 允许出现这些模式的文件（门禁脚本自身、以及断言"不该出现"的测试）
+SECRET_SCAN_ALLOWLIST = {
+    "scripts/verify_release_docs_safe.py",
+}
+
+
+def scan_tracked_files_for_secrets(root: Path) -> list[str]:
+    """对所有**已跟踪**文件扫硬凭据（不看 PUBLIC_DOCS 白名单）。"""
+    import subprocess
+
+    try:
+        tracked = subprocess.run(
+            ["git", "ls-files"], cwd=root, capture_output=True, text=True, check=True
+        ).stdout.splitlines()
+    except (OSError, subprocess.CalledProcessError):
+        return ["无法执行 git ls-files，凭据扫描未完成"]
+
+    violations: list[str] = []
+    for rel in tracked:
+        if rel in SECRET_SCAN_ALLOWLIST:
+            continue
+        path = root / rel
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(errors="ignore")
+        except OSError:
+            continue
+        for lineno, line in enumerate(text.splitlines(), 1):
+            # 已明确标注为占位/示例的行豁免（如 `<REDACTED…>`、`p@ssw0rd` 在测试断言里）
+            for pattern, label in HARD_SECRET_RES:
+                for match in pattern.finditer(line):
+                    # 测试断言里把密码当"坏样本"列出（形如 ("p@ssw0rd", ...)）→ 不算泄露
+                    if rel.startswith("backend/tests/") and '"p@ssw0rd"' in line:
+                        continue
+                    violations.append(f"{rel}:{lineno}  {label} {match.group(0)[:14]}…")
+    return violations
+
+
 def scan_file(path: Path) -> list[str]:
     violations: list[str] = []
     text = path.read_text(errors="ignore")
@@ -103,6 +154,9 @@ def main() -> None:
         if p.is_file():
             all_violations.extend(scan_file(p))
 
+    # 全仓凭据扫描（所有已跟踪文件，不只是公开文档）——2026-10-21 事故后加入
+    all_violations.extend(scan_tracked_files_for_secrets(root))
+
     if all_violations:
         print(f"[FAIL] 发现 {len(all_violations)} 处违规:")
         for v in all_violations:
@@ -110,7 +164,8 @@ def main() -> None:
         print("\n规则:")
         print("  - 对外发布文档不得含内网/测试机 IP 或业务地址。")
         print("  - Docker 网络子网 (10.249.x) 除外。")
-        print("  - 内部工作/记录文档 (progress/findings/worklog/upgrade-issues/CHANGELOG/功能模块/v2 计划) 不在扫描范围。")
+        print("  - 内部工作/记录文档不做 IP 检查（允许写内网地址）。")
+        print("  - 但**所有已跟踪文件**都要过硬凭据扫描（密码/Token/私钥）。")
         sys.exit(1)
 
     print("[PASS] 对外发布文档安全扫描通过")
