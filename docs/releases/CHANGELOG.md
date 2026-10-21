@@ -204,7 +204,6 @@ v0.5.4 是升级架构的结构性重构（Phase 68）：把「web-api 编排 + 
   `files.sync` 按运行中容器的 compose 标签回填变体标记（幂等，判不出就不写）。
 - **构建门禁两道**：计划动作词汇冻结（候选包编译器对各源版本编译的动作集必须 ⊆ 已发布 runner 动作集）
   与迁移 expand-only 断言；矩阵一键取证脚本 `ops/evidence.sh`（升级前后各跑一次出判定表）。
-
 - **虚拟机所有者与虚拟机组（Phase 69）**：Tower 只读账号即可读到每台 VM 的
   `system.cloudtower/owner` 标签与 `folder.name`（虚拟机组，用户口径非放置组）；
   采集 → SQLite → VM 页第三条信息行 → 报表导出 Word/Excel 各加「所有者」「虚拟机组」两列。
