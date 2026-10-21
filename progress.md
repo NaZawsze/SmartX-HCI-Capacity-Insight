@@ -7335,3 +7335,18 @@ L5 之后 `.14` 的 runner 一直无 healthcheck。排查发现：
 1. 新交付目录（README 已统一为 v0.3.2）**安装 + 升级全链路可用**；
 2. **升级不丢数据**（36 项数据断言 0 FAIL，含 schema、引用完整性、聚合值、`.env` 密钥配对）；
 3. 交付物 SHA 与验收时一致（只换 README），之前的验收结论仍然成立。
+
+### 交付目录 README 二次同步（CHANGELOG/README 修正后）
+
+CHANGELOG 与 `delivery/README.md` 按用户要求修正三处过期表述（提交 `baa86ae`），其中一处是
+**事实错误**：原文写「全新安装 install 直接落 r35 构建」，实际 `.14` 2026-10-21 实测全新安装落
+**已发布 v0.3.1**（交付 install compose 的 runner 基线就是 v0.3.1）。修正后同步交付目录：
+
+| 位置 | README md5 | 说明 |
+| --- | --- | --- |
+| 仓库 HEAD | `f29ab5026b8d03a60e0c05d921b12fde` | 含新增「全新安装的用户怎么办」一段 |
+| `.3:/home/user1/r42-delivery-final/…-offline/README.md` | 同上 | 只替换 README（备份 `r42-delivery-final.backup-210141`），包 SHA 不变 |
+| `.14:/data/newdeliv/…-offline/README.md` | 同上 | 同步后 `sha256sum -c SHA256SUMS` 5 镜像全 OK |
+
+**只换 README**：diff 确认除 README 外无任何文件变化；平台包 `d235f14c…` / runner 包 `e461738c…`
+SHA 逐位不变，因此 `.12`/`.14` 的验收结论仍然有效。
