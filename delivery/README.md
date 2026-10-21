@@ -182,7 +182,7 @@ sudo bash upgrade/upgrade.sh --allow-same-version --yes
 
 本批次平台包**包含数据库结构迁移**，迁移由**当前正在运行的 runner** 执行。
 早于本批次组件包的 runner（包括已发布的 v0.3.1 与旧的 v0.3.2 构建）存在脚本挂载缺陷
-（US-40），执行迁移步骤时会挂到空目录、升级失败。因此既有环境必须：
+，执行迁移步骤时会挂到空目录、升级失败。因此既有环境必须：
 
 1. **先**做第 1 步组件升级（把 runner 换成本批次的 v0.3.2）；
 2. **后**做第 2 步平台升级。
@@ -200,12 +200,12 @@ sudo bash upgrade/upgrade.sh --allow-same-version --yes
   「先平台、后 runner」，在旧环境会在迁移步骤失败。请勿使用。
 - 顺序做反了（先平台）的后果：升级在迁移步骤失败，环境仍停留在旧版本（升级前
   备份已生成、数据未动）；补做组件升级后重新执行平台升级即可成功。
-- ⚠️ **老布局现场（v0.5.1u2 及更早）必须连续升级：v0.5.1u2 → v0.5.2 → v0.5.3，禁止在 v0.5.2 停留**（pending #99）：v0.5.2 的 compose 已把容器挂到新布局目录，而数据还在旧布局，
+- ⚠️ **老布局现场（v0.5.1u2 及更早）必须连续升级：v0.5.1u2 → v0.5.2 → v0.5.3，禁止在 v0.5.2 停留**：v0.5.2 的 compose 已把容器挂到新布局目录，而数据还在旧布局，
   此时平台读到的是**空库**，且健康检查会失败导致无法继续升级。如因故必须在 v0.5.2 停留，
   用交付包 `ops/repair-layout-migration.sh`（默认干跑，`--apply` 执行）把数据搬到容器可见位置；
   无论如何，**请尽快继续升到 v0.5.3**——那一跳的目录迁移会让环境自动愈合。
 
-> **`.env` 类型检查（pending #93，本批次起）**：v0.5.2/v0.5.3 的 compose 把
+> **`.env` 类型检查（本批次起）**：v0.5.2/v0.5.3 的 compose 把
 > `project/.env` 当**绝对路径 bind 源**，工程目录不在默认新布局时会由 Docker 建成
 > **空目录**；此后 `docker compose` 读 `env_file` 直接失败，平台升级的 restart 步骤
 > 报退出码 14（历史升级链路上的已知缺陷，两台验证机一致复现）。
@@ -291,7 +291,7 @@ docker exec <web-api 容器名> python -c "import sqlite3;c=sqlite3.connect('/da
 | 终态 `recovery_required` | 需要人工确认。到 Web 界面选「继续执行」或「标记失败」 |
 | 终态 `rolled_back` / `rollback_failed` | 平台已尝试自动回滚，查任务日志确认结果 |
 | 升级成功但旧目录还在 | **再跑一次完整升级**，由升级后清理收尾 |
-| 升级失败、日志里 `restart` 退出码 14 / `.env: is a directory` | 历史 compose 把 `project/.env` 建成了目录（pending #93）。**先做组件升级到本批次的 v0.3.2**（执行器会自动重建 `.env`），再重跑平台升级；或从升级前备份恢复 `.env` |
+| 升级失败、日志里 `restart` 退出码 14 / `.env: is a directory` | 历史 compose 把 `project/.env` 建成了目录。**先做组件升级到本批次的 v0.3.2**（执行器会自动重建 `.env`），再重跑平台升级；或从升级前备份恢复 `.env` |
 
 ### 6.3 旧版本安装镜像的来源注意（v0.5.1u2 及更早）
 
@@ -377,7 +377,7 @@ curl -s http://127.0.0.1:8000/api/system/health
   最安全；「整库替换」会清空现有数据（数据类导入包不支持此模式，后端直接拒绝）。
 - 导入完成后需执行「服务重启」新数据才完全生效。
 
-## 9.1 compose 变体守卫（US-37）
+## 9.1 compose 变体守卫
 
 平台部署目录里有 **4 份 compose 变体**（`docker-compose.dev.yml` /
 `docker-compose.offline.yml` / `.online.yml` / `.upgrade.yml`；2026-10-07 由

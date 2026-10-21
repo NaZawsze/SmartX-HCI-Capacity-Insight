@@ -52,40 +52,42 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 GITIGNORE = ROOT / ".gitignore"
 
-#: 允许进入版本控制的 Markdown（穷举，新增必须显式登记）。
-#: 加新条目之前先过三条判据：①客户会看到？②构建/打包把它当输入？
-#: ③门禁或测试把它当夹具读（缺了会断）？三条都不满足 = 内部文档，不要提交。
-TRACKED_DOCS: frozenset[str] = frozenset(
-    {
-        # —— ① 产品/交付文档（客户会看到） ——
-        "README.md",
-        "README.zh-CN.md",
-        "delivery/README.md",
-        "docs/deployment.md",
-        "docs/usage.md",
-        "docs/ova-delivery.md",
-        "docs/architecture.md",
-        "docs/architecture-v2.md",
-        "docs/v2-api-contracts.md",
-        "docs/v2-frontend-design.md",
-        "docs/v2-upgrade-center-design.md",
-        "docs/v1-data-compatibility.md",
-        "docs/upgrade-runner-lifecycle.md",
-        "docs/backup-recovery.md",  # 客户恢复五步与红线（根 README「Backup & Recovery」入口）
-        "docs/upgrade-chain.md",  # 受支持链路与顺序铁律（deployment.md 引用 + 版本矩阵夹具）
-        "docs/releases/v0.2.md",  # 历史版本说明（根 README 入口；版本节只增不删）
-        # —— ②/③ 门禁夹具与构建输入（被代码读取，缺了门禁会断） ——
-        "docs/api.md",  # verify_api_docs.py 双向解析
-        "docs/version-skew-matrix.md",  # US-01 门禁解析状态符号与硬规则
-        "docs/cloudtower-api-version-matrix.md",  # 与 profiles.py 强制一致
-        "docs/troubleshooting.md",  # test_us37_compose_guard 读取（客户可直接执行的操作）
-        "docs/release-build-guide.md",  # 发布编排器一致性测试
-        "docs/upgrade-package-ledger.md",  # verify_changelog/verify_release_verification 核对 SHA
-        "docs/releases/CHANGELOG.md",  # 面向使用者的更新说明 + 打包前 assert 已发布
-        # —— 脚本目录使用说明 ——
-        "ops/README.md",
-    }
-)
+#: 白名单唯一事实源：仓库根的 `PUSH_ALLOWLIST.txt`（人可读、按用途分组）。
+#: 门禁从这里解析，不再在代码里维护第二份清单。
+ALLOWLIST_FILE = ROOT / "PUSH_ALLOWLIST.txt"
+
+
+def load_allowlist(path: Path | None = None) -> tuple[frozenset[str], frozenset[str]]:
+    """解析 PUSH_ALLOWLIST.txt，返回 (文档集合, 脚本集合)。
+
+    规则：`[docs]` / `[scripts]` 是段标记；`#` 起头是注释；其余非空行是路径。
+    文件缺失时返回两个空集合（门禁会因此报错，避免白名单失效后静默放行）。
+    """
+    target = path or ALLOWLIST_FILE
+    if not target.is_file():
+        return frozenset(), frozenset()
+    docs: set[str] = set()
+    scripts: set[str] = set()
+    section: str | None = None
+    for raw in target.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1].strip().lower()
+            continue
+        # 去掉行尾注释：`docs/api.md    # API 参考` → `docs/api.md`
+        path_part = line.split("#", 1)[0].strip()
+        if not path_part:
+            continue
+        if section == "docs":
+            docs.add(path_part)
+        elif section == "scripts":
+            scripts.add(path_part)
+    return frozenset(docs), frozenset(scripts)
+
+
+TRACKED_DOCS, TRACKED_SCRIPTS = load_allowlist()
 
 #: TRACKED_DOCS 里**被代码或门禁真实读取/打包必需**的子集：缺了会让门禁静默失效。
 REQUIRED_DOCS: frozenset[str] = frozenset(
@@ -94,11 +96,8 @@ REQUIRED_DOCS: frozenset[str] = frozenset(
         "README.zh-CN.md",  # build_upgrade_package 改写版本号
         "delivery/README.md",  # 交付包 README（build_offline_delivery --readme）
         "docs/api.md",  # verify_api_docs.py
-        "docs/version-skew-matrix.md",  # test_us01
         "docs/cloudtower-api-version-matrix.md",  # test_cloudtower_api_version_matrix
         "docs/troubleshooting.md",  # test_us37_compose_guard
-        "docs/release-build-guide.md",  # test_release_delivery_orchestrator
-        "docs/upgrade-package-ledger.md",  # verify_changelog / verify_release_verification
         "docs/releases/CHANGELOG.md",  # 打包 gate + 面向使用者
     }
 )
@@ -110,6 +109,12 @@ INTERNAL_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"^(progress|findings|task_plan)\.md$", "工作日志/发现/计划（根目录）"),
     (r"^delivery/README\.verified\.md$", "交付命令验证状态清单（内部验证记录）"),
     (r"^docs/pending-tasks\.md$", "待办台账"),
+    (r"^docs/upgrade-package-ledger\.md$", "升级包台账（历史构建轮次与内部验证记录）"),
+    (r"^docs/version-skew-matrix\.md$", "版本偏斜测试矩阵（内部验证证据）"),
+    (r"^docs/release-build-guide\.md$", "发布构建手册（内部维护者用）"),
+    (r"^docs/upgrade-chain\.md$", "升级链路工作记录（含验证机与任务记录）"),
+    (r"^docs/architecture(-v2)?\.md$", "内部架构设计（README 已含精简架构图）"),
+    (r"^docs/v[12]-(api-contracts|frontend-design|upgrade-center-design|data-compatibility)\.md$", "内部设计文档（设计期产物）"),
     (r"^docs/doc-map\.md$", "文档总索引（内部导航）"),
     (r"^docs/upgrade-(issues|strategy-issues|audit-matrix|remediation-roadmap|architecture-options)\.md$", "问题台账/矩阵/路线图"),
     (r"^docs/version-governance\.md$", "版本治理内部规则"),
@@ -125,51 +130,6 @@ INTERNAL_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"^docs/releases/(release-verification-|version-archives)", "内部版本验证记录与历史归档"),
     (r"^docs/ai-handoff-", "AI 交接文档"),
     (r"^docs/test-handover-", "测试交接文档"),
-)
-
-#: 允许进入版本控制的**脚本**（`scripts/`、`ops/`、根目录 `*.sh`）。
-#: 判据同文档：①客户会执行（随交付包分发或文档让用户跑）②构建/打包必需
-#: ③门禁/测试夹具。**开发自用工具一律不提交**——一次性探针、数据集生成、
-#: 数据完整性比对、链路演练、矩阵取证、历史版本校验脚本等，用完只留本地。
-TRACKED_SCRIPTS: frozenset[str] = frozenset(
-    {
-        # —— 交付给客户的运维脚本（会打进升级包 project/ 载荷）——
-        "scripts/bind-mount-recover.sh",
-        "scripts/verify_site_acceptance.sh",
-        "ops/install.sh",
-        "ops/upgrade.sh",
-        "ops/repair-layout-migration.sh",
-        # —— 文档让用户执行的基线工具 ——
-        "scripts/capture_baseline.py",
-        # —— 构建与打包链（ops/package.sh 直接调用）——
-        "ops/package.sh",
-        "ops/check-deps.sh",
-        "ops/lib/common.sh",
-        "pre_install.sh",
-        "scripts/build_upgrade_package.py",
-        "scripts/build_runner_component_package.py",
-        "scripts/build_offline_delivery.py",
-        "scripts/build_bundle_upgrade_package.py",
-        "scripts/build_prometheus_component_package.py",
-        "scripts/build_release_delivery.sh",
-        # —— 门禁（缺一即构建链断）——
-        "scripts/verify_upgrade_package_identity.py",
-        "scripts/verify_runner_delivery_consistency.py",
-        "scripts/verify_migrations_expand_only.py",
-        "scripts/verify_upgrade_plan_vocabulary.py",
-        "scripts/verify_api_docs.py",
-        "scripts/verify_changelog.py",
-        "scripts/verify_release_docs_safe.py",
-        "scripts/verify_release_verification.py",
-        "scripts/verify_repo_doc_scope.py",
-        # —— 交付物本体（随离线交付目录发给客户）——
-        "delivery/install/install.sh",
-        "delivery/upgrade/upgrade.sh",
-        "delivery/compose-guard.sh",
-        # —— 本门禁自身的执行机制 ——
-        "scripts/hooks/pre-commit",
-        "scripts/install_git_hooks.sh",
-    }
 )
 
 #: 开发自用脚本的特征：命中即拦截（独立于 TRACKED_SCRIPTS 白名单）。
@@ -194,6 +154,16 @@ GITIGNORE_REQUIRED: tuple[str, ...] = (
     "task_plan.md",
     "docs/pending-tasks.md",
     "docs/doc-map.md",
+    "docs/upgrade-package-ledger.md",
+    "docs/version-skew-matrix.md",
+    "docs/release-build-guide.md",
+    "docs/upgrade-chain.md",
+    "docs/architecture.md",
+    "docs/architecture-v2.md",
+    "docs/v1-data-compatibility.md",
+    "docs/v2-api-contracts.md",
+    "docs/v2-frontend-design.md",
+    "docs/v2-upgrade-center-design.md",
     "delivery/README.verified.md",
     "docs/ai-handoff-*.md",
     "docs/test-handover-*.md",
@@ -532,6 +502,7 @@ _INTERNAL_REF_RE = re.compile(
     r"|docs/(?:pending-tasks|doc-map|version-governance|release-acceptance)\.md"
     r"|docs/upgrade-(?:issues|strategy-issues|audit-matrix|remediation-roadmap|architecture-options)\.md"
     r"|docs/(?:test-architecture|test-process-and-scope|project-guide-for-ai)\.md"
+    r"|docs/(?:upgrade-package-ledger|version-skew-matrix|release-build-guide)\.md"
     r"|docs/(?:development-verification-process|delivery-handover-guide)\.md"
     r"|docs/releases/(?:release-verification-[\w.-]+|version-archives)\.md"
     r"|(?<![\w/])(?:progress|findings|task_plan)\.md)"
@@ -541,8 +512,6 @@ _INTERNAL_REF_RE = re.compile(
 _INTERNAL_REF_ALLOWED: frozenset[str] = frozenset(
     {
         "docs/releases/CHANGELOG.md",  # 历史版本节只增不删
-        "docs/upgrade-package-ledger.md",  # 包台账是历史审计链
-        "docs/version-skew-matrix.md",  # 被 US-01 门禁解析，改动需同步测试
     }
 )
 

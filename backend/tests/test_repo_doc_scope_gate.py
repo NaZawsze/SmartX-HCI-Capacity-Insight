@@ -74,6 +74,37 @@ class RepoDocScopeUnitTest(unittest.TestCase):
             self.assertIn(path, self.gate.TRACKED_DOCS, f"{path} 是客户文档，不该被移出")
 
 
+    def test_allowlist_is_loaded_from_txt(self) -> None:
+        """白名单唯一事实源 = 仓库根 PUSH_ALLOWLIST.txt（不再在代码里维护第二份）。"""
+        self.assertTrue(
+            (ROOT / "PUSH_ALLOWLIST.txt").is_file(),
+            "缺少 PUSH_ALLOWLIST.txt（推送清单的唯一事实源）",
+        )
+        self.assertTrue(self.gate.TRACKED_DOCS, "白名单解析为空——门禁会静默放行")
+        self.assertTrue(self.gate.TRACKED_SCRIPTS, "脚本白名单解析为空")
+
+    def test_allowlist_parses_inline_comments(self) -> None:
+        """行尾注释不得被当成路径的一部分。"""
+        tmp = Path(tempfile.mkdtemp(prefix="allow-"))
+        try:
+            target = tmp / "PUSH_ALLOWLIST.txt"
+            target.write_text(
+                "[docs]\nREADME.md    # 根说明\n\n[scripts]\nops/install.sh  # 安装入口\n",
+                encoding="utf-8",
+            )
+            docs, scripts = self.gate.load_allowlist(target)
+            self.assertEqual(docs, frozenset({"README.md"}))
+            self.assertEqual(scripts, frozenset({"ops/install.sh"}))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_allowlist_missing_returns_empty(self) -> None:
+        """清单缺失时返回空集合（而非静默放行全部）。"""
+        docs, scripts = self.gate.load_allowlist(Path("/nonexistent/PUSH_ALLOWLIST.txt"))
+        self.assertEqual((docs, scripts), (frozenset(), frozenset()))
+
+
+
 class RepoDocScopeGateTest(unittest.TestCase):
     """在临时目录构造伪造仓库，验证门禁真的会 FAIL。"""
 
@@ -168,16 +199,10 @@ class RepoDocScopeGateTest(unittest.TestCase):
         )
 
     def test_history_docs_are_exempt(self) -> None:
-        """CHANGELOG / ledger / 矩阵是历史审计链，只增不删，允许保留内部引用。"""
+        """CHANGELOG 是历史审计链（已发布版本的事实记录），只增不删，允许保留内部引用。"""
         self.assertEqual(
             self.gate._INTERNAL_REF_ALLOWED,
-            frozenset(
-                {
-                    "docs/releases/CHANGELOG.md",
-                    "docs/upgrade-package-ledger.md",
-                    "docs/version-skew-matrix.md",
-                }
-            ),
+            frozenset({"docs/releases/CHANGELOG.md"}),
         )
 
 

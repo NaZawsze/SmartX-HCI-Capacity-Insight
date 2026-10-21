@@ -714,15 +714,23 @@ class DeliveryReadmeTest(unittest.TestCase):
         """v0.5.4 起必须写清"先 runner 组件、后平台"。
 
         v0.5.4 平台包包含数据库迁移，由当前运行的 runner 执行；旧 runner（含已发布
-        v0.3.1）执行会因 US-40 失败，因此交付顺序自 v0.5.4 批次起与 v0.5.3 相反。
+        v0.3.1）执行会因脚本挂载缺陷失败，因此交付顺序自 v0.5.4 批次起与 v0.5.3 相反。
         README 若仍写「先平台、后 runner」，客户照做会在迁移步骤失败——用显式断言锁住。
+
+        断言**内容**而非内部问题编号：`delivery/README.md` 会发给客户，
+        不得出现 US-xx / AGENTS §x / 验证机别名 这类内部标识（2026-10-21 用户令）。
         """
         text = self._readme()
         self.assertIn("升级顺序", text)
         self.assertIn("先 runner 组件", text)
-        self.assertIn("US-40", text)
+        self.assertIn("顺序不能颠倒", text)
         # --with-runner 仍要出现（作为「本批次请勿使用」的警示），不得只字不提
         self.assertIn("--with-runner", text)
+        # 客户文档不得出现内部问题编号 / 内部规则编号
+        for forbidden in ("US-", "AGENTS §", "pending #"):
+            self.assertNotIn(
+                forbidden, text, f"交付 README 不得出现内部标识 {forbidden!r}"
+            )
 
     def test_explains_why_upgrade_must_use_api(self) -> None:
         """必须解释为什么不能自己 docker load 改环境（避免客户绕过脚本）。"""

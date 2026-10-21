@@ -315,7 +315,6 @@ sha256sum "$host_path"
 - [备份与恢复](docs/backup-recovery.md) —— 备份资产盘点、恢复五步与红线；迁移/重装前必读
 - [版本更新说明](docs/releases/CHANGELOG.md) —— 每个版本的新增、修复与已知问题
 - [upgrade-runner 生命周期与组件升级策略](docs/upgrade-runner-lifecycle.md)
-- [升级链路与平台↔runner 配对](docs/upgrade-chain.md)
 - [v0.2 更新说明](docs/releases/v0.2.md)
 
 ## CloudTower 兼容范围与权限

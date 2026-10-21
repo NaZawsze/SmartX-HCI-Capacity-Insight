@@ -124,7 +124,17 @@ def main() -> int:
         ledger_sha = _latest_ledger_platform_sha()
         if not platform_sha:
             fail("platform_sha_present", "未记录平台包 SHA")
-        elif ledger_sha and platform_sha != ledger_sha:
+        elif ledger_sha is None:
+            # 包台账属内部开发记录，不随公开仓库分发；本地开发机上仍在时做交叉校验。
+            checks.append(
+                {
+                    "name": "platform_sha_matches_ledger",
+                    "ok": True,
+                    "skipped": True,
+                    "message": "SKIP：本树不含包台账（内部记录），无法交叉校验 SHA",
+                }
+            )
+        elif platform_sha != ledger_sha:
             fail(
                 "platform_sha_matches_ledger",
                 f"平台包 SHA {platform_sha[:12]}… 与 ledger 最新 {ledger_sha[:12]}… 不一致",

@@ -100,3 +100,18 @@ backend/tests/test_capture_baseline.py
 backend/tests/test_seed_test_dataset.py
 backend/tests/test_verify_data_integrity.py
 backend/tests/test_dockerhub_tag_remediation.py
+
+# 开发过程记录（包台账 / 测试矩阵 / 发布构建手册）——只留本地
+docs/upgrade-package-ledger.md
+docs/version-skew-matrix.md
+docs/release-build-guide.md
+backend/tests/test_us01_version_skew_matrix.py
+
+# 内部设计文档（2026-06 版，已被实现取代；产品说明见 README 与 docs/deployment.md）
+docs/architecture.md
+docs/architecture-v2.md
+docs/v1-data-compatibility.md
+docs/v2-api-contracts.md
+docs/v2-frontend-design.md
+docs/v2-upgrade-center-design.md
+docs/upgrade-chain.md

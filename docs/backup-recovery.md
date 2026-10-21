@@ -6,7 +6,7 @@
 
 - **业务数据 = SQLite + Prometheus 历史 + 配套 `.env` 三位一体**。只备份 SQLite 不算完整备份：趋势/增长/预测依赖 Prometheus 历史 block；Tower 凭据是 XOR 加密存储，解密依赖 `.env` 中的 `SMARTX_SECRET_KEY`，`.env` 必须与数据库同代保管（0600）。
 - 禁止 `docker compose down -v`；恢复操作前先记录基线（容器状态、目录、数据库行数），恢复后逐项比对并报告。
-- 在 10.20.11.3 之外的环境（尤其 10.20.0.6）执行任何写操作前必须获得用户对具体命令的批准。
+- 在非本项目专用测试环境上执行任何写操作前，必须获得对该具体命令的批准。
 
 ## 1. 平台已有的备份机制
 
@@ -102,5 +102,5 @@ docker compose -f docker-compose.offline.yml up -d --force-recreate
 
 - 禁止 `docker compose down -v`；禁止删除目标根目录、目标数据库、Prometheus 数据。
 - 恢复类操作先确认目标路径与基线，完成后报告：动了什么、删了什么（及是否可从 `*.pre-restore-*` 挽回）。
-- 测试机 `10.20.11.3` 仅用于本项目测试；`10.20.0.6` 默认只读。
+- 项目专用测试机只用于本项目测试；任何被标记为只读的环境不得执行写操作。
 - 升级链路失败的恢复不在本手册范围，见 `docs/troubleshooting.md` §6 与升级链路 worklog。

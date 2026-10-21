@@ -28,12 +28,6 @@ PUBLIC_DOCS: list[str] = [
     "README.zh-CN.md",
     "docs/deployment.md",
     "docs/usage.md",
-    "docs/architecture.md",
-    "docs/architecture-v2.md",
-    "docs/v2-api-contracts.md",
-    "docs/v2-frontend-design.md",
-    "docs/v2-upgrade-center-design.md",
-    "docs/v1-data-compatibility.md",
     "docs/ova-delivery.md",
     "docs/upgrade-runner-lifecycle.md",
     "delivery/README.md",  # 随交付包发给客户的说明书（49-56）

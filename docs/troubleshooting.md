@@ -80,7 +80,7 @@ curl -fsS http://localhost:8080/api/system/health
 
 | 报错 | 方向 | 处理 |
 | --- | --- | --- |
-| `No route to host` / 连接超时 | Tower 网络不可达 | 测试网 Tower `10.20.0.6` 不可达是已知环境限制；生产地址核对防火墙/路由 |
+| `No route to host` / 连接超时 | Tower 网络不可达 | 核对 Tower 地址与网络连通性、防火墙/路由规则 |
 | 401/登录失败 | Tower 账号或 API token | Tower 侧核对账号；UI 密码框不回显是设计行为，不代表凭据丢失 |
 | `Tower XOR 凭据无法认证密钥` | `.env` 与库中凭据不配对 | 确认 `SMARTX_SECRET_KEY` 与入库时一致；在 Tower 设置重新保存密码即可重建配对 |
 | 部分集群成功部分失败 | 单集群数据问题 | 看采集 run 明细（`GET /api/collection/runs/{run_id}`）；部分成功是设计行为，不回滚整体 |
@@ -107,7 +107,7 @@ sqlite3 /data/smartx-storage-forecast/app/smartx.db 'SELECT COUNT(*) FROM metric
 
 ## 6. 平台升级失败
 
-- **先取证再动手**：记录任务 ID（任务中心）、失败步骤、runner 日志、`upgrades/<task_id>/task.json`、包 SHA256；对照 `docs/upgrade-package-ledger.md` 确认包身份。失败后不得在半升级现场反复重跑，修复后从干净基线重新走链路（AGENTS §10）。
+- **先取证再动手**：记录任务 ID（任务中心）、失败步骤、runner 日志、`upgrades/<task_id>/task.json`、包 SHA256；对照发布说明中的包 SHA256 确认包身份。失败后不得在半升级现场反复重跑，修复后从干净基线重新走链路。
 - `Tower XOR 凭据无法认证密钥，且未找到可保留来源配对关系的旧环境 .env`：凭据守卫 fail-closed 是设计（UPG-042）；若发生在 v0.5.2→v0.5.3 且从未配置 Tower 凭据可继续，配置过凭据的机器在 Tower 设置重新保存后重试。UPG-049 误判场景已在 v0.5.3 重打包修复（runner 镜像 `7d152590d6fd` 之后）。
 - `recovery_required` 状态：用任务中心的恢复入口（`recovery/{task_id}/continue|rollback|fail`）按提示处理，不要手工改 task.json。
 - 升级中**不要 recreate upgrade-runner**：会让 running 任务失去执行者（checkpoint/租约可恢复，但应避免）。
@@ -136,7 +136,7 @@ docker compose exec web-api python -m app.cli reset-password --username admin --
 
 重置后重新登录。
 
-## 10. 容器被 SIGKILL：exit 137 且 OOMKilled=false（US-37）
+## 10. 容器被 SIGKILL：exit 137 且 OOMKilled=false
 
 **这是「被人为杀掉」，不是内存不足。** 判据是 `OOMKilled=false`：
 内核 OOM 会把它置为 `true`。
@@ -147,7 +147,7 @@ docker inspect --format '{{.State.ExitCode}} OOM={{.State.OOMKilled}}' <容器�
 # 137 OOM=true   → 真 OOM，查内存与 limit
 ```
 
-### 10.1 最常见成因：同一 project 混用不同 compose 变体（2026-09-30 .3 事故）
+### 10.1 最常见成因：同一 project 混用不同 compose 变体
 
 仓库有 4 个 compose 变体共享同一个 project 名，但服务定义不同
 （`build:` vs `image:`、`pull_policy`、额外挂载），因此 `config-hash` 必然不同。

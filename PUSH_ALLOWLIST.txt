@@ -1,0 +1,126 @@
+# ============================================================================
+# 允许推送到仓库的文件清单（唯一事实源）
+# ============================================================================
+#
+# 用户 2026-10-21 定：仓库只放业务代码。
+#   · 内部开发文档（设计稿/计划/工作日志/台账/交接记录）→ 只留本地
+#   · 开发自用脚本（探针/数据集生成/链路演练/一次性取证补救）→ 只留本地
+#
+# 判定标准（三条满足任意一条即可列入本表）：
+#   ① 客户会看到 / 会执行（随交付包分发，或文档让客户跑）
+#   ② 构建、打包、发布链路必需
+#   ③ 门禁或测试把它当夹具读（缺了 CI/门禁会断）
+#   三条都不满足 = 与业务无关 → 不要提交。
+#
+# 本文件是 scripts/verify_repo_doc_scope.py 的输入；
+# 改这里 = 改允许推送的范围。改完必须跑：
+#     python3 scripts/verify_repo_doc_scope.py
+#
+# 新增一行前先确认：这文件客户真的要看/要跑吗？
+#   只想给自己看 → 别加，写进 .gitignore。
+# ============================================================================
+
+
+[docs]
+# 根目录说明（对外入口，中英双份）
+README.md
+README.zh-CN.md
+
+# 交付包内说明书（随离线交付目录发给客户；删除它客户就无从下手）
+delivery/README.md
+
+# 客户/运维手册
+docs/api.md                          # API 参考（verify_api_docs.py 双向校验的夹具）
+docs/backup-recovery.md              # 备份与恢复五步（迁移/重装前必读）
+docs/deployment.md                   # 部署与升级顺序（客户部署主依据）
+docs/troubleshooting.md              # 故障排查手册
+docs/usage.md                        # 使用说明
+docs/ova-delivery.md                 # OVA 交付边界
+docs/upgrade-runner-lifecycle.md     # 执行器生命周期与组件升级策略
+
+# 版本说明（每个版本的节永久保留，只增不删）
+docs/releases/CHANGELOG.md           # 面向使用者的更新说明（打包前强制校验已发布）
+docs/releases/v0.2.md                # 历史版本说明
+
+# 版本对接矩阵（与 backend/app/v2/cloudtower/profiles.py 强制一致，是门禁夹具）
+docs/cloudtower-api-version-matrix.md
+
+# 运维脚本目录的说明
+ops/README.md
+
+
+[scripts]
+# ── 交付给客户的运维脚本（会打进升级包 project/ 载荷）────────────
+scripts/bind-mount-recover.sh         # 挂载载体体检/恢复（客户现场自救）
+scripts/verify_site_acceptance.sh     # 现场验收自检
+ops/install.sh                        # 安装入口
+ops/upgrade.sh                        # 升级入口
+ops/repair-layout-migration.sh        # 老布局撕裂态救援（交付 README 让客户执行）
+
+# ── 交付物本体（随离线交付目录发给客户）──────────────────────
+delivery/install/install.sh
+delivery/upgrade/upgrade.sh
+delivery/compose-guard.sh
+
+# ── 客户文档让用户执行的基线工具 ──────────────────────────────
+scripts/capture_baseline.py           # 升级/大改前固化可校验基线
+
+# ── 构建与打包链（ops/package.sh 直接调用，缺一步就出不了包）────
+pre_install.sh
+ops/package.sh
+ops/check-deps.sh
+ops/lib/common.sh
+scripts/build_upgrade_package.py
+scripts/build_runner_component_package.py
+scripts/build_offline_delivery.py
+scripts/build_bundle_upgrade_package.py
+scripts/build_prometheus_component_package.py
+scripts/build_release_delivery.sh
+
+# ── 门禁（发布/打包链路依赖，缺一个就让质量门失效）──────────────
+scripts/verify_upgrade_package_identity.py
+scripts/verify_runner_delivery_consistency.py
+scripts/verify_migrations_expand_only.py
+scripts/verify_upgrade_plan_vocabulary.py
+scripts/verify_api_docs.py
+scripts/verify_changelog.py
+scripts/verify_release_docs_safe.py
+scripts/verify_release_verification.py
+scripts/verify_repo_doc_scope.py
+
+# ── 本门禁自身的执行机制（防内部文档/脚本混进提交）──────────────
+scripts/hooks/pre-commit
+scripts/install_git_hooks.sh
+
+
+# ============================================================================
+# 不在本表中 = 不允许提交。
+#
+# 已移出的内部文档（只留本地，见 .gitignore）：
+#   docs/superpowers/**        设计稿与实施计划
+#   docs/archive/**            历史归档
+#   progress.md / findings.md / task_plan.md     工作日志
+#   docs/pending-tasks.md      待办台账
+#   docs/doc-map.md            文档总索引
+#   docs/upgrade-*.md          升级问题台账/矩阵/路线图/链路工作记录
+#   docs/version-governance.md / release-acceptance.md     内部治理与验收清单
+#   docs/test-*.md             测试架构与执行规范
+#   docs/architecture*.md / docs/v2-*.md / docs/v1-*.md    设计期文档（实现已取代）
+#   docs/release-build-guide.md              发布构建手册
+#   docs/upgrade-package-ledger.md           升级包台账（历史构建轮次）
+#   docs/version-skew-matrix.md              版本偏斜测试矩阵（内部验证证据）
+#   docs/ai-handoff-*.md / docs/test-handover-*.md         交接文档
+#   docs/releases/release-verification-*.md  内部版本验证记录
+#   delivery/README.verified.md              命令验证状态清单
+#
+# 已移出的开发自用脚本（只留本地，见 .gitignore）：
+#   scripts/probe_*.py                 一次性 API 字段探针
+#   scripts/seed_*.py                  测试数据集生成（仅验证机）
+#   scripts/verify_data_integrity.py   数据完整性比对（仅验证机）
+#   scripts/verify_full_upgrade_chain.py  整链路演练
+#   scripts/verify_upgrade_center_v*.py   历史版本一次性校验
+#   scripts/verify_remote_*.py         远程环境一次性取证
+#   scripts/release_smoke_check.py     人工发布冒烟
+#   scripts/fix_dockerhub_*.sh         线上 tag 一次性补救
+#   ops/evidence.sh                    内部 QA 矩阵取证
+# ============================================================================

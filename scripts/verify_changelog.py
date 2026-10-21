@@ -40,7 +40,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CHANGELOG = ROOT / "docs" / "releases" / "CHANGELOG.md"
-LEDGER = ROOT / "docs" / "upgrade-package-ledger.md"
 RUNNER_VERSION_FILE = ROOT / "RUNNER_VERSION"
 
 SECTION_ORDER_RULES = ("修复", "新增", "优化", "已知问题")
@@ -110,19 +109,6 @@ def _version_key(title: str) -> tuple[int, ...]:
     if not found:
         return (0,)
     return tuple(int(part) for part in found.group(1).split("."))
-
-
-def _latest_ledger_sha() -> str | None:
-    """ledger 里**平台包**的 SHA（取最后一次「平台包 … <64hex>」匹配）。
-
-    不能简单取最后出现的 64 位 hex——ledger 末尾同时登记了平台包、runner 包与
-    web-api 镜像三个 SHA，最后一个往往是镜像而不是平台包（2026-10-21 实测踩到）。
-    """
-    if not LEDGER.is_file():
-        return None
-    text = LEDGER.read_text(encoding="utf-8")
-    matches = re.findall(r"平台包[\s\S]{0,300}?\b([0-9a-f]{64})\b", text)
-    return matches[-1] if matches else None
 
 
 def _subsections(body: list[str]) -> list[str]:

@@ -99,7 +99,6 @@ class OrchestratorContractTest(unittest.TestCase):
         """产物必须留下可登记的 SHA 清单。"""
         self.assertIn("sha256sum", self.code)
         self.assertIn("SHA256SUMS", self.text)
-        self.assertIn("upgrade-package-ledger.md", self.text)
 
     def test_help_works(self) -> None:
         result = subprocess.run(
@@ -155,73 +154,6 @@ class OrchestratorContractTest(unittest.TestCase):
         combined = result.stdout + result.stderr
         # 应因"包不存在"而失败，而不是因缺 runner-baseline
         self.assertNotIn("必须显式指定 --runner-baseline", combined, combined)
-
-
-class BuildGuideTest(unittest.TestCase):
-    """发版构建手册必须与编排器实际行为一致（文档漂移是最常见的坑）。"""
-
-    def _guide(self) -> str:
-        path = REPO_ROOT / "docs" / "release-build-guide.md"
-        self.assertTrue(path.is_file(), "缺少 docs/release-build-guide.md")
-        return path.read_text(encoding="utf-8")
-
-    def test_guide_is_registered_in_doc_map(self) -> None:
-        # doc-map.md 是内部文档索引，2026-10-21 起不入公开仓库（仓库只放代码）；
-        # 本地开发机上仍在时继续校验登记关系，干净 clone 下跳过。
-        doc_map_path = REPO_ROOT / "docs" / "doc-map.md"
-        if not doc_map_path.is_file():
-            self.skipTest("doc-map.md 属内部文档，公开仓库不含")
-        doc_map = doc_map_path.read_text(encoding="utf-8")
-        self.assertIn("release-build-guide.md", doc_map, "新文档必须登记到 docs/doc-map.md")
-
-    def test_guide_references_the_real_orchestrator(self) -> None:
-        guide = self._guide()
-        self.assertIn("scripts/build_release_delivery.sh", guide)
-        self.assertTrue(ORCHESTRATOR.is_file(), "手册引用的编排器必须真实存在")
-
-    def test_guide_options_all_exist_in_orchestrator(self) -> None:
-        """手册参数表里**属于编排器**的每个选项都必须在编排器里真实支持。
-
-        只校验参数表（`## 3. 常用参数` 到下一个 `##` 之间），否则会误伤正文里
-        提到的 git / 下游脚本参数。表里属于**交付脚本**（upgrade.sh 的 --with-runner
-        等）不在此列——它们由 `test_offline_delivery_builder.py` 负责。
-        """
-        import re
-
-        guide = self._guide()
-        text = ORCHESTRATOR.read_text(encoding="utf-8")
-        section = guide.split("## 3. 常用参数", 1)[1].split("\n## ", 1)[0]
-        options = set(re.findall(r"`?(--[a-z][a-z-]+)", section))
-        self.assertTrue(options, "手册参数表为空，解析可能失效")
-        # 交付脚本自己的参数（由 upgrade.sh 支持，不是构建编排器）
-        deliver_only = {"--with-runner"}
-        for option in sorted(options - deliver_only):
-            self.assertIn(option, text, f"手册参数表列出 {option}，但编排器不支持——文档漂移")
-        # 反向：编排器支持的选项也应在手册里出现
-        for option in sorted(set(re.findall(r"^    (--[a-z][a-z-]+)\)", text, re.M))):
-            self.assertIn(option, section, f"编排器支持 {option}，但手册参数表没写")
-
-    def test_guide_covers_required_topics(self) -> None:
-        guide = self._guide()
-        for topic in ("前置条件", "一条命令", "runner-baseline", "改版本号", "常见问题"):
-            self.assertIn(topic, guide, f"手册缺少：{topic}")
-
-    def test_guide_explains_baseline_vs_version_distinction(self) -> None:
-        """这两个参数最容易混，必须讲清。"""
-        guide = self._guide()
-        self.assertIn("--runner-baseline", guide)
-        self.assertIn("--runner-version", guide)
-        self.assertIn("已发布", guide)
-        self.assertTrue(
-            "不必相同" in guide or "通常也不相同" in guide,
-            "必须说明两者不必相同",
-        )
-
-    def test_guide_states_commit_before_archive(self) -> None:
-        """"先提交再 archive"是踩过的坑，手册必须写明。"""
-        guide = self._guide()
-        self.assertIn("git archive", guide)
-        self.assertIn("先提交再 archive", guide)
 
 
 if __name__ == "__main__":

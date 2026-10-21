@@ -311,7 +311,6 @@ The printed `host_path` is the migration package path. The package includes the 
 - [Backup & Recovery](docs/backup-recovery.md) — backup inventory, the five-step restore procedure, and red lines; read before migration/reinstall
 - [Changelog](docs/releases/CHANGELOG.md) — what each version adds, fixes, and known issues
 - [upgrade-runner Lifecycle and Component Upgrade Policy](docs/upgrade-runner-lifecycle.md)
-- [Upgrade Chain and Platform↔Runner Pairing](docs/upgrade-chain.md)
 - [v0.2 Release Notes](docs/releases/v0.2.md)
 
 ## CloudTower Compatibility and Permissions
