@@ -45,7 +45,7 @@ if [ "$STATUS" -ne 0 ]; then
   echo "  处理方式：" >&2
   echo "    1) 撤出索引：git restore --staged <文件>" >&2
   echo "    2) 加入忽略：把路径写进 .gitignore" >&2
-  echo "    3) 若确属客户文档或门禁夹具：登记进 scripts/verify_repo_doc_scope.py 的 TRACKED_DOCS" >&2
+  echo "    3) 若确属客户文档或门禁夹具：登记进 PUSH_ALLOWLIST.txt 的 [docs] 段" >&2
   echo "" >&2
   echo "  确认无误要强行提交：SKIP_DOC_SCOPE=1 git commit ..." >&2
   exit 1

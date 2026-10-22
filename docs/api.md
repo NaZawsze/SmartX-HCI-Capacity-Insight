@@ -462,8 +462,8 @@ Returns platform/runner identity and dependency checks:
 ```json
 {
   "ok": true,
-  "version": "v0.5.3",
-  "runner_version": "v0.3.1",
+  "version": "v0.5.4",
+  "runner_version": "v0.3.2",
   "checks": {"directories": true, "database": true, "prometheus": true}
 }
 ```

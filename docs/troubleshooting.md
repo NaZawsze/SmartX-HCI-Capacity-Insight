@@ -149,7 +149,8 @@ docker inspect --format '{{.State.ExitCode}} OOM={{.State.OOMKilled}}' <容器�
 
 ### 10.1 最常见成因：同一 project 混用不同 compose 变体
 
-仓库有 4 个 compose 变体共享同一个 project 名，但服务定义不同
+仓库有 3 个部署变体（`docker-compose.dev.yml` / `docker-compose.offline.yml` / `docker-compose.online.yml`）
+共享同一个 project 名，另有升级运行时使用的 `docker-compose.upgrade.yml`；服务定义不同
 （`build:` vs `image:`、`pull_policy`、额外挂载），因此 `config-hash` 必然不同。
 用错变体执行 `up/down/restart` → Docker 判定「配置变了」→ **recreate** →
 旧容器被 SIGKILL → 服务中断。
@@ -190,7 +191,7 @@ bash /data/smartx-storage-forecast/project/compose-guard.sh check \
 排障前先跑一次标准验收，把「哪里坏了」变成清单：
 
 ```bash
-bash scripts/verify_site_acceptance.sh --expected-version v0.5.3 --expected-runner v0.3.1
+bash scripts/verify_site_acceptance.sh --expected-version v0.5.4 --expected-runner v0.3.2
 ```
 
 只读、不改任何状态（除登录换 token），凭据只从 `.env` 读、不回显。

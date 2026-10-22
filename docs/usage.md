@@ -47,7 +47,7 @@ The platform supports:
 - Daily scheduled collection based on Tower settings.
 - Manual collection from the dashboard.
 
-Collection status is shown at Tower level. If a collection is running, wait until it finishes before starting another manual collection.
+A manual collection is submitted asynchronously and returns a run ID immediately; the page follows its progress. Collection status is shown at Tower level. Starting another manual collection while one is running is rejected until the current run finishes.
 
 ## 5. Dashboard
 
@@ -119,7 +119,7 @@ The export action follows the current report scope:
 - Tower: exports clusters under the selected Tower.
 - Cluster: exports only the selected cluster.
 
-Click `Export`, select a historical window, then confirm. The page downloads both a Word document and an Excel workbook. The Word document contains a scope summary, cluster forecast summary, and per-cluster monthly Top 100 VM sections by growth amount and growth ratio. The Excel workbook contains a summary sheet, a combined VM Top 100 sheet, and one sheet per cluster. Export filenames include the scope name and date.
+Click `Export`, select a historical window, then confirm. One export task generates and downloads both a Word document and an Excel workbook. The Word document contains a scope summary, cluster forecast summary, and per-cluster monthly Top 100 VM sections by growth amount and growth ratio. The Excel workbook contains a summary sheet, a combined VM Top 100 sheet, and one sheet per cluster. Export filenames include the scope name and date.
 
 ## 8. Forecast Meaning
 
@@ -174,7 +174,7 @@ Open `Service` in the left navigation. The page is independent of the cluster sc
 
 A task-center menu shows background task notifications. Info-level tasks clear when read; warning and critical failures stay until acknowledged or deleted.
 
-## 10. Data Migration & Recovery Key
+## 11. Data Migration & Recovery Key
 
 Used in the web UI under **Service Management → Data Migration** (Chinese UI: 服务管理 → 数据迁移).
 Three export flavors with different semantics:

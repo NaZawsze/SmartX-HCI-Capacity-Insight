@@ -31,7 +31,7 @@ frontend
 
 ## 组件升级
 
-组件升级用于单独更新 `upgrade-runner`。第一版组件升级只支持 `upgrade-runner`，不修改业务库、不修改 Prometheus 历史指标、不替换平台数据卷。
+组件升级用于单独更新 `upgrade-runner`。组件升级只支持 `upgrade-runner`（另有独立的 Prometheus 观测组件包），不修改业务库、不修改 Prometheus 历史指标、不替换平台数据卷。
 
 组件升级包结构：
 
@@ -107,4 +107,16 @@ restart_services: upgrade-runner
 
 需要该能力的 `v0.5.2` 平台升级包会在 manifest 中声明 `required_capabilities=["compose.project.v1", ...]` 和 `minimum_runner_version="v0.3.1"`，因此 `upgrade-runner v0.3.0` 会在预检查阶段被拦截，不会执行到网络冲突才失败。
 
-Runner 组件包由旧 `web-api` 直接加载镜像、写入 `/data/smartx-storage-forecast/compose-runtime/docker-compose.runner-upgrade.yml` 并 recreate Runner。Runner 不执行自己的升级。
+## v0.3.2 自换能力（2026-10-21 发布）
+
+`upgrade-runner v0.3.2` 起，组件升级改为 **runner 自换**（协议自本版冻结）：
+
+1. `web-api` 只负责收包、校验 SHA/组件包身份、创建任务并轮询；不再编排 Runner 的 compose/recreate。
+2. Runner 拾取任务后执行 `verify → image.load → compose writeback → schedule_target_runtime_handoff`：
+   写回前先保存回滚锚点（旧版本/镜像 tag/镜像 ID），随后调度替换并退出，由 Docker 重建容器。
+3. 新 Runner 启动后完成步骤收尾并上报目标版本；`web-api` 以 `runner_version == target_version` 判定成功。
+4. presence 等待超时（120 秒）才由 `web-api` 兜底重建；平台升级仍不触碰 Runner。
+
+**过渡说明**：`v0.3.1 → v0.3.2` 这一跳仍由旧 `web-api` 直接加载镜像、写入
+`/data/smartx-storage-forecast/compose-runtime/docker-compose.runner-upgrade.yml` 并 recreate Runner
+（最后一次旧编排）；自 `v0.3.2` 起不再使用该路径。

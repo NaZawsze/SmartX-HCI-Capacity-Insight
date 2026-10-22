@@ -199,7 +199,7 @@ python3 scripts/verify_release_verification.py --version "$VERSION" \
 python3 scripts/verify_release_docs_safe.py \
   || { c_red "对外发布文档脱敏扫描未通过"; exit 1; }
 python3 scripts/verify_repo_doc_scope.py \
-  || { c_red "仓库文档范围门禁未通过（内部开发文档混进版本控制 / 门禁夹具被删 / .gitignore 缺规则）"; exit 1; }
+  || { c_red "仓库文档范围门禁未通过（内部文档混进版本控制 / 门禁夹具被删 / .gitignore 缺规则 / 活动文档死链）"; exit 1; }
 c_green "  [OK] 发布文档门禁通过"
 
 # ── 6. 产物清单 ──

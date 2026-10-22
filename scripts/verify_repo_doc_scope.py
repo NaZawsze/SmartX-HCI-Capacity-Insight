@@ -13,8 +13,8 @@
 
 因此本门禁锁定两份清单：
 
-1. **TRACKED_DOCS** — 允许进入版本控制的 .md（23 个）。任何**新增**的受控 .md
-   必须显式加进这里，加之前先自问三条判据（见文件中部注释）。
+1. **TRACKED_DOCS** — 允许进入版本控制的 .md（数量以 PUSH_ALLOWLIST.txt 为准）。任何**新增**的受控 .md
+   必须显式登记进 `PUSH_ALLOWLIST.txt` 的 `[docs]` 段，登记前先自问三条判据（见该文件头部注释）。
 2. **REQUIRED_DOCS** — 上面那份里被代码/门禁真实读取或打包必需的子集；
    缺任何一个 → FAIL（防止有人「清理文档」把夹具删了让门禁静默失效）。
 
@@ -33,6 +33,10 @@
 6. `no_dead_doc_links` — 受控文档里的相对 `.md` 链接**必须指向受控文档**。
    内部文档移出版本控制后，公开仓库里指向它们的链接会变成死链（客户按文档操作时踩空），
    这条把「移出文档时顺手清链接」变成机器检查。
+7. `no_dead_internal_doc_links` — 本地内部文档（`docs/` 非归档、三件工作文档、
+   交接/验证记录）里的相对 `.md` 链接必须落盘。归档目录 `docs/archive/` 是冻结历史，
+   不追溯其中的旧链接；这条防止归档/移动后把活动索引与任务队列留成死链。
+8. `no_unlisted_tracked_scripts` — 受控脚本必须在白名单内且不命中开发自用特征。
 
 用法：
 
@@ -412,6 +416,7 @@ def check() -> list[dict]:
         )
         _check_gitignore(checks)
         _check_dead_links(checks)
+        _check_internal_doc_links(checks)
         _check_internal_refs(checks)
         _check_scripts(checks)
         return checks
@@ -449,6 +454,7 @@ def check() -> list[dict]:
 
     _check_gitignore(checks)
     _check_dead_links(checks)
+    _check_internal_doc_links(checks)
     _check_internal_refs(checks)
     _check_scripts(checks)
 
@@ -464,6 +470,53 @@ def _check_gitignore(checks: list[dict]) -> None:
             "name": "gitignore_covers_internal",
             "ok": not uncovered,
             "message": ".gitignore 已覆盖全部内部文档模式" if not uncovered else f".gitignore 缺少：{uncovered}",
+        }
+    )
+
+
+def _internal_doc_files() -> list[Path]:
+    """可能含内部链接的 Markdown：docs/ 非归档 + 根三件工作文档 + 验证记录。"""
+    files: list[Path] = []
+    for name in ("progress.md", "findings.md", "task_plan.md"):
+        local = ROOT / name
+        if local.is_file():
+            files.append(local)
+    docs_dir = ROOT / "docs"
+    if docs_dir.is_dir():
+        for local in docs_dir.rglob("*.md"):
+            if "archive" in local.relative_to(docs_dir).parts:
+                continue
+            files.append(local)
+    verified = ROOT / "delivery" / "README.verified.md"
+    if verified.is_file():
+        files.append(verified)
+    return sorted(set(files))
+
+
+def _check_internal_doc_links(checks: list[dict]) -> None:
+    """内部活动文档的相对 .md 链接必须落盘（归档目录冻结，不追溯旧链接）。"""
+    dead: list[str] = []
+    for local in _internal_doc_files():
+        rel = local.relative_to(ROOT).as_posix()
+        if rel in TRACKED_DOCS:
+            continue
+        for target in _relative_md_links(local):
+            resolved = (local.parent / target).resolve()
+            try:
+                target_rel = resolved.relative_to(ROOT.resolve()).as_posix()
+            except ValueError:
+                continue
+            if not resolved.exists():
+                dead.append(f"{rel} → {target_rel}")
+    checks.append(
+        {
+            "name": "no_dead_internal_doc_links",
+            "ok": not dead,
+            "message": (
+                "内部活动文档的相对链接全部落盘（归档目录除外）"
+                if not dead
+                else f"{len(dead)} 条内部链接指向不存在的文件（移动/归档后未同步）：{_sample(dead)}"
+            ),
         }
     )
 

@@ -4,13 +4,14 @@
 仓库曾经累积 151 个 Markdown，其中 128 个是设计稿/计划/工作日志/台账/交接文档。
 
 这里锁住的不是「某个具体文件在不在」，而是**门禁本身的灵敏度**——
-用临时目录构造伪造仓库，验证四种坏状态各自必须 FAIL：
+用临时目录构造伪造仓库，验证六种坏状态各自必须 FAIL：
 
 1. 新增未登记的 .md → FAIL；
 2. 内部文档被重新加回版本控制 → FAIL；
 3. 门禁夹具被删 → FAIL；
 4. .gitignore 漏掉内部模式 → FAIL；
-5. 受控文档链接指向未受控文档（死链）→ FAIL。
+5. 受控文档链接指向未受控文档（死链）→ FAIL；
+6. 内部活动文档链接指向不存在的文件 → FAIL（归档目录冻结，不追溯）。
 
 另外锁死两条「不许退回去」的口径：
 - `TRACKED_DOCS` / `REQUIRED_DOCS` 的包含关系（必需项必须仍在白名单内）；
@@ -172,6 +173,34 @@ class RepoDocScopeGateTest(unittest.TestCase):
         self._init_repo({"README.md": "# t\n\n[gone](docs/internal-thing.md)\n"})
         checks = self._run()
         self.assertFalse(checks["no_dead_doc_links"]["ok"])
+
+    def test_dead_internal_doc_link_fails(self) -> None:
+        self._init_repo(
+            {"README.md": "# t\n", "docs/doc-map.md": "[gone](missing-design.md)\n"}
+        )
+        checks = self._run()
+        self.assertFalse(checks["no_dead_internal_doc_links"]["ok"])
+
+    def test_internal_doc_link_to_existing_passes(self) -> None:
+        self._init_repo(
+            {
+                "README.md": "# t\n",
+                "docs/doc-map.md": "[usage](usage.md)\n",
+                "docs/usage.md": "# usage\n",
+            }
+        )
+        checks = self._run()
+        self.assertTrue(
+            checks["no_dead_internal_doc_links"]["ok"],
+            checks["no_dead_internal_doc_links"]["message"],
+        )
+
+    def test_archive_historical_links_are_exempt(self) -> None:
+        self._init_repo(
+            {"README.md": "# t\n", "docs/archive/old.md": "[gone](missing.md)\n"}
+        )
+        checks = self._run()
+        self.assertTrue(checks["no_dead_internal_doc_links"]["ok"])
 
     def test_link_to_tracked_doc_passes(self) -> None:
         self._init_repo(
