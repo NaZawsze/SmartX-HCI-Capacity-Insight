@@ -59,7 +59,7 @@ docker compose -f docker-compose.offline.yml start collector-worker
 
 ## 4. 恢复步骤
 
-前置：新环境先按 `pre_install.sh` 与 `docs/deployment.md` 完成目录与镜像准备；记录恢复前基线（容器、目录、如目标库存在则记行数）。**目标机器上已有业务数据时，先确认要被覆盖的范围并报告用户，不得静默覆盖。**
+前置：新环境先按 [deployment.md](deployment.md) 的统一安装器 `install.sh` 完成安装（离线交付包为主）；仅在源码开发路径才用 `pre_install.sh` 手工准备目录。记录恢复前基线（容器、目录、如目标库存在则记行数）。**目标机器上已有业务数据时，先确认要被覆盖的范围并报告用户，不得静默覆盖。**
 
 ```bash
 cd /data/smartx-storage-forecast/project

@@ -165,7 +165,7 @@ After reset, log out and log in again with the new password.
 
 Open `Service` in the left navigation. The page is independent of the cluster scope and provides six sections:
 
-- **Platform Upgrade**: upload an offline platform package, run prechecks, start the upgrade, and follow step progress; the page shows the active platform version and post-upgrade verification results.
+- **Platform Upgrade**: upload an offline platform package, run prechecks, start the upgrade, and follow step progress; the page shows the active platform version and post-upgrade verification results. Upgrade steps and the fixed order (runner component first, then platform) are documented in the [Upgrade Guide](upgrade.md); the delivery bundle README is the per-batch authority.
 - **Component Upgrade**: upgrade `upgrade-runner` or the Prometheus observability component from a component package.
 - **Migration**: export current data as a migration package, or import one; import runs a pre-backup and supports merge/overwrite modes.
 - **Cleanup**: scan and delete leftover runtime artifacts, unused images, and SQLite backups, and run SQLite vacuum.
