@@ -85,11 +85,12 @@ docker compose -f docker-compose.dev.yml up -d --build
 
 Use the offline delivery bundle's `upgrade/upgrade.sh`. Do not load images or restart services manually.
 
-The v0.5.4 procedure has two steps and the order is fixed: **upgrade the runner component first, then the platform**. See the [offline delivery README](delivery/README.md) for the complete procedure and supported source versions.
+The v0.5.4 procedure has two steps and the order is fixed: **upgrade the runner component first, then the platform**. See the [Upgrade Guide](docs/upgrade.md) / [升级指南](docs/upgrade.zh-CN.md) for the full procedure, supported source versions, rollback, and pitfalls.
 
 ## Documentation
 
 - [Deployment Guide](docs/deployment.md) / [部署指南](docs/deployment.zh-CN.md)
+- [Upgrade Guide](docs/upgrade.md) / [升级指南](docs/upgrade.zh-CN.md)
 - [Operations Scripts](ops/README.md) — dev-side `install.sh` wrapper, `upgrade.sh`, `package.sh`
 - [Offline Delivery README](delivery/README.md) — install, upgrade, self-check, and common failures
 - [Usage Guide](docs/usage.md)

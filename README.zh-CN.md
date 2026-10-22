@@ -85,11 +85,12 @@ docker compose -f docker-compose.dev.yml up -d --build
 
 使用离线交付包中的 `upgrade/upgrade.sh`，不要手工加载镜像或重启服务。
 
-v0.5.4 的升级分两步，顺序固定：**先升级 runner 组件，再升级平台**。完整流程和支持的源版本见[离线交付说明](delivery/README.md)。
+v0.5.4 的升级分两步，顺序固定：**先升级 runner 组件，再升级平台**。完整流程、支持的源版本、回滚与常见坑见[升级指南](docs/upgrade.zh-CN.md) / [English](docs/upgrade.md)。
 
 ## 文档
 
 - [部署指南](docs/deployment.zh-CN.md) / [English](docs/deployment.md)
+- [升级指南](docs/upgrade.zh-CN.md) / [English](docs/upgrade.md)
 - [运维操作脚本](ops/README.md) —— 开发用 `install.sh` 转发、`upgrade.sh`、`package.sh`
 - [离线交付说明](delivery/README.md) —— 安装、升级、自检和常见失败处理
 - [使用说明](docs/usage.md)
