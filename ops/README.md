@@ -195,5 +195,5 @@ ops/                     ← 本目录：只放**可执行脚本**，手册一�
 | --- | --- | --- |
 | [**交付说明 `delivery/README.md`**](../delivery/README.md) | 交付负责人 | **打包完要交给客户时**——产物在哪、自检、客户怎么安装与升级 |
 | [排障手册 `troubleshooting.md`](../docs/troubleshooting.md) | 运维 | 脚本报错、服务异常、升级失败时 |
-| [部署文档 `deployment.md`](../docs/deployment.md) | 开发者 | 架构、目录布局、升级链路设计 |
+| [部署文档 `deployment.md`](../docs/deployment.md)（[中文](../docs/deployment.zh-CN.md)） | 开发者 | 环境要求、容器职责、部署步骤 |
 | [交付制品边界 `ova-delivery.md`](../docs/ova-delivery.md) | 开发者 | 交付物该含什么、禁含什么 |

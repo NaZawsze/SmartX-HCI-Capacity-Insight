@@ -55,6 +55,7 @@ class PackagePayloadHygieneTest(unittest.TestCase):
             ("docs/releases/CHANGELOG.md", False),
             ("docs/api.md", False),
             ("docs/deployment.md", False),
+            ("docs/deployment.zh-CN.md", False),
             ("scripts/verify_release_docs_safe.py", False),
         ]
         for rel, expected in cases:

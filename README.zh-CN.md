@@ -96,11 +96,14 @@ SMARTX_CREDENTIAL_KEY=replace-with-a-different-long-random-secret
 SMARTX_ADMIN_PASSWORD=password
 ```
 
-启动服务：
+初始化数据目录并从源码启动服务：
 
 ```bash
-docker compose up -d --build
+sudo ./pre_install.sh
+docker compose -f docker-compose.dev.yml up -d --build
 ```
+
+生产环境请使用离线交付包，详见[部署说明](docs/deployment.zh-CN.md)。
 
 默认访问地址：
 
@@ -331,7 +334,7 @@ sha256sum "$host_path"
 
 ### 参考文档
 
-- [部署说明](docs/deployment.md)
+- [部署说明](docs/deployment.zh-CN.md)（[English](docs/deployment.md)）
 - [使用说明](docs/usage.md)
 - [API 参考](docs/api.md)
 - [故障排查](docs/troubleshooting.md)

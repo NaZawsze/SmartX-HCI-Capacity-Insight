@@ -93,11 +93,14 @@ SMARTX_CREDENTIAL_KEY=replace-with-a-different-long-random-secret
 SMARTX_ADMIN_PASSWORD=password
 ```
 
-Start the stack:
+Initialize the data directories and start the stack from source:
 
 ```bash
-docker compose up -d --build
+sudo ./pre_install.sh
+docker compose -f docker-compose.dev.yml up -d --build
 ```
+
+For production, use the offline delivery bundle described in the [Deployment Guide](docs/deployment.md).
 
 Default access:
 

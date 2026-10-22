@@ -27,6 +27,7 @@ PUBLIC_DOCS: list[str] = [
     "README.md",
     "README.zh-CN.md",
     "docs/deployment.md",
+    "docs/deployment.zh-CN.md",
     "docs/usage.md",
     "docs/ova-delivery.md",
     "docs/upgrade-runner-lifecycle.md",

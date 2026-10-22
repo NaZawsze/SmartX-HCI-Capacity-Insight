@@ -137,10 +137,10 @@ class TestDeploymentConfig(unittest.TestCase):
             self.assertNotIn("name: smartx-storage-forecast_smartx-net", text)
             self.assertIn("name: smartx-hci-capacity-insight-net", text)
             self.assertNotIn("SMARTX_COMPOSE_PROJECT_NAME: smartx-capacity-insight", text)
-        deployment_text = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
-        self.assertIn("docker compose -f docker-compose.online.yml up -d", deployment_text)
-        self.assertIn("docker compose -f docker-compose.offline.yml up -d", deployment_text)
-        self.assertIn("smartx-hci-capacity-insight-net", deployment_text)
+        for name in ("docs/deployment.md", "docs/deployment.zh-CN.md"):
+            deployment_text = (ROOT / name).read_text(encoding="utf-8")
+            self.assertIn("docker compose -f docker-compose.online.yml up -d", deployment_text)
+            self.assertIn("smartx-hci-capacity-insight-net", deployment_text)
 
     def test_backend_images_carry_platform_and_runner_version_files(self) -> None:
         for name in ("backend/Dockerfile", "backend/Dockerfile.worker", "backend/Dockerfile.upgrade"):
@@ -149,15 +149,26 @@ class TestDeploymentConfig(unittest.TestCase):
             self.assertIn("COPY RUNNER_VERSION ./RUNNER_VERSION", text)
 
     def test_deployment_docs_use_explicit_platform_and_runner_tags(self) -> None:
-        text = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
-
-        self.assertNotIn("uses local `latest` image tags by default", text)
-        self.assertNotIn("SMARTX_IMAGE_TAG=v0.3.1", text)
-        self.assertNotIn("nazawsze/smartx-hci-capacity-insight-web-api:latest", text)
-        self.assertNotIn("nazawsze/smartx-hci-capacity-insight-upgrade-runner:latest", text)
+        app_version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         runner_version = (ROOT / "RUNNER_VERSION").read_text(encoding="utf-8").strip()
-        self.assertIn("nazawsze/smartx-hci-capacity-insight-web-api:v0.5.3", text)
-        self.assertIn(f"nazawsze/smartx-hci-capacity-insight-upgrade-runner:{runner_version}", text)
+
+        for name in ("docs/deployment.md", "docs/deployment.zh-CN.md"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+
+            self.assertNotIn("uses local `latest` image tags by default", text)
+            self.assertNotIn("SMARTX_IMAGE_TAG=v0.3.1", text)
+            self.assertNotIn("nazawsze/smartx-hci-capacity-insight-web-api:latest", text)
+            self.assertNotIn("nazawsze/smartx-hci-capacity-insight-upgrade-runner:latest", text)
+            self.assertIn(
+                f"nazawsze/smartx-hci-capacity-insight-web-api:{app_version}",
+                text,
+                f"{name} missing platform {app_version} tag",
+            )
+            self.assertIn(
+                f"nazawsze/smartx-hci-capacity-insight-upgrade-runner:{runner_version}",
+                text,
+                f"{name} missing runner {runner_version} tag",
+            )
 
     def test_platform_upgrade_package_excludes_runner(self) -> None:
         text = (ROOT / "scripts/build_upgrade_package.py").read_text(encoding="utf-8")

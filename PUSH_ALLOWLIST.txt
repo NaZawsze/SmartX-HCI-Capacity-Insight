@@ -32,7 +32,8 @@ delivery/README.md
 # 客户/运维手册
 docs/api.md                          # API 参考（verify_api_docs.py 双向校验的夹具）
 docs/backup-recovery.md              # 备份与恢复五步（迁移/重装前必读）
-docs/deployment.md                   # 部署与升级顺序（客户部署主依据）
+docs/deployment.md                   # 部署指南（英文）
+docs/deployment.zh-CN.md             # 部署指南（中文）
 docs/troubleshooting.md              # 故障排查手册
 docs/usage.md                        # 使用说明
 docs/ova-delivery.md                 # OVA 交付边界

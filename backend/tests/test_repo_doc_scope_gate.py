@@ -67,6 +67,7 @@ class RepoDocScopeUnitTest(unittest.TestCase):
             "README.zh-CN.md",
             "delivery/README.md",
             "docs/deployment.md",
+            "docs/deployment.zh-CN.md",
             "docs/usage.md",
             "docs/troubleshooting.md",
             "docs/releases/CHANGELOG.md",
