@@ -49,6 +49,8 @@
 | `prometheus` | `prom/prometheus:v2.55.1` | 保存容量历史时序，供趋势、增长和预测报表使用。数据保留 400 天。 | `9090` |
 | `upgrade-runner` | `nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2` | 在 `web-api` 之外执行平台升级、组件升级、备份、健康检查和回滚。 | 不对外发布 |
 
+> runner tag 说明：`v0.3.2` 是仓库/在线安装形态的 tag。离线交付包的安装 compose 固定为该批次**已发布 runner 基线**（v0.5.4 批次 = `v0.3.1`），随后用 `upgrade/packages/` 里随包组件包升级；细节见交付包 README。
+
 ### 2.1 数据目录
 
 所有持久化数据都存放在 `/data/smartx-storage-forecast`：
@@ -129,7 +131,7 @@ docker compose -f docker-compose.dev.yml up -d --build
 curl -s http://127.0.0.1:8000/api/system/health
 ```
 
-返回内容必须包含 `"ok": true`、`"version": "v0.5.4"`、`"runner_version": "v0.3.2"`，且 `checks` 下的 `directories`、`database`、`prometheus` 三项均为 `true`。
+返回内容必须包含 `"ok": true`、`"version": "v0.5.4"`、`"runner_version": "v0.3.1"`，且 `checks` 下的 `directories`、`database`、`prometheus` 三项均为 `true`。离线交付包全新安装时 runner 以**已发布基线 `v0.3.1`** 运行；任何平台升级之前，先用 `upgrade/packages/` 里随包的 runner 组件包在 Web 界面完成一次组件升级（服务管理 → 组件升级），完成后 health 返回 `"runner_version": "v0.3.2"`。
 
 检查容器：
 

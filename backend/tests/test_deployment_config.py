@@ -139,7 +139,8 @@ class TestDeploymentConfig(unittest.TestCase):
             self.assertNotIn("SMARTX_COMPOSE_PROJECT_NAME: smartx-capacity-insight", text)
         for name in ("docs/deployment.md", "docs/deployment.zh-CN.md"):
             deployment_text = (ROOT / name).read_text(encoding="utf-8")
-            self.assertIn("docker compose -f docker-compose.online.yml up -d", deployment_text)
+            # Phase 86 起 docs 教的是统一安装入口，不再出现手写 online 三连
+            self.assertIn("bash install/install.sh", deployment_text)
             self.assertIn("smartx-hci-capacity-insight-net", deployment_text)
 
     def test_backend_images_carry_platform_and_runner_version_files(self) -> None:

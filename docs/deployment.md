@@ -49,6 +49,8 @@ The platform runs five containers in the Docker network `smartx-hci-capacity-ins
 | `prometheus` | `prom/prometheus:v2.55.1` | Stores capacity time series for trends, growth, and forecast reports. Retention is 400 days. | `9090` |
 | `upgrade-runner` | `nazawsze/smartx-hci-capacity-insight-upgrade-runner:v0.3.2` | Executes platform upgrades, component upgrades, backups, health checks, and rollback outside `web-api`. | None |
 
+> runner tag note: `v0.3.2` is the repository/online-install tag. In the offline delivery bundle the install compose pins the published runner baseline of that batch (v0.5.4 batch = `v0.3.1`); the bundled component package in `upgrade/packages/` upgrades it afterwards. See the bundle README for details.
+
 ### 2.1 Data directories
 
 All persistent data is stored under `/data/smartx-storage-forecast`:
@@ -129,7 +131,7 @@ Check the API health endpoint:
 curl -s http://127.0.0.1:8000/api/system/health
 ```
 
-The response must contain `"ok": true`, `"version": "v0.5.4"`, `"runner_version": "v0.3.2"`, and `directories`, `database`, and `prometheus` must all be `true` under `checks`.
+The response must contain `"ok": true`, `"version": "v0.5.4"`, `"runner_version": "v0.3.1"`, and `directories`, `database`, and `prometheus` must all be `true` under `checks`. A fresh install from the offline delivery bundle runs the published runner baseline (`v0.3.1`); complete one runner component upgrade with the component package bundled in `upgrade/packages/` (web UI: Service Management → Component Upgrade) before any platform upgrade, after which the health response reports `"runner_version": "v0.3.2"`.
 
 Check the containers:
 
