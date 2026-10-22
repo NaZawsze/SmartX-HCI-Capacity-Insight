@@ -770,7 +770,9 @@ printf '    查看日志：docker compose -f %s -p %s logs -f web-api\n' "$COMPO
 printf '    停止服务：docker compose -f %s -p %s stop\n' "$COMPOSE_PATH" "$COMPOSE_PROJECT"
 printf '\n'
 if [ "$SHAPE" = "delivery" ]; then
-  printf '  离线升级：使用交付包的 upgrade/upgrade.sh（走升级中心 API，不需联网）\n'
+  printf '  离线升级：升级分两步，顺序不能颠倒（详见交付包 README「升级顺序」章节）\n'
+  printf '    ① 先升级 runner 组件：Web 界面「服务管理 → 组件升级」上传随包组件包\n'
+  printf '    ② 组件升级成功后，再用交付包的 upgrade/upgrade.sh 升级平台（不需联网）\n'
 else
   printf '  升级：使用仓库的 ops/upgrade.sh（自动定位/生成升级物料，走升级中心 API）\n'
 fi

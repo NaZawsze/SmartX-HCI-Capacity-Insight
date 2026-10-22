@@ -675,6 +675,35 @@ class InstallScriptExecutionTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, f"算术表达式有问题：{expression} → {result.stderr}")
         self.assertTrue(result.stdout.strip().isdigit(), result.stdout)
 
+    def test_completion_hint_documents_upgrade_order(self) -> None:
+        """交付形态的完成提示必须写明升级两步、顺序不能颠倒。
+
+        install.sh 会随交付包发给客户，客户只看 shell 提示如果直接跑 upgrade.sh
+        （平台步），本批次平台包含数据库迁移、由现场 runner 执行——旧 runner 执行会失败
+        （现场安全但报错吓人），所以提示必须指向「先组件、后平台」。断言**用户可见输出**
+        而非内部编号（与 delivery README 门禁同一口径）；脚本体注释里的开发编号不算输出。
+        """
+        import re
+
+        from scripts.build_offline_delivery import SCRIPT_SOURCES
+
+        text = SCRIPT_SOURCES["install/install.sh"].read_text(encoding="utf-8")
+        match = re.search(
+            r"if \[ \"\$SHAPE\" = \"delivery\" \]; then\n(.*?)else\n",
+            text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "找不到交付形态的完成提示分支")
+        hint = match.group(1)
+        self.assertIn("升级分两步", hint)
+        self.assertIn("顺序不能颠倒", hint)
+        self.assertIn("组件升级", hint)
+        self.assertIn("upgrade/upgrade.sh", hint)
+        for forbidden in ("US-", "AGENTS §", "pending #"):
+            self.assertNotIn(
+                forbidden, hint, f"install.sh 输出提示不得出现内部标识 {forbidden!r}"
+            )
+
 
 class UpgradeScriptExecutionTest(unittest.TestCase):
     """真实执行 upgrade.sh 的失败路径，确认它**不碰环境**且提示可读。"""
