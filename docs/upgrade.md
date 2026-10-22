@@ -96,14 +96,14 @@ Two rollback paths exist, depending on what needs to be undone:
 
 | Scenario | What it restores | Data impact |
 | --- | --- | --- |
-| Application-only rollback (post-upgrade problem, same major series) | Are web-api / collector-worker / frontend containers back to the previous version | Business data preserved in place |
-| Full restore (app + data, data-loss window applies) | Previous version container stack plus the full data snapshot taken before the upgrade | Restores to the pre-upgrade snapshot; any collected data after that snapshot is lost |
+| **Rollback to previous version** (application-only; exact UI button name, business data preserved) | `web-api` / `collector-worker` / `frontend` containers back to the previous version | Business data preserved in place |
+| **Full-stack rollback** (“整备回滚” in the UI; covers SQLite and Prometheus with the pre-upgrade snapshot) | Previous version container stack plus the full data snapshot taken before the upgrade | Restores to the pre-upgrade snapshot; any collected data after that snapshot is lost |
 
-Service Management shows rollback availability and starts these as dedicated tasks. Full restore requires explicit confirmation before it runs.
+Service Management shows rollback availability for both and starts them as dedicated tasks. The full-stack rollback shows a data-loss-window confirmation (data collected since the upgrade moment) and requires explicit confirmation before it runs.
 
 Notes:
 
-- Full restore rewrites the data directories to the snapshot state; anything collected after the upgrade that must survive should be exported first.
+- The full-stack rollback rewrites the data directories to the snapshot state; anything collected after the upgrade that must survive should be exported first.
 - Do not attempt to "hand-roll" a rollback by manually restarting containers with ad-hoc compose commands; use the rollback tasks only.
 
 ## 8. Rules and known pitfalls

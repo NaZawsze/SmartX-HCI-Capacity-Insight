@@ -88,7 +88,7 @@ runner tag 说明：`v0.3.2` 是仓库/在线安装形态的 tag。离线交付�
 ### 3.1 从离线交付包安装（客户现场推荐）
 
 ```bash
-tar -xzf smartx-capacity-insight-v0.5.4-offline.tar.gz
+tar -xzf smartx-capacity-insight-v0.5.4-offline.tar.gz   # 若拿到的是已解开的目录则跳过
 cd smartx-capacity-insight-v0.5.4-offline
 sudo bash install/install.sh --yes
 ```

@@ -87,10 +87,10 @@ The same script lives in three places:
 
 ### 3.1 Install from the offline delivery bundle (recommended for customer sites)
 
-Unpack the bundle and run the installer as root:
+Unpack the bundle and run the installer as root (the bundle arrives as a directory or as a compressed package with that directory inside):
 
 ```bash
-tar -xzf smartx-capacity-insight-v0.5.4-offline.tar.gz
+tar -xzf smartx-capacity-insight-v0.5.4-offline.tar.gz   # skip if you received the extracted directory
 cd smartx-capacity-insight-v0.5.4-offline
 sudo bash install/install.sh --yes
 ```
