@@ -354,7 +354,7 @@ class GuardWiringTest(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        self.install = (ROOT / "delivery" / "install" / "install.sh").read_text(encoding="utf-8")
+        self.install = (ROOT / "install.sh").read_text(encoding="utf-8")
         self.upgrade = (ROOT / "delivery" / "upgrade" / "upgrade.sh").read_text(encoding="utf-8")
 
     def test_install_loads_guard(self) -> None:
@@ -500,7 +500,7 @@ class GuardInstallationTest(unittest.TestCase):
     """
 
     def test_install_copies_guard_into_project_dir(self) -> None:
-        install = (ROOT / "delivery" / "install" / "install.sh").read_text(encoding="utf-8")
+        install = (ROOT / "install.sh").read_text(encoding="utf-8")
         self.assertRegex(
             install,
             r'install\s+-m\s+0?755\s+"\$COMPOSE_GUARD"\s+"\$PROJECT_DIR/compose-guard\.sh"',
@@ -509,7 +509,7 @@ class GuardInstallationTest(unittest.TestCase):
 
     def test_documented_paths_are_produced(self) -> None:
         """文档与脚本提到的守卫路径必须一致（都是 project 目录）。"""
-        install = (ROOT / "delivery" / "install" / "install.sh").read_text(encoding="utf-8")
+        install = (ROOT / "install.sh").read_text(encoding="utf-8")
         docs = (ROOT / "docs" / "troubleshooting.md").read_text(encoding="utf-8")
         readme = (ROOT / "delivery" / "README.md").read_text(encoding="utf-8")
         expected = "/data/smartx-storage-forecast/project/compose-guard.sh"

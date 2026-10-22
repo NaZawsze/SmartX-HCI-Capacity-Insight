@@ -111,6 +111,10 @@ class RepoDocScopeGateTest(unittest.TestCase):
     """在临时目录构造伪造仓库，验证门禁真的会 FAIL。"""
 
     def setUp(self) -> None:
+        if shutil.which("git") is None:
+            # 门禁测试要在临时仓库里真跑 git init/add（容器内跑全量时无 git，
+            # 与 test_ops_toolkit 的同名处置一致：环境不满足按设计 skip）
+            self.skipTest("环境无 git（如容器内跑测试），无法构造临时 git 仓库")
         self.tmp = Path(tempfile.mkdtemp(prefix="docscope-"))
         self.gate = _load_gate()
 
@@ -276,6 +280,10 @@ class StagedModeTest(unittest.TestCase):
     """staged 模式：只拦本次要提交的 .md，不因工作树状态误伤。"""
 
     def setUp(self) -> None:
+        if shutil.which("git") is None:
+            # 门禁测试要在临时仓库里真跑 git init/add（容器内跑全量时无 git，
+            # 与 RepoDocScopeGateTest 同一处置：环境不满足按设计 skip）
+            self.skipTest("环境无 git（如容器内跑测试），无法构造临时 git 仓库")
         self.tmp = Path(tempfile.mkdtemp(prefix="staged-"))
         self.gate = _load_gate()
         subprocess.run(["git", "init", "-q"], cwd=self.tmp, check=True)
@@ -344,8 +352,8 @@ class StagedModeTest(unittest.TestCase):
         )
 
     def test_delivery_script_is_allowed(self) -> None:
-        """交付目录里的脚本是交付物本体，必须允许。"""
-        self._stage("delivery/install/install.sh")
+        """交付物本体脚本是客户会执行的东西，必须允许（Phase 86 后真身在根 install.sh）。"""
+        self._stage("install.sh")
         checks = self._run_staged()
         self.assertTrue(
             checks["staged_script_scope"]["ok"], checks["staged_script_scope"]["message"]

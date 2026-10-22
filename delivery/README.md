@@ -61,6 +61,10 @@ smartx-capacity-insight-v0.5.4-offline/
 
 ## 3. 首次安装
 
+> **说明**：交付包内的 `install/install.sh` 就是仓库统一安装器（Phase 86）的**离线形态**——
+> 与仓库根 `install.sh` 是同一份脚本，复制品自含 `images/`、`project/`，因此默认走离线安装。
+> 客户无需关心仓库；仓库侧的在线安装等用法见根 `README.md` 快速开始。
+
 ### 3.1 最简用法
 
 ```bash

@@ -216,8 +216,9 @@ class OpsThinWrapperTest(unittest.TestCase):
     2026-09-30 修正过一次设计错误：原实现直接 `exec ../delivery/install/install.sh`，
     但**仓库里 `delivery/install/` 只有 install.sh 本体**，没有 `images/`、`project/`——
     那些是 build_offline_delivery.py 打包时的产物（1.1G），不进 git。直接转发必然失败。
-    现实现：先在几个候选位置找**自包含**的交付物料（含 images/+project/ 或 packages/），
-    找到才转发；找不到则明确告知三条路径，不静默失败。
+    现实现（Phase 86 后）：先在几个候选位置找**自包含**的交付物料（含 images/+project/
+    或 packages/），找到才转发；没有的话 install 走根**统一安装器**（在线模式默认）；
+    upgrade 保持「找不到则明确告知三条路径，不静默失败」。
     """
 
     def test_wrappers_search_multiple_delivery_locations(self) -> None:
@@ -276,7 +277,18 @@ class OpsThinWrapperTest(unittest.TestCase):
                 )
 
     def test_wrappers_do_not_modify_delivery(self) -> None:
-        """入口不得改动 delivery/ 下任何文件。"""
+        """入口不得改动 delivery/ 下任何文件。
+
+        Phase 86（2026-10-22）例外（白名单逐一说明）：
+        - `D  delivery/install/install.sh`：统一安装器真身移到仓库根 install.sh，
+          delivery/install/install.sh 改由打包器 copy 进交付目录（结构性迁移）。
+        - `M  delivery/README.md`：交付 README 的安装说明同步统一安装器口径（§3 块引）。
+        其余 delivery/ 改动仍一律禁止。
+        """
+        PHASE86_SANCTIONED = {
+            "D delivery/install/install.sh",
+            "M delivery/README.md",
+        }
         if not shutil.which("git"):
             self.skipTest("环境无 git（如容器内跑测试），无法用 git status 判定")
         if not (ROOT / ".git").exists():
@@ -285,29 +297,37 @@ class OpsThinWrapperTest(unittest.TestCase):
             ["git", "status", "--porcelain", "delivery/"],
             cwd=str(ROOT), capture_output=True, text=True, check=False
         )
+        actual = {re.sub(r"\s+", " ", line.strip()) for line in completed.stdout.strip().splitlines() if line.strip()}
         self.assertEqual(
-            completed.stdout.strip(), "", "ops/ 实施不得改动 delivery/ 任何文件"
+            actual <= PHASE86_SANCTIONED,
+            True,
+            f"ops/ 实施不得改动 delivery/（Phase 86 白名单外）：{actual}",
         )
 
     def test_delivery_scripts_untouched_by_content(self) -> None:
-        """无 git 时的等价保证：交付态脚本必须存在且可执行。"""
-        for relative in ("delivery/install/install.sh", "delivery/upgrade/upgrade.sh"):
+        """无 git 时的等价保证：交付态脚本必须存在且可执行（Phase 86 后含根 install.sh）。"""
+        for relative in ("install.sh", "delivery/upgrade/upgrade.sh"):
             target = ROOT / relative
             self.assertTrue(target.is_file(), f"{relative} 必须存在")
             self.assertTrue(os.access(target, os.X_OK), f"{relative} 必须可执行")
 
     def test_repo_delivery_lacks_generated_artifacts(self) -> None:
-        """锁定一个已确认的事实：仓库里的 delivery/install 没有 images/ 与 project/。
+        """锁定一个已确认的事实：镜像/部署物料不进 git，安装物料目录不应出现在任何形态。
 
-        这是 2026-09-30 发现的设计缺陷的根据——若哪天决定把镜像目录也纳入版本控制，
-        本测试会失败，提醒同步更新 ops/install.sh 的定位逻辑与 README 文案。
+        Phase 86 后统一安装器真身在仓库根 install.sh，交付目录 install/install.sh
+        是打包产物；若哪天把镜像目录纳入版本控制，本测试会失败，提醒同步更新
+        ops/install.sh 的定位逻辑与 README 文案。
         """
-        install_dir = ROOT / "delivery" / "install"
-        self.assertTrue((install_dir / "install.sh").is_file())
+        self.assertTrue((ROOT / "install.sh").is_file(), "根统一安装器必须存在")
         self.assertFalse(
-            (install_dir / "images").exists(),
-            "仓库里不应存在 delivery/install/images/（1.1G 产物，不进 git）；"
+            (ROOT / "images").exists(),
+            "仓库里不应存在根 images/（1.1G 产物，不进 git）；"
             "若已纳入版本控制，请同步更新 ops/install.sh 与 ops/README.md",
+        )
+        install_dir = ROOT / "delivery" / "install"
+        self.assertFalse(
+            install_dir.is_dir() and (install_dir / "images").exists(),
+            "仓库里不应存在 delivery/install/images/（1.1G 产物，不进 git）",
         )
 
 

@@ -9,7 +9,7 @@ services:
     environment:
       TZ: Asia/Shanghai
       SMARTX_PROJECT_PATH: /data/smartx-storage-forecast/project
-      SMARTX_COMPOSE_FILE: docker-compose.release.yml
+      SMARTX_COMPOSE_FILE: docker-compose.online.yml
       SMARTX_COMPOSE_PROJECT_NAME: smartx-hci-capacity-insight
       SMARTX_DB_PATH: /data/smartx.db
       SMARTX_PROMETHEUS_DATA_PATH: /prometheus-data
@@ -73,7 +73,7 @@ services:
     environment:
       TZ: Asia/Shanghai
       SMARTX_PROJECT_PATH: /data/smartx-storage-forecast/project
-      SMARTX_COMPOSE_FILE: docker-compose.release.yml
+      SMARTX_COMPOSE_FILE: docker-compose.online.yml
       SMARTX_COMPOSE_PROJECT_NAME: smartx-hci-capacity-insight
       SMARTX_DB_PATH: /data/smartx.db
       SMARTX_PROMETHEUS_DATA_PATH: /prometheus-data

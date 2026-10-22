@@ -4,26 +4,22 @@
 
 Version: `v0.5.4`
 
-> Status: This project is currently in the testing stage and is not recommended for production use without additional validation.
+> Status: This project is in the testing stage. Validate it in your environment before production use.
 
-SmartX HCI Capacity Insight is a storage capacity monitoring and forecasting platform for SmartX hyperconverged infrastructure environments. It collects read-only capacity data from CloudTower/Tower datacenters, clusters, virtual machines, and virtual volumes, then provides capacity overviews, VM storage trends, top-growing VM rankings, cluster forecast reports, and capacity risk insights.
+SmartX HCI Capacity Insight is a storage capacity monitoring and forecasting platform for SmartX hyperconverged infrastructure. It collects read-only capacity data from CloudTower/Tower datacenters, clusters, virtual machines, and virtual volumes, and provides capacity overviews, VM storage trends, top-growing VM rankings, and cluster forecast reports.
 
-> Note: This project was written with AI assistance.
+> This project was developed with AI assistance.
 
 ## Features
 
 - Multi-Tower and multi-cluster capacity overview.
-- Daily scheduled collection and manual collection trigger.
-- VM storage trend charts with 7, 14, 30, 90, 180, and 365 day ranges.
-- VM list sorting by storage size and guest usage ratio.
-- Current VM volume details and all VM volume details.
-- Daily and monthly top-growing VM rankings with sorting by growth amount or growth ratio.
-- Click a top-growing VM to jump to the VM page and select the corresponding VM.
-- Cluster forecast reports based on recent historical samples, with linked cluster capacity trend charts.
-- Forecast report export for all clusters, one Tower, or one cluster, generating Word and Excel files together.
-- Export reports with selectable 7, 14, 30, 90, 180, and 365 day historical windows.
-- The report page and customer Word/Excel exports include a data quality note covering the actual collection window, missing collection days, sample sufficiency, and incomplete clusters.
-- Tower-level collection status, with platform password changes available from the admin avatar menu.
+- Scheduled and manual collection.
+- VM storage trends for 7, 14, 30, 90, 180, and 365 days, with current and all VM volume details.
+- Daily and monthly top-growing VM rankings, sortable by growth amount or growth ratio.
+- Cluster forecast reports with linked capacity trend charts.
+- Word and Excel report export for all clusters, one Tower, or one cluster, with selectable 7, 14, 30, 90, 180, and 365 day windows.
+- Data quality notes in reports and exports: actual collection window, missing days, sample sufficiency, and incomplete clusters.
+- Tower-level collection status with read-only CloudTower integration.
 
 ## Screenshots
 
@@ -58,349 +54,109 @@ Prometheus <---------- web-api (FastAPI)
 frontend (React + TypeScript + ECharts)
 ```
 
-## Repository Layout
+The platform runs five containers: `web-api`, `collector-worker`, `frontend`, `prometheus`, and `upgrade-runner`. Their roles, ports, and data directories are listed in the [Deployment Guide](docs/deployment.md).
+
+## Quick Start
+
+There is **a single install entry point: `install.sh`** (it auto-detects the source shape and the online/offline mode). Pick your scenario:
+
+| Scenario | What to do |
+| --- | --- |
+| **Internet-connected server**, install from source | `git clone` this repo → run `sudo bash install.sh --yes` from the repo root (online mode: images are pulled) |
+| **Offline server** with a delivery bundle | Verify the bundle SHA256, `tar -xzf smartx-capacity-insight-v0.5.4-offline.tar.gz` → inside the bundle run `sudo bash install/install.sh --yes` (offline mode: images are included) |
+| **Only image tars**, no bundle | Put the image tars next to this repo → `sudo bash install.sh --mode offline --images <tar dir> --yes`. The tars must cover the tags compose declares: `web-api`/`collector-worker`/`frontend` `v0.5.4`, `upgrade-runner` `v0.3.2`, `prom/prometheus` `v2.55.1` |
+
+Then open `http://<server-ip>:8080`, log in with `admin` / `password`, and change the password immediately.
+
+Ports: Web UI `8080`, API `8000`, Prometheus `9090`.
+
+See the [Deployment Guide](docs/deployment.md) for requirements, image details, and verification steps, and the [offline delivery README](delivery/README.md) for the bundle contents and upgrades.
+
+For development, build and run the stack from source (development only, not for deployment):
+
+```bash
+cp .env.example .env
+# set SMARTX_SECRET_KEY, SMARTX_CREDENTIAL_KEY, and SMARTX_ADMIN_PASSWORD
+sudo ./pre_install.sh
+docker compose -f docker-compose.dev.yml up -d --build
+```
+
+## Upgrade
+
+Use the offline delivery bundle's `upgrade/upgrade.sh`. Do not load images or restart services manually.
+
+The v0.5.4 procedure has two steps and the order is fixed: **upgrade the runner component first, then the platform**. See the [offline delivery README](delivery/README.md) for the complete procedure and supported source versions.
+
+## Documentation
+
+- [Deployment Guide](docs/deployment.md) / [部署指南](docs/deployment.zh-CN.md)
+- [Operations Scripts](ops/README.md) — dev-side `install.sh` wrapper, `upgrade.sh`, `package.sh`
+- [Offline Delivery README](delivery/README.md) — install, upgrade, self-check, and common failures
+- [Usage Guide](docs/usage.md)
+- [API Reference](docs/api.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Backup & Recovery](docs/backup-recovery.md) — backup inventory, restore procedure, and red lines
+- [OVA Delivery](docs/ova-delivery.md)
+- [Changelog](docs/releases/CHANGELOG.md)
+- [upgrade-runner Lifecycle](docs/upgrade-runner-lifecycle.md)
+
+Data migration packages and their recovery key (`.env`) must be stored together. Without the key, encrypted Tower credentials cannot be recovered. See the Usage Guide, section 11.
+
+## CloudTower Compatibility and Permissions
+
+- Use a read-only CloudTower account or a read-only API token.
+- The CloudTower instance must provide these v2 HTTP API endpoints:
+
+```text
+POST /v2/api/login
+GET  /v2/api/get-version
+POST /v2/api/get-clusters
+POST /v2/api/get-cluster-storage-info
+POST /v2/api/get-vms
+POST /v2/api/get-vm-volumes
+```
+
+- CloudTower/Tower 4.4.0 or later is required. CloudTower 4.4.x does not provide `get-cluster-storage-info`; the platform falls back to capacity fields from `get-clusters`.
+
+## Password Reset
+
+On the target server:
+
+```bash
+cd /data/smartx-storage-forecast/project
+docker compose exec web-api python -m app.cli reset-password --username admin
+```
+
+For a non-interactive reset, add `--password <new-password>`. Then log in again with the new password.
+
+## Security Notes
+
+- Keep `.env`, SQLite databases, Prometheus data, backups, exports, and Tower credentials out of Git.
+- Use read-only CloudTower credentials.
+- Restrict access to ports `8000`, `8080`, and `9090` in production networks.
+- Replace the default secrets and administrator password before production use.
+
+## Development
 
 ```text
 backend/       FastAPI API, collector, CloudTower client, forecast logic, CLI
 frontend/      React + TypeScript frontend
 prometheus/    Prometheus scrape configuration
-ops/           Operations entry points: install / upgrade / package (see ops/README.md)
-scripts/       Build and verification tooling (package builders, gates)
-delivery/      Source files for the offline delivery bundle (copied into it, not run from repo)
-docs/          API, deployment, usage documentation, and screenshots
-docker-compose.dev.yml
-.env.example
+install.sh     Unified install entry point (online/offline auto-detection)
+ops/           Dev-side packaging and operations entry points
+scripts/       Build and verification tooling
+delivery/      Source files for the offline delivery bundle
+docs/          Deployment, usage, API, and operations documentation
 ```
 
-## Quick Start
-
-Prerequisites on the target server:
-
-- Docker
-- Docker Compose
-
-Create environment configuration:
+Run the tests:
 
 ```bash
-cp .env.example .env
-```
-
-Update production secrets in `.env`:
-
-```text
-SMARTX_SECRET_KEY=replace-with-a-long-random-secret
-SMARTX_CREDENTIAL_KEY=replace-with-a-different-long-random-secret
-SMARTX_ADMIN_PASSWORD=password
-```
-
-Initialize the data directories and start the stack from source:
-
-```bash
-sudo ./pre_install.sh
-docker compose -f docker-compose.dev.yml up -d --build
-```
-
-For production, use the offline delivery bundle described in the [Deployment Guide](docs/deployment.md).
-
-Default access:
-
-```text
-Frontend:   http://<server-ip>:8080
-Backend:    http://<server-ip>:8000
-Prometheus: http://<server-ip>:9090
-```
-
-Default platform account:
-
-```text
-Username: admin
-Password: password
-```
-
-Change the password after the first login from the admin avatar menu: `Set Password`.
-
-## Data Quality
-
-The heavyweight platform self-check panel and `scripts/verify_platform.py` CLI have been removed to keep the service management page focused. Service status is still available in the platform upgrade view, and report pages/exports keep the lighter data quality explanation.
-
-The data quality check compares SQLite current state with Prometheus current series for report context. It detects cases such as successful collection with no Prometheus sample, missing enabled-cluster metrics, or large VM series count gaps, and reports the actual data window, missing collection dates, and incomplete clusters in the report UI and exported Word/Excel files.
-
-## OVA Delivery
-
-An OVA appliance image can be delivered for fresh deployment or demo environments. It is separate from the service management upgrade center: the upgrade center accepts only the `.tar.gz` package formats described below.
-
-Use versioned filenames such as `smartx-capacity-insight-v0.5.4.ova` and publish a matching `.sha256` file. See [OVA Delivery](docs/ova-delivery.md) for the artifact boundary and safety checklist.
-
-## Offline Upgrade Package
-
-The platform supports offline `.tar.gz` upgrade packages uploaded from the service management page. An upgrade package replaces service images and runs SQLite migrations only when the package manifest selects cumulative migration steps. It must not include runtime data, `.env`, SQLite databases, Prometheus data, Tower credentials, or other secrets.
-
-Version scope: the source version, documentation version, and normal image tag are all `v0.5.4`. Released platform versions are `v0.5.3` (2026-10-05) and `v0.5.4` (2026-10-21). Temporary test upgrade package target versions are only used to verify the upgrade path; they do not change the official platform version unless `VERSION`, release notes, and the public documentation are updated together.
-
-Compatibility: upgrade packages target the v2 upgrade flow only. They are not an in-place upgrade path from v1 or `v0.4.x`; those older systems are supported through data migration instead. Within v2, a target package lists its supported source versions in `source_compatibility` (v0.5.4 accepts `v0.5.2`/`v0.5.3`/`v0.5.4`; older sites must first reach `v0.5.3`). Same-version application, such as `v0.5.4 -> v0.5.4`, is allowed as a repair or re-sync install for images, project files, and runtime overrides. The package contains every registered SQLite migration whose version is greater than the source version and less than or equal to the target version, so same-version application never reselects already bounded migration steps.
-
-Upgrade chain — every node is mandatory, `*` marks a node that must not be skipped:
-
-```text
-platform v0.5.1*  →  platform v0.5.1u2*  →  runner v0.3.1*  →  platform v0.5.2*
-    →  platform v0.5.3*  →  runner v0.3.2*  →  platform v0.5.4*
-```
-
-Start from the version the site is on:
-
-| Current version | Walk from |
-| --- | --- |
-| `v0.5.1` / `v0.5.1u1` | platform `v0.5.1u2*` |
-| `v0.5.1u2` | runner `v0.3.1*` |
-| `v0.5.2` | platform `v0.5.3*` |
-| `v0.5.3` | runner `v0.3.2*` → platform `v0.5.4*` (component first, then platform) |
-| Fresh install from the offline bundle | already at `v0.5.4` |
-
-From `v0.5.3`, the two steps must not be reordered: **component upgrade first, platform upgrade second**
-(the v0.5.4 platform package contains schema migrations that the currently running runner executes).
-Skip a node and precheck rejects the package, or the migration step fails.
-
-Recommended package structure:
-
-```text
-smartx-capacity-insight-upgrade-v0.5.4.tar.gz
-├── manifest.json
-├── checksums.sha256
-├── release-notes.md                 # optional
-├── images/
-│   ├── web-api.tar
-│   ├── frontend.tar
-│   └── collector-worker.tar
-└── project/
-    ├── docker-compose.dev.yml
-    ├── docker-compose.offline.yml
-    ├── docker-compose.online.yml
-    ├── docker-compose.upgrade.yml
-    ├── prometheus/prometheus.yml
-    ├── pre_install.sh
-    ├── bind-mount-recover.sh
-    └── verify_site_acceptance.sh
-```
-
-If SQLite schema changes exist between the source and target versions, the package additionally contains:
-
-```text
-migrations/
-└── run_migrations.py
-```
-
-`manifest.json` should describe the target version, minimum compatible version, component list, image SHA256 checksums, project file sync, selected migration steps, services to restart, and package type.
-
-Example fields:
-
-```json
-{
-  "schema_version": "3",
-  "minimum_runner_protocol": 1,
-  "required_capabilities": ["backup.v1", "image.v1", "files.v1", "compose.v1", "health.v1", "rollback.v1"],
-  "product": "smartx-storage-forecast",
-  "package_id": "smartx-capacity-insight-v0.5.4",
-  "version": "v0.5.4",
-  "min_version": "v0.5.2",
-  "source_compatibility": {
-    "min_version": "v0.5.2",
-    "max_version_inclusive": "v0.5.4",
-    "target_version": "v0.5.4",
-    "allow_same_version": true,
-    "supported_versions": ["v0.5.2", "v0.5.3", "v0.5.4"],
-    "message": "支持 v0.5.2 -> v0.5.4、v0.5.3 -> v0.5.4、v0.5.4 -> v0.5.4"
-  },
-  "package_type": "platform",
-  "project_files": true,
-  "database_migration": false,
-  "restart_services": ["web-api", "collector-worker", "frontend"],
-  "components": [
-    {
-      "type": "platform",
-      "services": ["web-api", "collector-worker", "frontend"],
-      "images": [
-        {
-          "service": "web-api",
-          "archive": "images/web-api.tar",
-          "image": "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.4",
-          "sha256": "<sha256>"
-        }
-      ]
-    }
-  ]
-}
-```
-
-Packages with no selected migration steps do not contain `migration`, `migration_steps`, or `script.sandbox.v1`. Packages that cross a schema-changing version (the `v0.5.4` package does) include `migration_steps[]` plus the legacy `migration.script = migrations/run_migrations.py` field for compatibility. The runner still executes one sandbox script; the script applies all selected steps in version order and records them in `schema_migrations`.
-
-For normal platform upgrades, do not restart `upgrade-runner` in the same package that is executing the upgrade. Use a component upgrade package when `upgrade-runner` itself needs to be replaced.
-
-Component upgrade packages for `upgrade-runner` are separate and use the runner component version, for example `v0.3.2`, not the platform version.
-
-```text
-smartx-upgrade-runner-v0.3.2.tar.gz
-├── manifest.json
-├── checksums.sha256
-├── release-notes.md
-└── images/
-    └── upgrade-runner.tar
-```
-
-The old `web-api` updates Runner directly; Runner never updates itself. A normal platform package does not require a Runner upgrade when its protocol and capability requirements are already satisfied.
-
-Prometheus is upgraded as an `observability` component package. It is separate from normal platform packages. By default, the package is lightweight: it references the Prometheus image tag and contains only the manifest, release notes, Prometheus configuration, and health-check queries. It does not export or package Prometheus historical data.
-
-```text
-smartx-prometheus-v2.55.1.tar.gz
-├── manifest.json
-├── checksums.sha256
-├── release-notes.md
-├── config/
-│   └── prometheus.yml
-└── health/
-    └── queries.json
-```
-
-For offline environments, build the package with `--offline-image`; only then does it include `images/prometheus.tar`.
-
-Platform and Prometheus can also be delivered as one bundle:
-
-```text
-smartx-capacity-insight-bundle-v0.5.4.tar.gz
-├── manifest.json
-├── checksums.sha256
-├── release-notes.md
-├── platform/
-│   ├── images/
-│   ├── project/
-│   └── migrations/                    # optional, only when migration_steps is non-empty
-└── observability/
-    ├── config/
-    ├── health/
-    └── images/                         # optional, only for offline Prometheus image packages
-```
-
-Build it with `python scripts/build_bundle_upgrade_package.py --platform-version v0.5.4 --prometheus-version v2.55.1`. Bundle packages are a delivery shape for the current platform version; they do not change the platform version number, do not contain Runner by default, and do not contain Prometheus historical data. Upgrade-time Prometheus backups stay on the server under `/data/smartx-storage-forecast/backups/...` for rollback. Prometheus historical blocks are exported only by full data migration packages.
-
-### Recommended Migration Path: Fresh Install + CLI Data Export
-
-If the old upgrade flow is unreliable, install the latest storage forecast platform on the target server first. Then run the following command on the old system CLI to export a migration package, and import that package from the new system page: `Service Management -> Data Migration`.
-
-Run on the old system server:
-
-```bash
-WEB_API_CONTAINER="${WEB_API_CONTAINER:-$(docker ps --format '{{.Names}}' | grep -E 'web-api' | head -n 1)}"
-if [ -z "$WEB_API_CONTAINER" ]; then
-  echo "web-api container not found. Set WEB_API_CONTAINER manually." >&2
-  exit 1
-fi
-
-filename="$(
-  docker exec "$WEB_API_CONTAINER" python - <<'PY'
-from app.services.data_migration import build_migration_archive
-_, filename = build_migration_archive(save_export=True)
-print(filename)
-PY
-)"
-
-export_root="$(docker inspect "$WEB_API_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/data/exports"}}{{.Source}}{{end}}{{end}}')"
-if [ -z "$export_root" ]; then
-  data_root="$(docker inspect "$WEB_API_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}')"
-  export_root="${data_root}/exports"
-fi
-
-host_path="${export_root}/migrations/${filename}"
-ls -lh "$host_path"
-sha256sum "$host_path"
-```
-
-The printed `host_path` is the migration package path. The package includes the business database and Prometheus historical metrics. After importing it into the new system, restart data services from the service management page.
-
-## Documentation
-
-### Install, upgrade, and delivery
-
-- [Operations Scripts](ops/README.md) — the `install.sh` / `upgrade.sh` / `package.sh` entry points
-- **Data migration & recovery key**: used in the web UI under Service Management → Data Migration
-  (three export flavors — full backup / data-only / Tower-config-only; see the bundled
-  `offline-delivery/README.md` §9.0 for semantics). ⚠️ A migration package and its recovery key
-  **must be stored together** — without the key, encrypted Tower credentials cannot be decrypted
-- [Offline Upgrade Package](#offline-upgrade-package) — package structure and upgrade procedure
-- [OVA Delivery](docs/ova-delivery.md) — what the bundle may and may not contain
-
-### Reference
-
-- [Deployment Guide](docs/deployment.md)
-- [Usage Guide](docs/usage.md)
-- [API Reference](docs/api.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Backup & Recovery](docs/backup-recovery.md) — backup inventory, the five-step restore procedure, and red lines; read before migration/reinstall
-- [Changelog](docs/releases/CHANGELOG.md) — what each version adds, fixes, and known issues
-- [upgrade-runner Lifecycle and Component Upgrade Policy](docs/upgrade-runner-lifecycle.md)
-- [v0.2 Release Notes](docs/releases/v0.2.md)
-
-## CloudTower Compatibility and Permissions
-
-### Supported CloudTower Version Range
-
-The platform connects to CloudTower (SMTX OS) through the CloudTower v2 HTTP API. The CloudTower/Tower instance must provide and support the v2 API endpoints listed below. The current `v0.5.4` platform has been validated against a CloudTower instance (`CHINATOWER`). No specific CloudTower minor version is required as long as the following v2 API endpoints are available and return the expected payload shapes.
-
-Related CloudTower API operations:
-
-- `/v2/api/login`
-- `/v2/api/get-clusters`
-- `/v2/api/get-cluster-storage-info`
-- `/v2/api/get-vms`
-- `/v2/api/get-vm-volumes`
-
-### Permissions
-
-Use a read-only CloudTower account or a read-only API token whenever possible. The collector only needs read access to cluster, VM, volume, and storage capacity data.
-
-## Password Reset
-
-If the platform password is lost, reset it on the target server from the project directory:
-
-```bash
-cd /data/smartx-storage-forecast/project
-```
-
-Reset interactively:
-
-```bash
-docker compose exec web-api python -m app.cli reset-password --username admin
-```
-
-Or pass the new password non-interactively:
-
-```bash
-docker compose exec web-api python -m app.cli reset-password --username admin --password password
-```
-
-Then log in again with the new password.
-
-## Data and Security Notes
-
-Do not commit runtime data or secrets. The repository intentionally excludes:
-
-- `.env`
-- SQLite databases
-- Prometheus data
-- collected Tower, cluster, VM, and volume data
-- SSH keys, certificates, and temporary diagnostic scripts
-
-## Tests
-
-After dependencies are available in a development or CI environment:
-
-```bash
-cd backend
-pytest
+cd backend && pytest
 ```
 
 ```bash
-cd frontend
-npm test
+cd frontend && npm test
 ```
 
 ## License

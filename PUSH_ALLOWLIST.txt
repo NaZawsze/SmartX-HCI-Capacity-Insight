@@ -59,7 +59,9 @@ ops/upgrade.sh                        # 升级入口
 ops/repair-layout-migration.sh        # 老布局撕裂态救援（交付 README 让客户执行）
 
 # ── 交付物本体（随离线交付目录发给客户）──────────────────────
-delivery/install/install.sh
+# Phase 86：统一安装器真身在仓库根 install.sh（离线/在线双模式）；
+# delivery/install/install.sh 由打包器 copy 进交付目录（不再单独入库）。
+install.sh
 delivery/upgrade/upgrade.sh
 delivery/compose-guard.sh
 

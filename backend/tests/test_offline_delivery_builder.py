@@ -526,37 +526,75 @@ class DeliveryScriptsTest(unittest.TestCase):
 class InstallScriptExecutionTest(unittest.TestCase):
     """**真实执行** install.sh 的前置检查，验证不会静默退出。
 
+    Phase 86 起统一安装器真身在仓库根（SCRIPT_SOURCES 指根 install.sh）。
+    交付物料（images/、.env.template、project/）不是 git 资产，本类在**临时目录
+    自造最小交付形态**后执行，任何环境都能真跑——不再依赖构建机物料或跳过。
     只跑到磁盘/端口检查为止（非 root 环境会在这里退出），因此本机与 `.3` 都能跑。
     覆盖 `.3` 实测踩到的坑：`--install-root` 指向**尚不存在**的目录时，
     `set -u` 下未定义变量会让脚本以 1 退出且只打印第一行。
     """
 
-    def _skip_if_no_delivery_materials(self) -> None:
-        """交付物料（images/、.env.template）只在构建机/客户机上存在，源码树里没有。
+    def _stage_delivery(self) -> Path:
+        """最小交付形态：install.sh + images/（占位 tar）+ project/ + .env.template。
 
-        容器内跑全量时这些前置检查必然失败——那是**环境不满足**而非代码问题，
-        应跳过而不是让全量变红（.3 实测踩到）。
+        布局与 build_offline_delivery.py 产物一致（大小比例当然不是）。
         """
+        repo_root = Path(__file__).resolve().parent.parent.parent
         from scripts.build_offline_delivery import SCRIPT_SOURCES
 
-        script_dir = SCRIPT_SOURCES["install/install.sh"].parent
-        if not (script_dir / "images").is_dir() or not (script_dir / ".env.template").is_file():
-            self.skipTest(f"交付物料不在源码树（{script_dir}），仅在构建机/客户机存在")
+        script = SCRIPT_SOURCES["install/install.sh"]
+        tmp = Path(tempfile.mkdtemp(prefix="smartx-install-stage-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        staged_dir = tmp / "install"
+        staged_dir.mkdir(parents=True)
+        staged = staged_dir / "install.sh"
+        shutil.copy2(script, staged)
+        staged.chmod(0o755)
+        images = staged_dir / "images"
+        images.mkdir()
+        (images / "web-api.tar").write_bytes(b"placeholder-not-a-real-image")
+        project = staged_dir / "project"
+        (project / "prometheus").mkdir(parents=True)
+        for name in (
+            "docker-compose.offline.yml",
+            "docker-compose.dev.yml",
+            "docker-compose.online.yml",
+        ):
+            shutil.copy2(repo_root / name, project / name)
+        shutil.copy2(
+            repo_root / "prometheus" / "prometheus.yml",
+            project / "prometheus" / "prometheus.yml",
+        )
+        shutil.copy2(repo_root / "pre_install.sh", project / "pre_install.sh")
+        # .env.template：与 build_offline_delivery.build_env_template 同一占位符替换表
+        example = (repo_root / ".env.example").read_text(encoding="utf-8")
+        template = example.replace("replace-with-a-long-random-secret", "__GENERATE__").replace(
+            "replace-with-a-different-long-random-secret", "__GENERATE__"
+        )
+        (staged_dir / ".env.template").write_text(template, encoding="utf-8")
+        guard = SCRIPT_SOURCES["install/compose-guard.sh"]
+        if guard.is_file():
+            shutil.copy2(guard, staged_dir / "compose-guard.sh")
+        return staged
+
+    @staticmethod
+    def _decode(result: subprocess.CompletedProcess) -> None:
+        """捕获的是 bytes：以 replace 解码，避免时区/locale 掺杂非 UTF-8 字节时炸断言
+        （与 OpsDependencyCheckTest 同一先例；macOS bash 3.2 的输出字节流不可控）。"""
+        result.stdout = result.stdout.decode("utf-8", errors="replace")
+        result.stderr = result.stderr.decode("utf-8", errors="replace")
 
     def _run(self, *args: str) -> subprocess.CompletedProcess:
-        from scripts.build_offline_delivery import SCRIPT_SOURCES
-
-        return subprocess.run(
-            ["bash", str(SCRIPT_SOURCES["install/install.sh"]), "--yes", *args],
+        staged = self._stage_delivery()
+        result = subprocess.run(
+            ["bash", str(staged), "--yes", *args],
             capture_output=True,
-            text=True,
             timeout=120,
         )
+        self._decode(result)
+        return result
 
     def test_non_existent_install_root_does_not_crash(self) -> None:
-        self._skip_if_no_delivery_materials()
-        from scripts.build_offline_delivery import SCRIPT_SOURCES
-
         missing = "/nonexistent-smartx-install-root-for-test"
         self.assertFalse(Path(missing).exists())
         result = self._run("--install-root", missing)
@@ -566,31 +604,38 @@ class InstallScriptExecutionTest(unittest.TestCase):
         self.assertNotIn("unbound variable", combined, combined)
         if result.returncode != 0:
             self.assertTrue(
-                any(marker in combined for marker in ("必须以 root", "root 运行", "磁盘", "端口", "内部错误")),
+                any(
+                    marker in combined
+                    for marker in (
+                        "必须以 root",
+                        "root 运行",
+                        "磁盘",
+                        "端口",
+                        "内部错误",
+                        "docker",
+                        "部署文件",
+                    )
+                ),
                 f"失败时必须给出可读原因，实际输出：{combined}",
             )
 
     def test_non_root_exits_with_clear_reason(self) -> None:
-        self._skip_if_no_delivery_materials()
         """非 root 时必须明确说明原因（而不是 trace 或静默）。"""
         if os.geteuid() == 0:
             self.skipTest("当前就是 root，跳过非 root 路径")
-        from scripts.build_offline_delivery import SCRIPT_SOURCES
-
         result = self._run()
         combined = result.stdout + result.stderr
         self.assertIn("root", combined)
         self.assertNotIn("unbound variable", combined)
 
     def test_help_exits_zero_without_touching_anything(self) -> None:
-        from scripts.build_offline_delivery import SCRIPT_SOURCES
-
+        staged = self._stage_delivery()
         result = subprocess.run(
-            ["bash", str(SCRIPT_SOURCES["install/install.sh"]), "--help"],
+            ["bash", str(staged), "--help"],
             capture_output=True,
-            text=True,
             timeout=60,
         )
+        self._decode(result)
         self.assertEqual(result.returncode, 0)
         self.assertIn("install-root", result.stdout)
         self.assertIn("force-env", result.stdout)
@@ -601,14 +646,11 @@ class InstallScriptExecutionTest(unittest.TestCase):
         self.assertIn("未知选项", result.stdout + result.stderr)
 
     def test_precheck_produces_no_shell_errors(self) -> None:
-        self._skip_if_no_delivery_materials()
         """前置检查全程不得有任何 shell 报错输出。
 
         `.3` 实测踩到：`$(( ... ))` 少一个右括号，`bash -n` 查不出来（它只查语法结构，
         不查算术展开），只有真跑才报 `[: missing ']'`。
         """
-        from scripts.build_offline_delivery import SCRIPT_SOURCES
-
         result = self._run("--install-root", "/nonexistent-smartx-install-root-for-test")
         combined = result.stdout + result.stderr
         for pattern in ("missing `]'", "unbound variable", "syntax error", "integer expression expected"):

@@ -4,23 +4,26 @@
 
 ## ⚠ 先看这条：客户用哪个，开发用哪个
 
-两套脚本，**不是一回事**，用错会失败：
+**Phase 86（2026-10-22）起安装只有一份脚本**：仓库根 `install.sh` 是统一安装器
+（离线/在线双模式），交付目录里的 `install/install.sh` 是它打包时的复制。升级脚本
+仍是两处（交付目录 `upgrade/upgrade.sh` 给客户、`ops/upgrade.sh` 给开发）。
 
 | 你是谁 | 用哪个 | 为什么 |
 | --- | --- | --- |
 | **客户 / 离线环境** | 交付目录里的 `install/install.sh`、`upgrade/upgrade.sh` | 交付目录**自包含**：带 `images/`、`project/`、`packages/`。客户手上只有这份，不需要仓库 |
-| **本项目开发者 / 运维** | 本目录的 `install.sh`、`upgrade.sh` | 只有仓库、没交付目录时用。它会先定位（或提示你打包出）交付物料，再转发 |
+| **本项目开发者 / 运维（无交付物料）** | 仓库根 `install.sh`（在线装）或本目录 `upgrade.sh` | 安装直接用根脚本 `--mode online`（自动 pull）即可，**不再需要先打包**；升级继续用 `ops/upgrade.sh` 定位升级包 |
+| **本项目开发者 / 运维（有交付物料）** | 本目录 `install.sh`、`upgrade.sh` | 有现成交付目录时转发给它，走与客户一致的离线路径 |
 
-**关键**：`delivery/install/` 在仓库里**只有 `install.sh` 一个文件**，没有 `images/` 和 `project/`。
-那些是 `ops/package.sh` 打包时生成的产物（1.1 GB），不可能进 git。
-所以在仓库里直接跑 `delivery/install/install.sh` **必然失败**（报「找不到镜像目录」）。
+**关键**：交付物料（`images/`、`project/`）是 `ops/package.sh` 打包时生成的产物
+（1.1 GB），不进 git。仓库形态装环境**不再依赖打包**——统一安装器会自动判为在线
+模式；只有交付包形态（脚本旁有 `images/`）才会判为离线。
 
 三个脚本都能 `--help`。不确定选哪个就看下表。
 
 | 我要做的事 | 跑哪个 | 前置 |
 | --- | --- | --- |
 | **打包**（出交付物给客户/发布用） | [`package.sh`](#3-打包packagesh) | Linux + Docker + Python 3.11+ + git |
-| 在**本机**装一套环境（开发者） | [`install.sh`](#1-安装installsh) | Linux + Docker + root；无交付物料时需先打包 |
+| 在**本机**装一套环境（开发者） | 根 [`install.sh`](../install.sh) 或 [`install.sh`](#1-安装installsh) | Linux + Docker + root；在线模式无需打包 |
 | 把**本机已有环境**升级（开发者） | [`upgrade.sh`](#2-升级upgradesh) | 同上 |
 | **客户安装** | 交付目录的 `install/install.sh` | 交付目录（自包含） |
 | **客户升级** | 交付目录的 `upgrade/upgrade.sh` | 交付目录（自包含） |
@@ -49,18 +52,31 @@ bash ops/check-deps.sh
 
 ## 1. 安装（`install.sh`）
 
-**开发者/运维**在开发机装一套环境。客户请用交付目录的 `install/install.sh`（见文首表格）。
+**Phase 86 起统一安装器真身在仓库根 `install.sh`**：自动判定形态——交付包形态
+（脚本旁有 `images/`+`project/`）走离线安装，仓库形态自动判为**在线安装**
+（`docker pull` compose 声明的 tag），**不再需要先打包**。本目录 `install.sh`
+只是薄转发：先找交付物料转发（与客户一致），找不到则转发根脚本。
+
+开发者本机装一套（在线，最短路径）：
 
 ```bash
 git clone https://github.com/NaZawsze/SmartX-HCI-Capacity-Insight.git
 cd SmartX-HCI-Capacity-Insight
-# 若还没有交付物料，先打包一个（见第 3 节）
-bash ops/package.sh
-sudo bash ops/install.sh
+sudo bash install.sh --yes
 ```
 
-脚本会依次尝试 `delivery/install/`、`ops/packages/latest/offline-delivery/install/`，
-找到含 `images/` 与 `project/` 的那个就转发过去；都没有则明确告诉你先打包。
+只有镜像 tar、没交付目录时（离线）：
+
+```bash
+sudo bash install.sh --mode offline --images <tar 目录> --yes
+```
+
+出交付物后再按客户方式装（离线，与交付包行为一致）：
+
+```bash
+bash ops/package.sh          # 见第 3 节
+sudo bash ops/install.sh     # 定位到交付物料后转发
+```
 
 装完检查：
 
@@ -71,7 +87,7 @@ docker ps --filter name=smartx-hci   # 应有 5 个容器
 
 浏览器打开 `http://<本机IP>:8080`，用 `admin` / `password` 登录。
 
-幂等：重复执行不会覆盖已有 `.env`、不会重建容器。
+幂等：重复执行不会覆盖已有 `.env`、不会重建容器（有 `--force-env` 显式覆盖）。
 
 ## 2. 升级（`upgrade.sh`）
 

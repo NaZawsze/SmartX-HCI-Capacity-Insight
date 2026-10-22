@@ -67,14 +67,22 @@
 
 ## 3. 部署步骤
 
-### 3.1 离线交付包安装（推荐）
+安装入口只有一个：**`install.sh`**。它自动判定两种来源形态、三种获取方式：
 
-解压交付包并以 root 运行安装脚本：
+| 形态 | 判定条件 | 默认模式 |
+| --- | --- | --- |
+| 交付包形态 | 脚本旁有 `images/` 与 `project/` | 离线（校验 + 加载自带镜像） |
+| 仓库形态 | 脚本根有 `docker-compose.offline.yml` / `docker-compose.online.yml` | 在线（`docker pull` compose 声明的 tag） |
+| 外部镜像目录 | `--images <tar 目录>` | `--mode offline` |
+
+### 3.1 离线交付包安装（推荐，客户现场）
+
+解压交付包并以 root 运行安装脚本（脚本名仍是 `install/install.sh`）：
 
 ```bash
 tar -xzf smartx-capacity-insight-v0.5.4-offline.tar.gz
 cd smartx-capacity-insight-v0.5.4-offline
-sudo bash install/install.sh
+sudo bash install/install.sh --yes
 ```
 
 安装脚本会依次检查 root 权限、Docker、磁盘空间和端口，校验镜像 SHA256，加载五个镜像，创建数据目录，生成包含两把随机密钥的 `.env`，启动服务，并等待健康检查通过。
@@ -90,31 +98,17 @@ sudo bash install/install.sh \
   --yes
 ```
 
-### 3.2 在线安装
-
-创建环境配置文件：
+### 3.2 在线安装（服务器可联网，无需交付包）
 
 ```bash
-cp .env.example .env
+git clone https://github.com/NaZawsze/SmartX-HCI-Capacity-Insight.git
+cd SmartX-HCI-Capacity-Insight
+sudo bash install.sh --yes
 ```
 
-至少修改以下配置：
+`.env` 由脚本生成（两把随机密钥 + 初始管理员口令），无需手工 `cp .env.example` 与 `pre_install.sh`。
 
-```text
-SMARTX_SECRET_KEY=<长随机密钥>
-SMARTX_CREDENTIAL_KEY=<另一把长随机密钥>
-SMARTX_ADMIN_PASSWORD=<初始口令>
-```
-
-然后初始化数据目录并启动服务：
-
-```bash
-chmod 600 .env
-sudo ./pre_install.sh
-docker compose -f docker-compose.online.yml up -d
-```
-
-该方式会从 Docker Hub 拉取平台镜像 `v0.5.4`、执行器镜像 `v0.3.2` 和 `prom/prometheus:v2.55.1`。
+该方式会从 Docker Hub 拉取 compose 声明的镜像，逐个校验 tag 后启动；所需 tag 为平台 `v0.5.4`（`web-api`/`collector-worker`/`frontend`）、runner `v0.3.2` 与 `prom/prometheus:v2.55.1`。也可先手工 `docker pull` + `docker save` 出**这五个 tag** 的镜像 tar，再传入 `--images` 走离线模式（见 3.1 的镜像来源换为你的 tar 目录）。
 
 ### 3.3 源码构建（仅开发环境）
 

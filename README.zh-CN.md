@@ -2,31 +2,24 @@
 
 简体中文 | [English](README.md)
 
-**SmartX 超融合容量洞察平台**
-
 版本：`v0.5.4`
 
-> 状态：本项目目前处于测试阶段，未经充分验证前不建议直接用于生产环境。
+> 状态：项目处于测试阶段，生产使用前请先在目标环境中完成验证。
 
-SmartX 超融合容量洞察平台面向 SmartX 超融合环境，用于采集 CloudTower/Tower 下的数据中心、集群、虚拟机与虚拟卷容量数据，提供容量概览、虚拟机存储趋势、Top 增长 VM、集群预测报表和容量风险提示，帮助运维人员持续跟踪资源使用变化并提前识别容量压力。
+SmartX HCI Capacity Insight 是面向 SmartX 超融合基础设施的存储容量监控与预测平台。它从 CloudTower/Tower 只读采集数据中心、集群、虚拟机和虚拟卷的容量数据，提供容量总览、虚拟机存储趋势、增长榜和集群预测报表。
 
-> 说明：本项目由 AI 辅助编写。
+> 本项目在 AI 辅助下开发。
 
 ## 功能特性
 
-- 支持多 Tower、多集群容量概览。
-- 支持每日自动采集和手动触发采集；定时采集失败时可按 Tower 配置只重试失败 Tower/集群。
-- 虚拟机存储趋势支持 7 天、14 天、30 天、90 天、180 天和 365 天查看。
-- 虚拟机趋势可标记采集缺口和非最新数据，避免把缺采误判为容量不变。
-- 虚拟机列表支持按存储容量和虚拟机内部存储使用率排序。
-- 支持当前虚拟机卷明细和所有虚拟卷明细。
-- 支持日 Top 增长 VM、月 Top 增长 VM，并可按增长量或增长率排序。
-- Top 增长 VM 支持点击跳转到虚拟机页面并选中对应虚拟机。
-- 支持基于历史样本的集群容量预测报表，并联动展示集群容量趋势图。
-- 支持按全部、Tower 或单集群范围导出预测报表，自动生成 Word 和 Excel 文件。
-- 导出报表支持选择 7 天、14 天、30 天、90 天、180 天和 365 天历史窗口。
-- 报表页和 Word/Excel 客户版导出会显示数据质量说明，包括实际采集窗口、缺采天数、样本是否足够以及数据不完整集群。
-- 支持 Tower 级采集状态展示，平台密码可在管理员头像菜单中修改。
+- 多 Tower、多集群容量总览。
+- 定时采集与手动采集。
+- 虚拟机存储趋势支持 7、14、30、90、180、365 天，展示当前卷和全部卷详情。
+- 日/月增长榜，可按增长量或增长比例排序。
+- 集群预测报表，联动集群容量趋势图。
+- Word 和 Excel 报表导出，支持全部集群、单个 Tower 或单个集群，历史窗口可选 7、14、30、90、180、365 天。
+- 报表页和导出文件包含数据质量说明：实际采集窗口、缺失日期、样本充足度和不完整集群。
+- Tower 级采集状态，只读接入 CloudTower。
 
 ## 界面预览
 
@@ -61,352 +54,111 @@ Prometheus <---------- web-api (FastAPI)
 frontend (React + TypeScript + ECharts)
 ```
 
-## 仓库结构
+平台运行五个容器：`web-api`、`collector-worker`、`frontend`、`prometheus` 和 `upgrade-runner`。各容器的职责、端口和数据目录见[部署指南](docs/deployment.zh-CN.md)。
+
+## 快速开始
+
+安装**只有一个入口：`install.sh`**（自动判定形态与在线/离线模式）。按你的场景任选其一：
+
+| 你的场景 | 做法 |
+| --- | --- |
+| **服务器可联网**，从源码装 | `git clone` 本仓库 → 仓库根执行 `sudo bash install.sh --yes`（在线模式，自动 pull 镜像） |
+| **离线服务器**，已有交付包 | 校验交付包 SHA256 后 `tar -xzf smartx-capacity-insight-v0.5.4-offline.tar.gz` → 进入目录执行 `sudo bash install/install.sh --yes`（离线模式，自带镜像） |
+| **只有镜像 tar**、没有交付包 | 镜像 tar 与本仓库同处一目录 → `sudo bash install.sh --mode offline --images <tar 目录> --yes`。tar 必须覆盖 compose 声明的 tag：`web-api`/`collector-worker`/`frontend` `v0.5.4`、`upgrade-runner` `v0.3.2`、`prom/prometheus` `v2.55.1` |
+
+然后打开 `http://<服务器IP>:8080`，使用 `admin` / `password` 登录，并立即修改口令。
+
+端口：Web 界面 `8080`，API `8000`，Prometheus `9090`。
+
+环境要求、镜像说明和验证步骤见[部署指南](docs/deployment.zh-CN.md)；交付包的组成与升级见[离线交付说明](delivery/README.md)。
+
+开发环境从源码构建并启动（仅用于开发，不用于部署）：
+
+```bash
+cp .env.example .env
+# 设置 SMARTX_SECRET_KEY、SMARTX_CREDENTIAL_KEY 和 SMARTX_ADMIN_PASSWORD
+sudo ./pre_install.sh
+docker compose -f docker-compose.dev.yml up -d --build
+```
+
+## 升级
+
+使用离线交付包中的 `upgrade/upgrade.sh`，不要手工加载镜像或重启服务。
+
+v0.5.4 的升级分两步，顺序固定：**先升级 runner 组件，再升级平台**。完整流程和支持的源版本见[离线交付说明](delivery/README.md)。
+
+## 文档
+
+- [部署指南](docs/deployment.zh-CN.md) / [English](docs/deployment.md)
+- [运维操作脚本](ops/README.md) —— 开发用 `install.sh` 转发、`upgrade.sh`、`package.sh`
+- [离线交付说明](delivery/README.md) —— 安装、升级、自检和常见失败处理
+- [使用说明](docs/usage.md)
+- [API 参考](docs/api.md)
+- [故障排查](docs/troubleshooting.md)
+- [备份与恢复](docs/backup-recovery.md) —— 备份资产、恢复步骤和红线
+- [OVA 交付说明](docs/ova-delivery.md)
+- [版本更新说明](docs/releases/CHANGELOG.md)
+- [upgrade-runner 生命周期](docs/upgrade-runner-lifecycle.md)
+
+数据迁移包必须与恢复密钥（`.env`）成对保存。缺少密钥时，已加密的 Tower 凭据无法恢复。详见使用说明第 11 节。
+
+## CloudTower 兼容范围与权限
+
+- 请使用只读的 CloudTower 账号或只读 API Token。
+- CloudTower 必须提供以下 v2 HTTP API：
+
+```text
+POST /v2/api/login
+GET  /v2/api/get-version
+POST /v2/api/get-clusters
+POST /v2/api/get-cluster-storage-info
+POST /v2/api/get-vms
+POST /v2/api/get-vm-volumes
+```
+
+- 要求 CloudTower/Tower 4.4.0 及以上。CloudTower 4.4.x 不提供 `get-cluster-storage-info`，平台会回退读取 `get-clusters` 中的容量字段。
+
+## 重置密码
+
+在目标服务器上执行：
+
+```bash
+cd /data/smartx-storage-forecast/project
+docker compose exec web-api python -m app.cli reset-password --username admin
+```
+
+如需非交互执行，追加 `--password <新口令>`。重置后使用新口令重新登录。
+
+## 安全说明
+
+- 不要将 `.env`、SQLite 数据库、Prometheus 数据、备份、导出文件和 Tower 凭据提交到 Git。
+- 使用只读的 CloudTower 凭据。
+- 生产网络应限制对 `8000`、`8080`、`9090` 端口的访问。
+- 生产使用前替换默认密钥和管理员口令。
+
+## 开发
 
 ```text
 backend/       FastAPI API、采集器、CloudTower 客户端、预测逻辑和 CLI
 frontend/      React + TypeScript 前端
 prometheus/    Prometheus 抓取配置
-ops/           运维操作入口：安装 / 升级 / 打包（详见 ops/README.md）
-scripts/       构建与校验工具（打包脚本、各类门禁）
-delivery/      离线交付物料的源文件（会被复制进交付目录，不在仓库里直接跑）
-docs/          API、部署、使用说明和截图资源
-docker-compose.dev.yml
-.env.example
+install.sh     统一安装入口（在线/离线自动判定）
+ops/           开发用打包与运维入口
+scripts/       构建与校验工具
+delivery/      离线交付物料源文件
+docs/          部署、使用、API 和运维文档
 ```
 
-## 快速开始
-
-目标服务器需要具备：
-
-- Docker
-- Docker Compose
-
-创建环境变量文件：
+运行测试：
 
 ```bash
-cp .env.example .env
-```
-
-生产环境请修改 `.env` 中的密钥和默认密码：
-
-```text
-SMARTX_SECRET_KEY=replace-with-a-long-random-secret
-SMARTX_CREDENTIAL_KEY=replace-with-a-different-long-random-secret
-SMARTX_ADMIN_PASSWORD=password
-```
-
-初始化数据目录并从源码启动服务：
-
-```bash
-sudo ./pre_install.sh
-docker compose -f docker-compose.dev.yml up -d --build
-```
-
-生产环境请使用离线交付包，详见[部署说明](docs/deployment.zh-CN.md)。
-
-默认访问地址：
-
-```text
-前端页面：   http://<server-ip>:8080
-后端 API：  http://<server-ip>:8000
-Prometheus: http://<server-ip>:9090
-```
-
-默认平台账号：
-
-```text
-用户名：admin
-密码：password
-```
-
-首次登录后建议点击右上角管理员头像，在 `设置密码` 中修改密码。
-
-## 数据质量
-
-较重的 `平台自检` 面板和 `scripts/verify_platform.py` 命令行工具已移除，服务管理页聚焦平台升级、组件升级、迁移和清理。平台升级页仍保留服务状态核验；报表页和 Word/Excel 导出继续保留更轻量的数据质量说明。
-
-数据质量检查会在报表上下文中比较 SQLite 当前态与 Prometheus 当前 series 数，识别最近采集成功但 Prometheus 无样本、启用集群缺少指标、VM series 数量差异过大等情况，并在报表 UI 和导出文件中展示实际采集窗口、缺采日期和数据不完整集群。
-
-## OVA 交付
-
-OVA 虚拟机模板可用于全新部署或演示环境交付。它与服务管理页的升级中心分开：升级中心只接受下面定义的 `.tar.gz` 升级包格式。
-
-OVA 文件名必须带正式平台版本，例如 `smartx-capacity-insight-v0.5.4.ova`，并同时提供 `.sha256` 校验文件。制品边界和安全检查见 [OVA 交付说明](docs/ova-delivery.md)。
-
-## 离线升级包结构
-
-平台支持在服务管理页面上传离线 `.tar.gz` 升级包。升级包用于替换服务镜像，只有 manifest 选中了累计 SQLite 迁移步骤时才执行迁移脚本。升级包不应包含运行数据、`.env`、SQLite 数据库、Prometheus 数据、Tower 账号密码或其他敏感信息。
-
-版本口径：源码版本、文档版本和常规镜像 tag 统一为 `v0.5.4`。已发布的平台版本为 `v0.5.3`（2026-10-05）与 `v0.5.4`（2026-10-21）。临时测试升级包的目标版本只用于验证升级链路；除非同步更新 `VERSION`、发布说明和对外文档，否则不代表正式平台版本变化。
-
-兼容范围：升级包仅面向 v2 升级流程，不支持从 v1 或 `v0.4.x` 原地升级；这些旧系统通过数据迁移兼容。在 v2 同架构内，目标包在 `source_compatibility` 里声明支持的来源版本（`v0.5.4` 包接受 `v0.5.2` / `v0.5.3` / `v0.5.4`；更早的现场须先升到 `v0.5.3`）。同版本应用也允许，例如 `v0.5.4 -> v0.5.4`，用于修复安装、重同步镜像、项目文件和运行时 override。升级包会自动包含来源版本到目标版本之间所有已登记的 SQLite 迁移步骤；迁移选择规则仍为 `source_version < step.version <= target_version`，因此同版本应用不会重复选择迁移步骤。
-
-升级链路 —— 每个节点都必须走到，`*` 表示不可跳过的必经节点：
-
-```text
-平台 v0.5.1*  →  平台 v0.5.1u2*  →  runner v0.3.1*  →  平台 v0.5.2*
-    →  平台 v0.5.3*  →  runner v0.3.2*  →  平台 v0.5.4*
-```
-
-按现场当前版本取用：
-
-| 现场当前版本 | 从这里往下走 |
-| --- | --- |
-| `v0.5.1` / `v0.5.1u1` | 平台 `v0.5.1u2*` |
-| `v0.5.1u2` | runner `v0.3.1*` |
-| `v0.5.2` | 平台 `v0.5.3*` |
-| `v0.5.3` | runner `v0.3.2*` → 平台 `v0.5.4*`（先组件、后平台） |
-| 用离线交付包全新安装 | 已直达 `v0.5.4` |
-
-从 `v0.5.3` 起的两步**顺序不能颠倒：先组件升级、后平台升级**
-（`v0.5.4` 平台包含数据库结构迁移，由当前运行的 runner 执行）。
-跳过节点会被预检查拒绝，或在迁移步骤失败。
-
-平台升级包目录结构：
-
-```text
-smartx-capacity-insight-upgrade-v0.5.4.tar.gz
-├── manifest.json
-├── checksums.sha256
-├── release-notes.md                 # 可选
-├── images/
-│   ├── web-api.tar
-│   ├── frontend.tar
-│   └── collector-worker.tar
-└── project/
-    ├── docker-compose.dev.yml
-    ├── docker-compose.offline.yml
-    ├── docker-compose.online.yml
-    ├── docker-compose.upgrade.yml
-    ├── prometheus/prometheus.yml
-    ├── pre_install.sh
-    ├── bind-mount-recover.sh
-    └── verify_site_acceptance.sh
-```
-
-如果来源版本和目标版本之间存在 SQLite schema 变化，升级包会额外包含：
-
-```text
-migrations/
-└── run_migrations.py
-```
-
-`manifest.json` 用于描述目标版本、最低兼容版本、组件列表、镜像 SHA256 校验、项目文件同步、选中的迁移步骤、需要重启的服务和升级包类型。
-
-字段示例：
-
-```json
-{
-  "schema_version": "3",
-  "minimum_runner_protocol": 1,
-  "required_capabilities": ["backup.v1", "image.v1", "files.v1", "compose.v1", "health.v1", "rollback.v1"],
-  "product": "smartx-storage-forecast",
-  "package_id": "smartx-capacity-insight-v0.5.4",
-  "version": "v0.5.4",
-  "min_version": "v0.5.2",
-  "source_compatibility": {
-    "min_version": "v0.5.2",
-    "max_version_inclusive": "v0.5.4",
-    "target_version": "v0.5.4",
-    "allow_same_version": true,
-    "supported_versions": ["v0.5.2", "v0.5.3", "v0.5.4"],
-    "message": "支持 v0.5.2 -> v0.5.4、v0.5.3 -> v0.5.4、v0.5.4 -> v0.5.4"
-  },
-  "package_type": "platform",
-  "project_files": true,
-  "database_migration": false,
-  "restart_services": ["web-api", "collector-worker", "frontend"],
-  "components": [
-    {
-      "type": "platform",
-      "services": ["web-api", "collector-worker", "frontend"],
-      "images": [
-        {
-          "service": "web-api",
-          "archive": "images/web-api.tar",
-          "image": "nazawsze/smartx-hci-capacity-insight-web-api:v0.5.4",
-          "sha256": "<sha256>"
-        }
-      ]
-    }
-  ]
-}
-```
-
-没有选中迁移步骤的升级包不包含 `migration`、`migration_steps` 或 `script.sandbox.v1`。如果跨过了 schema 变化版本（`v0.5.4` 包属于此类），则包内包含 `migration_steps[]`，并保留 legacy `migration.script = migrations/run_migrations.py` 以兼容旧执行器。Runner 仍只执行一个沙箱脚本，由脚本按版本顺序执行所有命中的迁移步骤并写入 `schema_migrations`。
-
-普通平台升级包不建议在同一次升级任务中重启 `upgrade-runner`，避免中断正在执行升级的服务。如需替换 `upgrade-runner`，请使用组件升级包。
-
-`upgrade-runner` 组件升级包独立于平台升级包，使用 runner 组件版本，例如 `v0.3.2`，不使用平台版本号。
-
-```text
-smartx-upgrade-runner-v0.3.2.tar.gz
-├── manifest.json
-├── checksums.sha256
-├── release-notes.md
-└── images/
-    └── upgrade-runner.tar
-```
-
-Runner 包由旧 `web-api` 直接执行，Runner 不负责更新自己。普通平台包只要声明的协议和能力能被现有 Runner 满足，就不需要先升级 Runner。
-
-Prometheus 作为 `observability` 组件单独升级，不放入普通平台升级包。Prometheus 组件包默认是轻量包：manifest 声明镜像 tag，包内只包含配置和健康检查，不导出、不打包 Prometheus 历史数据。
-
-```text
-smartx-prometheus-v2.55.1.tar.gz
-├── manifest.json
-├── checksums.sha256
-├── release-notes.md
-├── config/
-│   └── prometheus.yml
-└── health/
-    └── queries.json
-```
-
-离线环境需要镜像 tar 时，使用 `--offline-image` 构建；只有这种模式才包含 `images/prometheus.tar`。Prometheus 包由 Runner 执行，升级前强制在本机备份历史数据用于回滚，完成后执行健康检查与历史指标回归。Prometheus 历史指标导出只属于完整数据迁移包，不属于平台或组件升级包。
-
-平台和 Prometheus 需要在同一维护窗口升级时，可生成组合包：
-
-```text
-smartx-capacity-insight-bundle-v0.5.4.tar.gz
-├── manifest.json
-├── checksums.sha256
-├── release-notes.md
-├── platform/
-│   ├── images/
-│   ├── project/
-│   └── migrations/                    # 可选，仅 migration_steps 非空时包含
-└── observability/
-    ├── config/
-    ├── health/
-    └── images/                         # 可选，仅离线 Prometheus 镜像包包含
-```
-
-组合包由 Runner 按“备份、按需加载镜像、同步项目文件、沙箱迁移、分组件 recreate、健康检查”执行。组合包只是当前平台版本的一种交付形态，不改变平台版本号；默认不包含 Runner，也不包含 Prometheus 历史数据。构建命令为 `python scripts/build_bundle_upgrade_package.py --platform-version v0.5.4 --prometheus-version v2.55.1`。
-
-所有升级包都禁止包含 `.env`、`smartx.db`、Prometheus 历史数据目录、备份、导出文件、Tower 凭据、token 或其他现场数据。
-
-### 推荐迁移方式：新装后从旧系统命令导出数据
-
-如果旧版本升级链路不稳定，建议直接在目标机器重新安装最新版本的存储预测平台，然后在旧系统服务器 CLI 执行下面命令提取迁出数据包，再到新系统的 `服务管理 -> 数据迁移` 页面导入。
-
-在旧系统服务器上执行：
-
-```bash
-WEB_API_CONTAINER="${WEB_API_CONTAINER:-$(docker ps --format '{{.Names}}' | grep -E 'web-api' | head -n 1)}"
-if [ -z "$WEB_API_CONTAINER" ]; then
-  echo "未找到 web-api 容器，请手动设置 WEB_API_CONTAINER=容器名" >&2
-  exit 1
-fi
-
-filename="$(
-  docker exec "$WEB_API_CONTAINER" python - <<'PY'
-from app.services.data_migration import build_migration_archive
-_, filename = build_migration_archive(save_export=True)
-print(filename)
-PY
-)"
-
-export_root="$(docker inspect "$WEB_API_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/data/exports"}}{{.Source}}{{end}}{{end}}')"
-if [ -z "$export_root" ]; then
-  data_root="$(docker inspect "$WEB_API_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}')"
-  export_root="${data_root}/exports"
-fi
-
-host_path="${export_root}/migrations/${filename}"
-ls -lh "$host_path"
-sha256sum "$host_path"
-```
-
-命令输出的 `host_path` 就是迁移包所在位置。迁移包包含业务库和 Prometheus 历史指标；导入新系统后，请到服务管理页重启数据服务。
-
-## 文档
-
-### 安装、升级与交付
-
-- [运维操作脚本](ops/README.md) —— `install.sh` / `upgrade.sh` / `package.sh` 三个入口
-- **数据迁移与恢复密钥**：在 Web 界面「服务管理 → 数据迁移」使用（完整备份 / 只搬数据 /
-  只接 Tower 三种导出，语义见交付包内 `offline-delivery/README.md` §9.0）。
-  ⚠️ 迁移包与恢复密钥**必须成对保存**，缺一则 Tower 凭据无法解密
-- [离线升级包结构](#离线升级包结构) —— 升级包构成与升级流程
-- [OVA 交付说明](docs/ova-delivery.md) —— 交付物该含什么、禁含什么
-
-### 参考文档
-
-- [部署说明](docs/deployment.zh-CN.md)（[English](docs/deployment.md)）
-- [使用说明](docs/usage.md)
-- [API 参考](docs/api.md)
-- [故障排查](docs/troubleshooting.md)
-- [备份与恢复](docs/backup-recovery.md) —— 备份资产盘点、恢复五步与红线；迁移/重装前必读
-- [版本更新说明](docs/releases/CHANGELOG.md) —— 每个版本的新增、修复与已知问题
-- [upgrade-runner 生命周期与组件升级策略](docs/upgrade-runner-lifecycle.md)
-- [v0.2 更新说明](docs/releases/v0.2.md)
-
-## CloudTower 兼容范围与权限
-
-### CloudTower 版本范围
-
-平台通过 CloudTower v2 HTTP API 连接 CloudTower（SMTX OS）。CloudTower/Tower 实例必须提供并支持下列 v2 API 端点。当前 `v0.5.4` 平台已在 CloudTower 实例（`CHINATOWER`）完成采集验证；只要下列 v2 API 端点可用且返回预期结构，不强制要求具体 CloudTower 小版本号。
-
-相关 CloudTower API：
-
-- `/v2/api/login`
-- `/v2/api/get-clusters`
-- `/v2/api/get-cluster-storage-info`
-- `/v2/api/get-vms`
-- `/v2/api/get-vm-volumes`
-
-### 权限
-
-建议使用只读 CloudTower 账号或只读 API Token。采集器只需要读取集群、虚拟机、虚拟卷和容量数据。
-
-## 重置密码
-
-如果忘记平台登录密码，可以在目标服务器进入项目目录：
-
-```bash
-cd /data/smartx-storage-forecast/project
-```
-
-交互式重置：
-
-```bash
-docker compose exec web-api python -m app.cli reset-password --username admin
-```
-
-也可以直接传入新密码：
-
-```bash
-docker compose exec web-api python -m app.cli reset-password --username admin --password password
-```
-
-重置完成后，使用新密码重新登录。
-
-## 数据与安全说明
-
-不要提交运行数据或敏感信息。仓库已明确排除：
-
-- `.env`
-- SQLite 数据库
-- Prometheus 数据
-- 已采集的 Tower、集群、虚拟机和虚拟卷数据
-- SSH 密钥、证书和临时排查脚本
-
-## 测试
-
-开发或 CI 环境安装依赖后可以执行：
-
-```bash
-cd backend
-pytest
+cd backend && pytest
 ```
 
 ```bash
-cd frontend
-npm test
+cd frontend && npm test
 ```
 
 ## 许可证
 
-MIT License。
+MIT License.

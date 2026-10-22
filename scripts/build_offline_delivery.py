@@ -44,9 +44,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# 交付脚本的仓库内权威位置（builder 复制进交付包，脚本本身是交付物的一部分）
+# 交付脚本的仓库内权威位置（builder 复制进交付包，脚本本身是交付物的一部分）。
+# Phase 86：统一安装器真身在仓库根 `install.sh`（离线/在线双模式），交付目录
+# `install/install.sh` 是它的交付形态（旁有 images/ 与 project/，默认离线模式）。
 SCRIPT_SOURCES: dict[str, Path] = {
-    "install/install.sh": ROOT / "delivery" / "install" / "install.sh",
+    "install/install.sh": ROOT / "install.sh",
     "upgrade/upgrade.sh": ROOT / "delivery" / "upgrade" / "upgrade.sh",
     # US-37 compose 变体守卫。交付目录没有 lib/，所以守卫必须自包含，
     # 且 install/ 与 upgrade/ 各放一份（避免两目录间的相对路径耦合）。
@@ -274,7 +276,7 @@ def copy_project_files(destination: Path) -> list[str]:
     放错位置会导致 Prometheus 起不来。
     """
     copied: list[str] = []
-    for name in ("docker-compose.offline.yml", "docker-compose.dev.yml"):
+    for name in ("docker-compose.offline.yml", "docker-compose.dev.yml", "docker-compose.online.yml"):
         source = ROOT / name
         if source.is_file():
             shutil.copy2(source, destination / name)
