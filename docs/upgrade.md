@@ -6,6 +6,8 @@ Version: `v0.5.4`
 
 This guide covers upgrading an existing SmartX HCI Capacity Insight deployment using official offline delivery bundles. Fresh deployment is covered in the [Deployment Guide](deployment.md). For failures during an upgrade, see [troubleshooting](troubleshooting.md).
 
+> **The full upgrade chain** (the historical chain from v0.5.1, the platform↔runner version pairing table, ordering rules and the source-version matrix) lives in the internal authoritative document `docs/upgrade-chain.md` — maintained locally with the source tree, not published in the public repository. This guide covers operations only; when in conflict, `upgrade-chain.md` prevails.
+
 ## 1. What you keep after every upgrade
 
 Every upgrade preserves business data in place:
