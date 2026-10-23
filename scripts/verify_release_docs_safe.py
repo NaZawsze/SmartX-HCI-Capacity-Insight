@@ -31,6 +31,7 @@ PUBLIC_DOCS: list[str] = [
     "docs/usage.md",
     "docs/ova-delivery.md",
     "docs/upgrade-runner-lifecycle.md",
+    "docs/upgrade-chain.md",  # 升级链路（客户公开；2026-10-23 脱敏后纳入扫描面）
     "delivery/README.md",  # 随交付包发给客户的说明书（49-56）
 ]
 

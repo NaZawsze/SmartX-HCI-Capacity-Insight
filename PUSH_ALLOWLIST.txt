@@ -36,6 +36,7 @@ docs/deployment.md                   # 部署指南（英文）
 docs/deployment.zh-CN.md             # 部署指南（中文）
 docs/upgrade.md                      # 升级指南（英文；README 入口链）
 docs/upgrade.zh-CN.md                # 升级指南（中文）
+docs/upgrade-chain.md                # 升级链路总览（完整链路图/配对/顺序规则；客户公开）
 docs/troubleshooting.md              # 故障排查手册
 docs/usage.md                        # 使用说明
 docs/ova-delivery.md                 # OVA 交付边界
