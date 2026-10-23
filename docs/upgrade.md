@@ -6,7 +6,7 @@ Version: `v0.5.4`
 
 This guide covers upgrading an existing SmartX HCI Capacity Insight deployment using official offline delivery bundles. Fresh deployment is covered in the [Deployment Guide](deployment.md). For failures during an upgrade, see [troubleshooting](troubleshooting.md).
 
-> **The full upgrade chain** (the historical chain from v0.5.1, the platform↔runner version pairing table, ordering rules and the source-version matrix) lives in the internal authoritative document `docs/upgrade-chain.md` — maintained locally with the source tree, not published in the public repository. This guide covers operations only; when in conflict, `upgrade-chain.md` prevails.
+> **The full upgrade chain** (the historical chain, the platform↔runner version pairing table, ordering rules and the source-version matrix) lives in `docs/upgrade-chain.md`. This guide covers operations only; when in conflict, that document prevails.
 
 ## 1. What you keep after every upgrade
 
@@ -42,7 +42,7 @@ Why the order is fixed and cannot be flipped:
 | `v0.5.2` target-layout site | Go `v0.5.2 → v0.5.3` first (its bundle, online or offline), then apply the `v0.5.4` path above | `v0.5.3` upgrade packages may declare one-step direct upgrade from older sources, only if their source compatibility covers your version |
 | `v0.5.1u2` or older layout | Use the historical chain: `v0.5.1u2 → runner bootstrap → v0.5.2 → v0.5.3` documented in earlier release notes, then the `v0.5.4` path | Old-source layouts are not supported by newer bundles |
 
-Rule of thumb: **the delivery bundle README is the authoritative per-batch procedure**. It states which packages the batch ships, what order they must run in, and what source versions are supported.
+Rule of thumb: **the delivery bundle README is the per-batch procedure**. It states which packages the batch ships, what order they must run in, and what source versions are supported.
 
 ## 4. Step 1 — runner component upgrade (Web UI)
 
@@ -122,7 +122,7 @@ Notes:
 ## 9. Where the other docs live
 
 - [Deployment Guide](deployment.md) — fresh install (bundle / online / custom image tars)
-- The offline bundle README — the per-batch authoritative procedure for exactly the bundle you have
+- The offline bundle README — the per-batch procedure for exactly the bundle you have; batch details follow it
 - [troubleshooting](troubleshooting.md) — diagnosing failed upgrades, rollback forensics, and other operational failures
 - [backup-recovery](backup-recovery.md) — cold backup and the restore five-step
 - [Version notes](releases/CHANGELOG.md) — what each release changes
